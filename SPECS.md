@@ -82,6 +82,7 @@ secondhand/                 # repo root = working directory
     watch.go
     project.go
     promote.go
+    notify.go
   internal/
     herdr/                  # herdr client library
       client.go             # API calls: create tab, get state, send keys
