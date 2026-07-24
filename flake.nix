@@ -15,7 +15,7 @@
             pname = "secondhand";
             inherit version;
             src = ./.;
-            vendorHash = null; # update after first go mod tidy
+            vendorHash = "sha256-7K17JaXFsjf163g5PXCb5ng2gYdotnZ2IDKk8KFjNj0=";
             ldflags = [ "-s" "-w" "-X main.version=v${version}" ];
           };
         }
