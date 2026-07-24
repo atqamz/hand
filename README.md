@@ -10,7 +10,7 @@ It was born from firstmate, an agent fleet supervisor built as 34K lines of shel
 ## Quick start
 
 ```sh
-git clone https://github.com/yes2games/secondhand
+git clone https://github.com/atqamz/secondhand
 cd secondhand
 make build
 ./hand init --setup
@@ -47,6 +47,7 @@ When available, write `data/fix-login/brief.md` before spawning; `hand spawn` re
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work |
 | `hand promote` | Promote a completed scout task into a ship task |
 | `hand notify` | Send an out-of-band notification via a configured command |
+| `hand update` | Update the installed binary (specified; not yet implemented) |
 
 Run `hand --help` or `hand <command> --help` for full details.
 
@@ -101,7 +102,7 @@ From nix:
 nix build
 ```
 
-From releases: download the binary for your platform from the [releases page](https://github.com/yes2games/secondhand/releases).
+From releases: download the binary for your platform from the [releases page](https://github.com/atqamz/secondhand/releases).
 
 ## Configuration
 
