@@ -97,7 +97,7 @@ func parseLine(line string) (Project, bool) {
 	if name == "" || url == "" || mode == "" {
 		return Project{}, false
 	}
-	if mode != ModeNoMistakes && mode != ModeDirectPR && mode != ModeLocalOnly {
+	if !validMode(mode) {
 		return Project{}, false
 	}
 	return Project{Name: name, URL: url, Mode: mode}, true
@@ -119,6 +119,10 @@ func Find(homeDir, name string) (Project, bool, error) {
 
 // Add appends a project line to the registry. Returns an error if the name is already registered.
 func Add(homeDir string, p Project) error {
+	if !validMode(p.Mode) {
+		return fmt.Errorf("invalid project mode %q", p.Mode)
+	}
+
 	unlock, err := lockRegistry(homeDir)
 	if err != nil {
 		return err
@@ -147,6 +151,10 @@ func Add(homeDir string, p Project) error {
 		return fmt.Errorf("write project registry: %w", err)
 	}
 	return nil
+}
+
+func validMode(mode string) bool {
+	return mode == ModeNoMistakes || mode == ModeDirectPR || mode == ModeLocalOnly
 }
 
 // Remove deletes the project line matching name from the registry.

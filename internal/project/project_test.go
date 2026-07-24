@@ -89,6 +89,23 @@ func TestAddDuplicateRejected(t *testing.T) {
 	}
 }
 
+func TestAddRejectsUnknownMode(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n")
+
+	if err := Add(dir, Project{Name: "nsr", URL: "https://github.com/yes2games/nsr", Mode: "unknown"}); err == nil {
+		t.Fatal("expected unknown project mode to fail")
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 0 {
+		t.Fatalf("got %+v, want no projects", projects)
+	}
+}
+
 func TestAddAppends(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n")
