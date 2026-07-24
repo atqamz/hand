@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,22 @@ import (
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
+
+func TestSpawnCleanupReportsAllErrors(t *testing.T) {
+	cause := errors.New("spawn failed")
+	cleanup := errors.New("cleanup failed")
+
+	err := reportSpawnCleanup(cause, cleanup)
+	if !errors.Is(err, cause) {
+		t.Fatalf("error %v does not preserve cause", err)
+	}
+	if !errors.Is(err, cleanup) {
+		t.Fatalf("error %v does not preserve cleanup failure", err)
+	}
+	if !strings.Contains(err.Error(), "cleanup failed") {
+		t.Fatalf("error %v does not report cleanup failure", err)
+	}
+}
 
 const fakeHerdrSpawnScript = `#!/bin/sh
 cmd="$1 $2"

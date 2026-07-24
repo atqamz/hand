@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,17 +80,14 @@ func newSpawnCmd() *cobra.Command {
 			}
 			releaseWorktree, err := state.Lock(home, "worktree:"+wt)
 			if err != nil {
-				_ = worktree.Return(wt, true)
-				return fmt.Errorf("lock worktree %q: %w", wt, err)
+				return reportSpawnCleanup(fmt.Errorf("lock worktree %q: %w", wt, err), worktree.Return(wt, true))
 			}
 			defer releaseWorktree()
 
 			if conflict, err := worktree.CheckCollision(home, wt, id); err != nil {
-				_ = worktree.Return(wt, true)
-				return err
+				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			} else if conflict != "" {
-				_ = worktree.Return(wt, true)
-				return fmt.Errorf("worktree collision: %s already holds %s", conflict, wt)
+				return reportSpawnCleanup(fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), worktree.Return(wt, true))
 			}
 
 			client := herdr.NewClient()
@@ -100,17 +98,16 @@ func newSpawnCmd() *cobra.Command {
 				createdWorkspace = err == nil
 			}
 			if err != nil {
-				_ = worktree.Return(wt, true)
-				return fmt.Errorf("herdr workspace lookup/create failed: %w", err)
+				return reportSpawnCleanup(fmt.Errorf("herdr workspace lookup/create failed: %w", err), worktree.Return(wt, true))
 			}
 
 			tab, pane, err := client.TabCreate(ws.WorkspaceID, wt, id)
 			if err != nil {
+				cleanupErrs := []error{worktree.Return(wt, true)}
 				if createdWorkspace {
-					_ = client.WorkspaceClose(ws.WorkspaceID)
+					cleanupErrs = append(cleanupErrs, client.WorkspaceClose(ws.WorkspaceID))
 				}
-				_ = worktree.Return(wt, true)
-				return fmt.Errorf("herdr tab create failed: %w", err)
+				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), cleanupErrs...)
 			}
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
@@ -120,15 +117,11 @@ func newSpawnCmd() *cobra.Command {
 				Effort:   effort,
 			})
 			if err != nil {
-				_ = closeTaskTab(client, ws.WorkspaceID, tab.TabID)
-				_ = worktree.Return(wt, true)
-				return err
+				return reportSpawnCleanup(err, closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
 			}
 
 			if err := client.PaneRun(pane.PaneID, launchCmd); err != nil {
-				_ = closeTaskTab(client, ws.WorkspaceID, tab.TabID)
-				_ = worktree.Return(wt, true)
-				return fmt.Errorf("send launch command failed: %w", err)
+				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
 			}
 
 			kind := state.KindShip
@@ -154,17 +147,7 @@ func newSpawnCmd() *cobra.Command {
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			}
 			if err := state.Write(home, task); err != nil {
-				cleanupErrs := []string{}
-				if err := closeTaskTab(client, ws.WorkspaceID, tab.TabID); err != nil {
-					cleanupErrs = append(cleanupErrs, fmt.Sprintf("close herdr tab: %v", err))
-				}
-				if err := worktree.Return(wt, true); err != nil {
-					cleanupErrs = append(cleanupErrs, fmt.Sprintf("return worktree: %v", err))
-				}
-				if len(cleanupErrs) > 0 {
-					return fmt.Errorf("write task state: %w; cleanup failed: %s", err, strings.Join(cleanupErrs, "; "))
-				}
-				return fmt.Errorf("write task state: %w", err)
+				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
 			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "spawned %s project=%s kind=%s harness=%s worktree=%s\n", id, proj.Name, kind, harnessName, wt); err != nil {
@@ -179,6 +162,14 @@ func newSpawnCmd() *cobra.Command {
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort level for harnesses that support it")
 	return cmd
+}
+
+func reportSpawnCleanup(cause error, cleanupErrs ...error) error {
+	cleanupErr := errors.Join(cleanupErrs...)
+	if cleanupErr == nil {
+		return cause
+	}
+	return fmt.Errorf("%w; cleanup failed: %w", cause, cleanupErr)
 }
 
 func configDefault(home, name, fallback string) string {
