@@ -15,10 +15,10 @@ cd secondhand
 make build
 ./hand init --setup
 ./hand project add https://github.com/org/repo
-./hand spawn fix-login repo
 ```
 
-Write `data/fix-login/brief.md` before spawning; `hand spawn` refuses to start a worker without a brief.
+The remaining lifecycle commands, including `hand spawn`, are specified but not yet implemented.
+When available, write `data/fix-login/brief.md` before spawning; `hand spawn` refuses to start a worker without a brief.
 
 ## Core concepts
 
@@ -39,7 +39,7 @@ Write `data/fix-login/brief.md` before spawning; `hand spawn` refuses to start a
 | `hand project list` | List registered projects |
 | `hand project remove` | Unregister a project, keeping its clone |
 | `hand project sync` | Fast-forward project clones to their remote default branch |
-| `hand spawn` | Spawn a worker agent in an isolated worktree |
+| `hand spawn` | Spawn a worker agent in an isolated worktree (specified; not yet implemented) |
 | `hand status` | Show fleet overview or single-task detail |
 | `hand send` | Send a message to a running worker |
 | `hand watch` | Blocking watcher that prints actionable fleet events |
