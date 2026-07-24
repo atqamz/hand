@@ -41,7 +41,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 | `hand spawn` | Spawn a worker agent in an isolated worktree | Available |
 | `hand status` | Show fleet overview or single-task detail | Available |
 | `hand send` | Send a message to a running worker | Available |
-| `hand watch` | Blocking watcher that prints actionable fleet events | Specified; not yet implemented |
+| `hand watch` | Blocking watcher that prints actionable fleet events | Available |
 | `hand merge` | Merge a task's completed work | Specified; not yet implemented |
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Specified; not yet implemented |
