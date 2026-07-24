@@ -49,7 +49,7 @@ When available, write `data/fix-login/brief.md` before spawning; `hand spawn` re
 | `hand notify` | Send an out-of-band notification via a configured command | Specified; not yet implemented |
 | `hand update` | Update the installed binary | Specified; not yet implemented |
 
-Run `hand --help` or `hand <command> --help` for full details.
+Run `hand --help` for details on currently available commands.
 
 ## Architecture
 
@@ -96,7 +96,7 @@ From releases: download the binary for your platform from the [releases page](ht
 
 ## Configuration
 
-Local preferences live as plain files under `config/`: default worker harness, model, effort, notification command, and watcher timings.
+Currently supported preferences live as plain files under `config/`: default worker harness, model, and effort.
 Run `hand init --setup` to discover installed harnesses and tools and write the defaults interactively.
 
 ## Contributing
