@@ -93,6 +93,27 @@ func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
 	}
 }
 
+func TestReserveCloneDestinationIsAtomic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "projects", "repo")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	results := make(chan error, 2)
+	go func() { results <- reserveCloneDestination(path) }()
+	go func() { results <- reserveCloneDestination(path) }()
+
+	var successes int
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("reserveCloneDestination successes = %d, want 1", successes)
+	}
+}
+
 func TestHasActiveTasksForProjectFailsOnMalformedState(t *testing.T) {
 	home := t.TempDir()
 	if err := os.Mkdir(filepath.Join(home, "state"), 0o755); err != nil {

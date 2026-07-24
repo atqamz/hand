@@ -59,19 +59,12 @@ func newProjectAddCmd() *cobra.Command {
 			}
 
 			clonePath := filepath.Join(home, "projects", name)
-			_, err = os.Stat(clonePath)
-			destinationExisted := err == nil
-			if err == nil {
-				return fmt.Errorf("project destination %q already exists", clonePath)
-			}
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("check project destination: %w", err)
+			if err := reserveCloneDestination(clonePath); err != nil {
+				return err
 			}
 			if err := gitClone(url, clonePath); err != nil {
-				if !destinationExisted {
-					if cleanupErr := os.RemoveAll(clonePath); cleanupErr != nil {
-						return fmt.Errorf("%w; remove incomplete clone: %v", err, cleanupErr)
-					}
+				if cleanupErr := os.RemoveAll(clonePath); cleanupErr != nil {
+					return fmt.Errorf("%w; remove incomplete clone: %v", err, cleanupErr)
 				}
 				return err
 			}
@@ -105,6 +98,19 @@ func cleanupCloneAfterFailure(clonePath string, cause error) error {
 		return errors.Join(cause, fmt.Errorf("remove incomplete clone: %w", err))
 	}
 	return cause
+}
+
+func reserveCloneDestination(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create projects directory: %w", err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("project destination %q already exists", path)
+		}
+		return fmt.Errorf("reserve project destination: %w", err)
+	}
+	return nil
 }
 
 func validateProjectName(name string) error {
