@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -45,12 +47,17 @@ func newInitCmd() *cobra.Command {
 	var setup bool
 
 	cmd := &cobra.Command{
-		Use:   "init",
+		Use:   "init [path]",
 		Short: "Initialize secondhand runtime directories",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home, err := os.Getwd()
+			cwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
+			}
+			home, err := resolveInitHome(cwd, args)
+			if err != nil {
+				return err
 			}
 
 			if err := initDirs(home); err != nil {
@@ -129,9 +136,24 @@ func runInteractiveSetup(cmd *cobra.Command, home string) error {
 		return fmt.Errorf("no supported harnesses found on PATH")
 	}
 
-	harness := foundHarnesses[0]
-	model := "sonnet"
-	effort := "low"
+	in := cmd.InOrStdin()
+	fmt.Fprintln(out, "select default worker harness:")
+	for i, h := range foundHarnesses {
+		fmt.Fprintf(out, "%d) %s\n", i+1, h)
+	}
+	harness, err := readSetupChoice(in, foundHarnesses, "harness")
+	if err != nil {
+		return err
+	}
+
+	model, err := readSetupValue(in, out, "default worker model")
+	if err != nil {
+		return err
+	}
+	effort, err := readSetupValue(in, out, "worker effort")
+	if err != nil {
+		return err
+	}
 
 	if err := os.WriteFile(filepath.Join(home, "config", "harness"), []byte(harness+"\n"), 0o644); err != nil {
 		return fmt.Errorf("write config/harness: %w", err)
@@ -149,4 +171,42 @@ func runInteractiveSetup(cmd *cobra.Command, home string) error {
 	fmt.Fprintln(out, "wrote config/harness config/model config/effort")
 
 	return nil
+}
+
+func resolveInitHome(cwd string, args []string) (string, error) {
+	if len(args) > 1 {
+		return "", fmt.Errorf("init accepts at most one target path")
+	}
+	if len(args) == 0 {
+		return cwd, nil
+	}
+	home := args[0]
+	if strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("init target path cannot be empty")
+	}
+	if !filepath.IsAbs(home) {
+		home = filepath.Join(cwd, home)
+	}
+	return filepath.Clean(home), nil
+}
+
+func readSetupChoice(in io.Reader, choices []string, label string) (string, error) {
+	var input string
+	if _, err := fmt.Fscan(in, &input); err != nil {
+		return "", fmt.Errorf("read %s choice: %w", label, err)
+	}
+	choice, err := strconv.Atoi(input)
+	if err != nil || choice < 1 || choice > len(choices) {
+		return "", fmt.Errorf("invalid %s choice", label)
+	}
+	return choices[choice-1], nil
+}
+
+func readSetupValue(in io.Reader, out io.Writer, label string) (string, error) {
+	fmt.Fprintf(out, "%s: ", label)
+	var value string
+	if _, err := fmt.Fscan(in, &value); err != nil {
+		return "", fmt.Errorf("read %s: %w", label, err)
+	}
+	return value, nil
 }

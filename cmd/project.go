@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/spf13/cobra"
@@ -32,6 +33,9 @@ func newProjectAddCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			url := args[0]
+			if err := validateProjectMode(mode); err != nil {
+				return err
+			}
 			home, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
@@ -39,6 +43,9 @@ func newProjectAddCmd() *cobra.Command {
 
 			if name == "" {
 				name = project.DeriveName(url)
+			}
+			if err := validateProjectName(name); err != nil {
+				return err
 			}
 
 			if _, exists, err := project.Find(home, name); err != nil {
@@ -77,6 +84,22 @@ func newProjectAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", project.ModeDirectPR, "delivery mode: no-mistakes, direct-pr, local-only")
 	cmd.Flags().StringVar(&name, "name", "", "override the project name")
 	return cmd
+}
+
+func validateProjectName(name string) error {
+	if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
+		return fmt.Errorf("invalid project name %q: must be a single safe path component", name)
+	}
+	return nil
+}
+
+func validateProjectMode(mode string) error {
+	switch mode {
+	case project.ModeNoMistakes, project.ModeDirectPR, project.ModeLocalOnly:
+		return nil
+	default:
+		return fmt.Errorf("invalid project mode %q: must be no-mistakes, direct-pr, or local-only", mode)
+	}
 }
 
 func gitClone(url, dest string) error {
@@ -206,7 +229,10 @@ func hasActiveTasksForProject(home, name string) (bool, error) {
 			Project string `json:"project"`
 		}
 		if err := json.Unmarshal(data, &task); err != nil {
-			continue
+			return false, fmt.Errorf("parse state file %s: %w", e.Name(), err)
+		}
+		if strings.TrimSpace(task.Project) == "" {
+			return false, fmt.Errorf("parse state file %s: missing project", e.Name())
 		}
 		if task.Project == name {
 			return true, nil
