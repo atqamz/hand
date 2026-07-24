@@ -53,7 +53,7 @@ func Run(ctx context.Context, cfg Config, out io.Writer) error {
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out io.Writer) {
 	tasks, err := state.List(cfg.Home)
 	if err != nil {
-		fmt.Fprintf(out, "watch: list tasks failed: %v\n", err)
+		_, _ = fmt.Fprintf(out, "watch: list tasks failed: %v\n", err)
 		return
 	}
 
@@ -102,15 +102,15 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 }
 
 func handleEvent(cfg Config, e *Event, t state.Task, out io.Writer) {
-	fmt.Fprintln(out, e.Text)
+	_, _ = fmt.Fprintln(out, e.Text)
 
 	logPath := filepath.Join(state.Dir(cfg.Home), "events.log")
 	if err := appendEventLog(logPath, time.Now().UTC().Format(time.RFC3339)+" "+e.Text); err != nil {
-		fmt.Fprintf(out, "watch: append events.log failed: %v\n", err)
+		_, _ = fmt.Fprintf(out, "watch: append events.log failed: %v\n", err)
 	}
 
 	if err := updateDashboardForEvent(cfg.Home, e, t); err != nil {
-		fmt.Fprintf(out, "watch: update dashboard failed: %v\n", err)
+		_, _ = fmt.Fprintf(out, "watch: update dashboard failed: %v\n", err)
 	}
 }
 
