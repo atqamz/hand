@@ -20,7 +20,7 @@ case "$cmd" in
 	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
 	;;
 "pane run")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2

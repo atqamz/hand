@@ -134,6 +134,30 @@ func TestDeleteMissingTask(t *testing.T) {
 	}
 }
 
+func TestRejectsUnsafeIDs(t *testing.T) {
+	dir := t.TempDir()
+	for _, id := range []string{"../escape", "nested/task", "", "."} {
+		if err := Write(dir, Task{ID: id}); err == nil {
+			t.Errorf("Write accepted unsafe ID %q", id)
+		}
+		if _, err := Read(dir, id); err == nil {
+			t.Errorf("Read accepted unsafe ID %q", id)
+		}
+	}
+}
+
+func TestClaimIsExclusive(t *testing.T) {
+	dir := t.TempDir()
+	release, err := Claim(dir, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if _, err := Claim(dir, "task-1"); err == nil {
+		t.Fatal("second claim succeeded")
+	}
+}
+
 func TestWriteOverwritesExisting(t *testing.T) {
 	dir := t.TempDir()
 	if err := Write(dir, Task{ID: "fix-login", Harness: "claude"}); err != nil {

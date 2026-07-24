@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"github.com/atqamz/secondhand/internal/worktree"
 	"github.com/spf13/cobra"
 )
+
+var errTaskTabNotFound = errors.New("task tab not found")
 
 func newTeardownCmd() *cobra.Command {
 	var force bool
@@ -42,6 +45,9 @@ func newTeardownCmd() *cobra.Command {
 
 			client := herdr.NewClient()
 			if err := closeTaskTab(client, t.Herdr.WorkspaceID, t.Herdr.TabID); err != nil {
+				if errors.Is(err, errTaskTabNotFound) {
+					return err
+				}
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
 					return printErr
 				}
@@ -173,7 +179,17 @@ func closeTaskTab(client *herdr.Client, workspaceID, tabID string) error {
 	if err != nil {
 		return err
 	}
-	if len(tabs) <= 1 {
+	found := false
+	for _, tab := range tabs {
+		if tab.TabID == tabID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("%w: herdr tab %s not found in workspace %s", errTaskTabNotFound, tabID, workspaceID)
+	}
+	if len(tabs) == 1 {
 		return client.WorkspaceClose(workspaceID)
 	}
 	return client.TabClose(tabID)

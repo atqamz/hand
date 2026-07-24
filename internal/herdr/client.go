@@ -37,7 +37,7 @@ func (c *Client) call(args ...string) (json.RawMessage, error) {
 		if runErr != nil {
 			return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, strings.TrimSpace(stderr.String()))
 		}
-		return nil, nil
+		return nil, fmt.Errorf("herdr %s: empty response", strings.Join(args, " "))
 	}
 
 	var env envelope
@@ -46,6 +46,12 @@ func (c *Client) call(args ...string) (json.RawMessage, error) {
 	}
 	if env.Error != nil {
 		return nil, fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), env.Error.Code, env.Error.Message)
+	}
+	if runErr != nil {
+		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, strings.TrimSpace(stderr.String()))
+	}
+	if len(env.Result) == 0 {
+		return nil, fmt.Errorf("herdr %s: response missing result", strings.Join(args, " "))
 	}
 	return env.Result, nil
 }

@@ -42,11 +42,11 @@ func newSpawnCmd() *cobra.Command {
 				return fmt.Errorf("project %q not registered", projectName)
 			}
 
-			if active, err := state.Exists(home, id); err != nil {
+			releaseClaim, err := state.Claim(home, id)
+			if err != nil {
 				return err
-			} else if active {
-				return fmt.Errorf("task %q already active", id)
 			}
+			defer releaseClaim()
 
 			briefRel := filepath.Join("data", id, "brief.md")
 			briefAbs := filepath.Join(home, briefRel)
@@ -142,6 +142,16 @@ func newSpawnCmd() *cobra.Command {
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			}
 			if err := state.Write(home, task); err != nil {
+				cleanupErrs := []string{}
+				if err := client.TabClose(tab.TabID); err != nil {
+					cleanupErrs = append(cleanupErrs, fmt.Sprintf("close herdr tab: %v", err))
+				}
+				if err := worktree.Return(wt, true); err != nil {
+					cleanupErrs = append(cleanupErrs, fmt.Sprintf("return worktree: %v", err))
+				}
+				if len(cleanupErrs) > 0 {
+					return fmt.Errorf("write task state: %w; cleanup failed: %s", err, strings.Join(cleanupErrs, "; "))
+				}
 				return fmt.Errorf("write task state: %w", err)
 			}
 

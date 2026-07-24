@@ -70,16 +70,16 @@ func TestCallFailsOnNonZeroExitWithNoStdout(t *testing.T) {
 	}
 }
 
-func TestPaneRunSucceedsOnEmptyStdout(t *testing.T) {
-	writeFakeHerdr(t, `true`)
+func TestPaneRunRequiresResultEnvelope(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{}}'`)
 	c := NewClient()
 	if err := c.PaneRun("wA:pB", "echo hi"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestPaneSendTextSucceedsOnEmptyStdout(t *testing.T) {
-	writeFakeHerdr(t, `true`)
+func TestPaneSendTextRequiresResultEnvelope(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{}}'`)
 	c := NewClient()
 	if err := c.PaneSendText("wA:pB", "hello"); err != nil {
 		t.Fatal(err)
@@ -92,6 +92,7 @@ if [ "$1" != "pane" ] || [ "$2" != "send-keys" ] || [ "$3" != "wA:pB" ] || [ "$4
 	echo "unexpected args: $@" >&2
 	exit 1
 fi
+printf '{"id":"cli:1","result":{}}'
 `)
 	c := NewClient()
 	if err := c.PaneSendKeys("wA:pB", "Enter"); err != nil {

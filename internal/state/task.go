@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 func Dir(homeDir string) string {
@@ -15,11 +16,65 @@ func Dir(homeDir string) string {
 }
 
 func Path(homeDir, id string) string {
+	if err := ValidateID(id); err != nil {
+		return ""
+	}
 	return filepath.Join(Dir(homeDir), id+".json")
+}
+
+func ValidateID(id string) error {
+	if id == "" || id == "." || id == ".." || filepath.Base(id) != id {
+		return fmt.Errorf("invalid task ID %q", id)
+	}
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return fmt.Errorf("invalid task ID %q", id)
+	}
+	return nil
+}
+
+func Claim(homeDir, id string) (func(), error) {
+	if err := ValidateID(id); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(Dir(homeDir), 0o755); err != nil {
+		return nil, fmt.Errorf("create state directory: %w", err)
+	}
+	lock, err := os.OpenFile(filepath.Join(Dir(homeDir), "."+id+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open task lock: %w", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		if err == syscall.EWOULDBLOCK {
+			return nil, fmt.Errorf("task %q already active", id)
+		}
+		return nil, fmt.Errorf("lock task: %w", err)
+	}
+	active, err := Exists(homeDir, id)
+	if err != nil {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+		return nil, err
+	}
+	if active {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+		return nil, fmt.Errorf("task %q already active", id)
+	}
+	return func() {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+	}, nil
 }
 
 // Exists reports whether a task state file exists for id.
 func Exists(homeDir, id string) (bool, error) {
+	if err := ValidateID(id); err != nil {
+		return false, err
+	}
 	_, err := os.Stat(Path(homeDir, id))
 	if err == nil {
 		return true, nil
@@ -32,6 +87,9 @@ func Exists(homeDir, id string) (bool, error) {
 
 // Read loads the state file for id.
 func Read(homeDir, id string) (Task, error) {
+	if err := ValidateID(id); err != nil {
+		return Task{}, err
+	}
 	data, err := os.ReadFile(Path(homeDir, id))
 	if os.IsNotExist(err) {
 		return Task{}, fmt.Errorf("task %q not found", id)
@@ -43,11 +101,17 @@ func Read(homeDir, id string) (Task, error) {
 	if err := json.Unmarshal(data, &t); err != nil {
 		return Task{}, fmt.Errorf("parse task state %q: %w", id, err)
 	}
+	if t.ID != id {
+		return Task{}, fmt.Errorf("task state %q has mismatched ID %q", id, t.ID)
+	}
 	return t, nil
 }
 
 // Write persists t atomically (write to temp file, then rename).
 func Write(homeDir string, t Task) error {
+	if err := ValidateID(t.ID); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(Dir(homeDir), 0o755); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
@@ -120,6 +184,9 @@ func List(homeDir string) ([]Task, error) {
 
 // Delete removes the state file for id.
 func Delete(homeDir, id string) error {
+	if err := ValidateID(id); err != nil {
+		return err
+	}
 	if err := os.Remove(Path(homeDir, id)); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("task %q not found", id)

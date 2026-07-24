@@ -30,10 +30,10 @@ case "$cmd" in
 	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
 	;;
 "pane send-text")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 "pane send-keys")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -85,10 +85,10 @@ case "$cmd" in
 	fi
 	;;
 "pane send-text")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 "pane send-keys")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2

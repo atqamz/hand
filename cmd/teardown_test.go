@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
@@ -47,10 +48,10 @@ case "$cmd" in
 	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
 	;;
 "tab close")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 "workspace close")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -252,7 +253,7 @@ case "$cmd" in
 	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
 	;;
 "workspace close")
-	true
+ printf '{"id":"cli:1","result":{}}'
 	;;
 "tab close")
 	echo "should not close a tab when it is the last one" >&2
@@ -283,5 +284,19 @@ esac
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCloseTaskTabRejectsStaleTab(t *testing.T) {
+	writeFakeTreehouseReturn(t)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
+printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:other","workspace_id":"wA"}]}}'
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:missing"); err == nil {
+		t.Fatal("stale tab was accepted")
 	}
 }
