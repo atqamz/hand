@@ -27,6 +27,8 @@ Run `hand --help` for the full command reference.
 - Use `qmd search` to find historical context in data/ when available. Fall back to reading files directly.
 - Zero comments by default. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug. Never restate code, narrate what, add banners, or docstring the obvious.
 - `internal/herdr/client.go` and `internal/harness/harness.go` are the source of truth for herdr and verified Claude/OpenCode syntax. Codex, Grok, and Pi templates in `SPECS.md` remain unverified until those binaries are available.
+- Exit codes (SPECS.md "Exit codes") are enforced via `cmd.ExitError` (`cmd/root.go`), unwrapped in `Execute()`. Return `&ExitError{Err: ..., Code: 3}` for precondition failures (red CI, unlanded work, missing brief); plain errors default to code 1.
+- Dashboard maintenance (SPECS.md's per-command update rules) is only partially implemented: `project add/remove/sync` update `data/dashboard.md` via `updateDashboardProjects`; `spawn`/`teardown`/`merge`/`promote` deliberately do not touch the Active Tasks/Events sections. Follow this precedent rather than building it out unilaterally.
 
 ## Maintaining this file
 
