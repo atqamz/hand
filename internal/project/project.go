@@ -4,7 +4,9 @@ package project
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -122,14 +124,13 @@ func Add(homeDir string, p Project) error {
 	}
 
 	path := RegistryPath(homeDir)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("write project registry: %w", err)
+	content, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read project registry: %w", err)
 	}
-	defer f.Close()
 
 	line := fmt.Sprintf("- %s: %s mode=%s\n", p.Name, p.URL, p.Mode)
-	if _, err := f.WriteString(line); err != nil {
+	if err := writeRegistryAtomically(path, append(content, line...)); err != nil {
 		return fmt.Errorf("write project registry: %w", err)
 	}
 	return nil
@@ -177,8 +178,40 @@ func Remove(homeDir, name string) error {
 	}
 
 	content := strings.Join(kept, "\n") + "\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := writeRegistryAtomically(path, []byte(content)); err != nil {
 		return fmt.Errorf("write project registry: %w", err)
+	}
+	return nil
+}
+
+func writeRegistryAtomically(path string, content []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".projects.md-")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	removeTemp := func() { _ = os.Remove(tmpName) }
+
+	if err := tmp.Chmod(0o644); err != nil {
+		removeTemp()
+		return err
+	}
+	n, err := tmp.Write(content)
+	if err != nil {
+		removeTemp()
+		return err
+	}
+	if n != len(content) {
+		removeTemp()
+		return io.ErrShortWrite
+	}
+	if err := tmp.Close(); err != nil {
+		removeTemp()
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		removeTemp()
+		return err
 	}
 	return nil
 }

@@ -58,9 +58,19 @@ func newProjectAddCmd() *cobra.Command {
 			}
 
 			clonePath := filepath.Join(home, "projects", name)
+			_, err = os.Stat(clonePath)
+			destinationExisted := err == nil
+			if err == nil {
+				return fmt.Errorf("project destination %q already exists", clonePath)
+			}
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("check project destination: %w", err)
+			}
 			if err := gitClone(url, clonePath); err != nil {
-				if cleanupErr := os.RemoveAll(clonePath); cleanupErr != nil {
-					return fmt.Errorf("%w; remove incomplete clone: %v", err, cleanupErr)
+				if !destinationExisted {
+					if cleanupErr := os.RemoveAll(clonePath); cleanupErr != nil {
+						return fmt.Errorf("%w; remove incomplete clone: %v", err, cleanupErr)
+					}
 				}
 				return err
 			}

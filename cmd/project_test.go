@@ -65,6 +65,34 @@ func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
 	}
 }
 
+func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
+	home := t.TempDir()
+	dest := filepath.Join(home, "projects", "repo")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dest, "keep-me")
+	if err := os.WriteFile(marker, []byte("user data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	gitPath := filepath.Join(bin, "git")
+	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\necho git clone should not run >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Chdir(home)
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{"https://example.com/org/repo.git", "--mode", "local-only"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("project add error = %v, want existing destination error", err)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "user data" {
+		t.Fatalf("existing clone changed: %q, %v", got, err)
+	}
+}
+
 func TestHasActiveTasksForProjectFailsOnMalformedState(t *testing.T) {
 	home := t.TempDir()
 	if err := os.Mkdir(filepath.Join(home, "state"), 0o755); err != nil {
