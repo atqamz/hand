@@ -3,10 +3,10 @@ hand
 hand.exe
 
 # runtime (created by hand init in workspace)
-state/
-data/
-projects/
-config/
+/state/
+/data/
+/projects/
+/config/
 
 # Go
 coverage.out
