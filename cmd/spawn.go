@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
@@ -148,6 +149,13 @@ func newSpawnCmd() *cobra.Command {
 			}
 			if err := state.Write(home, task); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+			}
+
+			dashPath := filepath.Join(home, "data", "dashboard.md")
+			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+				ID: id, Project: proj.Name, Kind: kind, State: string(pane.AgentStatus), Age: dashboard.FormatAge(task.CreatedAt),
+			}}); err != nil {
+				return fmt.Errorf("update dashboard: %w", err)
 			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "spawned %s project=%s kind=%s harness=%s worktree=%s\n", id, proj.Name, kind, harnessName, wt); err != nil {

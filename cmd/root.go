@@ -20,6 +20,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newStatusCmd())
 	root.AddCommand(newSendCmd())
 	root.AddCommand(newTeardownCmd())
+	root.AddCommand(newWatchCmd())
 	return root
 }
 

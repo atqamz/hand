@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -71,6 +72,12 @@ func newTeardownCmd() *cobra.Command {
 				return err
 			}
 
+			completion := completionFor(t, force)
+			dashPath := filepath.Join(home, "data", "dashboard.md")
+			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{Complete: &completion}); err != nil {
+				return fmt.Errorf("update dashboard: %w", err)
+			}
+
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "teardown %s complete\n", id); err != nil {
 				return err
 			}
@@ -80,6 +87,25 @@ func newTeardownCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&force, "force", false, "skip landed-work checks")
 	return cmd
+}
+
+func completionFor(t state.Task, forced bool) dashboard.Completion {
+	c := dashboard.Completion{ID: t.ID, Project: t.Project, Kind: t.Kind}
+	switch {
+	case forced:
+		c.Outcome = "torn-down"
+		c.Detail = "forced (landed-work checks skipped)"
+	case t.Kind == state.KindScout:
+		c.Outcome = "done"
+		c.Detail = "report " + filepath.Join("data", t.ID, "report.md")
+	case t.PR != "":
+		c.Outcome = "merged"
+		c.Detail = "PR " + t.PR
+	default:
+		c.Outcome = "merged"
+		c.Detail = "branch merged"
+	}
+	return c
 }
 
 func checkLandedWork(home string, t state.Task) error {

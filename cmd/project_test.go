@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/state"
 )
 
 func TestValidateProjectName(t *testing.T) {
@@ -171,7 +174,10 @@ func TestUpdateDashboardProjects(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "data", "projects.md"), []byte("# Projects\n\n- repo: https://example.com/repo mode=direct-pr\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte("# Dashboard\n\n## Projects\n- old: local-only | 0 active tasks\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "repo", Kind: state.KindShip}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,12 +185,15 @@ func TestUpdateDashboardProjects(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
+	data, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# Dashboard\n\n## Projects\n- repo: direct-pr | 0 active tasks\n"
-	if string(got) != want {
-		t.Fatalf("dashboard = %q, want %q", got, want)
+	d, err := dashboard.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Projects) != 1 || d.Projects[0].Name != "repo" || d.Projects[0].Mode != "direct-pr" || d.Projects[0].ActiveTaskCount != 1 {
+		t.Fatalf("Projects = %+v", d.Projects)
 	}
 }

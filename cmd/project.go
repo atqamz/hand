@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/project"
+	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -104,26 +106,22 @@ func updateDashboardProjects(home string) error {
 	if err != nil {
 		return err
 	}
+	tasks, err := state.List(home)
+	if err != nil {
+		return err
+	}
+	activeCounts := make(map[string]int, len(projects))
+	for _, t := range tasks {
+		activeCounts[t.Project]++
+	}
+
+	summaries := make([]dashboard.ProjectSummary, len(projects))
+	for i, p := range projects {
+		summaries[i] = dashboard.ProjectSummary{Name: p.Name, Mode: p.Mode, ActiveTaskCount: activeCounts[p.Name]}
+	}
 
 	path := filepath.Join(home, "data", "dashboard.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read dashboard: %w", err)
-	}
-	marker := "## Projects\n"
-	idx := strings.Index(string(data), marker)
-	if idx == -1 {
-		return fmt.Errorf("dashboard is missing Projects section")
-	}
-
-	content := string(data[:idx+len(marker)])
-	for _, p := range projects {
-		content += fmt.Sprintf("- %s: %s | 0 active tasks\n", p.Name, p.Mode)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("write dashboard: %w", err)
-	}
-	return nil
+	return dashboard.Update(path, dashboard.UpdateOpts{SetProjects: summaries})
 }
 
 func cleanupCloneAfterFailure(clonePath string, cause error) error {
@@ -277,6 +275,9 @@ func newProjectRemoveCmd() *cobra.Command {
 			}
 
 			if err := project.Remove(home, name); err != nil {
+				return err
+			}
+			if err := updateDashboardProjects(home); err != nil {
 				return err
 			}
 
