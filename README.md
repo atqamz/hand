@@ -53,27 +53,17 @@ Run `hand --help` or `hand <command> --help` for full details.
 
 ## Architecture
 
-```
-              user
-                |  chat: requests, decisions, "merge it"
-                v
-    +---------------------------+
-    | supervisory agent         |
-    | reads AGENTS.md + data/   |
-    | edits data/backlog.md     |
-    | calls `hand` commands     |
-    +--+----------+----------+--+
-       |          |          |
-       v          v          v
-    [task-1]   [task-2]   [task-N]    herdr tabs
-    [worker]   [worker]   [worker]    one autonomous agent each
-       |          |          |
-       v          v          v
-    treehouse worktrees (isolated git checkouts)
-       |
-       +-- ship: branch -> PR -> merge -> teardown
-       |
-       +-- scout: investigate -> report.md -> teardown
+```mermaid
+flowchart TD
+    user[User] -->|"requests, decisions, merge it"| supervisor["Supervisory agent<br/>reads AGENTS.md and data/<br/>edits data/backlog.md<br/>calls hand commands"]
+    supervisor --> task1["Task 1 worker<br/>herdr tab"]
+    supervisor --> task2["Task 2 worker<br/>herdr tab"]
+    supervisor --> taskN["Task N worker<br/>herdr tab"]
+    task1 --> worktrees["Treehouse worktrees<br/>isolated git checkouts"]
+    task2 --> worktrees
+    taskN --> worktrees
+    worktrees --> ship["Ship: branch to PR to merge to teardown"]
+    worktrees --> scout["Scout: investigate to report.md to teardown"]
 ```
 
 ## Requirements
