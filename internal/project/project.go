@@ -47,7 +47,7 @@ func List(homeDir string) ([]Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read project registry: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var projects []Project
 	scanner := bufio.NewScanner(f)
@@ -173,7 +173,7 @@ func Remove(homeDir, name string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	found := false
 	var kept []string

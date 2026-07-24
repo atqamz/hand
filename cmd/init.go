@@ -73,7 +73,9 @@ func newInitCmd() *cobra.Command {
 				}
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "initialized secondhand home at %s\n", home)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "initialized secondhand home at %s\n", home); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -129,17 +131,25 @@ func runInteractiveSetup(cmd *cobra.Command, home string) error {
 		}
 	}
 
-	fmt.Fprintf(out, "found harnesses: %s\n", strings.Join(foundHarnesses, " "))
-	fmt.Fprintf(out, "found tools: %s\n", strings.Join(foundTools, " "))
+	if _, err := fmt.Fprintf(out, "found harnesses: %s\n", strings.Join(foundHarnesses, " ")); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "found tools: %s\n", strings.Join(foundTools, " ")); err != nil {
+		return err
+	}
 
 	if len(foundHarnesses) == 0 {
 		return fmt.Errorf("no supported harnesses found on PATH")
 	}
 
 	in := cmd.InOrStdin()
-	fmt.Fprintln(out, "select default worker harness:")
+	if _, err := fmt.Fprintln(out, "select default worker harness:"); err != nil {
+		return err
+	}
 	for i, h := range foundHarnesses {
-		fmt.Fprintf(out, "%d) %s\n", i+1, h)
+		if _, err := fmt.Fprintf(out, "%d) %s\n", i+1, h); err != nil {
+			return err
+		}
 	}
 	harness, err := readSetupChoice(in, foundHarnesses, "harness")
 	if err != nil {
@@ -165,10 +175,18 @@ func runInteractiveSetup(cmd *cobra.Command, home string) error {
 		return fmt.Errorf("write config/effort: %w", err)
 	}
 
-	fmt.Fprintf(out, "default worker harness: %s\n", harness)
-	fmt.Fprintf(out, "default worker model: %s\n", model)
-	fmt.Fprintf(out, "worker effort: %s\n", effort)
-	fmt.Fprintln(out, "wrote config/harness config/model config/effort")
+	if _, err := fmt.Fprintf(out, "default worker harness: %s\n", harness); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "default worker model: %s\n", model); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "worker effort: %s\n", effort); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(out, "wrote config/harness config/model config/effort"); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -203,7 +221,9 @@ func readSetupChoice(in io.Reader, choices []string, label string) (string, erro
 }
 
 func readSetupValue(in io.Reader, out io.Writer, label string) (string, error) {
-	fmt.Fprintf(out, "%s: ", label)
+	if _, err := fmt.Fprintf(out, "%s: ", label); err != nil {
+		return "", err
+	}
 	var value string
 	if _, err := fmt.Fscan(in, &value); err != nil {
 		return "", fmt.Errorf("read %s: %w", label, err)

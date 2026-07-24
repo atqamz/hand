@@ -87,7 +87,9 @@ func newProjectAddCmd() *cobra.Command {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%s) mode=%s\n", name, url, mode)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%s) mode=%s\n", name, url, mode); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -244,7 +246,9 @@ func newProjectListCmd() *cobra.Command {
 
 			w := cmd.OutOrStdout()
 			for _, p := range projects {
-				fmt.Fprintf(w, "%-12s%-40s%s\n", p.Name, p.URL, p.Mode)
+				if _, err := fmt.Fprintf(w, "%-12s%-40s%s\n", p.Name, p.URL, p.Mode); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
@@ -276,7 +280,9 @@ func newProjectRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "removed project %s (clone retained at projects/%s)\n", name, name)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "removed project %s (clone retained at projects/%s)\n", name, name); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
