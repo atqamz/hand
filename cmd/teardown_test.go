@@ -191,6 +191,42 @@ func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 	}
 }
 
+func TestBranchIsMergedUsesOriginDefaultBranch(t *testing.T) {
+	clonePath := filepath.Join(t.TempDir(), "clone")
+	initGitRepo(t, clonePath)
+
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v: %s", args, err, out)
+		}
+	}
+	runGit(clonePath, "branch", "release")
+	runGit(clonePath, "branch", "task-1")
+	runGit(clonePath, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	runGit(clonePath, "update-ref", "refs/remotes/origin/main", "refs/heads/main")
+
+	worktreePath := filepath.Join(t.TempDir(), "worktree")
+	runGit(clonePath, "worktree", "add", "-q", worktreePath, "task-1")
+	if err := os.WriteFile(filepath.Join(worktreePath, "feature.txt"), []byte("feature"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(worktreePath, "add", "feature.txt")
+	runGit(worktreePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "feature")
+	runGit(clonePath, "merge", "--no-ff", "-q", "task-1", "-m", "merge task")
+	runGit(clonePath, "checkout", "-q", "release")
+
+	merged, err := branchIsMerged(clonePath, worktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !merged {
+		t.Fatal("task branch should be merged into origin default branch")
+	}
+}
+
 func TestTeardownScoutFailsWhenReportMissing(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout, Worktree: worktree}); err != nil {

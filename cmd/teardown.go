@@ -158,18 +158,56 @@ func branchIsMerged(clonePath, worktreePath string) (bool, error) {
 		return false, err
 	}
 
-	c := exec.Command("git", "branch", "--merged")
+	defaultBranch, err := defaultBranch(clonePath)
+	if err != nil {
+		return false, err
+	}
+	c := exec.Command("git", "branch", "--merged", defaultBranch)
 	c.Dir = clonePath
 	out, err := c.Output()
 	if err != nil {
-		return false, fmt.Errorf("git branch --merged failed: %w", err)
+		return false, fmt.Errorf("git branch --merged %s failed: %w", defaultBranch, err)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "*")) == branch {
+		line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "*+"))
+		if line == branch {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func defaultBranch(clonePath string) (string, error) {
+	c := exec.Command("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+	c.Dir = clonePath
+	out, err := c.Output()
+	if err == nil {
+		branch := strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/")
+		if branch != "" {
+			return branch, nil
+		}
+	}
+
+	c = exec.Command("git", "remote", "show", "origin")
+	c.Dir = clonePath
+	out, err = c.Output()
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) == 3 && fields[0] == "HEAD" && fields[1] == "branch:" && fields[2] != "" {
+				return fields[2], nil
+			}
+		}
+	}
+
+	for _, branch := range []string{"main", "master"} {
+		c = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+		c.Dir = clonePath
+		if err := c.Run(); err == nil {
+			return branch, nil
+		}
+	}
+	return "", fmt.Errorf("resolve default branch failed")
 }
 
 func currentBranch(worktreePath string) (string, error) {
