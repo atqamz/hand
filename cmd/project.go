@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -77,19 +78,16 @@ func newProjectAddCmd() *cobra.Command {
 
 			if mode == project.ModeNoMistakes {
 				if err := noMistakesInit(clonePath); err != nil {
-					os.RemoveAll(clonePath)
-					return err
+					return cleanupCloneAfterFailure(clonePath, err)
 				}
 			}
 
 			if err := treehouseInitIfNeeded(clonePath); err != nil {
-				os.RemoveAll(clonePath)
-				return err
+				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
 			if err := project.Add(home, project.Project{Name: name, URL: url, Mode: mode}); err != nil {
-				os.RemoveAll(clonePath)
-				return err
+				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%s) mode=%s\n", name, url, mode)
@@ -100,6 +98,13 @@ func newProjectAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", project.ModeDirectPR, "delivery mode: no-mistakes, direct-pr, local-only")
 	cmd.Flags().StringVar(&name, "name", "", "override the project name")
 	return cmd
+}
+
+func cleanupCloneAfterFailure(clonePath string, cause error) error {
+	if err := os.RemoveAll(clonePath); err != nil {
+		return errors.Join(cause, fmt.Errorf("remove incomplete clone: %w", err))
+	}
+	return cause
 }
 
 func validateProjectName(name string) error {

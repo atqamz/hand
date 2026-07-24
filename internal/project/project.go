@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -115,6 +116,12 @@ func Find(homeDir, name string) (Project, bool, error) {
 
 // Add appends a project line to the registry. Returns an error if the name is already registered.
 func Add(homeDir string, p Project) error {
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	_, exists, err := Find(homeDir, p.Name)
 	if err != nil {
 		return err
@@ -129,6 +136,9 @@ func Add(homeDir string, p Project) error {
 		return fmt.Errorf("read project registry: %w", err)
 	}
 
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		content = append(content, '\n')
+	}
 	line := fmt.Sprintf("- %s: %s mode=%s\n", p.Name, p.URL, p.Mode)
 	if err := writeRegistryAtomically(path, append(content, line...)); err != nil {
 		return fmt.Errorf("write project registry: %w", err)
@@ -138,6 +148,12 @@ func Add(homeDir string, p Project) error {
 
 // Remove deletes the project line matching name from the registry.
 func Remove(homeDir, name string) error {
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	path := RegistryPath(homeDir)
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -182,6 +198,21 @@ func Remove(homeDir, name string) error {
 		return fmt.Errorf("write project registry: %w", err)
 	}
 	return nil
+}
+
+func lockRegistry(homeDir string) (func(), error) {
+	lock, err := os.OpenFile(RegistryPath(homeDir)+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("lock project registry: %w", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("lock project registry: %w", err)
+	}
+	return func() {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+	}, nil
 }
 
 func writeRegistryAtomically(path string, content []byte) error {

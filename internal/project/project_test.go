@@ -1,6 +1,7 @@
 package project
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -93,6 +94,49 @@ func TestAddAppends(t *testing.T) {
 	}
 	if len(projects) != 1 || projects[0].Name != "nsr" {
 		t.Fatalf("got %+v", projects)
+	}
+}
+
+func TestAddAppendsAfterRegistryWithoutTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "- existing: https://github.com/org/existing mode=direct-pr")
+
+	if err := Add(dir, Project{Name: "new", URL: "https://github.com/org/new", Mode: "direct-pr"}); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 || projects[1].Name != "new" {
+		t.Fatalf("got %+v", projects)
+	}
+}
+
+func TestConcurrentAddsPreserveAllProjects(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n")
+
+	const count = 20
+	errs := make(chan error, count)
+	for i := 0; i < count; i++ {
+		go func(i int) {
+			errs <- Add(dir, Project{Name: fmt.Sprintf("project-%d", i), URL: "https://github.com/org/repo", Mode: "direct-pr"})
+		}(i)
+	}
+	for i := 0; i < count; i++ {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != count {
+		t.Fatalf("got %d projects, want %d", len(projects), count)
 	}
 }
 
