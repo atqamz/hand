@@ -16,6 +16,10 @@ func newRootCmd(version string) *cobra.Command {
 	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newProjectCmd())
+	root.AddCommand(newSpawnCmd())
+	root.AddCommand(newStatusCmd())
+	root.AddCommand(newSendCmd())
+	root.AddCommand(newTeardownCmd())
 	return root
 }
 
