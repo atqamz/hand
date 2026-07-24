@@ -18,7 +18,6 @@ make build
 ```
 
 The remaining lifecycle commands, including `hand spawn`, are specified but not yet implemented.
-When available, write `data/fix-login/brief.md` before spawning; `hand spawn` refuses to start a worker without a brief.
 
 ## Core concepts
 
@@ -71,12 +70,12 @@ flowchart TD
 - Go 1.26.5 or newer (build only)
 - [herdr](https://github.com/ogulcancelik/herdr) - terminal multiplexer with semantic agent state
 - [treehouse](https://github.com/kunchenguid/treehouse) - git worktree pool manager
-- `gh` - GitHub CLI, used for PR operations
+- [gh](https://github.com/cli/cli) - GitHub CLI, used for PR operations
 
 Optional:
 
 - [no-mistakes](https://github.com/yes2games/no-mistakes) - validation pipeline for projects in `no-mistakes` mode
-- `qmd` - search over historical task data
+- [qmd](https://github.com/tobi/qmd) - search over historical task data
 
 ## Installation
 
