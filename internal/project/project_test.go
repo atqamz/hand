@@ -70,6 +70,15 @@ func TestListRejectsMalformedLine(t *testing.T) {
 	}
 }
 
+func TestListRejectsUnknownMode(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "- nsr: https://github.com/yes2games/nsr mode=unknown\n")
+
+	if _, err := List(dir); err == nil {
+		t.Fatal("expected unknown project mode to fail")
+	}
+}
+
 func TestAddDuplicateRejected(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n- nsr: https://github.com/yes2games/nsr mode=direct-pr\n")

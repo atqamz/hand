@@ -97,6 +97,9 @@ func parseLine(line string) (Project, bool) {
 	if name == "" || url == "" || mode == "" {
 		return Project{}, false
 	}
+	if mode != ModeNoMistakes && mode != ModeDirectPR && mode != ModeLocalOnly {
+		return Project{}, false
+	}
 	return Project{Name: name, URL: url, Mode: mode}, true
 }
 
