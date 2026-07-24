@@ -31,6 +31,11 @@ func newTeardownCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
+			release, err := state.Lock(home, "task:"+id)
+			if err != nil {
+				return fmt.Errorf("lock task %q: %w", id, err)
+			}
+			defer release()
 
 			t, err := state.Read(home, id)
 			if err != nil {

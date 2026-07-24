@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -156,6 +157,23 @@ func TestClaimIsExclusive(t *testing.T) {
 	if _, err := Claim(dir, "task-1"); err == nil {
 		t.Fatal("second claim succeeded")
 	}
+}
+
+func TestLockIsExclusive(t *testing.T) {
+	dir := t.TempDir()
+	release, err := Lock(dir, "project:myproj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock(dir, "project:myproj", true); err != syscall.EWOULDBLOCK {
+		t.Fatalf("second lock error = %v, want EWOULDBLOCK", err)
+	}
+	release()
+	second, err := Lock(dir, "project:myproj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second()
 }
 
 func TestWriteOverwritesExisting(t *testing.T) {

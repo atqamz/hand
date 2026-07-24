@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/harness"
@@ -15,8 +14,6 @@ import (
 	"github.com/atqamz/secondhand/internal/worktree"
 	"github.com/spf13/cobra"
 )
-
-var workspaceCreateMu sync.Mutex
 
 func newSpawnCmd() *cobra.Command {
 	var scout bool
@@ -69,12 +66,23 @@ func newSpawnCmd() *cobra.Command {
 			if effort == "" {
 				effort = configDefault(home, "effort", "")
 			}
+			releaseProject, err := state.Lock(home, "project:"+proj.Name)
+			if err != nil {
+				return fmt.Errorf("lock project %q: %w", proj.Name, err)
+			}
+			defer releaseProject()
 
 			clonePath := filepath.Join(home, "projects", proj.Name)
 			wt, err := worktree.Get(clonePath, "hand:"+id)
 			if err != nil {
 				return fmt.Errorf("acquire treehouse worktree: %w", err)
 			}
+			releaseWorktree, err := state.Lock(home, "worktree:"+wt)
+			if err != nil {
+				_ = worktree.Return(wt, true)
+				return fmt.Errorf("lock worktree %q: %w", wt, err)
+			}
+			defer releaseWorktree()
 
 			if conflict, err := worktree.CheckCollision(home, wt, id); err != nil {
 				_ = worktree.Return(wt, true)
@@ -85,14 +93,12 @@ func newSpawnCmd() *cobra.Command {
 			}
 
 			client := herdr.NewClient()
-			workspaceCreateMu.Lock()
 			ws, found, err := client.FindWorkspaceByLabel(proj.Name)
 			createdWorkspace := false
 			if err == nil && !found {
 				ws, err = client.WorkspaceCreate(clonePath, proj.Name)
 				createdWorkspace = err == nil
 			}
-			workspaceCreateMu.Unlock()
 			if err != nil {
 				_ = worktree.Return(wt, true)
 				return fmt.Errorf("herdr workspace lookup/create failed: %w", err)

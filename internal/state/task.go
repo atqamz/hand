@@ -1,6 +1,7 @@
 package state
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,15 +40,8 @@ func Claim(homeDir, id string) (func(), error) {
 	if err := ValidateID(id); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(Dir(homeDir), 0o755); err != nil {
-		return nil, fmt.Errorf("create state directory: %w", err)
-	}
-	lock, err := os.OpenFile(filepath.Join(Dir(homeDir), "."+id+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	release, err := lock(homeDir, "task:"+id, true)
 	if err != nil {
-		return nil, fmt.Errorf("open task lock: %w", err)
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = lock.Close()
 		if err == syscall.EWOULDBLOCK {
 			return nil, fmt.Errorf("task %q already active", id)
 		}
@@ -55,18 +49,40 @@ func Claim(homeDir, id string) (func(), error) {
 	}
 	active, err := Exists(homeDir, id)
 	if err != nil {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = lock.Close()
+		release()
 		return nil, err
 	}
 	if active {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = lock.Close()
+		release()
 		return nil, fmt.Errorf("task %q already active", id)
 	}
+	return release, nil
+}
+
+func Lock(homeDir, name string) (func(), error) {
+	return lock(homeDir, name, false)
+}
+
+func lock(homeDir, name string, nonblock bool) (func(), error) {
+	if err := os.MkdirAll(Dir(homeDir), 0o755); err != nil {
+		return nil, fmt.Errorf("create state directory: %w", err)
+	}
+	lockName := fmt.Sprintf(".%x.lock", sha256.Sum256([]byte(name)))
+	file, err := os.OpenFile(filepath.Join(Dir(homeDir), lockName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open lock: %w", err)
+	}
+	flags := syscall.LOCK_EX
+	if nonblock {
+		flags |= syscall.LOCK_NB
+	}
+	if err := syscall.Flock(int(file.Fd()), flags); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
 	return func() {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = lock.Close()
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		_ = file.Close()
 	}, nil
 }
 
