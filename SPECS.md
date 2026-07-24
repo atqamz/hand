@@ -1223,9 +1223,13 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install herdr
-        run: curl -fsSL https://herdr.dev/install.sh | bash
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://github.com/ogulcancelik/herdr/releases/download/v0.7.5/herdr-linux-x86_64 -o "$HOME/.local/bin/herdr"
+          chmod +x "$HOME/.local/bin/herdr"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install treehouse
-        run: go install github.com/kunchenguid/treehouse@latest
+        run: go install github.com/kunchenguid/treehouse@v2.1.0
       - name: End-to-end
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
 ```
