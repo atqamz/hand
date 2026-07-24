@@ -44,6 +44,27 @@ func TestValidateProjectMode(t *testing.T) {
 	}
 }
 
+func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
+	home := t.TempDir()
+	bin := t.TempDir()
+	gitPath := filepath.Join(bin, "git")
+	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\nmkdir -p \"$3\"\nprintf partial > \"$3/partial\"\necho clone failed >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Chdir(home)
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{"https://example.com/org/repo.git", "--mode", "local-only"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "git clone failed") {
+		t.Fatalf("project add error = %v, want git clone failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "projects", "repo")); !os.IsNotExist(err) {
+		t.Fatalf("incomplete clone still exists: %v", err)
+	}
+}
+
 func TestHasActiveTasksForProjectFailsOnMalformedState(t *testing.T) {
 	home := t.TempDir()
 	if err := os.Mkdir(filepath.Join(home, "state"), 0o755); err != nil {

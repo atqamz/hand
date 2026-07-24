@@ -59,6 +59,9 @@ func newProjectAddCmd() *cobra.Command {
 
 			clonePath := filepath.Join(home, "projects", name)
 			if err := gitClone(url, clonePath); err != nil {
+				if cleanupErr := os.RemoveAll(clonePath); cleanupErr != nil {
+					return fmt.Errorf("%w; remove incomplete clone: %v", err, cleanupErr)
+				}
 				return err
 			}
 
