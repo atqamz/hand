@@ -85,6 +85,12 @@ From source:
 make build
 ```
 
+Set `VERSION` to embed a release version in the binary:
+
+```sh
+make build VERSION=0.1.0
+```
+
 From nix:
 
 ```sh
