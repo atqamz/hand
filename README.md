@@ -5,7 +5,7 @@ Talk to one agent. Ship with a crew.
 Secondhand is a single Go CLI binary, `hand`, that orchestrates a fleet of coding agents across projects.
 A supervisory agent runs in the secondhand directory, records tasks in a markdown backlog, and calls `hand` to spawn autonomous workers into isolated git worktrees.
 The CLI owns lifecycle correctness, state management, and process supervision.
-It was born from firstmate, an agent fleet supervisor built as 34K lines of shell, and rebuilds that concept as a clean CLI.
+It was born from [firstmate](https://github.com/kunchenguid/firstmate), an agent fleet supervisor built as 34K lines of shell, and rebuilds that concept as a clean CLI.
 
 ## Quick start
 
@@ -69,8 +69,8 @@ flowchart TD
 ## Requirements
 
 - Go 1.26.5 or newer (build only)
-- [herdr](https://github.com/yes2games/herdr) - terminal multiplexer with semantic agent state
-- [treehouse](https://github.com/yes2games/treehouse) - git worktree pool manager
+- [herdr](https://github.com/ogulcancelik/herdr) - terminal multiplexer with semantic agent state
+- [treehouse](https://github.com/kunchenguid/treehouse) - git worktree pool manager
 - `gh` - GitHub CLI, used for PR operations
 
 Optional:
