@@ -32,48 +32,38 @@ When available, write `data/fix-login/brief.md` before spawning; `hand spawn` re
 
 ## CLI overview
 
-| Command | Description |
-| --- | --- |
-| `hand init` | Initialize runtime directories and skeleton files; `--setup` runs interactive first-time configuration |
-| `hand project add` | Clone and register a repository |
-| `hand project list` | List registered projects |
-| `hand project remove` | Unregister a project, keeping its clone |
-| `hand project sync` | Fast-forward project clones to their remote default branch |
-| `hand spawn` | Spawn a worker agent in an isolated worktree (specified; not yet implemented) |
-| `hand status` | Show fleet overview or single-task detail |
-| `hand send` | Send a message to a running worker |
-| `hand watch` | Blocking watcher that prints actionable fleet events |
-| `hand merge` | Merge a task's completed work |
-| `hand teardown` | Clean up a completed task, fail-closed on unlanded work |
-| `hand promote` | Promote a completed scout task into a ship task |
-| `hand notify` | Send an out-of-band notification via a configured command |
-| `hand update` | Update the installed binary (specified; not yet implemented) |
+| Command | Description | Status |
+| --- | --- | --- |
+| `hand init` | Initialize runtime directories and skeleton files; `--setup` runs interactive first-time configuration | Available |
+| `hand project add` | Clone and register a repository | Available |
+| `hand project list` | List registered projects | Available |
+| `hand project remove` | Unregister a project, keeping its clone | Available |
+| `hand project sync` | Fast-forward project clones to their remote default branch | Specified; not yet implemented |
+| `hand spawn` | Spawn a worker agent in an isolated worktree | Specified; not yet implemented |
+| `hand status` | Show fleet overview or single-task detail | Specified; not yet implemented |
+| `hand send` | Send a message to a running worker | Specified; not yet implemented |
+| `hand watch` | Blocking watcher that prints actionable fleet events | Specified; not yet implemented |
+| `hand merge` | Merge a task's completed work | Specified; not yet implemented |
+| `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Specified; not yet implemented |
+| `hand promote` | Promote a completed scout task into a ship task | Specified; not yet implemented |
+| `hand notify` | Send an out-of-band notification via a configured command | Specified; not yet implemented |
+| `hand update` | Update the installed binary | Specified; not yet implemented |
 
 Run `hand --help` or `hand <command> --help` for full details.
 
 ## Architecture
 
-```
-              user
-                |  chat: requests, decisions, "merge it"
-                v
-    +---------------------------+
-    | supervisory agent         |
-    | reads AGENTS.md + data/   |
-    | edits data/backlog.md     |
-    | calls `hand` commands     |
-    +--+----------+----------+--+
-       |          |          |
-       v          v          v
-    [task-1]   [task-2]   [task-N]    herdr tabs
-    [worker]   [worker]   [worker]    one autonomous agent each
-       |          |          |
-       v          v          v
-    treehouse worktrees (isolated git checkouts)
-       |
-       +-- ship: branch -> PR -> merge -> teardown
-       |
-       +-- scout: investigate -> report.md -> teardown
+```mermaid
+flowchart TD
+    user[User] -->|requests, decisions, merge it| supervisor[Supervisory agent<br/>reads AGENTS.md and data/<br/>edits data/backlog.md<br/>calls hand commands]
+    supervisor --> task1[Task 1 worker<br/>herdr tab]
+    supervisor --> task2[Task 2 worker<br/>herdr tab]
+    supervisor --> taskN[Task N worker<br/>herdr tab]
+    task1 --> worktrees[Treehouse worktrees<br/>isolated git checkouts]
+    task2 --> worktrees
+    taskN --> worktrees
+    worktrees --> ship[Ship: branch -> PR -> merge -> teardown]
+    worktrees --> scout[Scout: investigate -> report.md -> teardown]
 ```
 
 ## Requirements
