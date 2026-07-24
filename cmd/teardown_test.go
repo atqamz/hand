@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
@@ -240,6 +241,60 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 	}
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state still exists after forced teardown: %v %v", exists, err)
+	}
+}
+
+func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("done"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout, Worktree: worktree,
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	marker := filepath.Join(t.TempDir(), "herdr-called")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\ntouch '"+marker+"'\nprintf '{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\"}]}}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	releaseProject, err := state.Lock(home, "project:myproj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			releaseProject()
+		}
+	}()
+
+	result := make(chan error, 1)
+	go func() {
+		cmd := newTeardownCmd()
+		cmd.SetArgs([]string{"task-1", "--force"})
+		result <- cmd.Execute()
+	}()
+
+	select {
+	case <-result:
+		t.Fatal("teardown completed while project lock was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("herdr invoked while project lock was held: %v", err)
+	}
+
+	releaseProject()
+	released = true
+	if err := <-result; err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -47,6 +47,11 @@ func newTeardownCmd() *cobra.Command {
 					return err
 				}
 			}
+			releaseProject, err := state.Lock(home, "project:"+t.Project)
+			if err != nil {
+				return fmt.Errorf("lock project %q: %w", t.Project, err)
+			}
+			defer releaseProject()
 
 			client := herdr.NewClient()
 			if err := closeTaskTab(client, t.Herdr.WorkspaceID, t.Herdr.TabID); err != nil {
