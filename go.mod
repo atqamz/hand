@@ -1,6 +1,6 @@
 module github.com/atqamz/secondhand
 
-go 1.24
+go 1.26.5
 
 require github.com/spf13/cobra v1.10.2
 
