@@ -31,7 +31,7 @@ func TestNotifySubstitutesMessageAndExecutesTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"{{message}}\" > " + marker
+	template := "printf '%s' \"$HAND_MESSAGE\" > " + marker
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}

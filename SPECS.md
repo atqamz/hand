@@ -639,18 +639,18 @@ hand notify "fix-login PR is ready for review"
 
 Behavior:
 1. Read `config/notify`. If absent, print to stdout only and return.
-2. The notify config contains a shell command template with `{{message}}` placeholder.
-3. Execute the command with the message substituted.
+2. The notify config contains a shell command template. The message is available as the `$HAND_MESSAGE` environment variable.
+3. Execute the command with `HAND_MESSAGE` set in the environment.
 4. Print the message to stdout regardless.
 
 Example `config/notify`:
 ```
-curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" -d "chat_id=$TELEGRAM_CHAT&text={{message}}"
+curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" -d "chat_id=$TELEGRAM_CHAT&text=$HAND_MESSAGE"
 ```
 
 Or for macOS:
 ```
-osascript -e 'display notification "{{message}}" with title "secondhand"'
+osascript -e "display notification \"$HAND_MESSAGE\" with title \"secondhand\""
 ```
 
 The watcher calls `hand notify` for captain-relevant events (done, blocked, failed) so the user gets notified even when away from the terminal.
