@@ -82,6 +82,10 @@ func newProjectAddCmd() *cobra.Command {
 			if err := project.Add(home, project.Project{Name: name, URL: url, Mode: mode}); err != nil {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
+			if err := updateDashboardProjects(home); err != nil {
+				_ = project.Remove(home, name)
+				return cleanupCloneAfterFailure(clonePath, err)
+			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%s) mode=%s\n", name, url, mode)
 			return nil
@@ -91,6 +95,33 @@ func newProjectAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", project.ModeDirectPR, "delivery mode: no-mistakes, direct-pr, local-only")
 	cmd.Flags().StringVar(&name, "name", "", "override the project name")
 	return cmd
+}
+
+func updateDashboardProjects(home string) error {
+	projects, err := project.List(home)
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(home, "data", "dashboard.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read dashboard: %w", err)
+	}
+	marker := "## Projects\n"
+	idx := strings.Index(string(data), marker)
+	if idx == -1 {
+		return fmt.Errorf("dashboard is missing Projects section")
+	}
+
+	content := string(data[:idx+len(marker)])
+	for _, p := range projects {
+		content += fmt.Sprintf("- %s: %s | 0 active tasks\n", p.Name, p.Mode)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write dashboard: %w", err)
+	}
+	return nil
 }
 
 func cleanupCloneAfterFailure(clonePath string, cause error) error {

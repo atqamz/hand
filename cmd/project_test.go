@@ -162,3 +162,29 @@ func TestReadSetupChoice(t *testing.T) {
 		t.Fatal("expected out-of-range setup choice to fail")
 	}
 }
+
+func TestUpdateDashboardProjects(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "projects.md"), []byte("# Projects\n\n- repo: https://example.com/repo mode=direct-pr\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte("# Dashboard\n\n## Projects\n- old: local-only | 0 active tasks\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := updateDashboardProjects(home); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Dashboard\n\n## Projects\n- repo: direct-pr | 0 active tasks\n"
+	if string(got) != want {
+		t.Fatalf("dashboard = %q, want %q", got, want)
+	}
+}
