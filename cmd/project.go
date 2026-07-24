@@ -33,6 +33,9 @@ func newProjectAddCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			url := args[0]
+			if err := validateProjectURL(url); err != nil {
+				return err
+			}
 			if err := validateProjectMode(mode); err != nil {
 				return err
 			}
@@ -87,10 +90,27 @@ func newProjectAddCmd() *cobra.Command {
 }
 
 func validateProjectName(name string) error {
-	if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
-		return fmt.Errorf("invalid project name %q: must be a single safe path component", name)
+	if name == "" {
+		return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+	}
+	for i, r := range name {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-' {
+			return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+		}
+		if i == 0 && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+		}
 	}
 	return nil
+}
+
+func validateProjectURL(url string) error {
+	for _, prefix := range []string{"https://", "git@", "ssh://", "git://"} {
+		if strings.HasPrefix(url, prefix) {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid project URL %q: must start with https://, git@, ssh://, or git://", url)
 }
 
 func validateProjectMode(mode string) error {

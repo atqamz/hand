@@ -8,7 +8,7 @@ import (
 )
 
 func TestValidateProjectName(t *testing.T) {
-	for _, name := range []string{"", ".", "..", "../escape", "nested/name", `nested\\name`} {
+	for _, name := range []string{"", ".", "..", "../escape", "nested/name", `nested\\name`, "foo:bar", "repo ", "repo=one"} {
 		if err := validateProjectName(name); err == nil {
 			t.Errorf("validateProjectName(%q) accepted unsafe name", name)
 		}
@@ -16,6 +16,19 @@ func TestValidateProjectName(t *testing.T) {
 	for _, name := range []string{"repo", "repo-name", "repo_name"} {
 		if err := validateProjectName(name); err != nil {
 			t.Errorf("validateProjectName(%q) failed: %v", name, err)
+		}
+	}
+}
+
+func TestValidateProjectURL(t *testing.T) {
+	for _, url := range []string{"https://github.com/org/repo", "git@github.com:org/repo.git", "ssh://git@example.com/repo", "git://example.com/repo"} {
+		if err := validateProjectURL(url); err != nil {
+			t.Errorf("validateProjectURL(%q) failed: %v", url, err)
+		}
+	}
+	for _, url := range []string{"", "local", "/tmp/repo", "file:///tmp/repo", "http://github.com/org/repo"} {
+		if err := validateProjectURL(url); err == nil {
+			t.Errorf("validateProjectURL(%q) accepted invalid URL", url)
 		}
 	}
 }

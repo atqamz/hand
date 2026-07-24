@@ -60,6 +60,15 @@ func TestListMissingFile(t *testing.T) {
 	}
 }
 
+func TestListRejectsMalformedLine(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\nnot a project\n")
+
+	if _, err := List(dir); err == nil {
+		t.Fatal("expected malformed registry line to fail")
+	}
+}
+
 func TestAddDuplicateRejected(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n- nsr: https://github.com/yes2games/nsr mode=direct-pr\n")
@@ -134,5 +143,18 @@ func TestRemoveNotFound(t *testing.T) {
 
 	if err := Remove(dir, "missing"); err == nil {
 		t.Fatal("expected error for missing project")
+	}
+}
+
+func TestRemoveFailsClosedOnMalformedLine(t *testing.T) {
+	dir := t.TempDir()
+	content := "# Projects\n\n- nsr: https://github.com/yes2games/nsr mode=direct-pr\n\ncustom note\n- other: https://github.com/org/other mode=local-only\n"
+	writeRegistry(t, dir, content)
+
+	if err := Remove(dir, "nsr"); err == nil {
+		t.Fatal("expected unrecognized line to fail closed")
+	}
+	if got, err := os.ReadFile(RegistryPath(dir)); err != nil || string(got) != content {
+		t.Fatalf("registry changed after failed remove: %q, %v", got, err)
 	}
 }

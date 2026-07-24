@@ -48,12 +48,18 @@ func List(homeDir string) ([]Project, error) {
 
 	var projects []Project
 	scanner := bufio.NewScanner(f)
+	lineNumber := 0
 	for scanner.Scan() {
+		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
-		p, ok := parseLine(line)
-		if ok {
-			projects = append(projects, p)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
+		p, ok := parseLine(line)
+		if !ok {
+			return nil, fmt.Errorf("invalid project registry line %d", lineNumber)
+		}
+		projects = append(projects, p)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read project registry: %w", err)
@@ -131,32 +137,47 @@ func Add(homeDir string, p Project) error {
 
 // Remove deletes the project line matching name from the registry.
 func Remove(homeDir, name string) error {
-	projects, err := List(homeDir)
+	path := RegistryPath(homeDir)
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("project %q not found", name)
+	}
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
 	found := false
-	var kept []Project
-	for _, p := range projects {
+	var kept []string
+	scanner := bufio.NewScanner(f)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			kept = append(kept, line)
+			continue
+		}
+		p, ok := parseLine(trimmed)
+		if !ok {
+			return fmt.Errorf("invalid project registry line %d", lineNumber)
+		}
 		if p.Name == name {
 			found = true
 			continue
 		}
-		kept = append(kept, p)
+		kept = append(kept, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read project registry: %w", err)
 	}
 	if !found {
 		return fmt.Errorf("project %q not found", name)
 	}
 
-	var sb strings.Builder
-	sb.WriteString("# Projects\n\n")
-	for _, p := range kept {
-		sb.WriteString(fmt.Sprintf("- %s: %s mode=%s\n", p.Name, p.URL, p.Mode))
-	}
-
-	path := RegistryPath(homeDir)
-	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+	content := strings.Join(kept, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write project registry: %w", err)
 	}
 	return nil
