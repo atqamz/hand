@@ -24,5 +24,7 @@ type Task struct {
 	Brief     string `json:"brief"`
 	Herdr     Herdr  `json:"herdr"`
 	PR        string `json:"pr"`
+	Merged    bool   `json:"merged"`
+	MergedAt  string `json:"merged_at"`
 	CreatedAt string `json:"created_at"`
 }
