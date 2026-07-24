@@ -133,7 +133,7 @@ secondhand/                 # repo root = working directory
 
 ## CLI specification
 
-### `hand init [flags]`
+### `hand init [path] [flags]`
 
 Initialize secondhand runtime directories in the current working directory.
 Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
@@ -146,7 +146,7 @@ hand init --setup
 ```
 
 Flags:
-- `--setup`: run interactive first-time setup. Discovers available harnesses on PATH (claude, codex, pi, grok, opencode), discovers available models per harness, asks the user which harness to default for the main session and for workers, writes `config/harness`, `config/model`, `config/effort`. Also checks for `treehouse`, `herdr`, `no-mistakes`, and `gh` on PATH and reports what's missing.
+- `--setup`: run interactive first-time setup. Discovers available harnesses on PATH (claude, codex, pi, grok, opencode) and available tools (treehouse, herdr, no-mistakes, gh), then asks the user for the default worker harness, model, and effort and writes `config/harness`, `config/model`, and `config/effort`.
 
 Output:
 ```
@@ -188,7 +188,7 @@ Behavior:
 2. Derive project name from URL (last path segment minus `.git`), or use `--name`.
 3. Refuse if a project with that name already exists.
 4. `git clone` into `projects/<name>`.
-5. If `--mode no-mistakes` and the clone doesn't have no-mistakes initialized, run `no-mistakes init -y` inside the clone.
+5. If `--mode no-mistakes`, run `no-mistakes init` inside the clone.
 6. Initialize treehouse for the project: `treehouse init` inside the clone if no `treehouse.toml` exists.
 7. Append a line to `data/projects.md`: `- <name>: <url> mode=<mode>`.
 8. Update `data/dashboard.md` projects section.
@@ -729,8 +729,8 @@ For "what did we decide about X three months ago", searching hundreds of markdow
 [qmd](https://github.com/tobi/qmd) is a local search engine for markdown that provides keyword, semantic, and hybrid search.
 Secondhand recommends it but does not require it:
 
-- `hand init --setup` checks for `qmd` on PATH and suggests installation if absent.
-- If qmd is available, `hand init` creates a qmd collection pointing at `data/`.
+- `hand init --setup` does not require or configure qmd.
+- If qmd is available, the agent can create a collection pointing at `data/` manually.
 - The AGENTS.md sketch mentions `qmd search` as the way to find historical context.
 - All `hand` operations work without qmd. The agent can always fall back to reading files directly.
 
@@ -865,7 +865,7 @@ No-mistakes is an external Go binary.
 Secondhand does not wrap it.
 The worker uses `no-mistakes` directly in the worktree:
 
-- **Initialization:** `hand project add --mode no-mistakes` runs `no-mistakes init -y` in the clone. Treehouse worktrees inherit the gate.
+- **Initialization:** `hand project add --mode no-mistakes` runs `no-mistakes init` in the clone. Treehouse worktrees inherit the gate.
 - **Validation:** The worker runs `no-mistakes axi run` in its worktree. `axi` is no-mistakes' built-in agent interface (non-interactive, token-efficient output). It is not a wrapper tool.
 - **Gates:** When `no-mistakes axi run` parks at a gate (review approval, fix review), it prints the gate state. The worker reads it and either resolves it (`no-mistakes axi respond`) or reports blocked to the supervisory agent via herdr state.
 - **Status:** `no-mistakes axi status` shows the current run state.
@@ -1099,11 +1099,8 @@ hand init --setup
 hand init ~/fleet --setup
 ```
 
-`hand init` writes: `AGENTS.md`, `CLAUDE.md` (symlink), `.gitignore`, and the runtime dirs (`data/`, `state/`, `config/`, `projects/`).
-The binary embeds the AGENTS.md template and writes it fresh on init.
-Users can edit the generated AGENTS.md freely - it's their workspace, not a tracked repo file.
-
-When run from source (inside the secondhand repo), the repo itself can serve as the workspace - `hand init` detects this and skips writing AGENTS.md since the tracked one already exists.
+`hand init` writes the runtime dirs (`data/`, `state/`, `config/`, `projects/`) and creates missing `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` skeletons.
+It leaves existing files unchanged and accepts an optional target path.
 
 ### Self-update: `hand update`
 
