@@ -300,3 +300,27 @@ printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:other","workspace_id":"wA"
 		t.Fatal("stale tab was accepted")
 	}
 }
+
+func TestCloseTaskTabClosesWorkspaceForSoleTab(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
+case "$1 $2" in
+"tab list")
+ printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
+ ;;
+"workspace close")
+ printf '{"id":"cli:1","result":{}}'
+ ;;
+*)
+ echo "unexpected herdr args: $@" >&2
+ exit 1
+ ;;
+esac
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:tB"); err != nil {
+		t.Fatal(err)
+	}
+}

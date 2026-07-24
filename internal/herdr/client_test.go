@@ -70,6 +70,14 @@ func TestCallFailsOnNonZeroExitWithNoStdout(t *testing.T) {
 	}
 }
 
+func TestCallRejectsNullResult(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"id":"cli:1","result":null}'`)
+	c := NewClient()
+	if _, err := c.WorkspaceList(); err == nil || !strings.Contains(err.Error(), "null result") {
+		t.Fatalf("got err %v, want null result failure", err)
+	}
+}
+
 func TestPaneRunRequiresResultEnvelope(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{}}'`)
 	c := NewClient()

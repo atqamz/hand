@@ -143,7 +143,7 @@ func newSpawnCmd() *cobra.Command {
 			}
 			if err := state.Write(home, task); err != nil {
 				cleanupErrs := []string{}
-				if err := client.TabClose(tab.TabID); err != nil {
+				if err := closeTaskTab(client, ws.WorkspaceID, tab.TabID); err != nil {
 					cleanupErrs = append(cleanupErrs, fmt.Sprintf("close herdr tab: %v", err))
 				}
 				if err := worktree.Return(wt, true); err != nil {

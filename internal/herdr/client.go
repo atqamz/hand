@@ -53,6 +53,9 @@ func (c *Client) call(args ...string) (json.RawMessage, error) {
 	if len(env.Result) == 0 {
 		return nil, fmt.Errorf("herdr %s: response missing result", strings.Join(args, " "))
 	}
+	if string(bytes.TrimSpace(env.Result)) == "null" {
+		return nil, fmt.Errorf("herdr %s: response has null result", strings.Join(args, " "))
+	}
 	return env.Result, nil
 }
 
@@ -66,6 +69,9 @@ func (c *Client) WorkspaceList() ([]Workspace, error) {
 	}
 	if err := json.Unmarshal(res, &body); err != nil {
 		return nil, fmt.Errorf("parse workspace list: %w", err)
+	}
+	if body.Workspaces == nil {
+		return nil, fmt.Errorf("parse workspace list: missing workspaces")
 	}
 	return body.Workspaces, nil
 }
@@ -102,6 +108,9 @@ func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, error) {
 	if err := json.Unmarshal(res, &body); err != nil {
 		return Workspace{}, fmt.Errorf("parse workspace create: %w", err)
 	}
+	if body.Workspace.WorkspaceID == "" {
+		return Workspace{}, fmt.Errorf("parse workspace create: missing workspace")
+	}
 	return body.Workspace, nil
 }
 
@@ -120,6 +129,9 @@ func (c *Client) TabList(workspaceID string) ([]Tab, error) {
 	}
 	if err := json.Unmarshal(res, &body); err != nil {
 		return nil, fmt.Errorf("parse tab list: %w", err)
+	}
+	if body.Tabs == nil {
+		return nil, fmt.Errorf("parse tab list: missing tabs")
 	}
 	return body.Tabs, nil
 }
@@ -143,6 +155,9 @@ func (c *Client) TabCreate(workspaceID, cwd, label string) (Tab, Pane, error) {
 	if err := json.Unmarshal(res, &body); err != nil {
 		return Tab{}, Pane{}, fmt.Errorf("parse tab create: %w", err)
 	}
+	if body.Tab.TabID == "" || body.RootPane.PaneID == "" {
+		return Tab{}, Pane{}, fmt.Errorf("parse tab create: missing tab or root pane")
+	}
 	return body.Tab, body.RootPane, nil
 }
 
@@ -161,6 +176,9 @@ func (c *Client) PaneGet(paneID string) (Pane, error) {
 	}
 	if err := json.Unmarshal(res, &body); err != nil {
 		return Pane{}, fmt.Errorf("parse pane get: %w", err)
+	}
+	if body.Pane.PaneID == "" {
+		return Pane{}, fmt.Errorf("parse pane get: missing pane")
 	}
 	return body.Pane, nil
 }
