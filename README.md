@@ -17,7 +17,7 @@ make build
 ./hand project add https://github.com/org/repo
 ```
 
-The remaining lifecycle commands, including `hand spawn`, are specified but not yet implemented.
+The worker lifecycle commands are available, including `hand spawn`, `hand status`, `hand send`, and `hand teardown`.
 
 ## Core concepts
 
@@ -38,12 +38,12 @@ The remaining lifecycle commands, including `hand spawn`, are specified but not 
 | `hand project list` | List registered projects | Available |
 | `hand project remove` | Unregister a project, keeping its clone | Available |
 | `hand project sync` | Fast-forward project clones to their remote default branch | Specified; not yet implemented |
-| `hand spawn` | Spawn a worker agent in an isolated worktree | Specified; not yet implemented |
-| `hand status` | Show fleet overview or single-task detail | Specified; not yet implemented |
-| `hand send` | Send a message to a running worker | Specified; not yet implemented |
+| `hand spawn` | Spawn a worker agent in an isolated worktree | Available |
+| `hand status` | Show fleet overview or single-task detail | Available |
+| `hand send` | Send a message to a running worker | Available |
 | `hand watch` | Blocking watcher that prints actionable fleet events | Specified; not yet implemented |
 | `hand merge` | Merge a task's completed work | Specified; not yet implemented |
-| `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Specified; not yet implemented |
+| `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Specified; not yet implemented |
 | `hand notify` | Send an out-of-band notification via a configured command | Specified; not yet implemented |
 | `hand update` | Update the installed binary | Specified; not yet implemented |

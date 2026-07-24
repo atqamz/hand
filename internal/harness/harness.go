@@ -55,9 +55,8 @@ func Build(name string, opts Options) (string, error) {
 	return fmt.Sprintf("cd %s && %s", shellQuote(opts.Worktree), launch), nil
 }
 
-// buildClaude reads the brief itself: claude --print takes the prompt as a positional
-// argument, not a file path (verified via `claude --help`), so the brief-path template
-// in SPECS.md would otherwise send the literal path string as the prompt text.
+// buildClaude passes the brief path in a prompt because claude --print accepts prompt text,
+// not a file path (verified via `claude --help`).
 func buildClaude(o Options) string {
 	args := []string{"claude", "--print"}
 	if o.Model != "" {

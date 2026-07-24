@@ -759,10 +759,11 @@ Each supported harness has a launch command template.
 ### Claude Code
 
 ```sh
-cd <worktree> && claude --print "<brief-path>"
+cd <worktree> && claude --print "Read the brief at <brief-path> and carry out the task it describes."
 ```
 
-The `--print` flag (or equivalent) feeds the brief as the initial prompt.
+The brief path is included in the prompt because `--print` accepts prompt text, not a file path.
+When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
 
 ### Codex
 
@@ -785,13 +786,15 @@ cd <worktree> && pi "<brief-path>"
 ### OpenCode
 
 ```sh
-cd <worktree> && opencode
+cd <worktree> && opencode run --file "<brief-path>" "Follow the attached brief and complete the task."
 ```
 
-OpenCode reads project instructions automatically; the brief path is included in the project's AGENTS.md or passed via its input mechanism.
+OpenCode runs headlessly through `opencode run`; `--model <name>` and `--variant <effort>` are
+inserted when configured.
 
-Note: exact flags and mechanisms need verification per harness version.
-The harness module should be the single place that constructs these commands, with version-aware flag selection.
+The Claude and OpenCode forms above were verified against the installed CLI versions.
+Codex, Grok, and Pi retain the literal templates above until those binaries are verified.
+The harness module is the single place that constructs these commands.
 
 ## Herdr integration detail
 
@@ -830,34 +833,38 @@ herdr tracks agent state per pane:
 ### Herdr CLI calls
 
 ```sh
-# create workspace
-herdr workspace create --label <project-name>
+# list workspaces
+herdr workspace list
+
+# create workspace without focusing it
+herdr workspace create --no-focus --cwd <project-clone-path> --label <project-name>
 
 # create tab in workspace
-herdr tab create --workspace <ws-id> --label <task-id>
+herdr tab create --workspace <ws-id> --no-focus --cwd <worktree> --label <task-id>
 
-# get pane for tab
-herdr pane list --tab <tab-id>
+# list tabs in workspace
+herdr tab list --workspace <ws-id>
 
-# get agent state
-herdr agent get --pane <pane-id>
-# returns: { "status": "working" | "idle" | "done" | "blocked" }
+# get pane and agent state
+herdr pane get <pane-id>
+# returns agent_status: "working" | "idle" | "done" | "blocked"
 
-# send text to pane
-herdr pane send-keys --pane <pane-id> -- <text> Enter
+# run a command in pane
+herdr pane run <pane-id> <command>
+
+# send text and submit it
+herdr pane send-text <pane-id> <text>
+herdr pane send-keys <pane-id> Enter
 
 # close tab
-herdr tab close --tab <tab-id>
+herdr tab close <tab-id>
 
 # close workspace (if empty)
-herdr workspace close --workspace <ws-id>
-
-# subscribe to events (if available)
-herdr events --pane <pane-id> --filter agent_status_changed
+herdr workspace close <ws-id>
 ```
 
-Note: exact CLI syntax needs verification against the installed herdr version.
-The herdr client module should abstract these into Go function calls and handle version differences internally.
+These calls and the JSON response envelope were verified against the installed herdr version.
+The herdr client abstracts them into Go function calls and validates required response fields.
 
 ## No-mistakes integration
 

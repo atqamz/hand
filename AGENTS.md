@@ -26,7 +26,7 @@ Run `hand --help` for the full command reference.
 - For no-mistakes projects, workers use `no-mistakes axi` directly in the worktree.
 - Use `qmd search` to find historical context in data/ when available. Fall back to reading files directly.
 - Zero comments by default. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug. Never restate code, narrate what, add banners, or docstring the obvious.
-- `SPECS.md`'s herdr CLI call templates and claude/opencode harness launch templates are known to be wrong (checked against each tool's `--help`). `internal/herdr/client.go` and `internal/harness/harness.go` are the verified source of truth for that syntax; re-verify against `--help` before trusting SPECS.md for those two areas.
+- `internal/herdr/client.go` and `internal/harness/harness.go` are the source of truth for herdr and verified Claude/OpenCode syntax. Codex, Grok, and Pi templates in `SPECS.md` remain unverified until those binaries are available.
 
 ## Maintaining this file
 
