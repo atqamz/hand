@@ -13,7 +13,7 @@ fmt:
 	gofmt -w .
 
 lint:
-	gofmt -l .
+	@output=$$(gofmt -l .); if [ -n "$$output" ]; then echo "Files not formatted:"; echo "$$output"; exit 1; fi
 	go vet ./...
 	golangci-lint run
 
