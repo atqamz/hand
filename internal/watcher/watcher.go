@@ -5,16 +5,15 @@ package watcher
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/state"
 )
@@ -84,7 +83,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			handleEvent(cfg, e, t, out)
 		}
 		if t.PR != "" && !ts.PRMerged {
-			merged, err := prMerged(t.PR)
+			ghCtx, ghCancel := context.WithTimeout(ctx, 30*time.Second)
+			merged, err := ghutil.PRIsMerged(ghCtx, t.PR)
+			ghCancel()
 			if err == nil {
 				if e := ClassifyPRMerged(ts, t.ID, merged); e != nil {
 					handleEvent(cfg, e, t, out)
@@ -192,16 +193,3 @@ func writeFileAtomic(path string, data []byte) error {
 	return nil
 }
 
-func prMerged(pr string) (bool, error) {
-	out, err := exec.Command("gh", "pr", "view", pr, "--json", "state").CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(out)))
-	}
-	var body struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal(out, &body); err != nil {
-		return false, fmt.Errorf("parse gh pr view output: %w", err)
-	}
-	return body.State == "MERGED", nil
-}

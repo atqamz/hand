@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -90,6 +91,12 @@ type UpdateOpts struct {
 // stamping the Updated timestamp. Every hand command that mutates fleet state calls
 // this so data/dashboard.md stays current.
 func Update(path string, opts UpdateOpts) error {
+	unlock, err := flock(path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock dashboard: %w", err)
+	}
+	defer unlock()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read dashboard: %w", err)
@@ -103,6 +110,24 @@ func Update(path string, opts UpdateOpts) error {
 	d.Updated = time.Now().UTC().Format(TimeFormat)
 
 	return writeAtomic(path, Render(d))
+}
+
+func flock(path string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
 }
 
 func apply(d *Dashboard, opts UpdateOpts) {

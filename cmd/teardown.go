@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -44,7 +45,7 @@ func newTeardownCmd() *cobra.Command {
 			}
 
 			if !force {
-				if err := checkLandedWork(home, t); err != nil {
+				if err := checkLandedWork(cmd.Context(), home, t); err != nil {
 					return err
 				}
 			}
@@ -108,7 +109,7 @@ func completionFor(t state.Task, forced bool) dashboard.Completion {
 	return c
 }
 
-func checkLandedWork(home string, t state.Task) error {
+func checkLandedWork(ctx context.Context, home string, t state.Task) error {
 	if t.Kind == state.KindScout {
 		reportPath := filepath.Join("data", t.ID, "report.md")
 		if _, err := os.Stat(filepath.Join(home, reportPath)); err != nil {
@@ -126,7 +127,7 @@ func checkLandedWork(home string, t state.Task) error {
 	}
 
 	if t.PR != "" {
-		merged, err := prIsMerged(t.PR)
+		merged, err := ghutil.PRIsMerged(ctx, t.PR)
 		if err != nil {
 			return err
 		}
@@ -162,20 +163,6 @@ func hasUncommittedChanges(worktreePath string) (bool, error) {
 		return false, fmt.Errorf("git status failed: %w", err)
 	}
 	return len(strings.TrimSpace(string(out))) > 0, nil
-}
-
-func prIsMerged(pr string) (bool, error) {
-	out, err := exec.Command("gh", "pr", "view", pr, "--json", "state").CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(out)))
-	}
-	var body struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal(out, &body); err != nil {
-		return false, fmt.Errorf("parse gh pr view output: %w", err)
-	}
-	return body.State == "MERGED", nil
 }
 
 func branchIsMerged(clonePath, worktreePath string) (bool, error) {

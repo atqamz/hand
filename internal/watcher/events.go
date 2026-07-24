@@ -69,7 +69,7 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 
 	switch status {
 	case herdr.StatusDone, herdr.StatusIdle:
-		if prevStatus == herdr.StatusWorking {
+		if prevStatus == herdr.StatusWorking || prevStatus == herdr.StatusBlocked {
 			ts.Blocked = false
 			return &Event{TaskID: id, Kind: KindDone, Text: fmt.Sprintf("done %s", id)}
 		}
