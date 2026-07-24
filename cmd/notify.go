@@ -27,8 +27,9 @@ func newNotifyCmd() *cobra.Command {
 				return fmt.Errorf("read notify config: %w", err)
 			}
 			if err == nil {
-				shellCmd := strings.ReplaceAll(strings.TrimSpace(string(template)), "{{message}}", message)
-				if out, runErr := exec.Command("sh", "-c", shellCmd).CombinedOutput(); runErr != nil {
+				run := exec.Command("sh", "-c", strings.TrimSpace(string(template)))
+				run.Env = append(os.Environ(), "HAND_MESSAGE="+message)
+				if out, runErr := run.CombinedOutput(); runErr != nil {
 					if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: notify command failed: %v: %s\n", runErr, strings.TrimSpace(string(out))); printErr != nil {
 						return printErr
 					}

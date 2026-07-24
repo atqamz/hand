@@ -87,14 +87,9 @@ func newPromoteCmd() *cobra.Command {
 			}
 			defer releaseProject()
 
-			if err := closeTaskTab(client, t.Herdr.WorkspaceID, t.Herdr.TabID); err != nil && !errors.Is(err, errTaskTabNotFound) {
-				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
-					return printErr
-				}
-			}
-			if err := worktree.Return(t.Worktree, true); err != nil {
-				return fmt.Errorf("return scout worktree: %w", err)
-			}
+			oldWorktree := t.Worktree
+			oldWorkspaceID := t.Herdr.WorkspaceID
+			oldTabID := t.Herdr.TabID
 
 			clonePath := filepath.Join(home, "projects", proj.Name)
 			wt, err := worktree.Get(clonePath, "hand:"+id)
@@ -159,6 +154,17 @@ func newPromoteCmd() *cobra.Command {
 			}
 			if err := state.Write(home, t); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+			}
+
+			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil && !errors.Is(err, errTaskTabNotFound) {
+				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
+					return printErr
+				}
+			}
+			if err := worktree.Return(oldWorktree, true); err != nil {
+				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: return scout worktree failed: %v\n", err); printErr != nil {
+					return printErr
+				}
 			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "promoted %s: scout -> ship project=%s harness=%s\n", id, proj.Name, harnessName); err != nil {
