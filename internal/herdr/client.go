@@ -53,10 +53,14 @@ func (c *Client) call(args ...string) (json.RawMessage, error) {
 	if len(env.Result) == 0 {
 		return nil, fmt.Errorf("herdr %s: response missing result", strings.Join(args, " "))
 	}
-	if string(bytes.TrimSpace(env.Result)) == "null" {
+	result := bytes.TrimSpace(env.Result)
+	if string(result) == "null" {
 		return nil, fmt.Errorf("herdr %s: response has null result", strings.Join(args, " "))
 	}
-	return env.Result, nil
+	if result[0] != '{' {
+		return nil, fmt.Errorf("herdr %s: response result is not an object", strings.Join(args, " "))
+	}
+	return result, nil
 }
 
 func (c *Client) WorkspaceList() ([]Workspace, error) {

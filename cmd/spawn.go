@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/harness"
@@ -14,6 +15,8 @@ import (
 	"github.com/atqamz/secondhand/internal/worktree"
 	"github.com/spf13/cobra"
 )
+
+var workspaceCreateMu sync.Mutex
 
 func newSpawnCmd() *cobra.Command {
 	var scout bool
@@ -82,21 +85,24 @@ func newSpawnCmd() *cobra.Command {
 			}
 
 			client := herdr.NewClient()
+			workspaceCreateMu.Lock()
 			ws, found, err := client.FindWorkspaceByLabel(proj.Name)
+			createdWorkspace := false
+			if err == nil && !found {
+				ws, err = client.WorkspaceCreate(clonePath, proj.Name)
+				createdWorkspace = err == nil
+			}
+			workspaceCreateMu.Unlock()
 			if err != nil {
 				_ = worktree.Return(wt, true)
-				return fmt.Errorf("herdr workspace lookup failed: %w", err)
-			}
-			if !found {
-				ws, err = client.WorkspaceCreate(clonePath, proj.Name)
-				if err != nil {
-					_ = worktree.Return(wt, true)
-					return fmt.Errorf("herdr workspace create failed: %w", err)
-				}
+				return fmt.Errorf("herdr workspace lookup/create failed: %w", err)
 			}
 
 			tab, pane, err := client.TabCreate(ws.WorkspaceID, wt, id)
 			if err != nil {
+				if createdWorkspace {
+					_ = client.WorkspaceClose(ws.WorkspaceID)
+				}
 				_ = worktree.Return(wt, true)
 				return fmt.Errorf("herdr tab create failed: %w", err)
 			}
@@ -108,13 +114,13 @@ func newSpawnCmd() *cobra.Command {
 				Effort:   effort,
 			})
 			if err != nil {
-				_ = client.TabClose(tab.TabID)
+				_ = closeTaskTab(client, ws.WorkspaceID, tab.TabID)
 				_ = worktree.Return(wt, true)
 				return err
 			}
 
 			if err := client.PaneRun(pane.PaneID, launchCmd); err != nil {
-				_ = client.TabClose(tab.TabID)
+				_ = closeTaskTab(client, ws.WorkspaceID, tab.TabID)
 				_ = worktree.Return(wt, true)
 				return fmt.Errorf("send launch command failed: %w", err)
 			}

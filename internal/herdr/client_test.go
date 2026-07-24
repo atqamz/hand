@@ -78,6 +78,14 @@ func TestCallRejectsNullResult(t *testing.T) {
 	}
 }
 
+func TestCallRejectsNonObjectResult(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"id":"cli:1","result":[]}'`)
+	c := NewClient()
+	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "not an object") {
+		t.Fatalf("got err %v, want non-object result failure", err)
+	}
+}
+
 func TestPaneRunRequiresResultEnvelope(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{}}'`)
 	c := NewClient()
