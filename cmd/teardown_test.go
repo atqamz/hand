@@ -215,7 +215,7 @@ func TestBranchIsMergedUsesOriginDefaultBranch(t *testing.T) {
 	}
 	runGit(worktreePath, "add", "feature.txt")
 	runGit(worktreePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "feature")
-	runGit(clonePath, "merge", "--no-ff", "-q", "task-1", "-m", "merge task")
+	runGit(clonePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "merge", "--no-ff", "-q", "task-1", "-m", "merge task")
 	runGit(clonePath, "checkout", "-q", "release")
 
 	merged, err := branchIsMerged(clonePath, worktreePath)
