@@ -61,6 +61,6 @@ jobs:
           chmod +x "$HOME/.local/bin/herdr"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install treehouse
-        run: go install github.com/kunchenguid/treehouse@v2.1.0
+        run: go install github.com/kunchenguid/treehouse@c0b7f685d4511eec765ab4cbb47583178424eb45
       - name: End-to-end
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
