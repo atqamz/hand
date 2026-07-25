@@ -28,8 +28,40 @@ func TestResolveMergeMethodHonorsFlags(t *testing.T) {
 }
 
 func TestResolveMergeMethodRejectsConflictingFlags(t *testing.T) {
-	if _, err := resolveMergeMethod(true, true, false); err == nil {
+	_, err := resolveMergeMethod(true, true, false)
+	if err == nil {
 		t.Fatal("want error for conflicting flags")
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
+func TestMergeRejectsLocalCombinedWithMethodFlags(t *testing.T) {
+	cmd := newMergeCmd()
+	cmd.SetArgs([]string{"task-1", "--local", "--squash"})
+	cmd.SetOut(new(strings.Builder))
+	cmd.SetErr(new(strings.Builder))
+	err := cmd.Execute()
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+	if !strings.Contains(err.Error(), "cannot be combined with --local") {
+		t.Fatalf("err = %v, want --local conflict", err)
+	}
+}
+
+func TestMergeRejectsConflictingMethodFlags(t *testing.T) {
+	cmd := newMergeCmd()
+	cmd.SetArgs([]string{"task-1", "--squash", "--rebase"})
+	cmd.SetOut(new(strings.Builder))
+	cmd.SetErr(new(strings.Builder))
+	err := cmd.Execute()
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+	if !strings.Contains(err.Error(), "only one of") {
+		t.Fatalf("err = %v, want mutually exclusive method flags", err)
 	}
 }
 

@@ -159,8 +159,8 @@ func TestProjectRemoveRefusesUnregistered(t *testing.T) {
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Fatalf("got %v, want ExitError code 3", err)
 	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("err = %v, want not found", err)
+	if !strings.Contains(err.Error(), `project "missing-proj" not registered`) {
+		t.Fatalf("err = %v, want not registered", err)
 	}
 }
 

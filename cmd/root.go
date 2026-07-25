@@ -45,7 +45,26 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newPromoteCmd())
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newUpdateCmd(version))
+	// ExecuteC would add the completion group later, too late for the guard below.
+	root.InitDefaultCompletionCmd()
+	guardSubcommandGroups(root)
 	return root
+}
+
+// guardSubcommandGroups makes every subcommand-only group below c reject an
+// unknown subcommand with exit code 2. A group with no RunE trips cobra's
+// Runnable() check, which short-circuits to a help dump and a zero exit before
+// the group's Args validator ever runs, so the group needs both. Root is left
+// alone: cobra's Find() already reports its unknown commands, and giving it a
+// non-nil Args would suppress that.
+func guardSubcommandGroups(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		if sub.HasSubCommands() && !sub.Runnable() {
+			sub.Args = usageArgs(cobra.NoArgs)
+			sub.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
+		}
+		guardSubcommandGroups(sub)
+	}
 }
 
 // usageArgs wraps a cobra.PositionalArgs validator so a mismatch is tagged as
@@ -80,8 +99,9 @@ func Execute(version string) {
 	os.Exit(code)
 }
 
-// ExitError carries the precondition-failure exit code (3) that SPECS.md
-// requires for refusals like red CI or uncommitted changes, distinct from
+// ExitError carries a non-default exit code that SPECS.md requires: 2 for a
+// usage error (bad arg count, unknown flag, unknown subcommand) and 3 for a
+// precondition failure like red CI or uncommitted changes, both distinct from
 // the general-error code (1) cobra otherwise produces for any RunE error.
 type ExitError struct {
 	Err  error

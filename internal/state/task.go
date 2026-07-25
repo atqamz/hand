@@ -14,12 +14,13 @@ import (
 )
 
 // ErrTaskNotFound is wrapped into errors returned by Read and Delete when no
-// state file exists for the given task ID.
-var ErrTaskNotFound = errors.New("task not found")
+// state file exists for the given task ID, rendering as `task "<id>" not found`.
+var ErrTaskNotFound = errors.New("not found")
 
 // ErrTaskActive is wrapped into errors returned by Claim when the task is
-// already claimed by another running command.
-var ErrTaskActive = errors.New("task already active")
+// already claimed by another running command, rendering as
+// `task "<id>" already active`.
+var ErrTaskActive = errors.New("already active")
 
 func Dir(homeDir string) string {
 	return filepath.Join(homeDir, "state")
@@ -52,7 +53,7 @@ func Claim(homeDir, id string) (func(), error) {
 	release, err := lock(homeDir, "task:"+id, true)
 	if err != nil {
 		if err == syscall.EWOULDBLOCK {
-			return nil, fmt.Errorf("%w: %q", ErrTaskActive, id)
+			return nil, fmt.Errorf("task %q %w", id, ErrTaskActive)
 		}
 		return nil, fmt.Errorf("lock task: %w", err)
 	}
@@ -63,7 +64,7 @@ func Claim(homeDir, id string) (func(), error) {
 	}
 	if active {
 		release()
-		return nil, fmt.Errorf("%w: %q", ErrTaskActive, id)
+		return nil, fmt.Errorf("task %q %w", id, ErrTaskActive)
 	}
 	return release, nil
 }
@@ -117,7 +118,7 @@ func Read(homeDir, id string) (Task, error) {
 	}
 	data, err := os.ReadFile(Path(homeDir, id))
 	if os.IsNotExist(err) {
-		return Task{}, fmt.Errorf("%w: %q", ErrTaskNotFound, id)
+		return Task{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
 	}
 	if err != nil {
 		return Task{}, fmt.Errorf("read task state %q: %w", id, err)
@@ -214,7 +215,7 @@ func Delete(homeDir, id string) error {
 	}
 	if err := os.Remove(Path(homeDir, id)); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("%w: %q", ErrTaskNotFound, id)
+			return fmt.Errorf("task %q %w", id, ErrTaskNotFound)
 		}
 		return fmt.Errorf("remove task state %q: %w", id, err)
 	}

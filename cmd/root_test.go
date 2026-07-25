@@ -52,6 +52,38 @@ func TestRootRejectsUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestGroupRejectsUnknownSubcommand(t *testing.T) {
+	for _, group := range []string{"project", "completion"} {
+		t.Run(group, func(t *testing.T) {
+			root := newRootCmd("test")
+			root.SetArgs([]string{group, "bogus-subcommand"})
+			root.SetOut(new(strings.Builder))
+			root.SetErr(new(strings.Builder))
+			_, err := root.ExecuteC()
+			if code := exitCodeFor(t, err); code != 2 {
+				t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+			}
+			if !strings.Contains(err.Error(), "unknown command") {
+				t.Fatalf("err = %v, want unknown command", err)
+			}
+		})
+	}
+}
+
+func TestGroupBareInvocationShowsHelpWithoutError(t *testing.T) {
+	root := newRootCmd("test")
+	root.SetArgs([]string{"project"})
+	var out strings.Builder
+	root.SetOut(&out)
+	root.SetErr(new(strings.Builder))
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatalf("got %v, want nil (bare group shows help)", err)
+	}
+	if !strings.Contains(out.String(), "Usage:") {
+		t.Fatalf("out = %q, want usage text", out.String())
+	}
+}
+
 func TestRootRejectsBadArgCount(t *testing.T) {
 	root := newRootCmd("test")
 	root.SetArgs([]string{"spawn", "onlyonearg"})
