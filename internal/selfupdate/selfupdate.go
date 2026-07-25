@@ -103,7 +103,7 @@ func Apply(repo, tag string) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	if err := downloadAssets(context.Background(), repo, tag, tmpDir, assetName, "checksums.txt"); err != nil {
 		return fmt.Errorf("download release assets: %w", err)
@@ -117,7 +117,7 @@ func Apply(repo, tag string) error {
 		return fmt.Errorf("stage new binary: %w", err)
 	}
 	tmpBinary := staged.Name()
-	defer os.Remove(tmpBinary)
+	defer func() { _ = os.Remove(tmpBinary) }()
 	if err := staged.Close(); err != nil {
 		return fmt.Errorf("stage new binary: %w", err)
 	}
@@ -167,7 +167,7 @@ func verifyChecksum(dir, assetName string) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", assetName, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -185,13 +185,13 @@ func extractBinary(tarGzPath, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", tarGzPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("open gzip stream in %s: %w", tarGzPath, err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -211,7 +211,7 @@ func extractBinary(tarGzPath, destPath string) error {
 			return fmt.Errorf("write %s: %w", destPath, err)
 		}
 		if _, err := io.Copy(out, tr); err != nil {
-			out.Close()
+			_ = out.Close()
 			return fmt.Errorf("write %s: %w", destPath, err)
 		}
 		if err := out.Close(); err != nil {

@@ -20,7 +20,7 @@ func newRootCmd(version string) *cobra.Command {
 			}
 			if home, err := os.Getwd(); err == nil {
 				if notice := selfupdate.CheckNotice(home, selfupdate.Repo, version); notice != "" {
-					fmt.Fprintln(cmd.ErrOrStderr(), notice)
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
 				}
 			}
 			return nil
