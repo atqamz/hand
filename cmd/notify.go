@@ -14,7 +14,7 @@ func newNotifyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "notify <message>",
 		Short: "Send an out-of-band notification",
-		Args:  cobra.ExactArgs(1),
+		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			message := args[0]
 			home, err := os.Getwd()

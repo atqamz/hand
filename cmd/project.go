@@ -35,7 +35,7 @@ func newProjectAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <repo-url>",
 		Short: "Clone a git repository and register it",
-		Args:  cobra.ExactArgs(1),
+		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			url := args[0]
 			if err := validateProjectURL(url); err != nil {
@@ -59,7 +59,7 @@ func newProjectAddCmd() *cobra.Command {
 			if _, exists, err := project.Find(home, name); err != nil {
 				return err
 			} else if exists {
-				return fmt.Errorf("project %q already registered", name)
+				return &ExitError{Err: fmt.Errorf("project %q already registered", name), Code: 3}
 			}
 
 			clonePath := filepath.Join(home, "projects", name)
@@ -139,7 +139,7 @@ func reserveCloneDestination(path string) error {
 	}
 	if err := os.Mkdir(path, 0o755); err != nil {
 		if os.IsExist(err) {
-			return fmt.Errorf("project destination %q already exists", path)
+			return &ExitError{Err: fmt.Errorf("project destination %q already exists", path), Code: 3}
 		}
 		return fmt.Errorf("reserve project destination: %w", err)
 	}
@@ -147,18 +147,25 @@ func reserveCloneDestination(path string) error {
 }
 
 func validateProjectName(name string) error {
+	if !isRegistrySafeName(name) {
+		return &ExitError{Err: fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name), Code: 2}
+	}
+	return nil
+}
+
+func isRegistrySafeName(name string) bool {
 	if name == "" {
-		return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+		return false
 	}
 	for i, r := range name {
 		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-' {
-			return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+			return false
 		}
 		if i == 0 && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
-			return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+			return false
 		}
 	}
-	return nil
+	return true
 }
 
 func validateProjectURL(url string) error {
@@ -167,7 +174,7 @@ func validateProjectURL(url string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("invalid project URL %q: must start with https://, git@, ssh://, or git://", url)
+	return &ExitError{Err: fmt.Errorf("invalid project URL %q: must start with https://, git@, ssh://, or git://", url), Code: 2}
 }
 
 func validateProjectMode(mode string) error {
@@ -175,7 +182,7 @@ func validateProjectMode(mode string) error {
 	case project.ModeNoMistakes, project.ModeDirectPR, project.ModeLocalOnly:
 		return nil
 	default:
-		return fmt.Errorf("invalid project mode %q: must be no-mistakes, direct-pr, or local-only", mode)
+		return &ExitError{Err: fmt.Errorf("invalid project mode %q: must be no-mistakes, direct-pr, or local-only", mode), Code: 2}
 	}
 }
 
@@ -217,7 +224,7 @@ func newProjectListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List registered projects",
-		Args:  cobra.NoArgs,
+		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.Getwd()
 			if err != nil {
@@ -262,7 +269,7 @@ func newProjectRemoveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "remove <name>",
 		Short: "Unregister a project",
-		Args:  cobra.ExactArgs(1),
+		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			home, err := os.Getwd()
@@ -273,11 +280,11 @@ func newProjectRemoveCmd() *cobra.Command {
 			if active, err := hasActiveTasksForProject(home, name); err != nil {
 				return err
 			} else if active {
-				return fmt.Errorf("project %q has active tasks referencing it", name)
+				return &ExitError{Err: fmt.Errorf("project %q has active tasks referencing it", name), Code: 3}
 			}
 
 			if err := project.Remove(home, name); err != nil {
-				return err
+				return asPrecondition(err)
 			}
 			if err := updateDashboardProjects(home); err != nil {
 				return err
@@ -329,7 +336,7 @@ func newProjectSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync [name]",
 		Short: "Fast-forward project clones to their remote default branch",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.Getwd()
 			if err != nil {
@@ -343,7 +350,7 @@ func newProjectSyncCmd() *cobra.Command {
 					return err
 				}
 				if !exists {
-					return fmt.Errorf("project %q not registered", args[0])
+					return &ExitError{Err: fmt.Errorf("project %q not registered", args[0]), Code: 3}
 				}
 				targets = []project.Project{p}
 			} else {

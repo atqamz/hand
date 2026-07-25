@@ -20,19 +20,20 @@ func newWatchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Poll herdr agent states and report actionable events",
-		Args:  cobra.NoArgs,
+		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
 
-			if poll == "" {
+			pollFromFlag := poll != ""
+			if !pollFromFlag {
 				poll = configDefault(home, "watch-interval", "5s")
 			}
 			pollInterval, err := time.ParseDuration(poll)
 			if err != nil {
-				return fmt.Errorf("invalid poll interval %q: %w", poll, err)
+				return usageValue(pollFromFlag, fmt.Errorf("invalid poll interval %q: %w", poll, err))
 			}
 
 			staleThreshold := defaultStaleThreshold
@@ -51,7 +52,7 @@ func newWatchCmd() *cobra.Command {
 				Home:           home,
 				PollInterval:   pollInterval,
 				StaleThreshold: staleThreshold,
-			}, cmd.OutOrStdout())
+			}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 

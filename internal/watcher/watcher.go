@@ -28,15 +28,17 @@ type Config struct {
 
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is
 // canceled. It returns nil on clean cancellation, or an error if herdr is
-// unreachable at startup.
-func Run(ctx context.Context, cfg Config, out io.Writer) error {
+// unreachable at startup. out receives the actionable event stream documented
+// in SPECS.md; errOut receives internal diagnostics (list/log/dashboard
+// failures), keeping the two streams separable per the stdout/stderr contract.
+func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client := herdr.NewClient()
 	if _, err := client.WorkspaceList(); err != nil {
 		return fmt.Errorf("herdr unreachable: %w", err)
 	}
 
 	states := make(map[string]*TaskState)
-	tick(ctx, cfg, client, states, out)
+	tick(ctx, cfg, client, states, out, errOut)
 
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
@@ -45,15 +47,15 @@ func Run(ctx context.Context, cfg Config, out io.Writer) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			tick(ctx, cfg, client, states, out)
+			tick(ctx, cfg, client, states, out, errOut)
 		}
 	}
 }
 
-func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out io.Writer) {
+func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {
 	tasks, err := state.List(cfg.Home)
 	if err != nil {
-		_, _ = fmt.Fprintf(out, "watch: list tasks failed: %v\n", err)
+		_, _ = fmt.Fprintf(errOut, "watch: list tasks failed: %v\n", err)
 		return
 	}
 
@@ -77,10 +79,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		}
 
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {
-			handleEvent(cfg, e, t, out)
+			handleEvent(cfg, e, t, out, errOut)
 		}
 		if e := ClassifyStale(ts, t.ID, now, cfg.StaleThreshold); e != nil {
-			handleEvent(cfg, e, t, out)
+			handleEvent(cfg, e, t, out, errOut)
 		}
 		if t.PR != "" && !ts.PRMerged {
 			ghCtx, ghCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -88,7 +90,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			ghCancel()
 			if err == nil {
 				if e := ClassifyPRMerged(ts, t.ID, merged); e != nil {
-					handleEvent(cfg, e, t, out)
+					handleEvent(cfg, e, t, out, errOut)
 				}
 			}
 		}
@@ -101,16 +103,16 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 }
 
-func handleEvent(cfg Config, e *Event, t state.Task, out io.Writer) {
+func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
 	_, _ = fmt.Fprintln(out, e.Text)
 
 	logPath := filepath.Join(state.Dir(cfg.Home), "events.log")
 	if err := appendEventLog(logPath, time.Now().UTC().Format(time.RFC3339)+" "+e.Text); err != nil {
-		_, _ = fmt.Fprintf(out, "watch: append events.log failed: %v\n", err)
+		_, _ = fmt.Fprintf(errOut, "watch: append events.log failed: %v\n", err)
 	}
 
 	if err := updateDashboardForEvent(cfg.Home, e, t); err != nil {
-		_, _ = fmt.Fprintf(out, "watch: update dashboard failed: %v\n", err)
+		_, _ = fmt.Fprintf(errOut, "watch: update dashboard failed: %v\n", err)
 	}
 }
 

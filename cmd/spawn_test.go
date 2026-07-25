@@ -128,7 +128,9 @@ func TestSpawnRejectsUnregisteredProject(t *testing.T) {
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "unknown-proj"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not registered") {
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "not registered") {
 		t.Fatalf("got err %v, want not registered", err)
 	}
 }
@@ -141,7 +143,9 @@ func TestSpawnRejectsAlreadyActiveTask(t *testing.T) {
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "already active") {
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "already active") {
 		t.Fatalf("got err %v, want already active", err)
 	}
 }
@@ -154,7 +158,9 @@ func TestSpawnRejectsMissingBrief(t *testing.T) {
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "brief not found") {
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "brief not found") {
 		t.Fatalf("got err %v, want brief not found", err)
 	}
 }
@@ -164,8 +170,12 @@ func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj", "--harness", "nonexistent"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not recognized") {
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not recognized") {
 		t.Fatalf("got err %v, want not recognized", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
 	}
 }
 

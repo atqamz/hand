@@ -155,6 +155,53 @@ func TestPromoteRefusesMissingReport(t *testing.T) {
 	}
 }
 
+func TestPromoteRefusesMissingBrief(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("findings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+}
+
+func TestPromoteRefusesUnregisteredProject(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("findings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "brief.md"), []byte("implement the fix"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout, Project: "unregistered-proj"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+}
+
 func TestPromoteRefusesWhenAgentStillWorking(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")

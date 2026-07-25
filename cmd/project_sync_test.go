@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -279,7 +280,12 @@ func TestProjectSyncCommandRejectsUnknownProjectName(t *testing.T) {
 
 	cmd := newProjectSyncCmd()
 	cmd.SetArgs([]string{"unknown"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not registered") {
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "not registered") {
 		t.Fatalf("got err %v, want not registered", err)
 	}
 }

@@ -39,8 +39,32 @@ func TestWatchRejectsInvalidPollFlag(t *testing.T) {
 
 	cmd := newWatchCmd()
 	cmd.SetArgs([]string{"--poll", "nonsense"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "invalid poll interval") {
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid poll interval") {
 		t.Fatalf("got err %v, want invalid poll interval", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
+func TestWatchRejectsInvalidPollConfigAsGeneralError(t *testing.T) {
+	home := setupWatchHome(t)
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "watch-interval"), []byte("nonsense"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid poll interval") {
+		t.Fatalf("got err %v, want invalid poll interval", err)
+	}
+	if code := exitCodeFor(t, err); code != 1 {
+		t.Fatalf("code = %d, want 1 (config value is not a usage error, err = %v)", code, err)
 	}
 }
 

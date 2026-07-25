@@ -1,19 +1,26 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
 func TestValidateProjectName(t *testing.T) {
 	for _, name := range []string{"", ".", "..", "../escape", "nested/name", `nested\\name`, "foo:bar", "repo ", "repo=one"} {
-		if err := validateProjectName(name); err == nil {
+		err := validateProjectName(name)
+		if err == nil {
 			t.Errorf("validateProjectName(%q) accepted unsafe name", name)
+			continue
+		}
+		if code := exitCodeFor(t, err); code != 2 {
+			t.Errorf("validateProjectName(%q) code = %d, want 2", name, code)
 		}
 	}
 	for _, name := range []string{"repo", "repo-name", "repo_name"} {
@@ -30,8 +37,13 @@ func TestValidateProjectURL(t *testing.T) {
 		}
 	}
 	for _, url := range []string{"", "local", "/tmp/repo", "file:///tmp/repo", "http://github.com/org/repo"} {
-		if err := validateProjectURL(url); err == nil {
+		err := validateProjectURL(url)
+		if err == nil {
 			t.Errorf("validateProjectURL(%q) accepted invalid URL", url)
+			continue
+		}
+		if code := exitCodeFor(t, err); code != 2 {
+			t.Errorf("validateProjectURL(%q) code = %d, want 2", url, code)
 		}
 	}
 }
@@ -42,8 +54,12 @@ func TestValidateProjectMode(t *testing.T) {
 			t.Errorf("validateProjectMode(%q) failed: %v", mode, err)
 		}
 	}
-	if err := validateProjectMode("unexpected"); err == nil {
+	err := validateProjectMode("unexpected")
+	if err == nil {
 		t.Fatal("validateProjectMode accepted unexpected mode")
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
 	}
 }
 
@@ -93,6 +109,72 @@ func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
 	}
 	if got, err := os.ReadFile(marker); err != nil || string(got) != "user data" {
 		t.Fatalf("existing clone changed: %q, %v", got, err)
+	}
+}
+
+func TestProjectAddRefusesAlreadyRegistered(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	if err := project.Add(home, project.Project{Name: "repo", URL: "https://example.com/org/repo.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{"https://example.com/org/repo.git", "--mode", "local-only"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "already registered") {
+		t.Fatalf("err = %v, want already registered", err)
+	}
+}
+
+func TestProjectRemoveRefusesActiveTasks(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/org/myproj.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRemoveCmd()
+	cmd.SetArgs([]string{"myproj"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "active tasks") {
+		t.Fatalf("err = %v, want active tasks referencing it", err)
+	}
+}
+
+func TestProjectRemoveRefusesUnregistered(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+
+	cmd := newProjectRemoveCmd()
+	cmd.SetArgs([]string{"missing-proj"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), `project "missing-proj" not registered`) {
+		t.Fatalf("err = %v, want not registered", err)
 	}
 }
 
@@ -153,6 +235,13 @@ func TestResolveInitHome(t *testing.T) {
 	}
 	if _, err := resolveInitHome(cwd, []string{"one", "two"}); err == nil {
 		t.Fatal("expected more than one init path to fail")
+	} else if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+	if _, err := resolveInitHome(cwd, []string{"  "}); err == nil {
+		t.Fatal("expected blank init path to fail")
+	} else if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
 	}
 }
 

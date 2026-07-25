@@ -21,8 +21,16 @@ func newMergeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "merge <id>",
 		Short: "Merge a task's completed work",
-		Args:  cobra.ExactArgs(1),
+		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if local && (squash || mergeCommit || rebase) {
+				return &ExitError{Err: fmt.Errorf("--squash, --merge, --rebase cannot be combined with --local"), Code: 2}
+			}
+			method, err := resolveMergeMethod(squash, mergeCommit, rebase)
+			if err != nil {
+				return err
+			}
+
 			id := args[0]
 			home, err := os.Getwd()
 			if err != nil {
@@ -37,7 +45,7 @@ func newMergeCmd() *cobra.Command {
 
 			t, err := state.Read(home, id)
 			if err != nil {
-				return err
+				return asPrecondition(err)
 			}
 
 			if t.Merged {
@@ -45,15 +53,7 @@ func newMergeCmd() *cobra.Command {
 			}
 
 			if local {
-				if squash || mergeCommit || rebase {
-					return &ExitError{Err: fmt.Errorf("--squash, --merge, --rebase cannot be combined with --local"), Code: 3}
-				}
 				return runLocalMerge(cmd, home, t)
-			}
-
-			method, err := resolveMergeMethod(squash, mergeCommit, rebase)
-			if err != nil {
-				return err
 			}
 			return runPRMerge(cmd, home, t, method)
 		},
@@ -74,7 +74,7 @@ func resolveMergeMethod(squash, mergeCommit, rebase bool) (string, error) {
 		}
 	}
 	if count > 1 {
-		return "", fmt.Errorf("only one of --squash, --merge, --rebase may be specified")
+		return "", &ExitError{Err: fmt.Errorf("only one of --squash, --merge, --rebase may be specified"), Code: 2}
 	}
 	switch {
 	case mergeCommit:
