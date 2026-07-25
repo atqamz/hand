@@ -193,14 +193,14 @@ func runInteractiveSetup(cmd *cobra.Command, home string) error {
 
 func resolveInitHome(cwd string, args []string) (string, error) {
 	if len(args) > 1 {
-		return "", fmt.Errorf("init accepts at most one target path")
+		return "", &ExitError{Err: fmt.Errorf("init accepts at most one target path"), Code: 2}
 	}
 	if len(args) == 0 {
 		return cwd, nil
 	}
 	home := args[0]
 	if strings.TrimSpace(home) == "" {
-		return "", fmt.Errorf("init target path cannot be empty")
+		return "", &ExitError{Err: fmt.Errorf("init target path cannot be empty"), Code: 2}
 	}
 	if !filepath.IsAbs(home) {
 		home = filepath.Join(cwd, home)

@@ -84,6 +84,16 @@ func registerProject(t *testing.T, home, name, mode string) {
 	}
 }
 
+func writeConfig(t *testing.T, home, name, value string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", name), []byte(value), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeBrief(t *testing.T, home, id string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(home, "data", id), 0o755); err != nil {
@@ -139,6 +149,9 @@ func TestExitCodeTwoOnUsageError(t *testing.T) {
 		{"unknown flag", []string{"spawn", "--bogus", "task-1", "demo"}, "unknown flag: --bogus"},
 		{"conflicting merge methods", []string{"merge", "task-1", "--squash", "--rebase"}, "only one of --squash, --merge, --rebase"},
 		{"merge method with local", []string{"merge", "task-1", "--local", "--squash"}, "cannot be combined with --local"},
+		{"invalid project URL", []string{"project", "add", "not-a-url"}, "invalid project URL"},
+		{"invalid project mode", []string{"project", "add", "https://example.com/demo.git", "--mode", "bogus"}, "invalid project mode"},
+		{"invalid poll interval", []string{"watch", "--poll", "nonsense"}, "invalid poll interval"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -278,19 +291,31 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 }
 
 func TestExitCodeOneOnGeneralError(t *testing.T) {
-	home := newHome(t)
-
 	cases := []struct {
 		name       string
+		config     map[string]string
 		args       []string
 		wantStderr string
 	}{
-		{"invalid project URL", []string{"project", "add", "not-a-url"}, "invalid project URL"},
-		{"invalid project mode", []string{"project", "add", "https://example.com/demo.git", "--mode", "bogus"}, "invalid project mode"},
-		{"invalid poll interval", []string{"watch", "--poll", "nonsense"}, "invalid poll interval"},
+		{
+			name:       "malformed watch-interval config",
+			config:     map[string]string{"watch-interval": "nonsense"},
+			args:       []string{"watch"},
+			wantStderr: "invalid poll interval",
+		},
+		{
+			name:       "malformed stale-threshold config",
+			config:     map[string]string{"stale-threshold": "not-a-number"},
+			args:       []string{"watch", "--poll", "1h"},
+			wantStderr: "invalid config/stale-threshold",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			home := newHome(t)
+			for name, value := range tc.config {
+				writeConfig(t, home, name, value)
+			}
 			assertInvocation(t, runHand(t, home, tc.args...), 1, tc.wantStderr)
 		})
 	}

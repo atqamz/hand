@@ -27,12 +27,13 @@ func newWatchCmd() *cobra.Command {
 				return fmt.Errorf("get working directory: %w", err)
 			}
 
-			if poll == "" {
+			pollFromFlag := poll != ""
+			if !pollFromFlag {
 				poll = configDefault(home, "watch-interval", "5s")
 			}
 			pollInterval, err := time.ParseDuration(poll)
 			if err != nil {
-				return fmt.Errorf("invalid poll interval %q: %w", poll, err)
+				return usageValue(pollFromFlag, fmt.Errorf("invalid poll interval %q: %w", poll, err))
 			}
 
 			staleThreshold := defaultStaleThreshold

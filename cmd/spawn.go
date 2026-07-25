@@ -56,11 +56,12 @@ func newSpawnCmd() *cobra.Command {
 				return &ExitError{Err: fmt.Errorf("brief not found at %s", briefRel), Code: 3}
 			}
 
-			if harnessName == "" {
+			harnessFromFlag := harnessName != ""
+			if !harnessFromFlag {
 				harnessName = configDefault(home, "harness", "claude")
 			}
 			if !harness.IsSupported(harnessName) {
-				return fmt.Errorf("harness %q not recognized", harnessName)
+				return usageValue(harnessFromFlag, fmt.Errorf("harness %q not recognized", harnessName))
 			}
 			if model == "" {
 				model = configDefault(home, "model", "")

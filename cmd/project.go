@@ -147,18 +147,25 @@ func reserveCloneDestination(path string) error {
 }
 
 func validateProjectName(name string) error {
+	if !isRegistrySafeName(name) {
+		return &ExitError{Err: fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name), Code: 2}
+	}
+	return nil
+}
+
+func isRegistrySafeName(name string) bool {
 	if name == "" {
-		return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+		return false
 	}
 	for i, r := range name {
 		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-' {
-			return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+			return false
 		}
 		if i == 0 && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
-			return fmt.Errorf("invalid project name %q: must be a registry-safe identifier", name)
+			return false
 		}
 	}
-	return nil
+	return true
 }
 
 func validateProjectURL(url string) error {
@@ -167,7 +174,7 @@ func validateProjectURL(url string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("invalid project URL %q: must start with https://, git@, ssh://, or git://", url)
+	return &ExitError{Err: fmt.Errorf("invalid project URL %q: must start with https://, git@, ssh://, or git://", url), Code: 2}
 }
 
 func validateProjectMode(mode string) error {
@@ -175,7 +182,7 @@ func validateProjectMode(mode string) error {
 	case project.ModeNoMistakes, project.ModeDirectPR, project.ModeLocalOnly:
 		return nil
 	default:
-		return fmt.Errorf("invalid project mode %q: must be no-mistakes, direct-pr, or local-only", mode)
+		return &ExitError{Err: fmt.Errorf("invalid project mode %q: must be no-mistakes, direct-pr, or local-only", mode), Code: 2}
 	}
 }
 

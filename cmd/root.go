@@ -78,6 +78,16 @@ func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
 	}
 }
 
+// usageValue tags a rejected input value as exit code 2 only when it came from
+// the command line. The same value read from a config/ default is a general
+// error (code 1): nothing the invocation said was wrong.
+func usageValue(fromFlag bool, err error) error {
+	if fromFlag {
+		return &ExitError{Err: err, Code: 2}
+	}
+	return err
+}
+
 func Execute(version string) {
 	root := newRootCmd(version)
 	found, err := root.ExecuteC()
@@ -100,9 +110,10 @@ func Execute(version string) {
 }
 
 // ExitError carries a non-default exit code that SPECS.md requires: 2 for a
-// usage error (bad arg count, unknown flag, unknown subcommand) and 3 for a
-// precondition failure like red CI or uncommitted changes, both distinct from
-// the general-error code (1) cobra otherwise produces for any RunE error.
+// usage error (bad arg count, unknown flag, unknown subcommand, invalid
+// argument or flag value) and 3 for a precondition failure like red CI or
+// uncommitted changes, both distinct from the general-error code (1) cobra
+// otherwise produces for any RunE error.
 type ExitError struct {
 	Err  error
 	Code int

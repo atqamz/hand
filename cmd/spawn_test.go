@@ -170,8 +170,12 @@ func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj", "--harness", "nonexistent"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not recognized") {
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not recognized") {
 		t.Fatalf("got err %v, want not recognized", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
 	}
 }
 
