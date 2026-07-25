@@ -66,6 +66,22 @@ func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckReportsAvailableUpdateForDevBuild(t *testing.T) {
+	writeFakeGHReleaseView(t, "v0.5.0")
+
+	cmd := newUpdateCmd("dev")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--check"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := "update available: dev -> v0.5.0\n"
+	if out.String() != want {
+		t.Fatalf("got %q, want %q", out.String(), want)
+	}
+}
+
 func TestUpdatePropagatesLatestTagError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 

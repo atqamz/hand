@@ -112,11 +112,19 @@ func Apply(repo, tag string) error {
 		return err
 	}
 
-	tmpBinary := filepath.Join(filepath.Dir(execPath), ".hand-update-"+tag)
+	staged, err := os.CreateTemp(filepath.Dir(execPath), ".hand-update-*")
+	if err != nil {
+		return fmt.Errorf("stage new binary: %w", err)
+	}
+	tmpBinary := staged.Name()
+	defer os.Remove(tmpBinary)
+	if err := staged.Close(); err != nil {
+		return fmt.Errorf("stage new binary: %w", err)
+	}
+
 	if err := extractBinary(filepath.Join(tmpDir, assetName), tmpBinary); err != nil {
 		return err
 	}
-	defer os.Remove(tmpBinary)
 
 	if err := os.Rename(tmpBinary, execPath); err != nil {
 		return fmt.Errorf("replace running binary: %w", err)
@@ -206,7 +214,12 @@ func extractBinary(tarGzPath, destPath string) error {
 			out.Close()
 			return fmt.Errorf("write %s: %w", destPath, err)
 		}
-		return out.Close()
+		if err := out.Close(); err != nil {
+			return fmt.Errorf("write %s: %w", destPath, err)
+		}
+		// OpenFile's mode only applies when it creates the file, and the
+		// staging path already exists.
+		return os.Chmod(destPath, 0o755)
 	}
 }
 

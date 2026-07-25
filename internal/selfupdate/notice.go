@@ -24,7 +24,16 @@ type versionCache struct {
 // available, or "" when up to date or when the check can't be completed. It
 // is bounded by checkTimeout and never fails the caller: startup version
 // checks must be non-blocking and non-fatal per SPECS.md.
+//
+// A currentVersion that isn't semver (a build without ldflags, defaulting to
+// "dev") never gets a notice: there is no released version to compare against,
+// so nagging a from-source build would be noise. `hand update` still resolves
+// and installs the latest release for such builds.
 func CheckNotice(home, repo, currentVersion string) string {
+	if _, _, _, err := parseSemver(currentVersion); err != nil {
+		return ""
+	}
+
 	stateDir := filepath.Join(home, "state")
 	if _, err := os.Stat(stateDir); err != nil {
 		return ""
@@ -39,11 +48,13 @@ func CheckNotice(home, repo, currentVersion string) string {
 		ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 		defer cancel()
 		tag, err := latestTag(ctx, repo)
+		// Cache failures too, so an unreachable or black-holed network costs
+		// one checkTimeout stall per interval instead of one per command.
+		_ = writeCache(cachePath, versionCache{CheckedAt: now, Latest: tag})
 		if err != nil {
 			return ""
 		}
 		latest = tag
-		_ = writeCache(cachePath, versionCache{CheckedAt: now, Latest: tag})
 	}
 
 	newer, err := IsNewer(latest, currentVersion)

@@ -30,6 +30,7 @@ Run `hand --help` for the full command reference.
 - Exit codes (SPECS.md "Exit codes") are enforced via `cmd.ExitError` (`cmd/root.go`), unwrapped in `Execute()`. Return `&ExitError{Err: ..., Code: 3}` for precondition failures (red CI, unlanded work, missing brief); plain errors default to code 1.
 - Dashboard maintenance (SPECS.md's per-command update rules) is only partially implemented: `project add/remove/sync` update `data/dashboard.md` via `updateDashboardProjects`; `spawn`/`teardown`/`merge`/`promote` deliberately do not touch the Active Tasks/Events sections. Follow this precedent rather than building it out unilaterally.
 - GitHub Releases access (`hand update`, `internal/selfupdate`) shells out to the `gh` CLI rather than calling the REST API directly, matching `internal/ghutil`'s existing convention. Tests fake `gh` with a shell script on `PATH` (see `writeFakeGH` in `internal/selfupdate/selfupdate_test.go`), the same pattern `cmd/status_test.go` uses for `herdr`.
+- `hand update` implements SPECS.md's update flow only partially: it deliberately does not re-run `hand init` to refresh the AGENTS.md template and does not print release notes. This is a recorded scope-down, not an oversight; follow this precedent rather than building it out unilaterally.
 
 ## Maintaining this file
 

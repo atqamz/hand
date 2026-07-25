@@ -142,6 +142,70 @@ func TestApplyReplacesRunningBinary(t *testing.T) {
 	if string(got) != "new binary contents" {
 		t.Fatalf("got %q, want new binary contents", got)
 	}
+
+	info, err := os.Stat(execPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("got mode %v, want 0755", info.Mode().Perm())
+	}
+
+	entries, err := os.ReadDir(execDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries in install dir, want only the replaced binary", len(entries))
+	}
+}
+
+func TestApplyLeavesNoStagedFileWhenExtractionFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+
+	fixture := t.TempDir()
+	assetName := AssetName()
+	payload := []byte("not a gzip stream")
+	if err := os.WriteFile(filepath.Join(fixture, assetName), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(payload)
+	checksums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName)
+	if err := os.WriteFile(filepath.Join(fixture, "checksums.txt"), []byte(checksums), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGH(t, "v0.5.0", fixture)
+
+	execDir := t.TempDir()
+	execPath := filepath.Join(execDir, "hand")
+	if err := os.WriteFile(execPath, []byte("old binary contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := executableOverride
+	executableOverride = func() (string, error) { return execPath, nil }
+	defer func() { executableOverride = restore }()
+
+	if err := Apply("atqamz/secondhand", "v0.5.0"); err == nil {
+		t.Fatal("want error when the asset is not a valid archive")
+	}
+
+	entries, err := os.ReadDir(execDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries in install dir, want no staged leftovers", len(entries))
+	}
+	got, err := os.ReadFile(execPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "old binary contents" {
+		t.Fatalf("got %q, want the running binary left untouched", got)
+	}
 }
 
 func TestVerifyChecksumMismatch(t *testing.T) {
