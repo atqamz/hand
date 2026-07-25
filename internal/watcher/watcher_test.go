@@ -3,6 +3,7 @@ package watcher
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,14 +107,14 @@ func TestTickClassifiesDoneAndUpdatesDashboardAndLog(t *testing.T) {
 	ctx := context.Background()
 
 	var buf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if buf.Len() != 0 {
 		t.Fatalf("first tick printed output for newly seen task: %q", buf.String())
 	}
 
 	setStatus(t, statusFile, "done")
 	buf.Reset()
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "done task-1") {
 		t.Fatalf("output = %q, want done task-1", buf.String())
 	}
@@ -135,7 +136,7 @@ func TestTickClassifiesDoneAndUpdatesDashboardAndLog(t *testing.T) {
 	}
 
 	buf.Reset()
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if buf.Len() != 0 {
 		t.Fatalf("repeated done state fired again: %q", buf.String())
 	}
@@ -155,11 +156,11 @@ func TestTickClassifiesBlockedAndSetsPendingDecision(t *testing.T) {
 	ctx := context.Background()
 
 	var buf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 
 	setStatus(t, statusFile, "blocked")
 	buf.Reset()
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "blocked task-1:") {
 		t.Fatalf("output = %q, want blocked task-1", buf.String())
 	}
@@ -184,16 +185,16 @@ func TestTickClassifiesPRMerged(t *testing.T) {
 	ctx := context.Background()
 
 	var buf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 
 	buf.Reset()
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "pr-merged task-1") {
 		t.Fatalf("output = %q, want pr-merged task-1", buf.String())
 	}
 
 	buf.Reset()
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if buf.Len() != 0 {
 		t.Fatalf("pr-merged fired again: %q", buf.String())
 	}
@@ -212,7 +213,7 @@ func TestTickForgetsTornDownTasks(t *testing.T) {
 	ctx := context.Background()
 
 	var buf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if len(states) != 1 {
 		t.Fatalf("states = %+v, want task-1 tracked", states)
 	}
@@ -220,7 +221,7 @@ func TestTickForgetsTornDownTasks(t *testing.T) {
 	if err := state.Delete(home, "task-1"); err != nil {
 		t.Fatal(err)
 	}
-	tick(ctx, cfg, client, states, &buf)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if len(states) != 0 {
 		t.Fatalf("states = %+v, want torn-down task forgotten", states)
 	}
@@ -234,7 +235,7 @@ func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	home := t.TempDir()
-	err := Run(context.Background(), Config{Home: home, PollInterval: time.Second, StaleThreshold: time.Minute}, &bytes.Buffer{})
+	err := Run(context.Background(), Config{Home: home, PollInterval: time.Second, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "herdr unreachable") {
 		t.Fatalf("got err %v, want herdr unreachable", err)
 	}
@@ -253,7 +254,7 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{})
+		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
 	}()
 
 	time.Sleep(50 * time.Millisecond)

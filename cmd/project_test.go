@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -93,6 +95,72 @@ func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
 	}
 	if got, err := os.ReadFile(marker); err != nil || string(got) != "user data" {
 		t.Fatalf("existing clone changed: %q, %v", got, err)
+	}
+}
+
+func TestProjectAddRefusesAlreadyRegistered(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	if err := project.Add(home, project.Project{Name: "repo", URL: "https://example.com/org/repo.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{"https://example.com/org/repo.git", "--mode", "local-only"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "already registered") {
+		t.Fatalf("err = %v, want already registered", err)
+	}
+}
+
+func TestProjectRemoveRefusesActiveTasks(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/org/myproj.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRemoveCmd()
+	cmd.SetArgs([]string{"myproj"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "active tasks") {
+		t.Fatalf("err = %v, want active tasks referencing it", err)
+	}
+}
+
+func TestProjectRemoveRefusesUnregistered(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+
+	cmd := newProjectRemoveCmd()
+	cmd.SetArgs([]string{"missing-proj"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("err = %v, want not found", err)
 	}
 }
 

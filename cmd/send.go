@@ -16,7 +16,7 @@ func newSendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send <id> <message>",
 		Short: "Send a text message to a running worker's herdr pane",
-		Args:  cobra.ExactArgs(2),
+		Args:  usageArgs(cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			message := args[1]
@@ -28,7 +28,7 @@ func newSendCmd() *cobra.Command {
 
 			t, err := state.Read(home, id)
 			if err != nil {
-				return err
+				return asPrecondition(err)
 			}
 
 			client := herdr.NewClient()

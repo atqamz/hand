@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,14 @@ import (
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
+
+func assertExitCode3(t *testing.T, err error) {
+	t.Helper()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+}
 
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
@@ -92,7 +101,9 @@ func TestTeardownShipFailsOnUncommittedChanges(t *testing.T) {
 
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "uncommitted changes") {
 		t.Fatalf("got err %v, want uncommitted changes", err)
 	}
 }
@@ -113,7 +124,9 @@ printf '{"state":"OPEN"}'
 
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not merged") {
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "not merged") {
 		t.Fatalf("got err %v, want not merged", err)
 	}
 }
@@ -192,7 +205,9 @@ func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not merged into the default branch") {
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "not merged into the default branch") {
 		t.Fatalf("got err %v, want branch not merged", err)
 	}
 }
@@ -241,7 +256,9 @@ func TestTeardownScoutFailsWhenReportMissing(t *testing.T) {
 
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "report not found") {
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "report not found") {
 		t.Fatalf("got err %v, want report not found", err)
 	}
 }

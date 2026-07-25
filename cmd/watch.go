@@ -20,7 +20,7 @@ func newWatchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Poll herdr agent states and report actionable events",
-		Args:  cobra.NoArgs,
+		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.Getwd()
 			if err != nil {
@@ -51,7 +51,7 @@ func newWatchCmd() *cobra.Command {
 				Home:           home,
 				PollInterval:   pollInterval,
 				StaleThreshold: staleThreshold,
-			}, cmd.OutOrStdout())
+			}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 

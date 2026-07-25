@@ -21,7 +21,7 @@ func newMergeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "merge <id>",
 		Short: "Merge a task's completed work",
-		Args:  cobra.ExactArgs(1),
+		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			home, err := os.Getwd()
@@ -37,7 +37,7 @@ func newMergeCmd() *cobra.Command {
 
 			t, err := state.Read(home, id)
 			if err != nil {
-				return err
+				return asPrecondition(err)
 			}
 
 			if t.Merged {
@@ -46,7 +46,7 @@ func newMergeCmd() *cobra.Command {
 
 			if local {
 				if squash || mergeCommit || rebase {
-					return &ExitError{Err: fmt.Errorf("--squash, --merge, --rebase cannot be combined with --local"), Code: 3}
+					return fmt.Errorf("--squash, --merge, --rebase cannot be combined with --local")
 				}
 				return runLocalMerge(cmd, home, t)
 			}

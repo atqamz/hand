@@ -13,7 +13,7 @@ func newUpdateCmd(version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Self-update the hand binary from GitHub Releases",
-		Args:  cobra.NoArgs,
+		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			latest, err := selfupdate.LatestTag(selfupdate.Repo)
 			if err != nil {

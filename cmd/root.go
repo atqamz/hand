@@ -25,8 +25,15 @@ func newRootCmd(version string) *cobra.Command {
 			}
 			return nil
 		},
+		// Cobra's own error/usage printing is disabled; Execute prints exactly
+		// one line to stderr and picks the exit code, so nothing else should.
+		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
+	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		return &ExitError{Err: err, Code: 2}
+	})
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newProjectCmd())
 	root.AddCommand(newSpawnCmd())
@@ -41,16 +48,36 @@ func newRootCmd(version string) *cobra.Command {
 	return root
 }
 
-func Execute(version string) {
-	if err := newRootCmd(version).Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		code := 1
-		var exitErr *ExitError
-		if errors.As(err, &exitErr) {
-			code = exitErr.Code
+// usageArgs wraps a cobra.PositionalArgs validator so a mismatch is tagged as
+// exit code 2 (usage error) rather than falling through to the general code 1.
+func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(c *cobra.Command, args []string) error {
+		if err := validate(c, args); err != nil {
+			return &ExitError{Err: err, Code: 2}
 		}
-		os.Exit(code)
+		return nil
 	}
+}
+
+func Execute(version string) {
+	root := newRootCmd(version)
+	found, err := root.ExecuteC()
+	if err == nil {
+		return
+	}
+
+	fmt.Fprintln(os.Stderr, err)
+	code := 1
+	var exitErr *ExitError
+	switch {
+	case errors.As(err, &exitErr):
+		code = exitErr.Code
+	case found == root:
+		// cobra's own dispatch failed before reaching any subcommand's Args
+		// check (e.g. an unknown command name) - untagged, but still a usage error.
+		code = 2
+	}
+	os.Exit(code)
 }
 
 // ExitError carries the precondition-failure exit code (3) that SPECS.md

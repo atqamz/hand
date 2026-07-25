@@ -3,6 +3,7 @@ package project
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,9 @@ const (
 	ModeDirectPR   = "direct-pr"
 	ModeLocalOnly  = "local-only"
 )
+
+// ErrNotFound is wrapped into the error Remove returns when name isn't registered.
+var ErrNotFound = errors.New("project not found")
 
 type Project struct {
 	Name string
@@ -168,7 +172,7 @@ func Remove(homeDir, name string) error {
 	path := RegistryPath(homeDir)
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
-		return fmt.Errorf("project %q not found", name)
+		return fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
 	if err != nil {
 		return err
@@ -201,7 +205,7 @@ func Remove(homeDir, name string) error {
 		return fmt.Errorf("read project registry: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("project %q not found", name)
+		return fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
 
 	content := strings.Join(kept, "\n") + "\n"

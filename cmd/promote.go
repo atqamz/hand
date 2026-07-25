@@ -22,7 +22,7 @@ func newPromoteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "promote <id>",
 		Short: "Promote a completed scout task into a ship task",
-		Args:  cobra.ExactArgs(1),
+		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			home, err := os.Getwd()
@@ -38,7 +38,7 @@ func newPromoteCmd() *cobra.Command {
 
 			t, err := state.Read(home, id)
 			if err != nil {
-				return err
+				return asPrecondition(err)
 			}
 			if t.Kind != state.KindScout {
 				return &ExitError{Err: fmt.Errorf("task %q is not a scout", id), Code: 3}
@@ -57,7 +57,7 @@ func newPromoteCmd() *cobra.Command {
 			briefRel := filepath.Join("data", id, "brief.md")
 			briefAbs := filepath.Join(home, briefRel)
 			if _, err := os.Stat(briefAbs); err != nil {
-				return fmt.Errorf("brief not found at %s", briefRel)
+				return &ExitError{Err: fmt.Errorf("brief not found at %s", briefRel), Code: 3}
 			}
 
 			if harnessName == "" {
@@ -78,7 +78,7 @@ func newPromoteCmd() *cobra.Command {
 				return err
 			}
 			if !exists {
-				return fmt.Errorf("project %q not registered", t.Project)
+				return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
 			}
 
 			releaseProject, err := state.Lock(home, "project:"+proj.Name)
@@ -105,7 +105,7 @@ func newPromoteCmd() *cobra.Command {
 			if conflict, err := worktree.CheckCollision(home, wt, id); err != nil {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			} else if conflict != "" {
-				return reportSpawnCleanup(fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), worktree.Return(wt, true))
+				return reportSpawnCleanup(&ExitError{Err: fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), Code: 3}, worktree.Return(wt, true))
 			}
 
 			ws, found, err := client.FindWorkspaceByLabel(proj.Name)

@@ -26,7 +26,7 @@ func newSpawnCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "spawn <id> <project>",
 		Short: "Spawn a worker agent in an isolated worktree",
-		Args:  cobra.ExactArgs(2),
+		Args:  usageArgs(cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			projectName := args[1]
@@ -41,19 +41,19 @@ func newSpawnCmd() *cobra.Command {
 				return err
 			}
 			if !exists {
-				return fmt.Errorf("project %q not registered", projectName)
+				return &ExitError{Err: fmt.Errorf("project %q not registered", projectName), Code: 3}
 			}
 
 			releaseClaim, err := state.Claim(home, id)
 			if err != nil {
-				return err
+				return asPrecondition(err)
 			}
 			defer releaseClaim()
 
 			briefRel := filepath.Join("data", id, "brief.md")
 			briefAbs := filepath.Join(home, briefRel)
 			if _, err := os.Stat(briefAbs); err != nil {
-				return fmt.Errorf("brief not found at %s", briefRel)
+				return &ExitError{Err: fmt.Errorf("brief not found at %s", briefRel), Code: 3}
 			}
 
 			if harnessName == "" {
@@ -88,7 +88,7 @@ func newSpawnCmd() *cobra.Command {
 			if conflict, err := worktree.CheckCollision(home, wt, id); err != nil {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			} else if conflict != "" {
-				return reportSpawnCleanup(fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), worktree.Return(wt, true))
+				return reportSpawnCleanup(&ExitError{Err: fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), Code: 3}, worktree.Return(wt, true))
 			}
 
 			client := herdr.NewClient()

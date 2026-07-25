@@ -26,7 +26,7 @@ func newTeardownCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "teardown <id>",
 		Short: "Clean up a completed task",
-		Args:  cobra.ExactArgs(1),
+		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			home, err := os.Getwd()
@@ -41,7 +41,7 @@ func newTeardownCmd() *cobra.Command {
 
 			t, err := state.Read(home, id)
 			if err != nil {
-				return err
+				return asPrecondition(err)
 			}
 
 			if !force {
@@ -70,7 +70,7 @@ func newTeardownCmd() *cobra.Command {
 			}
 
 			if err := state.Delete(home, id); err != nil {
-				return err
+				return asPrecondition(err)
 			}
 
 			completion := completionFor(t, force)
@@ -113,7 +113,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) error {
 	if t.Kind == state.KindScout {
 		reportPath := filepath.Join("data", t.ID, "report.md")
 		if _, err := os.Stat(filepath.Join(home, reportPath)); err != nil {
-			return fmt.Errorf("report not found at %s", reportPath)
+			return &ExitError{Err: fmt.Errorf("report not found at %s", reportPath), Code: 3}
 		}
 		return nil
 	}
@@ -123,7 +123,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) error {
 		return err
 	}
 	if dirty {
-		return fmt.Errorf("uncommitted changes in worktree %s", t.Worktree)
+		return &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", t.Worktree), Code: 3}
 	}
 
 	if t.PR != "" {
@@ -132,7 +132,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) error {
 			return err
 		}
 		if !merged {
-			return fmt.Errorf("PR %s is not merged", t.PR)
+			return &ExitError{Err: fmt.Errorf("PR %s is not merged", t.PR), Code: 3}
 		}
 		return nil
 	}
@@ -147,12 +147,12 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) error {
 			return err
 		}
 		if !merged {
-			return fmt.Errorf("branch for %s is not merged into the default branch", t.ID)
+			return &ExitError{Err: fmt.Errorf("branch for %s is not merged into the default branch", t.ID), Code: 3}
 		}
 		return nil
 	}
 
-	return fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID)
+	return &ExitError{Err: fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID), Code: 3}
 }
 
 func hasUncommittedChanges(worktreePath string) (bool, error) {

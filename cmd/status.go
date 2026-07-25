@@ -17,7 +17,7 @@ func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status [id]",
 		Short: "Show fleet overview or single-task detail",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.Getwd()
 			if err != nil {
@@ -94,7 +94,7 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON bool) error {
 	t, err := state.Read(home, id)
 	if err != nil {
-		return err
+		return asPrecondition(err)
 	}
 	agentState := paneAgentStatus(client, t.Herdr.PaneID)
 
