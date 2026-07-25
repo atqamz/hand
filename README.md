@@ -46,7 +46,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Available |
 | `hand notify` | Send an out-of-band notification via a configured command | Available |
-| `hand update` | Update the installed binary | Specified; not yet implemented |
+| `hand update` | Update the installed binary from the latest GitHub Release; `--check` reports availability without installing | Available |
 
 Run `hand --help` for details on currently available commands.
 
@@ -70,7 +70,7 @@ flowchart TD
 - Go 1.26.5 or newer (build only)
 - [herdr](https://github.com/ogulcancelik/herdr) - terminal multiplexer with semantic agent state
 - [treehouse](https://github.com/kunchenguid/treehouse) - git worktree pool manager
-- [gh](https://github.com/cli/cli) - GitHub CLI, used for PR operations
+- [gh](https://github.com/cli/cli) - GitHub CLI, used for PR and release operations
 
 Optional:
 
@@ -98,6 +98,12 @@ nix build
 ```
 
 From releases: download the binary for your platform from the [releases page](https://github.com/atqamz/secondhand/releases).
+
+To update an installed binary, run `hand update`.
+It downloads the release asset for the current OS and architecture, verifies its SHA256 checksum, and replaces the running binary in place.
+`hand update --check` reports whether an update is available without installing it.
+Every other command run in a workspace prints a one-line notice to stderr when a newer release exists, checked at most once a day and cached in `state/.version-check`.
+Builds without an embedded version never print the notice.
 
 ## Configuration
 

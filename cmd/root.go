@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
 
@@ -13,6 +14,17 @@ func newRootCmd(version string) *cobra.Command {
 		Use:     "hand",
 		Short:   "Talk to one agent. Ship with a crew.",
 		Version: version,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Name() == "update" {
+				return nil
+			}
+			if home, err := os.Getwd(); err == nil {
+				if notice := selfupdate.CheckNotice(home, selfupdate.Repo, version); notice != "" {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
+				}
+			}
+			return nil
+		},
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(newInitCmd())
@@ -25,6 +37,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newMergeCmd())
 	root.AddCommand(newPromoteCmd())
 	root.AddCommand(newNotifyCmd())
+	root.AddCommand(newUpdateCmd(version))
 	return root
 }
 

@@ -63,6 +63,31 @@ func TestStatusFleetDegradesToUnknownWhenHerdrUnreachable(t *testing.T) {
 	}
 }
 
+func TestStatusFleetJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"id": "task-1"`) || !strings.Contains(out.String(), `"agent_state": "working"`) {
+		t.Fatalf("got %q, want JSON array with task-1 and agent_state working", out.String())
+	}
+	if !strings.HasPrefix(strings.TrimSpace(out.String()), "[") {
+		t.Fatalf("got %q, want JSON array", out.String())
+	}
+}
+
 func TestStatusSingleTaskDetail(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
