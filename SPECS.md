@@ -315,6 +315,8 @@ State file written (`state/fix-login.json`):
     "pane_id": "wA:pC"
   },
   "pr": "",
+  "merged": false,
+  "merged_at": "",
   "created_at": "2026-07-24T10:00:00Z"
 }
 ```
