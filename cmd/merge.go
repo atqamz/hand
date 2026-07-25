@@ -40,7 +40,14 @@ func newMergeCmd() *cobra.Command {
 				return err
 			}
 
+			if t.Merged {
+				return &ExitError{Err: fmt.Errorf("task %s already merged", t.ID), Code: 3}
+			}
+
 			if local {
+				if squash || mergeCommit || rebase {
+					return &ExitError{Err: fmt.Errorf("--squash, --merge, --rebase cannot be combined with --local"), Code: 3}
+				}
 				return runLocalMerge(cmd, home, t)
 			}
 
