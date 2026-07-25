@@ -233,8 +233,12 @@ func TestExtractBinaryMissingFromArchive(t *testing.T) {
 	if _, err := tw.Write([]byte("abc")); err != nil {
 		t.Fatal(err)
 	}
-	tw.Close()
-	gz.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	archivePath := filepath.Join(dir, "archive.tar.gz")
 	if err := os.WriteFile(archivePath, tarBuf.Bytes(), 0o644); err != nil {
