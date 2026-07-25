@@ -69,6 +69,12 @@ func setupTeardownHome(t *testing.T) (home, worktree string) {
 	t.Helper()
 	home = t.TempDir()
 	t.Chdir(home)
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	worktree = filepath.Join(t.TempDir(), "wt")
 	initGitRepo(t, worktree)
 	writeFakeTreehouseReturn(t)
