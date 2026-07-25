@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
@@ -23,6 +24,7 @@ func newProjectCmd() *cobra.Command {
 	cmd.AddCommand(newProjectAddCmd())
 	cmd.AddCommand(newProjectListCmd())
 	cmd.AddCommand(newProjectRemoveCmd())
+	cmd.AddCommand(newProjectSyncCmd())
 	return cmd
 }
 
@@ -321,4 +323,174 @@ func hasActiveTasksForProject(home, name string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func newProjectSyncCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sync [name]",
+		Short: "Fast-forward project clones to their remote default branch",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get working directory: %w", err)
+			}
+
+			var targets []project.Project
+			if len(args) == 1 {
+				p, exists, err := project.Find(home, args[0])
+				if err != nil {
+					return err
+				}
+				if !exists {
+					return fmt.Errorf("project %q not registered", args[0])
+				}
+				targets = []project.Project{p}
+			} else {
+				targets, err = project.List(home)
+				if err != nil {
+					return err
+				}
+			}
+
+			advancedAny := false
+			for _, p := range targets {
+				releaseProject, err := state.Lock(home, "project:"+p.Name)
+				if err != nil {
+					return fmt.Errorf("lock project %q: %w", p.Name, err)
+				}
+				msg, advanced, syncErr := syncOneProject(home, p)
+				releaseProject()
+
+				if syncErr != nil {
+					if len(targets) == 1 {
+						return syncErr
+					}
+					if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", syncErr); err != nil {
+						return err
+					}
+					continue
+				}
+				if advanced {
+					advancedAny = true
+				}
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), msg); err != nil {
+					return err
+				}
+			}
+
+			if advancedAny {
+				if err := updateDashboardProjects(home); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
+// syncOneProject fetches and, when eligible, fast-forwards a single project clone.
+// It never errors on a benign skip (dirty, wrong branch, diverged, no remote) -
+// those are reported in the returned message, per SPECS.md's fail-open policy.
+func syncOneProject(home string, p project.Project) (string, bool, error) {
+	clonePath := filepath.Join(home, "projects", p.Name)
+
+	if !hasOriginRemote(clonePath) {
+		return fmt.Sprintf("%s: skipped (no origin remote)", p.Name), false, nil
+	}
+
+	fetch := exec.Command("git", "fetch", "origin", "--prune")
+	fetch.Dir = clonePath
+	if out, err := fetch.CombinedOutput(); err != nil {
+		return "", false, fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
+	}
+
+	pruneGoneBranches(clonePath)
+
+	defaultBr, err := defaultBranch(clonePath)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: resolve default branch: %w", p.Name, err)
+	}
+	currentBr, err := currentBranch(clonePath)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: current branch: %w", p.Name, err)
+	}
+	if currentBr != defaultBr {
+		return fmt.Sprintf("%s: skipped (on branch %s, not %s)", p.Name, currentBr, defaultBr), false, nil
+	}
+	dirty, err := hasUncommittedChanges(clonePath)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+	}
+	if dirty {
+		return fmt.Sprintf("%s: skipped (dirty working tree)", p.Name), false, nil
+	}
+
+	remoteRef := "origin/" + defaultBr
+	behind, err := commitCount(clonePath, "HEAD.."+remoteRef)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+	}
+	if behind == 0 {
+		return fmt.Sprintf("%s: up to date", p.Name), false, nil
+	}
+	ahead, err := commitCount(clonePath, remoteRef+"..HEAD")
+	if err != nil {
+		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+	}
+	if ahead > 0 {
+		return fmt.Sprintf("%s: skipped (diverged from %s)", p.Name, remoteRef), false, nil
+	}
+
+	merge := exec.Command("git", "merge", "--ff-only", remoteRef)
+	merge.Dir = clonePath
+	if out, err := merge.CombinedOutput(); err != nil {
+		return fmt.Sprintf("%s: skipped (fast-forward failed: %s)", p.Name, strings.TrimSpace(string(out))), false, nil
+	}
+	return fmt.Sprintf("%s: fast-forwarded to %s (was %d behind)", p.Name, remoteRef, behind), true, nil
+}
+
+func hasOriginRemote(clonePath string) bool {
+	c := exec.Command("git", "remote", "get-url", "origin")
+	c.Dir = clonePath
+	return c.Run() == nil
+}
+
+func commitCount(clonePath, revRange string) (int, error) {
+	c := exec.Command("git", "rev-list", "--count", revRange)
+	c.Dir = clonePath
+	out, err := c.Output()
+	if err != nil {
+		return 0, fmt.Errorf("git rev-list --count %s failed: %w", revRange, err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, fmt.Errorf("parse rev-list count: %w", err)
+	}
+	return n, nil
+}
+
+// pruneGoneBranches best-effort deletes local branches whose upstream tracking
+// branch is gone. Branches still checked out in a worktree refuse deletion;
+// that failure is ignored since pruning must never block a sync.
+func pruneGoneBranches(clonePath string) {
+	c := exec.Command("git", "for-each-ref", "--format=%(refname:short)|%(upstream:track)", "refs/heads/")
+	c.Dir = clonePath
+	out, err := c.Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) != 2 || !strings.Contains(parts[1], "[gone]") {
+			continue
+		}
+		del := exec.Command("git", "branch", "-D", parts[0])
+		del.Dir = clonePath
+		_ = del.Run()
+	}
 }
