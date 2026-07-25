@@ -1012,8 +1012,8 @@ On restart (new supervisory agent session):
 
 - `0`: success.
 - `1`: general error.
-- `2`: usage error (bad args, unknown command).
-- `3`: precondition failed (unlanded work, red CI, missing brief).
+- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive flags.
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks.
 
 ### Error output
 

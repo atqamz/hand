@@ -106,17 +106,20 @@ func TestTickClassifiesDoneAndUpdatesDashboardAndLog(t *testing.T) {
 	states := make(map[string]*TaskState)
 	ctx := context.Background()
 
-	var buf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf, io.Discard)
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
 	if buf.Len() != 0 {
 		t.Fatalf("first tick printed output for newly seen task: %q", buf.String())
 	}
 
 	setStatus(t, statusFile, "done")
 	buf.Reset()
-	tick(ctx, cfg, client, states, &buf, io.Discard)
+	tick(ctx, cfg, client, states, &buf, &errBuf)
 	if !strings.Contains(buf.String(), "done task-1") {
 		t.Fatalf("output = %q, want done task-1", buf.String())
+	}
+	if errBuf.Len() != 0 {
+		t.Fatalf("errOut = %q, want actionable events on out only", errBuf.String())
 	}
 
 	d := readDashboard(t, dashPath)
@@ -224,6 +227,49 @@ func TestTickForgetsTornDownTasks(t *testing.T) {
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if len(states) != 0 {
 		t.Fatalf("states = %+v, want torn-down task forgotten", states)
+	}
+}
+
+func TestTickSendsDiagnosticsToErrOut(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "state", "task-1.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	var buf, errBuf bytes.Buffer
+	tick(context.Background(), cfg, herdr.NewClient(), make(map[string]*TaskState), &buf, &errBuf)
+
+	if !strings.Contains(errBuf.String(), "watch: list tasks failed") {
+		t.Fatalf("errOut = %q, want list tasks failed diagnostic", errBuf.String())
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("out = %q, want diagnostics on errOut only", buf.String())
+	}
+}
+
+func TestHandleEventSendsLogFailureToErrOut(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state", "events.log"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf, errBuf bytes.Buffer
+	handleEvent(Config{Home: home}, &Event{Kind: KindDone, TaskID: "task-1", Text: "done task-1"},
+		state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, &buf, &errBuf)
+
+	if buf.String() != "done task-1\n" {
+		t.Fatalf("out = %q, want the event text only", buf.String())
+	}
+	if !strings.Contains(errBuf.String(), "watch: append events.log failed") {
+		t.Fatalf("errOut = %q, want append events.log failed diagnostic", errBuf.String())
 	}
 }
 
