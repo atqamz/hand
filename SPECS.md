@@ -490,6 +490,8 @@ Behavior with `--force`:
 - Skip steps 1-2 for ship tasks, skip step 1 for scout tasks.
 - Still closes herdr tab and returns worktree.
 
+Teardown removes several resources in sequence, and any step can fault, so the command has to be runnable a second time: a resource already gone is that step's goal already reached, not an error, and never something `--force` should be needed for. A tab herdr no longer lists and a worktree path that no longer exists both count as done. The removals are ordered the same way - the report channel goes before `state/<id>.json`, since the report removal is the one that can fail on a permissions or I/O fault and doing it first leaves the task JSON, and with it the retry, intact.
+
 Output:
 ```
 teardown fix-login complete
@@ -574,7 +576,8 @@ Behavior:
 1. Validate `<url>` matches `https://github.com/<owner>/<repo>/pull/<number>` exactly (anchored, no substring matching - a PR URL feeds `gh pr merge` and `gh pr view` downstream, so a loose match here is a command-injection-adjacent risk).
 2. Read `state/<id>.json`.
 3. If the task already has this exact PR recorded, skip steps 5-7 (the URL is already on record, so there is nothing left to validate) but still update `data/dashboard.md` before reporting success. This reconciling repeat is why `hand pr <id> <url>` is a sound remedy for every `pr-not-recorded` event: a recording can fail after the task-state write and before the dashboard update, and a plain no-op here would exit `0` while leaving the dashboard's PR column empty with no signal left.
-   The repeat reports what actually happened. If the task has no active dashboard row, there is nothing to reconcile: say so and exit `3`, rather than printing a repair that did not occur. The missing row is never created - active rows come from `hand spawn`, and inventing one would fabricate state instead of reconciling it. The PR stays recorded on the task either way, which the message says too; it is the dashboard the operator came to fix that is still broken.
+   Both paths report what actually happened. If the task has no active dashboard row, there is nothing to update: say so and exit `3`, rather than printing a recording or a repair that did not reach the dashboard. A fresh record answers exactly as the repeat does - the asymmetry was the same silent success, one call site over. The missing row is never created - active rows come from `hand spawn`, and inventing one would fabricate state instead of reconciling it. The PR stays recorded on the task either way, which the message says too; it is the dashboard the operator came to fix that is still broken.
+   The dashboard PR update reports a missing row as an *error*, not as a flag on the update value. Three call sites in a row ignored that flag by accident, which is a design that requires every caller to remember something and does not make forgetting visible; an error takes an explicit discard to ignore.
 4. If the task already has a *different* PR recorded, refuse - one task, one PR; correcting a wrong record is a deliberate `hand teardown`/`hand spawn` decision, not something `hand pr` overwrites silently.
 5. Resolve the task's project and derive `owner/repo` from the project clone's own `origin` remote (`git config --get remote.origin.url`, not `git remote get-url`, so a local `url.<base>.insteadOf` rewrite never turns a genuine mismatch into a false match).
 6. Refuse if the URL's `owner/repo` doesn't match the derived repo slug.
@@ -593,16 +596,16 @@ Output (reconciling repeat):
 pr already recorded for fix-login: https://github.com/org/repo/pull/42 (dashboard reconciled)
 ```
 
-Error output (reconciling repeat with no row to repair, exit `3`):
+Error output (no row to update, exit `3`, on a fresh record and a reconciling repeat alike):
 ```
-pr already recorded for fix-login: https://github.com/org/repo/pull/42, but the dashboard has no active row for it - nothing reconciled
+pr recorded for fix-login: https://github.com/org/repo/pull/42, but the dashboard has no active row for it - nothing reconciled
 ```
 
 Errors:
 - Malformed PR URL (usage error, code `2`).
 - Task not found.
 - Task already has a different PR recorded.
-- Repeat of an already-recorded URL with no active dashboard row to reconcile (nothing was repaired; the PR stays recorded on the task).
+- No active dashboard row for the task (nothing was reconciled; the PR stays recorded on the task).
 - Project not registered.
 - Cannot derive `owner/repo` from the project clone's origin remote.
 - URL's repo doesn't match the project's repo.
@@ -660,7 +663,8 @@ Behavior:
 | A merge this watcher's own `gh` poll saw | Persisted as `pr_merged_observed`, after `pr-merged <id>` is printed. |
 | The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. `hand merge` writes `merged` without touching the dashboard, so the evidence can appear while the watcher is down. |
 | An auto-recorded PR URL | Persisted as `pr` on the task, and every outcome that isn't a silently self-resolving race is announced (`pr-not-recorded` / `pr-record-unknown`) and logged. |
-| Last reported state and note | Re-derived, safely: they are read back from `state/<id>.status`, itself durable and consumed by offset. They gate no announcement of their own - they only explain a quiet pane - and the marker for the one announcement they can lead to (`done_verified`) is persisted separately. |
+| Last reported state and note | Re-derived, safely: they are read back from `state/<id>.status`, itself durable and consumed by offset - from the last line that *classified*, so a trailing malformed one doesn't erase the report it follows, exactly as the live classifier refuses to. They gate no announcement of their own - they only explain a quiet pane - and the marker for the one announcement they can lead to (`done_verified`) is persisted separately. |
+| The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh JSON, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
 | Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane as `(unreported)` or `(reported: <state>)` from the same report channel, and the stale timer below re-flags the task within one window. |
 | The stale timer | Re-derived, safely: the clock restarts on resume, so `stale <id>` is at most one threshold late and never skipped. |
 
@@ -846,6 +850,10 @@ Updated: 2026-07-24T12:30:00Z
 | `hand project sync` | Update project sync status |
 | `hand promote` | No update (the row keeps its scout kind) |
 | `hand notify` | No update (notification is a side channel) |
+
+The Active Tasks `state` column carries whatever last said the worker had stopped or was stopping: `idle-unreported`, `blocked`, `failed`, a reported `paused`/`blocked`/`needs-decision`/`failed`, and a *verified* `done`.
+A worker that reports why it stopped is the well-behaved case, and its row must not keep reading `working` while the note sits in Pending Decisions - two views of one task disagreeing is the defect the report channel exists to remove, and the supervisor reads this column first.
+Nothing else touches the column: `report-working` adds no state herdr's own live status doesn't already have, an unverified `report-done` is a claim rather than evidence, `stale` is elapsed time in a state rather than a new one, the two PR auto-record notices are facts about a record rather than about the worker, and a malformed line classifies to nothing.
 
 Pending Decisions holds at most one entry per task, replaced on write.
 That slot is reserved for what the supervisor has to answer about the task: the worker's own `blocked`/`needs-decision` note, or an unexplained stop that leaves no one to ask.
@@ -1253,10 +1261,10 @@ Fixed vocabulary (anything else is malformed, and malformed lines are surfaced, 
 
 Read/classify semantics:
 
-- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` in `state/<id>.json`, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. On first tracking a task, the watcher also re-reads the last report line so a pane found not-busy after a restart isn't mistaken for an unexplained stop; a report file that exists but can't be read is diagnosed on stderr, never treated as "this worker never reported".
+- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` in `state/<id>.json`, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. On first tracking a task, the watcher also re-reads the last report line that classified - skipping trailing free text, which explains nothing and so must not erase the report above it - so a pane found not-busy after a restart isn't mistaken for an unexplained stop; a report file that exists but can't be read is diagnosed on stderr, never treated as "this worker never reported".
 - Blank and whitespace-only lines are skipped by every reader, so `hand status`'s history never shows an entry `hand watch` didn't surface and a stray trailing newline can't masquerade as a malformed terminal report.
 - If the file shrinks below the last known offset (recreated, truncated), tailing restarts from the beginning rather than erroring.
-- Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult.
+- Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult. A line reporting a stop (`paused`, `blocked`, `needs-decision`, `failed`) also moves the task's Active Tasks row out of `working`, since the herdr transition that follows is absorbed on purpose (see "Update rules").
 - **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`) - including when it landed while the watcher was stopped, since the announcement is tracked by the durable `done_verified` marker rather than re-derived from whatever evidence is on disk at startup (see "What survives a `hand watch` restart").
 - A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended, flattened onto the event's single line, and its remedy is a human running `hand pr`, which reconciles whatever half is missing or says so when there is no dashboard row left to repair; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
 

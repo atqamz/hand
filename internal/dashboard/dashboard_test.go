@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -263,4 +264,38 @@ func readBack(t *testing.T, path string) Dashboard {
 		t.Fatal(err)
 	}
 	return d
+}
+
+func TestUpdateSetPR(t *testing.T) {
+	path := writeSkeleton(t)
+	if err := Update(path, UpdateOpts{AddActiveTask: &ActiveTask{ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(path, UpdateOpts{SetPR: &PRUpdate{ID: "task-1", PR: "https://github.com/a/b/pull/1"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	d := readBack(t, path)
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].PR != "https://github.com/a/b/pull/1" {
+		t.Fatalf("ActiveTasks = %+v", d.ActiveTasks)
+	}
+}
+
+// A SetPR with no row to update is an error, not a quiet no-op: it used to be a
+// flag on PRUpdate and all three callers forgot to read it. The rest of the same
+// Update still lands, so a caller batching an event with the PR keeps the event.
+func TestUpdateSetPRWithNoActiveRowErrsAndStillAppliesTheRest(t *testing.T) {
+	path := writeSkeleton(t)
+	err := Update(path, UpdateOpts{AddEvent: "pr-not-recorded task-1", SetPR: &PRUpdate{ID: "task-1", PR: "https://github.com/a/b/pull/1"}})
+	if !errors.Is(err, ErrPRRowNotFound) {
+		t.Fatalf("got %v, want ErrPRRowNotFound", err)
+	}
+
+	d := readBack(t, path)
+	if len(d.ActiveTasks) != 0 {
+		t.Fatalf("ActiveTasks = %+v, want no row invented", d.ActiveTasks)
+	}
+	if len(d.RecentEvents) != 1 || !strings.Contains(d.RecentEvents[0], "pr-not-recorded task-1") {
+		t.Fatalf("RecentEvents = %+v, want the rest of the update written", d.RecentEvents)
+	}
 }

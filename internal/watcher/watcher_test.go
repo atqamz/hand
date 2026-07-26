@@ -414,12 +414,12 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 }
 
 // TestTickAutoRecordsPRButAnnouncesAMissingDashboardRow is the auto-record path's
-// half of the fix cmd/pr.go's reconcile branch got: recordAutoPR shares SetPR with
-// hand pr, and until this fix ignored the Matched field it reports, so it could
-// write the PR to task state, find no active row to carry it, and still return nil
-// - the exact silent no-op the reconcile branch exists to refuse, just in the
-// sibling caller. No active row ever gets created here (that would fabricate
-// state); it must be pr-not-recorded instead.
+// half of what every caller of the dashboard PR update owes: recordAutoPR shares
+// SetPR with hand pr, and could write the PR to task state, find no active row to
+// carry it, and still return nil - the exact silent no-op hand pr exits non-zero
+// to refuse, just in the sibling caller. That is why the missing row is now an
+// error from dashboard.Update rather than a flag to remember. No active row ever
+// gets created here (that would fabricate state); it must be pr-not-recorded.
 func TestTickAutoRecordsPRButAnnouncesAMissingDashboardRow(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1299,4 +1299,173 @@ func readDashboard(t *testing.T, path string) dashboard.Dashboard {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// TestTickResumesTheLastStateAfterATrailingMalformedLine holds resume to what the
+// live path already does: a free-text line appended after a real report explains
+// nothing, so it must not erase the report it follows. Reading it back as "never
+// reported" turns the next quiet pane into idle-unreported, which then overwrites
+// the worker's own Pending Decision with "stopped, reason unknown".
+func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	ctx := context.Background()
+
+	states := make(map[string]*TaskState)
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	report := "needs-decision: which base branch?\nlooked at both again\n"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "malformed report task-1") {
+		t.Fatalf("output = %q, want the free-text line still surfaced", buf.String())
+	}
+
+	restarted := make(map[string]*TaskState)
+	buf.Reset()
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	setStatus(t, statusFile, "done")
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+
+	if strings.Contains(buf.String(), "idle-unreported") {
+		t.Fatalf("output = %q, want the stop still explained by the needs-decision the malformed line followed", buf.String())
+	}
+
+	d := readDashboard(t, filepath.Join(home, "data", "dashboard.md"))
+	for _, pd := range d.PendingDecisions {
+		if strings.Contains(pd, "reason unknown") {
+			t.Fatalf("PendingDecisions = %+v, want the worker's own question left intact", d.PendingDecisions)
+		}
+	}
+}
+
+// TestTickReseedsARespawnedTaskID keys tracking on identity rather than on ID. A
+// teardown and respawn between two ticks is a different task, and inheriting the
+// previous run's TaskState suppresses the new one's verified done for good:
+// syncTaskState writes that inherited done_verified onto the fresh JSON. Same
+// hazard as a surviving report channel, one layer in.
+func TestTickReseedsARespawnedTaskID(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"}})
+	reportMD := filepath.Join(home, "data", "task-1", "report.md")
+	if err := os.MkdirAll(filepath.Dir(reportMD), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reportMD, []byte("findings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: finished\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "done task-1: finished") {
+		t.Fatalf("output = %q, want the first run's verified done", buf.String())
+	}
+
+	if err := state.Delete(home, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(reportMD); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
+		Herdr:     state.Herdr{PaneID: "p1"},
+		CreatedAt: time.Now().UTC().Add(time.Minute).Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: round two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "reported-done task-1: round two") {
+		t.Fatalf("output = %q, want the respawned task's own done report read from offset 0", buf.String())
+	}
+
+	respawned, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if respawned.DoneVerified {
+		t.Fatal("done_verified inherited by a respawned ID, want the previous run's announcement not carried over")
+	}
+
+	if err := os.WriteFile(reportMD, []byte("findings again"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "done task-1: round two") {
+		t.Fatalf("output = %q, want the respawned task's verified done announced too", buf.String())
+	}
+}
+
+// TestTickSetsTheStateColumnOnAReportedStop covers the well-behaved worker: it
+// says why it stopped, herdr's not-busy transition is then absorbed on purpose,
+// and the row would otherwise keep reading "working" - the very bug the report
+// channel exists to remove, with the supervisor reading that column first.
+func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+	tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
+
+	report := ""
+	for _, tc := range []struct{ line, wantState string }{
+		{"paused: waiting on the nightly build\n", KindReportPaused},
+		{"blocked: needs an API key\n", KindReportBlocked},
+		{"needs-decision: which base branch?\n", KindReportNeedsDecision},
+	} {
+		report += tc.line
+		if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
+
+		d := readDashboard(t, dashPath)
+		if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != tc.wantState {
+			t.Fatalf("ActiveTasks = %+v after %q, want state %s", d.ActiveTasks, tc.line, tc.wantState)
+		}
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "which base branch?") {
+		t.Fatalf("PendingDecisions = %+v, want the worker's own question", d.PendingDecisions)
+	}
 }

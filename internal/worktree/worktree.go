@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -41,8 +42,14 @@ func Get(clonePath, leaseHolder string) (string, error) {
 	return lease.Path, nil
 }
 
-// Return releases a worktree back to its treehouse pool.
+// Return releases a worktree back to its treehouse pool. A path that no longer
+// exists is already released: teardown returns the worktree before it removes the
+// task's state, so a fault in a later step has to leave the command retryable
+// rather than dead on a worktree the first run already handed back.
 func Return(worktreePath string, force bool) error {
+	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+		return nil
+	}
 	args := []string{"return", worktreePath}
 	if force {
 		args = append(args, "--force")

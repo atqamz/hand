@@ -146,6 +146,25 @@ func LastReport(homeDir, id string) (ReportLine, bool, error) {
 	return lines[len(lines)-1], true, nil
 }
 
+// LastReportedState returns the most recent line whose state classified - the
+// last thing the worker actually said about itself - skipping trailing malformed
+// lines rather than letting one erase it. Free text explains nothing, so a worker
+// that appends some after a real report has still reported: this is the rule the
+// live classifier follows (see ClassifyReportLine), and a reader that recovers
+// the last known report state from the file has to reach the same answer.
+func LastReportedState(homeDir, id string) (ReportLine, bool, error) {
+	lines, err := ReadReportLines(homeDir, id)
+	if err != nil {
+		return ReportLine{}, false, err
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !lines[i].Malformed {
+			return lines[i], true, nil
+		}
+	}
+	return ReportLine{}, false, nil
+}
+
 // ReportTail returns the last n reported lines for a task, oldest first.
 func ReportTail(homeDir, id string, n int) ([]ReportLine, error) {
 	lines, err := ReadReportLines(homeDir, id)

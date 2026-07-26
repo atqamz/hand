@@ -64,21 +64,31 @@ func TestGetFailsOnMissingPath(t *testing.T) {
 }
 
 func TestReturnPassesForceFlag(t *testing.T) {
+	wt := t.TempDir()
 	writeFakeTreehouse(t, `
-if [ "$1" != "return" ] || [ "$2" != "/tmp/wt-1" ] || [ "$3" != "--force" ]; then
+if [ "$1" != "return" ] || [ "$2" != "`+wt+`" ] || [ "$3" != "--force" ]; then
 	echo "unexpected args: $@" >&2
 	exit 1
 fi
 `)
-	if err := Return("/tmp/wt-1", true); err != nil {
+	if err := Return(wt, true); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestReturnFailsOnNonZeroExit(t *testing.T) {
 	writeFakeTreehouse(t, `echo "worktree busy" >&2; exit 1`)
-	if err := Return("/tmp/wt-1", false); err == nil || !strings.Contains(err.Error(), "worktree busy") {
+	if err := Return(t.TempDir(), false); err == nil || !strings.Contains(err.Error(), "worktree busy") {
 		t.Fatalf("got err %v, want worktree busy failure", err)
+	}
+}
+
+// A worktree that is already gone is already returned, so teardown can run its
+// cleanup a second time after a later step faulted.
+func TestReturnSkipsAlreadyReturnedWorktree(t *testing.T) {
+	writeFakeTreehouse(t, `echo "not a leased worktree" >&2; exit 1`)
+	if err := Return(filepath.Join(t.TempDir(), "gone"), false); err != nil {
+		t.Fatalf("got err %v, want an absent worktree treated as returned", err)
 	}
 }
 

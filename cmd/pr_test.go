@@ -287,3 +287,49 @@ func TestPRRecordsSuccessfully(t *testing.T) {
 		t.Fatalf("dashboard.md = %q, want the PR column updated", string(data))
 	}
 }
+
+// TestPRReportsWhenAFreshRecordHasNoDashboardRow pins the fresh-record path to
+// the same answer as the reconciling one: the URL lands on the task, nothing
+// reconciles on the dashboard, and the command says so instead of printing
+// "recorded PR for task-1" over an unchanged PR column.
+func TestPRReportsWhenAFreshRecordHasNoDashboardRow(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/owner/secondhand.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGhPRView(t, 0)
+
+	url := "https://github.com/owner/secondhand/pull/1"
+	cmd := newPRCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", url})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "no active row") {
+		t.Fatalf("err = %v, want the missing dashboard row named", err)
+	}
+	if strings.Contains(out.String(), "recorded PR for task-1") {
+		t.Fatalf("out = %q, want no success line for a dashboard that was not updated", out.String())
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != url {
+		t.Fatalf("task.PR = %q, want the URL still recorded on the task", task.PR)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "task-1") {
+		t.Fatalf("dashboard.md = %q, want no row invented for a task hand spawn never added", string(data))
+	}
+}

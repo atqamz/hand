@@ -181,3 +181,41 @@ func splitDogfoodLines(t *testing.T) []string {
 	}
 	return lines
 }
+
+// A trailing free-text line must not read back as "this worker never reported":
+// the live classifier keeps the last state a malformed line follows, so every
+// reader recovering that state from the file has to agree with it.
+func TestLastReportedStateSkipsTrailingMalformedLines(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ReportPath(home, "task-1"), []byte("needs-decision: which base branch?\nlooked at both again\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	last, ok, err := LastReportedState(home, "task-1")
+	if err != nil || !ok || last.State != ReportNeedsDecision || last.Note != "which base branch?" {
+		t.Fatalf("got %+v ok=%v err=%v, want the needs-decision line", last, ok, err)
+	}
+
+	raw, ok, err := LastReport(home, "task-1")
+	if err != nil || !ok || !raw.Malformed {
+		t.Fatalf("got %+v ok=%v err=%v, want LastReport to still surface the raw last line", raw, ok, err)
+	}
+}
+
+func TestLastReportedStateWithOnlyMalformedLines(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ReportPath(home, "task-1"), []byte("hello\nthere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, ok, err := LastReportedState(home, "task-1")
+	if err != nil || ok {
+		t.Fatalf("got ok=%v err=%v, want no reported state at all", ok, err)
+	}
+}

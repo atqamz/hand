@@ -72,7 +72,17 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		pane, probeErr := client.PaneGet(t.Herdr.PaneID)
 		status := pane.AgentStatus
 
+		// Tracking is keyed by task identity, not by ID: an ID torn down and
+		// respawned between two ticks is a different task, and inheriting the
+		// previous run's TaskState would suppress the new task's verified done
+		// forever - syncTaskState writes that inherited done_verified onto the fresh
+		// JSON, making the suppression durable - and absorb its first unexplained
+		// stop. Same hazard as a surviving report channel, one layer in; see
+		// state.Delete for that half.
 		ts, tracked := states[t.ID]
+		if tracked && ts.CreatedAt != t.CreatedAt {
+			tracked = false
+		}
 		if !tracked {
 			if probeErr != nil {
 				continue
@@ -122,11 +132,14 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 // What is deliberately re-derived, and why that is safe, is enumerated in
 // SPECS.md's "What survives a hand watch restart". The last reported state is
 // one of them: it is re-read from the report file - itself durable - so a pane
-// found not-busy after a restart isn't mistaken for an unexplained stop. An
+// found not-busy after a restart isn't mistaken for an unexplained stop. It is the
+// last line that classified, not simply the last line, so a trailing malformed one
+// doesn't erase what the worker did report, exactly as the live path refuses to. An
 // unreadable report is reported as such, never quietly treated as "this worker
 // never reported".
 func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Time, errOut io.Writer) *TaskState {
 	ts := NewTaskState(status, now)
+	ts.CreatedAt = t.CreatedAt
 	ts.ReportOffset = t.ReportOffset
 	ts.PersistedOffset = t.ReportOffset
 	ts.PRMerged = t.PRMergedObserved
@@ -134,12 +147,12 @@ func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Ti
 	ts.DoneVerified = t.DoneVerified
 	ts.PersistedDoneVerified = t.DoneVerified
 
-	last, ok, err := state.LastReport(home, t.ID)
+	last, ok, err := state.LastReportedState(home, t.ID)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read report for %s failed: %v\n", t.ID, err)
 		return ts
 	}
-	if ok && !last.Malformed {
+	if ok {
 		ts.LastReportState = last.State
 		ts.LastReportNote = last.Note
 	}
@@ -275,17 +288,16 @@ func recordAutoPR(home, id, url string) error {
 	// Task lock before dashboard lock, never the reverse - the one ordering
 	// every site that takes both follows.
 	dashPath := filepath.Join(home, "data", "dashboard.md")
-	setPR := &dashboard.PRUpdate{ID: id, PR: url}
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: setPR}); err != nil {
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}}); err != nil {
+		if errors.Is(err, dashboard.ErrPRRowNotFound) {
+			// The write above succeeded, so the PR is genuinely on record - only the
+			// dashboard has no active row to carry it, the same silent no-op cmd/pr.go
+			// exits non-zero to refuse. The watcher cannot exit non-zero per task, so
+			// pr-not-recorded is how an operator learns the dashboard column is stale
+			// despite the state write having landed.
+			return fmt.Errorf("%w - the PR is recorded on the task but nothing was reconciled", err)
+		}
 		return fmt.Errorf("recorded PR for %s in task state but dashboard update failed: %w", id, err)
-	}
-	if !setPR.Matched {
-		// The write above succeeded, so the PR is genuinely on record - only the
-		// dashboard has no active row to carry it, the same silent no-op cmd/pr.go's
-		// reconcile branch exists to refuse. The watcher cannot exit non-zero the
-		// way that command does, so pr-not-recorded is how an operator learns the
-		// dashboard column is stale despite the state write having landed.
-		return fmt.Errorf("no active dashboard row for %s - the PR is recorded on the task but nothing was reconciled", id)
 	}
 	return nil
 }
@@ -371,6 +383,21 @@ func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
 	}
 }
 
+// updateDashboardForEvent decides what each event kind does to a task's row.
+// Every kind, and which side of the state column it is on:
+//
+//	sets it: idle-unreported, blocked, failed, report-paused, report-blocked,
+//	report-needs-decision, report-failed, and a verified report-done. These all
+//	say the worker has stopped or is stopping, which is precisely what that column
+//	answers, and a stop the row keeps calling "working" is the bug this whole
+//	channel exists to remove - the note landing in Pending Decisions does not
+//	rescue it, since two views of one task disagreeing is the same defect.
+//	deliberately not: report-working (herdr's own live status already spells a busy
+//	pane, and the report adds no state the column doesn't have), an unverified
+//	report-done (a worker's claim is not evidence - see the Verified branch below),
+//	stale (elapsed time in a state, not a new one), pr-merged, pr-not-recorded and
+//	pr-record-unknown (facts about a PR record, not about what the worker is doing),
+//	and malformed report (free text classifies to nothing).
 func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 	dashPath := filepath.Join(home, "data", "dashboard.md")
 	age := dashboard.FormatAge(t.CreatedAt)
@@ -390,7 +417,10 @@ func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 	// to answer about that task - the worker's own question, or an unexplained
 	// stop that leaves no one to ask. Operator notices go to the event stream.
 	case KindReportBlocked, KindReportNeedsDecision:
+		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: e.Kind, Age: age}
 		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: e.Reason}
+	case KindReportPaused:
+		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportPaused, Age: age}
 	case KindReportFailed:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportFailed, Age: age}
 	case KindReportDone:

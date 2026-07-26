@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,8 +49,8 @@ func newPromoteCmd() *cobra.Command {
 			}
 
 			client := herdr.NewClient()
-			if status := paneAgentStatus(client, t.Herdr.PaneID); status == string(herdr.StatusWorking) || status == string(herdr.StatusBlocked) {
-				return &ExitError{Err: fmt.Errorf("task %q is not a completed scout (agent state: %s)", id, status), Code: 3}
+			if s := herdr.Status(paneAgentStatus(client, t.Herdr.PaneID)); !s.NotBusy() && s != herdr.StatusUnknown {
+				return &ExitError{Err: fmt.Errorf("task %q is not a completed scout (agent state: %s)", id, s), Code: 3}
 			}
 
 			briefRel := filepath.Join("data", id, "brief.md")
@@ -175,7 +174,7 @@ func newPromoteCmd() *cobra.Command {
 			}
 			promoted = true
 
-			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil && !errors.Is(err, errTaskTabNotFound) {
+			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
 					return printErr
 				}

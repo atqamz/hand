@@ -65,26 +65,37 @@ func writeFakeGHPRState(t *testing.T, prState string) {
 // treehouse's return/init also succeed silently, per internal/worktree.Return's
 // CombinedOutput-based error handling - only its failure path, a nonzero exit
 // with output, needs the real stream contents, and that's covered directly by
-// internal/worktree/worktree_test.go's TestReturnFailsOnNonZeroExit) and its
-// herdr calls as always-succeeding envelopes, since these teardown tests only
-// exercise which calls get made, not any herdr failure path.
+// internal/worktree/worktree_test.go's TestReturnFailsOnNonZeroExit).
+//
+// Its herdr fake tracks closure across invocations, because real herdr does: a
+// closed tab stops being listed. A stateless fake that re-lists a tab it was just
+// told to close makes every retry test vacuous - it can never reach the
+// already-closed case a second teardown run actually hits.
 func writeFakeTreehouseReturn(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte("#!/bin/sh\ntrue\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	closed := filepath.Join(t.TempDir(), "closed")
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
+closed='`+closed+`'
 cmd="$1 $2"
 case "$cmd" in
 "tab list")
-	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
+	if [ -e "$closed" ]; then
+		printf '{"id":"cli:1","result":{"tabs":[]}}'
+	else
+		printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
+	fi
 	;;
 "tab close")
- printf '{"id":"cli:1","result":{}}'
+	touch "$closed"
+	printf '{"id":"cli:1","result":{}}'
 	;;
 "workspace close")
- printf '{"id":"cli:1","result":{}}'
+	touch "$closed"
+	printf '{"id":"cli:1","result":{}}'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -167,12 +178,14 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	}
 }
 
-// TestTeardownRetriesAfterReportRemovalFails proves state.Delete's removal
-// order (report channel before task JSON): a fault on the report removal must
-// leave the task JSON untouched so the whole teardown is retryable, not
-// stranded with the task gone and the dashboard row never completed. With the
-// ordering reversed this fails: the task JSON is gone after the first call, so
-// there is nothing left to retry.
+// TestTeardownRetriesAfterReportRemovalFails proves teardown survives a fault in
+// its last step, which takes both halves of "retryable". state.Delete's removal
+// order (report channel before task JSON) leaves the task JSON untouched, so
+// there is something left to retry; and the retry then re-runs the cleanup steps
+// the first call already completed, which have to treat an already-closed tab and
+// an already-returned worktree as success. Reverting either half fails this test:
+// the ordering leaves nothing to retry, the idempotency leaves the retry dying on
+// a tab herdr no longer lists.
 func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
@@ -472,17 +485,27 @@ esac
 	}
 }
 
-func TestCloseTaskTabRejectsStaleTab(t *testing.T) {
-	writeFakeTreehouseReturn(t)
+// A tab herdr no longer lists is this step's goal already reached, so it must not
+// fail the command: teardown's later steps can fault, and the retry that follows
+// finds exactly this state.
+func TestCloseTaskTabTreatsAbsentTabAsClosed(t *testing.T) {
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
-printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:other","workspace_id":"wA"}]}}'
+case "$1 $2" in
+"tab list")
+ printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:other","workspace_id":"wA"}]}}'
+ ;;
+*)
+ echo "unexpected herdr args: $@" >&2
+ exit 1
+ ;;
+esac
 `), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:missing"); err == nil {
-		t.Fatal("stale tab was accepted")
+	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:missing"); err != nil {
+		t.Fatalf("got %v, want an absent tab treated as already closed", err)
 	}
 }
 

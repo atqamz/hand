@@ -5,6 +5,7 @@ package dashboard
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,16 +79,21 @@ type PendingDecision struct {
 	Text string
 }
 
-// PRUpdate sets the PR column for an existing active task row. Update reports
-// back through Matched whether such a row existed: a caller that ran this to
-// repair the dashboard has to be able to tell a repair from a silent no-op. A
-// missing row is never created here - active rows come from hand spawn, and a
-// fabricated one would invent state rather than reconcile it.
+// PRUpdate sets the PR column for an existing active task row. A missing row is
+// never created here - active rows come from hand spawn, and a fabricated one
+// would invent state rather than reconcile it.
 type PRUpdate struct {
-	ID      string
-	PR      string
-	Matched bool
+	ID string
+	PR string
 }
+
+// ErrPRRowNotFound reports a SetPR that matched no active row. It is an error
+// rather than a flag on PRUpdate because no caller wants to ignore it and three
+// call sites in a row did exactly that by accident: a returned flag is silently
+// droppable, whereas ignoring an error takes an explicit discard a linter flags
+// and a reviewer sees. Every caller has to tell a repair from a no-op - the PR is
+// on the task either way, and only the dashboard column is left stale.
+var ErrPRRowNotFound = errors.New("no active dashboard row")
 
 type UpdateOpts struct {
 	AddActiveTask        *ActiveTask
@@ -104,6 +110,10 @@ type UpdateOpts struct {
 // stamping the Updated timestamp. Every hand command that mutates fleet state calls
 // this so data/dashboard.md stays current, except promote - see cmd/promote.go for why
 // its row deliberately stays unchanged.
+//
+// A SetPR that matched no active row returns ErrPRRowNotFound, after the rest of
+// opts has been applied and written: the update that did land is still worth
+// keeping, and the caller decides what an unreconciled PR column means for it.
 func Update(path string, opts UpdateOpts) error {
 	unlock, err := flock(path + ".lock")
 	if err != nil {
@@ -120,13 +130,13 @@ func Update(path string, opts UpdateOpts) error {
 		return err
 	}
 
-	apply(&d, opts)
+	applyErr := apply(&d, opts)
 	d.Updated = time.Now().UTC().Format(TimeFormat)
 
 	if err := atomicfile.Write(path, ".dashboard.md-", Render(d), 0o644); err != nil {
 		return fmt.Errorf("write dashboard: %w", err)
 	}
-	return nil
+	return applyErr
 }
 
 func flock(path string) (func(), error) {
@@ -147,7 +157,7 @@ func flock(path string) (func(), error) {
 	}, nil
 }
 
-func apply(d *Dashboard, opts UpdateOpts) {
+func apply(d *Dashboard, opts UpdateOpts) error {
 	if t := opts.AddActiveTask; t != nil {
 		d.ActiveTasks = append(d.ActiveTasks, *t)
 	}
@@ -179,14 +189,19 @@ func apply(d *Dashboard, opts UpdateOpts) {
 		d.Projects = opts.SetProjects
 	}
 	if p := opts.SetPR; p != nil {
+		matched := false
 		for i := range d.ActiveTasks {
 			if d.ActiveTasks[i].ID == p.ID {
 				d.ActiveTasks[i].PR = p.PR
-				p.Matched = true
+				matched = true
 				break
 			}
 		}
+		if !matched {
+			return fmt.Errorf("%w for %s", ErrPRRowNotFound, p.ID)
+		}
 	}
+	return nil
 }
 
 func removeActiveTask(tasks []ActiveTask, id string) []ActiveTask {
