@@ -1152,6 +1152,8 @@ The agent can parse stdout reliably and read stderr for diagnostics.
 
 ## Testing strategy
 
+Every faked `herdr`, `gh`, `treehouse` or harness invocation, in unit and end-to-end tests alike, carries a comment recording the fake-fidelity contract: what the real tool does on success and on failure - exit code, stream, response shape - and whether the fake mirrors that or deliberately diverges.
+
 ### Unit tests
 
 - State file reading/writing.
@@ -1166,6 +1168,8 @@ The agent can parse stdout reliably and read stderr for diagnostics.
 
 Implemented in `tests/e2e`, which drives the built binary against a scratch home.
 herdr, treehouse, and gh are faked as shell scripts on `PATH` and remote clones are redirected to a local repo, so the suite never touches a real session provider or the network.
+`TestMain` enforces that once for the whole suite: it replaces `PATH` with a hermetic one carrying only the real binaries the suite genuinely runs, then asserts that neither herdr, treehouse, gh nor the worker harness resolves, so a missing fake fails the run loudly instead of quietly answering from the developer's real tools.
+CI therefore installs no real herdr or treehouse.
 
 - Spawn/teardown cycle, including teardown's refusal on unlanded work.
 - Watch event stream with simulated herdr state changes.
@@ -1463,7 +1467,7 @@ jobs:
             checksums.txt
 ```
 
-Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (tests/e2e runs on a hermetic PATH holding only the real binaries it needs, so neither can resolve for real, see TestMain), then release-please for automated releases.
+Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (no real ones installed, see "Integration tests"), then release-please for automated releases.
 
 `.github/dependabot.yaml` - keep Go modules and GitHub Actions up to date:
 ```yaml
