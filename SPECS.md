@@ -624,13 +624,18 @@ Flags:
 
 Behavior:
 1. Validate the task exists and is a completed scout (has `data/<id>/report.md`, herdr pane is done or dead).
-2. Tear down the scout's herdr tab and worktree.
-3. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
-4. Acquire a fresh treehouse worktree (with collision guard).
-5. Create a new herdr tab.
-6. Launch the worker.
-7. Update `state/<id>.json`: kind changes from `scout` to `ship`, new worktree and herdr coordinates.
-8. Update `data/dashboard.md`.
+2. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
+3. Acquire a fresh treehouse worktree (with collision guard).
+4. Create a new herdr tab.
+5. Launch the worker.
+6. Update `state/<id>.json`: kind changes from `scout` to `ship`, new worktree and herdr coordinates.
+7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
+
+The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
+to step 6, so a promotion that fails partway still leaves the scout's pane and worktree intact
+instead of stranding the task with nothing to look at.
+`data/dashboard.md` is deliberately left untouched, so the task's row keeps reading `scout` until
+something else rewrites it.
 
 Output:
 ```
@@ -733,7 +738,7 @@ Updated: 2026-07-24T12:30:00Z
 | `hand project add` | Add to Projects |
 | `hand project remove` | Remove from Projects |
 | `hand project sync` | Update project sync status |
-| `hand promote` | Update task kind in Active Tasks |
+| `hand promote` | No update (the row keeps its scout kind) |
 | `hand notify` | No update (notification is a side channel) |
 
 ### Optional: qmd for historical search
