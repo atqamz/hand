@@ -17,13 +17,19 @@ const (
 	// doneVerified for what counts, which is deliberately not a question about the
 	// project's mode or the route the work took. ClassifyStatus never emits it
 	// directly, since herdr's own done/idle split carries no task-outcome signal.
-	KindHerdrDone           = "done"
-	KindIdleUnreported      = "idle-unreported"
-	KindBlocked             = "blocked"
-	KindFailed              = "failed"
-	KindStale               = "stale"
-	KindPRMerged            = "pr-merged"
+	KindHerdrDone      = "done"
+	KindIdleUnreported = "idle-unreported"
+	KindBlocked        = "blocked"
+	KindFailed         = "failed"
+	KindStale          = "stale"
+	KindPRMerged       = "pr-merged"
+	// KindPRNotRecorded and KindPRRecordUnknown are two different facts, kept as
+	// two greppable tokens: an auto-record attempt that was made and refused,
+	// whose remedy is `hand pr`, versus one never attempted because another
+	// process held the task lock, where whether the PR got recorded is unknown
+	// and the only honest instruction is to check `hand status`.
 	KindPRNotRecorded       = "pr-not-recorded"
+	KindPRRecordUnknown     = "pr-record-unknown"
 	KindReportWorking       = "report-working"
 	KindReportPaused        = "report-paused"
 	KindReportBlocked       = "report-blocked"

@@ -159,8 +159,7 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		if t.PR == "" {
 			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
 				if err := autoRecordPR(ctx, cfg.Home, t, urls[0]); err != nil {
-					_, _ = fmt.Fprintf(errOut, "watch: auto-record PR for %s failed: %v\n", t.ID, err)
-					handleEvent(cfg, prNotRecordedEvent(t.ID, urls[0], err), t, out, errOut)
+					announceAutoRecordFailure(cfg, t, urls[0], err, out, errOut)
 				} else {
 					t.PR = urls[0]
 				}
@@ -172,19 +171,28 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 	return t
 }
 
-// prNotRecordedEvent makes a refused or failed auto-record a durable lifecycle
-// fact on the event stream and in events.log, alongside the stderr diagnostic:
-// the line is consumed and the offset moves on either way, so an unrecorded URL
-// that only reached a long-running watcher's stderr would be lost. It is
-// deliberately not a Pending Decision - that slot holds the worker's own
+// announceAutoRecordFailure makes an auto-record that didn't happen a durable
+// lifecycle fact on the event stream and in events.log, alongside the stderr
+// diagnostic: the line is consumed and the offset moves on either way, so an
+// unrecorded URL that only reached a long-running watcher's stderr would be lost.
+// It is deliberately not a Pending Decision - that slot holds the worker's own
 // question, and upserting by task ID there would erase one.
-func prNotRecordedEvent(id, url string, err error) *Event {
-	return &Event{
-		TaskID: id,
-		Kind:   KindPRNotRecorded,
-		Text:   fmt.Sprintf("pr-not-recorded %s: %s (%v)", id, url, err),
-		Reason: url,
+//
+// The event kind is the outcome, since that token is what an operator greps
+// events.log for: a refused attempt is pr-not-recorded, while losing the task
+// lock leaves the outcome unknown and must not claim otherwise.
+func announceAutoRecordFailure(cfg Config, t state.Task, url string, err error, out, errOut io.Writer) {
+	kind, outcome := KindPRNotRecorded, "failed"
+	if errors.Is(err, errLockContended) {
+		kind, outcome = KindPRRecordUnknown, "skipped"
 	}
+	_, _ = fmt.Fprintf(errOut, "watch: auto-record PR for %s %s: %v\n", t.ID, outcome, err)
+	handleEvent(cfg, &Event{
+		TaskID: t.ID,
+		Kind:   kind,
+		Text:   fmt.Sprintf("%s %s: %s (%v)", kind, t.ID, url, err),
+		Reason: url,
+	}, t, out, errOut)
 }
 
 // autoRecordPR routes a worker-supplied URL through hand pr's own validation
@@ -246,16 +254,26 @@ func recordAutoPR(home, id, url string) error {
 	return dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}})
 }
 
+// errLockContended marks an auto-record the watcher declined rather than
+// attempted, so callers can tell "refused this URL" from "never got to try".
+var errLockContended = errors.New("task locked by another process")
+
 // recordedByLockHolder decides what a lost race to the task lock means. If the
 // URL is already on record the holder did the work, so there is nothing to say.
 // Otherwise the outcome is genuinely unknown - the holder may be mid-write - and
 // the report line is consumed either way, so it stays loud and says only that,
-// rather than claiming a failure or naming a remedy that may be a no-op.
+// rather than claiming a failure or naming a remedy that may be a no-op. A task
+// whose state won't read says exactly that instead of sending the operator to
+// hand status, which reads the same unreadable file.
 func recordedByLockHolder(home, id, url string) error {
-	if t, err := state.Read(home, id); err == nil && t.PR == url {
+	t, err := state.Read(home, id)
+	if err != nil {
+		return fmt.Errorf("%w, and its state could not be read: %v", errLockContended, err)
+	}
+	if t.PR == url {
 		return nil
 	}
-	return fmt.Errorf("skipped, task locked by another process that may be recording it - confirm with: hand status %s", id)
+	return fmt.Errorf("%w that may be recording it - confirm with: hand status %s", errLockContended, id)
 }
 
 // syncTaskState writes back the bookkeeping hand watch owns on a task - how far

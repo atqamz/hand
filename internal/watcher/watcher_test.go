@@ -3,6 +3,7 @@ package watcher
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -73,9 +74,17 @@ esac
 // regression there must fail this watcher path as well, not only
 // internal/ghutil/pr_test.go.
 func writeFakeGh(t *testing.T, prState string) {
+	writeFakeGhWithHook(t, prState, "")
+}
+
+// writeFakeGhWithHook runs hook (a shell snippet) before the gh double answers.
+// project.ValidatePR shells out to gh before the auto-record takes the task lock,
+// so this is the only place a test can mutate task state at the one instant that
+// matters: after tick's own state.List snapshot, before the auto-record re-reads.
+func writeFakeGhWithHook(t *testing.T, prState, hook string) {
 	t.Helper()
 	bin := t.TempDir()
-	script := "#!/bin/sh\necho 'Warning: gh version is out of date' >&2\nprintf '{\"state\":\"" + prState + "\"}'\n"
+	script := "#!/bin/sh\necho 'Warning: gh version is out of date' >&2\n" + hook + "\nprintf '{\"state\":\"" + prState + "\"}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -571,8 +580,11 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	}
 	unlock()
 
-	if !strings.Contains(buf.String(), "pr-not-recorded task-1: "+url) {
-		t.Fatalf("out = %q, want the contended auto-record surfaced", buf.String())
+	if !strings.Contains(buf.String(), "pr-record-unknown task-1: "+url) {
+		t.Fatalf("out = %q, want the contended auto-record surfaced under its own kind", buf.String())
+	}
+	if strings.Contains(buf.String(), "pr-not-recorded") {
+		t.Fatalf("out = %q, want the outcome not asserted as a failed recording", buf.String())
 	}
 	if strings.Contains(buf.String(), "hand pr") {
 		t.Fatalf("out = %q, want no remedy named for an outcome the watcher cannot know", buf.String())
@@ -589,15 +601,24 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 // TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR covers the race the
 // non-blocking task lock introduced: `hand pr` holds that lock across its own gh
 // round-trip while recording the very URL the watcher just read off the report.
-// Announcing pr-not-recorded there is a false alarm naming a no-op remedy.
+// Announcing anything there is a false alarm naming a no-op remedy.
+//
+// The holder's write has to land after tick's own state.List snapshot, or the
+// pre-existing "task already has a PR" guard absorbs the URL and the contention
+// path under test is never reached - which is what made an earlier version of
+// this test vacuous. Hence the gh double writes it: ValidatePR shells out to gh
+// on the way to the lock, so the hook fires inside exactly that window.
 func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
-	writeFakeGh(t, "OPEN")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+
+	url := "https://github.com/atqamz/secondhand/pull/7"
+	snapshot := taskSnapshotWithPR(t, home, "task-1", url)
+	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", snapshot, state.Path(home, "task-1")))
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -607,7 +628,6 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	var buf, errBuf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, &errBuf)
 
-	url := "https://github.com/atqamz/secondhand/pull/7"
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -616,27 +636,91 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorded, err := state.Read(home, "task-1")
-	if err != nil {
-		unlock()
-		t.Fatal(err)
-	}
-	recorded.PR = url
-	if err := state.Write(home, recorded); err != nil {
-		unlock()
-		t.Fatal(err)
-	}
 
 	buf.Reset()
 	errBuf.Reset()
 	tick(ctx, cfg, client, states, &buf, &errBuf)
 	unlock()
 
-	if strings.Contains(buf.String(), "pr-not-recorded") {
+	if strings.Contains(buf.String(), "pr-record-unknown") || strings.Contains(buf.String(), "pr-not-recorded") {
 		t.Fatalf("out = %q, want silence when the lock holder recorded the same URL", buf.String())
 	}
 	if strings.Contains(errBuf.String(), "auto-record PR") {
 		t.Fatalf("errOut = %q, want no diagnostic for a race that resolved itself", errBuf.String())
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != url {
+		t.Fatalf("task.PR = %q, want the lock holder's own record left intact", task.PR)
+	}
+}
+
+// taskSnapshotWithPR copies home's task file with pr recorded into a scratch
+// directory, giving a test a file it can drop over the live one to stand in for
+// a concurrent writer that finished while hand was mid-call.
+func taskSnapshotWithPR(t *testing.T, home, id, pr string) string {
+	t.Helper()
+	task, err := state.Read(home, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.PR = pr
+	scratch := t.TempDir()
+	if err := state.Write(scratch, task); err != nil {
+		t.Fatal(err)
+	}
+	return state.Path(scratch, id)
+}
+
+// TestTickReportsAnUnreadableTaskWhenTheLockIsContended pins the honest message
+// for the other half of the contention path: with the task file unreadable, the
+// operator must be told that, not sent to a hand status that reads the same file.
+func TestTickReportsAnUnreadableTaskWhenTheLockIsContended(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+
+	url := "https://github.com/atqamz/secondhand/pull/7"
+	corrupt := filepath.Join(t.TempDir(), "corrupt.json")
+	if err := os.WriteFile(corrupt, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", corrupt, state.Path(home, "task-1")))
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	unlock, err := state.Lock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+	unlock()
+
+	if !strings.Contains(buf.String(), "pr-record-unknown task-1: "+url) {
+		t.Fatalf("out = %q, want the contention surfaced", buf.String())
+	}
+	if !strings.Contains(buf.String(), "state could not be read") {
+		t.Fatalf("out = %q, want the read failure named", buf.String())
+	}
+	if strings.Contains(buf.String(), "hand status") {
+		t.Fatalf("out = %q, want no remedy that reads the same unreadable file", buf.String())
 	}
 }
 
