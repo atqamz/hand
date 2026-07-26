@@ -1321,20 +1321,21 @@ jobs:
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
 ```
 
-`.github/workflows/release.yaml` - runs on push to main:
+`.github/workflows/release.yaml` - runs on push to main, and manually via `workflow_dispatch` (used to re-run release-please after a conflicted release PR is rebased):
 ```yaml
 name: Release
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
