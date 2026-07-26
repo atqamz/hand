@@ -145,7 +145,7 @@ func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
 // CombinedOutput regression at the call site fails the suite.
 func writeFakeTreehouse(t *testing.T, dir, worktreePath string) {
 	t.Helper()
-	body := fmt.Sprintf(`  get) echo '🌳 treehouse' >&2; printf '{"path":"%%s"}\n' %s ;;
+	body := fmt.Sprintf(`  get) echo 'treehouse 0.7.4' >&2; printf '{"path":"%%s"}\n' %s ;;
   return) echo ok ;;
   init) echo ok ;;`, shellSingleQuote(worktreePath))
 	writeFakeDispatch(t, dir, "treehouse", "", "$1", body)

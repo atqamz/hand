@@ -20,7 +20,7 @@ func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return false, fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(stderr.String()))
+		return false, fmt.Errorf("gh pr view failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	var body struct {
 		State string `json:"state"`

@@ -42,6 +42,32 @@ func TestStatusFleetListsAllTasks(t *testing.T) {
 	}
 }
 
+func TestStatusFleetColumnsDoNotMergeAtFieldWidth(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	id := "task-aaaaaaaaaaa"
+	if err := state.Write(home, state.Task{ID: id, Project: "myproject12", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), id+"myproject12") {
+		t.Fatalf("got %q, ID and project columns merged", out.String())
+	}
+	if !strings.Contains(out.String(), id+" ") {
+		t.Fatalf("got %q, want %q followed by a column separator", out.String(), id)
+	}
+}
+
 func TestStatusFleetDegradesToUnknownWhenHerdrUnreachable(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

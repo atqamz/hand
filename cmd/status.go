@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"text/tabwriter"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -82,13 +83,13 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		return enc.Encode(rows)
 	}
 
-	w := cmd.OutOrStdout()
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 	for _, r := range rows {
-		if _, err := fmt.Fprintf(w, "%-16s%-12s%-8s%-12s%s\n", r.ID, r.Project, r.Kind, r.AgentState, formatAge(r.CreatedAt)); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, r.AgentState, formatAge(r.CreatedAt)); err != nil {
 			return err
 		}
 	}
-	return nil
+	return w.Flush()
 }
 
 func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON bool) error {

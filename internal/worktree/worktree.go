@@ -24,7 +24,7 @@ func Get(clonePath, leaseHolder string) (string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("treehouse get failed: %s", strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
 	var lease struct {
