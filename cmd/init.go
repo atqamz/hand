@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/secondhand/internal/agentsmd"
 	"github.com/spf13/cobra"
 )
 
@@ -64,6 +65,9 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 			if err := initSkeletonFiles(home); err != nil {
+				return err
+			}
+			if _, err := agentsmd.Refresh(home); err != nil {
 				return err
 			}
 

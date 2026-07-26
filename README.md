@@ -104,6 +104,7 @@ From releases: download the binary for your platform from the [releases page](ht
 
 To update an installed binary, run `hand update`.
 It downloads the release asset for the current OS and architecture, verifies its SHA256 checksum, and replaces the running binary in place.
+When run inside a workspace it then refreshes the generated part of that workspace's AGENTS.md, leaving your own additions untouched, and prints the new release's notes.
 `hand update --check` reports whether an update is available without installing it.
 Every other command run in a workspace prints a one-line notice to stderr when a newer release exists, checked at most once a day and cached in `state/.version-check`.
 Builds without an embedded version never print the notice.

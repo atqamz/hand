@@ -103,6 +103,10 @@ secondhand/                 # repo root = working directory
       harness.go            # per-harness launch command construction
     dashboard/              # living dashboard maintenance
       dashboard.go          # read/write/update data/dashboard.md
+    agentsmd/               # generated AGENTS.md template
+      agentsmd.go           # write and refresh the generated span
+    atomicfile/             # shared write-to-temp-then-rename helper
+      atomicfile.go         # atomic file replacement
   go.mod
   go.sum
   AGENTS.md                 # agent instructions (~25 lines of rules)
@@ -1111,7 +1115,8 @@ hand init ~/fleet --setup
 ```
 
 `hand init` writes the runtime dirs (`data/`, `state/`, `config/`, `projects/`) and creates missing `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` skeletons.
-It leaves existing files unchanged and accepts an optional target path.
+It also writes the generated AGENTS.md template and its CLAUDE.md symlink (see "AGENTS.md (target)").
+Other existing files are left unchanged, and an optional target path is accepted.
 
 ### Self-update: `hand update`
 
@@ -1127,8 +1132,8 @@ Behavior:
 1. Query GitHub Releases API for the latest version tag.
 2. Compare against the running binary's embedded version.
 3. If newer: download the binary for the current OS/arch, verify checksum, replace the running binary in place.
-4. After update, re-run `hand init` in the current workspace (if in one) to update the generated AGENTS.md template to the latest version. Preserves user edits by updating only the generated workflow and rules sections, leaving user-added content intact.
-5. Print old version, new version, and what changed (from release notes).
+4. After update, refresh the generated AGENTS.md template in the current workspace to the latest version, preserving user edits (see "AGENTS.md (target)"). Outside a workspace this is skipped silently; a refresh that fails is a warning on stderr, not a failed update, since the binary is already replaced.
+5. Print old version, new version, and what changed (from the installed release's notes). The AGENTS.md line appears only when the template actually changed, and the `changed:` block only when the release has notes.
 
 ```
 hand update
@@ -1136,6 +1141,8 @@ current: v0.3.1
 latest:  v0.4.0
 updated hand to v0.4.0
 updated AGENTS.md template
+changed:
+- fix: teardown no longer strands worktrees
 ```
 
 Same pattern as `no-mistakes update`, `treehouse update`, and `herdr update`.
@@ -1463,6 +1470,7 @@ Deliverable: ready for daily use.
 ## AGENTS.md (target)
 
 ```markdown
+<!-- hand:generated:start -->
 # Secondhand
 
 You manage a fleet of coding agents using the `hand` CLI.
@@ -1490,7 +1498,11 @@ Run `hand --help` for the full command reference.
 - `data/backlog.md` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use `no-mistakes axi` directly in the worktree.
 - Use `qmd search` to find historical context in data/ when available. Fall back to reading files directly.
+<!-- hand:generated:end -->
 ```
 
 ~22 lines of rules. The CLI's `--help` carries the rest.
 CLAUDE.md is a symlink to AGENTS.md.
+
+The `hand:generated` markers delimit the span `hand init` and `hand update` own.
+A refresh replaces only that span, so anything a user adds outside it survives; a file with no markers at all is left untouched rather than clobbered.

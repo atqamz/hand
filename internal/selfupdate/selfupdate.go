@@ -40,6 +40,22 @@ func latestTag(ctx context.Context, repo string) (string, error) {
 	return out, nil
 }
 
+// ReleaseNotes returns the release body for tag, describing what changed.
+// Callers should treat a returned error as "no notes available" rather than
+// fail the update over it: the version replacement already succeeded, and
+// missing or empty notes shouldn't undo that.
+func ReleaseNotes(repo, tag string) (string, error) {
+	return releaseNotes(context.Background(), repo, tag)
+}
+
+func releaseNotes(ctx context.Context, repo, tag string) (string, error) {
+	out, err := runGH(ctx, "release", "view", tag, "--repo", repo, "--json", "body", "--jq", ".body")
+	if err != nil {
+		return "", fmt.Errorf("query release notes: %w", err)
+	}
+	return out, nil
+}
+
 // IsNewer reports whether latest is newer than current. A current version that
 // doesn't parse as semver (e.g. "dev", an unversioned local build) is always
 // considered outdated, since there's no way to prove it already matches latest.
@@ -83,12 +99,12 @@ func parseSemver(s string) (major, minor, patch int, err error) {
 // binary is written to a temp file in the same directory as the running
 // binary, then renamed over it, so a crash mid-update never leaves a partial
 // binary at the real path.
-// executableOverride lets tests point Apply at a fake binary path instead of
+// ExecutableOverride lets tests point Apply at a fake binary path instead of
 // the real test binary produced by `go test`.
-var executableOverride = os.Executable
+var ExecutableOverride = os.Executable
 
 func Apply(repo, tag string) error {
-	execPath, err := executableOverride()
+	execPath, err := ExecutableOverride()
 	if err != nil {
 		return fmt.Errorf("locate running binary: %w", err)
 	}
