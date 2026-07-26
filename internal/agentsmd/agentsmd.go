@@ -47,6 +47,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use ` + "`no-mistakes axi`" + ` directly in the worktree.
 - Use ` + "`qmd search`" + ` to find historical context in data/ when available. Fall back to reading files directly.
+- ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
 `
 
 // isWorkspace reports whether dir has been initialized by hand init: the
