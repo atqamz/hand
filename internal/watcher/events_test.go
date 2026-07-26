@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/state"
 )
 
 func TestClassifyStatusWorkingToDoneFiresDone(t *testing.T) {
 	now := time.Now()
 	ts := NewTaskState(herdr.StatusWorking, now)
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second)); e == nil || e.Kind != KindDone {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second)); e == nil || e.Kind != KindHerdrDone {
 		t.Fatalf("got %+v, want done event", e)
 	}
 	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(2*time.Second)); e != nil {
@@ -20,12 +21,36 @@ func TestClassifyStatusWorkingToDoneFiresDone(t *testing.T) {
 	}
 }
 
-func TestClassifyStatusWorkingToIdleFiresDone(t *testing.T) {
+func TestClassifyStatusWorkingToIdleFiresIdleUnreportedWhenNoTerminalReport(t *testing.T) {
 	now := time.Now()
 	ts := NewTaskState(herdr.StatusWorking, now)
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusIdle, nil, now.Add(time.Second)); e == nil || e.Kind != KindDone {
-		t.Fatalf("got %+v, want done event", e)
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusIdle, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+		t.Fatalf("got %+v, want idle-unreported event when nothing explained the stop", e)
+	}
+}
+
+func TestClassifyStatusWorkingToIdleFiresIdleUnreportedWhenLastReportWasStillWorking(t *testing.T) {
+	now := time.Now()
+	ts := NewTaskState(herdr.StatusWorking, now)
+	ts.LastReportState = state.ReportWorking
+
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusIdle, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+		t.Fatalf("got %+v, want idle-unreported even though a working report exists, since it doesn't explain a stop", e)
+	}
+}
+
+func TestClassifyStatusWorkingToIdleIsAbsorbedWhenTerminalReportExplainsIt(t *testing.T) {
+	for _, reportState := range []string{
+		state.ReportPaused, state.ReportBlocked, state.ReportNeedsDecision, state.ReportDone, state.ReportFailed,
+	} {
+		now := time.Now()
+		ts := NewTaskState(herdr.StatusWorking, now)
+		ts.LastReportState = reportState
+
+		if e := ClassifyStatus(ts, "task-1", herdr.StatusIdle, nil, now.Add(time.Second)); e != nil {
+			t.Fatalf("report state %q: got %+v, want the idle transition absorbed silently", reportState, e)
+		}
 	}
 }
 
@@ -81,7 +106,7 @@ func TestClassifyStatusRecoveryAfterFailureCanFireDone(t *testing.T) {
 	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second)); e == nil || e.Kind != KindFailed {
 		t.Fatalf("got %+v, want failed event", e)
 	}
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(2*time.Second)); e == nil || e.Kind != KindDone {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(2*time.Second)); e == nil || e.Kind != KindHerdrDone {
 		t.Fatalf("got %+v, want done event on recovery", e)
 	}
 }
@@ -128,5 +153,66 @@ func TestClassifyPRMergedFiresOnce(t *testing.T) {
 	}
 	if e := ClassifyPRMerged(ts, "task-1", true); e != nil {
 		t.Fatalf("pr-merged fired again: %+v", e)
+	}
+}
+
+func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
+	ts := NewTaskState(herdr.StatusWorking, time.Now())
+	task := state.Task{ID: "task-1", Kind: state.KindShip}
+
+	line := state.ParseReportLine("working: workflow_dispatch added to release.yaml, invoking no-mistakes")
+	e := ClassifyReportLine(ts, "task-1", task, line)
+	if e == nil || e.Kind != KindReportWorking || ts.LastReportState != state.ReportWorking {
+		t.Fatalf("got %+v ts=%+v, want report-working", e, ts)
+	}
+
+	line = state.ParseReportLine("needs-decision: review gate on PR for #20 raised 2 ask-user findings - (1) concurrency group release-${{ github.ref }} does not serialize manual dispatch against push-triggered runs on main, risking concurrent release-please runs; (2) dispatch replays same release-please step that already no-op'd on issue #20, may not unblock the conflicted PR without also deleting/recreating the release branch. Run parked at review gate, run id 01KYEVGV26MD8X08MZY2VXXCSR on branch 20-release-workflow-dispatch.")
+	e = ClassifyReportLine(ts, "task-1", task, line)
+	if e == nil || e.Kind != KindReportNeedsDecision || ts.LastReportState != state.ReportNeedsDecision {
+		t.Fatalf("got %+v ts=%+v, want report-needs-decision", e, ts)
+	}
+
+	line = state.ParseReportLine("done: PR https://github.com/atqamz/secondhand/pull/31 checks green")
+	e = ClassifyReportLine(ts, "task-1", task, line)
+	if e == nil || e.Kind != KindReportDone {
+		t.Fatalf("got %+v, want report-done", e)
+	}
+	if e.Verified {
+		t.Fatalf("got Verified=true with no PR/merge recorded on the task yet, want an unverified reported-done")
+	}
+}
+
+func TestClassifyReportLineMalformedIsSurfacedAndDoesNotOverwriteLastReportState(t *testing.T) {
+	ts := NewTaskState(herdr.StatusWorking, time.Now())
+	ts.LastReportState = state.ReportBlocked
+	task := state.Task{ID: "task-1", Kind: state.KindShip}
+
+	e := ClassifyReportLine(ts, "task-1", task, state.ParseReportLine("thinking: about to start"))
+	if e == nil || e.Kind != KindReportMalformed {
+		t.Fatalf("got %+v, want a malformed report surfaced, not dropped", e)
+	}
+	if ts.LastReportState != state.ReportBlocked {
+		t.Fatalf("got LastReportState=%q, want the prior blocked report preserved", ts.LastReportState)
+	}
+}
+
+func TestClassifyReportDoneVerifiedOnlyWithMergedPROnShipTask(t *testing.T) {
+	line := state.ParseReportLine("done: all landed")
+
+	cases := []struct {
+		name     string
+		task     state.Task
+		verified bool
+	}{
+		{"no PR recorded", state.Task{Kind: state.KindShip}, false},
+		{"PR recorded but not merged", state.Task{Kind: state.KindShip, PR: "https://github.com/a/b/pull/1"}, false},
+		{"PR recorded and merged", state.Task{Kind: state.KindShip, PR: "https://github.com/a/b/pull/1", Merged: true}, true},
+		{"scout task never verified", state.Task{Kind: state.KindScout, PR: "https://github.com/a/b/pull/1", Merged: true}, false},
+	}
+	for _, c := range cases {
+		e := classifyReportDone("task-1", c.task, line)
+		if e.Verified != c.verified {
+			t.Errorf("%s: got Verified=%v, want %v", c.name, e.Verified, c.verified)
+		}
 	}
 }

@@ -79,6 +79,8 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			continue
 		}
 
+		t = tailReport(cfg, ts, t, out, errOut)
+
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
 		}
@@ -104,6 +106,27 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 }
 
+// tailReport classifies whatever report lines have arrived since ts.ReportOffset,
+// before ClassifyStatus runs for this tick, so a report that lands in the same
+// poll as a herdr idle transition is already reflected in ts.LastReportState when
+// the idle-vs-idle-unreported decision is made.
+func tailReport(cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) state.Task {
+	path := state.ReportPath(cfg.Home, t.ID)
+	lines, offset, err := state.TailReport(path, ts.ReportOffset)
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: tail report %s failed: %v\n", t.ID, err)
+		return t
+	}
+	ts.ReportOffset = offset
+
+	for _, line := range lines {
+		if e := ClassifyReportLine(ts, t.ID, t, line); e != nil {
+			handleEvent(cfg, e, t, out, errOut)
+		}
+	}
+	return t
+}
+
 func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
 	_, _ = fmt.Fprintln(out, e.Text)
 
@@ -123,14 +146,30 @@ func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 
 	opts := dashboard.UpdateOpts{AddEvent: e.Text}
 	switch e.Kind {
-	case KindDone:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindDone, Age: age}
+	case KindHerdrDone:
+		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindHerdrDone, Age: age}
 		opts.ClearPendingDecision = t.ID
+	case KindIdleUnreported:
+		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindIdleUnreported, Age: age}
+		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("stopped, reason unknown (idle %s)", age)}
 	case KindBlocked:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindBlocked, Age: age}
 		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("%s (blocked %s)", e.Reason, age)}
 	case KindFailed:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindFailed, Age: age}
+	case KindReportBlocked, KindReportNeedsDecision:
+		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: e.Reason}
+	case KindReportFailed:
+		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportFailed, Age: age}
+	case KindReportDone:
+		// A reported done is never trusted alone: only once it's cross-checked
+		// against a merged PR (Verified) does it get to change agent state or
+		// clear a pending decision, so an unverified self-report shows up in
+		// Recent Events without silently overriding what's still pending.
+		if e.Verified {
+			opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindHerdrDone, Age: age}
+			opts.ClearPendingDecision = t.ID
+		}
 	}
 
 	return dashboard.Update(dashPath, opts)

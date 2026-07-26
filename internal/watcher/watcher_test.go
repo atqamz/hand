@@ -138,7 +138,7 @@ func TestTickClassifiesDoneAndUpdatesDashboardAndLog(t *testing.T) {
 	}
 
 	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindDone {
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindHerdrDone {
 		t.Fatalf("ActiveTasks = %+v", d.ActiveTasks)
 	}
 	if len(d.RecentEvents) != 1 || !strings.Contains(d.RecentEvents[0], "done task-1") {
@@ -218,6 +218,65 @@ func TestTickClassifiesPRMerged(t *testing.T) {
 	}
 }
 
+func TestTickFiresIdleUnreportedWhenPaneGoesIdleWithNoReport(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	setStatus(t, statusFile, "idle")
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "idle-unreported task-1") {
+		t.Fatalf("output = %q, want idle-unreported task-1 when nothing explained the stop", buf.String())
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.PendingDecisions) != 1 || !strings.HasPrefix(d.PendingDecisions[0], "task-1:") {
+		t.Fatalf("PendingDecisions = %+v, want an idle-unreported task flagged actionable", d.PendingDecisions)
+	}
+}
+
+func TestTickAbsorbsIdleWhenReportExplainsTheStop(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: waiting on approval\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setStatus(t, statusFile, "idle")
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if !strings.Contains(buf.String(), "needs-decision task-1: waiting on approval") {
+		t.Fatalf("output = %q, want the report line surfaced", buf.String())
+	}
+	if strings.Contains(buf.String(), "idle-unreported") {
+		t.Fatalf("output = %q, want the idle transition absorbed since needs-decision explains the stop", buf.String())
+	}
+}
+
 func TestTickForgetsTornDownTasks(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -277,7 +336,7 @@ func TestHandleEventSendsLogFailureToErrOut(t *testing.T) {
 	}
 
 	var buf, errBuf bytes.Buffer
-	handleEvent(Config{Home: home}, &Event{Kind: KindDone, TaskID: "task-1", Text: "done task-1"},
+	handleEvent(Config{Home: home}, &Event{Kind: KindHerdrDone, TaskID: "task-1", Text: "done task-1"},
 		state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, &buf, &errBuf)
 
 	if buf.String() != "done task-1\n" {

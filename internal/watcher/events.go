@@ -5,15 +5,24 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/state"
 )
 
 // Kind values classify an Event for dashboard/log routing.
 const (
-	KindDone     = "done"
-	KindBlocked  = "blocked"
-	KindFailed   = "failed"
-	KindStale    = "stale"
-	KindPRMerged = "pr-merged"
+	KindHerdrDone           = "done"
+	KindIdleUnreported      = "idle-unreported"
+	KindBlocked             = "blocked"
+	KindFailed              = "failed"
+	KindStale               = "stale"
+	KindPRMerged            = "pr-merged"
+	KindReportWorking       = "report-working"
+	KindReportPaused        = "report-paused"
+	KindReportBlocked       = "report-blocked"
+	KindReportNeedsDecision = "report-needs-decision"
+	KindReportDone          = "report-done"
+	KindReportFailed        = "report-failed"
+	KindReportMalformed     = "report-malformed"
 )
 
 // blockedReason is the only detail available: herdr reports agent_status without a
@@ -21,21 +30,24 @@ const (
 const blockedReason = "agent needs help"
 
 type Event struct {
-	TaskID string
-	Kind   string
-	Text   string
-	Reason string
+	TaskID   string
+	Kind     string
+	Text     string
+	Reason   string
+	Verified bool
 }
 
 // TaskState tracks what's already been observed and announced for one task, so the
 // classifier only fires once per transition instead of once per poll tick.
 type TaskState struct {
-	Status    herdr.Status
-	Probed    bool
-	ChangedAt time.Time
-	Blocked   bool
-	Stale     bool
-	PRMerged  bool
+	Status          herdr.Status
+	Probed          bool
+	ChangedAt       time.Time
+	Blocked         bool
+	Stale           bool
+	PRMerged        bool
+	ReportOffset    int64
+	LastReportState string
 }
 
 // NewTaskState seeds tracking for a task first observed at now, without emitting an
@@ -45,9 +57,16 @@ func NewTaskState(status herdr.Status, now time.Time) *TaskState {
 }
 
 // ClassifyStatus compares a freshly probed status against ts and returns an
-// actionable event for the transitions SPECS.md calls out (done, blocked, failed).
-// Benign transitions (into working, repeated done/idle/blocked) update ts in place
-// and return nil.
+// actionable event for the transitions SPECS.md calls out (done, idle-unreported,
+// blocked, failed). Benign transitions (into working, repeated done/idle/blocked)
+// update ts in place and return nil.
+//
+// herdr's idle just means the pane isn't busy - it says nothing about whether the
+// task actually finished. A transition into idle only fires KindHerdrDone-adjacent
+// KindIdleUnreported when nothing has explained the stop: no report at all, or the
+// last report was still "working". Any other reported state (paused, blocked,
+// needs-decision, done, failed) already explains the pane going quiet, so the
+// transition is absorbed silently instead of raising a false alarm.
 func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr error, now time.Time) *Event {
 	if probeErr != nil {
 		wasProbed := ts.Probed
@@ -68,10 +87,17 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 	ts.Stale = false
 
 	switch status {
-	case herdr.StatusDone, herdr.StatusIdle:
+	case herdr.StatusDone:
 		if prevStatus == herdr.StatusWorking || prevStatus == herdr.StatusBlocked {
 			ts.Blocked = false
-			return &Event{TaskID: id, Kind: KindDone, Text: fmt.Sprintf("done %s", id)}
+			return &Event{TaskID: id, Kind: KindHerdrDone, Text: fmt.Sprintf("done %s", id)}
+		}
+	case herdr.StatusIdle:
+		if prevStatus == herdr.StatusWorking || prevStatus == herdr.StatusBlocked {
+			ts.Blocked = false
+			if ts.LastReportState == "" || ts.LastReportState == state.ReportWorking {
+				return &Event{TaskID: id, Kind: KindIdleUnreported, Text: fmt.Sprintf("idle-unreported %s", id)}
+			}
 		}
 	case herdr.StatusBlocked:
 		if !ts.Blocked {
@@ -104,4 +130,44 @@ func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {
 	}
 	ts.PRMerged = true
 	return &Event{TaskID: id, Kind: KindPRMerged, Text: fmt.Sprintf("pr-merged %s", id)}
+}
+
+// ClassifyReportLine turns one classified report line into an event and records
+// it as ts.LastReportState so a subsequent idle transition can consult it. A
+// malformed line is surfaced rather than dropped, but doesn't overwrite the last
+// known report state since free text alone explains nothing.
+func ClassifyReportLine(ts *TaskState, id string, t state.Task, line state.ReportLine) *Event {
+	if line.Malformed {
+		return &Event{TaskID: id, Kind: KindReportMalformed, Text: fmt.Sprintf("malformed report %s: %s", id, line.Raw), Reason: line.Raw}
+	}
+	ts.LastReportState = line.State
+
+	switch line.State {
+	case state.ReportWorking:
+		return &Event{TaskID: id, Kind: KindReportWorking, Text: fmt.Sprintf("working %s: %s", id, line.Note), Reason: line.Note}
+	case state.ReportPaused:
+		return &Event{TaskID: id, Kind: KindReportPaused, Text: fmt.Sprintf("paused %s: %s", id, line.Note), Reason: line.Note}
+	case state.ReportBlocked:
+		return &Event{TaskID: id, Kind: KindReportBlocked, Text: fmt.Sprintf("report-blocked %s: %s", id, line.Note), Reason: line.Note}
+	case state.ReportNeedsDecision:
+		return &Event{TaskID: id, Kind: KindReportNeedsDecision, Text: fmt.Sprintf("needs-decision %s: %s", id, line.Note), Reason: line.Note}
+	case state.ReportFailed:
+		return &Event{TaskID: id, Kind: KindReportFailed, Text: fmt.Sprintf("report-failed %s: %s", id, line.Note), Reason: line.Note}
+	case state.ReportDone:
+		return classifyReportDone(id, t, line)
+	}
+	return nil
+}
+
+// classifyReportDone never trusts a worker's own belief that it's finished: for a
+// ship task that's still short a merged PR, the event is marked unverified so
+// dashboard/watch consumers surface "worker says done" without treating it as
+// confirmed fact.
+func classifyReportDone(id string, t state.Task, line state.ReportLine) *Event {
+	verified := t.Kind == state.KindShip && t.PR != "" && t.Merged
+	text := "reported-done"
+	if verified {
+		text = "done"
+	}
+	return &Event{TaskID: id, Kind: KindReportDone, Text: fmt.Sprintf("%s %s: %s", text, id, line.Note), Reason: line.Note, Verified: verified}
 }
