@@ -66,7 +66,7 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 	if !detected {
 		noAgent = fmt.Sprintf("no agent detected in pane; herdr agent detection for harness %s has not been exercised", harnessName)
 	}
-	stall := noAgent
+	var stall string
 
 	for {
 		pane, err := client.PaneGet(paneID)

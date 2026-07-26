@@ -939,7 +939,7 @@ herdr tracks agent state per pane:
 
 | hand command | herdr operation |
 |---|---|
-| `hand spawn` | create workspace (if needed) + create tab + send launch command |
+| `hand spawn` | create workspace (if needed) + create tab + send launch command + poll pane state and read pane text until the worker is confirmed started, sending keys to answer first-run dialogs |
 | `hand status` | get agent state for pane |
 | `hand send` | check composer empty + send keys to pane |
 | `hand teardown` | close tab (+ close workspace if empty) |
@@ -962,7 +962,11 @@ herdr tab list --workspace <ws-id>
 
 # get pane and agent state
 herdr pane get <pane-id>
+# returns agent: detected harness name, empty when no harness runs in the pane
 # returns agent_status: "working" | "idle" | "done" | "blocked"
+
+# read the pane's recent scrollback as plain text
+herdr pane read <pane-id> --source recent --lines <n>
 
 # run a command in pane
 herdr pane run <pane-id> <command>

@@ -115,8 +115,9 @@ Currently supported preferences live as plain files under `config/`: default wor
 Run `hand init --setup` to discover installed harnesses and tools and write the defaults interactively.
 
 Workers run their harness interactively so they can be steered and watched.
-For Claude Code that means a fresh host needs its two first-run dialogs cleared once: run `claude --dangerously-skip-permissions` inside your treehouse pool root (`~/.treehouse`), accept the trust prompt and the bypass-permissions disclaimer, then quit.
-Otherwise the first worker spawned there sits on a dialog instead of working.
+For Claude Code that means first-run dialogs, and `hand spawn` and `hand promote` answer the workspace-trust and bypass-permissions ones for you, then confirm the worker is actually running before reporting success.
+A worker that never comes up fails the spawn instead of being reported as started.
+The exception is Claude Code's managed-settings approval prompt on hosts with organization-managed settings: accepting it is a host-wide trust decision, so `hand` refuses it and tells you to accept it yourself once and respawn.
 
 ## Contributing
 
