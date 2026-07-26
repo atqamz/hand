@@ -413,6 +413,65 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 	}
 }
 
+// TestTickAutoRecordsPRButAnnouncesAMissingDashboardRow is the auto-record path's
+// half of the fix cmd/pr.go's reconcile branch got: recordAutoPR shares SetPR with
+// hand pr, and until this fix ignored the Matched field it reports, so it could
+// write the PR to task state, find no active row to carry it, and still return nil
+// - the exact silent no-op the reconcile branch exists to refuse, just in the
+// sibling caller. No active row ever gets created here (that would fabricate
+// state); it must be pr-not-recorded instead.
+func TestTickAutoRecordsPRButAnnouncesAMissingDashboardRow(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	// Deliberately no AddActiveTask: the dashboard has no row for task-1, so the
+	// watcher's own auto-record has nothing to reconcile either.
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	url := "https://github.com/atqamz/secondhand/pull/31"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR "+url+" checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	errBuf.Reset()
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != url {
+		t.Fatalf("task.PR = %q, want the URL recorded on the task despite the missing row", task.PR)
+	}
+
+	if !strings.Contains(buf.String(), "pr-not-recorded task-1: "+url) {
+		t.Fatalf("out = %q, want pr-not-recorded for the unreconciled dashboard row", buf.String())
+	}
+	if strings.Contains(buf.String(), "pr-record-unknown") {
+		t.Fatalf("out = %q, want no pr-record-unknown - the outcome is known, not contended", buf.String())
+	}
+	if !strings.Contains(errBuf.String(), "task-1") {
+		t.Fatalf("errOut = %q, want a stderr diagnostic naming the task", errBuf.String())
+	}
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	d := readDashboard(t, dashPath)
+	if len(d.ActiveTasks) != 0 {
+		t.Fatalf("ActiveTasks = %+v, want no row fabricated for a task the dashboard never had", d.ActiveTasks)
+	}
+}
+
 func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")

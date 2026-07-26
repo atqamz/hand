@@ -275,8 +275,17 @@ func recordAutoPR(home, id, url string) error {
 	// Task lock before dashboard lock, never the reverse - the one ordering
 	// every site that takes both follows.
 	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}}); err != nil {
+	setPR := &dashboard.PRUpdate{ID: id, PR: url}
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: setPR}); err != nil {
 		return fmt.Errorf("recorded PR for %s in task state but dashboard update failed: %w", id, err)
+	}
+	if !setPR.Matched {
+		// The write above succeeded, so the PR is genuinely on record - only the
+		// dashboard has no active row to carry it, the same silent no-op cmd/pr.go's
+		// reconcile branch exists to refuse. The watcher cannot exit non-zero the
+		// way that command does, so pr-not-recorded is how an operator learns the
+		// dashboard column is stale despite the state write having landed.
+		return fmt.Errorf("no active dashboard row for %s - the PR is recorded on the task but nothing was reconciled", id)
 	}
 	return nil
 }
