@@ -287,6 +287,15 @@ Behavior:
 9. Write `state/<id>.json` with all metadata.
 10. Update `data/dashboard.md` with the new task.
 
+Any failure before step 9 leaves nothing behind: the worktree lease returns to treehouse and the
+herdr side is rolled back.
+A workspace this command created is closed whole, because a fresh workspace already holds an
+auto-created root tab and closing only the task's tab would leak it.
+A workspace that already existed is shared with other tasks, so it keeps running and only loses
+the tab this command added.
+Once `state/<id>.json` is written the task owns its worktree and tab, so a later failure such as
+the dashboard update never tears down a task that is already running.
+
 Output:
 ```
 spawned fix-login project=nsr kind=ship harness=claude worktree=/home/user/.treehouse/nsr-abc/1/nsr
@@ -913,8 +922,19 @@ herdr tab close <tab-id>
 herdr workspace close <ws-id>
 ```
 
-These calls and the JSON response envelope were verified against the installed herdr version.
-The herdr client abstracts them into Go function calls and validates required response fields.
+These calls and their responses were verified against the installed herdr version.
+Responses come in two shapes, and the client validates each one differently:
+
+- **Query commands** print a JSON envelope carrying a non-null `result` object; a missing or null
+  result is an error.
+  `tab close` and `workspace close` belong here too: they answer with a `{"type":"ok"}` result
+  rather than staying silent.
+- **Void commands** (`pane run`, `pane send-text`, `pane send-keys`) print nothing on success.
+  A failure prints a JSON error envelope whose exit code cannot be trusted on its own, so any
+  non-empty body is parsed for that envelope before the exit status is consulted.
+
+The herdr client abstracts these into Go function calls; `internal/herdr` keeps one entry point
+per shape and is the source of truth for which command uses which.
 
 ## No-mistakes integration
 
