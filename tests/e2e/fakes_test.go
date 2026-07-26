@@ -28,6 +28,22 @@ func writeFakeBin(t *testing.T, dir, name, caseBody string) {
 	}
 }
 
+// writeFakeDispatch writes a fake binary that dispatches caseBody on selector
+// (the shell expression each case arm matches, e.g. "$1" or "$1 $2") and fails
+// loudly on any invocation shape the test did not anticipate. When logPath is
+// non-empty every invocation is appended to it as "<name> <args...>", so a
+// test can assert on which calls were and were not made.
+func writeFakeDispatch(t *testing.T, dir, name, logPath, selector, caseBody string) {
+	t.Helper()
+	script := ""
+	if logPath != "" {
+		script = fmt.Sprintf("echo \"%s $@\" >> %s\n", name, shellSingleQuote(logPath))
+	}
+	script += fmt.Sprintf("case \"%s\" in\n%s\n  *) echo \"unexpected %s invocation: $@\" >&2; exit 1 ;;\nesac\n",
+		selector, caseBody, name)
+	writeFakeBin(t, dir, name, script)
+}
+
 // shellSingleQuote wraps s for safe embedding as a single-quoted shell literal.
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
@@ -76,22 +92,18 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 	workspaceClose := herdrOK(t, map[string]any{})
 	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": status}})
 
-	script := fmt.Sprintf(`case "$1 $2" in
-  "workspace list") echo %s ;;
+	body := fmt.Sprintf(`  "workspace list") echo %s ;;
   "workspace create") echo %s ;;
   "tab create") echo %s ;;
   "pane run") echo %s ;;
   "tab list") echo %s ;;
   "tab close") echo %s ;;
   "workspace close") echo %s ;;
-  "pane get") echo %s ;;
-  *) echo "unexpected herdr invocation: $@" >&2; exit 1 ;;
-esac
-`,
+  "pane get") echo %s ;;`,
 		shellSingleQuote(workspaceList), shellSingleQuote(workspaceCreate), shellSingleQuote(tabCreate),
 		shellSingleQuote(paneRun), shellSingleQuote(tabList), shellSingleQuote(tabClose),
 		shellSingleQuote(workspaceClose), shellSingleQuote(paneGet))
-	writeFakeBin(t, dir, "herdr", script)
+	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 
 // writeFakeHerdrWatch writes a herdr fake for the watch scenario: workspace
@@ -99,18 +111,16 @@ esac
 // "pane get <id>" reports whatever status currently sits in statusDir/<id>,
 // letting the test drive independent, per-task status transitions while
 // `hand watch` polls in the background just by rewriting one file per task.
-func writeFakeHerdrWatch(t *testing.T, dir, statusDir string) {
+// Every invocation is appended to logPath so the test can tell "the watcher
+// has polled this pane" apart from "the watcher hasn't got there yet".
+func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	t.Helper()
-	script := fmt.Sprintf(`case "$1 $2" in
-  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
+	body := fmt.Sprintf(`  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "pane get")
     status=$(cat %s/"$3" 2>/dev/null || echo idle)
     printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent_status":"%%s"}}}\n' "$3" "$status"
-    ;;
-  *) echo "unexpected herdr invocation: $@" >&2; exit 1 ;;
-esac
-`, shellSingleQuote(statusDir))
-	writeFakeBin(t, dir, "herdr", script)
+    ;;`, shellSingleQuote(statusDir))
+	writeFakeDispatch(t, dir, "herdr", logPath, "$1 $2", body)
 }
 
 func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
@@ -125,36 +135,25 @@ func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
 // treehouseInitIfNeeded's invocation shapes ("get"/"return"/"init" as $1).
 func writeFakeTreehouse(t *testing.T, dir, worktreePath string) {
 	t.Helper()
-	script := fmt.Sprintf(`case "$1" in
-  get) printf '{"path":"%%s"}\n' %s ;;
+	body := fmt.Sprintf(`  get) printf '{"path":"%%s"}\n' %s ;;
   return) echo ok ;;
-  init) echo ok ;;
-  *) echo "unexpected treehouse invocation: $@" >&2; exit 1 ;;
-esac
-`, shellSingleQuote(worktreePath))
-	writeFakeBin(t, dir, "treehouse", script)
-}
-
-// writeFakeGh writes a gh fake with a caller-supplied case body, mirroring
-// cmd/merge_test.go's writeFakeGh: merge and PR-status scenarios each need a
-// distinct dispatch (pr checks / pr merge / pr view), so the body is not
-// fixed here the way herdr/treehouse's are.
-func writeFakeGh(t *testing.T, dir, caseBody string) {
-	t.Helper()
-	writeFakeBin(t, dir, "gh", "case \"$1 $2\" in\n"+caseBody+"\n*) echo \"unexpected gh invocation: $@\" >&2; exit 1 ;;\nesac\n")
+  init) echo ok ;;`, shellSingleQuote(worktreePath))
+	writeFakeDispatch(t, dir, "treehouse", "", "$1", body)
 }
 
 // redirectGitRemote makes `git clone <matchURL> <dest>` resolve to a local
-// repo instead of the network, via git's url.<target>.insteadOf mechanism.
-// GIT_CONFIG_GLOBAL (git >= 2.32) points git at an isolated config file for
-// the rest of the test instead of the real user's ~/.gitconfig.
+// repo instead of the network, via git's url.<target>.insteadOf mechanism,
+// appending the rule to the scratch config isolateGitConfig already points
+// this test's git invocations at.
 func redirectGitRemote(t *testing.T, matchURL, localRepoPath string) {
 	t.Helper()
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	content := fmt.Sprintf("[url \"file://%s\"]\n\tinsteadOf = %s\n", localRepoPath, matchURL)
-	if err := os.WriteFile(cfg, []byte(content), 0o644); err != nil {
+	cfg := isolateGitConfig(t)
+	f, err := os.OpenFile(cfg, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	defer func() { _ = f.Close() }()
+	if _, err := fmt.Fprintf(f, "[url \"file://%s\"]\n\tinsteadOf = %s\n", localRepoPath, matchURL); err != nil {
+		t.Fatal(err)
+	}
 }

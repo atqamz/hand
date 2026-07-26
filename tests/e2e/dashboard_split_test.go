@@ -67,9 +67,6 @@ func TestDashboardUpdateSplit(t *testing.T) {
 	}
 
 	writeBrief(t, home, "task-2")
-	if err := os.MkdirAll(filepath.Join(home, "data", "task-2"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(home, "data", "task-2", "report.md"), []byte("# report\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

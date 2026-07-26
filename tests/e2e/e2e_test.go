@@ -91,9 +91,10 @@ func (s *syncBuffer) String() string {
 // SIGTERM signal.NotifyContext listens for in cmd/watch.go, rather than
 // waiting for it to exit on its own.
 type backgroundHand struct {
-	cmd    *exec.Cmd
-	stdout *syncBuffer
-	stderr *syncBuffer
+	cmd     *exec.Cmd
+	stdout  *syncBuffer
+	stderr  *syncBuffer
+	reaping bool
 }
 
 func startHandBackground(t *testing.T, home string, args ...string) *backgroundHand {
@@ -107,7 +108,15 @@ func startHandBackground(t *testing.T, home string, args ...string) *backgroundH
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start hand %v: %v", args, err)
 	}
-	return &backgroundHand{cmd: cmd, stdout: stdout, stderr: stderr}
+	b := &backgroundHand{cmd: cmd, stdout: stdout, stderr: stderr}
+	t.Cleanup(func() {
+		if b.reaping {
+			return
+		}
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	return b
 }
 
 func (b *backgroundHand) waitForStdout(t *testing.T, substr string, timeout time.Duration) {
@@ -130,6 +139,7 @@ func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 	if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal hand watch: %v", err)
 	}
+	b.reaping = true
 	done := make(chan error, 1)
 	go func() { done <- b.cmd.Wait() }()
 	select {
@@ -150,8 +160,29 @@ func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 	}
 }
 
+// waitForInvocation blocks until a fake binary's invocation log contains
+// substr, giving a test a positive signal that a background process has
+// actually reached a given call instead of guessing with a sleep.
+func waitForInvocation(t *testing.T, logPath, substr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(logPath)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("read invocation log %s: %v", logPath, err)
+		}
+		if strings.Contains(string(data), substr) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	data, _ := os.ReadFile(logPath)
+	t.Fatalf("timed out waiting for %q in invocation log; log=%q", substr, data)
+}
+
 func newHome(t *testing.T) string {
 	t.Helper()
+	isolateGitConfig(t)
 	home := t.TempDir()
 	if got := runHand(t, home, "init"); got.code != 0 {
 		t.Fatalf("hand init: exit %d, stderr %q", got.code, got.stderr)
@@ -431,13 +462,38 @@ func findActiveTask(d dashboard.Dashboard, id string) (dashboard.ActiveTask, boo
 	return dashboard.ActiveTask{}, false
 }
 
+// gitConfigIsolated marks the current test as already pointed at a scratch git
+// config, so the helpers below can each demand isolation without clobbering an
+// earlier setup (redirectGitRemote's insteadOf rules in particular).
+const gitConfigIsolated = "HAND_E2E_GIT_CONFIG_ISOLATED"
+
+// isolateGitConfig points every git invocation in this test - the test's own
+// and the ones hand shells out to - at a scratch config file, so the
+// developer's real ~/.gitconfig (commit.gpgsign above all, which would drag
+// gpg-agent into every commit these tests make) can never reach them. It
+// returns the config path so callers can add their own rules to it.
+func isolateGitConfig(t *testing.T) string {
+	t.Helper()
+	if os.Getenv(gitConfigIsolated) == "1" {
+		return os.Getenv("GIT_CONFIG_GLOBAL")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	content := "[user]\n\tname = hand-e2e\n\temail = hand-e2e@example.invalid\n" +
+		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+	if err := os.WriteFile(cfg, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv(gitConfigIsolated, "1")
+	return cfg
+}
+
 func runGitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	isolateGitConfig(t)
 	c := exec.Command("git", args...)
 	c.Dir = dir
-	c.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
 	out, err := c.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v: %s", args, err, out)
@@ -450,20 +506,10 @@ func initGitRepo(t *testing.T, dir string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	run := func(args ...string) {
-		c := exec.Command("git", args...)
-		c.Dir = dir
-		c.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
-		if out, err := c.CombinedOutput(); err != nil {
-			t.Fatalf("git %v failed: %v: %s", args, err, out)
-		}
-	}
-	run("init", "-q", "-b", "main")
+	runGitIn(t, dir, "init", "-q", "-b", "main")
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", "README.md")
-	run("commit", "-q", "-m", "initial commit")
+	runGitIn(t, dir, "add", "README.md")
+	runGitIn(t, dir, "commit", "-q", "-m", "initial commit")
 }

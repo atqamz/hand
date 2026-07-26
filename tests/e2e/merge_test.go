@@ -29,19 +29,14 @@ func TestMergePR(t *testing.T) {
 
 	dir := binDir(t)
 	invocationLog := filepath.Join(t.TempDir(), "gh-invocations.log")
-	writeFakeBin(t, dir, "gh", `echo "$@" >> `+shellSingleQuote(invocationLog)+`
-case "$1 $2" in
-  "pr checks")
+	writeFakeDispatch(t, dir, "gh", invocationLog, "$1 $2", `  "pr checks")
     case "$3" in
       1) echo '[{"bucket":"pass"}]' ;;
       2) echo '[{"bucket":"fail"}]' ;;
       *) echo "unexpected pr checks arg: $3" >&2; exit 1 ;;
     esac
     ;;
-  "pr merge") echo ok ;;
-  *) echo "unexpected gh invocation: $@" >&2; exit 1 ;;
-esac
-`)
+  "pr merge") echo ok ;;`)
 
 	clean := runHand(t, home, "merge", "task-1")
 	if clean.code != 0 {

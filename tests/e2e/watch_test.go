@@ -38,31 +38,35 @@ func TestWatchEventStream(t *testing.T) {
 	setPaneStatus(t, statusDir, "pane-2", "blocked")
 
 	dir := binDir(t)
-	writeFakeHerdrWatch(t, dir, statusDir)
+	herdrLog := filepath.Join(t.TempDir(), "herdr-invocations.log")
+	writeFakeHerdrWatch(t, dir, statusDir, herdrLog)
 
 	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
-	defer func() {
-		if watch.cmd.ProcessState == nil {
-			_ = watch.cmd.Process.Kill()
-		}
-	}()
 
-	// Give the first tick (which only seeds state, per watcher.go's tick)
-	// several poll intervals to run, then confirm task-2's pre-existing
-	// "blocked" status never produced an event: only a later transition
-	// should.
-	time.Sleep(300 * time.Millisecond)
+	// Both panes appearing in the invocation log proves the seeding tick -
+	// which per watcher.go only records status, never emits - has covered both
+	// tasks. Only after that can a status change be a genuine transition
+	// rather than a different seed value.
+	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
+	waitForInvocation(t, herdrLog, "herdr pane get pane-2", 5*time.Second)
+
+	// task-1's working -> done transition is the liveness signal: seeing its
+	// event proves the watcher has run a post-seed tick over both tasks, so
+	// the absence of any task-2 output is a real suppression of task-2's
+	// pre-existing "blocked" status rather than a watcher that hasn't polled.
+	setPaneStatus(t, statusDir, "pane-1", "done")
+	watch.waitForStdout(t, "done task-1", 5*time.Second)
 	if strings.Contains(watch.stdout.String(), "task-2") {
 		t.Fatalf("watch fired an event for task-2's pre-existing status before any transition: stdout=%q", watch.stdout.String())
 	}
 
-	setPaneStatus(t, statusDir, "pane-1", "done")
-	watch.waitForStdout(t, "done task-1", 2*time.Second)
-
-	setPaneStatus(t, statusDir, "pane-2", "working")
-	time.Sleep(100 * time.Millisecond)
+	// Drive task-2 out of its seeded "blocked" state and wait for the
+	// resulting event, so the later blocked event is a genuine
+	// done -> blocked transition rather than a repeat the classifier drops.
+	setPaneStatus(t, statusDir, "pane-2", "done")
+	watch.waitForStdout(t, "done task-2", 5*time.Second)
 	setPaneStatus(t, statusDir, "pane-2", "blocked")
-	watch.waitForStdout(t, "blocked task-2: agent needs help", 2*time.Second)
+	watch.waitForStdout(t, "blocked task-2: agent needs help", 5*time.Second)
 
 	stdout := watch.stdout.String()
 	doneAt := strings.Index(stdout, "done task-1")

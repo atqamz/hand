@@ -47,24 +47,24 @@ func TestPromoteScoutToShip(t *testing.T) {
 	dir := binDir(t)
 	newWorktree := filepath.Join(home, "wt-ship-new")
 	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
-	writeFakeBin(t, dir, "treehouse", `echo "treehouse $@" >> `+shellSingleQuote(invocationLog)+`
-case "$1" in
-  get) printf '{"path":"%s"}\n' `+shellSingleQuote(newWorktree)+` ;;
-  return) echo ok ;;
-  *) echo "unexpected treehouse invocation: $@" >&2; exit 1 ;;
-esac
-`)
-	writeFakeBin(t, dir, "herdr", `echo "herdr $@" >> `+shellSingleQuote(invocationLog)+`
-case "$1 $2" in
-  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
+	writeFakeDispatch(t, dir, "treehouse", invocationLog, "$1", `  get) printf '{"path":"%s"}\n' `+shellSingleQuote(newWorktree)+` ;;
+  return) echo ok ;;`)
+	// The scout's old workspace holds a second tab, so releasing the scout is a
+	// tab close rather than closeTaskTab's sole-tab workspace-close shortcut.
+	writeFakeDispatch(t, dir, "herdr", invocationLog, "$1 $2", `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"ws-new","label":"demo","tab_count":1}}}' ;;
   "tab create") echo '{"result":{"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"},"root_pane":{"pane_id":"pane-new","tab_id":"tab-new","workspace_id":"ws-new","agent_status":"working"}}}' ;;
   "pane run") echo '{"result":{}}' ;;
-  "tab list") echo '{"result":{"tabs":[{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"}]}}' ;;
-  "pane get") echo '{"result":{"pane":{"pane_id":"pane-old","tab_id":"tab-old","workspace_id":"ws-old","agent_status":"done"}}}' ;;
-  *) echo "unexpected herdr invocation: $@" >&2; exit 1 ;;
-esac
-`)
+  "tab list")
+    case "$4" in
+      ws-old) echo '{"result":{"tabs":[{"tab_id":"tab-old","workspace_id":"ws-old","label":"demo"},{"tab_id":"tab-other","workspace_id":"ws-old","label":"other"}]}}' ;;
+      ws-new) echo '{"result":{"tabs":[{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"}]}}' ;;
+      *) echo "unexpected tab list workspace: $4" >&2; exit 1 ;;
+    esac
+    ;;
+  "tab close") echo '{"result":{}}' ;;
+  "workspace close") echo '{"result":{}}' ;;
+  "pane get") echo '{"result":{"pane":{"pane_id":"pane-old","tab_id":"tab-old","workspace_id":"ws-old","agent_status":"done"}}}' ;;`)
 
 	missingBrief := runHand(t, home, "promote", "task-1")
 	assertInvocation(t, missingBrief, 3, "brief not found at data/task-1/brief.md")
@@ -109,6 +109,12 @@ esac
 	log := string(logData)
 	if !strings.Contains(log, "herdr tab list --workspace ws-old") {
 		t.Fatalf("invocation log = %q, want promote to have queried the OLD workspace's tabs to release them", log)
+	}
+	if !strings.Contains(log, "herdr tab close tab-old") {
+		t.Fatalf("invocation log = %q, want promote to have actually closed the OLD tab, not just listed it", log)
+	}
+	if strings.Contains(log, "herdr tab close tab-new") || strings.Contains(log, "herdr workspace close ws-new") {
+		t.Fatalf("invocation log = %q, want promote to leave the NEW ship tab open", log)
 	}
 	if !strings.Contains(log, "treehouse return "+oldWorktree) {
 		t.Fatalf("invocation log = %q, want promote to have returned the OLD worktree %s", log, oldWorktree)
