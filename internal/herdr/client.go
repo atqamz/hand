@@ -25,30 +25,46 @@ type envelope struct {
 	Error  *errorBody      `json:"error"`
 }
 
-func (c *Client) call(args ...string) (json.RawMessage, error) {
+// run execs herdr and returns its trimmed stdout and trimmed stderr alongside
+// the process error, letting call and callVoid share one invocation path.
+func (c *Client) run(args ...string) ([]byte, string, error) {
 	cmd := exec.Command("herdr", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
+	return bytes.TrimSpace(stdout.Bytes()), strings.TrimSpace(stderr.String()), runErr
+}
 
-	trimmed := bytes.TrimSpace(stdout.Bytes())
+func parseEnvelope(args []string, trimmed []byte) (envelope, error) {
+	var env envelope
+	if err := json.Unmarshal(trimmed, &env); err != nil {
+		return envelope{}, fmt.Errorf("herdr %s: parse response: %w", strings.Join(args, " "), err)
+	}
+	return env, nil
+}
+
+// call is for query commands, whose real herdr response is always a JSON
+// envelope carrying a non-null result object.
+func (c *Client) call(args ...string) (json.RawMessage, error) {
+	trimmed, stderr, runErr := c.run(args...)
+
 	if len(trimmed) == 0 {
 		if runErr != nil {
-			return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, strings.TrimSpace(stderr.String()))
+			return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
 		}
 		return nil, fmt.Errorf("herdr %s: empty response", strings.Join(args, " "))
 	}
 
-	var env envelope
-	if err := json.Unmarshal(trimmed, &env); err != nil {
-		return nil, fmt.Errorf("herdr %s: parse response: %w", strings.Join(args, " "), err)
+	env, err := parseEnvelope(args, trimmed)
+	if err != nil {
+		return nil, err
 	}
 	if env.Error != nil {
 		return nil, fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), env.Error.Code, env.Error.Message)
 	}
 	if runErr != nil {
-		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
 	}
 	if len(env.Result) == 0 {
 		return nil, fmt.Errorf("herdr %s: response missing result", strings.Join(args, " "))
@@ -61,6 +77,33 @@ func (c *Client) call(args ...string) (json.RawMessage, error) {
 		return nil, fmt.Errorf("herdr %s: response result is not an object", strings.Join(args, " "))
 	}
 	return result, nil
+}
+
+// callVoid is for void commands (pane run/send-text/send-keys), whose real
+// herdr response is empty stdout on success and a JSON error envelope - with
+// exit code 0 - on failure, so the error envelope must be checked ahead of
+// (and independent from) the process exit status.
+func (c *Client) callVoid(args ...string) error {
+	trimmed, stderr, runErr := c.run(args...)
+
+	if len(trimmed) == 0 {
+		if runErr != nil {
+			return fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
+		}
+		return nil
+	}
+
+	env, err := parseEnvelope(args, trimmed)
+	if err != nil {
+		return err
+	}
+	if env.Error != nil {
+		return fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), env.Error.Code, env.Error.Message)
+	}
+	if runErr != nil {
+		return fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
+	}
+	return nil
 }
 
 func (c *Client) WorkspaceList() ([]Workspace, error) {
@@ -189,19 +232,16 @@ func (c *Client) PaneGet(paneID string) (Pane, error) {
 
 // PaneRun types command into the pane followed by Enter.
 func (c *Client) PaneRun(paneID, command string) error {
-	_, err := c.call("pane", "run", paneID, command)
-	return err
+	return c.callVoid("pane", "run", paneID, command)
 }
 
 func (c *Client) PaneSendText(paneID, text string) error {
-	_, err := c.call("pane", "send-text", paneID, text)
-	return err
+	return c.callVoid("pane", "send-text", paneID, text)
 }
 
 func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 	args := append([]string{"pane", "send-keys", paneID}, keys...)
-	_, err := c.call(args...)
-	return err
+	return c.callVoid(args...)
 }
 
 // WaitComposerEmpty polls the pane until the agent is no longer "working" or timeout elapses.

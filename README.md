@@ -114,6 +114,10 @@ Builds without an embedded version never print the notice.
 Currently supported preferences live as plain files under `config/`: default worker harness, model, and effort.
 Run `hand init --setup` to discover installed harnesses and tools and write the defaults interactively.
 
+Workers run their harness interactively so they can be steered and watched.
+For Claude Code that means a fresh host needs its two first-run dialogs cleared once: run `claude --dangerously-skip-permissions` inside your treehouse pool root (`~/.treehouse`), accept the trust prompt and the bypass-permissions disclaimer, then quit.
+Otherwise the first worker spawned there sits on a dialog instead of working.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

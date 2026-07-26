@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/atqamz/secondhand/internal/project"
@@ -199,6 +200,100 @@ func TestPromoteRefusesUnregisteredProject(t *testing.T) {
 	var exitErr *ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+}
+
+// fakeHerdrPromoteLeakScript mirrors fakeHerdrLeakScript for promote: it logs every call and
+// fails "pane run" so the promotion always fails after the new tab exists, with
+// $HERDR_WS_EXISTS_FLAG choosing between the created-workspace and pre-existing-workspace cases.
+const fakeHerdrPromoteLeakScript = `#!/bin/sh
+echo "$@" >> "$HERDR_CALL_LOG"
+cmd="$1 $2"
+case "$cmd" in
+"pane get")
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pOld","tab_id":"wA:tOld","workspace_id":"wA","agent_status":"done"}}}'
+	;;
+"workspace list")
+	if [ -e "$HERDR_WS_EXISTS_FLAG" ]; then
+		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"myproj","tab_count":2}]}}'
+	else
+		printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	fi
+	;;
+"workspace create")
+	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"}}}'
+	;;
+"tab create")
+	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tNew","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pNew","tab_id":"wA:tNew","agent_status":"idle"}}}'
+	;;
+"pane run")
+	exit 1
+	;;
+"workspace close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+"tab list")
+	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tOld","workspace_id":"wA"},{"tab_id":"wA:tNew","workspace_id":"wA"}]}}'
+	;;
+"tab close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`
+
+func TestPromoteFailureClosesWorkspaceItCreated(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteLeakScript)
+	callLog := setupSpawnLeakEnv(t, false)
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected promote to fail")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "workspace close wA") {
+		t.Fatalf("calls = %q, want the workspace hand created to be closed", calls)
+	}
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != state.KindScout {
+		t.Fatalf("kind = %q, want the task left as a scout", got.Kind)
+	}
+}
+
+func TestPromoteFailureKeepsPreexistingWorkspace(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteLeakScript)
+	callLog := setupSpawnLeakEnv(t, true)
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected promote to fail")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "workspace close") {
+		t.Fatalf("calls = %q, want the pre-existing shared workspace left open", calls)
+	}
+	if !strings.Contains(string(calls), "tab close wA:tNew") {
+		t.Fatalf("calls = %q, want only the new tab closed", calls)
 	}
 }
 

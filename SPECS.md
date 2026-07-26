@@ -287,6 +287,15 @@ Behavior:
 9. Write `state/<id>.json` with all metadata.
 10. Update `data/dashboard.md` with the new task.
 
+Any failure before step 9 leaves nothing behind: the worktree lease returns to treehouse and the
+herdr side is rolled back.
+A workspace this command created is closed whole, because a fresh workspace already holds an
+auto-created root tab and closing only the task's tab would leak it.
+A workspace that already existed is shared with other tasks, so it keeps running and only loses
+the tab this command added.
+Once `state/<id>.json` is written the task owns its worktree and tab, so a later failure such as
+the dashboard update never tears down a task that is already running.
+
 Output:
 ```
 spawned fix-login project=nsr kind=ship harness=claude worktree=/home/user/.treehouse/nsr-abc/1/nsr
@@ -615,13 +624,18 @@ Flags:
 
 Behavior:
 1. Validate the task exists and is a completed scout (has `data/<id>/report.md`, herdr pane is done or dead).
-2. Tear down the scout's herdr tab and worktree.
-3. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
-4. Acquire a fresh treehouse worktree (with collision guard).
-5. Create a new herdr tab.
-6. Launch the worker.
-7. Update `state/<id>.json`: kind changes from `scout` to `ship`, new worktree and herdr coordinates.
-8. Update `data/dashboard.md`.
+2. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
+3. Acquire a fresh treehouse worktree (with collision guard).
+4. Create a new herdr tab.
+5. Launch the worker.
+6. Update `state/<id>.json`: kind changes from `scout` to `ship`, new worktree and herdr coordinates.
+7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
+
+The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
+to step 6, so a promotion that fails partway still leaves the scout's pane and worktree intact
+instead of stranding the task with nothing to look at.
+`data/dashboard.md` is deliberately left untouched, so the task's row keeps reading `scout` until
+something else rewrites it.
 
 Output:
 ```
@@ -724,7 +738,7 @@ Updated: 2026-07-24T12:30:00Z
 | `hand project add` | Add to Projects |
 | `hand project remove` | Remove from Projects |
 | `hand project sync` | Update project sync status |
-| `hand promote` | Update task kind in Active Tasks |
+| `hand promote` | No update (the row keeps its scout kind) |
 | `hand notify` | No update (notification is a side channel) |
 
 ### Optional: qmd for historical search
@@ -763,14 +777,43 @@ The agent should use it when available and read files directly when not.
 Each supported harness has a launch command template.
 `hand spawn` constructs the command, `cd`s into the worktree, and sends it to the herdr pane.
 
+Every template must launch its harness **interactively**, never headless/one-shot.
+`hand send` writes into a running pane, `hand watch` polls pane state to classify a worker as
+working/blocked/idle, and the `no-mistakes` delivery mode drives many turns as the worker
+responds to review/test/document/lint gates.
+A one-shot process (`claude --print`, `opencode run`) answers once and exits: there is nothing
+left to send to, classify, or drive through a gate.
+Any harness template added here must stay resident across the whole task, and must have its
+autonomy/permission flag set so an unattended worker does not stall on a permission prompt.
+
 ### Claude Code
 
 ```sh
-cd <worktree> && claude --print "Read the brief at <brief-path> and carry out the task it describes."
+cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "Read the brief at <brief-path> and carry out the task it describes."
 ```
 
-The brief path is included in the prompt because `--print` accepts prompt text, not a file path.
+The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
+`--dangerously-skip-permissions` is required so the unattended worker does not stall on a
+permission dialog.
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` suppresses the dim predicted-next-prompt ghost text
+Claude Code renders while idle; without it, a supervisor reading the pane can misread ghost text
+as the worker having typed input.
+
+Interactive launch has two first-run dialogs that headless `--print` skipped, and each stalls an
+unattended worker until it is cleared once per machine:
+
+- The workspace trust dialog. Claude Code only trusts a directory whose path or one of its
+  ancestors has been accepted before, and every treehouse worktree is a fresh path under the
+  pool root (`~/.treehouse/...`).
+- The bypass-permissions disclaimer, a one-time global accept that `--dangerously-skip-permissions`
+  is gated on.
+
+Operator setup before the first spawn on a new host: run `claude --dangerously-skip-permissions`
+once interactively inside the treehouse pool root, accept both dialogs, and quit. Trust is
+inherited by that directory's descendants and the disclaimer accept is global, so this covers
+every later worker. `hand status <id>` prints a task's worktree path if the pool root is unclear.
+Known limitation tracked at https://github.com/atqamz/secondhand/issues/28.
 
 ### Codex
 
@@ -778,11 +821,17 @@ When configured, `--model <name>` and `--effort <level>` are inserted before the
 cd <worktree> && codex --file "<brief-path>"
 ```
 
+Unverified: no `codex` binary was available to check `--help` against.
+Confirm this launches interactively (not one-shot) before relying on it; the template above
+predates that requirement and may need an autonomy flag and a different invocation shape.
+
 ### Grok
 
 ```sh
 cd <worktree> && grok --trust --file "<brief-path>"
 ```
+
+Unverified, same caveat as Codex above.
 
 ### Pi
 
@@ -790,17 +839,26 @@ cd <worktree> && grok --trust --file "<brief-path>"
 cd <worktree> && pi "<brief-path>"
 ```
 
+Unverified, same caveat as Codex above.
+
 ### OpenCode
 
 ```sh
-cd <worktree> && opencode run --file "<brief-path>" "Follow the attached brief and complete the task."
+cd <worktree> && OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode --prompt "Read the brief at <brief-path> and carry out the task it describes."
 ```
 
-OpenCode runs headlessly through `opencode run`; `--model <name>` and `--variant <effort>` are
-inserted when configured.
+The bare `opencode` command opens its interactive TUI, unlike `opencode run`, which is
+explicitly headless and exits after one reply.
+`OPENCODE_CONFIG_CONTENT` grants blanket tool permission so the unattended worker does not
+stall on a permission prompt.
+When configured, `--model <name>` is inserted; the bare command has no effort/variant flag, so
+`--effort` has no effect on OpenCode workers.
+The bare command also has no `--file` flag, so the brief path is embedded in the prompt text
+instead of attached.
 
 The Claude and OpenCode forms above were verified against the installed CLI versions.
-Codex, Grok, and Pi retain the literal templates above until those binaries are verified.
+Codex, Grok, and Pi retain unverified templates until those binaries are installable; whoever
+verifies them must confirm interactive (not headless) launch, not just flag names.
 The harness module is the single place that constructs these commands.
 
 ## Herdr integration detail
@@ -870,8 +928,19 @@ herdr tab close <tab-id>
 herdr workspace close <ws-id>
 ```
 
-These calls and the JSON response envelope were verified against the installed herdr version.
-The herdr client abstracts them into Go function calls and validates required response fields.
+These calls and their responses were verified against the installed herdr version.
+Responses come in two shapes, and the client validates each one differently:
+
+- **Query commands** print a JSON envelope carrying a non-null `result` object; a missing or null
+  result is an error.
+  `tab close` and `workspace close` belong here too: they answer with a `{"type":"ok"}` result
+  rather than staying silent.
+- **Void commands** (`pane run`, `pane send-text`, `pane send-keys`) print nothing on success.
+  A failure prints a JSON error envelope whose exit code cannot be trusted on its own, so any
+  non-empty body is parsed for that envelope before the exit status is consulted.
+
+The herdr client abstracts these into Go function calls; `internal/herdr` keeps one entry point
+per shape and is the source of truth for which command uses which.
 
 ## No-mistakes integration
 

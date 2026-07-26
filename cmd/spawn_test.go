@@ -46,7 +46,7 @@ case "$cmd" in
 esac
 `
 
-func setupSpawnHome(t *testing.T, worktreePath string) string {
+func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	t.Helper()
 	home := t.TempDir()
 
@@ -67,7 +67,7 @@ func setupSpawnHome(t *testing.T, worktreePath string) string {
 	}
 
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(fakeHerdrSpawnScript), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	treehouseScript := "#!/bin/sh\nprintf '{\"path\":\"" + worktreePath + "\"}'\n"
@@ -81,7 +81,7 @@ func setupSpawnHome(t *testing.T, worktreePath string) string {
 
 func TestSpawnHappyPath(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt)
+	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj"})
@@ -106,7 +106,7 @@ func TestSpawnHappyPath(t *testing.T) {
 
 func TestSpawnScoutFlag(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt)
+	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj", "--scout"})
@@ -124,7 +124,7 @@ func TestSpawnScoutFlag(t *testing.T) {
 }
 
 func TestSpawnRejectsUnregisteredProject(t *testing.T) {
-	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"))
+	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "unknown-proj"})
@@ -136,7 +136,7 @@ func TestSpawnRejectsUnregisteredProject(t *testing.T) {
 }
 
 func TestSpawnRejectsAlreadyActiveTask(t *testing.T) {
-	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"))
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
 	if err := state.Write(home, state.Task{ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestSpawnRejectsAlreadyActiveTask(t *testing.T) {
 }
 
 func TestSpawnRejectsMissingBrief(t *testing.T) {
-	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"))
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
 	if err := os.Remove(filepath.Join(home, "data", "task-1", "brief.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestSpawnRejectsMissingBrief(t *testing.T) {
 }
 
 func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
-	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"))
+	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj", "--harness", "nonexistent"})
@@ -181,7 +181,7 @@ func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
 
 func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt)
+	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
 	if err := state.Write(home, state.Task{ID: "other-task", Worktree: wt}); err != nil {
 		t.Fatal(err)
 	}
@@ -194,5 +194,103 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state written after collision: exists=%v err=%v", exists, err)
+	}
+}
+
+// fakeHerdrLeakScript logs every invocation to $HERDR_CALL_LOG and fails "pane run" so a
+// spawn always fails after tab creation. Whether "workspace list" reports an existing
+// workspace is controlled by the presence of $HERDR_WS_EXISTS_FLAG, letting the same script
+// drive both the created-workspace and pre-existing-workspace leak scenarios.
+const fakeHerdrLeakScript = `#!/bin/sh
+echo "$@" >> "$HERDR_CALL_LOG"
+cmd="$1 $2"
+case "$cmd" in
+"workspace list")
+	if [ -e "$HERDR_WS_EXISTS_FLAG" ]; then
+		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"myproj","tab_count":2}]}}'
+	else
+		printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	fi
+	;;
+"workspace create")
+	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"}}}'
+	;;
+"tab create")
+	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
+	;;
+"pane run")
+	exit 1
+	;;
+"workspace close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+"tab list")
+	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:root","workspace_id":"wA","label":"root"},{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"}]}}'
+	;;
+"tab close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`
+
+func setupSpawnLeakEnv(t *testing.T, workspaceExists bool) string {
+	t.Helper()
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+
+	flag := filepath.Join(t.TempDir(), "ws-exists")
+	if workspaceExists {
+		if err := os.WriteFile(flag, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HERDR_WS_EXISTS_FLAG", flag)
+	return callLog
+}
+
+func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	setupSpawnHome(t, wt, fakeHerdrLeakScript)
+	callLog := setupSpawnLeakEnv(t, false)
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected spawn to fail")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "workspace close wA") {
+		t.Fatalf("calls = %q, want the workspace hand created to be closed", calls)
+	}
+}
+
+func TestSpawnFailureKeepsPreexistingWorkspace(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	setupSpawnHome(t, wt, fakeHerdrLeakScript)
+	callLog := setupSpawnLeakEnv(t, true)
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected spawn to fail")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "workspace close") {
+		t.Fatalf("calls = %q, want the pre-existing shared workspace left open", calls)
+	}
+	if !strings.Contains(string(calls), "tab close wA:tB") {
+		t.Fatalf("calls = %q, want the task's own tab closed", calls)
 	}
 }
