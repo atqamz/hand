@@ -13,11 +13,11 @@ import (
 // with a JSON envelope carrying a non-null result object on stdout, answers a
 // void command with empty stdout, and reports failure as an envelope error
 // object that may come with any exit status - which is why call/callVoid
-// (client.go) treat the envelope as authoritative and consult the exit status
-// only when there is no parseable body. The tests here fake each of those
-// shapes verbatim, including both error-envelope-with-exit-1 and
-// error-envelope-with-exit-0; other packages' herdr fakes cite this file rather
-// than re-deriving them.
+// (client.go) let an error envelope win whenever one is present and fall back
+// to the exit status only when stdout is empty or the envelope parsed clean
+// (env.Error == nil). The tests here fake each of those shapes verbatim,
+// including both error-envelope-with-exit-1 and error-envelope-with-exit-0;
+// other packages' herdr fakes cite this file rather than re-deriving them.
 func writeFakeHerdr(t *testing.T, script string) {
 	t.Helper()
 	bin := t.TempDir()

@@ -129,7 +129,9 @@ exit 1
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"missing-task", "hello"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("got err %v, want not found", err)
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), `task "missing-task" not found`) {
+		t.Fatalf("got err %v, want the task-not-found precondition", err)
 	}
 }
