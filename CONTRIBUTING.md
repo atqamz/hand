@@ -4,8 +4,12 @@
 
 git clone https://github.com/atqamz/secondhand
 cd secondhand
+nix develop
 make build
 make test
+
+`nix develop` is optional and provides the full toolchain: Go, golangci-lint, gopls, gotools, and gcc (gcc is required because `make test` runs with `-race`, which needs CGO).
+Without Nix, install those yourself.
 
 ## Making changes
 

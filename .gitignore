@@ -11,6 +11,9 @@ hand.exe
 # Go
 coverage.out
 
+# Nix
+/result
+
 # IDE
 .idea/
 .vscode/
@@ -20,3 +23,6 @@ coverage.out
 # OS
 .DS_Store
 Thumbs.db
+
+# worktree tooling
+treehouse.toml
