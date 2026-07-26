@@ -2,6 +2,7 @@
 package worktree
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 
 // Get acquires a worktree from the project clone's treehouse pool.
 // clonePath must be the project clone directory (treehouse resolves the pool from cwd).
+// treehouse writes banners to stderr ahead of the JSON, so the payload must be read
+// from stdout alone; CombinedOutput here corrupts every parse (issue #21).
 func Get(clonePath, leaseHolder string) (string, error) {
 	args := []string{"get", "--lease", "--json"}
 	if leaseHolder != "" {
@@ -19,9 +22,11 @@ func Get(clonePath, leaseHolder string) (string, error) {
 	}
 	cmd := exec.Command("treehouse", args...)
 	cmd.Dir = clonePath
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("treehouse get failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
 	var lease struct {

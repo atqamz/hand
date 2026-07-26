@@ -140,9 +140,12 @@ func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
 // writeFakeTreehouse writes a treehouse fake that always leases worktreePath
 // and no-ops on return/init, matching worktree.Get/Return and
 // treehouseInitIfNeeded's invocation shapes ("get"/"return"/"init" as $1).
+// "get" writes a banner line to stderr before its JSON, mirroring real
+// treehouse's documented "all banners go to stderr" behavior, so a
+// CombinedOutput regression at the call site fails the suite.
 func writeFakeTreehouse(t *testing.T, dir, worktreePath string) {
 	t.Helper()
-	body := fmt.Sprintf(`  get) printf '{"path":"%%s"}\n' %s ;;
+	body := fmt.Sprintf(`  get) echo 'treehouse 0.7.4' >&2; printf '{"path":"%%s"}\n' %s ;;
   return) echo ok ;;
   init) echo ok ;;`, shellSingleQuote(worktreePath))
 	writeFakeDispatch(t, dir, "treehouse", "", "$1", body)
