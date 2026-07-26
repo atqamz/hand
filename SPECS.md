@@ -1413,85 +1413,11 @@ clean:
 	rm -f hand
 ```
 
-**`.gitignore`:**
-```
-# binary
-hand
-hand.exe
+**`.gitignore`:** the tracked file is authoritative - the built binary, the `hand init` runtime directories, Go and Nix build output, worktree tooling files, and editor/OS cruft.
 
-# runtime (created by hand init in workspace)
-state/
-data/
-projects/
-config/
+**`flake.nix`:** the tracked file is authoritative - a `packages.default` derivation building the `hand` binary and a `devShells.default` carrying the Go toolchain.
 
-# Go
-coverage.out
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-```
-
-**`flake.nix`:**
-```nix
-{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-  };
-
-  outputs = { nixpkgs, ... }:
-    let
-      version = "0.0.0"; # x-release-please-version
-      systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
-    in {
-      packages = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system}; in {
-          default = pkgs.buildGoModule {
-            pname = "secondhand";
-            inherit version;
-            src = ./.;
-            vendorHash = null; # update after first go mod tidy
-            ldflags = [ "-s" "-w" "-X main.version=v${version}" ];
-          };
-        }
-      );
-    };
-}
-```
-
-**`CONTRIBUTING.md`:**
-```markdown
-# Contributing
-
-## Getting started
-
-git clone https://github.com/atqamz/secondhand
-cd secondhand
-make build
-make test
-
-## Making changes
-
-1. Fork and branch from main.
-2. Make changes.
-3. make lint && make test
-4. Open a PR.
-
-Commits use conventional commits: feat:, fix:, chore:, etc.
-release-please handles versioning and changelogs from these.
-
-## Reporting issues
-
-Open a GitHub issue with repro steps, OS, arch, and hand --version.
-```
+**`CONTRIBUTING.md`:** the tracked file is authoritative.
 
 **License:** MIT.
 

@@ -97,6 +97,9 @@ From nix:
 nix build
 ```
 
+The flake covers `aarch64-darwin`, `aarch64-linux`, and `x86_64-linux`.
+On Intel macOS, use `make build` or a release binary.
+
 From releases: download the binary for your platform from the [releases page](https://github.com/atqamz/secondhand/releases).
 
 To update an installed binary, run `hand update`.
