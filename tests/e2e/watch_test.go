@@ -50,28 +50,31 @@ func TestWatchEventStream(t *testing.T) {
 	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
 	waitForInvocation(t, herdrLog, "herdr pane get pane-2", 5*time.Second)
 
-	// task-1's working -> done transition is the liveness signal: seeing its
-	// event proves the watcher has run a post-seed tick over both tasks, so
-	// the absence of any task-2 output is a real suppression of task-2's
+	// task-1's working -> not-busy transition is the liveness signal: seeing
+	// its event proves the watcher has run a post-seed tick over both tasks,
+	// so the absence of any task-2 output is a real suppression of task-2's
 	// pre-existing "blocked" status rather than a watcher that hasn't polled.
+	// Real herdr renders this transition as "done" - see herdr.Status's doc
+	// comment - and with no report on file it's unexplained, so it fires
+	// idle-unreported, not done.
 	setPaneStatus(t, statusDir, "pane-1", "done")
-	watch.waitForStdout(t, "done task-1", 5*time.Second)
+	watch.waitForStdout(t, "idle-unreported task-1", 5*time.Second)
 	if strings.Contains(watch.stdout.String(), "task-2") {
 		t.Fatalf("watch fired an event for task-2's pre-existing status before any transition: stdout=%q", watch.stdout.String())
 	}
 
 	// Drive task-2 out of its seeded "blocked" state and wait for the
 	// resulting event, so the later blocked event is a genuine
-	// done -> blocked transition rather than a repeat the classifier drops.
+	// not-busy -> blocked transition rather than a repeat the classifier drops.
 	setPaneStatus(t, statusDir, "pane-2", "done")
-	watch.waitForStdout(t, "done task-2", 5*time.Second)
+	watch.waitForStdout(t, "idle-unreported task-2", 5*time.Second)
 	setPaneStatus(t, statusDir, "pane-2", "blocked")
 	watch.waitForStdout(t, "blocked task-2: agent needs help", 5*time.Second)
 
 	stdout := watch.stdout.String()
-	doneAt := strings.Index(stdout, "done task-1")
+	idleUnreportedAt := strings.Index(stdout, "idle-unreported task-1")
 	blockedAt := strings.Index(stdout, "blocked task-2")
-	if doneAt < 0 || blockedAt < 0 || doneAt > blockedAt {
+	if idleUnreportedAt < 0 || blockedAt < 0 || idleUnreportedAt > blockedAt {
 		t.Fatalf("events out of order in stdout: %q", stdout)
 	}
 
@@ -85,7 +88,7 @@ func TestWatchEventStream(t *testing.T) {
 		t.Fatalf("read events.log: %v", err)
 	}
 	log := string(logData)
-	if !strings.Contains(log, "done task-1") || !strings.Contains(log, "blocked task-2: agent needs help") {
+	if !strings.Contains(log, "idle-unreported task-1") || !strings.Contains(log, "blocked task-2: agent needs help") {
 		t.Fatalf("events.log = %q, want both events durably recorded for a late-starting consumer to find", log)
 	}
 }

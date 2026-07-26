@@ -27,7 +27,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
 
 1. **One binary owns orchestration.** The agent calls CLI commands. The CLI owns lifecycle correctness, state management, and process supervision. No shell scripts.
 2. **AGENTS.md stays tiny.** Target ~25 lines of rules. The CLI's `--help` carries operational detail. If the agent needs 500 lines of instructions to operate the tool, the tool is wrong.
-3. **herdr-native.** herdr provides semantic agent state (working/idle/done/blocked) and push events. Use them instead of regex-scraping terminal output.
+3. **herdr-native.** herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events. Use them instead of regex-scraping terminal output. herdr's own agent state carries no task-outcome signal (see "Agent state"); the report channel is what actually tells hand whether a task finished.
 4. **Text editing stays with the agent.** The backlog is a markdown file. The agent reads and edits it directly. No CLI wrapper for text operations.
 5. **No feature without friction.** Every feature in firstmate that doesn't have a proven use case is cut. Features get added when their absence causes real pain.
 6. **The repo is the working directory.** Clone secondhand, cd in, launch your agent. The repo contains tracked code; runtime state is gitignored.
@@ -361,7 +361,7 @@ Flags:
 Behavior (fleet overview):
 1. List all `state/*.json` files.
 2. For each, query herdr for current agent state.
-3. If agent state is `idle`, consult the task's last report line (see "Report channel"): no report, or the last line was still `working`, appends ` (unreported)`; any other terminal report appends ` (reported: <state>)`. Any other agent state is printed unadorned.
+3. If agent state is `idle` or `done` (herdr's two spellings of "pane stopped being busy" - see "Agent state" below), consult the task's last report line (see "Report channel"): no report, or the last line was still `working`, appends ` (unreported)`; any other terminal report appends ` (reported: <state>)`. Any other agent state is printed unadorned.
 4. Print one line per task.
 
 Output (fleet overview):
@@ -370,7 +370,7 @@ fix-login       nsr     ship    working     2h ago
 dark-mode       nsr     ship    blocked     45m ago
 stuck-task      nsr     ship    idle (unreported)      1h ago
 paused-task     nsr     ship    idle (reported: needs-decision)   30m ago
-investigate     nsr     scout   done        10m ago
+investigate     nsr     scout   done (reported: done)      10m ago
 ```
 
 Behavior (single task):
@@ -614,8 +614,7 @@ Behavior:
 2. Subscribe to herdr's `agent_status_changed` push events if available.
 3. Fall back to polling herdr agent states at `--poll` interval.
 4. Classify each state change:
-   - `done <id>`: agent reached done/idle state after doing work.
-   - `idle-unreported <id>`: agent went idle after working/blocked, but its report channel (see "Report channel") doesn't explain the stop - no report at all, or the last line was still `working`. Any other terminal report (`paused`, `blocked`, `needs-decision`, `done`, `failed`) already explains the idle, so that transition is absorbed silently instead.
+   - `idle-unreported <id>`: agent stopped being busy after working/blocked - herdr reports this as `idle` or `done` interchangeably (see "Agent state" below; hand's polling model observes `done`, essentially always, never `idle`) - but its report channel (see "Report channel") doesn't explain the stop: no report at all, or the last line was still `working`. Any other terminal report (`paused`, `blocked`, `needs-decision`, `done`, `failed`) already explains the stop, so that transition is absorbed silently instead.
    - `blocked <id>: <reason>`: agent reports blocked (herdr-level; herdr gives no free-text reason, so `<reason>` is a fixed string).
    - `failed <id>`: herdr pane died unexpectedly.
    - `stale <id>`: agent hasn't changed state for longer than the stale threshold (default 300s, configurable via `config/stale-threshold`).
@@ -633,7 +632,6 @@ Behavior:
 
 Output (stream):
 ```
-done fix-login
 idle-unreported dark-mode
 blocked dark-mode: needs API key for third-party service
 needs-decision fix-login: two ways to fix the race, ask-user found both risky
@@ -993,11 +991,25 @@ The herdr server must be running before any `hand` operation that touches tabs/p
 
 ### Agent state
 
-herdr tracks agent state per pane:
-- `working`: agent is actively processing.
-- `idle`: agent finished a turn, waiting for input.
-- `done`: agent completed its work.
-- `blocked`: agent is stuck and needs help.
+herdr tracks agent state per pane, with five real values: `working`, `idle`, `blocked`,
+`done`, `unknown`. `working` and `blocked` mean what they say. `unknown` is herdr's
+own degrade-gracefully value. `idle` and `done` are where the two-value mental model
+("idle: waiting for input" / "done: work is finished") that shipped in an earlier
+version of this doc turned out to be wrong, and produced the bug tracked as #30.
+
+`done` does not mean the task is done. It is herdr's own notification bookkeeping:
+when a pane goes from working (or blocked) to not-busy, herdr reports the transition
+as `idle` only if a live, OS-focused herdr client currently has that pane's tab
+active at the instant of the transition (its internal `seen` flag); otherwise it
+reports `done`. `hand` polls the API and never focuses a client on a worker's pane,
+so it observes `done`, essentially always, for this transition - never `idle`.
+
+The corollary: for `hand`'s headless deployment, `done` versus `idle` carries no
+task-outcome information at all, only whether a human happened to be looking. Which
+means the report channel (see "Report channel") is the *only* source of task outcome,
+not a supplement to herdr's status. `hand` treats `idle` and `done` identically -
+both just mean "the pane stopped being busy" - and never infers completion from
+either one alone.
 
 `hand status` queries this directly.
 `hand watch` subscribes to state changes.
@@ -1030,7 +1042,7 @@ herdr tab list --workspace <ws-id>
 # get pane and agent state
 herdr pane get <pane-id>
 # returns agent: detected harness name, empty when no harness runs in the pane
-# returns agent_status: "working" | "idle" | "done" | "blocked"
+# returns agent_status: "working" | "idle" | "blocked" | "done" | "unknown"
 
 # read the pane's recent scrollback as plain text
 herdr pane read <pane-id> --source recent --lines <n>
@@ -1171,8 +1183,9 @@ Delivery modes:
 
 - **JSON, not .meta key=value files.** Structured, typed, parseable without sed/grep/awk.
 - **Current state, not append-only logs.** One file per task, updated in place. History comes from the dashboard, events.log, and herdr event streams, not from accumulating status lines.
-- **No separate status files for herdr-visible state.** The worker's herdr-visible state (working/idle/done/blocked) is queried from herdr in real-time, not persisted by `hand`. The JSON state file tracks static metadata (project, worktree, harness, PR URL), not dynamic agent state.
+- **No separate status files for herdr-visible state.** The worker's herdr-visible state (working/idle/blocked/done/unknown) is queried from herdr in real-time, not persisted by `hand`. The JSON state file tracks static metadata (project, worktree, harness, PR URL), not dynamic agent state.
   The one exception is `state/<id>.status`, the worker-to-supervisor report channel (see "Report channel" below): herdr's agent state answers "is the pane busy," not "why did it stop" or "what actually happened," and that gap is exactly what caused done/blocked/needs-decision to go unreported in production. This file is not a second copy of herdr's state - it's a channel for information herdr has no way to carry, and it exists only because that specific gap caused a real incident, per principle 5 (no feature without friction).
+  This is the strongest argument for the whole design: herdr's `idle`/`done` split (see "Agent state") carries no task-outcome information at all for `hand`'s headless deployment, only whether a human happened to be looking at the time. The report channel isn't a supplement to herdr's status for learning how a task ended - it's the only source of that information there is.
 - **Event log for crash recovery.** `state/events.log` is a bounded rotating log (last 200 lines) of actionable watcher events. Not for real-time consumption - the watcher prints to stdout for that. The log exists so a restarted agent can read recent history that happened while its context was down.
 
 ### Report channel
@@ -1221,7 +1234,7 @@ On restart (new supervisory agent session):
 1. Agent reads `data/dashboard.md` for fleet context.
 2. Agent runs `hand status` to see active tasks with current herdr state.
 3. Optionally reads `state/events.log` for events that happened during the gap.
-4. For each task, herdr state shows current reality (working/idle/done/blocked/dead).
+4. For each task, herdr state shows whether the pane is busy (working/blocked), not-busy (idle/done - see "Agent state" for why these carry no task-outcome signal by themselves), unreachable (unknown), or dead.
 5. Dead herdr pane = dead worker. Agent decides: respawn or teardown.
 6. No special recovery logic in `hand`. The CLI shows state; the agent decides action.
 

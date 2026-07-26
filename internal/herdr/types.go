@@ -3,6 +3,16 @@
 // SPECS.md's herdr examples should match this code, not the other way around.
 package herdr
 
+// Status is herdr's agent_status value for a pane. herdr's real vocabulary has
+// five values, not four: idle, working, blocked, done, unknown.
+//
+// done is not a task-outcome signal. herdr derives it from its own seen/notification
+// bookkeeping: a working-or-blocked pane that goes idle is reported as idle only if a
+// live, OS-focused herdr client currently has that pane's tab active at the instant of
+// the transition; otherwise it's reported as done. hand polls the API and never
+// focuses a client on worker panes, so it observes done, essentially always, for this
+// transition - never idle. Treat idle and done as the same signal ("pane stopped being
+// busy") and use NotBusy to test for either.
 type Status string
 
 const (
@@ -12,6 +22,13 @@ const (
 	StatusDone    Status = "done"
 	StatusUnknown Status = "unknown"
 )
+
+// NotBusy reports whether status means the pane has stopped actively working or
+// waiting on help - i.e. it's idle or done, herdr's two spellings of the same "not
+// busy" signal. See the Status doc comment for why they must be treated as one.
+func (s Status) NotBusy() bool {
+	return s == StatusIdle || s == StatusDone
+}
 
 type Workspace struct {
 	WorkspaceID string `json:"workspace_id"`

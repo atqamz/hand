@@ -103,7 +103,16 @@ func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
 	return home
 }
 
-func TestTickClassifiesDoneAndUpdatesDashboardAndLog(t *testing.T) {
+// TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling proves the fix
+// for #30/#32/#33's working->idle bug against the herdr spelling hand's headless
+// polling actually observes: herdr renders a working/blocked->idle transition as
+// "done", not "idle", unless a live OS-focused herdr client has that pane's tab
+// active at the instant of the transition (see herdr.Status's doc comment) - a
+// condition hand's pure-polling model never satisfies. An earlier version of this
+// test drove the fake herdr's status file to "done" and expected an unconditional
+// "done" event; that was itself the bug the fix corrects, so it's now expected to
+// behave exactly like an unexplained idle transition: idle-unreported.
+func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -130,18 +139,18 @@ func TestTickClassifiesDoneAndUpdatesDashboardAndLog(t *testing.T) {
 	setStatus(t, statusFile, "done")
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, &errBuf)
-	if !strings.Contains(buf.String(), "done task-1") {
-		t.Fatalf("output = %q, want done task-1", buf.String())
+	if !strings.Contains(buf.String(), "idle-unreported task-1") {
+		t.Fatalf("output = %q, want idle-unreported task-1: herdr's done, with nothing explaining the stop, is not task completion", buf.String())
 	}
 	if errBuf.Len() != 0 {
 		t.Fatalf("errOut = %q, want actionable events on out only", errBuf.String())
 	}
 
 	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindHerdrDone {
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindIdleUnreported {
 		t.Fatalf("ActiveTasks = %+v", d.ActiveTasks)
 	}
-	if len(d.RecentEvents) != 1 || !strings.Contains(d.RecentEvents[0], "done task-1") {
+	if len(d.RecentEvents) != 1 || !strings.Contains(d.RecentEvents[0], "idle-unreported task-1") {
 		t.Fatalf("RecentEvents = %+v", d.RecentEvents)
 	}
 
@@ -149,14 +158,58 @@ func TestTickClassifiesDoneAndUpdatesDashboardAndLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(logData), "done task-1") {
-		t.Fatalf("events.log = %q, want done task-1", string(logData))
+	if !strings.Contains(string(logData), "idle-unreported task-1") {
+		t.Fatalf("events.log = %q, want idle-unreported task-1", string(logData))
 	}
 
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if buf.Len() != 0 {
-		t.Fatalf("repeated done state fired again: %q", buf.String())
+		t.Fatalf("repeated not-busy state fired again: %q", buf.String())
+	}
+}
+
+// TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified is the only
+// remaining source of a KindHerdrDone dashboard update: a worker's own "done"
+// report, cross-checked against a task the caller has already recorded as merged.
+// herdr's agent_status never drives this by itself - see the test above.
+func TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		PR: "https://github.com/atqamz/secondhand/pull/1", Merged: true,
+		Herdr: state.Herdr{PaneID: "p1"},
+	})
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/secondhand/pull/1 checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "done task-1:") {
+		t.Fatalf("output = %q, want a verified done event", buf.String())
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindHerdrDone {
+		t.Fatalf("ActiveTasks = %+v", d.ActiveTasks)
 	}
 }
 
@@ -218,7 +271,7 @@ func TestTickClassifiesPRMerged(t *testing.T) {
 	}
 }
 
-func TestTickFiresIdleUnreportedWhenPaneGoesIdleWithNoReport(t *testing.T) {
+func TestTickFiresIdleUnreportedWhenPaneGoesNotBusyWithNoReport(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -234,7 +287,9 @@ func TestTickFiresIdleUnreportedWhenPaneGoesIdleWithNoReport(t *testing.T) {
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
-	setStatus(t, statusFile, "idle")
+	// Real herdr renders this transition as "done", not "idle" - see
+	// herdr.Status's doc comment.
+	setStatus(t, statusFile, "done")
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "idle-unreported task-1") {
@@ -247,7 +302,7 @@ func TestTickFiresIdleUnreportedWhenPaneGoesIdleWithNoReport(t *testing.T) {
 	}
 }
 
-func TestTickAbsorbsIdleWhenReportExplainsTheStop(t *testing.T) {
+func TestTickAbsorbsNotBusyWhenReportExplainsTheStop(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -265,7 +320,9 @@ func TestTickAbsorbsIdleWhenReportExplainsTheStop(t *testing.T) {
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: waiting on approval\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	setStatus(t, statusFile, "idle")
+	// Real herdr renders this transition as "done", not "idle" - see
+	// herdr.Status's doc comment.
+	setStatus(t, statusFile, "done")
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
@@ -273,7 +330,7 @@ func TestTickAbsorbsIdleWhenReportExplainsTheStop(t *testing.T) {
 		t.Fatalf("output = %q, want the report line surfaced", buf.String())
 	}
 	if strings.Contains(buf.String(), "idle-unreported") {
-		t.Fatalf("output = %q, want the idle transition absorbed since needs-decision explains the stop", buf.String())
+		t.Fatalf("output = %q, want the not-busy transition absorbed since needs-decision explains the stop", buf.String())
 	}
 }
 

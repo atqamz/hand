@@ -50,7 +50,7 @@ func newPromoteCmd() *cobra.Command {
 			}
 
 			client := herdr.NewClient()
-			if status := paneAgentStatus(client, t.Herdr.PaneID); status != string(herdr.StatusDone) && status != string(herdr.StatusUnknown) {
+			if status := paneAgentStatus(client, t.Herdr.PaneID); status == string(herdr.StatusWorking) || status == string(herdr.StatusBlocked) {
 				return &ExitError{Err: fmt.Errorf("task %q is not a completed scout (agent state: %s)", id, status), Code: 3}
 			}
 

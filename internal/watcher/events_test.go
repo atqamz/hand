@@ -9,57 +9,62 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-func TestClassifyStatusWorkingToDoneFiresDone(t *testing.T) {
-	now := time.Now()
-	ts := NewTaskState(herdr.StatusWorking, now)
+// notBusyStatuses covers herdr's two spellings of "pane stopped being busy" - see
+// herdr.Status's doc comment for why idle and done must be classified identically:
+// hand's headless polling model observes done, essentially always, never idle, for
+// this transition against real herdr.
+var notBusyStatuses = []herdr.Status{herdr.StatusIdle, herdr.StatusDone}
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second)); e == nil || e.Kind != KindHerdrDone {
-		t.Fatalf("got %+v, want done event", e)
-	}
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(2*time.Second)); e != nil {
-		t.Fatalf("repeated done state fired again: %+v", e)
-	}
-}
-
-func TestClassifyStatusWorkingToIdleFiresIdleUnreportedWhenNoTerminalReport(t *testing.T) {
-	now := time.Now()
-	ts := NewTaskState(herdr.StatusWorking, now)
-
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusIdle, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
-		t.Fatalf("got %+v, want idle-unreported event when nothing explained the stop", e)
-	}
-}
-
-func TestClassifyStatusWorkingToIdleFiresIdleUnreportedWhenLastReportWasStillWorking(t *testing.T) {
-	now := time.Now()
-	ts := NewTaskState(herdr.StatusWorking, now)
-	ts.LastReportState = state.ReportWorking
-
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusIdle, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
-		t.Fatalf("got %+v, want idle-unreported even though a working report exists, since it doesn't explain a stop", e)
-	}
-}
-
-func TestClassifyStatusWorkingToIdleIsAbsorbedWhenTerminalReportExplainsIt(t *testing.T) {
-	for _, reportState := range []string{
-		state.ReportPaused, state.ReportBlocked, state.ReportNeedsDecision, state.ReportDone, state.ReportFailed,
-	} {
+func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenNoTerminalReport(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
 		now := time.Now()
 		ts := NewTaskState(herdr.StatusWorking, now)
-		ts.LastReportState = reportState
 
-		if e := ClassifyStatus(ts, "task-1", herdr.StatusIdle, nil, now.Add(time.Second)); e != nil {
-			t.Fatalf("report state %q: got %+v, want the idle transition absorbed silently", reportState, e)
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+			t.Fatalf("status %q: got %+v, want idle-unreported event when nothing explained the stop", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second)); e != nil {
+			t.Fatalf("status %q: repeated not-busy state fired again: %+v", notBusy, e)
 		}
 	}
 }
 
-func TestClassifyStatusIdleToWorkingIsBenign(t *testing.T) {
-	now := time.Now()
-	ts := NewTaskState(herdr.StatusIdle, now)
+func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenLastReportWasStillWorking(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		now := time.Now()
+		ts := NewTaskState(herdr.StatusWorking, now)
+		ts.LastReportState = state.ReportWorking
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(time.Second)); e != nil {
-		t.Fatalf("got %+v, want no event for resuming work", e)
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+			t.Fatalf("status %q: got %+v, want idle-unreported even though a working report exists, since it doesn't explain a stop", notBusy, e)
+		}
+	}
+}
+
+func TestClassifyStatusWorkingToNotBusyIsAbsorbedWhenTerminalReportExplainsIt(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		for _, reportState := range []string{
+			state.ReportPaused, state.ReportBlocked, state.ReportNeedsDecision, state.ReportDone, state.ReportFailed,
+		} {
+			now := time.Now()
+			ts := NewTaskState(herdr.StatusWorking, now)
+			ts.LastReportState = reportState
+
+			if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e != nil {
+				t.Fatalf("status %q report state %q: got %+v, want the transition absorbed silently", notBusy, reportState, e)
+			}
+		}
+	}
+}
+
+func TestClassifyStatusNotBusyToWorkingIsBenign(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		now := time.Now()
+		ts := NewTaskState(notBusy, now)
+
+		if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(time.Second)); e != nil {
+			t.Fatalf("status %q: got %+v, want no event for resuming work", notBusy, e)
+		}
 	}
 }
 
@@ -98,16 +103,18 @@ func TestClassifyStatusProbeFailureFiresFailedOnce(t *testing.T) {
 	}
 }
 
-func TestClassifyStatusRecoveryAfterFailureCanFireDone(t *testing.T) {
-	now := time.Now()
-	ts := NewTaskState(herdr.StatusWorking, now)
-	probeErr := errors.New("pane not found")
+func TestClassifyStatusRecoveryAfterFailureCanFireIdleUnreported(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		now := time.Now()
+		ts := NewTaskState(herdr.StatusWorking, now)
+		probeErr := errors.New("pane not found")
 
-	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second)); e == nil || e.Kind != KindFailed {
-		t.Fatalf("got %+v, want failed event", e)
-	}
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(2*time.Second)); e == nil || e.Kind != KindHerdrDone {
-		t.Fatalf("got %+v, want done event on recovery", e)
+		if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second)); e == nil || e.Kind != KindFailed {
+			t.Fatalf("status %q: got %+v, want failed event", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second)); e == nil || e.Kind != KindIdleUnreported {
+			t.Fatalf("status %q: got %+v, want idle-unreported event on recovery", notBusy, e)
+		}
 	}
 }
 

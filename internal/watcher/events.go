@@ -10,6 +10,9 @@ import (
 
 // Kind values classify an Event for dashboard/log routing.
 const (
+	// KindHerdrDone is only ever emitted by classifyReportDone once a worker's own
+	// done report is cross-checked against a merged PR - ClassifyStatus never emits
+	// it directly, since herdr's own done/idle split carries no task-outcome signal.
 	KindHerdrDone           = "done"
 	KindIdleUnreported      = "idle-unreported"
 	KindBlocked             = "blocked"
@@ -57,12 +60,14 @@ func NewTaskState(status herdr.Status, now time.Time) *TaskState {
 }
 
 // ClassifyStatus compares a freshly probed status against ts and returns an
-// actionable event for the transitions SPECS.md calls out (done, idle-unreported,
-// blocked, failed). Benign transitions (into working, repeated done/idle/blocked)
-// update ts in place and return nil.
+// actionable event for the transitions SPECS.md calls out (idle-unreported, blocked,
+// failed). Benign transitions (into working, repeated not-busy/blocked) update ts in
+// place and return nil.
 //
-// herdr's idle just means the pane isn't busy - it says nothing about whether the
-// task actually finished. A transition into idle only fires KindHerdrDone-adjacent
+// herdr's idle and done are the same signal for hand's purposes: the pane stopped
+// being busy. Neither says anything about whether the task actually finished - see
+// herdr.Status's doc comment for why hand only ever observes done, not idle, for this
+// transition in practice. A transition out of working/blocked into not-busy only fires
 // KindIdleUnreported when nothing has explained the stop: no report at all, or the
 // last report was still "working". Any other reported state (paused, blocked,
 // needs-decision, done, failed) already explains the pane going quiet, so the
@@ -86,20 +91,15 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 	ts.ChangedAt = now
 	ts.Stale = false
 
-	switch status {
-	case herdr.StatusDone:
-		if prevStatus == herdr.StatusWorking || prevStatus == herdr.StatusBlocked {
-			ts.Blocked = false
-			return &Event{TaskID: id, Kind: KindHerdrDone, Text: fmt.Sprintf("done %s", id)}
-		}
-	case herdr.StatusIdle:
+	switch {
+	case status.NotBusy():
 		if prevStatus == herdr.StatusWorking || prevStatus == herdr.StatusBlocked {
 			ts.Blocked = false
 			if ts.LastReportState == "" || ts.LastReportState == state.ReportWorking {
 				return &Event{TaskID: id, Kind: KindIdleUnreported, Text: fmt.Sprintf("idle-unreported %s", id)}
 			}
 		}
-	case herdr.StatusBlocked:
+	case status == herdr.StatusBlocked:
 		if !ts.Blocked {
 			ts.Blocked = true
 			return &Event{TaskID: id, Kind: KindBlocked, Text: fmt.Sprintf("blocked %s: %s", id, blockedReason), Reason: blockedReason}

@@ -184,9 +184,6 @@ func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 
 	opts := dashboard.UpdateOpts{AddEvent: e.Text}
 	switch e.Kind {
-	case KindHerdrDone:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindHerdrDone, Age: age}
-		opts.ClearPendingDecision = t.ID
 	case KindIdleUnreported:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindIdleUnreported, Age: age}
 		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("stopped, reason unknown (idle %s)", age)}

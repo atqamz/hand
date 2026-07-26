@@ -104,12 +104,13 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	return w.Flush()
 }
 
-// reportSuffix flags, in the fleet table's state column, whether an idle pane
-// left a terminal report behind or not - the same distinction SPECS.md's
-// classifier draws between idle-unreported and an absorbed idle. Any other
-// agent state is left unadorned; herdr's own state is already informative there.
+// reportSuffix flags, in the fleet table's state column, whether a not-busy pane
+// (herdr's idle or done - see herdr.Status) left a terminal report behind or not -
+// the same distinction SPECS.md's classifier draws between idle-unreported and an
+// absorbed stop. Any other agent state is left unadorned; herdr's own state is
+// already informative there.
 func reportSuffix(home, id, agentState string) string {
-	if agentState != string(herdr.StatusIdle) {
+	if !herdr.Status(agentState).NotBusy() {
 		return ""
 	}
 	last, ok, err := state.LastReport(home, id)

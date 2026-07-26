@@ -13,10 +13,15 @@ import (
 )
 
 // TestWatchIdleAfterReportedNeedsDecisionIsNotDone proves the bug #30/#32 set
-// out to kill: herdr's idle just means the pane stopped being busy, and a
-// worker's last reported state before going idle is what actually explains
-// why. A working -> idle transition right after a "needs-decision" report
-// must never be classified as done.
+// out to kill: herdr's idle and done are the same "pane stopped being busy"
+// signal (see herdr.Status's doc comment for why), and a worker's last
+// reported state before that is what actually explains why. A working -> idle
+// transition right after a "needs-decision" report must never be classified
+// as done. This drives the fake to "done", not "idle": real herdr renders a
+// working-or-blocked -> idle transition as "done" for a headless poller like
+// hand, never "idle" (hand never focuses a client on a worker's pane, and only
+// a focused client's active tab keeps herdr's own notification bookkeeping
+// from collapsing that transition into "done").
 func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -42,7 +47,7 @@ func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: waiting on review\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	setPaneStatus(t, statusDir, "pane-1", "idle")
+	setPaneStatus(t, statusDir, "pane-1", "done")
 	watch.waitForStdout(t, "needs-decision task-1: waiting on review", 5*time.Second)
 
 	result := watch.stop(t, 3*time.Second)
@@ -59,10 +64,10 @@ func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
 	}
 }
 
-// TestWatchIdleWithNoReportIsSupervisorActionable proves the inverse: an idle
-// pane that carries no terminal report at all must surface as actionable
-// ("stopped, reason unknown"), not be silently dropped the way idle used to be
-// treated as done.
+// TestWatchIdleWithNoReportIsSupervisorActionable proves the inverse: a
+// not-busy pane (real herdr's "done", per the comment above) that carries no
+// terminal report at all must surface as actionable ("stopped, reason
+// unknown"), not be silently dropped the way it used to be treated as done.
 func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -85,7 +90,7 @@ func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
 	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
 
-	setPaneStatus(t, statusDir, "pane-1", "idle")
+	setPaneStatus(t, statusDir, "pane-1", "done")
 	watch.waitForStdout(t, "idle-unreported task-1", 5*time.Second)
 
 	result := watch.stop(t, 3*time.Second)

@@ -24,7 +24,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 - **Projects**: git repositories cloned under `projects/` and registered in `data/projects.md`. Each has a delivery mode: `no-mistakes`, `direct-pr`, or `local-only`.
 - **Tasks**: units of work identified by a unique ID. Ship tasks produce a branch and PR; scout tasks investigate and produce `data/<id>/report.md`.
 - **Briefs**: task instructions at `data/<id>/brief.md`, written by the supervisory agent before spawning a worker.
-- **herdr tabs**: each worker runs in its own herdr tab. herdr provides semantic agent state (working/idle/done/blocked) and push events, so no terminal scraping.
+- **herdr tabs**: each worker runs in its own herdr tab. herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events, so no terminal scraping. herdr's state says whether a pane is busy, not whether a task finished - see SPECS.md's "Agent state" section.
 - **treehouse worktrees**: workers operate in isolated git checkouts acquired from a treehouse pool, never in the project clone itself.
 - **Dashboard**: `data/dashboard.md` is the living fleet overview, auto-maintained by `hand`. The agent reads it for context; the user watches it for visibility.
 - **Backlog**: `data/backlog.md` is a plain markdown task queue, read and edited directly by the supervisory agent.
