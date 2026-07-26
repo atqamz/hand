@@ -245,16 +245,21 @@ func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 	return c.callVoid(args...)
 }
 
-// PaneRead returns the pane's recent scrollback as plain text, using --source recent rather
-// than visible so a first-run dialog is still captured even in a pane too short to fit it in
-// the current viewport. Unlike every command above, herdr's own contract for pane read is a
+// PaneRead returns the pane's visible viewport as plain text. Its one caller asks whether a
+// modal dialog is up right now, and only the viewport answers that: scrollback cannot tell a
+// dialog still on screen from one already answered, so a --source recent read can re-send keys
+// into a live session over text the harness has moved past. --source recent was chosen first
+// because it also captures a dialog in a pane too short to show it, but that pane fails
+// unsafely under recent (keys into a live session, launch reported clean) and safely under
+// visible (nothing matches, the launch times out and rolls back with the pane content in the
+// error). Unlike every command above, herdr's own contract for pane read is a
 // third shape: raw text on success, and on failure a bare {"code","message"} object rather than
 // the {"error":{...}} envelope call and callVoid expect. That body is checked ahead of the exit
 // status for the same reason callVoid checks its envelope first - herdr's exit code cannot be
 // trusted on its own - and here a failure read as pane text would confirm a worker no one
 // observed.
 func (c *Client) PaneRead(paneID string, lines int) (string, error) {
-	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
+	args := []string{"pane", "read", paneID, "--source", "visible", "--lines", strconv.Itoa(lines)}
 	stdout, stderr, runErr := c.run(args...)
 	var eb errorBody
 	if json.Unmarshal(stdout, &eb) == nil && eb.Code != "" && eb.Message != "" {

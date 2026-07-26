@@ -37,12 +37,14 @@ var launchPolling = launchPoll{
 //
 // Liveness is herdr's answer, not the screen's: herdr reports an agent on a pane only while a
 // harness process runs in it, so a harness that painted a dialog and then exited leaves its text
-// in the scrollback but no agent, and can never be mistaken for a started worker. Pane text has
+// on screen but no agent, and can never be mistaken for a started worker. Pane text has
 // exactly one job here, spotting dialogs: a known prompt is answered and resets the quiet count,
 // the generic unrecognized-dialog fallback resets it without being answered so an uncatalogued
 // dialog fails loudly, and a prompt catalogued as refused fails immediately with its own reason.
-// Ready is a cheap secondary signal - with the agent already confirmed present, the harness's own
-// paint leaves the quiet window nothing to wait for.
+// The text is the visible viewport, not scrollback, because a modal dialog is on screen now by
+// definition - it leaves the viewport the instant the harness repaints, so there is no answered
+// dialog left to re-answer. Ready is a cheap secondary signal - with the agent already confirmed
+// present, the harness's own paint leaves the quiet window nothing to wait for.
 //
 // The gate is only as good as herdr's labeling of the harness, which is why a pane that is never
 // labeled says so by name (see harness.AgentDetectionVerified) instead of failing as a bare
@@ -53,7 +55,11 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 	quiet := 0
 	answered := ""
 	sawAgent := false
-	noAgent := noAgentStall(harnessName)
+	detected := harness.AgentDetectionVerified(harnessName)
+	noAgent := "the harness never started in the pane"
+	if !detected {
+		noAgent = fmt.Sprintf("no agent detected in pane; herdr agent detection for harness %s has not been exercised", harnessName)
+	}
 	stall := noAgent
 
 	for {
@@ -73,8 +79,10 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 		case pane.Agent == "":
 			quiet = 0
 			switch {
-			case known || answered != "":
+			case (known || answered != "") && (sawAgent || detected):
 				stall = "the harness exited on a first-run dialog instead of starting up"
+			case known:
+				stall = fmt.Sprintf("%s, so the %s dialog on screen may be a harness herdr never recognized rather than one that exited", noAgent, prompt.Name)
 			case sawAgent:
 				stall = "the harness started and then exited"
 			default:
@@ -113,36 +121,22 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 	}
 }
 
-// noAgentStall explains a pane that herdr never reported an agent on. For a harness whose
-// labeling has been exercised that means the harness itself never came up; for one whose
-// labeling has not, hand cannot tell that apart from herdr failing to recognize the process, and
-// says so rather than blaming the harness.
-func noAgentStall(harnessName string) string {
-	if harness.AgentDetectionVerified(harnessName) {
-		return "the harness never started in the pane"
-	}
-	return fmt.Sprintf("no agent detected in pane; herdr agent detection for harness %s has not been exercised", harnessName)
-}
-
-// matchFirstRunPrompt reports which catalogued dialog the pane text is showing. A refused prompt
-// wins over an answerable one wherever either sits in the catalogue, so a screen carrying both
-// signatures is never answered into. Among answerable ones the latest match in the read wins:
-// scrollback is chronological, so the last signature painted is the dialog actually on screen,
-// and answering an earlier one blind can send a fatal Enter to the wrong prompt.
+// matchFirstRunPrompt reports which catalogued dialog the pane's viewport is showing. A refused
+// prompt wins over an answerable one wherever either sits in the catalogue, so a screen carrying
+// both signatures is never answered into. Answerable entries need no such tie-break: two modal
+// dialogs cannot occupy one viewport at once, so at most one of them is really on screen.
 func matchFirstRunPrompt(known []harness.FirstRunPrompt, text string) (harness.FirstRunPrompt, bool) {
 	var match harness.FirstRunPrompt
 	found := false
-	at := -1
 	for _, prompt := range known {
-		loc := prompt.Match.FindStringIndex(text)
-		if loc == nil {
+		if !prompt.Match.MatchString(text) {
 			continue
 		}
 		if prompt.Refuse != "" {
 			return prompt, true
 		}
-		if loc[0] > at {
-			match, found, at = prompt, true, loc[0]
+		if !found {
+			match, found = prompt, true
 		}
 	}
 	return match, found

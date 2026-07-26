@@ -827,16 +827,19 @@ real pane and observed being labeled. For codex, pi and grok it rests on herdr's
 detection manifests, read but not exercised, because no binary for those is installed on this host.
 Pane text is used only to spot dialogs (`internal/harness`'s `FirstRunPromptsFor`): a known one is
 answered, and success needs the pane to hold a live agent and stay free of both known dialogs and
-the harness's generic unrecognized-dialog fallback for the settle window. Among answerable known
-dialogs on one screen the latest match in the scrollback wins, since that is the one actually
-painted now. A harness's readiness signature is a secondary shortcut - on a pane already holding a
-live agent, the harness's own paint means there is nothing left to settle for.
+the harness's generic unrecognized-dialog fallback for the settle window. That text is the pane's
+visible viewport (`pane read --source visible`), not its scrollback, because scrollback cannot tell
+a dialog that is up right now from one already answered - and answering text the harness has moved
+past sends keys into a live session. A harness's readiness signature is a secondary shortcut - on a
+pane already holding a live agent, the harness's own paint means there is nothing left to settle
+for.
 
 Two outcomes are not success. A pane with no agent, or one still showing a dialog, when the poll
 window elapses fails the spawn/promote with that pane content and what held it up; for a harness
-whose agent detection has not been exercised, that failure says so by name instead of claiming the
-harness never started. A recognized-but-refused dialog fails immediately, naming what a human has
-to accept. See `cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were
+whose agent detection has not been exercised, that failure names the unexercised detection first
+and the possibility of a harness that exited on a dialog second, since an unrecognized process is
+the likelier cause. A recognized-but-refused dialog fails immediately, naming what a human has to
+accept. See `cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were
 chosen.
 
 A harness with no catalogued signatures at all is confirmed on agent presence alone, so an agent
@@ -966,7 +969,7 @@ Responses come in two shapes, and the client validates each one differently:
 - **Void commands** (`pane run`, `pane send-text`, `pane send-keys`) print nothing on success.
   A failure prints a JSON error envelope whose exit code cannot be trusted on its own, so any
   non-empty body is parsed for that envelope before the exit status is consulted.
-- **`pane read`** is a third shape: plain scrollback text on success, and on failure a bare
+- **`pane read`** is a third shape: plain pane text on success, and on failure a bare
   `{"code","message"}` object rather than the `{"error":{...}}` envelope the other two shapes use.
 
 The herdr client abstracts these into Go function calls; `internal/herdr` keeps one entry point

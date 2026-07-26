@@ -192,8 +192,14 @@ func TestTabListParsesResult(t *testing.T) {
 	}
 }
 
-func TestPaneReadReturnsScrollback(t *testing.T) {
-	writeFakeHerdr(t, `printf 'Welcome to Claude Code\n'`)
+// TestPaneReadReadsVisibleViewport pins --source visible: a scrollback read cannot tell a dialog
+// that is up now from one already answered, so confirmLaunch would answer text the harness has
+// moved past and send keys into a live session.
+func TestPaneReadReadsVisibleViewport(t *testing.T) {
+	writeFakeHerdr(t, `case "$*" in
+*"--source visible"*) printf 'Welcome to Claude Code\n' ;;
+*) echo "unexpected read args: $*" >&2; exit 1 ;;
+esac`)
 	c := NewClient()
 	got, err := c.PaneRead("wA:pB", 60)
 	if err != nil {

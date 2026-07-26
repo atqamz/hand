@@ -204,14 +204,6 @@ func TestConfirmLaunch(t *testing.T) {
 			wantKeys: "Enter\n",
 		},
 		{
-			// Both dialogs are on screen, bypass painted first: answering by catalogue order sends
-			// this screen's trust Enter into the bypass dialog, where it lands on "No, exit".
-			name:     "the latest answerable dialog on screen is the one answered",
-			harness:  "claude",
-			frames:   []launchFrame{live(launchBypassFrame + "\n" + launchTrustFrame), live(launchReadyFrame)},
-			wantKeys: "Enter\n",
-		},
-		{
 			// codex has no verified agent detection, so "no agent" cannot be blamed on the harness
 			// without also naming the thing hand has not checked.
 			name:    "an unverified harness that is never labeled names the unexercised detection",

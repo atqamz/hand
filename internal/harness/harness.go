@@ -28,7 +28,7 @@ func IsSupported(name string) bool {
 }
 
 // FirstRunPrompt is one interactive dialog a harness may show before it starts reading the
-// brief. Match is checked against the pane's recent scrollback text. Exactly one of Keys and
+// brief. Match is checked against the pane's visible viewport text. Exactly one of Keys and
 // Refuse is set: Keys answer the dialog unattended, while a non-empty Refuse marks a dialog
 // that is recognized but deliberately left for a human, and its text says why.
 type FirstRunPrompt struct {
