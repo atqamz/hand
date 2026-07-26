@@ -34,10 +34,13 @@ type Options struct {
 }
 
 // Build constructs the shell command that cds into the worktree and launches the harness
-// against the brief. Flags verified against the installed CLI (--help) are used where
-// available - claude and opencode - and this file is the source of truth for those two.
-// Codex, Grok, and Pi have no binary available yet, so they fall back to the SPECS.md
-// template syntax and must be re-verified once installable.
+// against the brief. Every launch must be interactive, not one-shot: hand send steers a
+// running pane, hand watch classifies its lifecycle, and a no-mistakes pipeline drives many
+// turns, none of which a one-shot process can do. Flags verified against the installed CLI
+// (--help) are used where available - claude and opencode - and this file is the source of
+// truth for those two. Codex, Grok, and Pi have no binary available yet, so they fall back to
+// the SPECS.md template syntax and must be re-verified for interactive launch, not just
+// flag names, once installable.
 func Build(name string, opts Options) (string, error) {
 	var launch string
 	switch name {
@@ -57,10 +60,15 @@ func Build(name string, opts Options) (string, error) {
 	return fmt.Sprintf("cd %s && %s", shellQuote(opts.Worktree), launch), nil
 }
 
-// buildClaude passes the brief path in a prompt because claude --print accepts prompt text,
-// not a file path (verified via `claude --help`).
+// buildClaude launches claude interactively (no --print) so the pane stays resident for
+// hand send and hand watch across a multi-turn no-mistakes pipeline (verified via
+// `claude --help`: --model, --effort, and --dangerously-skip-permissions all apply outside
+// --print). --dangerously-skip-permissions is required or an unattended worker stalls on a
+// permission prompt. CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false suppresses claude's dim
+// predicted-next-prompt ghost text, which would otherwise read to a pane-watching supervisor
+// as the worker having typed input while actually idle.
 func buildClaude(o Options) string {
-	args := []string{"claude", "--print"}
+	args := []string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false", "claude", "--dangerously-skip-permissions"}
 	if o.Model != "" {
 		args = append(args, "--model", shellQuote(o.Model))
 	}
@@ -84,18 +92,19 @@ func buildPi(o Options) string {
 	return fmt.Sprintf("pi %s", shellQuote(o.Brief))
 }
 
-// buildOpenCode uses `opencode run` (verified via `opencode --help`) rather than the bare
-// `opencode` template in SPECS.md, which would open an interactive TUI instead of running
-// headless. --file attaches the brief to the initial message.
+// buildOpenCode uses the bare `opencode` command (verified via `opencode --help`), which opens
+// an interactive TUI, rather than `opencode run`, which is explicitly headless and exits after
+// one reply. OPENCODE_CONFIG_CONTENT grants blanket tool permission so an unattended worker
+// does not stall on a permission prompt. The bare command has no --file flag and no
+// effort/variant flag, so the brief path is embedded in --prompt text instead, and Effort is
+// not applied here.
 func buildOpenCode(o Options) string {
-	args := []string{"opencode", "run", "--file", shellQuote(o.Brief)}
+	args := []string{"OPENCODE_CONFIG_CONTENT=" + shellQuote(`{"permission":{"*":"allow"}}`), "opencode"}
 	if o.Model != "" {
 		args = append(args, "--model", shellQuote(o.Model))
 	}
-	if o.Effort != "" {
-		args = append(args, "--variant", shellQuote(o.Effort))
-	}
-	args = append(args, shellQuote("Follow the attached brief and complete the task."))
+	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
+	args = append(args, "--prompt", shellQuote(prompt))
 	return strings.Join(args, " ")
 }
 

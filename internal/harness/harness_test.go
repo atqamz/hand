@@ -39,7 +39,7 @@ func TestBuildClaude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "cd '/tmp/wt' && claude --print 'Read the brief at /tmp/data/fix-login/brief.md and carry out the task it describes.'"
+	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions 'Read the brief at /tmp/data/fix-login/brief.md and carry out the task it describes.'"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -50,8 +50,24 @@ func TestBuildClaudeWithModelAndEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "--model 'sonnet'") || !strings.Contains(got, "--effort 'low'") {
-		t.Fatalf("got %q, want --model and --effort flags", got)
+	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --model 'sonnet' --effort 'low' 'Read the brief at /tmp/brief.md and carry out the task it describes.'"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestBuildClaudeNeverHeadless guards against a silent regression to --print,
+// which would strand hand send and hand watch with no running pane to steer.
+func TestBuildClaudeNeverHeadless(t *testing.T) {
+	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "--print") {
+		t.Fatalf("got %q, want no --print (headless) flag", got)
+	}
+	if !strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Fatalf("got %q, want --dangerously-skip-permissions so an unattended worker never stalls on a permission prompt", got)
 	}
 }
 
@@ -93,9 +109,34 @@ func TestBuildOpenCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "cd '/tmp/wt' && opencode run --file '/tmp/brief.md' 'Follow the attached brief and complete the task.'"
+	want := "cd '/tmp/wt' && OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --prompt 'Read the brief at /tmp/brief.md and carry out the task it describes.'"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildOpenCodeWithModel(t *testing.T) {
+	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "opus"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "--model 'opus'") {
+		t.Fatalf("got %q, want --model flag", got)
+	}
+}
+
+// TestBuildOpenCodeNeverHeadless guards against a silent regression to
+// `opencode run`, which exits after one reply and leaves no pane to steer.
+func TestBuildOpenCodeNeverHeadless(t *testing.T) {
+	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "opencode run") {
+		t.Fatalf("got %q, want no headless \"opencode run\" invocation", got)
+	}
+	if !strings.Contains(got, `OPENCODE_CONFIG_CONTENT`) {
+		t.Fatalf("got %q, want OPENCODE_CONFIG_CONTENT so an unattended worker never stalls on a permission prompt", got)
 	}
 }
 

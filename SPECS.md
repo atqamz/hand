@@ -763,14 +763,28 @@ The agent should use it when available and read files directly when not.
 Each supported harness has a launch command template.
 `hand spawn` constructs the command, `cd`s into the worktree, and sends it to the herdr pane.
 
+Every template must launch its harness **interactively**, never headless/one-shot.
+`hand send` writes into a running pane, `hand watch` polls pane state to classify a worker as
+working/blocked/idle, and the `no-mistakes` delivery mode drives many turns as the worker
+responds to review/test/document/lint gates.
+A one-shot process (`claude --print`, `opencode run`) answers once and exits: there is nothing
+left to send to, classify, or drive through a gate.
+Any harness template added here must stay resident across the whole task, and must have its
+autonomy/permission flag set so an unattended worker does not stall on a permission prompt.
+
 ### Claude Code
 
 ```sh
-cd <worktree> && claude --print "Read the brief at <brief-path> and carry out the task it describes."
+cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "Read the brief at <brief-path> and carry out the task it describes."
 ```
 
-The brief path is included in the prompt because `--print` accepts prompt text, not a file path.
+The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
+`--dangerously-skip-permissions` is required so the unattended worker does not stall on a
+permission dialog.
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` suppresses the dim predicted-next-prompt ghost text
+Claude Code renders while idle; without it, a supervisor reading the pane can misread ghost text
+as the worker having typed input.
 
 ### Codex
 
@@ -778,11 +792,17 @@ When configured, `--model <name>` and `--effort <level>` are inserted before the
 cd <worktree> && codex --file "<brief-path>"
 ```
 
+Unverified: no `codex` binary was available to check `--help` against.
+Confirm this launches interactively (not one-shot) before relying on it; the template above
+predates that requirement and may need an autonomy flag and a different invocation shape.
+
 ### Grok
 
 ```sh
 cd <worktree> && grok --trust --file "<brief-path>"
 ```
+
+Unverified, same caveat as Codex above.
 
 ### Pi
 
@@ -790,17 +810,26 @@ cd <worktree> && grok --trust --file "<brief-path>"
 cd <worktree> && pi "<brief-path>"
 ```
 
+Unverified, same caveat as Codex above.
+
 ### OpenCode
 
 ```sh
-cd <worktree> && opencode run --file "<brief-path>" "Follow the attached brief and complete the task."
+cd <worktree> && OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode --prompt "Read the brief at <brief-path> and carry out the task it describes."
 ```
 
-OpenCode runs headlessly through `opencode run`; `--model <name>` and `--variant <effort>` are
-inserted when configured.
+The bare `opencode` command opens its interactive TUI, unlike `opencode run`, which is
+explicitly headless and exits after one reply.
+`OPENCODE_CONFIG_CONTENT` grants blanket tool permission so the unattended worker does not
+stall on a permission prompt.
+When configured, `--model <name>` is inserted; the bare command has no effort/variant flag, so
+`--effort` has no effect on OpenCode workers.
+The bare command also has no `--file` flag, so the brief path is embedded in the prompt text
+instead of attached.
 
 The Claude and OpenCode forms above were verified against the installed CLI versions.
-Codex, Grok, and Pi retain the literal templates above until those binaries are verified.
+Codex, Grok, and Pi retain unverified templates until those binaries are installable; whoever
+verifies them must confirm interactive (not headless) launch, not just flag names.
 The harness module is the single place that constructs these commands.
 
 ## Herdr integration detail
