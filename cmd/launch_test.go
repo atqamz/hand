@@ -193,6 +193,32 @@ func TestConfirmLaunch(t *testing.T) {
 			wantErr:  "answering the bypass permissions prompt is not clearing it",
 			wantKeys: "Down\nEnter\n",
 		},
+		{
+			// Issue #28's actual timeline: the pane starts as a bash prompt echoing the launch
+			// command, claude comes up a beat later on the trust dialog, then settles. pane.Agent
+			// is tested before the answer branch, so a regression there stops dialog-answering
+			// while every single-frame case above still passes.
+			name:     "a dialog that appears after a cold start is still answered",
+			harness:  "claude",
+			frames:   []launchFrame{exited(launchEchoFrame), live(launchTrustFrame), live(launchReadyFrame)},
+			wantKeys: "Enter\n",
+		},
+		{
+			// Both dialogs are on screen, bypass painted first: answering by catalogue order sends
+			// this screen's trust Enter into the bypass dialog, where it lands on "No, exit".
+			name:     "the latest answerable dialog on screen is the one answered",
+			harness:  "claude",
+			frames:   []launchFrame{live(launchBypassFrame + "\n" + launchTrustFrame), live(launchReadyFrame)},
+			wantKeys: "Enter\n",
+		},
+		{
+			// codex has no verified agent detection, so "no agent" cannot be blamed on the harness
+			// without also naming the thing hand has not checked.
+			name:    "an unverified harness that is never labeled names the unexercised detection",
+			harness: "codex",
+			frames:  []launchFrame{exited("$ cd '/tmp/wt' && codex --file '/tmp/brief.md'")},
+			wantErr: "no agent detected in pane; herdr agent detection for harness codex has not been exercised",
+		},
 	}
 
 	for _, tt := range tests {

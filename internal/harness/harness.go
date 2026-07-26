@@ -43,8 +43,9 @@ type FirstRunPrompt struct {
 // screen" that no Known entry matches. Ready is the harness's own startup paint, a secondary
 // signal that a pane herdr already reports a running agent on has finished starting; a harness
 // with no Ready signature is still confirmed, just by waiting out the settle window. A zero
-// value means no dialog on this harness is recognized, so any dialog it stops on runs out the
-// launch timeout rather than being answered.
+// value leaves the launch confirmed on agent presence alone, so a harness with no catalogued
+// signatures that parks on a dialog is still reported as started - a known, accepted gap, and
+// the reason the catalogue matters for every harness added here, not only claude.
 type FirstRunPrompts struct {
 	Ready        *regexp.Regexp
 	Known        []FirstRunPrompt
@@ -94,6 +95,22 @@ var firstRunPrompts = map[string]FirstRunPrompts{
 // has none.
 func FirstRunPromptsFor(name string) FirstRunPrompts {
 	return firstRunPrompts[name]
+}
+
+// agentDetectionVerified lists the harnesses whose panes herdr has been observed labeling with
+// an agent, by running the real binary in a real pane. The others ship a detection manifest
+// under herdr's agent-detection state dir, read but never exercised here because no binary for
+// them is installed on this host.
+var agentDetectionVerified = map[string]bool{
+	Claude:   true,
+	OpenCode: true,
+}
+
+// AgentDetectionVerified reports whether herdr's agent labeling has actually been exercised
+// against name. A launch that never sees an agent means something different for the two cases,
+// and the failure has to say which.
+func AgentDetectionVerified(name string) bool {
+	return agentDetectionVerified[name]
 }
 
 type Options struct {

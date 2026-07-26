@@ -195,6 +195,21 @@ func TestFirstRunPromptsClaude(t *testing.T) {
 	}
 }
 
+// TestAgentDetectionVerified pins the two harnesses actually run in a real pane and observed
+// being labeled by herdr; the rest must stay false until each is exercised the same way.
+func TestAgentDetectionVerified(t *testing.T) {
+	for _, name := range []string{Claude, OpenCode} {
+		if !AgentDetectionVerified(name) {
+			t.Errorf("AgentDetectionVerified(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{Codex, Grok, Pi, "nonexistent"} {
+		if AgentDetectionVerified(name) {
+			t.Errorf("AgentDetectionVerified(%q) = true, want false until herdr detection is exercised against it", name)
+		}
+	}
+}
+
 func TestFirstRunPromptsUnverifiedHarness(t *testing.T) {
 	for _, name := range []string{Codex, Grok, Pi, OpenCode, "nonexistent"} {
 		if got := FirstRunPromptsFor(name); got.Ready != nil || got.Known != nil || got.Unrecognized != nil {

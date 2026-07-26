@@ -822,17 +822,26 @@ Interactive launch has first-run dialogs that headless `--print` skipped:
 command, each polls the pane. Whether a worker is running is herdr's answer, not the screen's:
 herdr reports an agent on a pane only while a harness process is in its foreground, so a harness
 that painted a dialog and then exited leaves the text behind but no agent, and is never mistaken
-for a started worker. That holds for every harness, not only the ones with catalogued signatures.
+for a started worker. That labeling is verified empirically for claude and opencode, each run in a
+real pane and observed being labeled. For codex, pi and grok it rests on herdr's shipped agent
+detection manifests, read but not exercised, because no binary for those is installed on this host.
 Pane text is used only to spot dialogs (`internal/harness`'s `FirstRunPromptsFor`): a known one is
 answered, and success needs the pane to hold a live agent and stay free of both known dialogs and
-the harness's generic unrecognized-dialog fallback for the settle window. A harness's readiness
-signature is a secondary shortcut - on a pane already holding a live agent, the harness's own
-paint means there is nothing left to settle for.
+the harness's generic unrecognized-dialog fallback for the settle window. Among answerable known
+dialogs on one screen the latest match in the scrollback wins, since that is the one actually
+painted now. A harness's readiness signature is a secondary shortcut - on a pane already holding a
+live agent, the harness's own paint means there is nothing left to settle for.
 
 Two outcomes are not success. A pane with no agent, or one still showing a dialog, when the poll
-window elapses fails the spawn/promote with that pane content and what held it up. A
-recognized-but-refused dialog fails immediately, naming what a human has to accept. See
-`cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were chosen.
+window elapses fails the spawn/promote with that pane content and what held it up; for a harness
+whose agent detection has not been exercised, that failure says so by name instead of claiming the
+harness never started. A recognized-but-refused dialog fails immediately, naming what a human has
+to accept. See `cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were
+chosen.
+
+A harness with no catalogued signatures at all is confirmed on agent presence alone, so an agent
+parked on a dialog hand cannot recognize is reported as started. That is a known, accepted gap, and
+the reason the catalogue matters for every harness added, not only claude.
 
 ### Codex
 
