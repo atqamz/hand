@@ -277,7 +277,7 @@ Behavior:
 1. Validate project exists in registry.
 2. Validate no active task with this ID exists.
 3. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
-4. Acquire a treehouse worktree: `treehouse get <project-clone-path>`.
+4. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
 5. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in `state/*.json`. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
 6. Create a herdr tab in the project's workspace.
    - Workspace naming: one workspace per project, named after the project.

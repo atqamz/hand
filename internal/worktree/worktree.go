@@ -13,6 +13,8 @@ import (
 
 // Get acquires a worktree from the project clone's treehouse pool.
 // clonePath must be the project clone directory (treehouse resolves the pool from cwd).
+// treehouse writes banners to stderr ahead of the JSON, so the payload must be read
+// from stdout alone; CombinedOutput here corrupts every parse (issue #21).
 func Get(clonePath, leaseHolder string) (string, error) {
 	args := []string{"get", "--lease", "--json"}
 	if leaseHolder != "" {
