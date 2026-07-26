@@ -123,9 +123,16 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	writeFakeDispatch(t, dir, "herdr", logPath, "$1 $2", body)
 }
 
+// setPaneStatus publishes a pane's status by atomic rename: the fake herdr
+// cats these files from a concurrently polling `hand watch`, and a truncating
+// in-place write would let it read a phantom empty status mid-update.
 func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(statusDir, paneID), []byte(status), 0o644); err != nil {
+	tmp := filepath.Join(statusDir, paneID+".tmp")
+	if err := os.WriteFile(tmp, []byte(status), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, filepath.Join(statusDir, paneID)); err != nil {
 		t.Fatal(err)
 	}
 }
