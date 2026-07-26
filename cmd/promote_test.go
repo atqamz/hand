@@ -11,6 +11,11 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
+// fakeHerdrPromoteScript covers the herdr calls a clean promote makes, same
+// void-command-as-envelope simplification as fakeHerdrSpawnScript in
+// spawn_test.go: real "pane run" succeeds with empty stdout, but callVoid also
+// accepts this envelope, and promote's own logic only checks for a non-nil
+// error, so the exact response shape isn't this test's concern.
 const fakeHerdrPromoteScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -42,6 +47,9 @@ case "$cmd" in
 esac
 `
 
+// fakeHerdrPromotePaneWorking only fakes "pane get", reporting the scout's
+// pane as still "working" so promote's precondition check refuses the
+// promotion before any other herdr call is needed.
 const fakeHerdrPromotePaneWorking = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -90,6 +98,11 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Real treehouse writes a banner to stderr ahead of its JSON on "get" (see
+	// internal/worktree/worktree.go's Get doc comment); omitted here for the
+	// same reason as spawn_test.go's setupSpawnHome - the stdout-only
+	// regression it guards against is covered by tests/e2e/fakes_test.go's
+	// writeFakeTreehouse.
 	treehouseScript := "#!/bin/sh\nprintf '{\"path\":\"" + newWorktree + "\"}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(treehouseScript), 0o755); err != nil {
 		t.Fatal(err)
@@ -210,6 +223,9 @@ func TestPromoteRefusesUnregisteredProject(t *testing.T) {
 // fakeHerdrPromoteLeakScript mirrors fakeHerdrLeakScript for promote: it logs every call and
 // fails "pane run" so the promotion always fails after the new tab exists, with
 // $HERDR_WS_EXISTS_FLAG choosing between the created-workspace and pre-existing-workspace cases.
+// Same bare-exit-1 simplification as fakeHerdrLeakScript in spawn_test.go: promote.go only
+// checks PaneRun's error for non-nil, not its shape, and the real exit-0-plus-error-envelope
+// failure shape is covered at the client level, not here.
 const fakeHerdrPromoteLeakScript = `#!/bin/sh
 echo "$@" >> "$HERDR_CALL_LOG"
 cmd="$1 $2"

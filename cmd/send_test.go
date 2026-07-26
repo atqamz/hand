@@ -23,6 +23,10 @@ func setupSendHome(t *testing.T, herdrScript string) string {
 }
 
 func TestSendHappyPathWhenIdle(t *testing.T) {
+	// "pane send-text"/"pane send-keys" are void commands: real success is
+	// empty stdout, not this envelope (callVoid's doc comment, client.go).
+	// callVoid only checks env.Error, which is nil here, so the extra body is
+	// harmless and this still exercises the real success path.
 	home := setupSendHome(t, `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -53,6 +57,10 @@ esac
 }
 
 func TestSendFailsWhenPaneNotFound(t *testing.T) {
+	// "pane get" is a query command (call(), client.go); call() checks
+	// env.Error before runErr, so this fake would behave identically without
+	// the exit 1 - kept here only because it is a plausible real exit status
+	// for a failed query, not because call() requires it.
 	home := setupSendHome(t, `#!/bin/sh
 printf '{"id":"cli:1","error":{"code":"pane_not_found","message":"no such pane"}}'
 exit 1
@@ -69,6 +77,8 @@ exit 1
 }
 
 func TestSendWaitsWhileBusyThenSends(t *testing.T) {
+	// Same send-text/send-keys envelope simplification as
+	// TestSendHappyPathWhenIdle above.
 	counterFile := filepath.Join(t.TempDir(), "calls")
 	home := setupSendHome(t, `#!/bin/sh
 cmd="$1 $2"

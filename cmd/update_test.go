@@ -16,6 +16,10 @@ import (
 	"github.com/atqamz/secondhand/internal/selfupdate"
 )
 
+// writeFakeGHReleaseView fakes "release view --jq" as real gh's --jq flattens
+// its JSON to the raw field value on stdout (selfupdate.go's runGH callers use
+// --jq .tagName/.body), so a plain string with exit 0 is the faithful shape -
+// no envelope to reproduce here, unlike herdr's call()/callVoid().
 func writeFakeGHReleaseView(t *testing.T, tag string) {
 	t.Helper()
 	bin := t.TempDir()

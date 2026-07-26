@@ -29,6 +29,11 @@ func TestMergePR(t *testing.T) {
 
 	dir := binDir(t)
 	invocationLog := filepath.Join(t.TempDir(), "gh-invocations.log")
+	// prChecksGreen (cmd/merge.go) never consults gh's exit code once the "pr
+	// checks" JSON parses, so the always-exit-0 fake below exercises the same
+	// path a real fail-bucket exit 1 would; runPRMerge only checks "pr merge"
+	// for a non-nil error, never its stdout, so "ok" stands in for real gh's
+	// actual merge summary line.
 	writeFakeDispatch(t, dir, "gh", invocationLog, "$1 $2", `  "pr checks")
     case "$3" in
       1) echo '[{"bucket":"pass"}]' ;;

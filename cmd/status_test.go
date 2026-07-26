@@ -10,6 +10,11 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
+// writeFakeHerdrPaneStatus fakes "pane get" as a query command per
+// internal/herdr/client.go's call() doc comment: a non-null result object on
+// success. It always succeeds; the "herdr unreachable" degrade path is
+// exercised for real (no fake, empty PATH) by
+// TestStatusFleetDegradesToUnknownWhenHerdrUnreachable below.
 func writeFakeHerdrPaneStatus(t *testing.T, status string) {
 	t.Helper()
 	bin := t.TempDir()

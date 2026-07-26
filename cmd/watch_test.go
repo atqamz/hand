@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// fakeHerdrWatchScript fakes "workspace list" as a query command per
+// internal/herdr/client.go's call() doc comment: a non-null result object on
+// success, here an empty workspace list.
 const fakeHerdrWatchScript = `#!/bin/sh
 case "$1 $2" in
 "workspace list")

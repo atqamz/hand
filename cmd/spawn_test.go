@@ -27,8 +27,14 @@ func TestSpawnCleanupReportsAllErrors(t *testing.T) {
 	}
 }
 
-// fakeHerdrSpawnScript reports a pane herdr sees claude running in, painted past its startup
-// frame and showing no first-run dialog, so confirmLaunch confirms the launch on its first poll.
+// fakeHerdrSpawnScript covers the herdr calls a clean spawn makes: it reports a pane herdr sees
+// claude running in, painted past its startup frame and showing no first-run dialog, so
+// confirmLaunch confirms the launch on its first poll. Real herdr answers query commands
+// ("workspace list", "tab create", "pane get") with a JSON envelope and answers void commands
+// ("pane run") with empty stdout on success (internal/herdr/client.go's call/callVoid doc
+// comments); this fake echoes an envelope for "pane run" too, which callVoid also accepts, since
+// this test exercises spawn's own success path, not herdr's response parsing - that parsing is
+// covered at the client level by internal/herdr/client_test.go.
 const fakeHerdrSpawnScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -79,6 +85,10 @@ func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Real treehouse writes a banner to stderr ahead of its JSON on "get"
+	// (internal/worktree/worktree.go's Get doc comment); this fake omits it
+	// since worktree.Get's own stdout-only parsing is covered where the banner
+	// matters, in tests/e2e/fakes_test.go's writeFakeTreehouse.
 	treehouseScript := "#!/bin/sh\nprintf '{\"path\":\"" + worktreePath + "\"}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(treehouseScript), 0o755); err != nil {
 		t.Fatal(err)
@@ -210,6 +220,11 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 // spawn always fails after tab creation. Whether "workspace list" reports an existing
 // workspace is controlled by the presence of $HERDR_WS_EXISTS_FLAG, letting the same script
 // drive both the created-workspace and pre-existing-workspace leak scenarios.
+// "pane run" fails via bare exit 1 rather than real herdr's documented void-command
+// failure shape (empty exit 0 + JSON error envelope, see callVoid's doc comment): spawn.go
+// only branches on whether PaneRun returned a non-nil error, never on its shape, so this
+// tests spawn's cleanup logic, not herdr's envelope parsing - that shape is covered by
+// internal/herdr/client_test.go's TestPaneRunSurfacesErrorEnvelopeEvenOnExitZero.
 const fakeHerdrLeakScript = `#!/bin/sh
 echo "$@" >> "$HERDR_CALL_LOG"
 cmd="$1 $2"

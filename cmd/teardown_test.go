@@ -45,6 +45,13 @@ func initGitRepo(t *testing.T, dir string) {
 	run("commit", "-q", "-m", "initial commit")
 }
 
+// writeFakeTreehouseReturn fakes "treehouse return" as a no-op success (real
+// treehouse's return/init also succeed silently, per internal/worktree.Return's
+// CombinedOutput-based error handling - only its failure path, a nonzero exit
+// with output, needs the real stream contents, and that's covered directly by
+// internal/worktree/worktree_test.go's TestReturnFailsOnNonZeroExit) and its
+// herdr calls as always-succeeding envelopes, since these teardown tests only
+// exercise which calls get made, not any herdr failure path.
 func writeFakeTreehouseReturn(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
@@ -111,6 +118,11 @@ func TestTeardownShipFailsOnUncommittedChanges(t *testing.T) {
 func TestTeardownShipFailsWhenPRNotMerged(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	bin := t.TempDir()
+	// Real gh writes warnings to stderr ahead of its JSON on "pr view" (see
+	// internal/ghutil/pr.go's PRIsMerged doc comment), omitted here since this
+	// test only checks the parsed state, not the stdout/stderr split; that
+	// split is covered faithfully by internal/ghutil/pr_test.go's
+	// writeFakeGHPRView.
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(`#!/bin/sh
 printf '{"state":"OPEN"}'
 `), 0o755); err != nil {
@@ -318,6 +330,11 @@ func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 
 	marker := filepath.Join(t.TempDir(), "herdr-called")
 	bin := t.TempDir()
+	// This and the herdr fakes further down this file all return a non-null
+	// object result for "tab list"/"tab close"/"workspace close", which is
+	// exactly what call() requires for success (client.go); these three are
+	// query commands, not the void pane commands callVoid documents, so there
+	// is no exit-code-vs-envelope split to reproduce here.
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\ntouch '"+marker+"'\nprintf '{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\"}]}}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
