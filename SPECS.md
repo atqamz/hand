@@ -813,6 +813,7 @@ Operator setup before the first spawn on a new host: run `claude --dangerously-s
 once interactively inside the treehouse pool root, accept both dialogs, and quit. Trust is
 inherited by that directory's descendants and the disclaimer accept is global, so this covers
 every later worker. `hand status <id>` prints a task's worktree path if the pool root is unclear.
+Known limitation tracked at https://github.com/atqamz/secondhand/issues/28.
 
 ### Codex
 

@@ -68,7 +68,8 @@ func Build(name string, opts Options) (string, error) {
 // predicted-next-prompt ghost text, which would otherwise read to a pane-watching supervisor
 // as the worker having typed input while actually idle. Interactive claude also gates on two
 // first-run dialogs that --print skipped (workspace trust, bypass-permissions disclaimer); both
-// are one-time host setup, documented under Harness launch templates in SPECS.md.
+// are one-time host setup, documented under Harness launch templates in SPECS.md. Known
+// limitation tracked at https://github.com/atqamz/secondhand/issues/28.
 func buildClaude(o Options) string {
 	args := []string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false", "claude", "--dangerously-skip-permissions"}
 	if o.Model != "" {
