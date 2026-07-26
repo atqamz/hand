@@ -103,6 +103,8 @@ func newProjectAddCmd() *cobra.Command {
 	return cmd
 }
 
+// updateDashboardProjects rewrites the dashboard's Projects section; it is the
+// single updater shared by project add, remove, and sync.
 func updateDashboardProjects(home string) error {
 	projects, err := project.List(home)
 	if err != nil {

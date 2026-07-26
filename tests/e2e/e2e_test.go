@@ -21,6 +21,10 @@ import (
 
 var handBin string
 
+// TestMain builds the hand binary once for the whole package. go test's result
+// cache is keyed on this package's own inputs, not on this nested go build, so
+// changing production code alone will not invalidate a cached e2e run - pass
+// -count=1 when checking red/green behavior after a production-code-only edit.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "hand-e2e-")
 	if err != nil {

@@ -1,6 +1,8 @@
 // Package atomicfile replaces a file in one step: content is written to a
 // temporary file in the destination directory, then renamed over the target so
-// readers never observe a partially written file.
+// readers never observe a partially written file. This is the single such
+// helper in the codebase (dashboard, project, state, watcher, and agentsmd all
+// call it) - do not hand-roll another copy.
 package atomicfile
 
 import (
