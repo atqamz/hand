@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/project"
@@ -254,13 +255,13 @@ func newProjectListCmd() *cobra.Command {
 				return enc.Encode(out)
 			}
 
-			w := cmd.OutOrStdout()
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			for _, p := range projects {
-				if _, err := fmt.Fprintf(w, "%-12s%-40s%s\n", p.Name, p.URL, p.Mode); err != nil {
+				if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, p.URL, p.Mode); err != nil {
 					return err
 				}
 			}
-			return nil
+			return w.Flush()
 		},
 	}
 

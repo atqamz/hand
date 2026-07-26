@@ -178,6 +178,33 @@ func TestProjectRemoveRefusesUnregistered(t *testing.T) {
 	}
 }
 
+func TestProjectListColumnsDoNotMergeAtFieldWidth(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+
+	url := "https://github.com/atqamz/secondhand.git"
+	if err := project.Add(home, project.Project{Name: "secondhand", URL: url, Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectListCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(out.String(), url+" ") {
+		t.Fatalf("project list output = %q, want %q followed by a column separator before the mode", out.String(), url)
+	}
+	if strings.Contains(out.String(), url+"no-mistakes") {
+		t.Fatalf("project list output = %q, URL and mode columns merged", out.String())
+	}
+}
+
 func TestReserveCloneDestinationIsAtomic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "projects", "repo")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
