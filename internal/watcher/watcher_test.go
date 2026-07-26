@@ -290,7 +290,7 @@ func TestHandleEventSendsLogFailureToErrOut(t *testing.T) {
 
 func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
 	// exit 1 with empty stdout is the faithful crashed-or-missing-binary shape,
-	// which call() handles at internal/herdr/client.go:52-57 (len(trimmed) == 0
+	// which call()'s empty-stdout-plus-runErr branch handles (len(trimmed) == 0
 	// && runErr != nil). It is a distinct shape from herdr's ordinary failure
 	// (exit 0 plus an error envelope), and only this one means "unreachable".
 	bin := t.TempDir()

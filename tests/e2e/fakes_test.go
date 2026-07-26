@@ -44,12 +44,15 @@ func buildHermeticPath(dir string) (string, error) {
 	return dir, nil
 }
 
-// binDir returns a directory prepended to the hermetic PATH for the rest of
-// the test, so fake binaries written there are found first.
+// binDir returns a directory prepended to the current PATH for the rest of the
+// test, so fake binaries written there are found first. Prepending keeps this
+// additive - a test can call binDir twice and keep both fake dirs - and stays
+// hermetic only because TestMain runs first: by then PATH is already
+// hermeticPath, so there is no ambient PATH left to inherit here.
 func binDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+hermeticPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return dir
 }
 

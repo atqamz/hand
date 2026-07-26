@@ -31,7 +31,12 @@ func writeFakeGHReleaseView(t *testing.T, tag string) {
 }
 
 // writeFakeGHUpdate fakes the three gh invocations a full `hand update` makes:
-// the tag lookup, the release asset download, and the release notes lookup.
+// the tag lookup and the release notes lookup, both "release view --jq" in the
+// shape writeFakeGHReleaseView documents above, plus the asset download - real
+// `gh release download` leaves only the assets themselves in --dir and writes
+// its progress to stderr, so copying the fixture in and printing nothing is the
+// faithful success shape. The trailing arm mirrors real gh's failure shape too:
+// a diagnostic on stderr and a non-zero exit, never a partial success.
 func writeFakeGHUpdate(t *testing.T, tag, notes, fixtureDir string) {
 	t.Helper()
 	bin := t.TempDir()

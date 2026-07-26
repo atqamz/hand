@@ -1541,6 +1541,8 @@ clean:
 	rm -f hand
 ```
 
+**`.golangci.yaml`:** the tracked file is authoritative - it keeps golangci-lint's default linter set and only sets `run.build-tags: [e2e]`, without which the `//go:build e2e` package in `tests/e2e` is invisible to the linter.
+
 **`.gitignore`:** the tracked file is authoritative - the built binary, the `hand init` runtime directories, Go and Nix build output, worktree tooling files, and editor/OS cruft.
 
 **`flake.nix`:** the tracked file is authoritative - a `packages.default` derivation building the `hand` binary and a `devShells.default` carrying the Go toolchain.
