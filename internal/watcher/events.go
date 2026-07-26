@@ -21,6 +21,7 @@ const (
 	KindFailed              = "failed"
 	KindStale               = "stale"
 	KindPRMerged            = "pr-merged"
+	KindPRNotRecorded       = "pr-not-recorded"
 	KindReportWorking       = "report-working"
 	KindReportPaused        = "report-paused"
 	KindReportBlocked       = "report-blocked"
@@ -45,14 +46,19 @@ type Event struct {
 // TaskState tracks what's already been observed and announced for one task, so the
 // classifier only fires once per transition instead of once per poll tick.
 type TaskState struct {
-	Status          herdr.Status
-	Probed          bool
-	ChangedAt       time.Time
-	Blocked         bool
-	Stale           bool
-	PRMerged        bool
-	ReportOffset    int64
-	LastReportState string
+	Status       herdr.Status
+	Probed       bool
+	ChangedAt    time.Time
+	Blocked      bool
+	Stale        bool
+	PRMerged     bool
+	ReportOffset int64
+	// PersistedOffset and PersistedPRMerged mirror what the task's durable state
+	// already carries, so a write skipped for lock contention is retried on the
+	// next tick instead of silently lost.
+	PersistedOffset   int64
+	PersistedPRMerged bool
+	LastReportState   string
 	// LastReportNote is kept alongside LastReportState so a done report that only
 	// gains its completion evidence later can be re-announced with the same text a
 	// synchronous verification would have produced.
@@ -203,13 +209,17 @@ func doneText(id, note string, verified bool) string {
 }
 
 // doneVerified reports whether completion evidence exists that doesn't come from
-// the worker itself. Each task kind has its own: a ship task's PR observed merged
-// (either by hand merge writing t.Merged, or by the watcher's own poll), and a
-// scout task's data/<id>/report.md - the deliverable hand promote itself requires.
+// the worker itself. Each task kind has its own: a ship task's merge, and a scout
+// task's data/<id>/report.md - the deliverable hand promote itself requires.
+//
+// The ship check deliberately asks nothing about the project's mode. t.Merged is
+// only ever written after a merge actually happened, whichever route got there
+// (a PR merge or a local fast-forward, which leaves no PR at all); a recorded PR
+// the watcher's own poll saw merged is the same evidence arriving the other way.
 func doneVerified(home string, ts *TaskState, t state.Task) bool {
 	switch t.Kind {
 	case state.KindShip:
-		return t.PR != "" && (t.Merged || ts.PRMerged)
+		return t.Merged || (t.PR != "" && ts.PRMerged)
 	case state.KindScout:
 		_, err := os.Stat(filepath.Join(home, "data", t.ID, "report.md"))
 		return err == nil

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -170,6 +171,24 @@ func TestLockIsExclusive(t *testing.T) {
 	}
 	release()
 	second, err := Lock(dir, "project:myproj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second()
+}
+
+func TestTryLockReportsBusyInsteadOfWaiting(t *testing.T) {
+	dir := t.TempDir()
+	release, err := Lock(dir, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TryLock(dir, "task:task-1"); !errors.Is(err, ErrLockBusy) {
+		t.Fatalf("TryLock error = %v, want ErrLockBusy", err)
+	}
+	release()
+
+	second, err := TryLock(dir, "task:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}

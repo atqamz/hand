@@ -29,6 +29,10 @@ type Task struct {
 	// ReportOffset is how far hand watch has consumed the task's report file.
 	// It is durable so a watcher restart resumes exactly where it stopped
 	// instead of replaying every line the previous run already surfaced.
-	ReportOffset int64  `json:"report_offset"`
-	CreatedAt    string `json:"created_at"`
+	ReportOffset int64 `json:"report_offset"`
+	// PRMergedObserved records that hand watch's own gh poll already announced
+	// this PR merged. Distinct from Merged, which means hand performed the
+	// merge; a restarted watcher needs to know the announcement went out.
+	PRMergedObserved bool   `json:"pr_merged_observed"`
+	CreatedAt        string `json:"created_at"`
 }

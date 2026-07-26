@@ -23,6 +23,9 @@ var ErrTaskNotFound = errors.New("not found")
 // `task "<id>" already active`.
 var ErrTaskActive = errors.New("already active")
 
+// ErrLockBusy is returned by TryLock when another process holds the lock.
+var ErrLockBusy = errors.New("lock held by another process")
+
 func Dir(homeDir string) string {
 	return filepath.Join(homeDir, "state")
 }
@@ -72,6 +75,17 @@ func Claim(homeDir, id string) (func(), error) {
 
 func Lock(homeDir, name string) (func(), error) {
 	return lock(homeDir, name, false)
+}
+
+// TryLock is Lock for callers that must never wait - a poll loop, or anything
+// holding no claim of its own on the work the lock protects. It reports
+// ErrLockBusy instead of blocking behind a holder that may be mid-network-call.
+func TryLock(homeDir, name string) (func(), error) {
+	release, err := lock(homeDir, name, true)
+	if err == syscall.EWOULDBLOCK {
+		return nil, ErrLockBusy
+	}
+	return release, err
 }
 
 func lock(homeDir, name string, nonblock bool) (func(), error) {

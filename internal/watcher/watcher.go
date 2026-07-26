@@ -5,6 +5,7 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -76,7 +77,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			if probeErr != nil {
 				continue
 			}
-			states[t.ID] = resumeTaskState(cfg.Home, t, status, now)
+			states[t.ID] = resumeTaskState(cfg.Home, t, status, now, errOut)
 			continue
 		}
 
@@ -101,6 +102,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
 		}
+		syncTaskState(cfg.Home, t.ID, ts, errOut)
 	}
 
 	for id := range states {
@@ -111,13 +113,24 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 }
 
 // resumeTaskState picks up where a previous hand watch left off rather than
-// starting cold: the report offset comes from the task's durable state so no
-// already-surfaced line is replayed, and the last reported state is re-read so a
-// pane found not-busy after a restart isn't mistaken for an unexplained stop.
-func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Time) *TaskState {
+// starting cold: the report offset and any already-announced merge come from the
+// task's durable state so nothing is replayed, and the last reported state is
+// re-read so a pane found not-busy after a restart isn't mistaken for an
+// unexplained stop. An unreadable report is reported as such, never quietly
+// treated as "this worker never reported".
+func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Time, errOut io.Writer) *TaskState {
 	ts := NewTaskState(status, now)
 	ts.ReportOffset = t.ReportOffset
-	if last, ok, err := state.LastReport(home, t.ID); err == nil && ok && !last.Malformed {
+	ts.PersistedOffset = t.ReportOffset
+	ts.PRMerged = t.PRMergedObserved
+	ts.PersistedPRMerged = t.PRMergedObserved
+
+	last, ok, err := state.LastReport(home, t.ID)
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: read report for %s failed: %v\n", t.ID, err)
+		return ts
+	}
+	if ok && !last.Malformed {
 		ts.LastReportState = last.State
 		ts.LastReportNote = last.Note
 		ts.DoneVerified = last.State == state.ReportDone && doneVerified(home, ts, t)
@@ -146,7 +159,7 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		if t.PR == "" {
 			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
 				if err := autoRecordPR(ctx, cfg.Home, t, urls[0]); err != nil {
-					_, _ = fmt.Fprintf(errOut, "watch: auto-record PR for %s failed: %v\n", t.ID, err)
+					handleEvent(cfg, prNotRecordedEvent(t.ID, urls[0], err), t, out, errOut)
 				} else {
 					t.PR = urls[0]
 				}
@@ -154,13 +167,22 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		}
 	}
 
-	if offset != ts.ReportOffset {
-		ts.ReportOffset = offset
-		if err := persistReportOffset(cfg.Home, t.ID, offset); err != nil {
-			_, _ = fmt.Fprintf(errOut, "watch: persist report offset for %s failed: %v\n", t.ID, err)
-		}
-	}
+	ts.ReportOffset = offset
 	return t
+}
+
+// prNotRecordedEvent turns a refused or failed auto-record into something a
+// supervisor is actually told about. The line is consumed and the offset moves on
+// either way, so an unrecorded URL that only reached errOut in a long-running
+// watcher would be lost; as a pending decision it stays visible until someone
+// runs the one command that fixes it.
+func prNotRecordedEvent(id, url string, err error) *Event {
+	return &Event{
+		TaskID: id,
+		Kind:   KindPRNotRecorded,
+		Text:   fmt.Sprintf("pr-not-recorded %s: %s (%v)", id, url, err),
+		Reason: url,
+	}
 }
 
 // autoRecordPR routes a worker-supplied URL through hand pr's own validation
@@ -210,27 +232,47 @@ func recordAutoPR(home, id, url string) error {
 	return dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}})
 }
 
-// persistReportOffset follows recordAutoPR's lock/re-read/write pattern so it
-// never clobbers a field another command wrote since this tick read the task.
-func persistReportOffset(home, id string, offset int64) error {
-	unlock, err := state.Lock(home, "task:"+id)
+// syncTaskState writes back the bookkeeping hand watch owns on a task - how far
+// its report file is consumed, and whether this watcher's own gh poll already
+// announced the PR merged - so a restart neither replays report lines nor
+// re-announces a merge.
+//
+// It runs last, after every event this tick produced has been announced: a marker
+// persisted before its line is emitted would, if the process died in between,
+// suppress an announcement nothing can re-derive. A duplicate line is a far
+// cheaper failure than a silently dropped one.
+//
+// The lock is non-blocking on purpose. hand merge holds the same task lock across
+// gh round-trips, and the poll loop - which owes every other task a timely tick,
+// and its own ctx a prompt exit that flock can't honor - must not queue behind it.
+// Everything written here is re-derivable, so a skipped write just retries.
+func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
+	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged {
+		return
+	}
+
+	unlock, err := state.TryLock(home, "task:"+id)
 	if err != nil {
-		return fmt.Errorf("lock task %s: %w", id, err)
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", id, err)
+		}
+		return
 	}
 	defer unlock()
 
 	t, err := state.Read(home, id)
 	if err != nil {
-		return fmt.Errorf("read task %s: %w", id, err)
+		_, _ = fmt.Fprintf(errOut, "watch: read task %s failed: %v\n", id, err)
+		return
 	}
-	if t.ReportOffset == offset {
-		return nil
-	}
-	t.ReportOffset = offset
+	t.ReportOffset = ts.ReportOffset
+	t.PRMergedObserved = t.PRMergedObserved || ts.PRMerged
 	if err := state.Write(home, t); err != nil {
-		return fmt.Errorf("write task %s: %w", id, err)
+		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
+		return
 	}
-	return nil
+	ts.PersistedOffset = ts.ReportOffset
+	ts.PersistedPRMerged = ts.PRMerged
 }
 
 func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
@@ -262,6 +304,8 @@ func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindFailed, Age: age}
 	case KindReportBlocked, KindReportNeedsDecision:
 		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: e.Reason}
+	case KindPRNotRecorded:
+		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("PR %s not recorded - check it, then run: hand pr %s %s", e.Reason, t.ID, e.Reason)}
 	case KindReportFailed:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportFailed, Age: age}
 	case KindReportDone:

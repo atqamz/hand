@@ -446,6 +446,7 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	dashPath := filepath.Join(home, "data", "dashboard.md")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -467,8 +468,128 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 	if task.PR != "" {
 		t.Fatalf("task.PR = %q, want a PR from another repo refused", task.PR)
 	}
-	if !strings.Contains(errBuf.String(), "auto-record PR for task-1 failed") {
-		t.Fatalf("errOut = %q, want the refusal logged as a diagnostic", errBuf.String())
+	if !strings.Contains(buf.String(), "pr-not-recorded task-1: https://github.com/other-org/other-repo/pull/9") {
+		t.Fatalf("out = %q, want the refusal surfaced as an actionable event", buf.String())
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "https://github.com/other-org/other-repo/pull/9") {
+		t.Fatalf("PendingDecisions = %+v, want the unrecorded URL flagged for a human", d.PendingDecisions)
+	}
+}
+
+// TestTickAnnouncesPRMergedBeforePersistingIt pins the ordering the durable
+// marker depends on. Reading the task state at the instant the line hits stdout
+// is exactly what a restarted watcher would find had the process died there: the
+// marker must still be unset, so the announcement is re-derivable. Persisting
+// first would trade a tolerable duplicate for a permanently lost event.
+func TestTickAnnouncesPRMergedBeforePersistingIt(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "MERGED")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/secondhand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	out := &stateAtWriteWriter{t: t, home: home, id: "task-1", observed: map[string]bool{}}
+	tick(ctx, cfg, client, states, out, io.Discard)
+	tick(ctx, cfg, client, states, out, io.Discard)
+
+	if _, ok := out.observed["pr-merged task-1"]; !ok {
+		t.Fatalf("out = %q, want pr-merged task-1 announced", out.buf.String())
+	}
+	if out.observed["pr-merged task-1"] {
+		t.Fatal("pr_merged_observed was already persisted when the event was announced: a crash there loses the event for good")
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !task.PRMergedObserved {
+		t.Fatal("task.PRMergedObserved = false, want the announced merge persisted after the fact")
+	}
+}
+
+// stateAtWriteWriter records what a task's durable state held at the moment each
+// event line was written, keyed by the line.
+type stateAtWriteWriter struct {
+	t        *testing.T
+	home     string
+	id       string
+	buf      bytes.Buffer
+	observed map[string]bool
+}
+
+func (w *stateAtWriteWriter) Write(p []byte) (int, error) {
+	task, err := state.Read(w.home, w.id)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.observed[strings.TrimSpace(string(p))] = task.PRMergedObserved
+	return w.buf.Write(p)
+}
+
+// TestTickDoesNotReannounceAPollObservedMergeAfterRestart covers the other half
+// of the durable marker: a merge only this watcher's gh poll ever saw, and the
+// verified done that followed it, must not be re-emitted by the next process.
+func TestTickDoesNotReannounceAPollObservedMergeAfterRestart(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "MERGED")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/secondhand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "pr-merged task-1") || !strings.Contains(buf.String(), "done task-1: checks green") {
+		t.Fatalf("out = %q, want the merge and the verified done announced once", buf.String())
+	}
+
+	restarted := make(map[string]*TaskState)
+	buf.Reset()
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	if buf.Len() != 0 {
+		t.Fatalf("out = %q, want nothing re-announced after a restart", buf.String())
+	}
+}
+
+// TestTickReportsAnUnreadableReportOnResume keeps the unreadable-vs-unreported
+// distinction hand status makes: an I/O fault must not degrade into silence.
+func TestTickReportsAnUnreadableReportOnResume(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.MkdirAll(state.ReportPath(home, "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	var buf, errBuf bytes.Buffer
+	tick(context.Background(), cfg, herdr.NewClient(), make(map[string]*TaskState), &buf, &errBuf)
+
+	if !strings.Contains(errBuf.String(), "read report for task-1 failed") {
+		t.Fatalf("errOut = %q, want the unreadable report diagnosed, not silently treated as no report", errBuf.String())
 	}
 }
 

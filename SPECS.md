@@ -340,6 +340,7 @@ State file written (`state/fix-login.json`):
   "merged": false,
   "merged_at": "",
   "report_offset": 0,
+  "pr_merged_observed": false,
   "created_at": "2026-07-24T10:00:00Z"
 }
 ```
@@ -621,7 +622,8 @@ Behavior:
    - `blocked <id>: <reason>`: agent reports blocked (herdr-level; herdr gives no free-text reason, so `<reason>` is a fixed string).
    - `failed <id>`: herdr pane died unexpectedly.
    - `stale <id>`: agent hasn't changed state for longer than the stale threshold (default 300s, configurable via `config/stale-threshold`).
-   - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`).
+   - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` in `state/<id>.json` after the line is printed, so a restart neither repeats it nor loses it to a crash between the two.
+   - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line failed the validation `hand pr` enforces, so it was not recorded. Also raised as a Pending Decision naming the URL, since the report line is consumed either way and the fix is a human running `hand pr <id> <url>`.
    - `working <id>: <note>` / `paused <id>: <note>` / `report-blocked <id>: <note>` / `needs-decision <id>: <note>` / `report-failed <id>: <note>`: a new line landed on the task's report channel, classified per "Report channel" above.
    - `reported-done <id>: <note>` / `done <id>: <note>`: a `done` report line landed; printed as `reported-done` until cross-checked against the task kind's completion evidence (a merged PR for ship, `data/<id>/report.md` for scout), then once as `done` when that evidence lands - which is usually a later tick (see "Report channel").
    - `malformed report <id>: <line>`: a report line didn't match the fixed vocabulary. Surfaced, never dropped, so a typo in the worker's report doesn't silently vanish.
@@ -631,7 +633,8 @@ Behavior:
 7. Update `data/dashboard.md` with state changes and events.
 8. Re-scan `state/` periodically to pick up newly spawned or torn-down tasks.
 9. Exit cleanly on SIGINT/SIGTERM.
-10. While tailing a task's report channel, a line carrying exactly one PR URL auto-records it if the task doesn't already have one, subject to the same validation `hand pr` enforces; a URL that fails validation is skipped with a diagnostic on stderr (see "Report channel").
+10. While tailing a task's report channel, a line carrying exactly one PR URL auto-records it if the task doesn't already have one, subject to the same validation `hand pr` enforces; a URL that fails validation is skipped and surfaced as `pr-not-recorded` plus a Pending Decision (see "Report channel").
+11. Per-task bookkeeping the watcher owns (`report_offset`, `pr_merged_observed`) is written back after the tick's events are announced, under a non-blocking lock. A task locked by another command (`hand merge` holds it across `gh` round-trips) is skipped and retried next tick rather than stalling the poll loop; everything written there is re-derivable.
 
 Output (stream):
 ```
@@ -1215,12 +1218,12 @@ Fixed vocabulary (anything else is malformed, and malformed lines are surfaced, 
 
 Read/classify semantics:
 
-- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` in `state/<id>.json`, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. On first tracking a task, the watcher also re-reads the last report line so a pane found not-busy after a restart isn't mistaken for an unexplained stop.
+- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` in `state/<id>.json`, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. On first tracking a task, the watcher also re-reads the last report line so a pane found not-busy after a restart isn't mistaken for an unexplained stop; a report file that exists but can't be read is diagnosed on stderr, never treated as "this worker never reported".
 - Blank and whitespace-only lines are skipped by every reader, so `hand status`'s history never shows an entry `hand watch` didn't surface and a stray trailing newline can't masquerade as a malformed terminal report.
 - If the file shrinks below the last known offset (recreated, truncated), tailing restarts from the beginning rather than erroring.
 - Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult.
-- **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's PR observed merged (by `hand merge` writing `merged`, or by the watcher's own `gh pr view` poll), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`).
-- A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Validation failure on the auto-record path skips recording and logs to stderr rather than aborting the watcher. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
+- **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`).
+- A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Validation failure on the auto-record path skips recording and raises `pr-not-recorded` plus a Pending Decision rather than aborting the watcher; the report line is consumed either way, so the URL has to reach a human who can run `hand pr` instead of only a stderr diagnostic. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
 
 ### Concurrency
 
