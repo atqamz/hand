@@ -191,3 +191,32 @@ func TestTabListParsesResult(t *testing.T) {
 		t.Fatalf("got %+v", tabs)
 	}
 }
+
+// TestPaneReadReadsRecentScrollback pins --source recent: a 23-row unattached pane clips the option
+// and footer lines that identify a first-run dialog, and a dialog that matches nothing is confirmed
+// as a started worker.
+func TestPaneReadReadsRecentScrollback(t *testing.T) {
+	writeFakeHerdr(t, `case "$*" in
+*"--source recent"*) printf 'Welcome to Claude Code\n' ;;
+*) echo "unexpected read args: $*" >&2; exit 1 ;;
+esac`)
+	c := NewClient()
+	got, err := c.PaneRead("wA:pB", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Welcome to Claude Code" {
+		t.Fatalf("got %q, want the pane text", got)
+	}
+}
+
+// TestPaneReadRejectsErrorBodyOnExitZero pins that the bare {code,message} failure body is
+// honored even when herdr exits 0: read as pane text it would look like a dialog-free pane and
+// confirm a worker no one ever observed.
+func TestPaneReadRejectsErrorBodyOnExitZero(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"code":"pane_not_found","message":"no such pane"}'; exit 0`)
+	c := NewClient()
+	if _, err := c.PaneRead("wA:pB", 60); err == nil || !strings.Contains(err.Error(), "pane_not_found") {
+		t.Fatalf("got err %v, want pane_not_found", err)
+	}
+}

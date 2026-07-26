@@ -150,3 +150,70 @@ func TestShellQuoteEscapesSingleQuotes(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+// TestFirstRunPromptsClaude pins the shape confirmLaunch depends on: a startup signature for
+// each frame claude settles into, answerable dialogs carrying keys, and the managed-settings
+// dialog catalogued as recognized-but-refused so it fails fast instead of looking uncatalogued.
+func TestFirstRunPromptsClaude(t *testing.T) {
+	prompts := FirstRunPromptsFor(Claude)
+	if prompts.Ready == nil || prompts.Unrecognized == nil {
+		t.Fatalf("got %+v, want readiness and unrecognized signatures", prompts)
+	}
+	for _, frame := range []string{"Welcome to Claude Code", "? for shortcuts", "bypass permissions on (shift+tab to cycle)"} {
+		if !prompts.Ready.MatchString(frame) {
+			t.Errorf("readiness signature does not match claude startup frame %q", frame)
+		}
+	}
+	if prompts.Ready.MatchString("cd '/tmp/wt' && claude --dangerously-skip-permissions 'Read the brief'") {
+		t.Fatal("readiness signature matches the echoed launch command, so a pane that never started reads as ready")
+	}
+
+	byName := map[string]FirstRunPrompt{}
+	for _, prompt := range prompts.Known {
+		if (len(prompt.Keys) == 0) == (prompt.Refuse == "") {
+			t.Fatalf("prompt %q must set exactly one of Keys and Refuse, got %+v", prompt.Name, prompt)
+		}
+		byName[prompt.Name] = prompt
+	}
+
+	bypass := byName["bypass permissions"]
+	if !bypass.Match.MatchString("WARNING: Bypass Permissions mode") {
+		t.Fatal("bypass permissions signature does not match the dialog")
+	}
+	if strings.Join(bypass.Keys, ",") != "Down,Enter" {
+		t.Fatalf("bypass permissions keys = %v, want Down before Enter (a bare Enter lands on \"No, exit\" and quits claude)", bypass.Keys)
+	}
+	if got := byName["workspace trust"]; strings.Join(got.Keys, ",") != "Enter" {
+		t.Fatalf("workspace trust keys = %v, want Enter", got.Keys)
+	}
+	managed := byName["managed settings"]
+	if managed.Refuse == "" {
+		t.Fatal("managed settings must be refused, not answered on the operator's behalf")
+	}
+	if !managed.Match.MatchString("Managed settings require approval") || !managed.Match.MatchString("Yes, I trust these settings") {
+		t.Fatal("managed settings signature does not match the dialog")
+	}
+}
+
+// TestAgentDetectionVerified pins the two harnesses actually run in a real pane and observed
+// being labeled by herdr; the rest must stay false until each is exercised the same way.
+func TestAgentDetectionVerified(t *testing.T) {
+	for _, name := range []string{Claude, OpenCode} {
+		if !AgentDetectionVerified(name) {
+			t.Errorf("AgentDetectionVerified(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{Codex, Grok, Pi, "nonexistent"} {
+		if AgentDetectionVerified(name) {
+			t.Errorf("AgentDetectionVerified(%q) = true, want false until herdr detection is exercised against it", name)
+		}
+	}
+}
+
+func TestFirstRunPromptsUnverifiedHarness(t *testing.T) {
+	for _, name := range []string{Codex, Grok, Pi, OpenCode, "nonexistent"} {
+		if got := FirstRunPromptsFor(name); got.Ready != nil || got.Known != nil || got.Unrecognized != nil {
+			t.Errorf("FirstRunPromptsFor(%q) = %+v, want no unverified signatures", name, got)
+		}
+	}
+}

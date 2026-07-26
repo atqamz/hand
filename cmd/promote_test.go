@@ -15,7 +15,7 @@ const fakeHerdrPromoteScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
 "pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pOld","tab_id":"wA:tOld","workspace_id":"wA","agent_status":"done"}}}'
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tOld","workspace_id":"wA","agent":"claude","agent_status":"done"}}}' "$3"
 	;;
 "tab list")
 	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tOld","workspace_id":"wA"},{"tab_id":"wA:tOther","workspace_id":"wA"}]}}'
@@ -31,6 +31,9 @@ case "$cmd" in
 	;;
 "pane run")
 	printf '{"id":"cli:1","result":{}}'
+	;;
+"pane read")
+	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -54,6 +57,7 @@ esac
 
 func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string) string {
 	t.Helper()
+	useFastLaunchPolling(t)
 	home := t.TempDir()
 
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {

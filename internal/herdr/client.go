@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -242,6 +243,35 @@ func (c *Client) PaneSendText(paneID, text string) error {
 func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 	args := append([]string{"pane", "send-keys", paneID}, keys...)
 	return c.callVoid(args...)
+}
+
+// PaneRead returns the pane's recent scrollback as plain text. Its one caller looks for first-run
+// dialogs, and the answerable part of a dialog is its lower half - claude's trust dialog is only
+// recognizable by its "Yes, I trust this folder" option and the generic fallback only by the
+// "Enter to confirm" footer - so a viewport too short to hold the whole dialog clips exactly the
+// text that has to match. That is not hypothetical: a pane measures 23 rows in an unattached herdr
+// session against 61 in an attached one, and hand spawns headlessly with nothing attached.
+// --source visible was tried for this call and reverted for that reason; a clipped dialog matches
+// nothing, and an unmatched dialog under a live agent is confirmed as started, so the short pane
+// fails silently and wrongly. Re-answering a dialog whose text lingers in scrollback is prevented
+// in cmd/launch.go instead, by answering each catalogued dialog at most once per launch.
+//
+// Unlike every command above, herdr's own contract for pane read is a third shape: raw text on
+// success, and on failure a bare {"code","message"} object rather than the {"error":{...}} envelope
+// call and callVoid expect. That body is checked ahead of the exit status for the same reason
+// callVoid checks its envelope first - herdr's exit code cannot be trusted on its own - and here a
+// failure read as pane text would confirm a worker no one observed.
+func (c *Client) PaneRead(paneID string, lines int) (string, error) {
+	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
+	stdout, stderr, runErr := c.run(args...)
+	var eb errorBody
+	if json.Unmarshal(stdout, &eb) == nil && eb.Code != "" && eb.Message != "" {
+		return "", fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), eb.Code, eb.Message)
+	}
+	if runErr != nil {
+		return "", fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
+	}
+	return string(stdout), nil
 }
 
 // WaitComposerEmpty polls the pane until the agent is no longer "working" or timeout elapses.

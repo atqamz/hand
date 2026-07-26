@@ -284,10 +284,13 @@ Behavior:
    - Tab naming: task ID.
 7. Construct the harness launch command from the template (see harness section).
 8. Send the launch command to the herdr pane.
-9. Write `state/<id>.json` with all metadata.
-10. Update `data/dashboard.md` with the new task.
+9. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
+   no first-run dialog is left, answering any known dialog along the way, or the poll window
+   elapses (see Harness launch templates).
+10. Write `state/<id>.json` with all metadata.
+11. Update `data/dashboard.md` with the new task.
 
-Any failure before step 9 leaves nothing behind: the worktree lease returns to treehouse and the
+Any failure before step 10 leaves nothing behind: the worktree lease returns to treehouse and the
 herdr side is rolled back.
 A workspace this command created is closed whole, because a fresh workspace already holds an
 auto-created root tab and closing only the task's tab would leak it.
@@ -309,6 +312,8 @@ Errors:
 - Worktree collision with another active task (names the conflicting task).
 - Herdr tab creation failed (herdr not running, session error).
 - Harness not recognized.
+- Worker never confirmed started within the poll window, or is waiting on a first-run prompt hand
+  refuses to answer (pane content and the blocking prompt included in the error).
 
 State file written (`state/fix-login.json`):
 ```json
@@ -627,7 +632,7 @@ Behavior:
 2. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
 3. Acquire a fresh treehouse worktree (with collision guard).
 4. Create a new herdr tab.
-5. Launch the worker.
+5. Launch the worker and confirm it started (same as `hand spawn`).
 6. Update `state/<id>.json`: kind changes from `scout` to `ship`, new worktree and herdr coordinates.
 7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
@@ -800,20 +805,65 @@ permission dialog.
 Claude Code renders while idle; without it, a supervisor reading the pane can misread ghost text
 as the worker having typed input.
 
-Interactive launch has two first-run dialogs that headless `--print` skipped, and each stalls an
-unattended worker until it is cleared once per machine:
+Interactive launch has first-run dialogs that headless `--print` skipped:
 
 - The workspace trust dialog. Claude Code only trusts a directory whose path or one of its
   ancestors has been accepted before, and every treehouse worktree is a fresh path under the
-  pool root (`~/.treehouse/...`).
+  pool root (`~/.treehouse/...`), so this dialog appears on every spawn, not just a fresh host.
 - The bypass-permissions disclaimer, a one-time global accept that `--dangerously-skip-permissions`
   is gated on.
+- The managed-settings security dialog ("Managed settings require approval"), shown when this
+  host has managed settings configured by the organization's IT administration. It has nothing
+  to do with the checked-out repository: accepting it grants arbitrary code execution and prompt
+  interception for every run on the host, so it is recognized but deliberately not answered. The
+  operator accepts it once on the host, then respawns.
 
-Operator setup before the first spawn on a new host: run `claude --dangerously-skip-permissions`
-once interactively inside the treehouse pool root, accept both dialogs, and quit. Trust is
-inherited by that directory's descendants and the disclaimer accept is global, so this covers
-every later worker. `hand status <id>` prints a task's worktree path if the pool root is unclear.
-Known limitation tracked at https://github.com/atqamz/secondhand/issues/28.
+Their signatures (`internal/harness`) must stay case-sensitive and keep their distinguishing anchors
+- `Bypass\s+Permissions\s+mode`, not a bare `bypass permissions` - because Claude Code's status line
+permanently contains the string `bypass permissions`, so a case-insensitive or unanchored loosening
+would match a dialog in every pane forever and break every spawn.
+
+`hand spawn` and `hand promote` clear the answerable ones automatically. After sending the launch
+command, each polls the pane. Whether a worker is running is herdr's answer, not the screen's:
+herdr reports an agent on a pane only while a harness process is in its foreground, so a harness
+that painted a dialog and then exited leaves the text behind but no agent, and is never mistaken
+for a started worker. That labeling is verified empirically for claude and opencode, each run in a
+real pane and observed being labeled. For codex, pi and grok it rests on herdr's shipped agent
+detection manifests, read but not exercised, because no binary for those is installed on this host.
+Pane text is used only to spot dialogs (`internal/harness`'s `FirstRunPromptsFor`): a known one is
+answered, and success needs the pane to hold a live agent and stay free of both known dialogs and
+the harness's generic unrecognized-dialog fallback for the settle window. A harness's readiness
+signature is a secondary shortcut - on a pane already holding a live agent, the harness's own paint
+means there is nothing left to settle for.
+
+That text is read from the pane's recent scrollback (`pane read --source recent`), not its visible
+viewport, because a pane in an unattached herdr session is too short to show a whole dialog - 23
+rows against 61 in an attached one - and what it clips is the lower half, where the option and
+footer lines that identify a dialog live.
+
+Reading scrollback rests on a measured premise: Claude Code erases an answered first-run dialog in
+place rather than scrolling it away, so a recent-scrollback read does not carry answered dialogs
+forward. Measured on 2026-07-26 against a real `hand spawn`ed worker pane on the Claude Code version
+installed on this host, reading 200 lines of retained scrollback: no trust-dialog, bypass-disclaimer
+or `Enter to confirm` text remained anywhere in it. A read that still matches a catalogued dialog is
+therefore treated as that dialog still being up, and the launch runs out its poll window rather than
+being confirmed. If that premise stops holding on a later Claude Code version, spawn fails on the
+deadline instead of confirming a healthy worker. That direction is chosen, not an oversight: a wrong
+deadline failure is loud and fixable, while confirming an unread dialog is issue #28 itself.
+Independently of the read, each catalogued dialog is answered at most once per launch, so retained
+text can cost a timeout but can never send a second round of keys into a live agent's composer.
+
+Two outcomes are not success. A pane with no agent, or one still showing a dialog, when the poll
+window elapses fails the spawn/promote with that pane content and what held it up; for a harness
+whose agent detection has not been exercised, that failure names the unexercised detection first
+and the possibility of a harness that exited on a dialog second, since an unrecognized process is
+the likelier cause. A recognized-but-refused dialog fails immediately, naming what a human has to
+accept. See `cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were
+chosen.
+
+A harness with no catalogued signatures at all is confirmed on agent presence alone, so an agent
+parked on a dialog hand cannot recognize is reported as started. That is a known, accepted gap, and
+the reason the catalogue matters for every harness added, not only claude.
 
 ### Codex
 
@@ -889,7 +939,7 @@ herdr tracks agent state per pane:
 
 | hand command | herdr operation |
 |---|---|
-| `hand spawn` | create workspace (if needed) + create tab + send launch command |
+| `hand spawn` | create workspace (if needed) + create tab + send launch command + poll pane state and read pane text until the worker is confirmed started, sending keys to answer first-run dialogs |
 | `hand status` | get agent state for pane |
 | `hand send` | check composer empty + send keys to pane |
 | `hand teardown` | close tab (+ close workspace if empty) |
@@ -912,7 +962,11 @@ herdr tab list --workspace <ws-id>
 
 # get pane and agent state
 herdr pane get <pane-id>
+# returns agent: detected harness name, empty when no harness runs in the pane
 # returns agent_status: "working" | "idle" | "done" | "blocked"
+
+# read the pane's recent scrollback as plain text
+herdr pane read <pane-id> --source recent --lines <n>
 
 # run a command in pane
 herdr pane run <pane-id> <command>
@@ -938,6 +992,8 @@ Responses come in two shapes, and the client validates each one differently:
 - **Void commands** (`pane run`, `pane send-text`, `pane send-keys`) print nothing on success.
   A failure prints a JSON error envelope whose exit code cannot be trusted on its own, so any
   non-empty body is parsed for that envelope before the exit status is consulted.
+- **`pane read`** is a third shape: plain pane text on success, and on failure a bare
+  `{"code","message"}` object rather than the `{"error":{...}}` envelope the other two shapes use.
 
 The herdr client abstracts these into Go function calls; `internal/herdr` keeps one entry point
 per shape and is the source of truth for which command uses which.

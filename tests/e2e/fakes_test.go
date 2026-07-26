@@ -89,16 +89,19 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 	tabList := herdrOK(t, map[string]any{"tabs": []any{map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}}})
 	tabClose := herdrOK(t, map[string]any{"type": "ok"})
 	workspaceClose := herdrOK(t, map[string]any{"type": "ok"})
-	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": status}})
+	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent": "claude", "agent_status": status}})
 
 	// "pane run"/"send-text"/"send-keys" are void commands: real herdr writes
-	// nothing to stdout on success, unlike every query command above.
+	// nothing to stdout on success, unlike every query command above. "pane get" reports claude
+	// running in the pane and "pane read" a startup frame with no first-run dialog on it, which
+	// is what confirmLaunch's poll loop needs to confirm the launch.
 	body := fmt.Sprintf(`  "workspace list") echo %s ;;
   "workspace create") echo %s ;;
   "tab create") echo %s ;;
   "pane run") ;;
   "pane send-text") ;;
   "pane send-keys") ;;
+  "pane read") printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n' ;;
   "tab list") echo %s ;;
   "tab close") echo %s ;;
   "workspace close") echo %s ;;

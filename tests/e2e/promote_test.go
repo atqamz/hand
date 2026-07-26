@@ -55,6 +55,7 @@ func TestPromoteScoutToShip(t *testing.T) {
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"ws-new","label":"demo","tab_count":1}}}' ;;
   "tab create") echo '{"result":{"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"},"root_pane":{"pane_id":"pane-new","tab_id":"tab-new","workspace_id":"ws-new","agent_status":"working"}}}' ;;
   "pane run") echo '{"result":{}}' ;;
+  "pane read") printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n' ;;
   "tab list")
     case "$4" in
       ws-old) echo '{"result":{"tabs":[{"tab_id":"tab-old","workspace_id":"ws-old","label":"demo"},{"tab_id":"tab-other","workspace_id":"ws-old","label":"other"}]}}' ;;
@@ -64,7 +65,7 @@ func TestPromoteScoutToShip(t *testing.T) {
     ;;
   "tab close") echo '{"result":{}}' ;;
   "workspace close") echo '{"result":{}}' ;;
-  "pane get") echo '{"result":{"pane":{"pane_id":"pane-old","tab_id":"tab-old","workspace_id":"ws-old","agent_status":"done"}}}' ;;`)
+  "pane get") printf '{"result":{"pane":{"pane_id":"%s","tab_id":"tab-old","workspace_id":"ws-old","agent":"claude","agent_status":"done"}}}\n' "$3" ;;`)
 
 	missingBrief := runHand(t, home, "promote", "task-1")
 	assertInvocation(t, missingBrief, 3, "brief not found at data/task-1/brief.md")
