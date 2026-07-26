@@ -202,18 +202,24 @@ func List(homeDir string) ([]Task, error) {
 // re-raising resolved decisions, absorbing a genuine unexplained stop, and
 // auto-recording a PR URL out of an old done line onto a task nobody recorded it
 // for. The durable deliverables (data/<id>/) survive teardown as before.
+// Delete removes the report channel before the task state file, not after: the
+// report removal is the one that can fail on a permissions or I/O fault, and
+// doing it first means that fault leaves nothing durable gone yet, so the whole
+// command is simply retryable. Removing the state file first would let a
+// report-removal failure strand the caller with the state already gone and no
+// way to retry (see cmd/teardown.go's guarded path).
 func Delete(homeDir, id string) error {
 	if err := ValidateID(id); err != nil {
 		return err
+	}
+	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove report channel %q: %w", id, err)
 	}
 	if err := os.Remove(Path(homeDir, id)); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("task %q %w", id, ErrTaskNotFound)
 		}
 		return fmt.Errorf("remove task state %q: %w", id, err)
-	}
-	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove report channel %q: %w", id, err)
 	}
 	return nil
 }

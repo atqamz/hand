@@ -167,6 +167,61 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	}
 }
 
+// TestTeardownRetriesAfterReportRemovalFails proves state.Delete's removal
+// order (report channel before task JSON): a fault on the report removal must
+// leave the task JSON untouched so the whole teardown is retryable, not
+// stranded with the task gone and the dashboard row never completed. With the
+// ordering reversed this fails: the task JSON is gone after the first call, so
+// there is nothing left to retry.
+func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.Mkdir(reportPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reportPath, "blocker"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "remove report channel") {
+		t.Fatalf("got err %v, want a remove report channel failure", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after failed teardown, want it retryable: %v %v", exists, err)
+	}
+
+	if err := os.RemoveAll(reportPath); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd = newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after retried teardown: %v %v", exists, err)
+	}
+
+	dashboardData, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dashboardData), "task-1: myproj | ship | merged | PR https://example.com/pr/1") {
+		t.Fatalf("dashboard = %q, want task-1 moved to Recent Completions", dashboardData)
+	}
+}
+
 func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
