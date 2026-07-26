@@ -3,7 +3,9 @@
 // readers never observe a partially written file. This is the single such helper
 // for data files (dashboard, project, state, watcher, and agentsmd all call it) -
 // do not hand-roll another copy. internal/selfupdate stages the replacement
-// binary itself because it needs an executable in the target directory.
+// binary with the same temp-then-rename shape but not through this helper,
+// because it extracts the new binary from an archive stream rather than writing
+// bytes it already holds.
 package atomicfile
 
 import (

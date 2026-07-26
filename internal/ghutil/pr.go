@@ -1,6 +1,6 @@
-// Package ghutil shells out to the gh CLI for GitHub Releases and PR access
-// rather than calling the REST API directly; internal/selfupdate follows the
-// same convention. Tests fake gh with a shell script on PATH (see writeFakeGH
+// Package ghutil shells out to the gh CLI for PR access rather than calling the
+// REST API directly; internal/selfupdate follows the same convention for
+// GitHub Releases. Tests fake gh with a shell script on PATH (see writeFakeGH
 // in internal/selfupdate/selfupdate_test.go and the same pattern in
 // cmd/status_test.go for herdr).
 package ghutil

@@ -1,5 +1,9 @@
 //go:build e2e
 
+// Package e2e drives the built hand binary against a real temp home. It is the
+// place for tests that exercise hand end-to-end rather than through cmd package
+// internals; extend it rather than building a second harness. The e2e build tag
+// keeps it out of `make test`; `make e2e` runs it.
 package e2e
 
 import (
