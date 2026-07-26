@@ -19,6 +19,7 @@
             ldflags = [ "-s" "-w" "-X main.version=v${version}" ];
             nativeCheckInputs = [ pkgs.git ];
             postInstall = "mv $out/bin/secondhand $out/bin/hand";
+            meta.mainProgram = "hand";
           };
         }
       );
