@@ -47,6 +47,11 @@ func TestPromoteScoutToShip(t *testing.T) {
 	dir := binDir(t)
 	newWorktree := filepath.Join(home, "wt-ship-new")
 	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
+	// Return (worktree.go) only checks CombinedOutput's error, never its
+	// content, on success, so the "ok" line stands in harmlessly for real
+	// treehouse return's actual (silent) output; "pane run" below is a void
+	// command whose real success is empty stdout (callVoid doc, client.go) -
+	// callVoid only checks env.Error, so the extra envelope body is harmless.
 	writeFakeDispatch(t, dir, "treehouse", invocationLog, "$1", `  get) printf '{"path":"%s"}\n' `+shellSingleQuote(newWorktree)+` ;;
   return) echo ok ;;`)
 	// The scout's old workspace holds a second tab, so releasing the scout is a

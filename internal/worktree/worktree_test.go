@@ -9,6 +9,12 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
+// writeFakeTreehouse fakes "treehouse get"/"return". Get's doc comment above
+// notes the real stderr banner ahead of JSON; these fakes write straight to
+// stdout on success since Get reads stdout alone (cmd.Output()), which is
+// exactly what that separation is for - no banner needed to exercise it
+// faithfully. Failure fakes below write to stderr, matching both Get's
+// separate-stderr-buffer error path and Return's CombinedOutput one.
 func writeFakeTreehouse(t *testing.T, script string) {
 	t.Helper()
 	bin := t.TempDir()

@@ -74,6 +74,11 @@ func writeFakeGh(t *testing.T, script string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// fakeGhChecksGreenAndMerge always exits 0. Real gh exits 1 on a fail bucket and
+// 8 on pending (prChecksGreen's own doc comment in cmd/merge.go), but
+// prChecksGreen deliberately never consults the exit code once the JSON parses,
+// so an exit-0 fake exercises the same code path a nonzero one would; "pr merge"
+// failing is untested here (see runPRMerge's "gh pr merge failed" error path).
 const fakeGhChecksGreenAndMerge = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -90,6 +95,10 @@ case "$cmd" in
 esac
 `
 
+// fakeGhChecksRed exits 0 with a "fail" bucket rather than real gh's documented
+// exit 1, for the same reason as fakeGhChecksGreenAndMerge: prChecksGreen only
+// looks at the exit code when the JSON fails to parse, so this still exercises
+// the real "trust the JSON over the exit code" behavior the function is built on.
 const fakeGhChecksRed = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -104,6 +113,8 @@ esac
 `
 
 func TestPRChecksGreenAllPass(t *testing.T) {
+	// Faithful to real gh here: an all-pass `pr checks --json bucket` prints
+	// this array on stdout and exits 0.
 	writeFakeGh(t, `#!/bin/sh
 printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
 `)
@@ -117,6 +128,8 @@ printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
 }
 
 func TestPRChecksGreenFailingCheck(t *testing.T) {
+	// Exit 0 with a "fail" bucket instead of real gh's exit 1, same reason as
+	// fakeGhChecksRed above.
 	writeFakeGh(t, `#!/bin/sh
 printf '[{"bucket":"pass"},{"bucket":"fail"}]'
 `)

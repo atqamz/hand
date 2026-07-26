@@ -1,0 +1,7 @@
+version: "2"
+
+run:
+  # Without this tag the //go:build e2e package in tests/e2e is invisible to the
+  # linter entirely, so it is silently unlinted. Do not remove as a "default".
+  build-tags:
+    - e2e

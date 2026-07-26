@@ -1152,6 +1152,8 @@ The agent can parse stdout reliably and read stderr for diagnostics.
 
 ## Testing strategy
 
+Every faked `herdr`, `gh`, `treehouse` or harness invocation, in unit and end-to-end tests alike, carries a comment recording the fake-fidelity contract: what the real tool does on success and on failure - exit code, stream, response shape - and whether the fake mirrors that or deliberately diverges.
+
 ### Unit tests
 
 - State file reading/writing.
@@ -1166,6 +1168,8 @@ The agent can parse stdout reliably and read stderr for diagnostics.
 
 Implemented in `tests/e2e`, which drives the built binary against a scratch home.
 herdr, treehouse, and gh are faked as shell scripts on `PATH` and remote clones are redirected to a local repo, so the suite never touches a real session provider or the network.
+`TestMain` enforces that once for the whole suite: it replaces `PATH` with a hermetic one carrying only the real binaries the suite genuinely runs, then asserts that neither herdr, treehouse, gh nor the worker harness resolves, so a missing fake fails the run loudly instead of quietly answering from the developer's real tools.
+CI therefore installs no real herdr or treehouse.
 
 - Spawn/teardown cycle, including teardown's refusal on unlanded work.
 - Watch event stream with simulated herdr state changes.
@@ -1365,14 +1369,6 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install herdr
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -fsSL https://github.com/ogulcancelik/herdr/releases/download/v0.7.5/herdr-linux-x86_64 -o "$HOME/.local/bin/herdr"
-          chmod +x "$HOME/.local/bin/herdr"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Install treehouse
-        run: go install github.com/kunchenguid/treehouse@v2.1.0
       - name: End-to-end
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
 ```
@@ -1471,7 +1467,7 @@ jobs:
             checksums.txt
 ```
 
-Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e with real herdr and treehouse, then release-please for automated releases.
+Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (no real ones installed, see "Integration tests"), then release-please for automated releases.
 
 `.github/dependabot.yaml` - keep Go modules and GitHub Actions up to date:
 ```yaml
@@ -1548,6 +1544,8 @@ install: build
 clean:
 	rm -f hand
 ```
+
+**`.golangci.yaml`:** the tracked file is authoritative - it keeps golangci-lint's default linter set and only sets `run.build-tags: [e2e]`, without which the `//go:build e2e` package in `tests/e2e` is invisible to the linter.
 
 **`.gitignore`:** the tracked file is authoritative - the built binary, the `hand init` runtime directories, Go and Nix build output, worktree tooling files, and editor/OS cruft.
 

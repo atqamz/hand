@@ -45,6 +45,29 @@ func initGitRepo(t *testing.T, dir string) {
 	run("commit", "-q", "-m", "initial commit")
 }
 
+// writeFakeGHPRState fakes `gh pr view --json state`, which really answers with
+// that JSON object on stdout and exit 0. Real gh writes warnings to stderr
+// ahead of the JSON (internal/ghutil/pr.go's PRIsMerged doc comment); this fake
+// omits them since these tests only check the parsed state, not the
+// stdout/stderr split - that split is covered faithfully by
+// internal/ghutil/pr_test.go's writeFakeGHPRView.
+func writeFakeGHPRState(t *testing.T, prState string) {
+	t.Helper()
+	bin := t.TempDir()
+	script := "#!/bin/sh\nprintf '{\"state\":\"" + prState + "\"}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// writeFakeTreehouseReturn fakes "treehouse return" as a no-op success (real
+// treehouse's return/init also succeed silently, per internal/worktree.Return's
+// CombinedOutput-based error handling - only its failure path, a nonzero exit
+// with output, needs the real stream contents, and that's covered directly by
+// internal/worktree/worktree_test.go's TestReturnFailsOnNonZeroExit) and its
+// herdr calls as always-succeeding envelopes, since these teardown tests only
+// exercise which calls get made, not any herdr failure path.
 func writeFakeTreehouseReturn(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
@@ -110,13 +133,7 @@ func TestTeardownShipFailsOnUncommittedChanges(t *testing.T) {
 
 func TestTeardownShipFailsWhenPRNotMerged(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(`#!/bin/sh
-printf '{"state":"OPEN"}'
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeFakeGHPRState(t, "OPEN")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj", PR: "https://example.com/pr/1"}); err != nil {
 		t.Fatal(err)
@@ -133,13 +150,7 @@ printf '{"state":"OPEN"}'
 
 func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(`#!/bin/sh
-printf '{"state":"MERGED"}'
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeFakeGHPRState(t, "MERGED")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
 		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
@@ -318,6 +329,11 @@ func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 
 	marker := filepath.Join(t.TempDir(), "herdr-called")
 	bin := t.TempDir()
+	// This and the herdr fakes further down this file all return a non-null
+	// object result for "tab list"/"tab close"/"workspace close", which is
+	// exactly what call() requires for success (client.go); these three are
+	// query commands, not the void pane commands callVoid documents, so there
+	// is no exit-code-vs-envelope split to reproduce here.
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\ntouch '"+marker+"'\nprintf '{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\"}]}}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

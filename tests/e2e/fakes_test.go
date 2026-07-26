@@ -6,13 +6,49 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// binDir returns a directory prepended to PATH for the rest of the test, so
-// fake binaries written there are found before any real tool of the same name.
+// realBinsOnPath are the only real executables this suite needs to resolve:
+// git, which both hand and the test helpers shell out to for real; sh, which
+// cmd/notify.go execs to run a notify template; and cat, which the fake herdr
+// scripts below use to read a pane's status file. Everything hand execs that is
+// not listed here is faked per test (backendsThisSuiteFakes, e2e_test.go), so
+// leaving those unreachable turns a missing fake into a loud failure instead of
+// a call against the developer's real tools.
+var realBinsOnPath = []string{"git", "sh", "cat"}
+
+// hermeticPath is the PATH every test runs under, built once by TestMain from
+// the inherited PATH. Each needed binary is symlinked in individually rather
+// than having its own directory prepended: on a real machine git commonly
+// lives in the same directory as real herdr and treehouse, so exposing that
+// directory would hand the suite straight back the tools it fakes.
+var hermeticPath string
+
+func buildHermeticPath(dir string) (string, error) {
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return "", err
+	}
+	for _, name := range realBinsOnPath {
+		resolved, err := exec.LookPath(name)
+		if err != nil {
+			return "", fmt.Errorf("resolve %s, which this suite runs for real: %w", name, err)
+		}
+		if err := os.Symlink(resolved, filepath.Join(dir, name)); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+// binDir returns a directory prepended to the current PATH for the rest of the
+// test, so fake binaries written there are found first. Prepending keeps this
+// additive - a test can call binDir twice and keep both fake dirs - and stays
+// hermetic only because TestMain runs first: by then PATH is already
+// hermeticPath, so there is no ambient PATH left to inherit here.
 func binDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
