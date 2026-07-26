@@ -818,6 +818,11 @@ Interactive launch has first-run dialogs that headless `--print` skipped:
   interception for every run on the host, so it is recognized but deliberately not answered. The
   operator accepts it once on the host, then respawns.
 
+Their signatures (`internal/harness`) must stay case-sensitive and keep their distinguishing anchors
+- `Bypass\s+Permissions\s+mode`, not a bare `bypass permissions` - because Claude Code's status line
+permanently contains the string `bypass permissions`, so a case-insensitive or unanchored loosening
+would match a dialog in every pane forever and break every spawn.
+
 `hand spawn` and `hand promote` clear the answerable ones automatically. After sending the launch
 command, each polls the pane. Whether a worker is running is herdr's answer, not the screen's:
 herdr reports an agent on a pane only while a harness process is in its foreground, so a harness
@@ -834,10 +839,19 @@ means there is nothing left to settle for.
 That text is read from the pane's recent scrollback (`pane read --source recent`), not its visible
 viewport, because a pane in an unattached herdr session is too short to show a whole dialog - 23
 rows against 61 in an attached one - and what it clips is the lower half, where the option and
-footer lines that identify a dialog live. Scrollback therefore keeps showing a dialog that has
-already been answered, so re-answering is prevented by answering each catalogued dialog at most once
-per launch, rather than by comparing frames or ranking which match is most recent. If keys never
-land and a dialog stays up, hand sends nothing further and runs out the poll window instead.
+footer lines that identify a dialog live.
+
+Reading scrollback rests on a measured premise: Claude Code erases an answered first-run dialog in
+place rather than scrolling it away, so a recent-scrollback read does not carry answered dialogs
+forward. Measured on 2026-07-26 against a real `hand spawn`ed worker pane on the Claude Code version
+installed on this host, reading 200 lines of retained scrollback: no trust-dialog, bypass-disclaimer
+or `Enter to confirm` text remained anywhere in it. A read that still matches a catalogued dialog is
+therefore treated as that dialog still being up, and the launch runs out its poll window rather than
+being confirmed. If that premise stops holding on a later Claude Code version, spawn fails on the
+deadline instead of confirming a healthy worker. That direction is chosen, not an oversight: a wrong
+deadline failure is loud and fixable, while confirming an unread dialog is issue #28 itself.
+Independently of the read, each catalogued dialog is answered at most once per launch, so retained
+text can cost a timeout but can never send a second round of keys into a live agent's composer.
 
 Two outcomes are not success. A pane with no agent, or one still showing a dialog, when the poll
 window elapses fails the spawn/promote with that pane content and what held it up; for a harness

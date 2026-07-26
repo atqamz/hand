@@ -185,30 +185,22 @@ func TestConfirmLaunch(t *testing.T) {
 			wantErr: "no known signature covers",
 		},
 		{
-			name:     "an answered prompt that never clears is answered exactly once",
+			// claude erases an answered dialog in place, so a read that still matches one means the
+			// dialog is still up. Keys go out once either way, and the launch fails on the deadline
+			// rather than being confirmed.
+			name:     "a dialog still matching after its answer fails instead of confirming",
 			harness:  "claude",
 			frames:   []launchFrame{live(launchBypassFrame)},
-			wantErr:  "answering the bypass permissions prompt is not clearing it",
+			wantErr:  "the bypass permissions prompt was answered, its text is still in the pane, and the harness never became ready",
 			wantKeys: "Down\nEnter\n",
 		},
 		{
-			// A recent-scrollback read keeps showing an answered dialog next to the frames that
-			// replaced it. Re-sending its keys there types into a live session, so an answer goes
-			// out once per dialog per launch and not once per frame that still matches.
-			name:     "a dialog lingering in scrollback after its answer is not answered again",
+			// claude's real first run: trust, then the bypass disclaimer, then the REPL with both
+			// dialogs erased. Each is answered once, in the order the catalogue lists them, and the
+			// worker is confirmed.
+			name:     "both first-run dialogs are answered in order and the launch is confirmed",
 			harness:  "claude",
-			frames:   []launchFrame{live(launchTrustFrame), live(launchTrustFrame + "\n" + launchReadyFrame)},
-			wantErr:  "answering the workspace trust prompt is not clearing it",
-			wantKeys: "Enter\n",
-		},
-		{
-			// claude paints trust first and bypass second, and the read holding both is the normal
-			// case once trust is answered - the dialog still waiting has to win over the one already
-			// dealt with, or hand answers nothing for the rest of the launch.
-			name:     "the next dialog is answered even while the answered one is still in the read",
-			harness:  "claude",
-			frames:   []launchFrame{live(launchTrustFrame), live(launchTrustFrame + "\n" + launchBypassFrame), live(launchTrustFrame + "\n" + launchReadyFrame)},
-			wantErr:  "answering the workspace trust prompt is not clearing it",
+			frames:   []launchFrame{live(launchTrustFrame), live(launchBypassFrame), live(launchReadyFrame)},
 			wantKeys: "Enter\nDown\nEnter\n",
 		},
 		{
