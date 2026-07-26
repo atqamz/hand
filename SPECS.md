@@ -284,8 +284,9 @@ Behavior:
    - Tab naming: task ID.
 7. Construct the harness launch command from the template (see harness section).
 8. Send the launch command to the herdr pane.
-9. Confirm the worker actually started: poll the pane, answering any known first-run dialog,
-   until it goes quiet or the poll window elapses (see Harness launch templates).
+9. Confirm the worker actually started: poll the pane until the harness paints, answering any
+   known first-run dialog, until it goes quiet or the poll window elapses (see Harness launch
+   templates).
 10. Write `state/<id>.json` with all metadata.
 11. Update `data/dashboard.md` with the new task.
 
@@ -311,8 +312,8 @@ Errors:
 - Worktree collision with another active task (names the conflicting task).
 - Herdr tab creation failed (herdr not running, session error).
 - Harness not recognized.
-- Worker never cleared a first-run prompt within the poll window (pane content included in the
-  error).
+- Worker never confirmed started within the poll window, or is waiting on a first-run prompt hand
+  refuses to answer (pane content and the blocking prompt included in the error).
 
 State file written (`state/fix-login.json`):
 ```json
@@ -804,21 +805,31 @@ permission dialog.
 Claude Code renders while idle; without it, a supervisor reading the pane can misread ghost text
 as the worker having typed input.
 
-Interactive launch has two first-run dialogs that headless `--print` skipped:
+Interactive launch has first-run dialogs that headless `--print` skipped:
 
 - The workspace trust dialog. Claude Code only trusts a directory whose path or one of its
   ancestors has been accepted before, and every treehouse worktree is a fresh path under the
   pool root (`~/.treehouse/...`), so this dialog appears on every spawn, not just a fresh host.
 - The bypass-permissions disclaimer, a one-time global accept that `--dangerously-skip-permissions`
   is gated on.
+- The settings-trust dialog, shown for a project that ships settings requiring approval.
+  It is recognized but deliberately not answered: accepting it activates whatever hooks and
+  commands the checked-out branch ships, which is the operator's call, not hand's.
 
-`hand spawn` and `hand promote` clear both automatically: after sending the launch command, each
-polls the pane and answers any dialog matching a known signature (`internal/harness`'s
-`FirstRunPromptsFor`), then confirms the pane has gone quiet - neither a known dialog nor the
-harness's generic unrecognized-dialog fallback still matching - before reporting success. A pane
-still showing an unrecognized prompt when the poll window elapses fails the spawn/promote with
-that pane content in the error, instead of reporting success for a worker that never started.
-See `cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were chosen.
+`hand spawn` and `hand promote` clear the answerable ones automatically. After sending the launch
+command, each polls the pane and waits for the harness's own readiness signature
+(`internal/harness`'s `FirstRunPromptsFor`) before judging anything: the echoed launch command is
+not evidence the harness started, so a cold start slower than the settle window is never mistaken
+for a clean one. From then on it answers any dialog matching a known signature and confirms the
+pane has gone quiet - neither a known dialog nor the harness's generic unrecognized-dialog
+fallback still matching - before reporting success.
+
+Three outcomes are not success. A pane still showing a prompt when the poll window elapses fails
+the spawn/promote with that pane content and which prompt held it up. A recognized-but-refused
+dialog fails immediately, naming what a human has to accept. A harness with no verified
+signatures at all (every harness except claude) cannot be confirmed either way, so the launch is
+reported with a warning on stderr rather than a silent pass. See `cmd/launch.go`'s
+`confirmLaunch` for the polling/timeout values and why they were chosen.
 
 ### Codex
 

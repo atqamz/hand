@@ -55,7 +55,7 @@ func TestPromoteScoutToShip(t *testing.T) {
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"ws-new","label":"demo","tab_count":1}}}' ;;
   "tab create") echo '{"result":{"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"},"root_pane":{"pane_id":"pane-new","tab_id":"tab-new","workspace_id":"ws-new","agent_status":"working"}}}' ;;
   "pane run") echo '{"result":{}}' ;;
-  "pane read") ;;
+  "pane read") printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n' ;;
   "tab list")
     case "$4" in
       ws-old) echo '{"result":{"tabs":[{"tab_id":"tab-old","workspace_id":"ws-old","label":"demo"},{"tab_id":"tab-other","workspace_id":"ws-old","label":"other"}]}}' ;;

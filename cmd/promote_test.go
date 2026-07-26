@@ -33,7 +33,7 @@ case "$cmd" in
 	printf '{"id":"cli:1","result":{}}'
 	;;
 "pane read")
-	printf ''
+	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -57,6 +57,7 @@ esac
 
 func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string) string {
 	t.Helper()
+	useFastLaunchPolling(t)
 	home := t.TempDir()
 
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {

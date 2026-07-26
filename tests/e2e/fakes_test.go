@@ -93,15 +93,15 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 
 	// "pane run"/"send-text"/"send-keys" are void commands: real herdr writes
 	// nothing to stdout on success, unlike every query command above. "pane read" reports a
-	// blank pane so confirmLaunch's poll loop goes quiet on its first read, matching no
-	// first-run dialog since this fake never shows one.
+	// claude pane that has painted its startup frame and shows no first-run dialog, which is
+	// what confirmLaunch's poll loop needs to confirm the launch.
 	body := fmt.Sprintf(`  "workspace list") echo %s ;;
   "workspace create") echo %s ;;
   "tab create") echo %s ;;
   "pane run") ;;
   "pane send-text") ;;
   "pane send-keys") ;;
-  "pane read") ;;
+  "pane read") printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n' ;;
   "tab list") echo %s ;;
   "tab close") echo %s ;;
   "workspace close") echo %s ;;

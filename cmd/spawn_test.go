@@ -27,6 +27,8 @@ func TestSpawnCleanupReportsAllErrors(t *testing.T) {
 	}
 }
 
+// fakeHerdrSpawnScript reports a claude pane that has painted its startup frame and shows no
+// first-run dialog, so confirmLaunch confirms the launch on its first read.
 const fakeHerdrSpawnScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -40,7 +42,7 @@ case "$cmd" in
  printf '{"id":"cli:1","result":{}}'
 	;;
 "pane read")
-	printf ''
+	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -51,6 +53,7 @@ esac
 
 func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	t.Helper()
+	useFastLaunchPolling(t)
 	home := t.TempDir()
 
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
@@ -253,6 +256,61 @@ func setupSpawnLeakEnv(t *testing.T, workspaceExists bool) string {
 	}
 	t.Setenv("HERDR_WS_EXISTS_FLAG", flag)
 	return callLog
+}
+
+// fakeHerdrStuckPaneScript launches fine but reports a pane sitting on a dialog nothing
+// answers, the shape confirmLaunch must fail rather than record as a spawned task.
+const fakeHerdrStuckPaneScript = `#!/bin/sh
+echo "$@" >> "$HERDR_CALL_LOG"
+cmd="$1 $2"
+case "$cmd" in
+"workspace list")
+	printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	;;
+"workspace create")
+	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"}}}'
+	;;
+"tab create")
+	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
+	;;
+"pane run")
+	printf '{"id":"cli:1","result":{}}'
+	;;
+"pane read")
+	printf 'Some brand new dialog\n> 1. Sure\n  2. Nope\n\nEnter to confirm\n'
+	;;
+"workspace close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`
+
+func TestSpawnRollsBackWhenWorkerNeverStarts(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, fakeHerdrStuckPaneScript)
+	callLog := setupSpawnLeakEnv(t, false)
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "confirm worker started") {
+		t.Fatalf("got err %v, want the spawn to fail on launch confirmation", err)
+	}
+
+	if exists, existsErr := state.Exists(home, "task-1"); existsErr != nil || exists {
+		t.Fatalf("state written for a worker that never started: exists=%v err=%v", exists, existsErr)
+	}
+	calls, readErr := os.ReadFile(callLog)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(calls), "workspace close wA") {
+		t.Fatalf("calls = %q, want the workspace hand created to be closed", calls)
+	}
 }
 
 func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {

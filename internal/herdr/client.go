@@ -249,15 +249,18 @@ func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 // than visible so a first-run dialog is still captured even in a pane too short to fit it in
 // the current viewport. Unlike every command above, herdr's own contract for pane read is a
 // third shape: raw text on success, and on failure a bare {"code","message"} object rather than
-// the {"error":{...}} envelope call and callVoid expect.
+// the {"error":{...}} envelope call and callVoid expect. That body is checked ahead of the exit
+// status for the same reason callVoid checks its envelope first - herdr's exit code cannot be
+// trusted on its own - and here a failure read as pane text would confirm a worker no one
+// observed.
 func (c *Client) PaneRead(paneID string, lines int) (string, error) {
 	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
 	stdout, stderr, runErr := c.run(args...)
+	var eb errorBody
+	if json.Unmarshal(stdout, &eb) == nil && eb.Code != "" && eb.Message != "" {
+		return "", fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), eb.Code, eb.Message)
+	}
 	if runErr != nil {
-		var eb errorBody
-		if json.Unmarshal(stdout, &eb) == nil && eb.Message != "" {
-			return "", fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), eb.Code, eb.Message)
-		}
 		return "", fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
 	}
 	return string(stdout), nil
