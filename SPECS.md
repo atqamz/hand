@@ -1035,7 +1035,10 @@ The agent can parse stdout reliably and read stderr for diagnostics.
 
 ### Integration tests
 
-- Spawn/teardown cycle with a real treehouse worktree and herdr tab.
+Implemented in `tests/e2e`, which drives the built binary against a scratch home.
+herdr, treehouse, and gh are faked as shell scripts on `PATH` and remote clones are redirected to a local repo, so the suite never touches a real session provider or the network.
+
+- Spawn/teardown cycle, including teardown's refusal on unlanded work.
 - Watch event stream with simulated herdr state changes.
 - Project add/remove/list/sync cycle.
 - Merge with mock gh responses.
