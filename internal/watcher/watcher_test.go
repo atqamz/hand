@@ -574,12 +574,69 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	if !strings.Contains(buf.String(), "pr-not-recorded task-1: "+url) {
 		t.Fatalf("out = %q, want the contended auto-record surfaced", buf.String())
 	}
+	if strings.Contains(buf.String(), "hand pr") {
+		t.Fatalf("out = %q, want no remedy named for an outcome the watcher cannot know", buf.String())
+	}
 	task, err := state.Read(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if task.PR != "" {
 		t.Fatalf("task.PR = %q, want the write skipped under contention", task.PR)
+	}
+}
+
+// TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR covers the race the
+// non-blocking task lock introduced: `hand pr` holds that lock across its own gh
+// round-trip while recording the very URL the watcher just read off the report.
+// Announcing pr-not-recorded there is a false alarm naming a no-op remedy.
+func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	url := "https://github.com/atqamz/secondhand/pull/7"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	unlock, err := state.Lock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := state.Read(home, "task-1")
+	if err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	recorded.PR = url
+	if err := state.Write(home, recorded); err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	errBuf.Reset()
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+	unlock()
+
+	if strings.Contains(buf.String(), "pr-not-recorded") {
+		t.Fatalf("out = %q, want silence when the lock holder recorded the same URL", buf.String())
+	}
+	if strings.Contains(errBuf.String(), "auto-record PR") {
+		t.Fatalf("errOut = %q, want no diagnostic for a race that resolved itself", errBuf.String())
 	}
 }
 

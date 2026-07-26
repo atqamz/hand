@@ -209,17 +209,21 @@ func autoRecordPR(ctx context.Context, home string, t state.Task, url string) er
 }
 
 // recordAutoPR is race-safe against a concurrent explicit `hand pr` call or
-// another tick's auto-record: it locks, re-reads, and no-ops if the PR is
-// already set by the time it gets the lock.
+// another tick's auto-record. The task lock is non-blocking for the same reason
+// syncTaskState's is: this runs in the poll loop, which owes every other task a
+// timely tick and its own ctx a prompt exit that flock cannot honor, while hand
+// merge and hand promote hold the same task lock across gh and git round-trips.
 //
-// The lock is non-blocking for the same reason syncTaskState's is: this runs in
-// the poll loop, which owes every other task a timely tick and its own ctx a
-// prompt exit that flock cannot honor, while hand merge and hand promote hold
-// the same task lock across gh and git round-trips. Contention surfaces as an
-// ordinary auto-record failure rather than stalling the watcher.
+// So the "already recorded" no-op has two halves. Holding the lock, it re-reads
+// and no-ops if the PR arrived first. Denied the lock, it re-reads anyway: the
+// likeliest holder is the `hand pr` recording this very URL, and treating that
+// as a failed auto-record would announce a problem that fixed itself.
 func recordAutoPR(home, id, url string) error {
 	unlock, err := state.TryLock(home, "task:"+id)
 	if err != nil {
+		if errors.Is(err, state.ErrLockBusy) {
+			return recordedByLockHolder(home, id, url)
+		}
 		return fmt.Errorf("lock task %s: %w", id, err)
 	}
 	defer unlock()
@@ -236,8 +240,22 @@ func recordAutoPR(home, id, url string) error {
 		return fmt.Errorf("write task %s: %w", id, err)
 	}
 
+	// Task lock before dashboard lock, never the reverse - the one ordering
+	// every site that takes both follows.
 	dashPath := filepath.Join(home, "data", "dashboard.md")
 	return dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}})
+}
+
+// recordedByLockHolder decides what a lost race to the task lock means. If the
+// URL is already on record the holder did the work, so there is nothing to say.
+// Otherwise the outcome is genuinely unknown - the holder may be mid-write - and
+// the report line is consumed either way, so it stays loud and says only that,
+// rather than claiming a failure or naming a remedy that may be a no-op.
+func recordedByLockHolder(home, id, url string) error {
+	if t, err := state.Read(home, id); err == nil && t.PR == url {
+		return nil
+	}
+	return fmt.Errorf("skipped, task locked by another process that may be recording it - confirm with: hand status %s", id)
 }
 
 // syncTaskState writes back the bookkeeping hand watch owns on a task - how far
