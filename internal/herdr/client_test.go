@@ -81,21 +81,29 @@ func TestCallRejectsNullResult(t *testing.T) {
 func TestCallRejectsNonObjectResult(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","result":[]}'`)
 	c := NewClient()
-	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "not an object") {
+	if _, err := c.PaneGet("wA:pB"); err == nil || !strings.Contains(err.Error(), "not an object") {
 		t.Fatalf("got err %v, want non-object result failure", err)
 	}
 }
 
-func TestPaneRunRequiresResultEnvelope(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{}}'`)
+func TestPaneRunSucceedsOnEmptyStdout(t *testing.T) {
+	writeFakeHerdr(t, ``)
 	c := NewClient()
 	if err := c.PaneRun("wA:pB", "echo hi"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestPaneSendTextRequiresResultEnvelope(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{}}'`)
+func TestPaneRunSurfacesErrorEnvelopeEvenOnExitZero(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"id":"cli:1","error":{"code":"pane_not_found","message":"pane missing"}}'`)
+	c := NewClient()
+	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "pane missing") {
+		t.Fatalf("got err %v, want pane missing", err)
+	}
+}
+
+func TestPaneSendTextSucceedsOnEmptyStdout(t *testing.T) {
+	writeFakeHerdr(t, ``)
 	c := NewClient()
 	if err := c.PaneSendText("wA:pB", "hello"); err != nil {
 		t.Fatal(err)
@@ -108,11 +116,26 @@ if [ "$1" != "pane" ] || [ "$2" != "send-keys" ] || [ "$3" != "wA:pB" ] || [ "$4
 	echo "unexpected args: $@" >&2
 	exit 1
 fi
-printf '{"id":"cli:1","result":{}}'
 `)
 	c := NewClient()
 	if err := c.PaneSendKeys("wA:pB", "Enter"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPaneSendKeysSucceedsOnEmptyStdout(t *testing.T) {
+	writeFakeHerdr(t, ``)
+	c := NewClient()
+	if err := c.PaneSendKeys("wA:pB", "Enter"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCallVoidFailsOnNonZeroExitWithNoStdout(t *testing.T) {
+	writeFakeHerdr(t, `echo "binary crashed" >&2; exit 1`)
+	c := NewClient()
+	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "binary crashed") {
+		t.Fatalf("got err %v, want binary crashed failure", err)
 	}
 }
 

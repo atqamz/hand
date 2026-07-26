@@ -86,22 +86,25 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 		"tab":       map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label},
 		"root_pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": status},
 	})
-	paneRun := herdrOK(t, map[string]any{})
 	tabList := herdrOK(t, map[string]any{"tabs": []any{map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}}})
-	tabClose := herdrOK(t, map[string]any{})
-	workspaceClose := herdrOK(t, map[string]any{})
+	tabClose := herdrOK(t, map[string]any{"type": "ok"})
+	workspaceClose := herdrOK(t, map[string]any{"type": "ok"})
 	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": status}})
 
+	// "pane run"/"send-text"/"send-keys" are void commands: real herdr writes
+	// nothing to stdout on success, unlike every query command above.
 	body := fmt.Sprintf(`  "workspace list") echo %s ;;
   "workspace create") echo %s ;;
   "tab create") echo %s ;;
-  "pane run") echo %s ;;
+  "pane run") ;;
+  "pane send-text") ;;
+  "pane send-keys") ;;
   "tab list") echo %s ;;
   "tab close") echo %s ;;
   "workspace close") echo %s ;;
   "pane get") echo %s ;;`,
 		shellSingleQuote(workspaceList), shellSingleQuote(workspaceCreate), shellSingleQuote(tabCreate),
-		shellSingleQuote(paneRun), shellSingleQuote(tabList), shellSingleQuote(tabClose),
+		shellSingleQuote(tabList), shellSingleQuote(tabClose),
 		shellSingleQuote(workspaceClose), shellSingleQuote(paneGet))
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
