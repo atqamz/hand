@@ -277,6 +277,80 @@ func TestTickAbsorbsIdleWhenReportExplainsTheStop(t *testing.T) {
 	}
 }
 
+func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/secondhand/pull/31 checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if !strings.Contains(buf.String(), "reported-done task-1:") {
+		t.Fatalf("output = %q, want an unverified reported-done event (no merged PR yet at classification time)", buf.String())
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "https://github.com/atqamz/secondhand/pull/31" {
+		t.Fatalf("task.PR = %q, want the embedded URL auto-recorded", task.PR)
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].PR != "https://github.com/atqamz/secondhand/pull/31" {
+		t.Fatalf("ActiveTasks = %+v, want the dashboard PR column updated", d.ActiveTasks)
+	}
+}
+
+func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/secondhand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/secondhand/pull/99 checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "https://github.com/atqamz/secondhand/pull/1" {
+		t.Fatalf("task.PR = %q, want the already-recorded PR left untouched", task.PR)
+	}
+}
+
 func TestTickForgetsTornDownTasks(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")

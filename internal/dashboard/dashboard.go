@@ -78,6 +78,12 @@ type PendingDecision struct {
 	Text string
 }
 
+// PRUpdate sets the PR column for an existing active task row.
+type PRUpdate struct {
+	ID string
+	PR string
+}
+
 type UpdateOpts struct {
 	AddActiveTask        *ActiveTask
 	UpdateAgentState     *AgentStateUpdate
@@ -86,6 +92,7 @@ type UpdateOpts struct {
 	SetPendingDecision   *PendingDecision
 	ClearPendingDecision string
 	SetProjects          []ProjectSummary
+	SetPR                *PRUpdate
 }
 
 // Update performs a read-modify-write of the dashboard at path, applying opts and
@@ -165,6 +172,14 @@ func apply(d *Dashboard, opts UpdateOpts) {
 	}
 	if opts.SetProjects != nil {
 		d.Projects = opts.SetProjects
+	}
+	if p := opts.SetPR; p != nil {
+		for i := range d.ActiveTasks {
+			if d.ActiveTasks[i].ID == p.ID {
+				d.ActiveTasks[i].PR = p.PR
+				break
+			}
+		}
 	}
 }
 

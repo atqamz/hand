@@ -109,7 +109,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 // tailReport classifies whatever report lines have arrived since ts.ReportOffset,
 // before ClassifyStatus runs for this tick, so a report that lands in the same
 // poll as a herdr idle transition is already reflected in ts.LastReportState when
-// the idle-vs-idle-unreported decision is made.
+// the idle-vs-idle-unreported decision is made. A line carrying exactly one
+// embedded PR URL auto-records it (shape validation only - hand pr's own network
+// check is what actually confirms the PR); more than one URL, or a PR already on
+// record, is left alone.
 func tailReport(cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) state.Task {
 	path := state.ReportPath(cfg.Home, t.ID)
 	lines, offset, err := state.TailReport(path, ts.ReportOffset)
@@ -123,8 +126,43 @@ func tailReport(cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) 
 		if e := ClassifyReportLine(ts, t.ID, t, line); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
 		}
+		if t.PR == "" {
+			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
+				if err := recordAutoPR(cfg.Home, t.ID, urls[0]); err != nil {
+					_, _ = fmt.Fprintf(errOut, "watch: auto-record PR for %s failed: %v\n", t.ID, err)
+				} else {
+					t.PR = urls[0]
+				}
+			}
+		}
 	}
 	return t
+}
+
+// recordAutoPR is race-safe against a concurrent explicit `hand pr` call or
+// another tick's auto-record: it locks, re-reads, and no-ops if the PR is
+// already set by the time it gets the lock.
+func recordAutoPR(home, id, url string) error {
+	unlock, err := state.Lock(home, "task:"+id)
+	if err != nil {
+		return fmt.Errorf("lock task %s: %w", id, err)
+	}
+	defer unlock()
+
+	t, err := state.Read(home, id)
+	if err != nil {
+		return fmt.Errorf("read task %s: %w", id, err)
+	}
+	if t.PR != "" {
+		return nil
+	}
+	t.PR = url
+	if err := state.Write(home, t); err != nil {
+		return fmt.Errorf("write task %s: %w", id, err)
+	}
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	return dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}})
 }
 
 func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
