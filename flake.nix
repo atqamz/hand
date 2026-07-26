@@ -5,7 +5,7 @@
 
   outputs = { nixpkgs, ... }:
     let
-      version = "0.0.0"; # x-release-please-version
+      version = "0.1.0"; # x-release-please-version
       # x86_64-darwin is excluded: the pinned nixpkgs-unstable aborts evaluation
       # for it since upstream dropped support, breaking every output.
       systems = [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ];
