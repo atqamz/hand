@@ -94,15 +94,15 @@ func parseSemver(s string) (major, minor, patch int, err error) {
 	return nums[0], nums[1], nums[2], nil
 }
 
+// ExecutableOverride lets tests point Apply at a fake binary path instead of
+// the real test binary produced by `go test`.
+var ExecutableOverride = os.Executable
+
 // Apply downloads the release tagged tag from repo, verifies its checksum, and
 // replaces the running binary in place. The replacement is atomic: the new
 // binary is written to a temp file in the same directory as the running
 // binary, then renamed over it, so a crash mid-update never leaves a partial
 // binary at the real path.
-// ExecutableOverride lets tests point Apply at a fake binary path instead of
-// the real test binary produced by `go test`.
-var ExecutableOverride = os.Executable
-
 func Apply(repo, tag string) error {
 	execPath, err := ExecutableOverride()
 	if err != nil {

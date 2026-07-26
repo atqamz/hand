@@ -16,7 +16,8 @@ Without Nix, install those yourself.
 1. Fork and branch from main.
 2. Make changes.
 3. make lint && make test
-4. Open a PR.
+4. make e2e if you changed CLI behavior (end-to-end suite, excluded from make test).
+5. Open a PR.
 
 Commits use conventional commits: feat:, fix:, chore:, etc.
 release-please handles versioning and changelogs from these.

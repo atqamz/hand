@@ -110,6 +110,9 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		return fmt.Errorf("write task state: %w", err)
 	}
 
+	// Re-sync the project clone and touch the Projects dashboard section only
+	// if the sync actually advanced it; runLocalMerge never touches the
+	// dashboard at all.
 	if proj, exists, err := project.Find(home, t.Project); err != nil {
 		return err
 	} else if exists {

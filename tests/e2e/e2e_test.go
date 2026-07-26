@@ -1,5 +1,9 @@
 //go:build e2e
 
+// Package e2e drives the built hand binary against a real temp home. It is the
+// place for tests that exercise hand end-to-end rather than through cmd package
+// internals; extend it rather than building a second harness. The e2e build tag
+// keeps it out of `make test`; `make e2e` runs it.
 package e2e
 
 import (
@@ -21,6 +25,10 @@ import (
 
 var handBin string
 
+// TestMain builds the hand binary once for the whole package. go test's result
+// cache is keyed on this package's own inputs, not on this nested go build, so
+// changing production code alone will not invalidate a cached e2e run - pass
+// -count=1 when checking red/green behavior after a production-code-only edit.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "hand-e2e-")
 	if err != nil {

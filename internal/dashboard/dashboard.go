@@ -90,7 +90,8 @@ type UpdateOpts struct {
 
 // Update performs a read-modify-write of the dashboard at path, applying opts and
 // stamping the Updated timestamp. Every hand command that mutates fleet state calls
-// this so data/dashboard.md stays current.
+// this so data/dashboard.md stays current, except promote - see cmd/promote.go for why
+// its row deliberately stays unchanged.
 func Update(path string, opts UpdateOpts) error {
 	unlock, err := flock(path + ".lock")
 	if err != nil {

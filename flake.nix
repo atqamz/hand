@@ -6,6 +6,8 @@
   outputs = { nixpkgs, ... }:
     let
       version = "0.0.0"; # x-release-please-version
+      # x86_64-darwin is excluded: the pinned nixpkgs-unstable aborts evaluation
+      # for it since upstream dropped support, breaking every output.
       systems = [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
@@ -17,7 +19,9 @@
             src = ./.;
             vendorHash = "sha256-7K17JaXFsjf163g5PXCb5ng2gYdotnZ2IDKk8KFjNj0=";
             ldflags = [ "-s" "-w" "-X main.version=v${version}" ];
-            nativeCheckInputs = [ pkgs.git ];
+            nativeCheckInputs = [ pkgs.git ]; # test suite execs git directly
+            # buildGoModule names the output after the module (secondhand);
+            # every other build path (Makefile, .gitignore) expects hand.
             postInstall = "mv $out/bin/secondhand $out/bin/hand";
             meta.mainProgram = "hand";
           };
