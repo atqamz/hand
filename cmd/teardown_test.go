@@ -61,20 +61,36 @@ func writeFakeGHPRState(t *testing.T, prState string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// writeFakeTreehouseReturn fakes "treehouse return" as a no-op success (real
-// treehouse's return/init also succeed silently, per internal/worktree.Return's
-// CombinedOutput-based error handling - only its failure path, a nonzero exit
-// with output, needs the real stream contents, and that's covered directly by
-// internal/worktree/worktree_test.go's TestReturnFailsOnNonZeroExit).
+// writeFakeTreehouseReturn fakes the two tools teardown shells out to, each keyed
+// on the state its own commands leave behind, since a fake that answers a
+// state-changing command identically before and after that command cannot test
+// anything about the state change.
 //
-// Its herdr fake tracks closure across invocations, because real herdr does: a
-// closed tab stops being listed. A stateless fake that re-lists a tab it was just
-// told to close makes every retry test vacuous - it can never reach the
+// treehouse return keeps the returned worktree's pool slot directory and succeeds
+// again on a second return of the same path, checked against the real tool; only
+// a path no pool manages fails, and that failure path is covered directly by
+// internal/worktree/worktree_test.go against the same fidelity note.
+//
+// herdr stops listing a closed tab. A stateless fake that re-lists a tab it was
+// just told to close makes every retry test vacuous - it can never reach the
 // already-closed case a second teardown run actually hits.
 func writeFakeTreehouseReturn(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte("#!/bin/sh\ntrue\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(`#!/bin/sh
+case "$1" in
+return)
+	if [ -d "$2" ]; then
+		echo "Worktree returned to pool."
+		exit 0
+	fi
+	echo "worktree $2 is not managed by treehouse" >&2
+	exit 1
+	;;
+esac
+echo "unexpected treehouse args: $@" >&2
+exit 1
+`), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	closed := filepath.Join(t.TempDir(), "closed")

@@ -383,21 +383,21 @@ func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
 	}
 }
 
-// updateDashboardForEvent decides what each event kind does to a task's row.
-// Every kind, and which side of the state column it is on:
+// updateDashboardForEvent decides what each event kind does to a task's row. One
+// rule holds it together, in place of a per-kind judgement call: every kind that
+// writes the task's row sets the state column, and every kind that carries no new
+// state only appends to Recent Events.
 //
-//	sets it: idle-unreported, blocked, failed, report-paused, report-blocked,
-//	report-needs-decision, report-failed, and a verified report-done. These all
-//	say the worker has stopped or is stopping, which is precisely what that column
-//	answers, and a stop the row keeps calling "working" is the bug this whole
-//	channel exists to remove - the note landing in Pending Decisions does not
-//	rescue it, since two views of one task disagreeing is the same defect.
-//	deliberately not: report-working (herdr's own live status already spells a busy
-//	pane, and the report adds no state the column doesn't have), an unverified
-//	report-done (a worker's claim is not evidence - see the Verified branch below),
-//	stale (elapsed time in a state, not a new one), pr-merged, pr-not-recorded and
-//	pr-record-unknown (facts about a PR record, not about what the worker is doing),
-//	and malformed report (free text classifies to nothing).
+// So report-working writes "working" back, report-paused, report-blocked,
+// report-needs-decision, report-failed, idle-unreported, blocked, failed and a
+// verified report-done each write their own state, and the column always names the
+// last thing known about the worker from one source. Deciding kind by kind is what
+// left a stopped worker's row reading "working", and then a steered worker's row
+// reading "needs-decision" while it worked. The kinds that write nothing to the row
+// are the ones with nothing to say about it: stale (elapsed time in a state, not a
+// new one), pr-merged, pr-not-recorded and pr-record-unknown (facts about a PR
+// record), malformed report (free text classifies to nothing), and an unverified
+// report-done (a worker's claim is not evidence - see the Verified branch below).
 func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 	dashPath := filepath.Join(home, "data", "dashboard.md")
 	age := dashboard.FormatAge(t.CreatedAt)
@@ -421,6 +421,8 @@ func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: e.Reason}
 	case KindReportPaused:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportPaused, Age: age}
+	case KindReportWorking:
+		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: state.ReportWorking, Age: age}
 	case KindReportFailed:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportFailed, Age: age}
 	case KindReportDone:

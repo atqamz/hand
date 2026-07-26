@@ -223,6 +223,36 @@ func TestStatusFleetFlagsIdleWithTerminalReportInsteadOfUnreported(t *testing.T)
 	}
 }
 
+// A worker that appends free text after a real report has still reported, so the
+// suffix comes from the last line that classified - the same answer hand watch
+// reaches about the same quiet pane. The Reported field still shows the raw last
+// line, free text included.
+func TestStatusFleetKeepsTheReportedFlagAfterATrailingMalformedLine(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"),
+		[]byte("needs-decision: waiting on review\nstill here, no answer yet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "idle (reported: needs-decision)") {
+		t.Fatalf("got %q, want the last classified report kept behind the free text", out.String())
+	}
+}
+
 func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

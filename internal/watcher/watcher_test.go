@@ -1426,7 +1426,11 @@ func TestTickReseedsARespawnedTaskID(t *testing.T) {
 // TestTickSetsTheStateColumnOnAReportedStop covers the well-behaved worker: it
 // says why it stopped, herdr's not-busy transition is then absorbed on purpose,
 // and the row would otherwise keep reading "working" - the very bug the report
-// channel exists to remove, with the supervisor reading that column first.
+// channel exists to remove, with the supervisor reading that column first. The
+// last step is the way back, the steer-and-continue loop: nothing else in the
+// codebase writes "working" to that column, so without report-working the row
+// latches on the stop-state and a steered worker shows as awaiting a decision
+// forever - the same two-views-disagree defect, inverted.
 func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1451,6 +1455,7 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 		{"paused: waiting on the nightly build\n", KindReportPaused},
 		{"blocked: needs an API key\n", KindReportBlocked},
 		{"needs-decision: which base branch?\n", KindReportNeedsDecision},
+		{"working: main, carrying on\n", state.ReportWorking},
 	} {
 		report += tc.line
 		if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {

@@ -84,13 +84,17 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	for _, t := range tasks {
 		agentState := paneAgentStatus(client, t.Herdr.PaneID)
 		last, ok, readErr := state.LastReport(home, t.ID)
+		reported, reportedOK, reportedErr := state.LastReportedState(home, t.ID)
+		if readErr == nil {
+			readErr = reportedErr
+		}
 		rows = append(rows, statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState,
 			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
 			Reported: reportedFrom(last, ok, readErr),
 		})
-		suffixes = append(suffixes, reportSuffix(agentState, last, ok, readErr))
+		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr))
 	}
 
 	if asJSON {
@@ -118,17 +122,22 @@ const reportUnreadable = "unreadable"
 // the same distinction SPECS.md's classifier draws between idle-unreported and an
 // absorbed stop. Any other agent state is left unadorned; herdr's own state is
 // already informative there.
-func reportSuffix(agentState string, last state.ReportLine, ok bool, readErr error) string {
+//
+// reported is the last line that classified, not simply the last line, so this
+// answers the same question hand watch answers about the same quiet pane: free
+// text appended after a real report explains nothing and must not erase it. The
+// raw last line is still what the Reported field shows, verbatim.
+func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr error) string {
 	if !herdr.Status(agentState).NotBusy() {
 		return ""
 	}
 	if readErr != nil {
 		return fmt.Sprintf(" (report %s)", reportUnreadable)
 	}
-	if !ok || last.Malformed || last.State == "" || last.State == state.ReportWorking {
+	if !ok || reported.State == "" || reported.State == state.ReportWorking {
 		return " (unreported)"
 	}
-	return fmt.Sprintf(" (reported: %s)", last.State)
+	return fmt.Sprintf(" (reported: %s)", reported.State)
 }
 
 func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
