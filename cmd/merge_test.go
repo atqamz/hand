@@ -113,6 +113,8 @@ esac
 `
 
 func TestPRChecksGreenAllPass(t *testing.T) {
+	// Faithful to real gh here: an all-pass `pr checks --json bucket` prints
+	// this array on stdout and exits 0.
 	writeFakeGh(t, `#!/bin/sh
 printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
 `)
@@ -126,6 +128,8 @@ printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
 }
 
 func TestPRChecksGreenFailingCheck(t *testing.T) {
+	// Exit 0 with a "fail" bucket instead of real gh's exit 1, same reason as
+	// fakeGhChecksRed above.
 	writeFakeGh(t, `#!/bin/sh
 printf '[{"bucket":"pass"},{"bucket":"fail"}]'
 `)

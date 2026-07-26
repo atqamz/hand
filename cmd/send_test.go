@@ -118,7 +118,14 @@ esac
 }
 
 func TestSendFailsForUnknownTask(t *testing.T) {
-	setupSendHome(t, "#!/bin/sh\nexit 1\n")
+	// send resolves the task before it ever reaches herdr, so this fake refuses
+	// every invocation instead of imitating a herdr response: a regression that
+	// called herdr first would surface that message here rather than the
+	// expected "not found".
+	setupSendHome(t, `#!/bin/sh
+echo "unexpected herdr invocation: $@" >&2
+exit 1
+`)
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"missing-task", "hello"})
