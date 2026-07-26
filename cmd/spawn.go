@@ -27,7 +27,7 @@ func newSpawnCmd() *cobra.Command {
 		Use:   "spawn <id> <project>",
 		Short: "Spawn a worker agent in an isolated worktree",
 		Args:  usageArgs(cobra.ExactArgs(2)),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			id := args[0]
 			projectName := args[1]
 
@@ -103,14 +103,39 @@ func newSpawnCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("herdr workspace lookup/create failed: %w", err), worktree.Return(wt, true))
 			}
 
+			// spawned disarms the rollback below once state.Write has durably recorded the
+			// task: from that point its workspace and tab are owned by the running task, not
+			// by this call, even if a later step (dashboard update) fails. Before that point,
+			// a single deferred rollback - rather than repeating the createdWorkspace check at
+			// every exit - closes whichever of workspace or tab this call is responsible for:
+			// a workspace hand created, or (when the workspace was pre-existing and shared)
+			// just the tab hand added to it.
+			spawned := false
+			tabCreated := false
+			var tabID string
+			defer func() {
+				if spawned {
+					return
+				}
+				if createdWorkspace {
+					if closeErr := client.WorkspaceClose(ws.WorkspaceID); closeErr != nil {
+						err = reportSpawnCleanup(err, closeErr)
+					}
+					return
+				}
+				if tabCreated {
+					if closeErr := closeTaskTab(client, ws.WorkspaceID, tabID); closeErr != nil {
+						err = reportSpawnCleanup(err, closeErr)
+					}
+				}
+			}()
+
 			tab, pane, err := client.TabCreate(ws.WorkspaceID, wt, id)
 			if err != nil {
-				cleanupErrs := []error{worktree.Return(wt, true)}
-				if createdWorkspace {
-					cleanupErrs = append(cleanupErrs, client.WorkspaceClose(ws.WorkspaceID))
-				}
-				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), cleanupErrs...)
+				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), worktree.Return(wt, true))
 			}
+			tabCreated = true
+			tabID = tab.TabID
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
 				Worktree: wt,
@@ -119,11 +144,11 @@ func newSpawnCmd() *cobra.Command {
 				Effort:   effort,
 			})
 			if err != nil {
-				return reportSpawnCleanup(err, closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 
 			if err := client.PaneRun(pane.PaneID, launchCmd); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), worktree.Return(wt, true))
 			}
 
 			kind := state.KindShip
@@ -149,8 +174,9 @@ func newSpawnCmd() *cobra.Command {
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			}
 			if err := state.Write(home, task); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}
+			spawned = true
 
 			dashPath := filepath.Join(home, "data", "dashboard.md")
 			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
