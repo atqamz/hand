@@ -6,7 +6,7 @@
   outputs = { nixpkgs, ... }:
     let
       version = "0.0.0"; # x-release-please-version
-      systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
+      systems = [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
       packages = forAllSystems (system:
