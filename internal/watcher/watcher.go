@@ -159,6 +159,7 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		if t.PR == "" {
 			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
 				if err := autoRecordPR(ctx, cfg.Home, t, urls[0]); err != nil {
+					_, _ = fmt.Fprintf(errOut, "watch: auto-record PR for %s failed: %v\n", t.ID, err)
 					handleEvent(cfg, prNotRecordedEvent(t.ID, urls[0], err), t, out, errOut)
 				} else {
 					t.PR = urls[0]
@@ -171,11 +172,12 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 	return t
 }
 
-// prNotRecordedEvent turns a refused or failed auto-record into something a
-// supervisor is actually told about. The line is consumed and the offset moves on
-// either way, so an unrecorded URL that only reached errOut in a long-running
-// watcher would be lost; as a pending decision it stays visible until someone
-// runs the one command that fixes it.
+// prNotRecordedEvent makes a refused or failed auto-record a durable lifecycle
+// fact on the event stream and in events.log, alongside the stderr diagnostic:
+// the line is consumed and the offset moves on either way, so an unrecorded URL
+// that only reached a long-running watcher's stderr would be lost. It is
+// deliberately not a Pending Decision - that slot holds the worker's own
+// question, and upserting by task ID there would erase one.
 func prNotRecordedEvent(id, url string, err error) *Event {
 	return &Event{
 		TaskID: id,
@@ -209,8 +211,14 @@ func autoRecordPR(ctx context.Context, home string, t state.Task, url string) er
 // recordAutoPR is race-safe against a concurrent explicit `hand pr` call or
 // another tick's auto-record: it locks, re-reads, and no-ops if the PR is
 // already set by the time it gets the lock.
+//
+// The lock is non-blocking for the same reason syncTaskState's is: this runs in
+// the poll loop, which owes every other task a timely tick and its own ctx a
+// prompt exit that flock cannot honor, while hand merge and hand promote hold
+// the same task lock across gh and git round-trips. Contention surfaces as an
+// ordinary auto-record failure rather than stalling the watcher.
 func recordAutoPR(home, id, url string) error {
-	unlock, err := state.Lock(home, "task:"+id)
+	unlock, err := state.TryLock(home, "task:"+id)
 	if err != nil {
 		return fmt.Errorf("lock task %s: %w", id, err)
 	}
@@ -302,17 +310,20 @@ func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("%s (blocked %s)", e.Reason, age)}
 	case KindFailed:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindFailed, Age: age}
+	// The Pending Decisions slot is upserted by task ID, so a second writer for
+	// the same task erases the first. It belongs to whatever the supervisor has
+	// to answer about that task - the worker's own question, or an unexplained
+	// stop that leaves no one to ask. Operator notices go to the event stream.
 	case KindReportBlocked, KindReportNeedsDecision:
 		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: e.Reason}
-	case KindPRNotRecorded:
-		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("PR %s not recorded - check it, then run: hand pr %s %s", e.Reason, t.ID, e.Reason)}
 	case KindReportFailed:
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportFailed, Age: age}
 	case KindReportDone:
-		// A reported done is never trusted alone: only once it's cross-checked
-		// against a merged PR (Verified) does it get to change agent state or
-		// clear a pending decision, so an unverified self-report shows up in
-		// Recent Events without silently overriding what's still pending.
+		// A reported done is never trusted alone. Only once doneVerified finds
+		// recorded evidence that the task actually landed (Verified) does it get
+		// to change agent state or clear a pending decision, so an unverified
+		// self-report shows up in Recent Events without silently overriding what's
+		// still pending.
 		if e.Verified {
 			opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindHerdrDone, Age: age}
 			opts.ClearPendingDecision = t.ID

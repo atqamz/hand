@@ -471,10 +471,115 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 	if !strings.Contains(buf.String(), "pr-not-recorded task-1: https://github.com/other-org/other-repo/pull/9") {
 		t.Fatalf("out = %q, want the refusal surfaced as an actionable event", buf.String())
 	}
+	if !strings.Contains(errBuf.String(), "auto-record PR for task-1 failed") {
+		t.Fatalf("errOut = %q, want the refusal also diagnosed on stderr", errBuf.String())
+	}
+
+	log, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "pr-not-recorded task-1: https://github.com/other-org/other-repo/pull/9") {
+		t.Fatalf("events.log = %q, want the refusal recorded as a durable lifecycle fact", log)
+	}
 
 	d := readDashboard(t, dashPath)
-	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "https://github.com/other-org/other-repo/pull/9") {
-		t.Fatalf("PendingDecisions = %+v, want the unrecorded URL flagged for a human", d.PendingDecisions)
+	if len(d.PendingDecisions) != 0 {
+		t.Fatalf("PendingDecisions = %+v, want an operator notice kept out of the worker's slot", d.PendingDecisions)
+	}
+}
+
+// TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused pins the slot ownership: one
+// report line can both ask the supervisor something and carry a URL that fails to
+// record, and Pending Decisions is upserted by task ID, so the second writer would
+// erase the question from the one surface a supervisor is told to read first.
+func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	line := "needs-decision: which base branch? see https://github.com/other-org/other-repo/pull/9\n"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	if !strings.Contains(buf.String(), "pr-not-recorded task-1:") {
+		t.Fatalf("out = %q, want the refusal still announced", buf.String())
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "which base branch?") {
+		t.Fatalf("PendingDecisions = %+v, want the worker's own question intact", d.PendingDecisions)
+	}
+}
+
+// TestTickSurfacesAContendedAutoRecordInsteadOfWaiting covers the poll loop's
+// no-blocking-lock rule at the auto-record site: another command holding the task
+// lock across network work must not stall the watcher, so the tick reports the
+// contention through the ordinary refusal path and moves on.
+func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	url := "https://github.com/atqamz/secondhand/pull/7"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	unlock, err := state.Lock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		tick(ctx, cfg, client, states, &buf, &errBuf)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		unlock()
+		t.Fatal("tick blocked on a task lock held by another command")
+	}
+	unlock()
+
+	if !strings.Contains(buf.String(), "pr-not-recorded task-1: "+url) {
+		t.Fatalf("out = %q, want the contended auto-record surfaced", buf.String())
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "" {
+		t.Fatalf("task.PR = %q, want the write skipped under contention", task.PR)
 	}
 }
 

@@ -12,9 +12,11 @@ import (
 
 // Kind values classify an Event for dashboard/log routing.
 const (
-	// KindHerdrDone is only ever emitted by classifyReportDone once a worker's own
-	// done report is cross-checked against a merged PR - ClassifyStatus never emits
-	// it directly, since herdr's own done/idle split carries no task-outcome signal.
+	// KindHerdrDone is only ever emitted once a worker's own done report is
+	// cross-checked against recorded evidence that the task landed - see
+	// doneVerified for what counts, which is deliberately not a question about the
+	// project's mode or the route the work took. ClassifyStatus never emits it
+	// directly, since herdr's own done/idle split carries no task-outcome signal.
 	KindHerdrDone           = "done"
 	KindIdleUnreported      = "idle-unreported"
 	KindBlocked             = "blocked"
@@ -208,14 +210,17 @@ func doneText(id, note string, verified bool) string {
 	return fmt.Sprintf("%s %s: %s", text, id, note)
 }
 
-// doneVerified reports whether completion evidence exists that doesn't come from
-// the worker itself. Each task kind has its own: a ship task's merge, and a scout
-// task's data/<id>/report.md - the deliverable hand promote itself requires.
+// doneVerified asks one question: is there recorded evidence, not authored by the
+// worker, that this task landed? What counts is a property of the deliverable, not
+// of the route or the project's mode - a ship task lands by merging, however that
+// merge happened, and a scout task lands by producing the data/<id>/report.md that
+// hand promote itself requires.
 //
-// The ship check deliberately asks nothing about the project's mode. t.Merged is
-// only ever written after a merge actually happened, whichever route got there
-// (a PR merge or a local fast-forward, which leaves no PR at all); a recorded PR
-// the watcher's own poll saw merged is the same evidence arriving the other way.
+// So the ship check reads t.Merged first and asks nothing further: it is only ever
+// written after a merge actually happened, whether through a PR or a local
+// fast-forward that leaves no PR at all. A recorded PR the watcher's own poll saw
+// merged is that same evidence arriving the other way. Narrowing this to one route
+// is what made the check silently always-false for a whole class of task twice.
 func doneVerified(home string, ts *TaskState, t state.Task) bool {
 	switch t.Kind {
 	case state.KindShip:
