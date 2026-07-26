@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
+	"github.com/atqamz/secondhand/internal/agentsmd"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -38,8 +41,39 @@ func newUpdateCmd(version string) *cobra.Command {
 			if err := selfupdate.Apply(selfupdate.Repo, latest); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "updated hand %s -> %s\n", version, latest)
-			return err
+
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get working directory: %w", err)
+			}
+			refreshed, err := agentsmd.Refresh(cwd)
+			if err != nil {
+				return err
+			}
+
+			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)
+			notes = strings.TrimSpace(notes)
+
+			if _, err := fmt.Fprintf(out, "current: %s\n", version); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(out, "latest:  %s\n", latest); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(out, "updated hand to %s\n", latest); err != nil {
+				return err
+			}
+			if refreshed {
+				if _, err := fmt.Fprintln(out, "updated AGENTS.md template"); err != nil {
+					return err
+				}
+			}
+			if notes != "" {
+				if _, err := fmt.Fprintf(out, "changed:\n%s\n", notes); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 

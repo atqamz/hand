@@ -127,9 +127,9 @@ func TestApplyReplacesRunningBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restore := executableOverride
-	executableOverride = func() (string, error) { return execPath, nil }
-	defer func() { executableOverride = restore }()
+	restore := ExecutableOverride
+	ExecutableOverride = func() (string, error) { return execPath, nil }
+	defer func() { ExecutableOverride = restore }()
 
 	if err := Apply("atqamz/secondhand", "v0.5.0"); err != nil {
 		t.Fatal(err)
@@ -184,9 +184,9 @@ func TestApplyLeavesNoStagedFileWhenExtractionFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restore := executableOverride
-	executableOverride = func() (string, error) { return execPath, nil }
-	defer func() { executableOverride = restore }()
+	restore := ExecutableOverride
+	ExecutableOverride = func() (string, error) { return execPath, nil }
+	defer func() { ExecutableOverride = restore }()
 
 	if err := Apply("atqamz/secondhand", "v0.5.0"); err == nil {
 		t.Fatal("want error when the asset is not a valid archive")

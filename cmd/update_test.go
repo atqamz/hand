@@ -1,11 +1,19 @@
 package cmd
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/atqamz/secondhand/internal/selfupdate"
 )
 
 func writeFakeGHReleaseView(t *testing.T, tag string) {
@@ -16,6 +24,187 @@ func writeFakeGHReleaseView(t *testing.T, tag string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// writeFakeGHUpdate fakes the three gh invocations a full `hand update` makes:
+// the tag lookup, the release asset download, and the release notes lookup.
+func writeFakeGHUpdate(t *testing.T, tag, notes, fixtureDir string) {
+	t.Helper()
+	bin := t.TempDir()
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "release" ] && [ "$2" = "view" ] && [ "$3" = "--repo" ]; then
+  printf '%%s' %q
+  exit 0
+fi
+if [ "$1" = "release" ] && [ "$2" = "view" ]; then
+  printf '%%s' %q
+  exit 0
+fi
+if [ "$1" = "release" ] && [ "$2" = "download" ]; then
+  dir=""
+  prev=""
+  for a in "$@"; do
+    if [ "$prev" = "--dir" ]; then dir="$a"; fi
+    prev="$a"
+  done
+  cp %q/* "$dir"/
+  exit 0
+fi
+echo "unexpected gh invocation: $@" >&2
+exit 1
+`, tag, notes, fixtureDir)
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// buildUpdateFixture builds a release-asset directory (binary tarball plus
+// checksums.txt) that Apply's download+verify+extract path will accept.
+func buildUpdateFixture(t *testing.T, binaryContent []byte) string {
+	t.Helper()
+	dir := t.TempDir()
+	assetName := selfupdate.AssetName()
+
+	var tarBuf bytes.Buffer
+	gz := gzip.NewWriter(&tarBuf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "hand", Mode: 0o755, Size: int64(len(binaryContent))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(binaryContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, assetName), tarBuf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sum := sha256.Sum256(tarBuf.Bytes())
+	checksums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName)
+	if err := os.WriteFile(filepath.Join(dir, "checksums.txt"), []byte(checksums), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func setFakeExecutable(t *testing.T) string {
+	t.Helper()
+	execDir := t.TempDir()
+	execPath := filepath.Join(execDir, "hand")
+	if err := os.WriteFile(execPath, []byte("old binary contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := selfupdate.ExecutableOverride
+	selfupdate.ExecutableOverride = func() (string, error) { return execPath, nil }
+	t.Cleanup(func() { selfupdate.ExecutableOverride = restore })
+	return execPath
+}
+
+func makeUpdateWorkspace(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", "dashboard.md"), []byte("# Dashboard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := makeUpdateWorkspace(t)
+	t.Chdir(home)
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nupdated AGENTS.md template\nchanged:\nfixed the frobnicator\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+
+	agentsMD, err := os.ReadFile(filepath.Join(home, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(agentsMD), "## Workflow") {
+		t.Fatalf("got %q, want AGENTS.md written with the workflow template", agentsMD)
+	}
+}
+
+func TestUpdateSkipsAgentsRefreshOutsideWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := t.TempDir()
+	t.Chdir(home)
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nchanged:\nfixed the frobnicator\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("got AGENTS.md written outside a workspace, err=%v", err)
+	}
+}
+
+func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := makeUpdateWorkspace(t)
+	t.Chdir(home)
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nupdated AGENTS.md template\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
 }
 
 func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
