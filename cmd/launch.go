@@ -41,10 +41,12 @@ var launchPolling = launchPoll{
 // exactly one job here, spotting dialogs: a known prompt is answered and resets the quiet count,
 // the generic unrecognized-dialog fallback resets it without being answered so an uncatalogued
 // dialog fails loudly, and a prompt catalogued as refused fails immediately with its own reason.
-// The text is the visible viewport, not scrollback, because a modal dialog is on screen now by
-// definition - it leaves the viewport the instant the harness repaints, so there is no answered
-// dialog left to re-answer. Ready is a cheap secondary signal - with the agent already confirmed
-// present, the harness's own paint leaves the quiet window nothing to wait for.
+// The text is recent scrollback rather than the visible viewport because an unattached pane is too
+// short to show a whole dialog and would clip the very lines that identify it (see
+// herdr.PaneRead), which means a dialog already answered can still be in the read. Each catalogued
+// dialog is therefore answered at most once per launch, so lingering text can never make hand type
+// into a session that has moved on. Ready is a cheap secondary signal - with the agent already
+// confirmed present, the harness's own paint leaves the quiet window nothing to wait for.
 //
 // The gate is only as good as herdr's labeling of the harness, which is why a pane that is never
 // labeled says so by name (see harness.AgentDetectionVerified) instead of failing as a bare
@@ -53,7 +55,7 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 	prompts := harness.FirstRunPromptsFor(harnessName)
 	deadline := time.Now().Add(launchPolling.Timeout)
 	quiet := 0
-	answered := ""
+	answered := map[string]bool{}
 	sawAgent := false
 	detected := harness.AgentDetectionVerified(harnessName)
 	noAgent := "the harness never started in the pane"
@@ -74,12 +76,12 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 
 		sawAgent = sawAgent || pane.Agent != ""
 
-		prompt, known := matchFirstRunPrompt(prompts.Known, text)
+		prompt, known := matchFirstRunPrompt(prompts.Known, text, answered)
 		switch {
 		case pane.Agent == "":
 			quiet = 0
 			switch {
-			case (known || answered != "") && (sawAgent || detected):
+			case (known || len(answered) > 0) && (sawAgent || detected):
 				stall = "the harness exited on a first-run dialog instead of starting up"
 			case known:
 				stall = fmt.Sprintf("%s, so the %s dialog on screen may be a harness herdr never recognized rather than one that exited", noAgent, prompt.Name)
@@ -91,13 +93,11 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 		case known && prompt.Refuse != "":
 			return fmt.Errorf("worker is waiting on the %s prompt: %s", prompt.Name, prompt.Refuse)
 		case known:
-			// Answering again on a frame byte-identical to the one already answered would inject
-			// the keys into whatever the harness moved on to; only a repaint means it is stuck.
-			if text != answered {
+			if !answered[prompt.Name] {
 				if err := answerFirstRunPrompt(client, paneID, prompt); err != nil {
 					return err
 				}
-				answered = text
+				answered[prompt.Name] = true
 			}
 			quiet = 0
 			stall = fmt.Sprintf("answering the %s prompt is not clearing it", prompt.Name)
@@ -121,11 +121,13 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 	}
 }
 
-// matchFirstRunPrompt reports which catalogued dialog the pane's viewport is showing. A refused
-// prompt wins over an answerable one wherever either sits in the catalogue, so a screen carrying
-// both signatures is never answered into. Answerable entries need no such tie-break: two modal
-// dialogs cannot occupy one viewport at once, so at most one of them is really on screen.
-func matchFirstRunPrompt(known []harness.FirstRunPrompt, text string) (harness.FirstRunPrompt, bool) {
+// matchFirstRunPrompt reports which catalogued dialog the pane read is showing, given the dialogs
+// this launch has already answered. A refused prompt wins over an answerable one wherever either
+// sits in the catalogue, so a read carrying both signatures is never answered into. Among
+// answerable ones an unanswered dialog wins over an already-answered one, so the text of a dialog
+// just cleared cannot hide the next dialog behind it in the same read; otherwise catalogue order
+// decides, which for claude is the order it paints them in.
+func matchFirstRunPrompt(known []harness.FirstRunPrompt, text string, answered map[string]bool) (harness.FirstRunPrompt, bool) {
 	var match harness.FirstRunPrompt
 	found := false
 	for _, prompt := range known {
@@ -135,7 +137,7 @@ func matchFirstRunPrompt(known []harness.FirstRunPrompt, text string) (harness.F
 		if prompt.Refuse != "" {
 			return prompt, true
 		}
-		if !found {
+		if !found || (answered[match.Name] && !answered[prompt.Name]) {
 			match, found = prompt, true
 		}
 	}

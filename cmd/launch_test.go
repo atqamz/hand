@@ -185,13 +185,31 @@ func TestConfirmLaunch(t *testing.T) {
 			wantErr: "no known signature covers",
 		},
 		{
-			// An unchanged frame is a dialog that has not repainted, so the answer is sent once
-			// and not re-injected on every poll for the rest of the timeout.
 			name:     "an answered prompt that never clears is answered exactly once",
 			harness:  "claude",
 			frames:   []launchFrame{live(launchBypassFrame)},
 			wantErr:  "answering the bypass permissions prompt is not clearing it",
 			wantKeys: "Down\nEnter\n",
+		},
+		{
+			// A recent-scrollback read keeps showing an answered dialog next to the frames that
+			// replaced it. Re-sending its keys there types into a live session, so an answer goes
+			// out once per dialog per launch and not once per frame that still matches.
+			name:     "a dialog lingering in scrollback after its answer is not answered again",
+			harness:  "claude",
+			frames:   []launchFrame{live(launchTrustFrame), live(launchTrustFrame + "\n" + launchReadyFrame)},
+			wantErr:  "answering the workspace trust prompt is not clearing it",
+			wantKeys: "Enter\n",
+		},
+		{
+			// claude paints trust first and bypass second, and the read holding both is the normal
+			// case once trust is answered - the dialog still waiting has to win over the one already
+			// dealt with, or hand answers nothing for the rest of the launch.
+			name:     "the next dialog is answered even while the answered one is still in the read",
+			harness:  "claude",
+			frames:   []launchFrame{live(launchTrustFrame), live(launchTrustFrame + "\n" + launchBypassFrame), live(launchTrustFrame + "\n" + launchReadyFrame)},
+			wantErr:  "answering the workspace trust prompt is not clearing it",
+			wantKeys: "Enter\nDown\nEnter\n",
 		},
 		{
 			// Issue #28's actual timeline: the pane starts as a bash prompt echoing the launch

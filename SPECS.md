@@ -827,12 +827,17 @@ real pane and observed being labeled. For codex, pi and grok it rests on herdr's
 detection manifests, read but not exercised, because no binary for those is installed on this host.
 Pane text is used only to spot dialogs (`internal/harness`'s `FirstRunPromptsFor`): a known one is
 answered, and success needs the pane to hold a live agent and stay free of both known dialogs and
-the harness's generic unrecognized-dialog fallback for the settle window. That text is the pane's
-visible viewport (`pane read --source visible`), not its scrollback, because scrollback cannot tell
-a dialog that is up right now from one already answered - and answering text the harness has moved
-past sends keys into a live session. A harness's readiness signature is a secondary shortcut - on a
-pane already holding a live agent, the harness's own paint means there is nothing left to settle
-for.
+the harness's generic unrecognized-dialog fallback for the settle window. A harness's readiness
+signature is a secondary shortcut - on a pane already holding a live agent, the harness's own paint
+means there is nothing left to settle for.
+
+That text is read from the pane's recent scrollback (`pane read --source recent`), not its visible
+viewport, because a pane in an unattached herdr session is too short to show a whole dialog - 23
+rows against 61 in an attached one - and what it clips is the lower half, where the option and
+footer lines that identify a dialog live. Scrollback therefore keeps showing a dialog that has
+already been answered, so re-answering is prevented by answering each catalogued dialog at most once
+per launch, rather than by comparing frames or ranking which match is most recent. If keys never
+land and a dialog stays up, hand sends nothing further and runs out the poll window instead.
 
 Two outcomes are not success. A pane with no agent, or one still showing a dialog, when the poll
 window elapses fails the spawn/promote with that pane content and what held it up; for a harness

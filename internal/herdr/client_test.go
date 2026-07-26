@@ -192,12 +192,12 @@ func TestTabListParsesResult(t *testing.T) {
 	}
 }
 
-// TestPaneReadReadsVisibleViewport pins --source visible: a scrollback read cannot tell a dialog
-// that is up now from one already answered, so confirmLaunch would answer text the harness has
-// moved past and send keys into a live session.
-func TestPaneReadReadsVisibleViewport(t *testing.T) {
+// TestPaneReadReadsRecentScrollback pins --source recent: a 23-row unattached pane clips the option
+// and footer lines that identify a first-run dialog, and a dialog that matches nothing is confirmed
+// as a started worker.
+func TestPaneReadReadsRecentScrollback(t *testing.T) {
 	writeFakeHerdr(t, `case "$*" in
-*"--source visible"*) printf 'Welcome to Claude Code\n' ;;
+*"--source recent"*) printf 'Welcome to Claude Code\n' ;;
 *) echo "unexpected read args: $*" >&2; exit 1 ;;
 esac`)
 	c := NewClient()

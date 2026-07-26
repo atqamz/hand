@@ -245,21 +245,24 @@ func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 	return c.callVoid(args...)
 }
 
-// PaneRead returns the pane's visible viewport as plain text. Its one caller asks whether a
-// modal dialog is up right now, and only the viewport answers that: scrollback cannot tell a
-// dialog still on screen from one already answered, so a --source recent read can re-send keys
-// into a live session over text the harness has moved past. --source recent was chosen first
-// because it also captures a dialog in a pane too short to show it, but that pane fails
-// unsafely under recent (keys into a live session, launch reported clean) and safely under
-// visible (nothing matches, the launch times out and rolls back with the pane content in the
-// error). Unlike every command above, herdr's own contract for pane read is a
-// third shape: raw text on success, and on failure a bare {"code","message"} object rather than
-// the {"error":{...}} envelope call and callVoid expect. That body is checked ahead of the exit
-// status for the same reason callVoid checks its envelope first - herdr's exit code cannot be
-// trusted on its own - and here a failure read as pane text would confirm a worker no one
-// observed.
+// PaneRead returns the pane's recent scrollback as plain text. Its one caller looks for first-run
+// dialogs, and the answerable part of a dialog is its lower half - claude's trust dialog is only
+// recognizable by its "Yes, I trust this folder" option and the generic fallback only by the
+// "Enter to confirm" footer - so a viewport too short to hold the whole dialog clips exactly the
+// text that has to match. That is not hypothetical: a pane measures 23 rows in an unattached herdr
+// session against 61 in an attached one, and hand spawns headlessly with nothing attached.
+// --source visible was tried for this call and reverted for that reason; a clipped dialog matches
+// nothing, and an unmatched dialog under a live agent is confirmed as started, so the short pane
+// fails silently and wrongly. Re-answering a dialog whose text lingers in scrollback is prevented
+// in cmd/launch.go instead, by answering each catalogued dialog at most once per launch.
+//
+// Unlike every command above, herdr's own contract for pane read is a third shape: raw text on
+// success, and on failure a bare {"code","message"} object rather than the {"error":{...}} envelope
+// call and callVoid expect. That body is checked ahead of the exit status for the same reason
+// callVoid checks its envelope first - herdr's exit code cannot be trusted on its own - and here a
+// failure read as pane text would confirm a worker no one observed.
 func (c *Client) PaneRead(paneID string, lines int) (string, error) {
-	args := []string{"pane", "read", paneID, "--source", "visible", "--lines", strconv.Itoa(lines)}
+	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
 	stdout, stderr, runErr := c.run(args...)
 	var eb errorBody
 	if json.Unmarshal(stdout, &eb) == nil && eb.Code != "" && eb.Message != "" {
