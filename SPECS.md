@@ -1365,14 +1365,6 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install herdr
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -fsSL https://github.com/ogulcancelik/herdr/releases/download/v0.7.5/herdr-linux-x86_64 -o "$HOME/.local/bin/herdr"
-          chmod +x "$HOME/.local/bin/herdr"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Install treehouse
-        run: go install github.com/kunchenguid/treehouse@v2.1.0
       - name: End-to-end
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
 ```
@@ -1471,7 +1463,7 @@ jobs:
             checksums.txt
 ```
 
-Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e with real herdr and treehouse, then release-please for automated releases.
+Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (tests/e2e refuses to run if either resolves for real, see TestMain), then release-please for automated releases.
 
 `.github/dependabot.yaml` - keep Go modules and GitHub Actions up to date:
 ```yaml

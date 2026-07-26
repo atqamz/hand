@@ -25,11 +25,45 @@ import (
 
 var handBin string
 
+// backendsThisSuiteFakes are the tools whose real installs CI used to fetch for
+// this package before every test started writing its own fake onto PATH instead
+// (see fakes_test.go). gh is deliberately not in this list even though some
+// tests fake it too: gh is a ubiquitous, legitimately-installed CLI, so its
+// ambient presence is expected and this check would false-positive on most
+// developer machines; herdr and treehouse are niche tools unique to this
+// project's own use of itself, so an ambient copy is a real signal that the
+// isolation this suite promises has already broken - a reintroduced CI install
+// step, or a developer's own PATH set up to run hand for real.
+var backendsThisSuiteFakes = []string{"herdr", "treehouse"}
+
+// refuseAmbientBackends fails the whole suite once, before any subtest runs
+// and before any test has prepended its own fixture directory to PATH, if a
+// binary this suite fakes already resolves. A stale PATH entry - CI installing
+// a real backend again, or a developer's machine having one installed for
+// actual use - would otherwise let that real binary silently answer in place
+// of a test's fake, so the affected test would pass against reality instead of
+// failing. This runs once here rather than per test because it is a property
+// of the whole run's environment, not of any individual test's setup.
+func refuseAmbientBackends() error {
+	for _, name := range backendsThisSuiteFakes {
+		if path, err := exec.LookPath(name); err == nil {
+			return fmt.Errorf("%s resolves to %s before any test fixture is set up; "+
+				"this suite fakes %s and must not find a real one on PATH", name, path, name)
+		}
+	}
+	return nil
+}
+
 // TestMain builds the hand binary once for the whole package. go test's result
 // cache is keyed on this package's own inputs, not on this nested go build, so
 // changing production code alone will not invalidate a cached e2e run - pass
 // -count=1 when checking red/green behavior after a production-code-only edit.
 func TestMain(m *testing.M) {
+	if err := refuseAmbientBackends(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	dir, err := os.MkdirTemp("", "hand-e2e-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
