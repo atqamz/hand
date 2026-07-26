@@ -498,6 +498,59 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 	}
 }
 
+// TestTickNamesTheCauseWhenOnlyTheDashboardUpdateFails covers the auto-record
+// that half-lands: the URL reaches task state and only the dashboard write fails.
+// pr-not-recorded is still the honest token - the recording did not complete - but
+// the line has to carry the real cause, because `hand pr`, the remedy that token
+// names, can only repair the dashboard if the operator learns that is what broke.
+func TestTickNamesTheCauseWhenOnlyTheDashboardUpdateFails(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	url := "https://github.com/atqamz/secondhand/pull/7"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := os.Remove(dashPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dashPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	if !strings.Contains(buf.String(), "pr-not-recorded task-1: "+url) {
+		t.Fatalf("out = %q, want an incomplete recording surfaced as pr-not-recorded", buf.String())
+	}
+	if !strings.Contains(buf.String(), "dashboard update failed") {
+		t.Fatalf("out = %q, want the underlying cause named on the durable line", buf.String())
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != url {
+		t.Fatalf("task.PR = %q, want the half that did land left on record", task.PR)
+	}
+}
+
 // TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused pins the slot ownership: one
 // report line can both ask the supervisor something and carry a URL that fails to
 // record, and Pending Decisions is upserted by task ID, so the second writer would

@@ -40,31 +40,33 @@ func newPRCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			if t.PR == url {
-				_, err := fmt.Fprintf(cmd.OutOrStdout(), "pr already recorded for %s: %s\n", t.ID, url)
-				return err
-			}
-			if t.PR != "" {
+			if t.PR != "" && t.PR != url {
 				return &ExitError{Err: fmt.Errorf("task %s already has a different PR recorded: %s", t.ID, t.PR), Code: 3}
 			}
 
-			proj, exists, err := project.Find(home, t.Project)
-			if err != nil {
-				return err
-			}
-			if !exists {
-				return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
-			}
+			// Reconcile rather than no-op: this command is the documented remedy for
+			// a pr-not-recorded event, and the recording it has to repair may have
+			// failed only at the dashboard, with the URL already in task state.
+			reconcile := t.PR == url
+			if !reconcile {
+				proj, exists, err := project.Find(home, t.Project)
+				if err != nil {
+					return err
+				}
+				if !exists {
+					return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
+				}
 
-			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-			defer cancel()
-			if err := project.ValidatePR(ctx, home, proj, url); err != nil {
-				return &ExitError{Err: err, Code: 3}
-			}
+				ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+				defer cancel()
+				if err := project.ValidatePR(ctx, home, proj, url); err != nil {
+					return &ExitError{Err: err, Code: 3}
+				}
 
-			t.PR = url
-			if err := state.Write(home, t); err != nil {
-				return fmt.Errorf("write task state: %w", err)
+				t.PR = url
+				if err := state.Write(home, t); err != nil {
+					return fmt.Errorf("write task state: %w", err)
+				}
 			}
 
 			dashPath := filepath.Join(home, "data", "dashboard.md")
@@ -72,6 +74,10 @@ func newPRCmd() *cobra.Command {
 				return fmt.Errorf("update dashboard: %w", err)
 			}
 
+			if reconcile {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "pr already recorded for %s: %s (dashboard reconciled)\n", t.ID, url)
+				return err
+			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "recorded PR for %s: %s\n", t.ID, url)
 			return err
 		},

@@ -24,10 +24,14 @@ const (
 	KindStale          = "stale"
 	KindPRMerged       = "pr-merged"
 	// KindPRNotRecorded and KindPRRecordUnknown are two different facts, kept as
-	// two greppable tokens: an auto-record attempt that was made and refused,
-	// whose remedy is `hand pr`, versus one never attempted because another
+	// two greppable tokens: an auto-record that was attempted and did not
+	// complete - for any reason, refused validation through unreadable state to a
+	// failed dashboard write - whose remedy is `hand pr`, which reconciles all of
+	// them rather than no-opping; versus one never attempted because another
 	// process held the task lock, where whether the PR got recorded is unknown
-	// and the only honest instruction is to check `hand status`.
+	// and the only honest instruction is to check `hand status`. The split is by
+	// whether an attempt happened, never by cause, so a new cause needs no new
+	// kind.
 	KindPRNotRecorded       = "pr-not-recorded"
 	KindPRRecordUnknown     = "pr-record-unknown"
 	KindReportWorking       = "report-working"

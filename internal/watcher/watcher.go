@@ -179,8 +179,10 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 // question, and upserting by task ID there would erase one.
 //
 // The event kind is the outcome, since that token is what an operator greps
-// events.log for: a refused attempt is pr-not-recorded, while losing the task
-// lock leaves the outcome unknown and must not claim otherwise.
+// events.log for: an attempt that did not complete is pr-not-recorded whatever
+// stopped it, while losing the task lock leaves the outcome unknown and must not
+// claim otherwise. The kind says only that much; the appended error text is what
+// says why, so neither has to stand in for the other.
 func announceAutoRecordFailure(cfg Config, t state.Task, url string, err error, out, errOut io.Writer) {
 	kind, outcome := KindPRNotRecorded, "failed"
 	if errors.Is(err, errLockContended) {
@@ -251,7 +253,10 @@ func recordAutoPR(home, id, url string) error {
 	// Task lock before dashboard lock, never the reverse - the one ordering
 	// every site that takes both follows.
 	dashPath := filepath.Join(home, "data", "dashboard.md")
-	return dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}})
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}}); err != nil {
+		return fmt.Errorf("recorded PR for %s in task state but dashboard update failed: %w", id, err)
+	}
+	return nil
 }
 
 // errLockContended marks an auto-record the watcher declined rather than

@@ -104,21 +104,44 @@ func TestPRRefusesDifferentAlreadyRecordedPR(t *testing.T) {
 	}
 }
 
-func TestPRIsIdempotentWhenSameURLAlreadyRecorded(t *testing.T) {
+// TestPRReconcilesTheDashboardWhenSameURLAlreadyRecorded pins the reconciling
+// repeat. An auto-record can write the URL into task state and then fail at the
+// dashboard, and the pr-not-recorded event reporting that names this command as
+// the remedy - so a no-op here would exit 0 while leaving the dashboard's PR
+// column empty with no signal left. The project is deliberately unregistered:
+// reaching validation would exit 3, so passing also proves it is skipped for a
+// URL already on record.
+func TestPRReconcilesTheDashboardWhenSameURLAlreadyRecorded(t *testing.T) {
 	home, _ := setupPRHome(t)
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", PR: "https://github.com/a/b/pull/1"}); err != nil {
+	url := "https://github.com/a/b/pull/1"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "unregistered", PR: url}); err != nil {
+		t.Fatal(err)
+	}
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "demo", Kind: "ship", State: "working", Age: "just now",
+	}}); err != nil {
 		t.Fatal(err)
 	}
 
 	cmd := newPRCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"task-1", "https://github.com/a/b/pull/1"})
+	cmd.SetArgs([]string{"task-1", url})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "already recorded") {
 		t.Fatalf("out = %q, want an already-recorded message", out.String())
+	}
+
+	data, err := os.ReadFile(dashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), url) {
+		t.Fatalf("dashboard.md = %q, want the PR column reconciled rather than left empty", string(data))
 	}
 }
 
