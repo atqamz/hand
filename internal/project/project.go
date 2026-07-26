@@ -5,11 +5,11 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/atqamz/secondhand/internal/atomicfile"
 )
 
 const (
@@ -153,7 +153,7 @@ func Add(homeDir string, p Project) error {
 		content = append(content, '\n')
 	}
 	line := fmt.Sprintf("- %s: %s mode=%s\n", p.Name, p.URL, p.Mode)
-	if err := writeRegistryAtomically(path, append(content, line...)); err != nil {
+	if err := atomicfile.Write(path, ".projects.md-", append(content, line...), 0o644); err != nil {
 		return fmt.Errorf("write project registry: %w", err)
 	}
 	return nil
@@ -211,7 +211,7 @@ func Remove(homeDir, name string) error {
 	}
 
 	content := strings.Join(kept, "\n") + "\n"
-	if err := writeRegistryAtomically(path, []byte(content)); err != nil {
+	if err := atomicfile.Write(path, ".projects.md-", []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write project registry: %w", err)
 	}
 	return nil
@@ -230,36 +230,4 @@ func lockRegistry(homeDir string) (func(), error) {
 		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 		_ = lock.Close()
 	}, nil
-}
-
-func writeRegistryAtomically(path string, content []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".projects.md-")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	removeTemp := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(0o644); err != nil {
-		removeTemp()
-		return err
-	}
-	n, err := tmp.Write(content)
-	if err != nil {
-		removeTemp()
-		return err
-	}
-	if n != len(content) {
-		removeTemp()
-		return io.ErrShortWrite
-	}
-	if err := tmp.Close(); err != nil {
-		removeTemp()
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		removeTemp()
-		return err
-	}
-	return nil
 }

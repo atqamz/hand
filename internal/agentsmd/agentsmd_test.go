@@ -21,7 +21,7 @@ func makeWorkspace(t *testing.T) string {
 
 func TestIsWorkspaceTrueWhenDashboardExists(t *testing.T) {
 	dir := makeWorkspace(t)
-	got, err := IsWorkspace(dir)
+	got, err := isWorkspace(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestIsWorkspaceTrueWhenDashboardExists(t *testing.T) {
 
 func TestIsWorkspaceFalseWhenNotInitialized(t *testing.T) {
 	dir := t.TempDir()
-	got, err := IsWorkspace(dir)
+	got, err := isWorkspace(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,20 +90,12 @@ func TestRefreshWritesAgentsMdAndClaudeSymlinkWhenMissing(t *testing.T) {
 // never wipe out rules or sections the user appended by hand.
 func TestRefreshPreservesUserAddedContentAcrossRefresh(t *testing.T) {
 	dir := makeWorkspace(t)
-
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-
 	path := filepath.Join(dir, "AGENTS.md")
-	original, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	userContent := "- a project-specific rule the user wrote by hand\n\n## Maintaining this file\n\nKeep this file tidy.\n"
-	withUserContent := string(original) + userContent
-	if err := os.WriteFile(path, []byte(withUserContent), 0o644); err != nil {
+	userPreamble := "# House rules\n\nRead this before the generated block.\n\n"
+	userContent := "\n- a project-specific rule the user wrote by hand\n\n## Maintaining this file\n\nKeep this file tidy.\n"
+	stale := userPreamble + beginMarker + "\n# Secondhand\n\nAn out-of-date template.\n" + endMarker + userContent
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -112,18 +104,24 @@ func TestRefreshPreservesUserAddedContentAcrossRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !refreshed {
-		t.Fatal("got refreshed=false, want true")
+		t.Fatal("got refreshed=false, want true when the generated block was stale")
 	}
 
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), userContent) {
-		t.Fatalf("got %q, want user-added content preserved verbatim", got)
+	if !strings.HasPrefix(string(got), userPreamble) {
+		t.Fatalf("got %q, want user content before the markers preserved verbatim", got)
+	}
+	if !strings.HasSuffix(string(got), userContent) {
+		t.Fatalf("got %q, want user content after the markers preserved verbatim", got)
 	}
 	if !strings.Contains(string(got), "## Workflow") {
-		t.Fatalf("got %q, want generated Workflow section still present", got)
+		t.Fatalf("got %q, want the current generated Workflow section", got)
+	}
+	if strings.Contains(string(got), "An out-of-date template.") {
+		t.Fatalf("got %q, want the stale generated block replaced", got)
 	}
 }
 
@@ -135,8 +133,12 @@ func TestRefreshLeavesUnmarkedAgentsMdUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Refresh(dir); err != nil {
+	refreshed, err := Refresh(dir)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if refreshed {
+		t.Fatal("got refreshed=true, want false when the template was not updated")
 	}
 
 	got, err := os.ReadFile(path)
@@ -145,6 +147,44 @@ func TestRefreshLeavesUnmarkedAgentsMdUntouched(t *testing.T) {
 	}
 	if string(got) != handWritten {
 		t.Fatalf("got %q, want unchanged %q", got, handWritten)
+	}
+}
+
+// A marker-less legacy AGENTS.md, or one already carrying the current template,
+// must not be rewritten at all: an identical-bytes write still swaps the inode,
+// resets the mode, and turns a symlinked AGENTS.md into a regular file.
+func TestRefreshLeavesUpToDateFileOnDiskUntouched(t *testing.T) {
+	dir := makeWorkspace(t)
+	path := filepath.Join(dir, "AGENTS.md")
+
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	refreshed, err := Refresh(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed {
+		t.Fatal("got refreshed=true, want false when the template is already current")
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("got AGENTS.md replaced, want the existing file left untouched")
+	}
+	if after.Mode().Perm() != 0o600 {
+		t.Fatalf("got mode %v, want the existing 0600 preserved", after.Mode().Perm())
 	}
 }
 

@@ -6,13 +6,14 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/atqamz/secondhand/internal/atomicfile"
 )
 
 const TimeFormat = time.RFC3339
@@ -109,7 +110,10 @@ func Update(path string, opts UpdateOpts) error {
 	apply(&d, opts)
 	d.Updated = time.Now().UTC().Format(TimeFormat)
 
-	return writeAtomic(path, Render(d))
+	if err := atomicfile.Write(path, ".dashboard.md-", Render(d), 0o644); err != nil {
+		return fmt.Errorf("write dashboard: %w", err)
+	}
+	return nil
 }
 
 func flock(path string) (func(), error) {
@@ -360,39 +364,4 @@ func writeList(b *strings.Builder, title string, lines []string) {
 		b.WriteString("- " + l + "\n")
 	}
 	b.WriteString("\n")
-}
-
-func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".dashboard.md-")
-	if err != nil {
-		return fmt.Errorf("create temp dashboard file: %w", err)
-	}
-	tmpName := tmp.Name()
-	removeTemp := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("chmod temp dashboard file: %w", err)
-	}
-	n, err := tmp.Write(data)
-	if err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("write temp dashboard file: %w", err)
-	}
-	if n != len(data) {
-		_ = tmp.Close()
-		removeTemp()
-		return io.ErrShortWrite
-	}
-	if err := tmp.Close(); err != nil {
-		removeTemp()
-		return fmt.Errorf("close temp dashboard file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		removeTemp()
-		return fmt.Errorf("rename temp dashboard file: %w", err)
-	}
-	return nil
 }

@@ -207,6 +207,41 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 	}
 }
 
+// The binary is already replaced before the refresh runs, so a refresh failure
+// must not turn a successful update into a nonzero exit.
+func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := makeUpdateWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(home, "AGENTS.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want a successful update despite the refresh failure", err)
+	}
+
+	got := out.String()
+	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nchanged:\nfixed the frobnicator\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") {
+		t.Fatalf("got stderr %q, want a refresh warning", errOut.String())
+	}
+}
+
 func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.5.0")
 

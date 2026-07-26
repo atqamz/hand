@@ -42,13 +42,14 @@ func newUpdateCmd(version string) *cobra.Command {
 				return err
 			}
 
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
-			}
-			refreshed, err := agentsmd.Refresh(cwd)
-			if err != nil {
-				return err
+			// The binary is already replaced by this point, so a failed
+			// AGENTS.md refresh is reported as a warning rather than an error:
+			// exiting nonzero here reads as "the update failed" and invites a
+			// pointless re-run.
+			var refreshed bool
+			cwd, refreshErr := os.Getwd()
+			if refreshErr == nil {
+				refreshed, refreshErr = agentsmd.Refresh(cwd)
 			}
 
 			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)
@@ -65,6 +66,11 @@ func newUpdateCmd(version string) *cobra.Command {
 			}
 			if refreshed {
 				if _, err := fmt.Fprintln(out, "updated AGENTS.md template"); err != nil {
+					return err
+				}
+			}
+			if refreshErr != nil {
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: refresh AGENTS.md: %v\n", refreshErr); err != nil {
 					return err
 				}
 			}

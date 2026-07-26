@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
+
+	"github.com/atqamz/secondhand/internal/atomicfile"
 )
 
 // ErrTaskNotFound is wrapped into errors returned by Read and Delete when no
@@ -148,36 +149,8 @@ func Write(homeDir string, t Task) error {
 	}
 	data = append(data, '\n')
 
-	tmp, err := os.CreateTemp(Dir(homeDir), "."+t.ID+".json-")
-	if err != nil {
-		return fmt.Errorf("create temp state file: %w", err)
-	}
-	tmpName := tmp.Name()
-	removeTemp := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("chmod temp state file: %w", err)
-	}
-	n, err := tmp.Write(data)
-	if err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("write temp state file: %w", err)
-	}
-	if n != len(data) {
-		_ = tmp.Close()
-		removeTemp()
-		return io.ErrShortWrite
-	}
-	if err := tmp.Close(); err != nil {
-		removeTemp()
-		return fmt.Errorf("close temp state file: %w", err)
-	}
-	if err := os.Rename(tmpName, Path(homeDir, t.ID)); err != nil {
-		removeTemp()
-		return fmt.Errorf("rename temp state file: %w", err)
+	if err := atomicfile.Write(Path(homeDir, t.ID), "."+t.ID+".json-", data, 0o644); err != nil {
+		return fmt.Errorf("write task state %q: %w", t.ID, err)
 	}
 	return nil
 }

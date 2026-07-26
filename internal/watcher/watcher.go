@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/atomicfile"
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -144,7 +145,13 @@ func appendEventLog(path, line string) error {
 	if len(lines) > maxEventLogLines {
 		lines = lines[len(lines)-maxEventLogLines:]
 	}
-	return writeFileAtomic(path, []byte(strings.Join(lines, "\n")+"\n"))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create events log directory: %w", err)
+	}
+	if err := atomicfile.Write(path, ".events.log-", []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		return fmt.Errorf("write events log: %w", err)
+	}
+	return nil
 }
 
 func readLines(path string) ([]string, error) {
@@ -160,37 +167,4 @@ func readLines(path string) ([]string, error) {
 		return nil, nil
 	}
 	return strings.Split(trimmed, "\n"), nil
-}
-
-func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create events log directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, ".events.log-")
-	if err != nil {
-		return fmt.Errorf("create temp events log: %w", err)
-	}
-	tmpName := tmp.Name()
-	removeTemp := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("chmod temp events log: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("write temp events log: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		removeTemp()
-		return fmt.Errorf("close temp events log: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		removeTemp()
-		return fmt.Errorf("rename temp events log: %w", err)
-	}
-	return nil
 }

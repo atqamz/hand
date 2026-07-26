@@ -5,10 +5,11 @@ package agentsmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/atqamz/secondhand/internal/atomicfile"
 )
 
 const (
@@ -48,10 +49,10 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Use ` + "`qmd search`" + ` to find historical context in data/ when available. Fall back to reading files directly.
 `
 
-// IsWorkspace reports whether dir has been initialized by hand init: the
+// isWorkspace reports whether dir has been initialized by hand init: the
 // presence of data/dashboard.md is the concrete, unambiguous signal since
 // hand init is the only thing that writes it.
-func IsWorkspace(dir string) (bool, error) {
+func isWorkspace(dir string) (bool, error) {
 	_, err := os.Stat(filepath.Join(dir, "data", "dashboard.md"))
 	if err == nil {
 		return true, nil
@@ -63,32 +64,40 @@ func IsWorkspace(dir string) (bool, error) {
 }
 
 // Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md symlink,
-// reporting whether it did (false, nil when dir is not a workspace, which is
-// not an error). An existing AGENTS.md keeps everything outside the generated
-// markers untouched, so user-added content and extra rules survive; only the
-// span between the markers is replaced, never the whole file.
+// reporting whether the template content actually changed (false, nil when dir
+// is not a workspace, which is not an error). An existing AGENTS.md keeps
+// everything outside the generated markers untouched, so user-added content and
+// extra rules survive; only the span between the markers is replaced, never the
+// whole file. A file whose markers are already current, and a marker-less file
+// mergeGenerated declines to touch, are both left on disk untouched.
 func Refresh(dir string) (bool, error) {
-	isWorkspace, err := IsWorkspace(dir)
+	workspace, err := isWorkspace(dir)
 	if err != nil {
 		return false, err
 	}
-	if !isWorkspace {
+	if !workspace {
 		return false, nil
 	}
 
 	path := filepath.Join(dir, filename)
 	existing, err := os.ReadFile(path)
+	var target string
 	switch {
 	case os.IsNotExist(err):
-		if err := writeAtomic(path, []byte(generatedBlock())); err != nil {
-			return false, fmt.Errorf("write %s: %w", filename, err)
-		}
+		existing = nil
+		target = generatedBlock()
 	case err != nil:
 		return false, fmt.Errorf("read %s: %w", filename, err)
 	default:
-		if err := writeAtomic(path, []byte(mergeGenerated(string(existing)))); err != nil {
+		target = mergeGenerated(string(existing))
+	}
+
+	refreshed := false
+	if target != string(existing) {
+		if err := atomicfile.Write(path, ".agents.md-", []byte(target), 0o644); err != nil {
 			return false, fmt.Errorf("write %s: %w", filename, err)
 		}
+		refreshed = true
 	}
 
 	symlinkPath := filepath.Join(dir, symlinkName)
@@ -100,7 +109,7 @@ func Refresh(dir string) (bool, error) {
 		return false, fmt.Errorf("check %s: %w", symlinkName, err)
 	}
 
-	return true, nil
+	return refreshed, nil
 }
 
 func generatedBlock() string {
@@ -122,39 +131,4 @@ func mergeGenerated(content string) string {
 	}
 	end += len(endMarker)
 	return content[:start] + strings.TrimSuffix(generatedBlock(), "\n") + content[end:]
-}
-
-func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".agents.md-")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	removeTemp := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("chmod temp file: %w", err)
-	}
-	n, err := tmp.Write(data)
-	if err != nil {
-		_ = tmp.Close()
-		removeTemp()
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if n != len(data) {
-		_ = tmp.Close()
-		removeTemp()
-		return io.ErrShortWrite
-	}
-	if err := tmp.Close(); err != nil {
-		removeTemp()
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		removeTemp()
-		return fmt.Errorf("rename temp file: %w", err)
-	}
-	return nil
 }
