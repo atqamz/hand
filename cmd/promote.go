@@ -153,6 +153,10 @@ func newPromoteCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), worktree.Return(wt, true))
 			}
 
+			if err := confirmLaunch(client, pane.PaneID, harnessName); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), worktree.Return(wt, true))
+			}
+
 			// Dashboard is deliberately left untouched: the task's row stays
 			// KindScout even though the underlying task becomes a ship task.
 			t.Kind = state.KindShip

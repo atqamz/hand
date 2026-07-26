@@ -139,6 +139,10 @@ func newSpawnCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), worktree.Return(wt, true))
 			}
 
+			if err := confirmLaunch(client, pane.PaneID, harnessName); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), worktree.Return(wt, true))
+			}
+
 			kind := state.KindShip
 			if scout {
 				kind = state.KindScout

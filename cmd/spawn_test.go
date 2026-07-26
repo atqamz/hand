@@ -39,6 +39,9 @@ case "$cmd" in
 "pane run")
  printf '{"id":"cli:1","result":{}}'
 	;;
+"pane read")
+	printf ''
+	;;
 *)
 	echo "unexpected herdr args: $@" >&2
 	exit 1

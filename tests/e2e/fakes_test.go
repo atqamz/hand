@@ -92,13 +92,16 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": status}})
 
 	// "pane run"/"send-text"/"send-keys" are void commands: real herdr writes
-	// nothing to stdout on success, unlike every query command above.
+	// nothing to stdout on success, unlike every query command above. "pane read" reports a
+	// blank pane so confirmLaunch's poll loop goes quiet on its first read, matching no
+	// first-run dialog since this fake never shows one.
 	body := fmt.Sprintf(`  "workspace list") echo %s ;;
   "workspace create") echo %s ;;
   "tab create") echo %s ;;
   "pane run") ;;
   "pane send-text") ;;
   "pane send-keys") ;;
+  "pane read") ;;
   "tab list") echo %s ;;
   "tab close") echo %s ;;
   "workspace close") echo %s ;;

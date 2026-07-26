@@ -3,6 +3,7 @@ package harness
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -24,6 +25,56 @@ var supported = map[string]bool{
 
 func IsSupported(name string) bool {
 	return supported[name]
+}
+
+// FirstRunPrompt is one interactive dialog a harness may show before it starts reading the
+// brief, along with the keys that answer it. Match is checked against the pane's recent
+// scrollback text.
+type FirstRunPrompt struct {
+	Name  string
+	Match *regexp.Regexp
+	Keys  []string
+}
+
+// FirstRunPrompts is a harness's known first-run dialogs plus a generic fallback pattern for
+// recognizing "some dialog is still on screen" even when it doesn't match any Known entry.
+// Unrecognized being nil means any non-blank pane content is treated as a possible unanswered
+// dialog until it goes quiet - the safe default for a harness with no verified signatures.
+type FirstRunPrompts struct {
+	Known        []FirstRunPrompt
+	Unrecognized *regexp.Regexp
+}
+
+// firstRunPrompts holds verified signatures per harness. Only claude has been verified against
+// a real first run (see cmd/launch.go); every other harness gets the empty value, which
+// confirmLaunch treats as "confirm the pane goes quiet, answer nothing."
+var firstRunPrompts = map[string]FirstRunPrompts{
+	Claude: {
+		Known: []FirstRunPrompt{
+			{
+				Name:  "workspace trust",
+				Match: regexp.MustCompile(`Yes,\s+I\s+trust\s+this\s+folder`),
+				Keys:  []string{"Enter"},
+			},
+			{
+				// Defaults focus to "No, exit" - a blind Enter declines it, so this needs Down
+				// first to reach "Yes, I accept" before confirming.
+				Name:  "bypass permissions",
+				Match: regexp.MustCompile(`Bypass\s+Permissions\s+mode`),
+				Keys:  []string{"Down", "Enter"},
+			},
+		},
+		// Both dialogs above end in this footer, wrapped or not; a harness update that
+		// reshuffles their wording still trips this fallback instead of confirmLaunch mistaking
+		// the dialog for a finished worker.
+		Unrecognized: regexp.MustCompile(`Enter\s+to\s+confirm`),
+	},
+}
+
+// FirstRunPromptsFor returns name's known first-run dialogs, or the empty value (answer
+// nothing, just confirm the pane goes quiet) if name has none verified.
+func FirstRunPromptsFor(name string) FirstRunPrompts {
+	return firstRunPrompts[name]
 }
 
 type Options struct {
@@ -68,8 +119,9 @@ func Build(name string, opts Options) (string, error) {
 // predicted-next-prompt ghost text, which would otherwise read to a pane-watching supervisor
 // as the worker having typed input while actually idle. Interactive claude also gates on two
 // first-run dialogs that --print skipped (workspace trust, bypass-permissions disclaimer); both
-// are one-time host setup, documented under Harness launch templates in SPECS.md. Known
-// limitation tracked at https://github.com/atqamz/secondhand/issues/28.
+// are one-time host setup, documented under Harness launch templates in SPECS.md. Their
+// signatures live in firstRunPrompts above, and cmd/launch.go's confirmLaunch clears them
+// after every spawn/promote instead of leaving them for an operator to notice and answer.
 func buildClaude(o Options) string {
 	args := []string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false", "claude", "--dangerously-skip-permissions"}
 	if o.Model != "" {

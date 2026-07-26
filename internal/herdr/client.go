@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -242,6 +243,24 @@ func (c *Client) PaneSendText(paneID, text string) error {
 func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 	args := append([]string{"pane", "send-keys", paneID}, keys...)
 	return c.callVoid(args...)
+}
+
+// PaneRead returns the pane's recent scrollback as plain text, using --source recent rather
+// than visible so a first-run dialog is still captured even in a pane too short to fit it in
+// the current viewport. Unlike every command above, herdr's own contract for pane read is a
+// third shape: raw text on success, and on failure a bare {"code","message"} object rather than
+// the {"error":{...}} envelope call and callVoid expect.
+func (c *Client) PaneRead(paneID string, lines int) (string, error) {
+	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
+	stdout, stderr, runErr := c.run(args...)
+	if runErr != nil {
+		var eb errorBody
+		if json.Unmarshal(stdout, &eb) == nil && eb.Message != "" {
+			return "", fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), eb.Code, eb.Message)
+		}
+		return "", fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
+	}
+	return string(stdout), nil
 }
 
 // WaitComposerEmpty polls the pane until the agent is no longer "working" or timeout elapses.

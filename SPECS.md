@@ -284,10 +284,12 @@ Behavior:
    - Tab naming: task ID.
 7. Construct the harness launch command from the template (see harness section).
 8. Send the launch command to the herdr pane.
-9. Write `state/<id>.json` with all metadata.
-10. Update `data/dashboard.md` with the new task.
+9. Confirm the worker actually started: poll the pane, answering any known first-run dialog,
+   until it goes quiet or the poll window elapses (see Harness launch templates).
+10. Write `state/<id>.json` with all metadata.
+11. Update `data/dashboard.md` with the new task.
 
-Any failure before step 9 leaves nothing behind: the worktree lease returns to treehouse and the
+Any failure before step 10 leaves nothing behind: the worktree lease returns to treehouse and the
 herdr side is rolled back.
 A workspace this command created is closed whole, because a fresh workspace already holds an
 auto-created root tab and closing only the task's tab would leak it.
@@ -309,6 +311,8 @@ Errors:
 - Worktree collision with another active task (names the conflicting task).
 - Herdr tab creation failed (herdr not running, session error).
 - Harness not recognized.
+- Worker never cleared a first-run prompt within the poll window (pane content included in the
+  error).
 
 State file written (`state/fix-login.json`):
 ```json
@@ -627,7 +631,7 @@ Behavior:
 2. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
 3. Acquire a fresh treehouse worktree (with collision guard).
 4. Create a new herdr tab.
-5. Launch the worker.
+5. Launch the worker and confirm it started (same as `hand spawn`).
 6. Update `state/<id>.json`: kind changes from `scout` to `ship`, new worktree and herdr coordinates.
 7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
@@ -800,20 +804,21 @@ permission dialog.
 Claude Code renders while idle; without it, a supervisor reading the pane can misread ghost text
 as the worker having typed input.
 
-Interactive launch has two first-run dialogs that headless `--print` skipped, and each stalls an
-unattended worker until it is cleared once per machine:
+Interactive launch has two first-run dialogs that headless `--print` skipped:
 
 - The workspace trust dialog. Claude Code only trusts a directory whose path or one of its
   ancestors has been accepted before, and every treehouse worktree is a fresh path under the
-  pool root (`~/.treehouse/...`).
+  pool root (`~/.treehouse/...`), so this dialog appears on every spawn, not just a fresh host.
 - The bypass-permissions disclaimer, a one-time global accept that `--dangerously-skip-permissions`
   is gated on.
 
-Operator setup before the first spawn on a new host: run `claude --dangerously-skip-permissions`
-once interactively inside the treehouse pool root, accept both dialogs, and quit. Trust is
-inherited by that directory's descendants and the disclaimer accept is global, so this covers
-every later worker. `hand status <id>` prints a task's worktree path if the pool root is unclear.
-Known limitation tracked at https://github.com/atqamz/secondhand/issues/28.
+`hand spawn` and `hand promote` clear both automatically: after sending the launch command, each
+polls the pane and answers any dialog matching a known signature (`internal/harness`'s
+`FirstRunPromptsFor`), then confirms the pane has gone quiet - neither a known dialog nor the
+harness's generic unrecognized-dialog fallback still matching - before reporting success. A pane
+still showing an unrecognized prompt when the poll window elapses fails the spawn/promote with
+that pane content in the error, instead of reporting success for a worker that never started.
+See `cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were chosen.
 
 ### Codex
 
@@ -938,6 +943,8 @@ Responses come in two shapes, and the client validates each one differently:
 - **Void commands** (`pane run`, `pane send-text`, `pane send-keys`) print nothing on success.
   A failure prints a JSON error envelope whose exit code cannot be trusted on its own, so any
   non-empty body is parsed for that envelope before the exit status is consulted.
+- **`pane read`** is a third shape: plain scrollback text on success, and on failure a bare
+  `{"code","message"}` object rather than the `{"error":{...}}` envelope the other two shapes use.
 
 The herdr client abstracts these into Go function calls; `internal/herdr` keeps one entry point
 per shape and is the source of truth for which command uses which.
