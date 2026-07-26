@@ -98,15 +98,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Real treehouse writes a banner to stderr ahead of its JSON on "get" (see
-	// internal/worktree/worktree.go's Get doc comment); omitted here for the
-	// same reason as spawn_test.go's setupSpawnHome - the stdout-only
-	// regression it guards against is covered by tests/e2e/fakes_test.go's
-	// writeFakeTreehouse.
-	treehouseScript := "#!/bin/sh\nprintf '{\"path\":\"" + newWorktree + "\"}'\n"
-	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(treehouseScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeTreehouseGet(t, bin, newWorktree)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(home)
 	return home

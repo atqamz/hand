@@ -1463,7 +1463,7 @@ jobs:
             checksums.txt
 ```
 
-Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (tests/e2e refuses to run if either resolves for real, see TestMain), then release-please for automated releases.
+Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (tests/e2e runs on a hermetic PATH holding only the real binaries it needs, so neither can resolve for real, see TestMain), then release-please for automated releases.
 
 `.github/dependabot.yaml` - keep Go modules and GitHub Actions up to date:
 ```yaml

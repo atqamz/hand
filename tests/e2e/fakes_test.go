@@ -6,17 +6,49 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// binDir returns a directory prepended to PATH for the rest of the test, so
-// fake binaries written there are found before any real tool of the same name.
+// realBinsOnPath are the only real executables this suite needs to resolve:
+// git, which both hand and the test helpers shell out to for real, and cat,
+// which the fake herdr scripts below use to read a pane's status file.
+// Everything else hand execs (herdr, treehouse, gh, no-mistakes) is faked per
+// test, so leaving it unreachable turns a missing fake into a loud failure
+// instead of a call against the developer's real tools.
+var realBinsOnPath = []string{"git", "cat"}
+
+// hermeticPath is the PATH every test runs under, built once by TestMain from
+// the inherited PATH. Each needed binary is symlinked in individually rather
+// than having its own directory prepended: on a real machine git commonly
+// lives in the same directory as real herdr and treehouse, so exposing that
+// directory would hand the suite straight back the tools it fakes.
+var hermeticPath string
+
+func buildHermeticPath(dir string) (string, error) {
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return "", err
+	}
+	for _, name := range realBinsOnPath {
+		resolved, err := exec.LookPath(name)
+		if err != nil {
+			return "", fmt.Errorf("resolve %s, which this suite runs for real: %w", name, err)
+		}
+		if err := os.Symlink(resolved, filepath.Join(dir, name)); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+// binDir returns a directory prepended to the hermetic PATH for the rest of
+// the test, so fake binaries written there are found first.
 func binDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+hermeticPath)
 	return dir
 }
 

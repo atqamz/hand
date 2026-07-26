@@ -30,6 +30,15 @@ const dashboardSkeleton = `# Dashboard
 ## Projects
 `
 
+// writeFakeHerdr fakes the two query commands a tick makes: real herdr answers
+// both with a JSON envelope carrying a non-null result on stdout and exit 0,
+// and reports failures as an envelope error rather than bare stderr
+// (internal/herdr/client.go's call doc comment), which this fake mirrors for
+// success and diverges from for the unexpected-args arm - a bare stderr line
+// and exit 1, so a call shape no test anticipated fails loudly instead of
+// parsing. "pane get" reads its status from statusFile so a test can drive
+// transitions between ticks; failure paths belong to
+// internal/herdr/client_test.go.
 func writeFakeHerdr(t *testing.T, statusFile string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -55,10 +64,16 @@ esac
 	t.Setenv("STATUS_FILE", statusFile)
 }
 
+// writeFakeGh fakes `gh pr view --json state`, the only gh call a tick makes
+// (watcher.go's ghutil.PRIsMerged). Real gh prints that JSON object on stdout
+// with exit 0 and prefixes its own warnings on stderr, so the fake emits a
+// stderr line too: PRIsMerged reads stdout alone, and a CombinedOutput
+// regression there must fail this watcher path as well, not only
+// internal/ghutil/pr_test.go.
 func writeFakeGh(t *testing.T, prState string) {
 	t.Helper()
 	bin := t.TempDir()
-	script := "#!/bin/sh\nprintf '{\"state\":\"" + prState + "\"}'\n"
+	script := "#!/bin/sh\necho 'Warning: gh version is out of date' >&2\nprintf '{\"state\":\"" + prState + "\"}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

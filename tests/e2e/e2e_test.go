@@ -25,45 +25,34 @@ import (
 
 var handBin string
 
-// backendsThisSuiteFakes are the tools whose real installs CI used to fetch for
-// this package before every test started writing its own fake onto PATH instead
-// (see fakes_test.go). gh is deliberately not in this list even though some
-// tests fake it too: gh is a ubiquitous, legitimately-installed CLI, so its
-// ambient presence is expected and this check would false-positive on most
-// developer machines; herdr and treehouse are niche tools unique to this
-// project's own use of itself, so an ambient copy is a real signal that the
-// isolation this suite promises has already broken - a reintroduced CI install
-// step, or a developer's own PATH set up to run hand for real.
-var backendsThisSuiteFakes = []string{"herdr", "treehouse"}
+// backendsThisSuiteFakes are the tools hand shells out to that this suite
+// never runs for real. None of them may resolve on the hermetic PATH: a real
+// one would silently answer in place of a test's fake, so the affected test
+// would pass against reality instead of failing.
+var backendsThisSuiteFakes = []string{"herdr", "treehouse", "gh", "no-mistakes"}
 
-// refuseAmbientBackends fails the whole suite once, before any subtest runs
-// and before any test has prepended its own fixture directory to PATH, if a
-// binary this suite fakes already resolves. A stale PATH entry - CI installing
-// a real backend again, or a developer's machine having one installed for
-// actual use - would otherwise let that real binary silently answer in place
-// of a test's fake, so the affected test would pass against reality instead of
-// failing. This runs once here rather than per test because it is a property
-// of the whole run's environment, not of any individual test's setup.
-func refuseAmbientBackends() error {
+// assertNoAmbientBackends checks that invariant once, after TestMain has
+// narrowed PATH to the fixture PATH and before any test runs, so a change that
+// widens realBinsOnPath (or hands a whole directory to buildHermeticPath) fails
+// the run loudly instead of quietly re-admitting a real backend.
+func assertNoAmbientBackends() error {
 	for _, name := range backendsThisSuiteFakes {
 		if path, err := exec.LookPath(name); err == nil {
-			return fmt.Errorf("%s resolves to %s before any test fixture is set up; "+
-				"this suite fakes %s and must not find a real one on PATH", name, path, name)
+			return fmt.Errorf("%s resolves to %s on this suite's hermetic PATH; "+
+				"this suite fakes %s and must not find a real one", name, path, name)
 		}
 	}
 	return nil
 }
 
-// TestMain builds the hand binary once for the whole package. go test's result
-// cache is keyed on this package's own inputs, not on this nested go build, so
-// changing production code alone will not invalidate a cached e2e run - pass
-// -count=1 when checking red/green behavior after a production-code-only edit.
+// TestMain builds the hand binary once for the whole package, then replaces
+// PATH with a hermetic one (see fakes_test.go's buildHermeticPath) so neither
+// the tests nor the hand processes they drive can reach a real herdr,
+// treehouse or gh that happens to be installed. go test's result cache is
+// keyed on this package's own inputs, not on this nested go build, so changing
+// production code alone will not invalidate a cached e2e run - pass -count=1
+// when checking red/green behavior after a production-code-only edit.
 func TestMain(m *testing.M) {
-	if err := refuseAmbientBackends(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
 	dir, err := os.MkdirTemp("", "hand-e2e-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -74,6 +63,20 @@ func TestMain(m *testing.M) {
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build hand: %v: %s\n", err, out)
+		os.Exit(1)
+	}
+
+	hermeticPath, err = buildHermeticPath(filepath.Join(dir, "path"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("PATH", hermeticPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := assertNoAmbientBackends(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 

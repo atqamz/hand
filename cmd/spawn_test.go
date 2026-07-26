@@ -60,6 +60,19 @@ case "$cmd" in
 esac
 `
 
+// writeFakeTreehouseGet fakes "treehouse get" as always leasing worktreePath.
+// Real treehouse writes a banner to stderr ahead of its JSON on "get"
+// (internal/worktree/worktree.go's Get doc comment); this fake omits it since
+// worktree.Get's own stdout-only parsing is covered where the banner matters,
+// in tests/e2e/fakes_test.go's writeFakeTreehouse.
+func writeFakeTreehouseGet(t *testing.T, bin, worktreePath string) {
+	t.Helper()
+	script := "#!/bin/sh\nprintf '{\"path\":\"" + worktreePath + "\"}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	t.Helper()
 	useFastLaunchPolling(t)
@@ -85,14 +98,7 @@ func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Real treehouse writes a banner to stderr ahead of its JSON on "get"
-	// (internal/worktree/worktree.go's Get doc comment); this fake omits it
-	// since worktree.Get's own stdout-only parsing is covered where the banner
-	// matters, in tests/e2e/fakes_test.go's writeFakeTreehouse.
-	treehouseScript := "#!/bin/sh\nprintf '{\"path\":\"" + worktreePath + "\"}'\n"
-	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(treehouseScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeTreehouseGet(t, bin, worktreePath)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(home)
 	return home
