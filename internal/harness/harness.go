@@ -66,7 +66,9 @@ func Build(name string, opts Options) (string, error) {
 // --print). --dangerously-skip-permissions is required or an unattended worker stalls on a
 // permission prompt. CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false suppresses claude's dim
 // predicted-next-prompt ghost text, which would otherwise read to a pane-watching supervisor
-// as the worker having typed input while actually idle.
+// as the worker having typed input while actually idle. Interactive claude also gates on two
+// first-run dialogs that --print skipped (workspace trust, bypass-permissions disclaimer); both
+// are one-time host setup, documented under Harness launch templates in SPECS.md.
 func buildClaude(o Options) string {
 	args := []string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false", "claude", "--dangerously-skip-permissions"}
 	if o.Model != "" {

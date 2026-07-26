@@ -107,26 +107,15 @@ func newSpawnCmd() *cobra.Command {
 			// task: from that point its workspace and tab are owned by the running task, not
 			// by this call, even if a later step (dashboard update) fails. Before that point,
 			// a single deferred rollback - rather than repeating the createdWorkspace check at
-			// every exit - closes whichever of workspace or tab this call is responsible for:
-			// a workspace hand created, or (when the workspace was pre-existing and shared)
-			// just the tab hand added to it.
+			// every exit - undoes whatever this call created.
 			spawned := false
-			tabCreated := false
 			var tabID string
 			defer func() {
 				if spawned {
 					return
 				}
-				if createdWorkspace {
-					if closeErr := client.WorkspaceClose(ws.WorkspaceID); closeErr != nil {
-						err = reportSpawnCleanup(err, closeErr)
-					}
-					return
-				}
-				if tabCreated {
-					if closeErr := closeTaskTab(client, ws.WorkspaceID, tabID); closeErr != nil {
-						err = reportSpawnCleanup(err, closeErr)
-					}
+				if closeErr := rollbackHerdr(client, createdWorkspace, ws.WorkspaceID, tabID); closeErr != nil {
+					err = reportSpawnCleanup(err, closeErr)
 				}
 			}()
 
@@ -134,7 +123,6 @@ func newSpawnCmd() *cobra.Command {
 			if err != nil {
 				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), worktree.Return(wt, true))
 			}
-			tabCreated = true
 			tabID = tab.TabID
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
@@ -197,6 +185,20 @@ func newSpawnCmd() *cobra.Command {
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort level for harnesses that support it")
 	return cmd
+}
+
+// rollbackHerdr undoes the herdr side of a failed spawn-shaped lifecycle: a workspace this
+// call created goes away whole (WorkspaceCreate auto-creates a root tab, so closeTaskTab's
+// sole-tab shortcut would never fire and the workspace would leak), while a pre-existing
+// workspace is shared with other tasks and only loses the tab this call added to it.
+func rollbackHerdr(client *herdr.Client, createdWorkspace bool, workspaceID, tabID string) error {
+	if createdWorkspace {
+		return client.WorkspaceClose(workspaceID)
+	}
+	if tabID == "" {
+		return nil
+	}
+	return closeTaskTab(client, workspaceID, tabID)
 }
 
 func reportSpawnCleanup(cause error, cleanupErrs ...error) error {

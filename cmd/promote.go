@@ -23,7 +23,7 @@ func newPromoteCmd() *cobra.Command {
 		Use:   "promote <id>",
 		Short: "Promote a completed scout task into a ship task",
 		Args:  usageArgs(cobra.ExactArgs(1)),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			id := args[0]
 			home, err := os.Getwd()
 			if err != nil {
@@ -119,14 +119,25 @@ func newPromoteCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("herdr workspace lookup/create failed: %w", err), worktree.Return(wt, true))
 			}
 
+			// Same rollback contract as hand spawn: until state.Write records the promotion,
+			// this call owns the new workspace or tab and must undo it on any failure; after
+			// that the promoted task owns them and later warnings must not tear them down.
+			promoted := false
+			var tabID string
+			defer func() {
+				if promoted {
+					return
+				}
+				if closeErr := rollbackHerdr(client, createdWorkspace, ws.WorkspaceID, tabID); closeErr != nil {
+					err = reportSpawnCleanup(err, closeErr)
+				}
+			}()
+
 			tab, pane, err := client.TabCreate(ws.WorkspaceID, wt, id)
 			if err != nil {
-				cleanupErrs := []error{worktree.Return(wt, true)}
-				if createdWorkspace {
-					cleanupErrs = append(cleanupErrs, client.WorkspaceClose(ws.WorkspaceID))
-				}
-				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), cleanupErrs...)
+				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), worktree.Return(wt, true))
 			}
+			tabID = tab.TabID
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
 				Worktree: wt,
@@ -135,11 +146,11 @@ func newPromoteCmd() *cobra.Command {
 				Effort:   effort,
 			})
 			if err != nil {
-				return reportSpawnCleanup(err, closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 
 			if err := client.PaneRun(pane.PaneID, launchCmd); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), worktree.Return(wt, true))
 			}
 
 			// Dashboard is deliberately left untouched: the task's row stays
@@ -156,8 +167,9 @@ func newPromoteCmd() *cobra.Command {
 				PaneID:      pane.PaneID,
 			}
 			if err := state.Write(home, t); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), closeTaskTab(client, ws.WorkspaceID, tab.TabID), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}
+			promoted = true
 
 			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil && !errors.Is(err, errTaskTabNotFound) {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {

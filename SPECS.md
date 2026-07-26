@@ -786,6 +786,20 @@ permission dialog.
 Claude Code renders while idle; without it, a supervisor reading the pane can misread ghost text
 as the worker having typed input.
 
+Interactive launch has two first-run dialogs that headless `--print` skipped, and each stalls an
+unattended worker until it is cleared once per machine:
+
+- The workspace trust dialog. Claude Code only trusts a directory whose path or one of its
+  ancestors has been accepted before, and every treehouse worktree is a fresh path under the
+  pool root (`~/.treehouse/...`).
+- The bypass-permissions disclaimer, a one-time global accept that `--dangerously-skip-permissions`
+  is gated on.
+
+Operator setup before the first spawn on a new host: run `claude --dangerously-skip-permissions`
+once interactively inside the treehouse pool root, accept both dialogs, and quit. Trust is
+inherited by that directory's descendants and the disclaimer accept is global, so this covers
+every later worker. `hand status <id>` prints a task's worktree path if the pool root is unclear.
+
 ### Codex
 
 ```sh
