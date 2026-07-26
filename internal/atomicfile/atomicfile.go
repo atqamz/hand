@@ -1,8 +1,9 @@
 // Package atomicfile replaces a file in one step: content is written to a
 // temporary file in the destination directory, then renamed over the target so
-// readers never observe a partially written file. This is the single such
-// helper in the codebase (dashboard, project, state, watcher, and agentsmd all
-// call it) - do not hand-roll another copy.
+// readers never observe a partially written file. This is the single such helper
+// for data files (dashboard, project, state, watcher, and agentsmd all call it) -
+// do not hand-roll another copy. internal/selfupdate stages the replacement
+// binary itself because it needs an executable in the target directory.
 package atomicfile
 
 import (

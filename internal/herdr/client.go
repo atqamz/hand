@@ -1,7 +1,3 @@
-// Package herdr wraps the herdr CLI's verified syntax; this file and
-// internal/harness/harness.go are the source of truth for herdr and the
-// harnesses it launches. SPECS.md's herdr and harness examples should match
-// this code, not the other way around.
 package herdr
 
 import (

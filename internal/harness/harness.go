@@ -35,7 +35,9 @@ type Options struct {
 
 // Build constructs the shell command that cds into the worktree and launches the harness
 // against the brief. Flags verified against the installed CLI (--help) are used where
-// available; unverified harnesses fall back to the SPECS.md template syntax.
+// available - claude and opencode - and this file is the source of truth for those two.
+// Codex, Grok, and Pi have no binary available yet, so they fall back to the SPECS.md
+// template syntax and must be re-verified once installable.
 func Build(name string, opts Options) (string, error) {
 	var launch string
 	switch name {

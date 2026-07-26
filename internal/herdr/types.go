@@ -1,4 +1,6 @@
-// Package herdr wraps the herdr CLI for workspace, tab, and pane operations.
+// Package herdr wraps the herdr CLI's verified syntax for workspace, tab, and
+// pane operations. client.go is the source of truth for that syntax, so
+// SPECS.md's herdr examples should match this code, not the other way around.
 package herdr
 
 type Status string

@@ -26,7 +26,7 @@ Run `hand --help` for the full command reference.
 - For no-mistakes projects, workers use `no-mistakes axi` directly in the worktree.
 - Use `qmd search` to find historical context in data/ when available. Fall back to reading files directly.
 - Zero comments by default. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug. Never restate code, narrate what, add banners, or docstring the obvious.
-- Harness/herdr syntax, exit-code enforcement, watch's stdout/errOut split, and per-command dashboard rules are commented at point of use (`internal/herdr`, `internal/harness`, `cmd/root.go`, `cmd/precondition.go`, `internal/watcher`, `cmd/spawn.go`, `cmd/teardown.go`, `cmd/project.go`, `cmd/promote.go`, `cmd/merge.go`); SPECS.md's "Exit codes" and each command's spec section own the authoritative tables.
+- Harness/herdr syntax, exit-code enforcement, watch's stdout/errOut split, and per-command dashboard rules are commented at point of use (`internal/herdr`, `internal/harness`, `cmd/root.go`, `cmd/precondition.go`, `internal/watcher`, `cmd/project.go`, `cmd/promote.go`, `cmd/merge.go`); SPECS.md's "Exit codes" and each command's spec section own the authoritative tables.
 - Test, release, and write conventions live as doc comments: `tests/e2e` (`fakes_test.go`, `e2e_test.go`), GitHub access via `gh` (`internal/ghutil`), AGENTS.md refresh (`internal/agentsmd`), atomic writes (`internal/atomicfile`).
 - Dev environment is Nix-based (`flake.nix`, `CONTRIBUTING.md`); `make lint`, `go build ./...`, and `go test -race ./...` verify inside `nix develop`.
 
