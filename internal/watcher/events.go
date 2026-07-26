@@ -2,6 +2,8 @@ package watcher
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -51,6 +53,12 @@ type TaskState struct {
 	PRMerged        bool
 	ReportOffset    int64
 	LastReportState string
+	// LastReportNote is kept alongside LastReportState so a done report that only
+	// gains its completion evidence later can be re-announced with the same text a
+	// synchronous verification would have produced.
+	LastReportNote string
+	// DoneVerified makes the verified-done announcement idempotent across ticks.
+	DoneVerified bool
 }
 
 // NewTaskState seeds tracking for a task first observed at now, without emitting an
@@ -136,11 +144,12 @@ func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {
 // it as ts.LastReportState so a subsequent idle transition can consult it. A
 // malformed line is surfaced rather than dropped, but doesn't overwrite the last
 // known report state since free text alone explains nothing.
-func ClassifyReportLine(ts *TaskState, id string, t state.Task, line state.ReportLine) *Event {
+func ClassifyReportLine(home string, ts *TaskState, id string, t state.Task, line state.ReportLine) *Event {
 	if line.Malformed {
 		return &Event{TaskID: id, Kind: KindReportMalformed, Text: fmt.Sprintf("malformed report %s: %s", id, line.Raw), Reason: line.Raw}
 	}
 	ts.LastReportState = line.State
+	ts.LastReportNote = line.Note
 
 	switch line.State {
 	case state.ReportWorking:
@@ -154,20 +163,56 @@ func ClassifyReportLine(ts *TaskState, id string, t state.Task, line state.Repor
 	case state.ReportFailed:
 		return &Event{TaskID: id, Kind: KindReportFailed, Text: fmt.Sprintf("report-failed %s: %s", id, line.Note), Reason: line.Note}
 	case state.ReportDone:
-		return classifyReportDone(id, t, line)
+		return classifyReportDone(home, ts, id, t, line)
 	}
 	return nil
 }
 
-// classifyReportDone never trusts a worker's own belief that it's finished: for a
-// ship task that's still short a merged PR, the event is marked unverified so
-// dashboard/watch consumers surface "worker says done" without treating it as
-// confirmed fact.
-func classifyReportDone(id string, t state.Task, line state.ReportLine) *Event {
-	verified := t.Kind == state.KindShip && t.PR != "" && t.Merged
+// classifyReportDone never trusts a worker's own belief that it's finished: without
+// independent completion evidence the event is marked unverified so dashboard/watch
+// consumers surface "worker says done" without treating it as confirmed fact.
+func classifyReportDone(home string, ts *TaskState, id string, t state.Task, line state.ReportLine) *Event {
+	verified := doneVerified(home, ts, t)
+	if verified {
+		ts.DoneVerified = true
+	}
+	return &Event{TaskID: id, Kind: KindReportDone, Text: doneText(id, line.Note, verified), Reason: line.Note, Verified: verified}
+}
+
+// ClassifyDeferredDone covers the ordinary ordering, where a worker reports done
+// before the evidence exists: the done line was already consumed and can't be
+// re-read, so once evidence shows up on a later tick the verified event fires from
+// the state the report left behind. Idempotent - it fires at most once per task.
+func ClassifyDeferredDone(home string, ts *TaskState, t state.Task) *Event {
+	if ts.DoneVerified || ts.LastReportState != state.ReportDone {
+		return nil
+	}
+	if !doneVerified(home, ts, t) {
+		return nil
+	}
+	ts.DoneVerified = true
+	return &Event{TaskID: t.ID, Kind: KindReportDone, Text: doneText(t.ID, ts.LastReportNote, true), Reason: ts.LastReportNote, Verified: true}
+}
+
+func doneText(id, note string, verified bool) string {
 	text := "reported-done"
 	if verified {
 		text = "done"
 	}
-	return &Event{TaskID: id, Kind: KindReportDone, Text: fmt.Sprintf("%s %s: %s", text, id, line.Note), Reason: line.Note, Verified: verified}
+	return fmt.Sprintf("%s %s: %s", text, id, note)
+}
+
+// doneVerified reports whether completion evidence exists that doesn't come from
+// the worker itself. Each task kind has its own: a ship task's PR observed merged
+// (either by hand merge writing t.Merged, or by the watcher's own poll), and a
+// scout task's data/<id>/report.md - the deliverable hand promote itself requires.
+func doneVerified(home string, ts *TaskState, t state.Task) bool {
+	switch t.Kind {
+	case state.KindShip:
+		return t.PR != "" && (t.Merged || ts.PRMerged)
+	case state.KindScout:
+		_, err := os.Stat(filepath.Join(home, "data", t.ID, "report.md"))
+		return err == nil
+	}
+	return false
 }

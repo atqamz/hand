@@ -16,6 +16,7 @@ import (
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -75,11 +76,11 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			if probeErr != nil {
 				continue
 			}
-			states[t.ID] = NewTaskState(status, now)
+			states[t.ID] = resumeTaskState(cfg.Home, t, status, now)
 			continue
 		}
 
-		t = tailReport(cfg, ts, t, out, errOut)
+		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
@@ -97,6 +98,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 				}
 			}
 		}
+		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
+			handleEvent(cfg, e, t, out, errOut)
+		}
 	}
 
 	for id := range states {
@@ -106,29 +110,42 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 }
 
+// resumeTaskState picks up where a previous hand watch left off rather than
+// starting cold: the report offset comes from the task's durable state so no
+// already-surfaced line is replayed, and the last reported state is re-read so a
+// pane found not-busy after a restart isn't mistaken for an unexplained stop.
+func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Time) *TaskState {
+	ts := NewTaskState(status, now)
+	ts.ReportOffset = t.ReportOffset
+	if last, ok, err := state.LastReport(home, t.ID); err == nil && ok && !last.Malformed {
+		ts.LastReportState = last.State
+		ts.LastReportNote = last.Note
+		ts.DoneVerified = last.State == state.ReportDone && doneVerified(home, ts, t)
+	}
+	return ts
+}
+
 // tailReport classifies whatever report lines have arrived since ts.ReportOffset,
 // before ClassifyStatus runs for this tick, so a report that lands in the same
 // poll as a herdr idle transition is already reflected in ts.LastReportState when
 // the idle-vs-idle-unreported decision is made. A line carrying exactly one
-// embedded PR URL auto-records it (shape validation only - hand pr's own network
-// check is what actually confirms the PR); more than one URL, or a PR already on
-// record, is left alone.
-func tailReport(cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) state.Task {
+// embedded PR URL auto-records it, subject to the same validation hand pr
+// enforces; more than one URL, or a PR already on record, is left alone.
+func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) state.Task {
 	path := state.ReportPath(cfg.Home, t.ID)
 	lines, offset, err := state.TailReport(path, ts.ReportOffset)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: tail report %s failed: %v\n", t.ID, err)
 		return t
 	}
-	ts.ReportOffset = offset
 
 	for _, line := range lines {
-		if e := ClassifyReportLine(ts, t.ID, t, line); e != nil {
+		if e := ClassifyReportLine(cfg.Home, ts, t.ID, t, line); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
 		}
 		if t.PR == "" {
 			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
-				if err := recordAutoPR(cfg.Home, t.ID, urls[0]); err != nil {
+				if err := autoRecordPR(ctx, cfg.Home, t, urls[0]); err != nil {
 					_, _ = fmt.Fprintf(errOut, "watch: auto-record PR for %s failed: %v\n", t.ID, err)
 				} else {
 					t.PR = urls[0]
@@ -136,7 +153,35 @@ func tailReport(cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) 
 			}
 		}
 	}
+
+	if offset != ts.ReportOffset {
+		ts.ReportOffset = offset
+		if err := persistReportOffset(cfg.Home, t.ID, offset); err != nil {
+			_, _ = fmt.Fprintf(errOut, "watch: persist report offset for %s failed: %v\n", t.ID, err)
+		}
+	}
 	return t
+}
+
+// autoRecordPR routes a worker-supplied URL through hand pr's own validation
+// before it can reach task state: a URL that survives here is what `hand merge`
+// later hands to `gh pr merge`, so a PR belonging to some other repo the worker
+// merely mentioned must be refused, not recorded.
+func autoRecordPR(ctx context.Context, home string, t state.Task, url string) error {
+	proj, exists, err := project.Find(home, t.Project)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("project %q not registered", t.Project)
+	}
+
+	ghCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := project.ValidatePR(ghCtx, home, proj, url); err != nil {
+		return err
+	}
+	return recordAutoPR(home, t.ID, url)
 }
 
 // recordAutoPR is race-safe against a concurrent explicit `hand pr` call or
@@ -163,6 +208,29 @@ func recordAutoPR(home, id, url string) error {
 
 	dashPath := filepath.Join(home, "data", "dashboard.md")
 	return dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}})
+}
+
+// persistReportOffset follows recordAutoPR's lock/re-read/write pattern so it
+// never clobbers a field another command wrote since this tick read the task.
+func persistReportOffset(home, id string, offset int64) error {
+	unlock, err := state.Lock(home, "task:"+id)
+	if err != nil {
+		return fmt.Errorf("lock task %s: %w", id, err)
+	}
+	defer unlock()
+
+	t, err := state.Read(home, id)
+	if err != nil {
+		return fmt.Errorf("read task %s: %w", id, err)
+	}
+	if t.ReportOffset == offset {
+		return nil
+	}
+	t.ReportOffset = offset
+	if err := state.Write(home, t); err != nil {
+		return fmt.Errorf("write task %s: %w", id, err)
+	}
+	return nil
 }
 
 func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {

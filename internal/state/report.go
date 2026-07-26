@@ -100,7 +100,7 @@ func TailReport(path string, offset int64) ([]ReportLine, int64, error) {
 		}
 		line := string(data[consumed : consumed+idx])
 		consumed += idx + 1
-		if line != "" {
+		if !blankReportLine(line) {
 			lines = append(lines, ParseReportLine(line))
 		}
 	}
@@ -118,16 +118,22 @@ func ReadReportLines(homeDir, id string) ([]ReportLine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read report %q: %w", id, err)
 	}
-	trimmed := strings.TrimRight(string(data), "\n")
-	if trimmed == "" {
-		return nil, nil
-	}
-	raw := strings.Split(trimmed, "\n")
-	lines := make([]ReportLine, len(raw))
-	for i, l := range raw {
-		lines[i] = ParseReportLine(l)
+	var lines []ReportLine
+	for _, l := range strings.Split(string(data), "\n") {
+		if blankReportLine(l) {
+			continue
+		}
+		lines = append(lines, ParseReportLine(l))
 	}
 	return lines, nil
+}
+
+// blankReportLine is the skip rule both readers share, so hand status never
+// shows an entry hand watch didn't surface. Whitespace-only counts as blank:
+// otherwise a trailing "  \n" would become the last (malformed) report and
+// mask a real terminal report sitting right above it.
+func blankReportLine(line string) bool {
+	return strings.TrimSpace(line) == ""
 }
 
 // LastReport returns the most recently reported line for a task, or ok=false if

@@ -2,6 +2,8 @@ package watcher
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -164,23 +166,24 @@ func TestClassifyPRMergedFiresOnce(t *testing.T) {
 }
 
 func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
+	home := t.TempDir()
 	ts := NewTaskState(herdr.StatusWorking, time.Now())
 	task := state.Task{ID: "task-1", Kind: state.KindShip}
 
 	line := state.ParseReportLine("working: workflow_dispatch added to release.yaml, invoking no-mistakes")
-	e := ClassifyReportLine(ts, "task-1", task, line)
+	e := ClassifyReportLine(home, ts, "task-1", task, line)
 	if e == nil || e.Kind != KindReportWorking || ts.LastReportState != state.ReportWorking {
 		t.Fatalf("got %+v ts=%+v, want report-working", e, ts)
 	}
 
 	line = state.ParseReportLine("needs-decision: review gate on PR for #20 raised 2 ask-user findings - (1) concurrency group release-${{ github.ref }} does not serialize manual dispatch against push-triggered runs on main, risking concurrent release-please runs; (2) dispatch replays same release-please step that already no-op'd on issue #20, may not unblock the conflicted PR without also deleting/recreating the release branch. Run parked at review gate, run id 01KYEVGV26MD8X08MZY2VXXCSR on branch 20-release-workflow-dispatch.")
-	e = ClassifyReportLine(ts, "task-1", task, line)
+	e = ClassifyReportLine(home, ts, "task-1", task, line)
 	if e == nil || e.Kind != KindReportNeedsDecision || ts.LastReportState != state.ReportNeedsDecision {
 		t.Fatalf("got %+v ts=%+v, want report-needs-decision", e, ts)
 	}
 
 	line = state.ParseReportLine("done: PR https://github.com/atqamz/secondhand/pull/31 checks green")
-	e = ClassifyReportLine(ts, "task-1", task, line)
+	e = ClassifyReportLine(home, ts, "task-1", task, line)
 	if e == nil || e.Kind != KindReportDone {
 		t.Fatalf("got %+v, want report-done", e)
 	}
@@ -190,11 +193,12 @@ func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
 }
 
 func TestClassifyReportLineMalformedIsSurfacedAndDoesNotOverwriteLastReportState(t *testing.T) {
+	home := t.TempDir()
 	ts := NewTaskState(herdr.StatusWorking, time.Now())
 	ts.LastReportState = state.ReportBlocked
 	task := state.Task{ID: "task-1", Kind: state.KindShip}
 
-	e := ClassifyReportLine(ts, "task-1", task, state.ParseReportLine("thinking: about to start"))
+	e := ClassifyReportLine(home, ts, "task-1", task, state.ParseReportLine("thinking: about to start"))
 	if e == nil || e.Kind != KindReportMalformed {
 		t.Fatalf("got %+v, want a malformed report surfaced, not dropped", e)
 	}
@@ -203,23 +207,92 @@ func TestClassifyReportLineMalformedIsSurfacedAndDoesNotOverwriteLastReportState
 	}
 }
 
-func TestClassifyReportDoneVerifiedOnlyWithMergedPROnShipTask(t *testing.T) {
+func TestClassifyReportDoneVerifiedOnlyWithCompletionEvidence(t *testing.T) {
 	line := state.ParseReportLine("done: all landed")
 
 	cases := []struct {
-		name     string
-		task     state.Task
-		verified bool
+		name       string
+		task       state.Task
+		scoutFound bool
+		verified   bool
 	}{
-		{"no PR recorded", state.Task{Kind: state.KindShip}, false},
-		{"PR recorded but not merged", state.Task{Kind: state.KindShip, PR: "https://github.com/a/b/pull/1"}, false},
-		{"PR recorded and merged", state.Task{Kind: state.KindShip, PR: "https://github.com/a/b/pull/1", Merged: true}, true},
-		{"scout task never verified", state.Task{Kind: state.KindScout, PR: "https://github.com/a/b/pull/1", Merged: true}, false},
+		{name: "ship with no PR recorded", task: state.Task{ID: "task-1", Kind: state.KindShip}},
+		{name: "ship with PR recorded but not merged", task: state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1"}},
+		{name: "ship with PR recorded and merged", task: state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1", Merged: true}, verified: true},
+		{name: "scout with no report.md", task: state.Task{ID: "task-1", Kind: state.KindScout}},
+		{name: "scout with its report.md deliverable", task: state.Task{ID: "task-1", Kind: state.KindScout}, scoutFound: true, verified: true},
 	}
 	for _, c := range cases {
-		e := classifyReportDone("task-1", c.task, line)
+		home := t.TempDir()
+		if c.scoutFound {
+			writeScoutReport(t, home, c.task.ID)
+		}
+		ts := NewTaskState(herdr.StatusWorking, time.Now())
+		e := classifyReportDone(home, ts, c.task.ID, c.task, line)
 		if e.Verified != c.verified {
 			t.Errorf("%s: got Verified=%v, want %v", c.name, e.Verified, c.verified)
 		}
+		if ts.DoneVerified != c.verified {
+			t.Errorf("%s: got ts.DoneVerified=%v, want %v", c.name, ts.DoneVerified, c.verified)
+		}
+	}
+}
+
+// TestClassifyDeferredDoneFiresOnceWhenEvidenceArrivesAfterTheReport covers the
+// ordinary ordering: the worker reports done, the PR is merged only afterwards,
+// and the done line is long consumed by the time the merge is observed.
+func TestClassifyDeferredDoneFiresOnceWhenEvidenceArrivesAfterTheReport(t *testing.T) {
+	home := t.TempDir()
+	task := state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1"}
+	ts := NewTaskState(herdr.StatusWorking, time.Now())
+
+	e := ClassifyReportLine(home, ts, task.ID, task, state.ParseReportLine("done: checks green"))
+	if e == nil || e.Verified {
+		t.Fatalf("got %+v, want an unverified reported-done while the PR is still open", e)
+	}
+	if e := ClassifyDeferredDone(home, ts, task); e != nil {
+		t.Fatalf("got %+v, want nothing until the merge is observed", e)
+	}
+
+	if e := ClassifyPRMerged(ts, task.ID, true); e == nil {
+		t.Fatal("want a pr-merged event")
+	}
+	e = ClassifyDeferredDone(home, ts, task)
+	if e == nil || !e.Verified || e.Kind != KindReportDone {
+		t.Fatalf("got %+v, want a verified done event once the PR is merged", e)
+	}
+	if e.Text != "done task-1: checks green" {
+		t.Fatalf("got Text=%q, want the note the report carried", e.Text)
+	}
+	if e := ClassifyDeferredDone(home, ts, task); e != nil {
+		t.Fatalf("verified done fired again: %+v", e)
+	}
+}
+
+func TestClassifyDeferredDoneVerifiesScoutFromItsOwnReport(t *testing.T) {
+	home := t.TempDir()
+	task := state.Task{ID: "task-1", Kind: state.KindScout}
+	ts := NewTaskState(herdr.StatusWorking, time.Now())
+
+	e := ClassifyReportLine(home, ts, task.ID, task, state.ParseReportLine("done: findings written"))
+	if e == nil || e.Verified {
+		t.Fatalf("got %+v, want an unverified reported-done with no report.md on disk", e)
+	}
+
+	writeScoutReport(t, home, task.ID)
+	e = ClassifyDeferredDone(home, ts, task)
+	if e == nil || !e.Verified {
+		t.Fatalf("got %+v, want a verified done once the scout's report.md exists - no PR is ever involved", e)
+	}
+}
+
+func writeScoutReport(t *testing.T, home, id string) {
+	t.Helper()
+	dir := filepath.Join(home, "data", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# findings\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

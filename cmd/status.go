@@ -51,7 +51,9 @@ func paneAgentStatus(client *herdr.Client, paneID string) string {
 }
 
 // reportedJSON mirrors one classified line from state.ReportLine for JSON
-// output; Malformed lines carry their raw text in Note with State left empty.
+// output; Malformed lines carry their raw text in Note with State left empty,
+// and an unreadable report file carries the read error in Note under the
+// reportUnreadable state.
 type reportedJSON struct {
 	State string `json:"state"`
 	Note  string `json:"note"`
@@ -78,14 +80,17 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	rows := make([]statusJSON, 0, len(tasks))
+	suffixes := make([]string, 0, len(tasks))
 	for _, t := range tasks {
 		agentState := paneAgentStatus(client, t.Herdr.PaneID)
+		last, ok, readErr := state.LastReport(home, t.ID)
 		rows = append(rows, statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState,
 			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
-			Reported: lastReportedJSON(home, t.ID),
+			Reported: reportedFrom(last, ok, readErr),
 		})
+		suffixes = append(suffixes, reportSuffix(agentState, last, ok, readErr))
 	}
 
 	if asJSON {
@@ -95,34 +100,42 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	for _, r := range rows {
-		agentState := r.AgentState + reportSuffix(home, r.ID, r.AgentState)
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, agentState, formatAge(r.CreatedAt)); err != nil {
+	for i, r := range rows {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, r.AgentState+suffixes[i], formatAge(r.CreatedAt)); err != nil {
 			return err
 		}
 	}
 	return w.Flush()
 }
 
+// reportUnreadable is the state both fleet views use when the report file exists
+// but can't be read. It is deliberately distinct from "unreported": an I/O fault
+// is not evidence that the worker never reported.
+const reportUnreadable = "unreadable"
+
 // reportSuffix flags, in the fleet table's state column, whether a not-busy pane
 // (herdr's idle or done - see herdr.Status) left a terminal report behind or not -
 // the same distinction SPECS.md's classifier draws between idle-unreported and an
 // absorbed stop. Any other agent state is left unadorned; herdr's own state is
 // already informative there.
-func reportSuffix(home, id, agentState string) string {
+func reportSuffix(agentState string, last state.ReportLine, ok bool, readErr error) string {
 	if !herdr.Status(agentState).NotBusy() {
 		return ""
 	}
-	last, ok, err := state.LastReport(home, id)
-	if err != nil || !ok || last.Malformed || last.State == "" || last.State == state.ReportWorking {
+	if readErr != nil {
+		return fmt.Sprintf(" (report %s)", reportUnreadable)
+	}
+	if !ok || last.Malformed || last.State == "" || last.State == state.ReportWorking {
 		return " (unreported)"
 	}
 	return fmt.Sprintf(" (reported: %s)", last.State)
 }
 
-func lastReportedJSON(home, id string) *reportedJSON {
-	last, ok, err := state.LastReport(home, id)
-	if err != nil || !ok {
+func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
+	if readErr != nil {
+		return &reportedJSON{State: reportUnreadable, Note: readErr.Error()}
+	}
+	if !ok {
 		return nil
 	}
 	if last.Malformed {
@@ -148,11 +161,16 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		history[i] = reportLineText(line)
 	}
 
+	var last state.ReportLine
+	if len(tail) > 0 {
+		last = tail[len(tail)-1]
+	}
+
 	if asJSON {
 		out := statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
-			Reported: lastReportedJSON(home, id), ReportHistory: history,
+			Reported: reportedFrom(last, len(tail) > 0, nil), ReportHistory: history,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -165,7 +183,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	}
 	reported := "(none)"
 	if len(tail) > 0 {
-		reported = reportLineText(tail[len(tail)-1])
+		reported = reportLineText(last)
 	}
 
 	w := cmd.OutOrStdout()

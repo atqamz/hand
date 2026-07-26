@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
-	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
@@ -59,22 +56,10 @@ func newPRCmd() *cobra.Command {
 				return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
 			}
 
-			repoSlug, err := repoSlugForProject(home, proj)
-			if err != nil {
-				return err
-			}
-			urlSlug, ok := state.ParsePRURL(url)
-			if !ok {
-				return &ExitError{Err: fmt.Errorf("invalid PR URL %q", url), Code: 2}
-			}
-			if repoSlug != urlSlug {
-				return &ExitError{Err: fmt.Errorf("PR %s belongs to %s, not project %s's repo (%s)", url, urlSlug, t.Project, repoSlug), Code: 3}
-			}
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			if _, err := ghutil.PRIsMerged(ctx, url); err != nil {
-				return &ExitError{Err: fmt.Errorf("PR %s not found in %s: %w", url, repoSlug, err), Code: 3}
+			if err := project.ValidatePR(ctx, home, proj, url); err != nil {
+				return &ExitError{Err: err, Code: 3}
 			}
 
 			t.PR = url
@@ -92,29 +77,4 @@ func newPRCmd() *cobra.Command {
 		},
 	}
 	return cmd
-}
-
-// repoSlugForProject derives "owner/repo" from the project clone's own origin
-// remote rather than the registry URL, so a PR is checked against the repo
-// hand pr and gh actually operate on.
-func repoSlugForProject(home string, p project.Project) (string, error) {
-	clonePath := filepath.Join(home, "projects", p.Name)
-	// config --get, not remote get-url: the latter resolves the URL through any
-	// url.<base>.insteadOf rule (e.g. a corporate mirror or ssh-rewrite config)
-	// before we ever see it, which could turn a genuine mismatch into a false
-	// match or a false "can't derive repo" refusal. The raw stored value is
-	// what hand pr and gh actually need to agree on.
-	c := exec.Command("git", "config", "--get", "remote.origin.url")
-	c.Dir = clonePath
-	out, err := c.Output()
-	if err != nil {
-		return "", &ExitError{Err: fmt.Errorf("resolve origin remote for project %q: %w", p.Name, err), Code: 3}
-	}
-
-	remote := strings.TrimSpace(string(out))
-	slug, ok := ghutil.RepoSlugFromRemote(remote)
-	if !ok {
-		return "", &ExitError{Err: fmt.Errorf("cannot derive GitHub repo from origin remote %q for project %q", remote, p.Name), Code: 3}
-	}
-	return slug, nil
 }

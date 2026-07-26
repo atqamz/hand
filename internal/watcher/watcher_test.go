@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -78,6 +80,27 @@ func writeFakeGh(t *testing.T, prState string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// registerProject gives a watcher home the two things the auto-record path's
+// validation reads: a registry entry and a clone whose origin remote names the
+// repo a reported PR URL has to belong to.
+func registerProject(t *testing.T, home, name, remote string) {
+	t.Helper()
+	clonePath := filepath.Join(home, "projects", name)
+	if err := os.MkdirAll(clonePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"config", "remote.origin.url", remote}} {
+		c := exec.Command("git", args...)
+		c.Dir = clonePath
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v: %s", args, err, out)
+		}
+	}
+	if err := project.Add(home, project.Project{Name: name, URL: remote, Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func setStatus(t *testing.T, statusFile, status string) {
@@ -338,8 +361,10 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
 	dashPath := filepath.Join(home, "data", "dashboard.md")
 	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
 		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
@@ -383,8 +408,10 @@ func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/secondhand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -405,6 +432,92 @@ func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	}
 	if task.PR != "https://github.com/atqamz/secondhand/pull/1" {
 		t.Fatalf("task.PR = %q, want the already-recorded PR left untouched", task.PR)
+	}
+}
+
+// TestTickRefusesToAutoRecordAForeignRepoPR is the guard against the worst
+// outcome of trusting a worker's text: a PR URL from an unrelated repo becoming
+// the task's PR, which `hand merge` would then merge for real.
+func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGh(t, "OPEN")
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: same as https://github.com/other-org/other-repo/pull/9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "" {
+		t.Fatalf("task.PR = %q, want a PR from another repo refused", task.PR)
+	}
+	if !strings.Contains(errBuf.String(), "auto-record PR for task-1 failed") {
+		t.Fatalf("errOut = %q, want the refusal logged as a diagnostic", errBuf.String())
+	}
+}
+
+// TestTickResumesReportTailAfterRestart proves the offset survives the process:
+// a fresh states map (a restarted hand watch) must not replay lines the previous
+// run already surfaced, and must not forget the report explaining a quiet pane.
+func TestTickResumesReportTailAfterRestart(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: waiting on approval\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "needs-decision task-1") {
+		t.Fatalf("output = %q, want the report line surfaced once", buf.String())
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ReportOffset == 0 {
+		t.Fatal("task.ReportOffset = 0, want the consumed offset persisted")
+	}
+
+	restarted := make(map[string]*TaskState)
+	buf.Reset()
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	setStatus(t, statusFile, "done")
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+
+	if strings.Contains(buf.String(), "needs-decision task-1") {
+		t.Fatalf("output = %q, want no replay of an already-surfaced report line", buf.String())
+	}
+	if strings.Contains(buf.String(), "idle-unreported") {
+		t.Fatalf("output = %q, want the not-busy transition still absorbed by the resumed report state", buf.String())
 	}
 }
 
