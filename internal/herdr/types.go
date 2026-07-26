@@ -25,9 +25,14 @@ type Tab struct {
 	Label       string `json:"label"`
 }
 
+// Agent names the harness herdr detects running in the pane, and is empty when the pane holds
+// no agent - a bare shell, or one whose harness has exited. AgentStatus is "unknown" in that
+// case, but it is also "unknown" for a pane herdr has not classified yet, so Agent is the field
+// to test for a running harness.
 type Pane struct {
 	PaneID      string `json:"pane_id"`
 	TabID       string `json:"tab_id"`
 	WorkspaceID string `json:"workspace_id"`
+	Agent       string `json:"agent"`
 	AgentStatus Status `json:"agent_status"`
 }

@@ -284,9 +284,9 @@ Behavior:
    - Tab naming: task ID.
 7. Construct the harness launch command from the template (see harness section).
 8. Send the launch command to the herdr pane.
-9. Confirm the worker actually started: poll the pane until the harness paints, answering any
-   known first-run dialog, until it goes quiet or the poll window elapses (see Harness launch
-   templates).
+9. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
+   no first-run dialog is left, answering any known dialog along the way, or the poll window
+   elapses (see Harness launch templates).
 10. Write `state/<id>.json` with all metadata.
 11. Update `data/dashboard.md` with the new task.
 
@@ -812,24 +812,27 @@ Interactive launch has first-run dialogs that headless `--print` skipped:
   pool root (`~/.treehouse/...`), so this dialog appears on every spawn, not just a fresh host.
 - The bypass-permissions disclaimer, a one-time global accept that `--dangerously-skip-permissions`
   is gated on.
-- The settings-trust dialog, shown for a project that ships settings requiring approval.
-  It is recognized but deliberately not answered: accepting it activates whatever hooks and
-  commands the checked-out branch ships, which is the operator's call, not hand's.
+- The managed-settings security dialog ("Managed settings require approval"), shown when this
+  host has managed settings configured by the organization's IT administration. It has nothing
+  to do with the checked-out repository: accepting it grants arbitrary code execution and prompt
+  interception for every run on the host, so it is recognized but deliberately not answered. The
+  operator accepts it once on the host, then respawns.
 
 `hand spawn` and `hand promote` clear the answerable ones automatically. After sending the launch
-command, each polls the pane and waits for the harness's own readiness signature
-(`internal/harness`'s `FirstRunPromptsFor`) before judging anything: the echoed launch command is
-not evidence the harness started, so a cold start slower than the settle window is never mistaken
-for a clean one. From then on it answers any dialog matching a known signature and confirms the
-pane has gone quiet - neither a known dialog nor the harness's generic unrecognized-dialog
-fallback still matching - before reporting success.
+command, each polls the pane. Whether a worker is running is herdr's answer, not the screen's:
+herdr reports an agent on a pane only while a harness process is in its foreground, so a harness
+that painted a dialog and then exited leaves the text behind but no agent, and is never mistaken
+for a started worker. That holds for every harness, not only the ones with catalogued signatures.
+Pane text is used only to spot dialogs (`internal/harness`'s `FirstRunPromptsFor`): a known one is
+answered, and success needs the pane to hold a live agent and stay free of both known dialogs and
+the harness's generic unrecognized-dialog fallback for the settle window. A harness's readiness
+signature is a secondary shortcut - on a pane already holding a live agent, the harness's own
+paint means there is nothing left to settle for.
 
-Three outcomes are not success. A pane still showing a prompt when the poll window elapses fails
-the spawn/promote with that pane content and which prompt held it up. A recognized-but-refused
-dialog fails immediately, naming what a human has to accept. A harness with no verified
-signatures at all (every harness except claude) cannot be confirmed either way, so the launch is
-reported with a warning on stderr rather than a silent pass. See `cmd/launch.go`'s
-`confirmLaunch` for the polling/timeout values and why they were chosen.
+Two outcomes are not success. A pane with no agent, or one still showing a dialog, when the poll
+window elapses fails the spawn/promote with that pane content and what held it up. A
+recognized-but-refused dialog fails immediately, naming what a human has to accept. See
+`cmd/launch.go`'s `confirmLaunch` for the polling/timeout values and why they were chosen.
 
 ### Codex
 

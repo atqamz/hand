@@ -151,16 +151,18 @@ func TestShellQuoteEscapesSingleQuotes(t *testing.T) {
 	}
 }
 
-// TestFirstRunPromptsClaude pins the shape confirmLaunch depends on: a readiness signature to
-// gate on, answerable dialogs carrying keys, and the settings-trust dialog catalogued as
-// recognized-but-refused so it fails fast instead of looking uncatalogued.
+// TestFirstRunPromptsClaude pins the shape confirmLaunch depends on: a startup signature for
+// each frame claude settles into, answerable dialogs carrying keys, and the managed-settings
+// dialog catalogued as recognized-but-refused so it fails fast instead of looking uncatalogued.
 func TestFirstRunPromptsClaude(t *testing.T) {
 	prompts := FirstRunPromptsFor(Claude)
 	if prompts.Ready == nil || prompts.Unrecognized == nil {
 		t.Fatalf("got %+v, want readiness and unrecognized signatures", prompts)
 	}
-	if !prompts.Ready.MatchString("Welcome to Claude Code") || !prompts.Ready.MatchString("? for shortcuts") {
-		t.Fatal("readiness signature matches neither claude startup frame")
+	for _, frame := range []string{"Welcome to Claude Code", "? for shortcuts", "bypass permissions on (shift+tab to cycle)"} {
+		if !prompts.Ready.MatchString(frame) {
+			t.Errorf("readiness signature does not match claude startup frame %q", frame)
+		}
 	}
 	if prompts.Ready.MatchString("cd '/tmp/wt' && claude --dangerously-skip-permissions 'Read the brief'") {
 		t.Fatal("readiness signature matches the echoed launch command, so a pane that never started reads as ready")
@@ -184,19 +186,19 @@ func TestFirstRunPromptsClaude(t *testing.T) {
 	if got := byName["workspace trust"]; strings.Join(got.Keys, ",") != "Enter" {
 		t.Fatalf("workspace trust keys = %v, want Enter", got.Keys)
 	}
-	settings := byName["settings trust"]
-	if settings.Refuse == "" {
-		t.Fatal("settings trust must be refused, not answered on the operator's behalf")
+	managed := byName["managed settings"]
+	if managed.Refuse == "" {
+		t.Fatal("managed settings must be refused, not answered on the operator's behalf")
 	}
-	if !settings.Match.MatchString("Settings requiring approval:") || !settings.Match.MatchString("Yes, I trust these settings") {
-		t.Fatal("settings trust signature does not match the dialog")
+	if !managed.Match.MatchString("Managed settings require approval") || !managed.Match.MatchString("Yes, I trust these settings") {
+		t.Fatal("managed settings signature does not match the dialog")
 	}
 }
 
 func TestFirstRunPromptsUnverifiedHarness(t *testing.T) {
 	for _, name := range []string{Codex, Grok, Pi, OpenCode, "nonexistent"} {
-		if FirstRunPromptsFor(name).Ready != nil {
-			t.Errorf("FirstRunPromptsFor(%q) claims a verified readiness signature", name)
+		if got := FirstRunPromptsFor(name); got.Ready != nil || got.Known != nil || got.Unrecognized != nil {
+			t.Errorf("FirstRunPromptsFor(%q) = %+v, want no unverified signatures", name, got)
 		}
 	}
 }

@@ -38,12 +38,13 @@ type FirstRunPrompt struct {
 	Refuse string
 }
 
-// FirstRunPrompts is a harness's verified pane signatures. Ready is the harness's own startup
-// paint, the proof that the pane holds harness output rather than just the echoed launch
-// command. Known are the dialogs whose exact wording is catalogued, and Unrecognized is a
-// generic fallback for "some dialog is still on screen" that no Known entry matches. A zero
-// value (Ready nil) means the harness has no verified signatures at all, so a launch cannot be
-// confirmed either way - never that it silently passed.
+// FirstRunPrompts is a harness's verified pane signatures. Known are the dialogs whose exact
+// wording is catalogued, and Unrecognized is a generic fallback for "some dialog is still on
+// screen" that no Known entry matches. Ready is the harness's own startup paint, a secondary
+// signal that a pane herdr already reports a running agent on has finished starting; a harness
+// with no Ready signature is still confirmed, just by waiting out the settle window. A zero
+// value means no dialog on this harness is recognized, so any dialog it stops on runs out the
+// launch timeout rather than being answered.
 type FirstRunPrompts struct {
 	Ready        *regexp.Regexp
 	Known        []FirstRunPrompt
@@ -51,13 +52,14 @@ type FirstRunPrompts struct {
 }
 
 // firstRunPrompts holds verified signatures per harness. Only claude has been verified against
-// a real first run (see cmd/launch.go); every other harness gets the zero value.
+// a real first run (see cmd/launch.go); every other harness gets the zero value until one is.
 var firstRunPrompts = map[string]FirstRunPrompts{
 	Claude: {
-		// claude's own startup paint: the splash banner, or the composer footer hint once the
-		// REPL is up. Neither string can come from the echoed launch command, so matching one
-		// is proof claude itself drew a frame rather than the pane merely being slow to start.
-		Ready: regexp.MustCompile(`Welcome\s+to\s+Claude\s+Code|\?\s+for\s+shortcuts`),
+		// claude's own startup paint: the splash banner, or one of the two composer footer hints
+		// once the REPL is up (the bypass-mode line replaces the shortcuts hint whenever the
+		// footer is wide enough to show it). None of these can come from the echoed launch
+		// command, so matching one means claude itself drew a frame.
+		Ready: regexp.MustCompile(`Welcome\s+to\s+Claude\s+Code|\?\s+for\s+shortcuts|bypass\s+permissions\s+on`),
 		Known: []FirstRunPrompt{
 			{
 				Name:  "workspace trust",
@@ -72,11 +74,13 @@ var firstRunPrompts = map[string]FirstRunPrompts{
 				Keys:  []string{"Down", "Enter"},
 			},
 			{
-				// Accepting this one activates whatever hooks and commands the checked-out
-				// branch happens to ship, so hand will not accept it on the operator's behalf.
-				Name:   "settings trust",
-				Match:  regexp.MustCompile(`Settings\s+requiring\s+approval|Yes,\s+I\s+trust\s+these\s+settings`),
-				Refuse: "the project ships settings requiring approval, which hand will not accept for you; approve them once by running claude in the project clone yourself, then respawn",
+				// Nothing to do with the checked-out repo: this is claude's security dialog for
+				// managed settings this host's organization policy applies to every run, and
+				// accepting it grants arbitrary code execution and prompt interception. That is
+				// a trust decision about the host, so hand will not make it for the operator.
+				Name:   "managed settings",
+				Match:  regexp.MustCompile(`Managed\s+settings\s+require\s+approval|Yes,\s+I\s+trust\s+these\s+settings`),
+				Refuse: "this host has managed settings claude requires approval for, which hand will not accept for you; run claude yourself on this host once and accept the managed-settings prompt, then respawn",
 			},
 		},
 		// Every dialog above ends in this footer, wrapped or not; a harness update that

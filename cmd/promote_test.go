@@ -15,7 +15,7 @@ const fakeHerdrPromoteScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
 "pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pOld","tab_id":"wA:tOld","workspace_id":"wA","agent_status":"done"}}}'
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tOld","workspace_id":"wA","agent":"claude","agent_status":"done"}}}' "$3"
 	;;
 "tab list")
 	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tOld","workspace_id":"wA"},{"tab_id":"wA:tOther","workspace_id":"wA"}]}}'

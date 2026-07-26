@@ -65,7 +65,7 @@ func TestPromoteScoutToShip(t *testing.T) {
     ;;
   "tab close") echo '{"result":{}}' ;;
   "workspace close") echo '{"result":{}}' ;;
-  "pane get") echo '{"result":{"pane":{"pane_id":"pane-old","tab_id":"tab-old","workspace_id":"ws-old","agent_status":"done"}}}' ;;`)
+  "pane get") printf '{"result":{"pane":{"pane_id":"%s","tab_id":"tab-old","workspace_id":"ws-old","agent":"claude","agent_status":"done"}}}\n' "$3" ;;`)
 
 	missingBrief := runHand(t, home, "promote", "task-1")
 	assertInvocation(t, missingBrief, 3, "brief not found at data/task-1/brief.md")

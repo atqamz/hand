@@ -26,10 +26,21 @@ func useFastLaunchPolling(t *testing.T) {
 	t.Cleanup(func() { launchPolling = previous })
 }
 
-// fakeLaunchPane installs a herdr fake that replays frames as successive "pane read" responses,
-// repeating the last one once they run out, and appends every key sent to a log the test reads
-// back. That is enough to drive confirmLaunch through a scripted pane lifecycle.
-func fakeLaunchPane(t *testing.T, frames ...string) (keyLog string) {
+// launchFrame is one poll's worth of pane state: what "pane read" shows and what agent, if any,
+// "pane get" reports running there. An empty agent is a pane holding no harness process.
+type launchFrame struct {
+	text  string
+	agent string
+}
+
+func live(text string) launchFrame   { return launchFrame{text: text, agent: "claude"} }
+func exited(text string) launchFrame { return launchFrame{text: text} }
+
+// fakeLaunchPane installs a herdr fake that replays frames as successive polls, repeating the
+// last one once they run out, and appends every key sent to a log the test reads back. A poll is
+// a "pane get" followed by a "pane read", so the get arm advances the frame and the read arm
+// serves whatever the get arm landed on.
+func fakeLaunchPane(t *testing.T, frames ...launchFrame) (keyLog string) {
 	t.Helper()
 	dir := t.TempDir()
 	framesDir := filepath.Join(dir, "frames")
@@ -37,19 +48,28 @@ func fakeLaunchPane(t *testing.T, frames ...string) (keyLog string) {
 		t.Fatal(err)
 	}
 	for i, frame := range frames {
-		if err := os.WriteFile(filepath.Join(framesDir, strconv.Itoa(i)), []byte(frame), 0o644); err != nil {
+		base := filepath.Join(framesDir, strconv.Itoa(i))
+		if err := os.WriteFile(base, []byte(frame.text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(base+".agent", []byte(frame.agent), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	keyLog = filepath.Join(dir, "keys.log")
 	script := `#!/bin/sh
+last=$(($LAUNCH_FRAME_COUNT - 1))
 case "$1 $2" in
-"pane read")
+"pane get")
 	n=$(cat "$LAUNCH_FRAME_COUNTER" 2>/dev/null || echo 0)
 	echo $((n + 1)) > "$LAUNCH_FRAME_COUNTER"
-	last=$(($LAUNCH_FRAME_COUNT - 1))
 	[ "$n" -gt "$last" ] && n=$last
-	cat "$LAUNCH_FRAMES_DIR/$n"
+	echo "$n" > "$LAUNCH_FRAME_CURRENT"
+	agent=$(cat "$LAUNCH_FRAMES_DIR/$n.agent")
+	printf '{"result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"%s","agent_status":"idle"}}}' "$3" "$agent"
+	;;
+"pane read")
+	cat "$LAUNCH_FRAMES_DIR/$(cat "$LAUNCH_FRAME_CURRENT")"
 	;;
 "pane send-keys")
 	shift 3
@@ -69,6 +89,7 @@ esac
 	t.Setenv("LAUNCH_FRAMES_DIR", framesDir)
 	t.Setenv("LAUNCH_FRAME_COUNT", strconv.Itoa(len(frames)))
 	t.Setenv("LAUNCH_FRAME_COUNTER", filepath.Join(dir, "counter"))
+	t.Setenv("LAUNCH_FRAME_CURRENT", filepath.Join(dir, "current"))
 	t.Setenv("LAUNCH_KEY_LOG", keyLog)
 	return keyLog
 }
@@ -76,73 +97,101 @@ esac
 const (
 	launchEchoFrame     = "$ cd '/tmp/wt' && claude --dangerously-skip-permissions 'Read the brief'"
 	launchReadyFrame    = "Welcome to Claude Code\n\n> \n  ? for shortcuts"
+	launchBypassOnFrame = "> \n  secondhand (fm/x)\n  bypass permissions on (shift+tab to cycle)"
 	launchTrustFrame    = "Do you trust the files in this folder?\n> 1. Yes, I trust this folder\n  2. No\n\nEnter to confirm"
 	launchBypassFrame   = "WARNING: Bypass Permissions mode\n  1. Yes, I accept\n> 2. No, exit\n\nEnter to confirm"
-	launchSettingsFrame = "Settings requiring approval:\n  hooks\n> 1. Yes, I trust these settings\n  2. No, exit Claude Code\n\nEnter to confirm"
+	launchSettingsFrame = "Managed settings require approval\n\nSettings requiring approval:\n  hooks\n> 1. Yes, I trust these settings\n  2. No, exit Claude Code\n\nEnter to confirm"
 	launchUnknownFrame  = "Some brand new dialog\n> 1. Sure\n  2. Nope\n\nEnter to confirm"
 )
 
 func TestConfirmLaunch(t *testing.T) {
 	tests := []struct {
-		name    string
-		harness string
-		frames  []string
-		wantErr string
-		// wantKeys is the whole key log, unless wantKeysRepeat marks a prompt the pane keeps
-		// re-showing, where it is only the first answer of however many the loop sent.
-		wantKeys       string
-		wantKeysRepeat bool
+		name     string
+		harness  string
+		frames   []launchFrame
+		wantErr  string
+		wantKeys string
 	}{
 		{
-			name:    "quiet pane after the harness paints",
+			name:    "a live agent on a quiet pane is confirmed",
 			harness: "claude",
-			frames:  []string{launchReadyFrame},
+			frames:  []launchFrame{live(launchReadyFrame)},
+		},
+		{
+			name:    "the bypass-mode footer also reads as claude having started",
+			harness: "claude",
+			frames:  []launchFrame{live(launchBypassOnFrame)},
+		},
+		{
+			// The point of taking liveness from herdr: nothing on this screen is recognizable,
+			// but herdr reports a harness running on the pane, so the worker did start.
+			name:    "a live agent whose screen text is unrecognizable is still confirmed",
+			harness: "claude",
+			frames:  []launchFrame{live(launchEchoFrame)},
+		},
+		{
+			// A harness with no catalogued signatures at all is confirmed the same way, rather
+			// than being reported as unconfirmable.
+			name:    "a harness with no signatures is confirmed on agent presence",
+			harness: "opencode",
+			frames:  []launchFrame{{text: "opencode ready", agent: "opencode"}},
+		},
+		{
+			// The failure this whole function exists for: the dialog text is still on screen but
+			// the harness behind it is gone, so there is no worker to confirm.
+			name:    "a harness that exited on a dialog is not confirmed",
+			harness: "claude",
+			frames:  []launchFrame{exited(launchBypassFrame)},
+			wantErr: "the harness exited on a first-run dialog instead of starting up",
+		},
+		{
+			name:    "leftover startup text from an exited harness is not confirmed",
+			harness: "claude",
+			frames:  []launchFrame{exited(launchReadyFrame)},
+			wantErr: "the harness never started in the pane",
 		},
 		{
 			// A bare Enter on the bypass dialog lands on "No, exit" and quits claude, so the
 			// Down that moves focus to "Yes, I accept" must be sent first and on its own.
 			name:     "answers the bypass prompt with Down before Enter",
 			harness:  "claude",
-			frames:   []string{launchBypassFrame, launchReadyFrame},
+			frames:   []launchFrame{live(launchBypassFrame), live(launchReadyFrame)},
 			wantKeys: "Down\nEnter\n",
 		},
 		{
 			name:     "answers the workspace trust prompt",
 			harness:  "claude",
-			frames:   []string{launchTrustFrame, launchReadyFrame},
+			frames:   []launchFrame{live(launchTrustFrame), live(launchReadyFrame)},
 			wantKeys: "Enter\n",
 		},
 		{
-			name:    "refuses the settings trust prompt instead of answering it",
+			name:    "refuses the managed settings prompt instead of answering it",
 			harness: "claude",
-			frames:  []string{launchSettingsFrame},
-			wantErr: "waiting on the settings trust prompt",
+			frames:  []launchFrame{live(launchSettingsFrame)},
+			wantErr: "waiting on the managed settings prompt",
+		},
+		{
+			// The refused signature is catalogued after the answerable one, so answering by list
+			// order would send keys into a dialog hand has decided not to answer.
+			name:    "a refused prompt wins over an answerable one on the same screen",
+			harness: "claude",
+			frames:  []launchFrame{live(launchTrustFrame + "\n" + launchSettingsFrame)},
+			wantErr: "waiting on the managed settings prompt",
 		},
 		{
 			name:    "an unrecognized dialog keeps resetting the quiet count",
 			harness: "claude",
-			frames:  []string{launchUnknownFrame},
+			frames:  []launchFrame{live(launchUnknownFrame)},
 			wantErr: "no known signature covers",
 		},
 		{
-			name:           "an answered prompt that never clears is not blamed on an unknown dialog",
-			harness:        "claude",
-			frames:         []string{launchBypassFrame},
-			wantErr:        "answering the bypass permissions prompt is not clearing it",
-			wantKeys:       "Down\nEnter\n",
-			wantKeysRepeat: true,
-		},
-		{
-			name:    "the echoed launch command alone is not a started worker",
-			harness: "claude",
-			frames:  []string{launchEchoFrame},
-			wantErr: "never painted a startup frame",
-		},
-		{
-			name:    "a harness with no signatures is unconfirmable, not confirmed",
-			harness: "opencode",
-			frames:  []string{launchReadyFrame},
-			wantErr: errLaunchUnconfirmable.Error(),
+			// An unchanged frame is a dialog that has not repainted, so the answer is sent once
+			// and not re-injected on every poll for the rest of the timeout.
+			name:     "an answered prompt that never clears is answered exactly once",
+			harness:  "claude",
+			frames:   []launchFrame{live(launchBypassFrame)},
+			wantErr:  "answering the bypass permissions prompt is not clearing it",
+			wantKeys: "Down\nEnter\n",
 		},
 	}
 
@@ -165,11 +214,7 @@ func TestConfirmLaunch(t *testing.T) {
 			if readErr != nil && !os.IsNotExist(readErr) {
 				t.Fatal(readErr)
 			}
-			if tt.wantKeysRepeat {
-				if !strings.HasPrefix(string(keys), tt.wantKeys) {
-					t.Fatalf("keys sent = %q, want it to start with %q", keys, tt.wantKeys)
-				}
-			} else if string(keys) != tt.wantKeys {
+			if string(keys) != tt.wantKeys {
 				t.Fatalf("keys sent = %q, want %q", keys, tt.wantKeys)
 			}
 		})

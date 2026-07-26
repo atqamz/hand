@@ -27,8 +27,8 @@ func TestSpawnCleanupReportsAllErrors(t *testing.T) {
 	}
 }
 
-// fakeHerdrSpawnScript reports a claude pane that has painted its startup frame and shows no
-// first-run dialog, so confirmLaunch confirms the launch on its first read.
+// fakeHerdrSpawnScript reports a pane herdr sees claude running in, painted past its startup
+// frame and showing no first-run dialog, so confirmLaunch confirms the launch on its first poll.
 const fakeHerdrSpawnScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -40,6 +40,9 @@ case "$cmd" in
 	;;
 "pane run")
  printf '{"id":"cli:1","result":{}}'
+	;;
+"pane get")
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"claude","agent_status":"idle"}}}' "$3"
 	;;
 "pane read")
 	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
@@ -275,6 +278,9 @@ case "$cmd" in
 	;;
 "pane run")
 	printf '{"id":"cli:1","result":{}}'
+	;;
+"pane get")
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"claude","agent_status":"idle"}}}' "$3"
 	;;
 "pane read")
 	printf 'Some brand new dialog\n> 1. Sure\n  2. Nope\n\nEnter to confirm\n'
