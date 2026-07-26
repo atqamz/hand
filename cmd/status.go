@@ -151,11 +151,11 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	}
 	agentState := paneAgentStatus(client, t.Herdr.PaneID)
 
+	// An unreadable report degrades exactly as it does in the fleet view: the
+	// fault is named on the Reported line and the rest of the detail view still
+	// prints, rather than the whole command failing over one bad read.
 	const historyLen = 5
-	tail, err := state.ReportTail(home, id, historyLen)
-	if err != nil {
-		return err
-	}
+	tail, readErr := state.ReportTail(home, id, historyLen)
 	history := make([]string, len(tail))
 	for i, line := range tail {
 		history[i] = reportLineText(line)
@@ -170,7 +170,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		out := statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
-			Reported: reportedFrom(last, len(tail) > 0, nil), ReportHistory: history,
+			Reported: reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -182,7 +182,10 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		pr = "(none)"
 	}
 	reported := "(none)"
-	if len(tail) > 0 {
+	switch {
+	case readErr != nil:
+		reported = fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
+	case len(tail) > 0:
 		reported = reportLineText(last)
 	}
 

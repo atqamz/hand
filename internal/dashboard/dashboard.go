@@ -78,10 +78,15 @@ type PendingDecision struct {
 	Text string
 }
 
-// PRUpdate sets the PR column for an existing active task row.
+// PRUpdate sets the PR column for an existing active task row. Update reports
+// back through Matched whether such a row existed: a caller that ran this to
+// repair the dashboard has to be able to tell a repair from a silent no-op. A
+// missing row is never created here - active rows come from hand spawn, and a
+// fabricated one would invent state rather than reconcile it.
 type PRUpdate struct {
-	ID string
-	PR string
+	ID      string
+	PR      string
+	Matched bool
 }
 
 type UpdateOpts struct {
@@ -177,6 +182,7 @@ func apply(d *Dashboard, opts UpdateOpts) {
 		for i := range d.ActiveTasks {
 			if d.ActiveTasks[i].ID == p.ID {
 				d.ActiveTasks[i].PR = p.PR
+				p.Matched = true
 				break
 			}
 		}

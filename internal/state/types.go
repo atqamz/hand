@@ -33,6 +33,13 @@ type Task struct {
 	// PRMergedObserved records that hand watch's own gh poll already announced
 	// this PR merged. Distinct from Merged, which means hand performed the
 	// merge; a restarted watcher needs to know the announcement went out.
-	PRMergedObserved bool   `json:"pr_merged_observed"`
-	CreatedAt        string `json:"created_at"`
+	PRMergedObserved bool `json:"pr_merged_observed"`
+	// DoneVerified records that hand watch already announced the verified "done"
+	// line for this task. Durable for the same reason PRMergedObserved is:
+	// evidence can land while the watcher is down (hand merge writes Merged
+	// without touching the dashboard), and a restart that re-derived this from
+	// current evidence would conclude the line had already gone out and never
+	// print it.
+	DoneVerified bool   `json:"done_verified"`
+	CreatedAt    string `json:"created_at"`
 }

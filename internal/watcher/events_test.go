@@ -171,19 +171,19 @@ func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
 	task := state.Task{ID: "task-1", Kind: state.KindShip}
 
 	line := state.ParseReportLine("working: workflow_dispatch added to release.yaml, invoking no-mistakes")
-	e := ClassifyReportLine(home, ts, "task-1", task, line)
+	e := ClassifyReportLine(home, ts, task, line)
 	if e == nil || e.Kind != KindReportWorking || ts.LastReportState != state.ReportWorking {
 		t.Fatalf("got %+v ts=%+v, want report-working", e, ts)
 	}
 
 	line = state.ParseReportLine("needs-decision: review gate on PR for #20 raised 2 ask-user findings - (1) concurrency group release-${{ github.ref }} does not serialize manual dispatch against push-triggered runs on main, risking concurrent release-please runs; (2) dispatch replays same release-please step that already no-op'd on issue #20, may not unblock the conflicted PR without also deleting/recreating the release branch. Run parked at review gate, run id 01KYEVGV26MD8X08MZY2VXXCSR on branch 20-release-workflow-dispatch.")
-	e = ClassifyReportLine(home, ts, "task-1", task, line)
+	e = ClassifyReportLine(home, ts, task, line)
 	if e == nil || e.Kind != KindReportNeedsDecision || ts.LastReportState != state.ReportNeedsDecision {
 		t.Fatalf("got %+v ts=%+v, want report-needs-decision", e, ts)
 	}
 
 	line = state.ParseReportLine("done: PR https://github.com/atqamz/secondhand/pull/31 checks green")
-	e = ClassifyReportLine(home, ts, "task-1", task, line)
+	e = ClassifyReportLine(home, ts, task, line)
 	if e == nil || e.Kind != KindReportDone {
 		t.Fatalf("got %+v, want report-done", e)
 	}
@@ -198,7 +198,7 @@ func TestClassifyReportLineMalformedIsSurfacedAndDoesNotOverwriteLastReportState
 	ts.LastReportState = state.ReportBlocked
 	task := state.Task{ID: "task-1", Kind: state.KindShip}
 
-	e := ClassifyReportLine(home, ts, "task-1", task, state.ParseReportLine("thinking: about to start"))
+	e := ClassifyReportLine(home, ts, task, state.ParseReportLine("thinking: about to start"))
 	if e == nil || e.Kind != KindReportMalformed {
 		t.Fatalf("got %+v, want a malformed report surfaced, not dropped", e)
 	}
@@ -229,7 +229,7 @@ func TestClassifyReportDoneVerifiedOnlyWithCompletionEvidence(t *testing.T) {
 			writeScoutReport(t, home, c.task.ID)
 		}
 		ts := NewTaskState(herdr.StatusWorking, time.Now())
-		e := classifyReportDone(home, ts, c.task.ID, c.task, line)
+		e := classifyReportDone(home, ts, c.task, line)
 		if e.Verified != c.verified {
 			t.Errorf("%s: got Verified=%v, want %v", c.name, e.Verified, c.verified)
 		}
@@ -247,7 +247,7 @@ func TestClassifyDeferredDoneFiresOnceWhenEvidenceArrivesAfterTheReport(t *testi
 	task := state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1"}
 	ts := NewTaskState(herdr.StatusWorking, time.Now())
 
-	e := ClassifyReportLine(home, ts, task.ID, task, state.ParseReportLine("done: checks green"))
+	e := ClassifyReportLine(home, ts, task, state.ParseReportLine("done: checks green"))
 	if e == nil || e.Verified {
 		t.Fatalf("got %+v, want an unverified reported-done while the PR is still open", e)
 	}
@@ -275,7 +275,7 @@ func TestClassifyDeferredDoneVerifiesScoutFromItsOwnReport(t *testing.T) {
 	task := state.Task{ID: "task-1", Kind: state.KindScout}
 	ts := NewTaskState(herdr.StatusWorking, time.Now())
 
-	e := ClassifyReportLine(home, ts, task.ID, task, state.ParseReportLine("done: findings written"))
+	e := ClassifyReportLine(home, ts, task, state.ParseReportLine("done: findings written"))
 	if e == nil || e.Verified {
 		t.Fatalf("got %+v, want an unverified reported-done with no report.md on disk", e)
 	}

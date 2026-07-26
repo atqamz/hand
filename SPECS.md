@@ -341,6 +341,7 @@ State file written (`state/fix-login.json`):
   "merged_at": "",
   "report_offset": 0,
   "pr_merged_observed": false,
+  "done_verified": false,
   "created_at": "2026-07-24T10:00:00Z"
 }
 ```
@@ -378,7 +379,7 @@ investigate     nsr     scout   done (reported: done)      10m ago
 Behavior (single task):
 1. Read `state/<id>.json`.
 2. Query herdr for current agent state and recent output.
-3. Read the last 5 lines of the task's report channel (see "Report channel").
+3. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
 4. Print detailed view, including the most recent reported line and a labeled history block.
 
 Output (single task):
@@ -472,15 +473,17 @@ Behavior (ship task):
    - If mode is `local-only`: verify the branch is merged into the default branch.
 3. Close the herdr tab.
 4. Return the worktree to treehouse: `treehouse return <path>`.
-5. Remove `state/<id>.json`.
+5. Remove `state/<id>.json` and the task's report channel `state/<id>.status`.
 6. Update `data/dashboard.md`: move task to Recent Completions (keep last 10).
 7. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
+
+The report channel goes because it is the volatile wake log, not a deliverable: a task respawned under a used ID starts at `report_offset` 0, so a surviving log would be replayed as this run's - re-raising decisions already resolved, absorbing a genuine unexplained stop as one already seen, and auto-recording a PR URL out of the previous run's `done` line onto a task nobody recorded it for. The durable deliverables under `data/<id>/` survive teardown, as before; keeping a torn-down task's wake history would be its own feature with its own reason, not a side effect of cleanup.
 
 Behavior (scout task):
 1. Check `data/<id>/report.md` exists (the report is the deliverable).
 2. Close the herdr tab.
 3. Return the worktree to treehouse.
-4. Remove `state/<id>.json`.
+4. Remove `state/<id>.json` and `state/<id>.status`.
 5. Update `data/dashboard.md`.
 
 Behavior with `--force`:
@@ -571,6 +574,7 @@ Behavior:
 1. Validate `<url>` matches `https://github.com/<owner>/<repo>/pull/<number>` exactly (anchored, no substring matching - a PR URL feeds `gh pr merge` and `gh pr view` downstream, so a loose match here is a command-injection-adjacent risk).
 2. Read `state/<id>.json`.
 3. If the task already has this exact PR recorded, skip steps 5-7 (the URL is already on record, so there is nothing left to validate) but still update `data/dashboard.md` before reporting success. This reconciling repeat is why `hand pr <id> <url>` is a sound remedy for every `pr-not-recorded` event: a recording can fail after the task-state write and before the dashboard update, and a plain no-op here would exit `0` while leaving the dashboard's PR column empty with no signal left.
+   The repeat reports what actually happened. If the task has no active dashboard row, there is nothing to reconcile: say so and exit `3`, rather than printing a repair that did not occur. The missing row is never created - active rows come from `hand spawn`, and inventing one would fabricate state instead of reconciling it. The PR stays recorded on the task either way, which the message says too; it is the dashboard the operator came to fix that is still broken.
 4. If the task already has a *different* PR recorded, refuse - one task, one PR; correcting a wrong record is a deliberate `hand teardown`/`hand spawn` decision, not something `hand pr` overwrites silently.
 5. Resolve the task's project and derive `owner/repo` from the project clone's own `origin` remote (`git config --get remote.origin.url`, not `git remote get-url`, so a local `url.<base>.insteadOf` rewrite never turns a genuine mismatch into a false match).
 6. Refuse if the URL's `owner/repo` doesn't match the derived repo slug.
@@ -589,10 +593,16 @@ Output (reconciling repeat):
 pr already recorded for fix-login: https://github.com/org/repo/pull/42 (dashboard reconciled)
 ```
 
+Error output (reconciling repeat with no row to repair, exit `3`):
+```
+pr already recorded for fix-login: https://github.com/org/repo/pull/42, but the dashboard has no active row for it - nothing reconciled
+```
+
 Errors:
 - Malformed PR URL (usage error, code `2`).
 - Task not found.
 - Task already has a different PR recorded.
+- Repeat of an already-recorded URL with no active dashboard row to reconcile (nothing was repaired; the PR stays recorded on the task).
 - Project not registered.
 - Cannot derive `owner/repo` from the project clone's origin remote.
 - URL's repo doesn't match the project's repo.
@@ -623,7 +633,7 @@ Behavior:
    - `failed <id>`: herdr pane died unexpectedly.
    - `stale <id>`: agent hasn't changed state for longer than the stale threshold (default 300s, configurable via `config/stale-threshold`).
    - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` in `state/<id>.json` after the line is printed, so a restart neither repeats it nor loses it to a crash between the two.
-   - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line was attempted and the recording did not complete. The token says only that much, for any cause - refused validation, an unregistered or unresolvable project, an unreadable task file, a failed state write, a state write that landed but whose dashboard update failed - and `<reason>` is the underlying error verbatim, which is what says which. The fix in every case is a human running `hand pr <id> <url>`: it reconciles, so it either repairs whatever half is missing or fails with the real underlying reason. The kind is deliberately not split by cause, since an enumeration of causes is forgotten the next time a new one appears.
+   - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line was attempted and the recording did not complete. The token says only that much, for any cause - refused validation, an unregistered or unresolvable project, an unreadable task file, a failed state write, a state write that landed but whose dashboard update failed - and `<reason>` is the underlying error, which is what says which. The whole cause is kept; only its line breaks are not, since `gh`'s multi-line stderr reaches these errors verbatim and an event is one line on stdout, one entry in `state/events.log`, and one bullet on the dashboard (continuation lines would parse back as separate events in both). The fix in every case is a human running `hand pr <id> <url>`: it reconciles, so it either repairs whatever half is missing or fails with the real underlying reason. The kind is deliberately not split by cause, since an enumeration of causes is forgotten the next time a new one appears.
    - `pr-record-unknown <id>: <url> (<reason>)`: the same URL was never attempted, because another command held the task lock at that moment. Whether it ended up recorded is genuinely unknown - the holder may be the `hand pr` recording that very URL - so this event asserts nothing about the outcome and points at `hand status <id>` to confirm, except when the task's own state can't be read, where it names that read failure instead of a remedy that would hit it too. Nothing is announced at all when the lock holder is found to have already recorded that same URL.
    - Both auto-record events are durable on stdout and in `state/events.log` (plus a stderr diagnostic) rather than only a transient stderr line, since the report line is consumed either way. Neither is a Pending Decision - see "Pending Decisions".
    - `working <id>: <note>` / `paused <id>: <note>` / `report-blocked <id>: <note>` / `needs-decision <id>: <note>` / `report-failed <id>: <note>`: a new line landed on the task's report channel, classified per "Report channel" above.
@@ -639,6 +649,22 @@ Behavior:
 11. Every task-state write the poll loop makes - the bookkeeping it owns (`report_offset`, `pr_merged_observed`) and an auto-recorded PR - takes the task lock non-blocking, and is skipped when another command holds it. The poll loop never waits on the **task** lock, because that lock is held across unbounded network and git work (`hand merge` across `gh pr checks`/`gh pr merge`, `hand promote` across a `git push`): waiting on it can stall every other task indefinitely, and `flock` cannot honor a SIGINT/SIGTERM in the meantime. Bookkeeping is re-derivable and simply retries next tick. A skipped auto-record is announced as `pr-record-unknown` - never as `pr-not-recorded`, which covers every attempt that was made and did not complete - except when the lock holder turns out to have recorded that same URL, which is silent.
 12. The poll loop *does* wait on the dashboard lock, and that is deliberate. It guards a bounded local read-modify-write with no network call, so a brief tick delay or slightly late shutdown is acceptable - and unlike the task lock's writes, a dashboard write is not re-derivable: the dashboard is built by applying each event to a row as it arrives, so skipping one silently loses that state change. Both locks are always taken task-first, dashboard-second, never the reverse.
 13. Per-task bookkeeping is written back only after the tick's events are announced, never before. A marker persisted ahead of its line would, if the process died in between, suppress an announcement nothing can re-derive; a duplicate line is the cheaper failure.
+
+#### What survives a `hand watch` restart
+
+**Anything the watcher announces is persisted at the moment it announces it, never re-derived on restart.** Re-deriving is how an announcement gets silently skipped: evidence that lands while the watcher is down makes the restarted process conclude the line already went out. Every fact the poll loop carries across a restart, and which side of that rule it is on:
+
+| Fact | Treatment |
+|---|---|
+| How far the report file is consumed | Persisted as `report_offset`, after the tick's events are announced. |
+| A merge this watcher's own `gh` poll saw | Persisted as `pr_merged_observed`, after `pr-merged <id>` is printed. |
+| The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. `hand merge` writes `merged` without touching the dashboard, so the evidence can appear while the watcher is down. |
+| An auto-recorded PR URL | Persisted as `pr` on the task, and every outcome that isn't a silently self-resolving race is announced (`pr-not-recorded` / `pr-record-unknown`) and logged. |
+| Last reported state and note | Re-derived, safely: they are read back from `state/<id>.status`, itself durable and consumed by offset. They gate no announcement of their own - they only explain a quiet pane - and the marker for the one announcement they can lead to (`done_verified`) is persisted separately. |
+| Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane as `(unreported)` or `(reported: <state>)` from the same report channel, and the stale timer below re-flags the task within one window. |
+| The stale timer | Re-derived, safely: the clock restarts on resume, so `stale <id>` is at most one threshold late and never skipped. |
+
+Anything added to `TaskState` belongs in this table before it ships.
 
 Output (stream):
 ```
@@ -1206,6 +1232,7 @@ Delivery modes:
 
 `state/<id>.status` is an append-only text file the worker writes and `hand` only ever reads.
 The brief the supervisory agent writes for a worker must include this file's absolute path and the vocabulary below, so the worker knows to append to it.
+It lives and dies with the task: `hand teardown` removes it alongside `state/<id>.json`, so an ID respawned later starts with an empty channel rather than inheriting the previous run's log (see `hand teardown`).
 
 Each line has the shape `<state>: <note>`, one state transition per line:
 
@@ -1230,8 +1257,8 @@ Read/classify semantics:
 - Blank and whitespace-only lines are skipped by every reader, so `hand status`'s history never shows an entry `hand watch` didn't surface and a stray trailing newline can't masquerade as a malformed terminal report.
 - If the file shrinks below the last known offset (recreated, truncated), tailing restarts from the beginning rather than erroring.
 - Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult.
-- **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`).
-- A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended verbatim, and its remedy is a human running `hand pr`, which reconciles whatever half is missing; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
+- **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`) - including when it landed while the watcher was stopped, since the announcement is tracked by the durable `done_verified` marker rather than re-derived from whatever evidence is on disk at startup (see "What survives a `hand watch` restart").
+- A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended, flattened onto the event's single line, and its remedy is a human running `hand pr`, which reconciles whatever half is missing or says so when there is no dashboard row left to repair; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
 
 ### Concurrency
 
@@ -1269,7 +1296,7 @@ On restart (new supervisory agent session):
 - `1`: general error.
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive flags, an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`).
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`).
 
 ### Error output
 

@@ -65,17 +65,20 @@ type TaskState struct {
 	Stale        bool
 	PRMerged     bool
 	ReportOffset int64
-	// PersistedOffset and PersistedPRMerged mirror what the task's durable state
-	// already carries, so a write skipped for lock contention is retried on the
-	// next tick instead of silently lost.
-	PersistedOffset   int64
-	PersistedPRMerged bool
-	LastReportState   string
+	// The Persisted* fields mirror what the task's durable state already carries,
+	// so a write skipped for lock contention is retried on the next tick instead
+	// of silently lost.
+	PersistedOffset       int64
+	PersistedPRMerged     bool
+	PersistedDoneVerified bool
+	LastReportState       string
 	// LastReportNote is kept alongside LastReportState so a done report that only
 	// gains its completion evidence later can be re-announced with the same text a
 	// synchronous verification would have produced.
 	LastReportNote string
-	// DoneVerified makes the verified-done announcement idempotent across ticks.
+	// DoneVerified makes the verified-done announcement idempotent across ticks,
+	// and is persisted after the announcement so it stays idempotent across a
+	// restart too.
 	DoneVerified bool
 }
 
@@ -162,7 +165,8 @@ func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {
 // it as ts.LastReportState so a subsequent idle transition can consult it. A
 // malformed line is surfaced rather than dropped, but doesn't overwrite the last
 // known report state since free text alone explains nothing.
-func ClassifyReportLine(home string, ts *TaskState, id string, t state.Task, line state.ReportLine) *Event {
+func ClassifyReportLine(home string, ts *TaskState, t state.Task, line state.ReportLine) *Event {
+	id := t.ID
 	if line.Malformed {
 		return &Event{TaskID: id, Kind: KindReportMalformed, Text: fmt.Sprintf("malformed report %s: %s", id, line.Raw), Reason: line.Raw}
 	}
@@ -181,7 +185,7 @@ func ClassifyReportLine(home string, ts *TaskState, id string, t state.Task, lin
 	case state.ReportFailed:
 		return &Event{TaskID: id, Kind: KindReportFailed, Text: fmt.Sprintf("report-failed %s: %s", id, line.Note), Reason: line.Note}
 	case state.ReportDone:
-		return classifyReportDone(home, ts, id, t, line)
+		return classifyReportDone(home, ts, t, line)
 	}
 	return nil
 }
@@ -189,12 +193,12 @@ func ClassifyReportLine(home string, ts *TaskState, id string, t state.Task, lin
 // classifyReportDone never trusts a worker's own belief that it's finished: without
 // independent completion evidence the event is marked unverified so dashboard/watch
 // consumers surface "worker says done" without treating it as confirmed fact.
-func classifyReportDone(home string, ts *TaskState, id string, t state.Task, line state.ReportLine) *Event {
+func classifyReportDone(home string, ts *TaskState, t state.Task, line state.ReportLine) *Event {
 	verified := doneVerified(home, ts, t)
 	if verified {
 		ts.DoneVerified = true
 	}
-	return &Event{TaskID: id, Kind: KindReportDone, Text: doneText(id, line.Note, verified), Reason: line.Note, Verified: verified}
+	return &Event{TaskID: t.ID, Kind: KindReportDone, Text: doneText(t.ID, line.Note, verified), Reason: line.Note, Verified: verified}
 }
 
 // ClassifyDeferredDone covers the ordinary ordering, where a worker reports done

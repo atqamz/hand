@@ -3,20 +3,23 @@
 package e2e
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
 // TestPRCommand drives `hand pr` through the built binary against a real
 // local clone (redirected to a GitHub URL via git's insteadOf mechanism, no
 // network) and a faked gh: recording succeeds only once the URL's repo
-// matches the project's own origin remote and gh confirms the PR exists, is
-// idempotent on a repeated identical URL, and refuses a different URL once
-// one is already recorded.
+// matches the project's own origin remote and gh confirms the PR exists, and
+// refuses a different URL once one is already recorded. A repeated identical
+// URL reconciles rather than no-ops - repairing the dashboard row when there is
+// one, and exiting non-zero rather than claiming a repair when there is not.
 func TestPRCommand(t *testing.T) {
 	remote := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remote)
@@ -59,9 +62,31 @@ func TestPRCommand(t *testing.T) {
 		t.Fatalf("task.PR = %q, want %q", task.PR, url)
 	}
 
+	// This task was written directly rather than spawned, so it has no active
+	// dashboard row: the repeat has nothing to reconcile and must say so.
+	noRow := runHand(t, home, "pr", "task-1", url)
+	assertInvocation(t, noRow, 3, "no active row")
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "e2e-fixture", Kind: state.KindShip, State: "working", Age: "just now",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
 	again := runHand(t, home, "pr", "task-1", url)
 	if again.code != 0 {
 		t.Fatalf("repeated identical pr record: exit %d, stderr %q", again.code, again.stderr)
+	}
+	if !strings.Contains(again.stdout, "already recorded") || !strings.Contains(again.stdout, "reconciled") {
+		t.Fatalf("repeat stdout = %q, want the reconciling repeat reported", again.stdout)
+	}
+	dash, err := os.ReadFile(dashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dash), url) {
+		t.Fatalf("dashboard.md = %q, want the PR column repaired by the repeat", string(dash))
 	}
 
 	different := runHand(t, home, "pr", "task-1", "https://github.com/owner/e2e-fixture/pull/8")

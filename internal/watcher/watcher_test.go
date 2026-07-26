@@ -941,6 +941,177 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	}
 }
 
+// TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence covers the
+// window between the two halves: the worker reports done, hand watch stops, and
+// hand merge lands the work - writing merged, and touching no dashboard row. On
+// restart the evidence is already on disk, so a marker re-derived from current
+// evidence would conclude the verified line had gone out and never print it,
+// leaving the row and any pending decision stuck where the report left them.
+func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, State: "working", Age: "just now",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !hasEventLine(buf.String(), "reported-done task-1: checks green") {
+		t.Fatalf("out = %q, want an unverified reported-done while nothing has landed", buf.String())
+	}
+
+	// hand merge, with the watcher stopped: it writes merged and leaves the
+	// dashboard to the events the watcher never got to emit.
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.DoneVerified {
+		t.Fatal("task.DoneVerified = true, want the unverified report to leave the marker unset")
+	}
+	task.Merged = true
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := make(map[string]*TaskState)
+	buf.Reset()
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	if !hasEventLine(buf.String(), "done task-1: checks green") {
+		t.Fatalf("out = %q, want the verified done announced by the restarted watcher", buf.String())
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindHerdrDone {
+		t.Fatalf("ActiveTasks = %+v, want the row moved to done", d.ActiveTasks)
+	}
+
+	task, err = state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !task.DoneVerified {
+		t.Fatal("task.DoneVerified = false, want the announcement persisted after the fact")
+	}
+
+	again := make(map[string]*TaskState)
+	buf.Reset()
+	tick(ctx, cfg, client, again, &buf, io.Discard)
+	tick(ctx, cfg, client, again, &buf, io.Discard)
+	if buf.Len() != 0 {
+		t.Fatalf("out = %q, want the verified done not re-announced by a later restart", buf.String())
+	}
+}
+
+// hasEventLine matches want as a whole output line, so "reported-done <id>" and
+// "done <id>" - one a substring of the other - can't be confused.
+func hasEventLine(out, want string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if line == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestTickKeepsAMultiLineAutoRecordFailureOnOneLine pins the one-line-per-event
+// invariant against its noisiest real cause: ghutil wraps gh's stderr into the
+// error verbatim, and gh emits several lines for auth and network failures. A
+// multi-line Event.Text breaks the stdout contract, makes events.log's 200-line
+// bound count one event as several, and splits one dashboard bullet into several
+// fake Recent Events. The cause is preserved - only its line breaks are not.
+func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	writeFakeGhFailingMultiline(t)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf, errBuf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	url := "https://github.com/atqamz/secondhand/pull/7"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, &errBuf)
+
+	// The same report line also emits reported-done, so the invariant under test
+	// is per event: the failure occupies exactly one line, carrying the whole
+	// cause, and no fragment of it lands on a line of its own.
+	printed := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	var failures []string
+	for _, line := range printed {
+		if strings.HasPrefix(line, "pr-not-recorded ") {
+			failures = append(failures, line)
+		}
+	}
+	if len(failures) != 1 {
+		t.Fatalf("out = %q, want exactly one line for one event", buf.String())
+	}
+	if !strings.HasPrefix(failures[0], "pr-not-recorded task-1: "+url) {
+		t.Fatalf("out = %q, want the auto-record failure surfaced", failures[0])
+	}
+	if !strings.Contains(failures[0], "error connecting to api.github.com") || !strings.Contains(failures[0], "githubstatus.com") {
+		t.Fatalf("out = %q, want the whole cause kept, including gh's later stderr lines", failures[0])
+	}
+
+	log, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := strings.Split(strings.TrimRight(string(log), "\n"), "\n")
+	if len(logged) != len(printed) {
+		t.Fatalf("events.log = %q, want %d lines for %d events against the 200-line bound", log, len(printed), len(printed))
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.RecentEvents) != len(printed) {
+		t.Fatalf("RecentEvents = %+v, want %d bullets, not a mangled section", d.RecentEvents, len(printed))
+	}
+}
+
+// writeFakeGhFailingMultiline mirrors the real gh's noisiest failure: auth and
+// network errors exit non-zero having written several lines to stderr, which
+// ghutil.PRIsMerged wraps into the returned error verbatim. Nothing is written
+// to stdout, as with the real tool on this path.
+func writeFakeGhFailingMultiline(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	script := "#!/bin/sh\nprintf 'error connecting to api.github.com\\ncheck your internet connection or https://githubstatus.com\\n' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestTickForgetsTornDownTasks(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")

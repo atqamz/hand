@@ -145,6 +145,50 @@ func TestPRReconcilesTheDashboardWhenSameURLAlreadyRecorded(t *testing.T) {
 	}
 }
 
+// TestPRReportsWhenThereIsNoDashboardRowToReconcile is the other half of the
+// reconciling repeat. Exiting 0 with "(dashboard reconciled)" when no row
+// matched would claim the repair this command is the documented remedy for
+// while the PR column stays exactly as empty as before - the silent success the
+// reconcile path exists to remove. The row is never fabricated: active rows come
+// from hand spawn.
+func TestPRReportsWhenThereIsNoDashboardRowToReconcile(t *testing.T) {
+	home, _ := setupPRHome(t)
+	url := "https://github.com/a/b/pull/1"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "unregistered", PR: url}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPRCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", url})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "no active row") {
+		t.Fatalf("err = %v, want the missing dashboard row named", err)
+	}
+	if strings.Contains(out.String(), "reconciled") {
+		t.Fatalf("out = %q, want no claim of a repair that did not happen", out.String())
+	}
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	data, err := os.ReadFile(dashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "task-1") {
+		t.Fatalf("dashboard.md = %q, want no row invented for a task hand spawn never added", string(data))
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != url {
+		t.Fatalf("task.PR = %q, want the recorded PR left intact - the durable truth is unaffected", task.PR)
+	}
+}
+
 func TestPRRefusesWhenProjectNotRegistered(t *testing.T) {
 	home, _ := setupPRHome(t)
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "unregistered"}); err != nil {

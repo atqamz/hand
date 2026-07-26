@@ -70,11 +70,18 @@ func newPRCmd() *cobra.Command {
 			}
 
 			dashPath := filepath.Join(home, "data", "dashboard.md")
-			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: t.ID, PR: url}}); err != nil {
+			setPR := &dashboard.PRUpdate{ID: t.ID, PR: url}
+			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: setPR}); err != nil {
 				return fmt.Errorf("update dashboard: %w", err)
 			}
 
 			if reconcile {
+				// Exiting 0 here would report the repair this command was run for as
+				// done while the dashboard's PR column stays exactly as empty as
+				// before - the silent success the reconcile path exists to remove.
+				if !setPR.Matched {
+					return &ExitError{Err: fmt.Errorf("pr already recorded for %s: %s, but the dashboard has no active row for it - nothing reconciled", t.ID, url), Code: 3}
+				}
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "pr already recorded for %s: %s (dashboard reconciled)\n", t.ID, url)
 				return err
 			}

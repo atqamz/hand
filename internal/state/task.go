@@ -195,7 +195,13 @@ func List(homeDir string) ([]Task, error) {
 	return tasks, nil
 }
 
-// Delete removes the state file for id.
+// Delete removes the state file for id, along with the task's report channel at
+// state/<id>.status. The report file is the volatile wake log, not a
+// deliverable: a task respawned under a used ID starts at report_offset 0, so a
+// surviving log would replay the previous run's lines as if they were new -
+// re-raising resolved decisions, absorbing a genuine unexplained stop, and
+// auto-recording a PR URL out of an old done line onto a task nobody recorded it
+// for. The durable deliverables (data/<id>/) survive teardown as before.
 func Delete(homeDir, id string) error {
 	if err := ValidateID(id); err != nil {
 		return err
@@ -205,6 +211,9 @@ func Delete(homeDir, id string) error {
 			return fmt.Errorf("task %q %w", id, ErrTaskNotFound)
 		}
 		return fmt.Errorf("remove task state %q: %w", id, err)
+	}
+	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove report channel %q: %w", id, err)
 	}
 	return nil
 }

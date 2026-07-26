@@ -278,6 +278,40 @@ func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
 	}
 }
 
+// TestStatusSingleTaskDegradesOnAnUnreadableReport holds the detail view to the
+// same graceful degradation the fleet view already has: a report file that
+// exists but can't be read names the fault and still prints the rest, rather
+// than failing the whole command and showing nothing at all. A directory in the
+// report file's place is a real EISDIR, not a mocked error.
+func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(state.ReportPath(home, "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want the read fault degraded rather than failing the command", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Reported:   report "+reportUnreadable) {
+		t.Fatalf("got %q, want the unreadable report named on the Reported line", got)
+	}
+	if !strings.Contains(got, "Task:       task-1") || !strings.Contains(got, "State:      idle") {
+		t.Fatalf("got %q, want the rest of the detail view still printed", got)
+	}
+}
+
 func TestStatusSingleTaskJSONIncludesReportedAndHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

@@ -113,17 +113,26 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 }
 
 // resumeTaskState picks up where a previous hand watch left off rather than
-// starting cold: the report offset and any already-announced merge come from the
-// task's durable state so nothing is replayed, and the last reported state is
-// re-read so a pane found not-busy after a restart isn't mistaken for an
-// unexplained stop. An unreadable report is reported as such, never quietly
-// treated as "this worker never reported".
+// starting cold. Every fact the watcher announces comes back from the task's
+// durable state, never re-derived from current evidence: the report offset, the
+// merge its own gh poll announced, and the verified done. Re-deriving any of
+// them lets evidence that landed while the watcher was down (hand merge writing
+// merged, say) look like an announcement that already went out.
+//
+// What is deliberately re-derived, and why that is safe, is enumerated in
+// SPECS.md's "What survives a hand watch restart". The last reported state is
+// one of them: it is re-read from the report file - itself durable - so a pane
+// found not-busy after a restart isn't mistaken for an unexplained stop. An
+// unreadable report is reported as such, never quietly treated as "this worker
+// never reported".
 func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Time, errOut io.Writer) *TaskState {
 	ts := NewTaskState(status, now)
 	ts.ReportOffset = t.ReportOffset
 	ts.PersistedOffset = t.ReportOffset
 	ts.PRMerged = t.PRMergedObserved
 	ts.PersistedPRMerged = t.PRMergedObserved
+	ts.DoneVerified = t.DoneVerified
+	ts.PersistedDoneVerified = t.DoneVerified
 
 	last, ok, err := state.LastReport(home, t.ID)
 	if err != nil {
@@ -133,7 +142,6 @@ func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Ti
 	if ok && !last.Malformed {
 		ts.LastReportState = last.State
 		ts.LastReportNote = last.Note
-		ts.DoneVerified = last.State == state.ReportDone && doneVerified(home, ts, t)
 	}
 	return ts
 }
@@ -153,7 +161,7 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 	}
 
 	for _, line := range lines {
-		if e := ClassifyReportLine(cfg.Home, ts, t.ID, t, line); e != nil {
+		if e := ClassifyReportLine(cfg.Home, ts, t, line); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
 		}
 		if t.PR == "" {
@@ -192,9 +200,23 @@ func announceAutoRecordFailure(cfg Config, t state.Task, url string, err error, 
 	handleEvent(cfg, &Event{
 		TaskID: t.ID,
 		Kind:   kind,
-		Text:   fmt.Sprintf("%s %s: %s (%v)", kind, t.ID, url, err),
+		Text:   fmt.Sprintf("%s %s: %s (%s)", kind, t.ID, url, flattenError(err)),
 		Reason: url,
 	}, t, out, errOut)
+}
+
+// flattenError renders err's whole cause on one line. An event is one line on
+// stdout, one entry in events.log, and one dashboard bullet; the errors reaching
+// here wrap gh's stderr verbatim, which is routinely multi-line for auth and
+// network failures. The stderr diagnostic above keeps the original formatting.
+func flattenError(err error) string {
+	var parts []string
+	for _, line := range strings.FieldsFunc(err.Error(), func(r rune) bool { return r == '\n' || r == '\r' }) {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // autoRecordPR routes a worker-supplied URL through hand pr's own validation
@@ -282,9 +304,10 @@ func recordedByLockHolder(home, id, url string) error {
 }
 
 // syncTaskState writes back the bookkeeping hand watch owns on a task - how far
-// its report file is consumed, and whether this watcher's own gh poll already
-// announced the PR merged - so a restart neither replays report lines nor
-// re-announces a merge.
+// its report file is consumed, whether this watcher's own gh poll already
+// announced the PR merged, and whether the verified done already went out - so a
+// restart neither replays report lines nor re-announces, nor silently skips, an
+// announcement it can no longer re-derive.
 //
 // It runs last, after every event this tick produced has been announced: a marker
 // persisted before its line is emitted would, if the process died in between,
@@ -296,7 +319,7 @@ func recordedByLockHolder(home, id, url string) error {
 // and its own ctx a prompt exit that flock can't honor - must not queue behind it.
 // Everything written here is re-derivable, so a skipped write just retries.
 func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
-	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged {
+	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged && ts.DoneVerified == ts.PersistedDoneVerified {
 		return
 	}
 
@@ -316,12 +339,14 @@ func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
 	}
 	t.ReportOffset = ts.ReportOffset
 	t.PRMergedObserved = t.PRMergedObserved || ts.PRMerged
+	t.DoneVerified = t.DoneVerified || ts.DoneVerified
 	if err := state.Write(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
 	}
 	ts.PersistedOffset = ts.ReportOffset
 	ts.PersistedPRMerged = ts.PRMerged
+	ts.PersistedDoneVerified = ts.DoneVerified
 }
 
 func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
