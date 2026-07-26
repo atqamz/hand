@@ -48,6 +48,8 @@ func TestCheckNoticeUsesFreshCacheWithoutCallingGH(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A refusal fake, not an imitation of gh: a fresh cache must serve the
+	// notice without any gh call at all, so any invocation is the failure.
 	bin := t.TempDir()
 	script := "#!/bin/sh\necho 'gh should not be called' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
@@ -136,6 +138,8 @@ func TestCheckNoticeSkipsUnparseableCurrentVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Same refusal fake as TestCheckNoticeUsesFreshCacheWithoutCallingGH above;
+	// an unparseable current version must skip the check entirely.
 	bin := t.TempDir()
 	script := "#!/bin/sh\necho 'gh should not be called' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
