@@ -6,6 +6,7 @@
 package ghutil
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,9 +15,12 @@ import (
 )
 
 func PRIsMerged(ctx context.Context, pr string) (bool, error) {
-	out, err := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "state").CombinedOutput()
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "state")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return false, fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(out)))
+		return false, fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(stderr.String()))
 	}
 	var body struct {
 		State string `json:"state"`

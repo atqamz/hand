@@ -2,6 +2,7 @@
 package worktree
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -19,9 +20,11 @@ func Get(clonePath, leaseHolder string) (string, error) {
 	}
 	cmd := exec.Command("treehouse", args...)
 	cmd.Dir = clonePath
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("treehouse get failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("treehouse get failed: %s", strings.TrimSpace(stderr.String()))
 	}
 
 	var lease struct {
