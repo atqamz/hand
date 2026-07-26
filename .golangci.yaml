@@ -1,0 +1,5 @@
+version: "2"
+
+run:
+  build-tags:
+    - e2e
