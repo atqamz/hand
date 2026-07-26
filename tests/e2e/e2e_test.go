@@ -3,14 +3,19 @@
 package e2e
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -60,6 +65,89 @@ func runHand(t *testing.T, home string, args ...string) invocation {
 	t.Logf("$ hand %s\n  exit %d\n  stdout: %s\n  stderr: %s",
 		strings.Join(args, " "), code, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()))
 	return invocation{code: code, stdout: stdout.String(), stderr: stderr.String()}
+}
+
+// syncBuffer lets a test goroutine poll a background hand process's output
+// while the process is still writing to it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// backgroundHand drives a long-running hand command (only `watch` today)
+// so a test can observe its streaming output and stop it with the same
+// SIGTERM signal.NotifyContext listens for in cmd/watch.go, rather than
+// waiting for it to exit on its own.
+type backgroundHand struct {
+	cmd    *exec.Cmd
+	stdout *syncBuffer
+	stderr *syncBuffer
+}
+
+func startHandBackground(t *testing.T, home string, args ...string) *backgroundHand {
+	t.Helper()
+	cmd := exec.Command(handBin, args...)
+	cmd.Dir = home
+	stdout := &syncBuffer{}
+	stderr := &syncBuffer{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start hand %v: %v", args, err)
+	}
+	return &backgroundHand{cmd: cmd, stdout: stdout, stderr: stderr}
+}
+
+func (b *backgroundHand) waitForStdout(t *testing.T, substr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(b.stdout.String(), substr) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %q on stdout; stdout=%q stderr=%q", substr, b.stdout.String(), b.stderr.String())
+}
+
+// stop sends SIGTERM (the signal cmd/watch.go's signal.NotifyContext listens
+// for) and waits for a clean exit, failing the test if the process doesn't
+// exit within timeout.
+func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
+	t.Helper()
+	if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal hand watch: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- b.cmd.Wait() }()
+	select {
+	case err := <-done:
+		code := 0
+		if err != nil {
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("wait hand watch: %v", err)
+			}
+			code = exitErr.ExitCode()
+		}
+		return invocation{code: code, stdout: b.stdout.String(), stderr: b.stderr.String()}
+	case <-time.After(timeout):
+		_ = b.cmd.Process.Kill()
+		t.Fatalf("hand watch did not exit within %s of SIGTERM; stdout=%q stderr=%q", timeout, b.stdout.String(), b.stderr.String())
+		return invocation{}
+	}
 }
 
 func newHome(t *testing.T) string {
@@ -319,6 +407,42 @@ func TestExitCodeOneOnGeneralError(t *testing.T) {
 			assertInvocation(t, runHand(t, home, tc.args...), 1, tc.wantStderr)
 		})
 	}
+}
+
+func readDashboard(t *testing.T, home string) dashboard.Dashboard {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := dashboard.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func findActiveTask(d dashboard.Dashboard, id string) (dashboard.ActiveTask, bool) {
+	for _, at := range d.ActiveTasks {
+		if at.ID == id {
+			return at, true
+		}
+	}
+	return dashboard.ActiveTask{}, false
+}
+
+func runGitIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	c := exec.Command("git", args...)
+	c.Dir = dir
+	c.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+	out, err := c.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v: %s", args, err, out)
+	}
+	return string(out)
 }
 
 func initGitRepo(t *testing.T, dir string) {

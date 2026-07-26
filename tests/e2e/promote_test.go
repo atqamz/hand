@@ -1,0 +1,116 @@
+//go:build e2e
+
+package e2e
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/atqamz/secondhand/internal/state"
+)
+
+// TestPromoteScoutToShip drives `hand promote` through the built binary: the
+// brief-missing failure path first, then a clean promotion asserting the
+// scout's old worktree/herdr identifiers are actually released (not just
+// replaced) and the task's identity (ID, project, CreatedAt) carries over
+// unchanged while its role fields (Kind, Worktree, Herdr) are fully replaced.
+func TestPromoteScoutToShip(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+
+	clonePath := filepath.Join(home, "projects", "demo")
+	if err := os.MkdirAll(clonePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("# report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+	oldWorktree := filepath.Join(home, "wt-scout-old")
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "demo", Kind: state.KindScout,
+		Worktree:  oldWorktree,
+		Herdr:     state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"},
+		CreatedAt: createdAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := binDir(t)
+	newWorktree := filepath.Join(home, "wt-ship-new")
+	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
+	writeFakeBin(t, dir, "treehouse", `echo "treehouse $@" >> `+shellSingleQuote(invocationLog)+`
+case "$1" in
+  get) printf '{"path":"%s"}\n' `+shellSingleQuote(newWorktree)+` ;;
+  return) echo ok ;;
+  *) echo "unexpected treehouse invocation: $@" >&2; exit 1 ;;
+esac
+`)
+	writeFakeBin(t, dir, "herdr", `echo "herdr $@" >> `+shellSingleQuote(invocationLog)+`
+case "$1 $2" in
+  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
+  "workspace create") echo '{"result":{"workspace":{"workspace_id":"ws-new","label":"demo","tab_count":1}}}' ;;
+  "tab create") echo '{"result":{"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"},"root_pane":{"pane_id":"pane-new","tab_id":"tab-new","workspace_id":"ws-new","agent_status":"working"}}}' ;;
+  "pane run") echo '{"result":{}}' ;;
+  "tab list") echo '{"result":{"tabs":[{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"}]}}' ;;
+  "pane get") echo '{"result":{"pane":{"pane_id":"pane-old","tab_id":"tab-old","workspace_id":"ws-old","agent_status":"done"}}}' ;;
+  *) echo "unexpected herdr invocation: $@" >&2; exit 1 ;;
+esac
+`)
+
+	missingBrief := runHand(t, home, "promote", "task-1")
+	assertInvocation(t, missingBrief, 3, "brief not found at data/task-1/brief.md")
+
+	writeBrief(t, home, "task-1")
+
+	promoted := runHand(t, home, "promote", "task-1")
+	if promoted.code != 0 {
+		t.Fatalf("promote: exit %d, stderr %q", promoted.code, promoted.stderr)
+	}
+	if !strings.Contains(promoted.stdout, "promoted task-1: scout -> ship project=demo harness=claude") {
+		t.Fatalf("promote stdout = %q, want it to announce the scout->ship transition", promoted.stdout)
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Kind != state.KindShip {
+		t.Fatalf("task.Kind = %q, want %q after promote", task.Kind, state.KindShip)
+	}
+	if task.Project != "demo" || task.CreatedAt != createdAt {
+		t.Fatalf("task identity changed: Project=%q CreatedAt=%q, want Project=demo CreatedAt=%q unchanged", task.Project, task.CreatedAt, createdAt)
+	}
+	if task.Worktree != newWorktree {
+		t.Fatalf("task.Worktree = %q, want the new worktree %q", task.Worktree, newWorktree)
+	}
+	if task.Herdr.WorkspaceID != "ws-new" || task.Herdr.TabID != "tab-new" || task.Herdr.PaneID != "pane-new" {
+		t.Fatalf("task.Herdr = %+v, want the new ws-new/tab-new/pane-new identifiers", task.Herdr)
+	}
+	if task.Herdr.Session != "default" {
+		t.Fatalf("task.Herdr.Session = %q, want %q", task.Herdr.Session, "default")
+	}
+	if task.Harness != "claude" {
+		t.Fatalf("task.Harness = %q, want the default harness recorded", task.Harness)
+	}
+
+	logData, err := os.ReadFile(invocationLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(logData)
+	if !strings.Contains(log, "herdr tab list --workspace ws-old") {
+		t.Fatalf("invocation log = %q, want promote to have queried the OLD workspace's tabs to release them", log)
+	}
+	if !strings.Contains(log, "treehouse return "+oldWorktree) {
+		t.Fatalf("invocation log = %q, want promote to have returned the OLD worktree %s", log, oldWorktree)
+	}
+}
