@@ -540,8 +540,8 @@ Behavior (PR merge, default):
 4. Refuse if checks are not green.
 5. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
 6. Update `state/<id>.json` with merge status.
-7. Update `data/dashboard.md`.
-8. Run `hand project sync <project>` to fast-forward the project clone.
+7. Run `hand project sync <project>` to fast-forward the project clone.
+8. Refresh the dashboard's Projects section, only if that sync advanced the clone.
 
 Behavior (local merge, `--local`):
 1. Read `state/<id>.json` for worktree and project.

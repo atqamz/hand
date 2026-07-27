@@ -75,10 +75,6 @@ type statusJSON struct {
 	ReportHistory  []string      `json:"report_history,omitempty"`
 }
 
-// mergeSuffix distinguishes who merged the PR: hand itself (MergeExecuted) or
-// something else that hand watch's own gh poll saw (MergeAnnounced) - the same
-// wording that recorded a human merging in the GitHub web UI as a normal path
-// rather than an incident.
 func mergeSuffix(t state.Task) string {
 	switch {
 	case t.PR == "":

@@ -141,52 +141,6 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	}
 }
 
-func TestStatusSingleTaskDetailShowsMergeStateForAMergedPR(t *testing.T) {
-	home := t.TempDir()
-	t.Chdir(home)
-	writeFakeHerdrPaneStatus(t, "idle")
-
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
-		PR: "https://github.com/a/b/pull/1", MergeExecuted: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := newStatusCmd()
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "PR:         https://github.com/a/b/pull/1 (merged)") {
-		t.Fatalf("got %q, want PR line marked merged", out.String())
-	}
-}
-
-func TestStatusSingleTaskDetailUnmergedPRIsUnchanged(t *testing.T) {
-	home := t.TempDir()
-	t.Chdir(home)
-	writeFakeHerdrPaneStatus(t, "idle")
-
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
-		PR: "https://github.com/a/b/pull/1"}); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := newStatusCmd()
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "PR:         https://github.com/a/b/pull/1\n") {
-		t.Fatalf("got %q, want unmarked PR line", out.String())
-	}
-}
-
 func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 	cases := []struct {
 		name             string
