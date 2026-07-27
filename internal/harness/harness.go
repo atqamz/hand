@@ -118,6 +118,24 @@ type Options struct {
 	Brief    string
 	Model    string
 	Effort   string
+	// FrontMatter reports whether Brief's file has a leading "---"-delimited front matter
+	// block (see internal/brief). The worker reads Brief itself, so a harness whose prompt
+	// points at it must disclaim that block as dispatch metadata rather than let it read as
+	// part of the task.
+	FrontMatter bool
+}
+
+// effortCapable lists the harnesses whose launch command has an effort flag at all. Only
+// claude does; buildOpenCode has no effort flag and buildCodex/buildGrok/buildPi have neither
+// model nor effort.
+var effortCapable = map[string]bool{
+	Claude: true,
+}
+
+// SupportsEffort reports whether name's launch command can apply an effort level. A resolved
+// effort under a harness this returns false for is not silently dropped - the caller must warn.
+func SupportsEffort(name string) bool {
+	return effortCapable[name]
 }
 
 // Build constructs the shell command that cds into the worktree and launches the harness
@@ -167,8 +185,7 @@ func buildClaude(o Options) string {
 	if o.Effort != "" {
 		args = append(args, "--effort", shellQuote(o.Effort))
 	}
-	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
-	args = append(args, shellQuote(prompt))
+	args = append(args, shellQuote(briefPrompt(o)))
 	return strings.Join(args, " ")
 }
 
@@ -195,9 +212,20 @@ func buildOpenCode(o Options) string {
 	if o.Model != "" {
 		args = append(args, "--model", shellQuote(o.Model))
 	}
-	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
-	args = append(args, "--prompt", shellQuote(prompt))
+	args = append(args, "--prompt", shellQuote(briefPrompt(o)))
 	return strings.Join(args, " ")
+}
+
+// briefPrompt is the initial message every interactive harness sends: a pointer at the brief
+// path rather than the scope inline, shared so the wording never drifts between harnesses. The
+// worker reads Brief itself, so when it carries a front matter block (see Options.FrontMatter),
+// the prompt disclaims it up front instead of leaving the worker to read it as task content.
+func briefPrompt(o Options) string {
+	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
+	if o.FrontMatter {
+		prompt += " Its leading '---' front matter is dispatch metadata (model/effort selection), not task content; skip past it."
+	}
+	return prompt
 }
 
 func shellQuote(s string) string {

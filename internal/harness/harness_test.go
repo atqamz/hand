@@ -115,6 +115,26 @@ func TestBuildOpenCode(t *testing.T) {
 	}
 }
 
+func TestBuildClaudeFrontMatterDisclaimer(t *testing.T) {
+	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", FrontMatter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "dispatch metadata") {
+		t.Fatalf("got %q, want the front matter disclaimed", got)
+	}
+}
+
+func TestBuildClaudeNoFrontMatterUnchanged(t *testing.T) {
+	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "dispatch metadata") {
+		t.Fatalf("got %q, want no disclaimer for a brief with no front matter", got)
+	}
+}
+
 func TestBuildOpenCodeWithModel(t *testing.T) {
 	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "opus"})
 	if err != nil {
@@ -137,6 +157,27 @@ func TestBuildOpenCodeNeverHeadless(t *testing.T) {
 	}
 	if !strings.Contains(got, `OPENCODE_CONFIG_CONTENT`) {
 		t.Fatalf("got %q, want OPENCODE_CONFIG_CONTENT so an unattended worker never stalls on a permission prompt", got)
+	}
+}
+
+func TestBuildOpenCodeFrontMatterDisclaimer(t *testing.T) {
+	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", FrontMatter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "dispatch metadata") {
+		t.Fatalf("got %q, want the front matter disclaimed", got)
+	}
+}
+
+func TestSupportsEffort(t *testing.T) {
+	if !SupportsEffort(Claude) {
+		t.Error("SupportsEffort(claude) = false, want true")
+	}
+	for _, name := range []string{Codex, Grok, Pi, OpenCode, "nonexistent"} {
+		if SupportsEffort(name) {
+			t.Errorf("SupportsEffort(%q) = true, want false", name)
+		}
 	}
 }
 
