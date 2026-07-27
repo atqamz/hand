@@ -669,6 +669,7 @@ Behavior:
 | An auto-recorded PR URL | Persisted as `pr` on the task, and every outcome that isn't a silently self-resolving race is announced (`pr-not-recorded` / `pr-record-unknown`) and logged. |
 | Last reported state and note | Re-derived, safely: they are read back from `state/<id>.status`, itself durable and consumed by offset - from the last line that *classified*, so a trailing malformed one doesn't erase the report it follows, exactly as the live classifier refuses to. They gate no announcement of their own - they only explain a quiet pane - and the marker for the one announcement they can lead to (`done_verified`) is persisted separately. |
 | The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh JSON, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
+| The same bookkeeping across `hand promote` | Not covered by the identity check above: promote rewrites the task JSON in place and keeps `created_at`, so the ship run inherits the scout run's `report_offset` and `done_verified`. Carrying `report_offset` is correct - promote never touches `state/<id>.status`, so the report stream is continuous and the offset points exactly where the ship's first line lands; resetting it would replay the scout's consumed lines, the hazard the durable offset exists to prevent. Carrying `done_verified` is not: the write-back only ever ORs the marker to true, so a scout whose `done` was verified leaves the ship run unable to announce its own. |
 | Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane as `(unreported)` or `(reported: <state>)` from the same report channel, and the stale timer below re-flags the task within one window. |
 | The stale timer | Re-derived, safely: the clock restarts on resume, so `stale <id>` is at most one threshold late and never skipped. |
 
@@ -741,7 +742,7 @@ Behavior:
 3. Acquire a fresh treehouse worktree (with collision guard).
 4. Create a new herdr tab.
 5. Launch the worker and confirm it started (same as `hand spawn`).
-6. Update `state/<id>.json`: kind changes from `scout` to `ship`, new worktree and herdr coordinates.
+6. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every other field is carried, including `created_at` and the watcher's bookkeeping (`report_offset`, `done_verified`) - see "What survives a `hand watch` restart", which classifies each of them.
 7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
