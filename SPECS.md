@@ -1242,7 +1242,9 @@ Model names are not validated against a list, which would rot the first time a m
 
 The declaration is dispatch metadata, not task content. The worker opens the brief itself, so the
 launch prompt gains one sentence telling it to skip past the front matter when a block is present;
-the brief on disk is never rewritten or stripped.
+the brief on disk is never rewritten or stripped. Only the prompt-bearing harnesses carry that
+sentence: `codex`, `grok` and `pi` are handed the brief as a file with no prompt at all, so a
+declaring brief reaches them undisclaimed.
 
 A declared effort under a harness that cannot apply one warns on stderr (see `hand spawn`).
 
@@ -1435,7 +1437,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 | X-mode / Twitter | `fm-x-*.sh`, `fmx-respond` skill (3,250 lines) | Separate product concern. Build as a separate tool if ever needed. |
 | AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch` + `hand notify` + the agent's own background task is sufficient. |
 | Multiple backends | `backends/herdr.sh`, `backends/cmux.sh`, `backends/zellij.sh`, `backends/orca.sh`, `fm-backend.sh` (5,500 lines) | herdr only. Add tmux fallback later if herdr proves insufficient. |
-| Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, or set defaults in `config/`. |
+| Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, declare `model`/`effort` in the brief, or set defaults in `config/`. |
 | Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | Agent tracks decisions in backlog and dashboard. |
 | Hook-based guards | `fm-continuity-pretool-check.sh`, `fm-continuity-command-policy.mjs`, `fm-subagent-pretool-check.sh` (450 lines) | CLI refuses bad operations internally. No hooks. |
 | PR-check migration | `fm-pr-check-migrate.sh` (1,148 lines) | No legacy to migrate. |

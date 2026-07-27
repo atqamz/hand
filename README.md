@@ -115,6 +115,7 @@ Builds without an embedded version never print the notice.
 
 Currently supported preferences live as plain files under `config/`: default worker harness, model, and effort.
 Run `hand init --setup` to discover installed harnesses and tools and write the defaults interactively.
+A brief can declare its own `model` and `effort` for one task, which win over these defaults and lose only to a `hand spawn`/`hand promote` flag - see SPECS.md's "Brief format" section.
 
 Workers run their harness interactively so they can be steered and watched.
 For Claude Code that means first-run dialogs, and `hand spawn` and `hand promote` answer the workspace-trust and bypass-permissions ones for you, then confirm the worker is actually running before reporting success.
