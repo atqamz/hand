@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -61,30 +62,57 @@ func writeFakeGHPRState(t *testing.T, prState string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// writeFakeTreehouseReturn fakes "treehouse return" as a no-op success (real
-// treehouse's return/init also succeed silently, per internal/worktree.Return's
-// CombinedOutput-based error handling - only its failure path, a nonzero exit
-// with output, needs the real stream contents, and that's covered directly by
-// internal/worktree/worktree_test.go's TestReturnFailsOnNonZeroExit) and its
-// herdr calls as always-succeeding envelopes, since these teardown tests only
-// exercise which calls get made, not any herdr failure path.
+// writeFakeTreehouseReturn fakes the two tools teardown shells out to, each keyed
+// on the state its own commands leave behind, since a fake that answers a
+// state-changing command identically before and after that command cannot test
+// anything about the state change.
+//
+// treehouse return keeps the returned worktree's pool slot directory and succeeds
+// again on a second return of the same path, checked against the real tool; only
+// a path no pool manages fails, and that failure path is covered directly by
+// internal/worktree/worktree_test.go against the same fidelity note.
+//
+// herdr stops listing a closed tab. A stateless fake that re-lists a tab it was
+// just told to close makes every retry test vacuous - it can never reach the
+// already-closed case a second teardown run actually hits.
 func writeFakeTreehouseReturn(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte("#!/bin/sh\ntrue\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(`#!/bin/sh
+case "$1" in
+return)
+	if [ -d "$2" ]; then
+		echo "Worktree returned to pool."
+		exit 0
+	fi
+	echo "worktree $2 is not managed by treehouse" >&2
+	exit 1
+	;;
+esac
+echo "unexpected treehouse args: $@" >&2
+exit 1
+`), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	closed := filepath.Join(t.TempDir(), "closed")
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
+closed='`+closed+`'
 cmd="$1 $2"
 case "$cmd" in
 "tab list")
-	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
+	if [ -e "$closed" ]; then
+		printf '{"id":"cli:1","result":{"tabs":[]}}'
+	else
+		printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
+	fi
 	;;
 "tab close")
- printf '{"id":"cli:1","result":{}}'
+	touch "$closed"
+	printf '{"id":"cli:1","result":{}}'
 	;;
 "workspace close")
- printf '{"id":"cli:1","result":{}}'
+	touch "$closed"
+	printf '{"id":"cli:1","result":{}}'
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -164,6 +192,113 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	}
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	}
+}
+
+// TestTeardownRetriesAfterReportRemovalFails proves teardown survives a fault in
+// its last step, which takes both halves of "retryable". state.Delete's removal
+// order (report channel before task JSON) leaves the task JSON untouched, so
+// there is something left to retry; and the retry then re-runs the cleanup steps
+// the first call already completed, which have to treat an already-closed tab and
+// an already-returned worktree as success. Reverting either half fails this test:
+// the ordering leaves nothing to retry, the idempotency leaves the retry dying on
+// a tab herdr no longer lists.
+func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.Mkdir(reportPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reportPath, "blocker"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "remove report channel") {
+		t.Fatalf("got err %v, want a remove report channel failure", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after failed teardown, want it retryable: %v %v", exists, err)
+	}
+
+	if err := os.RemoveAll(reportPath); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd = newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after retried teardown: %v %v", exists, err)
+	}
+
+	dashboardData, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dashboardData), "task-1: myproj | ship | merged | PR https://example.com/pr/1") {
+		t.Fatalf("dashboard = %q, want task-1 moved to Recent Completions", dashboardData)
+	}
+}
+
+// A worker that asks a question and then gives up leaves that question on the
+// dashboard on purpose - no event kind clears it on inference. Teardown is not
+// inference, it is the operator deleting the task, and once the Active Tasks row is
+// gone nothing can ever retire the entry: the ID leaves the task list, so hand watch
+// stops tracking it. Leaving it strands an unanswerable question in the supervisor's
+// queue for good, and it is the leak that made the section look unbounded.
+func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{
+		AddActiveTask:      &dashboard.ActiveTask{ID: "task-1", Project: "myproj", Kind: "ship", State: "working", Age: "just now"},
+		SetPendingDecision: &dashboard.PendingDecision{ID: "task-1", Text: "which base branch?"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{
+		UpdateAgentState: &dashboard.AgentStateUpdate{ID: "task-1", State: "report-failed", Age: "5m"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(dashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := dashboard.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.PendingDecisions) != 0 {
+		t.Fatalf("PendingDecisions = %+v, want the torn-down task's question gone", d.PendingDecisions)
+	}
+	if len(d.ActiveTasks) != 0 {
+		t.Fatalf("ActiveTasks = %+v, want the row gone too", d.ActiveTasks)
 	}
 }
 
@@ -417,17 +552,27 @@ esac
 	}
 }
 
-func TestCloseTaskTabRejectsStaleTab(t *testing.T) {
-	writeFakeTreehouseReturn(t)
+// A tab herdr no longer lists is this step's goal already reached, so it must not
+// fail the command: teardown's later steps can fault, and the retry that follows
+// finds exactly this state.
+func TestCloseTaskTabTreatsAbsentTabAsClosed(t *testing.T) {
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
-printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:other","workspace_id":"wA"}]}}'
+case "$1 $2" in
+"tab list")
+ printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:other","workspace_id":"wA"}]}}'
+ ;;
+*)
+ echo "unexpected herdr args: $@" >&2
+ exit 1
+ ;;
+esac
 `), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:missing"); err == nil {
-		t.Fatal("stale tab was accepted")
+	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:missing"); err != nil {
+		t.Fatalf("got %v, want an absent tab treated as already closed", err)
 	}
 }
 

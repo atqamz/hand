@@ -50,16 +50,27 @@ func paneAgentStatus(client *herdr.Client, paneID string) string {
 	return string(pane.AgentStatus)
 }
 
+// reportedJSON mirrors one classified line from state.ReportLine for JSON
+// output; Malformed lines carry their raw text in Note with State left empty,
+// and an unreadable report file carries the read error in Note under the
+// reportUnreadable state.
+type reportedJSON struct {
+	State string `json:"state"`
+	Note  string `json:"note"`
+}
+
 type statusJSON struct {
-	ID         string      `json:"id"`
-	Project    string      `json:"project"`
-	Kind       string      `json:"kind"`
-	Harness    string      `json:"harness,omitempty"`
-	AgentState string      `json:"agent_state"`
-	Worktree   string      `json:"worktree"`
-	Herdr      state.Herdr `json:"herdr"`
-	PR         string      `json:"pr"`
-	CreatedAt  string      `json:"created_at"`
+	ID            string        `json:"id"`
+	Project       string        `json:"project"`
+	Kind          string        `json:"kind"`
+	Harness       string        `json:"harness,omitempty"`
+	AgentState    string        `json:"agent_state"`
+	Worktree      string        `json:"worktree"`
+	Herdr         state.Herdr   `json:"herdr"`
+	PR            string        `json:"pr"`
+	CreatedAt     string        `json:"created_at"`
+	Reported      *reportedJSON `json:"reported,omitempty"`
+	ReportHistory []string      `json:"report_history,omitempty"`
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool) error {
@@ -69,12 +80,22 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	rows := make([]statusJSON, 0, len(tasks))
+	suffixes := make([]string, 0, len(tasks))
 	for _, t := range tasks {
+		agentState := paneAgentStatus(client, t.Herdr.PaneID)
+		lines, readErr := state.ReadReportLines(home, t.ID)
+		var last state.ReportLine
+		if len(lines) > 0 {
+			last = lines[len(lines)-1]
+		}
+		reported, reportedOK := state.LastReportedState(lines)
 		rows = append(rows, statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
-			AgentState: paneAgentStatus(client, t.Herdr.PaneID),
+			AgentState: agentState,
 			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
+			Reported: reportedFrom(last, len(lines) > 0, readErr),
 		})
+		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr))
 	}
 
 	if asJSON {
@@ -84,12 +105,53 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	for _, r := range rows {
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, r.AgentState, formatAge(r.CreatedAt)); err != nil {
+	for i, r := range rows {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, r.AgentState+suffixes[i], formatAge(r.CreatedAt)); err != nil {
 			return err
 		}
 	}
 	return w.Flush()
+}
+
+// reportUnreadable is the state both fleet views use when the report file exists
+// but can't be read. It is deliberately distinct from "unreported": an I/O fault
+// is not evidence that the worker never reported.
+const reportUnreadable = "unreadable"
+
+// reportSuffix flags, in the fleet table's state column, whether a not-busy pane
+// (herdr's idle or done - see herdr.Status) left a terminal report behind or not -
+// the same distinction SPECS.md's classifier draws between idle-unreported and an
+// absorbed stop. Any other agent state is left unadorned; herdr's own state is
+// already informative there.
+//
+// reported is the last line that classified, not simply the last line, so this
+// answers the same question hand watch answers about the same quiet pane: free
+// text appended after a real report explains nothing and must not erase it. The
+// raw last line is still what the Reported field shows, verbatim.
+func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr error) string {
+	if !herdr.Status(agentState).NotBusy() {
+		return ""
+	}
+	if readErr != nil {
+		return fmt.Sprintf(" (report %s)", reportUnreadable)
+	}
+	if !ok || reported.State == "" || reported.State == state.ReportWorking {
+		return " (unreported)"
+	}
+	return fmt.Sprintf(" (reported: %s)", reported.State)
+}
+
+func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
+	if readErr != nil {
+		return &reportedJSON{State: reportUnreadable, Note: readErr.Error()}
+	}
+	if !ok {
+		return nil
+	}
+	if last.Malformed {
+		return &reportedJSON{Note: last.Raw}
+	}
+	return &reportedJSON{State: last.State, Note: last.Note}
 }
 
 func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON bool) error {
@@ -99,10 +161,26 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	}
 	agentState := paneAgentStatus(client, t.Herdr.PaneID)
 
+	// An unreadable report degrades exactly as it does in the fleet view: the
+	// fault is named on the Reported line and the rest of the detail view still
+	// prints, rather than the whole command failing over one bad read.
+	const historyLen = 5
+	tail, readErr := state.ReportTail(home, id, historyLen)
+	history := make([]string, len(tail))
+	for i, line := range tail {
+		history[i] = reportLineText(line)
+	}
+
+	var last state.ReportLine
+	if len(tail) > 0 {
+		last = tail[len(tail)-1]
+	}
+
 	if asJSON {
 		out := statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
+			Reported: reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -112,6 +190,13 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	pr := t.PR
 	if pr == "" {
 		pr = "(none)"
+	}
+	reported := "(none)"
+	switch {
+	case readErr != nil:
+		reported = fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
+	case len(tail) > 0:
+		reported = reportLineText(last)
 	}
 
 	w := cmd.OutOrStdout()
@@ -126,13 +211,32 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		fmt.Sprintf("Herdr:      %s / %s", t.Herdr.Session, t.Herdr.TabID),
 		fmt.Sprintf("Created:    %s", formatAge(t.CreatedAt)),
 		fmt.Sprintf("PR:         %s", pr),
+		fmt.Sprintf("Reported:   %s", reported),
 	}
 	for _, line := range lines {
 		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
 		}
 	}
+
+	if len(tail) > 0 {
+		if _, err := fmt.Fprintln(w, "\nReport history (reported by worker, not verified current truth):"); err != nil {
+			return err
+		}
+		for _, line := range tail {
+			if _, err := fmt.Fprintf(w, "  %s\n", reportLineText(line)); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func reportLineText(line state.ReportLine) string {
+	if line.Malformed {
+		return line.Raw
+	}
+	return fmt.Sprintf("%s: %s", line.State, line.Note)
 }
 
 func formatAge(createdAt string) string {

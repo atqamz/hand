@@ -15,6 +15,30 @@ import (
 // exactly what that separation is for - no banner needed to exercise it
 // faithfully. Failure fakes below write to stderr, matching both Get's
 // separate-stderr-buffer error path and Return's CombinedOutput one.
+//
+// fakeTreehousePool models what real treehouse does to a returned worktree,
+// checked against the tool itself: return leaves the pool slot's directory in
+// place and flips the slot from leased to available, so a second return of the
+// same path succeeds again (exit 0, with and without --force), while a path in no
+// pool exits 1 with "is not managed by treehouse". A fake that answers a
+// state-changing command identically before and after that command cannot test
+// anything about the state change, which is why this one is keyed on the state
+// return actually leaves behind.
+const fakeTreehousePool = `
+case "$1" in
+return)
+	if [ -d "$2" ]; then
+		echo "Worktree returned to pool."
+		exit 0
+	fi
+	echo "worktree $2 is not managed by treehouse" >&2
+	exit 1
+	;;
+esac
+echo "unexpected args: $@" >&2
+exit 1
+`
+
 func writeFakeTreehouse(t *testing.T, script string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -64,21 +88,48 @@ func TestGetFailsOnMissingPath(t *testing.T) {
 }
 
 func TestReturnPassesForceFlag(t *testing.T) {
+	wt := t.TempDir()
 	writeFakeTreehouse(t, `
-if [ "$1" != "return" ] || [ "$2" != "/tmp/wt-1" ] || [ "$3" != "--force" ]; then
+if [ "$1" != "return" ] || [ "$2" != "`+wt+`" ] || [ "$3" != "--force" ]; then
 	echo "unexpected args: $@" >&2
 	exit 1
 fi
 `)
-	if err := Return("/tmp/wt-1", true); err != nil {
+	if err := Return(wt, true); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestReturnFailsOnNonZeroExit(t *testing.T) {
 	writeFakeTreehouse(t, `echo "worktree busy" >&2; exit 1`)
-	if err := Return("/tmp/wt-1", false); err == nil || !strings.Contains(err.Error(), "worktree busy") {
+	if err := Return(t.TempDir(), false); err == nil || !strings.Contains(err.Error(), "worktree busy") {
 		t.Fatalf("got err %v, want worktree busy failure", err)
+	}
+}
+
+// Returning a worktree that is already back in the pool succeeds, so teardown can
+// run its cleanup a second time after a later step faulted. The path surviving the
+// first return is the point: it is why nothing here may infer "already returned"
+// from the path being gone.
+func TestReturnIsIdempotentOnAnAlreadyReturnedWorktree(t *testing.T) {
+	wt := t.TempDir()
+	writeFakeTreehouse(t, fakeTreehousePool)
+	if err := Return(wt, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree path gone after return: %v", err)
+	}
+	if err := Return(wt, false); err != nil {
+		t.Fatalf("got err %v, want a repeated return to succeed", err)
+	}
+}
+
+func TestReturnFailsOnAWorktreeNoPoolManages(t *testing.T) {
+	writeFakeTreehouse(t, fakeTreehousePool)
+	err := Return(filepath.Join(t.TempDir(), "gone"), false)
+	if err == nil || !strings.Contains(err.Error(), "not managed by treehouse") {
+		t.Fatalf("got err %v, want an unmanaged worktree reported", err)
 	}
 }
 

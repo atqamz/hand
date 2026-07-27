@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,8 +16,6 @@ import (
 	"github.com/atqamz/secondhand/internal/worktree"
 	"github.com/spf13/cobra"
 )
-
-var errTaskTabNotFound = errors.New("task tab not found")
 
 func newTeardownCmd() *cobra.Command {
 	var force bool
@@ -57,9 +54,6 @@ func newTeardownCmd() *cobra.Command {
 
 			client := herdr.NewClient()
 			if err := closeTaskTab(client, t.Herdr.WorkspaceID, t.Herdr.TabID); err != nil {
-				if errors.Is(err, errTaskTabNotFound) {
-					return err
-				}
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
 					return printErr
 				}
@@ -235,6 +229,11 @@ func currentBranch(worktreePath string) (string, error) {
 
 // closeTaskTab closes the task's tab, or the whole workspace if this was its last tab
 // (herdr refuses to close a workspace's only tab directly).
+//
+// A tab that is no longer listed is already closed, which is this step's goal, so
+// it is success and not an error: teardown removes several resources in sequence
+// and any of the later steps can fail, so the whole command has to be runnable a
+// second time without tripping over the work the first run already did.
 func closeTaskTab(client *herdr.Client, workspaceID, tabID string) error {
 	tabs, err := client.TabList(workspaceID)
 	if err != nil {
@@ -248,7 +247,7 @@ func closeTaskTab(client *herdr.Client, workspaceID, tabID string) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("%w: herdr tab %s not found in workspace %s", errTaskTabNotFound, tabID, workspaceID)
+		return nil
 	}
 	if len(tabs) == 1 {
 		return client.WorkspaceClose(workspaceID)

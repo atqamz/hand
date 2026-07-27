@@ -30,7 +30,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 1. Read ` + "`data/dashboard.md`" + ` for current fleet state.
 2. Match the request to a project in ` + "`data/projects.md`" + `.
 3. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
-4. Write a brief at ` + "`data/<id>/brief.md`" + `.
+4. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it.
 5. ` + "`hand spawn <id> <project>`" + ` to start a worker.
 6. ` + "`hand watch`" + ` as a background task to monitor the fleet.
 7. Act on watch output: steer blocked workers with ` + "`hand send`" + `, relay results.
@@ -47,6 +47,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use ` + "`no-mistakes axi`" + ` directly in the worktree.
 - Use ` + "`qmd search`" + ` to find historical context in data/ when available. Fall back to reading files directly.
+- ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
 `
 
 // isWorkspace reports whether dir has been initialized by hand init: the

@@ -56,3 +56,27 @@ func TestPRIsMergedReportsExitStatusWithoutStderr(t *testing.T) {
 		t.Fatalf("got %q, want the exit status in the message", err)
 	}
 }
+
+func TestRepoSlugFromRemote(t *testing.T) {
+	cases := []struct {
+		remote string
+		slug   string
+		ok     bool
+	}{
+		{"https://github.com/atqamz/secondhand", "atqamz/secondhand", true},
+		{"https://github.com/atqamz/secondhand.git", "atqamz/secondhand", true},
+		{"git@github.com:atqamz/secondhand.git", "atqamz/secondhand", true},
+		{"ssh://git@github.com/atqamz/secondhand.git", "atqamz/secondhand", true},
+		{"local", "", false},
+		{"https://gitlab.com/atqamz/secondhand", "", false},
+		{"https://github.com/atqamz", "", false},
+		{"https://github.com/atqamz/secondhand/extra", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		slug, ok := RepoSlugFromRemote(c.remote)
+		if slug != c.slug || ok != c.ok {
+			t.Errorf("RepoSlugFromRemote(%q) = (%q, %v), want (%q, %v)", c.remote, slug, ok, c.slug, c.ok)
+		}
+	}
+}

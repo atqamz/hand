@@ -42,6 +42,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newTeardownCmd())
 	root.AddCommand(newWatchCmd())
 	root.AddCommand(newMergeCmd())
+	root.AddCommand(newPRCmd())
 	root.AddCommand(newPromoteCmd())
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newUpdateCmd(version))

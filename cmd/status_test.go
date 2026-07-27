@@ -172,3 +172,199 @@ func TestStatusSingleTaskMissing(t *testing.T) {
 		t.Fatalf("got err %v, want not found", err)
 	}
 }
+
+func TestStatusFleetFlagsIdleWithoutTerminalReportAsUnreported(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "idle (unreported)") {
+		t.Fatalf("got %q, want idle flagged unreported", out.String())
+	}
+}
+
+func TestStatusFleetFlagsIdleWithTerminalReportInsteadOfUnreported(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: waiting on review\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "idle (reported: needs-decision)") {
+		t.Fatalf("got %q, want idle flagged with the reported state", out.String())
+	}
+	if strings.Contains(out.String(), "unreported") {
+		t.Fatalf("got %q, want no unreported flag once a terminal report explains the idle", out.String())
+	}
+}
+
+// A worker that appends free text after a real report has still reported, so the
+// suffix comes from the last line that classified - the same answer hand watch
+// reaches about the same quiet pane. The Reported field still shows the raw last
+// line, free text included.
+func TestStatusFleetKeepsTheReportedFlagAfterATrailingMalformedLine(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"),
+		[]byte("needs-decision: waiting on review\nstill here, no answer yet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "idle (reported: needs-decision)") {
+		t.Fatalf("got %q, want the last classified report kept behind the free text", out.String())
+	}
+}
+
+func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "unreported") || strings.Contains(out.String(), "reported:") {
+		t.Fatalf("got %q, want no report suffix on a working task", out.String())
+	}
+}
+
+func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	reportBody := "working: started\nneeds-decision: waiting on review\n"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(reportBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Reported:   needs-decision: waiting on review") {
+		t.Fatalf("got %q, want the last reported state on its own line", got)
+	}
+	if !strings.Contains(got, "Report history (reported by worker, not verified current truth):") {
+		t.Fatalf("got %q, want the history block labeled as reported, not verified truth", got)
+	}
+	if !strings.Contains(got, "working: started") {
+		t.Fatalf("got %q, want the earlier report line in the history", got)
+	}
+}
+
+// TestStatusSingleTaskDegradesOnAnUnreadableReport holds the detail view to the
+// same graceful degradation the fleet view already has: a report file that
+// exists but can't be read names the fault and still prints the rest, rather
+// than failing the whole command and showing nothing at all. A directory in the
+// report file's place is a real EISDIR, not a mocked error.
+func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(state.ReportPath(home, "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want the read fault degraded rather than failing the command", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Reported:   report "+reportUnreadable) {
+		t.Fatalf("got %q, want the unreadable report named on the Reported line", got)
+	}
+	if !strings.Contains(got, "Task:       task-1") || !strings.Contains(got, "State:      idle") {
+		t.Fatalf("got %q, want the rest of the detail view still printed", got)
+	}
+}
+
+func TestStatusSingleTaskJSONIncludesReportedAndHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("blocked: waiting on secrets\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"state": "blocked"`) || !strings.Contains(out.String(), `"note": "waiting on secrets"`) {
+		t.Fatalf("got %q, want reported state and note in JSON", out.String())
+	}
+	if !strings.Contains(out.String(), `"report_history"`) {
+		t.Fatalf("got %q, want report_history in JSON", out.String())
+	}
+}

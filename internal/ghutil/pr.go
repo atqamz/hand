@@ -33,3 +33,25 @@ func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	}
 	return body.State == "MERGED", nil
 }
+
+// RepoSlugFromRemote extracts "owner/repo" from a GitHub origin remote URL in
+// https, ssh, or git@ form. Returns ok=false on anything else, so a caller
+// like hand pr can refuse rather than guess which repo a PR belongs to.
+func RepoSlugFromRemote(remoteURL string) (string, bool) {
+	s := strings.TrimSuffix(remoteURL, ".git")
+	switch {
+	case strings.HasPrefix(s, "https://github.com/"):
+		s = strings.TrimPrefix(s, "https://github.com/")
+	case strings.HasPrefix(s, "ssh://git@github.com/"):
+		s = strings.TrimPrefix(s, "ssh://git@github.com/")
+	case strings.HasPrefix(s, "git@github.com:"):
+		s = strings.TrimPrefix(s, "git@github.com:")
+	default:
+		return "", false
+	}
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", false
+	}
+	return parts[0] + "/" + parts[1], true
+}

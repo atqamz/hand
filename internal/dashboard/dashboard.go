@@ -5,6 +5,7 @@ package dashboard
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,6 +79,22 @@ type PendingDecision struct {
 	Text string
 }
 
+// PRUpdate sets the PR column for an existing active task row. A missing row is
+// never created here - active rows come from hand spawn, and a fabricated one
+// would invent state rather than reconcile it.
+type PRUpdate struct {
+	ID string
+	PR string
+}
+
+// ErrPRRowNotFound reports a SetPR that matched no active row. It is an error
+// rather than a flag on PRUpdate because no caller wants to ignore it and three
+// call sites in a row did exactly that by accident: a returned flag is silently
+// droppable, whereas ignoring an error takes an explicit discard a linter flags
+// and a reviewer sees. Every caller has to tell a repair from a no-op - the PR is
+// on the task either way, and only the dashboard column is left stale.
+var ErrPRRowNotFound = errors.New("no active dashboard row")
+
 type UpdateOpts struct {
 	AddActiveTask        *ActiveTask
 	UpdateAgentState     *AgentStateUpdate
@@ -86,12 +103,17 @@ type UpdateOpts struct {
 	SetPendingDecision   *PendingDecision
 	ClearPendingDecision string
 	SetProjects          []ProjectSummary
+	SetPR                *PRUpdate
 }
 
 // Update performs a read-modify-write of the dashboard at path, applying opts and
 // stamping the Updated timestamp. Every hand command that mutates fleet state calls
 // this so data/dashboard.md stays current, except promote - see cmd/promote.go for why
 // its row deliberately stays unchanged.
+//
+// A SetPR that matched no active row returns ErrPRRowNotFound, after the rest of
+// opts has been applied and written: the update that did land is still worth
+// keeping, and the caller decides what an unreconciled PR column means for it.
 func Update(path string, opts UpdateOpts) error {
 	unlock, err := flock(path + ".lock")
 	if err != nil {
@@ -108,13 +130,13 @@ func Update(path string, opts UpdateOpts) error {
 		return err
 	}
 
-	apply(&d, opts)
+	applyErr := apply(&d, opts)
 	d.Updated = time.Now().UTC().Format(TimeFormat)
 
 	if err := atomicfile.Write(path, ".dashboard.md-", Render(d), 0o644); err != nil {
 		return fmt.Errorf("write dashboard: %w", err)
 	}
-	return nil
+	return applyErr
 }
 
 func flock(path string) (func(), error) {
@@ -135,7 +157,7 @@ func flock(path string) (func(), error) {
 	}, nil
 }
 
-func apply(d *Dashboard, opts UpdateOpts) {
+func apply(d *Dashboard, opts UpdateOpts) error {
 	if t := opts.AddActiveTask; t != nil {
 		d.ActiveTasks = append(d.ActiveTasks, *t)
 	}
@@ -152,8 +174,15 @@ func apply(d *Dashboard, opts UpdateOpts) {
 		line := time.Now().UTC().Format("15:04") + " " + opts.AddEvent
 		d.RecentEvents = appendBounded(d.RecentEvents, line, maxRecentEvents)
 	}
+	// Nothing may reference a task with no Active Tasks row: completion removes every
+	// trace of the task, not just the row. A question left behind by a torn-down task
+	// is one nobody can answer and no later event can retire - the ID is gone from the
+	// task list, so the watcher stops tracking it. This is not a third way for the
+	// watcher to infer that a question was answered; it is the operator deleting the
+	// task, and it is what keeps the section bounded by the live fleet without a cap.
 	if c := opts.Complete; c != nil {
 		d.ActiveTasks = removeActiveTask(d.ActiveTasks, c.ID)
+		d.PendingDecisions = removeByID(d.PendingDecisions, c.ID)
 		line := fmt.Sprintf("%s: %s | %s | %s | %s", c.ID, c.Project, c.Kind, c.Outcome, c.Detail)
 		d.RecentCompletions = appendBounded(d.RecentCompletions, line, maxRecentCompletions)
 	}
@@ -166,6 +195,20 @@ func apply(d *Dashboard, opts UpdateOpts) {
 	if opts.SetProjects != nil {
 		d.Projects = opts.SetProjects
 	}
+	if p := opts.SetPR; p != nil {
+		matched := false
+		for i := range d.ActiveTasks {
+			if d.ActiveTasks[i].ID == p.ID {
+				d.ActiveTasks[i].PR = p.PR
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("%w for %s", ErrPRRowNotFound, p.ID)
+		}
+	}
+	return nil
 }
 
 func removeActiveTask(tasks []ActiveTask, id string) []ActiveTask {

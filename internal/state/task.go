@@ -23,6 +23,9 @@ var ErrTaskNotFound = errors.New("not found")
 // `task "<id>" already active`.
 var ErrTaskActive = errors.New("already active")
 
+// ErrLockBusy is returned by TryLock when another process holds the lock.
+var ErrLockBusy = errors.New("lock held by another process")
+
 func Dir(homeDir string) string {
 	return filepath.Join(homeDir, "state")
 }
@@ -72,6 +75,17 @@ func Claim(homeDir, id string) (func(), error) {
 
 func Lock(homeDir, name string) (func(), error) {
 	return lock(homeDir, name, false)
+}
+
+// TryLock is Lock for callers that must never wait - a poll loop, or anything
+// holding no claim of its own on the work the lock protects. It reports
+// ErrLockBusy instead of blocking behind a holder that may be mid-network-call.
+func TryLock(homeDir, name string) (func(), error) {
+	release, err := lock(homeDir, name, true)
+	if err == syscall.EWOULDBLOCK {
+		return nil, ErrLockBusy
+	}
+	return release, err
 }
 
 func lock(homeDir, name string, nonblock bool) (func(), error) {
@@ -181,10 +195,25 @@ func List(homeDir string) ([]Task, error) {
 	return tasks, nil
 }
 
-// Delete removes the state file for id.
+// Delete removes the state file for id, along with the task's report channel at
+// state/<id>.status. The report file is the volatile wake log, not a
+// deliverable: a task respawned under a used ID starts at report_offset 0, so a
+// surviving log would replay the previous run's lines as if they were new -
+// re-raising resolved decisions, absorbing a genuine unexplained stop, and
+// auto-recording a PR URL out of an old done line onto a task nobody recorded it
+// for. The durable deliverables (data/<id>/) survive teardown as before.
+// Delete removes the report channel before the task state file, not after: the
+// report removal is the one that can fail on a permissions or I/O fault, and
+// doing it first means that fault leaves nothing durable gone yet, so the whole
+// command is simply retryable. Removing the state file first would let a
+// report-removal failure strand the caller with the state already gone and no
+// way to retry (see cmd/teardown.go's guarded path).
 func Delete(homeDir, id string) error {
 	if err := ValidateID(id); err != nil {
 		return err
+	}
+	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove report channel %q: %w", id, err)
 	}
 	if err := os.Remove(Path(homeDir, id)); err != nil {
 		if os.IsNotExist(err) {

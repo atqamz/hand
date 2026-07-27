@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,8 +49,8 @@ func newPromoteCmd() *cobra.Command {
 			}
 
 			client := herdr.NewClient()
-			if status := paneAgentStatus(client, t.Herdr.PaneID); status != string(herdr.StatusDone) && status != string(herdr.StatusUnknown) {
-				return &ExitError{Err: fmt.Errorf("task %q is not a completed scout (agent state: %s)", id, status), Code: 3}
+			if s := herdr.Status(paneAgentStatus(client, t.Herdr.PaneID)); !s.NotBusy() && s != herdr.StatusUnknown {
+				return &ExitError{Err: fmt.Errorf("task %q is not a completed scout (agent state: %s)", id, s), Code: 3}
 			}
 
 			briefRel := filepath.Join("data", id, "brief.md")
@@ -170,12 +169,17 @@ func newPromoteCmd() *cobra.Command {
 				TabID:       tab.TabID,
 				PaneID:      pane.PaneID,
 			}
+			// ReportOffset is carried: promote never touches state/<id>.status, so the
+			// report stream is continuous and the offset already points where the
+			// ship's first line lands. DoneVerified is not: that marker belongs to the
+			// scout's own verified done, not the ship's, which has not earned it yet.
+			t.DoneVerified = false
 			if err := state.Write(home, t); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}
 			promoted = true
 
-			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil && !errors.Is(err, errTaskTabNotFound) {
+			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
 					return printErr
 				}
