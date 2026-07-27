@@ -8,7 +8,7 @@ Run `hand --help` for the full command reference.
 1. Read `data/dashboard.md` for current fleet state.
 2. Match the request to a project in `data/projects.md`.
 3. Edit `data/backlog.md` to record the task with a unique ID.
-4. Write a brief at `data/<id>/brief.md`, including the absolute path to `state/<id>.status` and the report vocabulary the worker should append to it.
+4. Write a brief at `data/<id>/brief.md`, including the absolute path to `state/<id>.status` and the report vocabulary the worker should append to it. The brief may open with a `---` fenced block declaring `model` and `effort` for the task, which spawn and promote apply unless a flag overrides them.
 5. `hand spawn <id> <project>` to start a worker.
 6. `hand watch` as a background task to monitor the fleet.
 7. Act on watch output: steer blocked workers with `hand send`, relay results.
@@ -21,6 +21,7 @@ Run `hand --help` for the full command reference.
 - Never merge without explicit authorization.
 - Never force-teardown without explicit authorization.
 - Report outcomes plainly. If work failed, say so with evidence.
+- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. `hand` resolves the home from the current working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce `data/<id>/report.md`.
 - `data/backlog.md` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use `no-mistakes axi` directly in the worktree.

@@ -129,6 +129,32 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 }
 
+func TestSpawnPersistsResolvedNotDeclaredTierValues(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	briefPath := filepath.Join(home, "data", "task-1", "brief.md")
+	if err := os.WriteFile(briefPath, []byte("---\nmodel: brief-model\neffort: brief-effort\n---\n# Title\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj", "--model", "flag-model"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "flag-model" {
+		t.Fatalf("got model %q, want the flag to win over the brief's declared %q", got.Model, "brief-model")
+	}
+	if got.Effort != "brief-effort" {
+		t.Fatalf("got effort %q, want the brief's declared value since no flag or config overrides it", got.Effort)
+	}
+}
+
 func TestSpawnScoutFlag(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
@@ -319,6 +345,7 @@ esac
 func TestSpawnRollsBackWhenWorkerNeverStarts(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	home := setupSpawnHome(t, wt, fakeHerdrStuckPaneScript)
+	expectLaunchTimeout()
 	callLog := setupSpawnLeakEnv(t, false)
 
 	cmd := newSpawnCmd()

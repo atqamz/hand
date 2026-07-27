@@ -114,10 +114,20 @@ func AgentDetectionVerified(name string) bool {
 }
 
 type Options struct {
-	Worktree string
-	Brief    string
-	Model    string
-	Effort   string
+	Worktree            string
+	Brief               string
+	Model               string
+	Effort              string
+	BriefHasFrontMatter bool
+}
+
+var effortCapable = map[string]bool{
+	Claude: true,
+}
+
+// SupportsEffort: false means the caller must warn instead of silently dropping the effort.
+func SupportsEffort(name string) bool {
+	return effortCapable[name]
 }
 
 // Build constructs the shell command that cds into the worktree and launches the harness
@@ -167,8 +177,7 @@ func buildClaude(o Options) string {
 	if o.Effort != "" {
 		args = append(args, "--effort", shellQuote(o.Effort))
 	}
-	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
-	args = append(args, shellQuote(prompt))
+	args = append(args, shellQuote(briefPrompt(o)))
 	return strings.Join(args, " ")
 }
 
@@ -195,9 +204,17 @@ func buildOpenCode(o Options) string {
 	if o.Model != "" {
 		args = append(args, "--model", shellQuote(o.Model))
 	}
-	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
-	args = append(args, "--prompt", shellQuote(prompt))
+	args = append(args, "--prompt", shellQuote(briefPrompt(o)))
 	return strings.Join(args, " ")
+}
+
+// briefPrompt is shared so the wording cannot drift between harnesses.
+func briefPrompt(o Options) string {
+	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
+	if o.BriefHasFrontMatter {
+		prompt += " Any model or effort keys in its leading '---' block are dispatch metadata, not task content."
+	}
+	return prompt
 }
 
 func shellQuote(s string) string {

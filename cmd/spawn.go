@@ -63,11 +63,10 @@ func newSpawnCmd() *cobra.Command {
 			if !harness.IsSupported(harnessName) {
 				return usageValue(harnessFromFlag, fmt.Errorf("harness %q not recognized", harnessName))
 			}
-			if model == "" {
-				model = configDefault(home, "model", "")
-			}
-			if effort == "" {
-				effort = configDefault(home, "effort", "")
+			var briefHasFrontMatter bool
+			model, effort, briefHasFrontMatter, err = resolveTier(cmd, home, briefAbs, harnessName, model, effort)
+			if err != nil {
+				return err
 			}
 			releaseProject, err := state.Lock(home, "project:"+proj.Name)
 			if err != nil {
@@ -126,10 +125,11 @@ func newSpawnCmd() *cobra.Command {
 			tabID = tab.TabID
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
-				Worktree: wt,
-				Brief:    briefAbs,
-				Model:    model,
-				Effort:   effort,
+				Worktree:            wt,
+				Brief:               briefAbs,
+				Model:               model,
+				Effort:              effort,
+				BriefHasFrontMatter: briefHasFrontMatter,
 			})
 			if err != nil {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))

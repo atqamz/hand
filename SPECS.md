@@ -95,8 +95,8 @@ secondhand/                 # repo root = working directory
       pr.go                 # PR URL validation and extraction
     worktree/               # treehouse integration
       worktree.go           # get, return, status, collision check
-    brief/                  # brief template and generation
-      brief.go              # scaffold a brief from a template
+    brief/                  # brief parsing
+      brief.go              # read the brief's declared model/effort (see "Brief format")
     watcher/                # fleet supervision
       watcher.go            # poll/push event loop
       events.go             # event classification
@@ -275,8 +275,13 @@ hand spawn investigate-crash nsr --scout
 Flags:
 - `--scout`: mark as scout task (deliverable is a report, not a PR).
 - `--harness <name>`: agent harness to launch. Default: value from `config/harness`, or `claude`.
-- `--model <name>`: model override for harnesses that support it. Default: value from `config/model`.
-- `--effort <level>`: effort level for harnesses that support it. Default: value from `config/effort`.
+- `--model <name>`: model override for harnesses that support it. Default: the brief's declared `model`, else `config/model`.
+- `--effort <level>`: effort level for harnesses that support it. Default: the brief's declared `effort`, else `config/effort`.
+
+Model and effort resolve most-specific-first: the flag, then the brief's `---` declaration (see
+"Brief format"), then the config default, then unset. A resolved effort under a harness with no
+effort flag (anything but claude) is a warning on stderr, not a failure: the spawn proceeds with
+the effort recorded in state and ignored by the launch command.
 
 Behavior:
 1. Validate project exists in registry.
@@ -740,8 +745,12 @@ hand promote investigate-crash --harness codex
 
 Flags:
 - `--harness <name>`: harness for the new ship worker. Default: value from `config/harness`.
-- `--model <name>`: model override. Default: value from `config/model`.
-- `--effort <level>`: effort override. Default: value from `config/effort`.
+- `--model <name>`: model override. Default: the brief's declared `model`, else `config/model`.
+- `--effort <level>`: effort override. Default: the brief's declared `effort`, else `config/effort`.
+
+Promote resolves model and effort exactly as `hand spawn` does, against the brief the agent
+updated for the ship phase, so a scout brief that declared a tier keeps it through promotion
+unless the brief or a flag says otherwise.
 
 Behavior:
 1. Validate the task exists and is a completed scout (has `data/<id>/report.md`, herdr pane is not busy - `idle` or `done`, which mean the same thing here, see "Agent state" - or unreachable/dead).
@@ -951,6 +960,10 @@ cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously
 
 The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
+Claude is the only harness with an effort flag: `opencode` takes `--model` but no effort, and
+`codex`, `grok` and `pi` take neither (`harness.SupportsEffort`).
+When the brief carries a `---` declaration, the prompt gains a sentence disclaiming it as dispatch
+metadata (see "Brief format").
 `--dangerously-skip-permissions` is required so the unattended worker does not stall on a
 permission dialog.
 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` suppresses the dim predicted-next-prompt ghost text
@@ -1209,6 +1222,41 @@ There is no template engine, no placeholder substitution, no generated sections.
 The supervisory agent is an LLM - it writes good briefs naturally.
 Removing template machinery removes a maintenance burden and failure mode.
 
+### Declared model and effort
+
+A brief may open with a `---` fenced block declaring the tier the task should run at:
+
+```markdown
+---
+model: claude-opus-5
+effort: high
+---
+
+# Task: <short description>
+```
+
+Both keys are optional, and the block is only recognized when `---` is the brief's very first
+line. `hand spawn` and `hand promote` read it (`internal/brief`) and resolve model and effort as
+flag, then declaration, then config default, then unset. The brief is the durable statement of
+scope, so a respawn or a promote picks the declaration up again instead of falling back to
+`config/model`.
+
+The parser is deliberately forgiving, unlike `data/projects.md`'s registry parser: unknown keys
+inside the block are ignored, a value written as a YAML quoted scalar (`model: "claude-opus-5"`)
+declares the same tier as the bare form, and a brief it cannot scan (an unterminated fence, an
+enormous pasted line) is read as having no declaration rather than failing the spawn. A brief is
+prose that happens to carry two optional settings, not a config file that happens to contain prose.
+Model names are not validated against a list, which would rot the first time a model ships.
+
+The declaration is dispatch metadata, not task content. The worker opens the brief itself, so the
+launch prompt gains one sentence marking the block's `model` and `effort` keys as dispatch metadata
+when a block is present; anything else the block carries is left to the worker to read, and the
+brief on disk is never rewritten or stripped. Only the prompt-bearing harnesses carry that
+sentence: `codex`, `grok` and `pi` are handed the brief as a file with no prompt at all, so a
+declaring brief reaches them undisclaimed.
+
+A declared effort under a harness that cannot apply one warns on stderr (see `hand spawn`).
+
 ## Backlog format
 
 `data/backlog.md` is a plain markdown file edited directly by the supervisory agent.
@@ -1398,7 +1446,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 | X-mode / Twitter | `fm-x-*.sh`, `fmx-respond` skill (3,250 lines) | Separate product concern. Build as a separate tool if ever needed. |
 | AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch` + `hand notify` + the agent's own background task is sufficient. |
 | Multiple backends | `backends/herdr.sh`, `backends/cmux.sh`, `backends/zellij.sh`, `backends/orca.sh`, `fm-backend.sh` (5,500 lines) | herdr only. Add tmux fallback later if herdr proves insufficient. |
-| Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, or set defaults in `config/`. |
+| Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, declare `model`/`effort` in the brief, or set defaults in `config/`. |
 | Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | Agent tracks decisions in backlog and dashboard. |
 | Hook-based guards | `fm-continuity-pretool-check.sh`, `fm-continuity-command-policy.mjs`, `fm-subagent-pretool-check.sh` (450 lines) | CLI refuses bad operations internally. No hooks. |
 | PR-check migration | `fm-pr-check-migrate.sh` (1,148 lines) | No legacy to migrate. |
@@ -1602,3 +1650,4 @@ Deliverable: ready for daily use.
 **`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new workspace's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh.
 
 This repo's own `AGENTS.md` is not a `hand` workspace (no `data/dashboard.md`), so `agentsmd.Refresh` never touches it: its top section is a hand-kept copy of `generatedBody`, kept in sync manually rather than by the refresh mechanism.
+Drift between the two copies is caught by a unit test in `internal/agentsmd` asserting the repo copy's rules open with the generated ones verbatim, not by the mechanism that would remove the duplication.
