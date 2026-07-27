@@ -153,6 +153,11 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 // "pane get <id>" reports whatever status currently sits in statusDir/<id>,
 // letting the test drive independent, per-task status transitions while
 // `hand watch` polls in the background just by rewriting one file per task.
+// Both are query commands per internal/herdr/client.go's call() doc comment:
+// real success is a non-null result object on exit 0, real failure a non-zero
+// exit or an error envelope. This fake always succeeds for both, mirroring
+// the real success shape; the failure path is exercised for real elsewhere
+// (see cmd/status_test.go's writeFakeHerdrPaneStatus for the full contract).
 // Every invocation is appended to logPath so the test can tell "the watcher
 // has polled this pane" apart from "the watcher hasn't got there yet".
 func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {

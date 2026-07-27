@@ -47,9 +47,13 @@ case "$cmd" in
 esac
 `
 
-// fakeHerdrPromotePaneWorking only fakes "pane get", reporting the scout's
-// pane as still "working" so promote's precondition check refuses the
-// promotion before any other herdr call is needed.
+// fakeHerdrPromotePaneWorking only fakes "pane get", a query command per
+// internal/herdr/client.go's call() doc comment: real success is a non-null
+// result object on exit 0, real failure a non-zero exit or an error envelope
+// (full contract at cmd/status_test.go's writeFakeHerdrPaneStatus). This fake
+// only exercises success, reporting the scout's pane as still "working" so
+// promote's precondition check refuses the promotion before any other herdr
+// call is needed; it mirrors the real success shape.
 const fakeHerdrPromotePaneWorking = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
