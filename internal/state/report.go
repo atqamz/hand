@@ -136,33 +136,25 @@ func blankReportLine(line string) bool {
 	return strings.TrimSpace(line) == ""
 }
 
-// LastReport returns the most recently reported line for a task, or ok=false if
-// the report file doesn't exist or is empty.
-func LastReport(homeDir, id string) (ReportLine, bool, error) {
-	lines, err := ReadReportLines(homeDir, id)
-	if err != nil || len(lines) == 0 {
-		return ReportLine{}, false, err
-	}
-	return lines[len(lines)-1], true, nil
-}
-
-// LastReportedState returns the most recent line whose state classified - the
-// last thing the worker actually said about itself - skipping trailing malformed
+// LastReportedState returns the most recent line in lines whose state classified -
+// the last thing the worker actually said about itself - skipping trailing malformed
 // lines rather than letting one erase it. Free text explains nothing, so a worker
 // that appends some after a real report has still reported: this is the rule the
-// live classifier follows (see ClassifyReportLine), and a reader that recovers
-// the last known report state from the file has to reach the same answer.
-func LastReportedState(homeDir, id string) (ReportLine, bool, error) {
-	lines, err := ReadReportLines(homeDir, id)
-	if err != nil {
-		return ReportLine{}, false, err
-	}
+// live classifier follows (see ClassifyReportLine), and a reader that recovers the
+// last known report state from the file has to reach the same answer.
+//
+// It takes lines rather than reading the file so a caller that also needs the raw
+// last line gets both from one read. Two reads are two snapshots, and a worker
+// appending between them would have one row's raw line and its own classified state
+// describing different reports - the same two-views-disagree defect the report
+// channel exists to remove.
+func LastReportedState(lines []ReportLine) (ReportLine, bool) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		if !lines[i].Malformed {
-			return lines[i], true, nil
+			return lines[i], true
 		}
 	}
-	return ReportLine{}, false, nil
+	return ReportLine{}, false
 }
 
 // ReportTail returns the last n reported lines for a task, oldest first.

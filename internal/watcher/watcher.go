@@ -147,12 +147,12 @@ func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Ti
 	ts.DoneVerified = t.DoneVerified
 	ts.PersistedDoneVerified = t.DoneVerified
 
-	last, ok, err := state.LastReportedState(home, t.ID)
+	lines, err := state.ReadReportLines(home, t.ID)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read report for %s failed: %v\n", t.ID, err)
 		return ts
 	}
-	if ok {
+	if last, ok := state.LastReportedState(lines); ok {
 		ts.LastReportState = last.State
 		ts.LastReportNote = last.Note
 	}
@@ -383,61 +383,89 @@ func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
 	}
 }
 
-// updateDashboardForEvent decides what each event kind does to a task's row. One
-// rule holds it together, in place of a per-kind judgement call: every kind that
-// writes the task's row sets the state column, and every kind that carries no new
-// state only appends to Recent Events.
-//
-// So report-working writes "working" back, report-paused, report-blocked,
-// report-needs-decision, report-failed, idle-unreported, blocked, failed and a
-// verified report-done each write their own state, and the column always names the
-// last thing known about the worker from one source. Deciding kind by kind is what
-// left a stopped worker's row reading "working", and then a steered worker's row
-// reading "needs-decision" while it worked. The kinds that write nothing to the row
-// are the ones with nothing to say about it: stale (elapsed time in a state, not a
-// new one), pr-merged, pr-not-recorded and pr-record-unknown (facts about a PR
-// record), malformed report (free text classifies to nothing), and an unverified
-// report-done (a worker's claim is not evidence - see the Verified branch below).
-func updateDashboardForEvent(home string, e *Event, t state.Task) error {
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	age := dashboard.FormatAge(t.CreatedAt)
+// dashboardRow is one event kind's complete disposition of a task's row. The row
+// has two event-driven fields and a kind decides both or neither, never one: a kind
+// that answered only the state column is how a stopped worker's row kept reading
+// "working", then how a steered worker's row kept reading "needs-decision", and
+// answering only that column again is how the Pending Decisions slot kept a question
+// the worker had already resolved. Three misses of the same shape, so the disposition
+// is a value each kind returns rather than a set of assignments each kind is trusted
+// to remember.
+type dashboardRow struct {
+	// Written false is the third answer, not a default: the kind says nothing about
+	// the worker and only appends to Recent Events.
+	Written bool
+	State   string
+	// Pending is the Pending Decisions text. Empty clears the slot, because that
+	// slot holds what the supervisor still has to answer and nothing else - a queue
+	// carrying answered questions stops telling anyone what needs action, exactly as
+	// a "working" column on a parked worker does.
+	Pending string
+}
 
-	opts := dashboard.UpdateOpts{AddEvent: e.Text}
+// dashboardRowFor gives every event kind a disposition, or fails. An unknown kind is
+// a programming error rather than a silent no-op, which is what makes the rule
+// checkable: TestEveryEventKindHasADashboardRowDisposition reads the kind constants
+// straight out of events.go, so a new kind that reaches here without a decision fails
+// the build's tests instead of quietly leaving a field stale.
+func dashboardRowFor(e *Event, age string) (dashboardRow, error) {
 	switch e.Kind {
 	case KindIdleUnreported:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindIdleUnreported, Age: age}
-		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("stopped, reason unknown (idle %s)", age)}
+		return dashboardRow{Written: true, State: KindIdleUnreported, Pending: fmt.Sprintf("stopped, reason unknown (idle %s)", age)}, nil
 	case KindBlocked:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindBlocked, Age: age}
-		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: fmt.Sprintf("%s (blocked %s)", e.Reason, age)}
-	case KindFailed:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindFailed, Age: age}
-	// The Pending Decisions slot is upserted by task ID, so a second writer for
-	// the same task erases the first. It belongs to whatever the supervisor has
-	// to answer about that task - the worker's own question, or an unexplained
-	// stop that leaves no one to ask. Operator notices go to the event stream.
+		return dashboardRow{Written: true, State: KindBlocked, Pending: fmt.Sprintf("%s (blocked %s)", e.Reason, age)}, nil
+	// The slot is upserted by task ID, so a second writer for the same task erases
+	// the first. It belongs to whatever the supervisor has to answer about that task
+	// - the worker's own question, or an unexplained stop that leaves no one to ask.
+	// Operator notices go to the event stream.
 	case KindReportBlocked, KindReportNeedsDecision:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: e.Kind, Age: age}
-		opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: e.Reason}
+		return dashboardRow{Written: true, State: e.Kind, Pending: e.Reason}, nil
+	case KindFailed:
+		return dashboardRow{Written: true, State: KindFailed}, nil
 	case KindReportPaused:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportPaused, Age: age}
+		return dashboardRow{Written: true, State: KindReportPaused}, nil
 	case KindReportWorking:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: state.ReportWorking, Age: age}
+		return dashboardRow{Written: true, State: state.ReportWorking}, nil
 	case KindReportFailed:
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindReportFailed, Age: age}
+		return dashboardRow{Written: true, State: KindReportFailed}, nil
+	case KindHerdrDone:
+		return dashboardRow{Written: true, State: KindHerdrDone}, nil
 	case KindReportDone:
 		// A reported done is never trusted alone. Only once doneVerified finds
-		// recorded evidence that the task actually landed (Verified) does it get
-		// to change agent state or clear a pending decision, so an unverified
-		// self-report shows up in Recent Events without silently overriding what's
-		// still pending.
-		if e.Verified {
-			opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: KindHerdrDone, Age: age}
+		// recorded evidence that the task actually landed (Verified) does it get to
+		// touch the row at all, so an unverified self-report shows up in Recent
+		// Events without silently overriding what's still pending.
+		if !e.Verified {
+			return dashboardRow{}, nil
+		}
+		return dashboardRow{Written: true, State: KindHerdrDone}, nil
+	case KindStale, KindPRMerged, KindPRNotRecorded, KindPRRecordUnknown, KindReportMalformed:
+		// Nothing about what the worker is doing: elapsed time in a state rather than
+		// a new one, facts about a PR record, and free text that classifies to
+		// nothing.
+		return dashboardRow{}, nil
+	}
+	return dashboardRow{}, fmt.Errorf("no dashboard row disposition for event kind %q", e.Kind)
+}
+
+func updateDashboardForEvent(home string, e *Event, t state.Task) error {
+	age := dashboard.FormatAge(t.CreatedAt)
+	row, err := dashboardRowFor(e, age)
+	if err != nil {
+		return err
+	}
+
+	opts := dashboard.UpdateOpts{AddEvent: e.Text}
+	if row.Written {
+		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: row.State, Age: age}
+		if row.Pending != "" {
+			opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: row.Pending}
+		} else {
 			opts.ClearPendingDecision = t.ID
 		}
 	}
 
-	return dashboard.Update(dashPath, opts)
+	return dashboard.Update(filepath.Join(home, "data", "dashboard.md"), opts)
 }
 
 func appendEventLog(path, line string) error {

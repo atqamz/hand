@@ -83,16 +83,17 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	suffixes := make([]string, 0, len(tasks))
 	for _, t := range tasks {
 		agentState := paneAgentStatus(client, t.Herdr.PaneID)
-		last, ok, readErr := state.LastReport(home, t.ID)
-		reported, reportedOK, reportedErr := state.LastReportedState(home, t.ID)
-		if readErr == nil {
-			readErr = reportedErr
+		lines, readErr := state.ReadReportLines(home, t.ID)
+		var last state.ReportLine
+		if len(lines) > 0 {
+			last = lines[len(lines)-1]
 		}
+		reported, reportedOK := state.LastReportedState(lines)
 		rows = append(rows, statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState,
 			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
-			Reported: reportedFrom(last, ok, readErr),
+			Reported: reportedFrom(last, len(lines) > 0, readErr),
 		})
 		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr))
 	}

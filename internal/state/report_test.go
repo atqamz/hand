@@ -138,7 +138,7 @@ func TestTailReportRestartsFromZeroWhenFileShrinks(t *testing.T) {
 	}
 }
 
-func TestLastReportAndReportTail(t *testing.T) {
+func TestReadReportLinesAndReportTail(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
 		t.Fatal(err)
@@ -147,9 +147,9 @@ func TestLastReportAndReportTail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	last, ok, err := LastReport(home, "task-1")
-	if err != nil || !ok || last.State != ReportDone {
-		t.Fatalf("got %+v ok=%v err=%v, want the done line", last, ok, err)
+	lines, err := ReadReportLines(home, "task-1")
+	if err != nil || len(lines) != 3 || lines[2].State != ReportDone {
+		t.Fatalf("got %+v err=%v, want 3 lines ending in done", lines, err)
 	}
 
 	tail, err := ReportTail(home, "task-1", 2)
@@ -158,11 +158,11 @@ func TestLastReportAndReportTail(t *testing.T) {
 	}
 }
 
-func TestLastReportMissingFile(t *testing.T) {
+func TestReadReportLinesMissingFile(t *testing.T) {
 	home := t.TempDir()
-	_, ok, err := LastReport(home, "task-1")
-	if err != nil || ok {
-		t.Fatalf("got ok=%v err=%v, want no report and no error", ok, err)
+	lines, err := ReadReportLines(home, "task-1")
+	if err != nil || len(lines) != 0 {
+		t.Fatalf("got %+v err=%v, want no report and no error", lines, err)
 	}
 }
 
@@ -194,14 +194,18 @@ func TestLastReportedStateSkipsTrailingMalformedLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	last, ok, err := LastReportedState(home, "task-1")
-	if err != nil || !ok || last.State != ReportNeedsDecision || last.Note != "which base branch?" {
-		t.Fatalf("got %+v ok=%v err=%v, want the needs-decision line", last, ok, err)
+	lines, err := ReadReportLines(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	raw, ok, err := LastReport(home, "task-1")
-	if err != nil || !ok || !raw.Malformed {
-		t.Fatalf("got %+v ok=%v err=%v, want LastReport to still surface the raw last line", raw, ok, err)
+	last, ok := LastReportedState(lines)
+	if !ok || last.State != ReportNeedsDecision || last.Note != "which base branch?" {
+		t.Fatalf("got %+v ok=%v, want the needs-decision line", last, ok)
+	}
+
+	if raw := lines[len(lines)-1]; !raw.Malformed {
+		t.Fatalf("got %+v, want the raw last line still surfaced as malformed", raw)
 	}
 }
 
@@ -214,8 +218,11 @@ func TestLastReportedStateWithOnlyMalformedLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, ok, err := LastReportedState(home, "task-1")
-	if err != nil || ok {
-		t.Fatalf("got ok=%v err=%v, want no reported state at all", ok, err)
+	lines, err := ReadReportLines(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LastReportedState(lines); ok {
+		t.Fatalf("got ok=%v, want no reported state at all", ok)
 	}
 }

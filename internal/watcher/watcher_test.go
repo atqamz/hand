@@ -1451,11 +1451,11 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
 
 	report := ""
-	for _, tc := range []struct{ line, wantState string }{
-		{"paused: waiting on the nightly build\n", KindReportPaused},
-		{"blocked: needs an API key\n", KindReportBlocked},
-		{"needs-decision: which base branch?\n", KindReportNeedsDecision},
-		{"working: main, carrying on\n", state.ReportWorking},
+	for _, tc := range []struct{ line, wantState, wantPending string }{
+		{"paused: waiting on the nightly build\n", KindReportPaused, ""},
+		{"blocked: needs an API key\n", KindReportBlocked, "needs an API key"},
+		{"needs-decision: which base branch?\n", KindReportNeedsDecision, "which base branch?"},
+		{"working: main, carrying on\n", state.ReportWorking, ""},
 	} {
 		report += tc.line
 		if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
@@ -1467,10 +1467,13 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 		if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != tc.wantState {
 			t.Fatalf("ActiveTasks = %+v after %q, want state %s", d.ActiveTasks, tc.line, tc.wantState)
 		}
-	}
-
-	d := readDashboard(t, dashPath)
-	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "which base branch?") {
-		t.Fatalf("PendingDecisions = %+v, want the worker's own question", d.PendingDecisions)
+		switch {
+		case tc.wantPending == "":
+			if len(d.PendingDecisions) != 0 {
+				t.Fatalf("PendingDecisions = %+v after %q, want the slot empty", d.PendingDecisions, tc.line)
+			}
+		case len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], tc.wantPending):
+			t.Fatalf("PendingDecisions = %+v after %q, want %q", d.PendingDecisions, tc.line, tc.wantPending)
+		}
 	}
 }

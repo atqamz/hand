@@ -505,7 +505,7 @@ Errors:
 - Uncommitted changes in worktree (without `--force`).
 - PR not merged (without `--force`).
 - Report not found for scout task (without `--force`).
-- Treehouse return failed (worktree locked, already returned).
+- Treehouse return failed (worktree locked, path no pool manages).
 - Herdr tab close failed (graceful: warn and continue).
 
 ---
@@ -854,11 +854,24 @@ Updated: 2026-07-24T12:30:00Z
 | `hand promote` | No update (the row keeps its scout kind) |
 | `hand notify` | No update (notification is a side channel) |
 
-The Active Tasks `state` column carries the last state anything knew about the worker, and one rule governs it: **every event kind that writes the task's row sets the column.**
-That is `idle-unreported`, `blocked`, `failed`, a reported `working`/`paused`/`blocked`/`needs-decision`/`failed`, and a *verified* `done`.
-A worker that reports why it stopped is the well-behaved case, and its row must not keep reading `working` while the note sits in Pending Decisions; a worker steered back to work must not keep reading `needs-decision` either.
-Two views of one task disagreeing is the defect the report channel exists to remove, in both directions, and the supervisor reads this column first.
-Deciding kind by kind is what produced both halves of that bug, so the remaining kinds are exactly the ones that write nothing to the row at all: an unverified `report-done` is a claim rather than evidence, `stale` is elapsed time in a state rather than a new one, the two PR auto-record notices are facts about a record rather than about the worker, and a malformed line classifies to nothing.
+The Active Tasks `state` column and the task's Pending Decisions slot are two halves of one row, and one rule governs both: **an event kind that writes the task's row decides every field of it.**
+Not the state column alone - a kind that sets the column and says nothing about the slot leaves the previous event's question standing under a state that has moved on, which is the same two-views-disagree defect as a stopped worker whose row still reads `working`.
+The supervisor reads this row first, so each kind's disposition is fixed here rather than decided field by field:
+
+| Event kind | `state` column | Pending Decisions |
+|---|---|---|
+| `idle-unreported` | `idle-unreported` | stopped, reason unknown |
+| `blocked` (herdr) | `blocked` | herdr's blocked reason |
+| `report-blocked`, `report-needs-decision` | the kind | the worker's own note |
+| `report-working` | `working` | cleared |
+| `report-paused` | `report-paused` | cleared |
+| `failed`, `report-failed` | the kind | cleared |
+| `done` (herdr), verified `report-done` | `done` | cleared |
+| unverified `report-done`, `stale`, `pr-merged`, `pr-not-recorded`, `pr-record-unknown`, `report-malformed` | no row write | untouched |
+
+The last group writes nothing to the row at all: an unverified `report-done` is a claim rather than evidence, `stale` is elapsed time in a state rather than a new one, the PR notices are facts about a record rather than about the worker, and a malformed line classifies to nothing.
+They still reach Recent Events and `state/events.log`.
+Deciding kind by kind, field by field, is what produced this bug in both directions, so a kind with no disposition here is an error rather than a partial row - `hand watch` refuses to write it, and the test that enumerates the kind vocabulary fails.
 The column has one source, the event stream; it is never refreshed from a live herdr probe, which would give it two.
 
 Pending Decisions holds at most one entry per task, replaced on write.
