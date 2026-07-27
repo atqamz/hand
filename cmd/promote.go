@@ -169,6 +169,11 @@ func newPromoteCmd() *cobra.Command {
 				TabID:       tab.TabID,
 				PaneID:      pane.PaneID,
 			}
+			// ReportOffset is carried: promote never touches state/<id>.status, so the
+			// report stream is continuous and the offset already points where the
+			// ship's first line lands. DoneVerified is not: that marker belongs to the
+			// scout's own verified done, not the ship's, which has not earned it yet.
+			t.DoneVerified = false
 			if err := state.Write(home, t); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}

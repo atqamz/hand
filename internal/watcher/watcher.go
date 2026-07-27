@@ -91,6 +91,17 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			continue
 		}
 
+		// A verified-done marker only ever regresses from true to false on disk
+		// through a rewrite outside the watcher - the watcher itself only ever sets
+		// it true. hand promote clearing it for a task's new ship run is that
+		// rewrite, and CreatedAt is unchanged so the identity check above doesn't
+		// catch it. Forget the cached copy too, or syncTaskState's OR would
+		// resurrect the marker promote just cleared.
+		if !t.DoneVerified && ts.DoneVerified {
+			ts.DoneVerified = false
+			ts.PersistedDoneVerified = false
+		}
+
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {

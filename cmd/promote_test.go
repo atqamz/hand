@@ -133,6 +133,44 @@ func TestPromoteHappyPath(t *testing.T) {
 	}
 }
 
+// TestPromoteResetsDoneVerifiedButCarriesReportOffset covers the asymmetry
+// cmd/promote.go's DoneVerified reset comment documents: the scout run's
+// verified done belongs to the scout, not the ship that inherits its task
+// state, but the report stream is continuous across the transition so the
+// offset into it must not be replayed from zero.
+func TestPromoteResetsDoneVerifiedButCarriesReportOffset(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteScript)
+
+	scout, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scout.DoneVerified = true
+	scout.ReportOffset = 42
+	if err := state.Write(home, scout); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DoneVerified {
+		t.Fatal("DoneVerified = true, want the scout's marker cleared for the ship run")
+	}
+	if got.ReportOffset != 42 {
+		t.Fatalf("ReportOffset = %d, want the scout's offset carried forward", got.ReportOffset)
+	}
+}
+
 func TestPromoteRefusesNonScout(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

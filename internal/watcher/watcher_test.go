@@ -1091,6 +1091,103 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	}
 }
 
+// TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker covers
+// the third layer of the inherited-bookkeeping family (SPECS.md's "What survives
+// a hand watch restart", the hand promote row): a promoted task keeps CreatedAt,
+// so the identity check that resets state across a torn-down-and-respawned ID
+// never fires here, and the watcher's own long-running in-memory TaskState - not
+// just the on-disk marker a restart would re-read - carries the scout's
+// DoneVerified into the ship run. Clearing the disk field in cmd/promote.go alone
+// is not the fix: syncTaskState's ts.DoneVerified-OR would resurrect it on the
+// very next tick unless the cached copy is forgotten too.
+func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("scout findings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	// The scout's own done is verified by the report.md the scout deliverable
+	// requires, with nothing else in play.
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: scout findings\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !hasEventLine(buf.String(), "done task-1: scout findings") {
+		t.Fatalf("out = %q, want the scout's verified done", buf.String())
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !task.DoneVerified {
+		t.Fatal("task.DoneVerified = false, want the scout's announcement persisted")
+	}
+
+	// hand promote: same rewrite cmd/promote.go makes - kind changes, CreatedAt
+	// and the report channel do not - with the DoneVerified reset this test exists
+	// to cover.
+	task.Kind = state.KindShip
+	task.DoneVerified = false
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+
+	// The ship's own report line lands on the same continuous report stream,
+	// before any merge evidence exists - the ordinary ordering ClassifyDeferredDone
+	// exists for.
+	f, err := os.OpenFile(state.ReportPath(home, "task-1"), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("done: ship work\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !hasEventLine(buf.String(), "reported-done task-1: ship work") {
+		t.Fatalf("out = %q, want an unverified reported-done - the ship has not merged yet", buf.String())
+	}
+	task, err = state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.DoneVerified {
+		t.Fatal("task.DoneVerified = true, want promote's reset not resurrected by the cached copy")
+	}
+
+	// hand merge lands the evidence the ship's own done needs.
+	task.Merged = true
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !hasEventLine(buf.String(), "done task-1: ship work") {
+		t.Fatalf("out = %q, want the ship's own verified done announced", buf.String())
+	}
+}
+
 // hasEventLine matches want as a whole output line, so "reported-done <id>" and
 // "done <id>" - one a substring of the other - can't be confused.
 func hasEventLine(out, want string) bool {
