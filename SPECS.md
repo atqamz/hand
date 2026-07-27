@@ -1235,14 +1235,16 @@ scope, so a respawn or a promote picks the declaration up again instead of falli
 `config/model`.
 
 The parser is deliberately forgiving, unlike `data/projects.md`'s registry parser: unknown keys
-inside the block are ignored, and a brief it cannot scan (an unterminated fence, an enormous
-pasted line) is read as having no declaration rather than failing the spawn. A brief is prose
-that happens to carry two optional settings, not a config file that happens to contain prose.
+inside the block are ignored, a value written as a YAML quoted scalar (`model: "claude-opus-5"`)
+declares the same tier as the bare form, and a brief it cannot scan (an unterminated fence, an
+enormous pasted line) is read as having no declaration rather than failing the spawn. A brief is
+prose that happens to carry two optional settings, not a config file that happens to contain prose.
 Model names are not validated against a list, which would rot the first time a model ships.
 
 The declaration is dispatch metadata, not task content. The worker opens the brief itself, so the
-launch prompt gains one sentence telling it to skip past the front matter when a block is present;
-the brief on disk is never rewritten or stripped. Only the prompt-bearing harnesses carry that
+launch prompt gains one sentence marking the block's `model` and `effort` keys as dispatch metadata
+when a block is present; anything else the block carries is left to the worker to read, and the
+brief on disk is never rewritten or stripped. Only the prompt-bearing harnesses carry that
 sentence: `codex`, `grok` and `pi` are handed the brief as a file with no prompt at all, so a
 declaring brief reaches them undisclaimed.
 

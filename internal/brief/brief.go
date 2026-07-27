@@ -41,10 +41,18 @@ func Parse(path string) (Declaration, bool, error) {
 		}
 		switch strings.TrimSpace(key) {
 		case "model":
-			d.Model = strings.TrimSpace(value)
+			d.Model = unquote(value)
 		case "effort":
-			d.Effort = strings.TrimSpace(value)
+			d.Effort = unquote(value)
 		}
 	}
 	return Declaration{}, false, nil
+}
+
+func unquote(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+		return value[1 : len(value)-1]
+	}
+	return value
 }

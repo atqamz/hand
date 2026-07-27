@@ -213,7 +213,7 @@ func buildOpenCode(o Options) string {
 func briefPrompt(o Options) string {
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
 	if o.FrontMatter {
-		prompt += " Its leading '---' front matter is dispatch metadata (model/effort selection), not task content; skip past it."
+		prompt += " Any model or effort keys in its leading '---' block are dispatch metadata, not task content."
 	}
 	return prompt
 }

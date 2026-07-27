@@ -126,6 +126,35 @@ func TestParseOnlyModelDeclared(t *testing.T) {
 	}
 }
 
+func TestParseStripsQuotedScalars(t *testing.T) {
+	for name, content := range map[string]string{
+		"double": "---\nmodel: \"claude-opus-5\"\neffort: \"high\"\n---\n# Title\n",
+		"single": "---\nmodel: 'claude-opus-5'\neffort: 'high'\n---\n# Title\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, present, err := Parse(writeBrief(t, content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !present || d.Model != "claude-opus-5" || d.Effort != "high" {
+				t.Fatalf("got present=%v d=%+v, want surrounding quotes stripped", present, d)
+			}
+		})
+	}
+}
+
+func TestParseKeepsUnpairedQuote(t *testing.T) {
+	path := writeBrief(t, "---\nmodel: \"claude-opus-5\n---\n# Title\n")
+
+	d, _, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Model != "\"claude-opus-5" {
+		t.Fatalf("got %q, want an unpaired quote left alone", d.Model)
+	}
+}
+
 func TestParseUnclosedFrontMatterTreatedAsProse(t *testing.T) {
 	path := writeBrief(t, "---\nmodel: claude-opus-5\n\n# Title\n\nno closing fence above\n")
 
