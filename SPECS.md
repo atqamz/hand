@@ -275,8 +275,13 @@ hand spawn investigate-crash nsr --scout
 Flags:
 - `--scout`: mark as scout task (deliverable is a report, not a PR).
 - `--harness <name>`: agent harness to launch. Default: value from `config/harness`, or `claude`.
-- `--model <name>`: model override for harnesses that support it. Default: value from `config/model`.
-- `--effort <level>`: effort level for harnesses that support it. Default: value from `config/effort`.
+- `--model <name>`: model override for harnesses that support it. Default: the brief's declared `model`, else `config/model`.
+- `--effort <level>`: effort level for harnesses that support it. Default: the brief's declared `effort`, else `config/effort`.
+
+Model and effort resolve most-specific-first: the flag, then the brief's `---` declaration (see
+"Brief format"), then the config default, then unset. A resolved effort under a harness with no
+effort flag (anything but claude) is a warning on stderr, not a failure: the spawn proceeds with
+the effort recorded in state and ignored by the launch command.
 
 Behavior:
 1. Validate project exists in registry.
@@ -733,8 +738,12 @@ hand promote investigate-crash --harness codex
 
 Flags:
 - `--harness <name>`: harness for the new ship worker. Default: value from `config/harness`.
-- `--model <name>`: model override. Default: value from `config/model`.
-- `--effort <level>`: effort override. Default: value from `config/effort`.
+- `--model <name>`: model override. Default: the brief's declared `model`, else `config/model`.
+- `--effort <level>`: effort override. Default: the brief's declared `effort`, else `config/effort`.
+
+Promote resolves model and effort exactly as `hand spawn` does, against the brief the agent
+updated for the ship phase, so a scout brief that declared a tier keeps it through promotion
+unless the brief or a flag says otherwise.
 
 Behavior:
 1. Validate the task exists and is a completed scout (has `data/<id>/report.md`, herdr pane is not busy - `idle` or `done`, which mean the same thing here, see "Agent state" - or unreachable/dead).
@@ -944,6 +953,10 @@ cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously
 
 The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
+Claude is the only harness with an effort flag: `opencode` takes `--model` but no effort, and
+`codex`, `grok` and `pi` take neither (`harness.SupportsEffort`).
+When the brief carries a `---` declaration, the prompt gains a sentence disclaiming it as dispatch
+metadata (see "Brief format").
 `--dangerously-skip-permissions` is required so the unattended worker does not stall on a
 permission dialog.
 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` suppresses the dim predicted-next-prompt ghost text
@@ -1201,6 +1214,37 @@ Recommended structure:
 There is no template engine, no placeholder substitution, no generated sections.
 The supervisory agent is an LLM - it writes good briefs naturally.
 Removing template machinery removes a maintenance burden and failure mode.
+
+### Declared model and effort
+
+A brief may open with a `---` fenced block declaring the tier the task should run at:
+
+```markdown
+---
+model: claude-opus-5
+effort: high
+---
+
+# Task: <short description>
+```
+
+Both keys are optional, and the block is only recognized when `---` is the brief's very first
+line. `hand spawn` and `hand promote` read it (`internal/brief`) and resolve model and effort as
+flag, then declaration, then config default, then unset. The brief is the durable statement of
+scope, so a respawn or a promote picks the declaration up again instead of falling back to
+`config/model`.
+
+The parser is deliberately forgiving, unlike `data/projects.md`'s registry parser: unknown keys
+inside the block are ignored, and a brief it cannot scan (an unterminated fence, an enormous
+pasted line) is read as having no declaration rather than failing the spawn. A brief is prose
+that happens to carry two optional settings, not a config file that happens to contain prose.
+Model names are not validated against a list, which would rot the first time a model ships.
+
+The declaration is dispatch metadata, not task content. The worker opens the brief itself, so the
+launch prompt gains one sentence telling it to skip past the front matter when a block is present;
+the brief on disk is never rewritten or stripped.
+
+A declared effort under a harness that cannot apply one warns on stderr (see `hand spawn`).
 
 ## Backlog format
 

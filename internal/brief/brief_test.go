@@ -1,8 +1,10 @@
 package brief
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -145,6 +147,24 @@ func TestParseEmptyBrief(t *testing.T) {
 	}
 	if present || d != (Declaration{}) {
 		t.Fatalf("got present=%v d=%+v, want no declaration", present, d)
+	}
+}
+
+func TestParseOversizedLineTreatedAsProse(t *testing.T) {
+	huge := strings.Repeat("x", bufio.MaxScanTokenSize+1)
+	for name, content := range map[string]string{
+		"first line":  huge + "\n# Title\n",
+		"inside body": "---\nmodel: claude-opus-5\n" + huge + "\n---\n# Title\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, present, err := Parse(writeBrief(t, content))
+			if err != nil {
+				t.Fatalf("oversized line must not fail a spawn: %v", err)
+			}
+			if present || d != (Declaration{}) {
+				t.Fatalf("got present=%v d=%+v, want no declaration", present, d)
+			}
+		})
 	}
 }
 

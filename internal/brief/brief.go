@@ -13,8 +13,10 @@ type Declaration struct {
 	Effort string
 }
 
-// Parse ignores unknown keys inside the block by choice, not oversight: a brief is prose
-// carrying two optional settings, not a config file.
+// Parse ignores unknown keys inside the block, and reports "no declaration" for a brief it
+// cannot scan (an unterminated fence, a line past bufio's token cap), by choice rather than
+// oversight: a brief is prose carrying two optional settings, not a config file, so nothing
+// about its shape may fail a spawn.
 func Parse(path string) (Declaration, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -24,14 +26,14 @@ func Parse(path string) (Declaration, bool, error) {
 
 	scanner := bufio.NewScanner(f)
 	if !scanner.Scan() || strings.TrimSpace(scanner.Text()) != "---" {
-		return Declaration{}, false, scanner.Err()
+		return Declaration{}, false, nil
 	}
 
 	var d Declaration
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "---" {
-			return d, true, scanner.Err()
+			return d, true, nil
 		}
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
@@ -43,9 +45,6 @@ func Parse(path string) (Declaration, bool, error) {
 		case "effort":
 			d.Effort = strings.TrimSpace(value)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return Declaration{}, false, err
 	}
 	return Declaration{}, false, nil
 }
