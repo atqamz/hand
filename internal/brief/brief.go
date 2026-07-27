@@ -13,15 +13,8 @@ type Declaration struct {
 	Effort string
 }
 
-// Parse reads path for a leading "---"-delimited front matter block declaring model and/or
-// effort. present reports whether such a block was found at all, independent of whether it
-// declared any recognized key - the harness prompt uses it to warn a worker away from reading
-// the block as task content. A brief whose first line is not exactly "---", or whose opening
-// "---" is never closed, is unmodified prose: Parse returns a zero Declaration and
-// present=false rather than guess. Every existing brief in this fleet starts with a "#" heading
-// or plain prose, never "---", so all of them parse exactly as they did before this existed.
-// Unknown keys inside the block are ignored, not an error: a brief is prose that happens to
-// carry two optional settings, not a config file that happens to contain prose.
+// Parse ignores unknown keys inside the block by choice, not oversight: a brief is prose
+// carrying two optional settings, not a config file.
 func Parse(path string) (Declaration, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -54,7 +47,5 @@ func Parse(path string) (Declaration, bool, error) {
 	if err := scanner.Err(); err != nil {
 		return Declaration{}, false, err
 	}
-	// Opening "---" never closed: not a real front matter block, just a line that looked
-	// like one. Treat the whole file as prose rather than swallowing it as a declaration.
 	return Declaration{}, false, nil
 }

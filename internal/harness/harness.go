@@ -118,22 +118,15 @@ type Options struct {
 	Brief    string
 	Model    string
 	Effort   string
-	// FrontMatter reports whether Brief's file has a leading "---"-delimited front matter
-	// block (see internal/brief). The worker reads Brief itself, so a harness whose prompt
-	// points at it must disclaim that block as dispatch metadata rather than let it read as
-	// part of the task.
+	// FrontMatter: the worker reads Brief itself, so the prompt has to disclaim this block.
 	FrontMatter bool
 }
 
-// effortCapable lists the harnesses whose launch command has an effort flag at all. Only
-// claude does; buildOpenCode has no effort flag and buildCodex/buildGrok/buildPi have neither
-// model nor effort.
 var effortCapable = map[string]bool{
 	Claude: true,
 }
 
-// SupportsEffort reports whether name's launch command can apply an effort level. A resolved
-// effort under a harness this returns false for is not silently dropped - the caller must warn.
+// SupportsEffort: false means the caller must warn instead of silently dropping the effort.
 func SupportsEffort(name string) bool {
 	return effortCapable[name]
 }
@@ -216,10 +209,7 @@ func buildOpenCode(o Options) string {
 	return strings.Join(args, " ")
 }
 
-// briefPrompt is the initial message every interactive harness sends: a pointer at the brief
-// path rather than the scope inline, shared so the wording never drifts between harnesses. The
-// worker reads Brief itself, so when it carries a front matter block (see Options.FrontMatter),
-// the prompt disclaims it up front instead of leaving the worker to read it as task content.
+// briefPrompt is shared so the wording cannot drift between harnesses.
 func briefPrompt(o Options) string {
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
 	if o.FrontMatter {

@@ -8,13 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// resolveTier applies the model/effort precedence spawn and promote share: an explicit flag
-// wins, then the brief's own "---" front matter declaration, then config/model and
-// config/effort, then the harness default. It is the one place that chain lives, since spawn
-// and promote are already near-identical here. frontMatter reports whether briefAbs carries a
-// declaration block at all, so the caller can pass it to harness.Build and keep it out of the
-// worker's prompt as an instruction. A resolved effort the chosen harness cannot apply is
-// reported to stderr, not dropped silently.
 func resolveTier(cmd *cobra.Command, home, briefAbs, harnessName, model, effort string) (resolvedModel, resolvedEffort string, frontMatter bool, err error) {
 	decl, frontMatter, err := brief.Parse(briefAbs)
 	if err != nil {
