@@ -68,8 +68,6 @@ exit 1
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// buildUpdateFixture builds a release-asset directory (binary tarball plus
-// checksums.txt) that Apply's download+verify+extract path will accept.
 func buildUpdateFixture(t *testing.T, binaryContent []byte) string {
 	t.Helper()
 	dir := t.TempDir()

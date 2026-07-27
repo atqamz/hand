@@ -145,8 +145,6 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 	return nil
 }
 
-// ClassifyStale fires once per stale window: when a task's status hasn't changed
-// for at least threshold, and it hasn't already been flagged since the last change.
 func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Duration) *Event {
 	if !ts.Probed || ts.Stale {
 		return nil
@@ -158,7 +156,6 @@ func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Durat
 	return &Event{TaskID: id, Kind: KindStale, Text: fmt.Sprintf("stale %s", id)}
 }
 
-// ClassifyPRMerged fires once, the first time merged is observed true for a task.
 func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {
 	if !merged || ts.PRMerged {
 		return nil

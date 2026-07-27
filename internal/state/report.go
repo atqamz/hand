@@ -41,7 +41,7 @@ func ReportPath(homeDir, id string) string {
 type ReportLine struct {
 	State     string // one of the vocabulary constants above, empty if Malformed
 	Note      string // free text after the first colon, verbatim
-	Raw       string // the original line
+	Raw       string
 	Malformed bool
 }
 
@@ -157,7 +157,6 @@ func LastReportedState(lines []ReportLine) (ReportLine, bool) {
 	return ReportLine{}, false
 }
 
-// ReportTail returns the last n reported lines for a task, oldest first.
 func ReportTail(homeDir, id string, n int) ([]ReportLine, error) {
 	lines, err := ReadReportLines(homeDir, id)
 	if err != nil {

@@ -68,8 +68,6 @@ func guardSubcommandGroups(c *cobra.Command) {
 	}
 }
 
-// usageArgs wraps a cobra.PositionalArgs validator so a mismatch is tagged as
-// exit code 2 (usage error) rather than falling through to the general code 1.
 func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(c *cobra.Command, args []string) error {
 		if err := validate(c, args); err != nil {
