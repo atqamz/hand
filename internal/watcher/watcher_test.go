@@ -42,11 +42,11 @@ const dashboardSkeleton = `# Dashboard
 // parsing. "pane get" reads its status from statusFile so a test can drive
 // transitions between ticks; failure paths belong to
 // internal/herdr/client_test.go.
-// paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an
-// error envelope on stdout with exit code 0, not a nonzero exit. That is the only
-// way a test reaches ClassifyStatus's probeErr branch, and it has to be the real
-// shape, since a fake that failed by exiting nonzero would pass through a different
-// path in the client.
+// paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an error
+// envelope on stdout with exit code 0. A fake that exited nonzero would also reach
+// ClassifyStatus's probeErr branch, but through the client's empty-stdout path rather
+// than the envelope check that runs ahead of the exit status - and this is the shape
+// real herdr uses, which is the one that check exists for.
 const paneGoneStatus = "pane-gone"
 
 func writeFakeHerdr(t *testing.T, statusFile string) {

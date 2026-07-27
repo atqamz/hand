@@ -844,7 +844,7 @@ Updated: 2026-07-24T12:30:00Z
 | `hand spawn` | Add row to Active Tasks |
 | `hand status` | Refresh agent states in Active Tasks (only when dashboard is stale) |
 | `hand send` | No update |
-| `hand teardown` | Move from Active Tasks to Recent Completions (keep last 10) |
+| `hand teardown` | Move from Active Tasks to Recent Completions (keep last 10), drop the task's Pending Decisions entry |
 | `hand merge` | Update PR status, add to Recent Events |
 | `hand pr` | Set PR on the task's row |
 | `hand watch` | Update agent states, add actionable events to Recent Events (keep last 20), update Pending Decisions, auto-record a PR seen on the report channel |
@@ -883,6 +883,11 @@ The column has one source, the event stream; it is never refreshed from a live h
 Pending Decisions holds at most one entry per task, replaced on write.
 That slot is reserved for what the supervisor has to answer about the task: the worker's own `blocked`/`needs-decision` note, or an unexplained stop that leaves no one to ask.
 Anything else a supervisor should notice - an operator notice like `pr-not-recorded` or `pr-record-unknown` - goes to Recent Events and `state/events.log`, never to Pending Decisions, since writing there would erase a worker's question.
+
+The rule that no event kind clears the slot on inference governs the watcher deciding, from an observation, whether a question got answered.
+Teardown is not that: **nothing on the dashboard may reference a task with no Active Tasks row**, so completing a task removes its Pending Decisions entry along with its row.
+There is nothing left to answer about a task the operator deleted, and no later event could retire the entry anyway - the ID is gone from the task list, so `hand watch` stops tracking it.
+This is also what bounds the section without a cap: one entry per task ID, and entries die with their tasks, so it is bounded by the live fleet.
 
 ### Optional: qmd for historical search
 

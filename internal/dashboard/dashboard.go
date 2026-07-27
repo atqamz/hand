@@ -174,8 +174,15 @@ func apply(d *Dashboard, opts UpdateOpts) error {
 		line := time.Now().UTC().Format("15:04") + " " + opts.AddEvent
 		d.RecentEvents = appendBounded(d.RecentEvents, line, maxRecentEvents)
 	}
+	// Nothing may reference a task with no Active Tasks row: completion removes every
+	// trace of the task, not just the row. A question left behind by a torn-down task
+	// is one nobody can answer and no later event can retire - the ID is gone from the
+	// task list, so the watcher stops tracking it. This is not a third way for the
+	// watcher to infer that a question was answered; it is the operator deleting the
+	// task, and it is what keeps the section bounded by the live fleet without a cap.
 	if c := opts.Complete; c != nil {
 		d.ActiveTasks = removeActiveTask(d.ActiveTasks, c.ID)
+		d.PendingDecisions = removeByID(d.PendingDecisions, c.ID)
 		line := fmt.Sprintf("%s: %s | %s | %s | %s", c.ID, c.Project, c.Kind, c.Outcome, c.Detail)
 		d.RecentCompletions = appendBounded(d.RecentCompletions, line, maxRecentCompletions)
 	}

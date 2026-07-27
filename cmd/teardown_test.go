@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -248,6 +249,56 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 	}
 	if !strings.Contains(string(dashboardData), "task-1: myproj | ship | merged | PR https://example.com/pr/1") {
 		t.Fatalf("dashboard = %q, want task-1 moved to Recent Completions", dashboardData)
+	}
+}
+
+// A worker that asks a question and then gives up leaves that question on the
+// dashboard on purpose - no event kind clears it on inference. Teardown is not
+// inference, it is the operator deleting the task, and once the Active Tasks row is
+// gone nothing can ever retire the entry: the ID leaves the task list, so hand watch
+// stops tracking it. Leaving it strands an unanswerable question in the supervisor's
+// queue for good, and it is the leak that made the section look unbounded.
+func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{
+		AddActiveTask:      &dashboard.ActiveTask{ID: "task-1", Project: "myproj", Kind: "ship", State: "working", Age: "just now"},
+		SetPendingDecision: &dashboard.PendingDecision{ID: "task-1", Text: "which base branch?"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{
+		UpdateAgentState: &dashboard.AgentStateUpdate{ID: "task-1", State: "report-failed", Age: "5m"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(dashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := dashboard.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.PendingDecisions) != 0 {
+		t.Fatalf("PendingDecisions = %+v, want the torn-down task's question gone", d.PendingDecisions)
+	}
+	if len(d.ActiveTasks) != 0 {
+		t.Fatalf("ActiveTasks = %+v, want the row gone too", d.ActiveTasks)
 	}
 }
 

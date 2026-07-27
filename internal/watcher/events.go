@@ -11,14 +11,15 @@ import (
 )
 
 // Kind values classify an Event for dashboard/log routing.
+//
+// There is deliberately no bare "done" kind. A done announcement only exists once a
+// worker's own done report is cross-checked against recorded evidence that the task
+// landed - see doneVerified for what counts, which is deliberately not a question
+// about the project's mode or the route the work took - so it is a verified
+// KindReportDone. ClassifyStatus emits nothing for herdr's own done/idle split, which
+// carries no task-outcome signal. "done" survives only as the state column that event
+// writes (state.ReportDone), never as a kind.
 const (
-	// There is deliberately no bare "done" kind. A done announcement only exists once
-	// a worker's own done report is cross-checked against recorded evidence that the
-	// task landed - see doneVerified for what counts, which is deliberately not a
-	// question about the project's mode or the route the work took - so it is a
-	// verified KindReportDone. ClassifyStatus emits nothing for herdr's own done/idle
-	// split, which carries no task-outcome signal. "done" survives only as the state
-	// column that event writes (state.ReportDone), never as a kind.
 	KindIdleUnreported = "idle-unreported"
 	KindBlocked        = "blocked"
 	KindFailed         = "failed"
