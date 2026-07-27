@@ -188,6 +188,36 @@ func TestRefreshLeavesUpToDateFileOnDiskUntouched(t *testing.T) {
 	}
 }
 
+// This repo keeps a hand-maintained copy of the generated block in its own
+// AGENTS.md instead of deriving it, so a rule edited in one copy and not the
+// other drifts silently until the duplication itself is removed.
+func TestGeneratedRulesMatchThisRepoAgentsMdCopy(t *testing.T) {
+	repoCopy, err := os.ReadFile(filepath.Join("..", "..", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	absolutePathRule := "- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. `hand` resolves the home from the current working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.\n"
+	if !strings.Contains(generatedBody, absolutePathRule) {
+		t.Fatalf("got generated body %q, want the absolute-path rule verbatim", generatedBody)
+	}
+	if !strings.Contains(string(repoCopy), absolutePathRule) {
+		t.Fatalf("got repo AGENTS.md %q, want the same absolute-path rule byte-for-byte", repoCopy)
+	}
+
+	_, generatedRules, ok := strings.Cut(generatedBody, "## Rules\n")
+	if !ok {
+		t.Fatalf("got generated body %q, want a Rules section", generatedBody)
+	}
+	_, repoRules, ok := strings.Cut(string(repoCopy), "## Rules\n")
+	if !ok {
+		t.Fatalf("got repo AGENTS.md %q, want a Rules section", repoCopy)
+	}
+	if !strings.HasPrefix(repoRules, generatedRules) {
+		t.Fatalf("got repo rules %q, want them to open with the generated rules %q", repoRules, generatedRules)
+	}
+}
+
 func TestRefreshDoesNotOverwriteExistingClaudeSymlink(t *testing.T) {
 	dir := makeWorkspace(t)
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("placeholder\n"), 0o644); err != nil {

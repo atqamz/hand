@@ -95,8 +95,8 @@ secondhand/                 # repo root = working directory
       pr.go                 # PR URL validation and extraction
     worktree/               # treehouse integration
       worktree.go           # get, return, status, collision check
-    brief/                  # brief template and generation
-      brief.go              # scaffold a brief from a template
+    brief/                  # brief parsing
+      brief.go              # read the brief's declared model/effort (see "Brief format")
     watcher/                # fleet supervision
       watcher.go            # poll/push event loop
       events.go             # event classification
@@ -1643,3 +1643,4 @@ Deliverable: ready for daily use.
 **`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new workspace's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh.
 
 This repo's own `AGENTS.md` is not a `hand` workspace (no `data/dashboard.md`), so `agentsmd.Refresh` never touches it: its top section is a hand-kept copy of `generatedBody`, kept in sync manually rather than by the refresh mechanism.
+Drift between the two copies is caught by a unit test in `internal/agentsmd` asserting the repo copy's rules open with the generated ones verbatim, not by the mechanism that would remove the duplication.
