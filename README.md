@@ -71,7 +71,7 @@ flowchart TD
 
 - Go 1.26.5 or newer (build only)
 - [herdr](https://github.com/ogulcancelik/herdr) - terminal multiplexer with semantic agent state
-- [treehouse](https://github.com/kunchenguid/treehouse) - git worktree pool manager
+- [treehouse](https://github.com/kunchenguid/treehouse) v2.1.0 or newer - git worktree pool manager
 - [gh](https://github.com/cli/cli) - GitHub CLI, used for PR and release operations
 
 Optional:
