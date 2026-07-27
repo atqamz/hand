@@ -12,18 +12,28 @@ import (
 )
 
 // useFastLaunchPolling shrinks confirmLaunch's poll window for the rest of the test, so a
-// command test costs milliseconds instead of sleeping through the real settle window.
+// command test costs milliseconds instead of sleeping through the real settle window. The
+// deadline stays generous because a pane that confirms returns on its own poll and never reaches
+// it: every poll here is two real subprocess round-trips into the herdr fake, so a deadline sized
+// to a few of them is a race against machine speed rather than a test. Tests that assert the
+// deadline itself call expectLaunchTimeout to narrow it back down.
 func useFastLaunchPolling(t *testing.T) {
 	t.Helper()
 	previous := launchPolling
 	launchPolling = launchPoll{
 		Interval:   time.Millisecond,
 		QuietReads: 3,
-		Timeout:    150 * time.Millisecond,
+		Timeout:    10 * time.Second,
 		KeySettle:  time.Millisecond,
 		ReadLines:  60,
 	}
 	t.Cleanup(func() { launchPolling = previous })
+}
+
+// expectLaunchTimeout narrows the deadline set by an earlier useFastLaunchPolling, whose cleanup
+// restores it, for a pane that never confirms and so has to run its deadline out.
+func expectLaunchTimeout() {
+	launchPolling.Timeout = 150 * time.Millisecond
 }
 
 // launchFrame is one poll's worth of pane state: what "pane read" shows and what agent, if any,
@@ -226,6 +236,9 @@ func TestConfirmLaunch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			useFastLaunchPolling(t)
+			if tt.wantErr != "" {
+				expectLaunchTimeout()
+			}
 			keyLog := fakeLaunchPane(t, tt.frames...)
 
 			err := confirmLaunch(herdr.NewClient(), "wA:pC", tt.harness)

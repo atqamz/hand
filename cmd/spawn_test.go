@@ -345,6 +345,7 @@ esac
 func TestSpawnRollsBackWhenWorkerNeverStarts(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	home := setupSpawnHome(t, wt, fakeHerdrStuckPaneScript)
+	expectLaunchTimeout()
 	callLog := setupSpawnLeakEnv(t, false)
 
 	cmd := newSpawnCmd()
