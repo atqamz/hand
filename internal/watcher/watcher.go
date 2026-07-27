@@ -383,24 +383,31 @@ func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
 	}
 }
 
-// dashboardRow is one event kind's complete disposition of a task's row. The row
-// has two event-driven fields and a kind decides both or neither, never one: a kind
-// that answered only the state column is how a stopped worker's row kept reading
-// "working", then how a steered worker's row kept reading "needs-decision", and
-// answering only that column again is how the Pending Decisions slot kept a question
-// the worker had already resolved. Three misses of the same shape, so the disposition
-// is a value each kind returns rather than a set of assignments each kind is trusted
-// to remember.
+// dashboardRow is one event kind's complete disposition of a task's row. The row has
+// two event-driven fields and a kind must answer both: a kind that answered only the
+// state column is how a stopped worker's row kept reading "working", then how a steered
+// worker's row kept reading "needs-decision", and answering only that column again is
+// how the Pending Decisions slot kept a question the worker had already resolved. Three
+// misses of the same shape, so the disposition is a value each kind returns rather than
+// a set of assignments each kind is trusted to remember.
+//
+// Answering is not the same as choosing between set and clear. "Leave it" is a real
+// answer and the safe one, so each field is a tri-state; what closes the family is that
+// no kind may be silently absent, which dashboardRowFor enforces on its own.
 type dashboardRow struct {
 	// Written false is the third answer, not a default: the kind says nothing about
 	// the worker and only appends to Recent Events.
 	Written bool
 	State   string
-	// Pending is the Pending Decisions text. Empty clears the slot, because that
-	// slot holds what the supervisor still has to answer and nothing else - a queue
-	// carrying answered questions stops telling anyone what needs action, exactly as
-	// a "working" column on a parked worker does.
-	Pending string
+	// Pending is the Pending Decisions text this kind writes; ClearPending retires
+	// whatever is there. Leaving both zero is the third answer for that slot, and it
+	// is the default on purpose: clearing destroys a supervisor question nothing can
+	// restore - the report line is already past report_offset - so it takes positive
+	// evidence that the question is retired, not merely a kind with nothing of its
+	// own to say. A stale question next to a state column that already reads "failed"
+	// is visible and actionable; an erased one is gone.
+	Pending      string
+	ClearPending bool
 }
 
 // dashboardRowFor gives every event kind a disposition, or fails. An unknown kind is
@@ -420,16 +427,20 @@ func dashboardRowFor(e *Event, age string) (dashboardRow, error) {
 	// Operator notices go to the event stream.
 	case KindReportBlocked, KindReportNeedsDecision:
 		return dashboardRow{Written: true, State: e.Kind, Pending: e.Reason}, nil
+	// A pane hand cannot probe, and a worker parked or stopped on its own, all say
+	// nothing about a question already asked. KindFailed is the sharpest: ClassifyStatus
+	// fires it on any probe error, so clearing here would let one herdr daemon restart
+	// wipe every tracked task's slot in a single tick.
 	case KindFailed:
 		return dashboardRow{Written: true, State: KindFailed}, nil
 	case KindReportPaused:
 		return dashboardRow{Written: true, State: KindReportPaused}, nil
-	case KindReportWorking:
-		return dashboardRow{Written: true, State: state.ReportWorking}, nil
 	case KindReportFailed:
 		return dashboardRow{Written: true, State: KindReportFailed}, nil
-	case KindHerdrDone:
-		return dashboardRow{Written: true, State: KindHerdrDone}, nil
+	// The only two events that are evidence a question is retired: the worker is
+	// working again, or the task verifiably landed.
+	case KindReportWorking:
+		return dashboardRow{Written: true, State: state.ReportWorking, ClearPending: true}, nil
 	case KindReportDone:
 		// A reported done is never trusted alone. Only once doneVerified finds
 		// recorded evidence that the task actually landed (Verified) does it get to
@@ -438,7 +449,7 @@ func dashboardRowFor(e *Event, age string) (dashboardRow, error) {
 		if !e.Verified {
 			return dashboardRow{}, nil
 		}
-		return dashboardRow{Written: true, State: KindHerdrDone}, nil
+		return dashboardRow{Written: true, State: state.ReportDone, ClearPending: true}, nil
 	case KindStale, KindPRMerged, KindPRNotRecorded, KindPRRecordUnknown, KindReportMalformed:
 		// Nothing about what the worker is doing: elapsed time in a state rather than
 		// a new one, facts about a PR record, and free text that classifies to
@@ -458,9 +469,10 @@ func updateDashboardForEvent(home string, e *Event, t state.Task) error {
 	opts := dashboard.UpdateOpts{AddEvent: e.Text}
 	if row.Written {
 		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: row.State, Age: age}
-		if row.Pending != "" {
+		switch {
+		case row.Pending != "":
 			opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: row.Pending}
-		} else {
+		case row.ClearPending:
 			opts.ClearPendingDecision = t.ID
 		}
 	}

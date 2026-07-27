@@ -42,6 +42,13 @@ const dashboardSkeleton = `# Dashboard
 // parsing. "pane get" reads its status from statusFile so a test can drive
 // transitions between ticks; failure paths belong to
 // internal/herdr/client_test.go.
+// paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an
+// error envelope on stdout with exit code 0, not a nonzero exit. That is the only
+// way a test reaches ClassifyStatus's probeErr branch, and it has to be the real
+// shape, since a fake that failed by exiting nonzero would pass through a different
+// path in the client.
+const paneGoneStatus = "pane-gone"
+
 func writeFakeHerdr(t *testing.T, statusFile string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -52,6 +59,10 @@ case "$1 $2" in
 	;;
 "pane get")
 	status=$(cat "$STATUS_FILE")
+	if [ "$status" = "` + paneGoneStatus + `" ]; then
+		printf '{"id":"cli:1","error":{"code":"not_found","message":"pane p1 not found"}}'
+		exit 0
+	fi
 	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"%s"}}}' "$status"
 	;;
 *)
@@ -202,7 +213,7 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 }
 
 // TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified is the only
-// remaining source of a KindHerdrDone dashboard update: a worker's own "done"
+// remaining source of a verified-done dashboard update: a worker's own "done"
 // report, cross-checked against a task the caller has already recorded as merged.
 // herdr's agent_status never drives this by itself - see the test above.
 func TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified(t *testing.T) {
@@ -240,7 +251,7 @@ func TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified(t *testing.T)
 	}
 
 	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindHerdrDone {
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != state.ReportDone {
 		t.Fatalf("ActiveTasks = %+v", d.ActiveTasks)
 	}
 }
@@ -1059,7 +1070,7 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	}
 
 	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindHerdrDone {
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != state.ReportDone {
 		t.Fatalf("ActiveTasks = %+v, want the row moved to done", d.ActiveTasks)
 	}
 
@@ -1230,7 +1241,7 @@ func TestHandleEventSendsLogFailureToErrOut(t *testing.T) {
 	}
 
 	var buf, errBuf bytes.Buffer
-	handleEvent(Config{Home: home}, &Event{Kind: KindHerdrDone, TaskID: "task-1", Text: "done task-1"},
+	handleEvent(Config{Home: home}, &Event{Kind: KindReportDone, Verified: true, TaskID: "task-1", Text: "done task-1"},
 		state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, &buf, &errBuf)
 
 	if buf.String() != "done task-1\n" {
@@ -1455,6 +1466,7 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 		{"paused: waiting on the nightly build\n", KindReportPaused, ""},
 		{"blocked: needs an API key\n", KindReportBlocked, "needs an API key"},
 		{"needs-decision: which base branch?\n", KindReportNeedsDecision, "which base branch?"},
+		{"paused: sleeping on it\n", KindReportPaused, "which base branch?"},
 		{"working: main, carrying on\n", state.ReportWorking, ""},
 	} {
 		report += tc.line
@@ -1475,5 +1487,51 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 		case len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], tc.wantPending):
 			t.Fatalf("PendingDecisions = %+v after %q, want %q", d.PendingDecisions, tc.line, tc.wantPending)
 		}
+	}
+}
+
+// A pane hand cannot probe says nothing about a question the worker already asked,
+// and clearing it would be unrecoverable: the report line is already past
+// report_offset, and the recovery tick emits no event because the tracked status
+// never changed. ClassifyStatus fires failed on any probe error, so a herdr daemon
+// restart would otherwise wipe every tracked task's Pending Decisions slot in one
+// tick - fleet-wide loss out of a transient blip.
+func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+	tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: which base branch?\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
+
+	setStatus(t, statusFile, paneGoneStatus)
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "failed task-1") {
+		t.Fatalf("output = %q, want the failed event", buf.String())
+	}
+
+	d := readDashboard(t, dashPath)
+	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindFailed {
+		t.Fatalf("ActiveTasks = %+v, want the failed state column", d.ActiveTasks)
+	}
+	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "which base branch?") {
+		t.Fatalf("PendingDecisions = %+v, want the worker's question left standing", d.PendingDecisions)
 	}
 }

@@ -854,8 +854,12 @@ Updated: 2026-07-24T12:30:00Z
 | `hand promote` | No update (the row keeps its scout kind) |
 | `hand notify` | No update (notification is a side channel) |
 
-The Active Tasks `state` column and the task's Pending Decisions slot are two halves of one row, and one rule governs both: **an event kind that writes the task's row decides every field of it.**
+The Active Tasks `state` column and the task's Pending Decisions slot are two halves of one row, and one rule governs both: **an event kind that writes the task's row answers every field of it.**
 Not the state column alone - a kind that sets the column and says nothing about the slot leaves the previous event's question standing under a state that has moved on, which is the same two-views-disagree defect as a stopped worker whose row still reads `working`.
+Answering is not a choice between set and clear, though: **clearing the slot is destructive and requires positive evidence that the question is retired.**
+Exactly two events are that evidence - `report-working` and a verified `report-done`.
+Every other kind either sets the slot with its own supervisor-actionable text or leaves it untouched; no kind clears on inference.
+Leaving a stale question is merely visible, next to a state column that already says what happened, and a reader can act on it; clearing one destroys information nothing restores, since the report line is already past `report_offset` and no later tick re-emits it.
 The supervisor reads this row first, so each kind's disposition is fixed here rather than decided field by field:
 
 | Event kind | `state` column | Pending Decisions |
@@ -864,14 +868,16 @@ The supervisor reads this row first, so each kind's disposition is fixed here ra
 | `blocked` (herdr) | `blocked` | herdr's blocked reason |
 | `report-blocked`, `report-needs-decision` | the kind | the worker's own note |
 | `report-working` | `working` | cleared |
-| `report-paused` | `report-paused` | cleared |
-| `failed`, `report-failed` | the kind | cleared |
-| `done` (herdr), verified `report-done` | `done` | cleared |
+| verified `report-done` | `done` | cleared |
+| `failed`, `report-failed`, `report-paused` | the kind | untouched |
 | unverified `report-done`, `stale`, `pr-merged`, `pr-not-recorded`, `pr-record-unknown`, `report-malformed` | no row write | untouched |
 
+`failed` is the case that fixes the rule: it fires on any failure to probe the pane, so clearing there would let one herdr daemon restart wipe every tracked task's slot in a single tick.
+`report-paused` is parked, not answered.
 The last group writes nothing to the row at all: an unverified `report-done` is a claim rather than evidence, `stale` is elapsed time in a state rather than a new one, the PR notices are facts about a record rather than about the worker, and a malformed line classifies to nothing.
 They still reach Recent Events and `state/events.log`.
-Deciding kind by kind, field by field, is what produced this bug in both directions, so a kind with no disposition here is an error rather than a partial row - `hand watch` refuses to write it, and the test that enumerates the kind vocabulary fails.
+A kind that is silently *absent* from this table is the actual failure mode, so it is an error rather than a partial row - `hand watch` refuses to write it, and the test that enumerates the kind vocabulary fails.
+There is deliberately no bare `done` event kind: a done announcement is always a verified `report-done`, and `done` exists only as the column value that event writes.
 The column has one source, the event stream; it is never refreshed from a live herdr probe, which would give it two.
 
 Pending Decisions holds at most one entry per task, replaced on write.
