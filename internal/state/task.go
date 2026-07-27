@@ -111,7 +111,6 @@ func lock(homeDir, name string, nonblock bool) (func(), error) {
 	}, nil
 }
 
-// Exists reports whether a task state file exists for id.
 func Exists(homeDir, id string) (bool, error) {
 	if err := ValidateID(id); err != nil {
 		return false, err
@@ -126,7 +125,6 @@ func Exists(homeDir, id string) (bool, error) {
 	return false, fmt.Errorf("stat task state %q: %w", id, err)
 }
 
-// Read loads the state file for id.
 func Read(homeDir, id string) (Task, error) {
 	if err := ValidateID(id); err != nil {
 		return Task{}, err

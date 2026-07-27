@@ -20,8 +20,6 @@ var preconditionSentinels = []error{
 	project.ErrNotFound,
 }
 
-// asPrecondition tags err as exit code 3 if it wraps one of preconditionSentinels,
-// otherwise returns it unchanged so it defaults to the general exit code 1.
 func asPrecondition(err error) error {
 	if err == nil {
 		return nil

@@ -80,7 +80,6 @@ func writeFakeDispatch(t *testing.T, dir, name, logPath, selector, caseBody stri
 	writeFakeBin(t, dir, name, script)
 }
 
-// shellSingleQuote wraps s for safe embedding as a single-quoted shell literal.
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

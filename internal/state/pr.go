@@ -12,7 +12,6 @@ import (
 // nicety.
 var prURLPattern = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/pull/([0-9]+)$`)
 
-// ValidatePRURL reports whether url is a well-formed GitHub pull request URL.
 func ValidatePRURL(url string) bool {
 	return prURLPattern.MatchString(url)
 }
