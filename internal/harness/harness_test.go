@@ -116,7 +116,7 @@ func TestBuildOpenCode(t *testing.T) {
 }
 
 func TestBuildClaudeFrontMatterDisclaimer(t *testing.T) {
-	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", FrontMatter: true})
+	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestBuildOpenCodeNeverHeadless(t *testing.T) {
 }
 
 func TestBuildOpenCodeFrontMatterDisclaimer(t *testing.T) {
-	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", FrontMatter: true})
+	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -114,12 +114,11 @@ func AgentDetectionVerified(name string) bool {
 }
 
 type Options struct {
-	Worktree string
-	Brief    string
-	Model    string
-	Effort   string
-	// FrontMatter: the worker reads Brief itself, so the prompt has to disclaim this block.
-	FrontMatter bool
+	Worktree            string
+	Brief               string
+	Model               string
+	Effort              string
+	BriefHasFrontMatter bool
 }
 
 var effortCapable = map[string]bool{
@@ -212,7 +211,7 @@ func buildOpenCode(o Options) string {
 // briefPrompt is shared so the wording cannot drift between harnesses.
 func briefPrompt(o Options) string {
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
-	if o.FrontMatter {
+	if o.BriefHasFrontMatter {
 		prompt += " Any model or effort keys in its leading '---' block are dispatch metadata, not task content."
 	}
 	return prompt

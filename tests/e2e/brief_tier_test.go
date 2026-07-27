@@ -40,8 +40,6 @@ func writeFakeHerdrLaunchLog(t *testing.T, dir, launchLog string, ids herdrIDs) 
 		status = "working"
 	}
 	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent": "claude", "agent_status": status}})
-	// Two tabs so releasing a promoted scout's old pane is a tab close rather
-	// than closeTaskTab's sole-tab workspace-close shortcut.
 	tabList := herdrOK(t, map[string]any{"tabs": []any{
 		map[string]any{"tab_id": "tab-old", "workspace_id": "ws-old", "label": ids.Label},
 		map[string]any{"tab_id": "tab-other", "workspace_id": "ws-old", "label": "other"},
@@ -70,11 +68,6 @@ func readLaunchLog(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 }
 
-// TestSpawnHonorsBriefDeclaredTier drives the whole point of the feature
-// through the built binary: a brief that declares its own tier launches the
-// worker at that tier, a flag still outranks the brief, a brief with no
-// declaration still falls back to config, and the declaration is disclaimed to
-// the worker rather than left to read as task content.
 func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
@@ -175,9 +168,6 @@ func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 	}
 }
 
-// TestPromoteHonorsBriefDeclaredTier is the same resolution seen through the
-// other command that launches a worker, so a scout promoted to ship comes back
-// up at the tier its brief now declares rather than at config's default.
 func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
