@@ -233,7 +233,7 @@ func doneText(id, note string, verified bool) string {
 // merge happened, and a scout task lands by producing the data/<id>/report.md that
 // hand promote itself requires.
 //
-// So the ship check reads t.Merged first and asks nothing further: it is only ever
+// So the ship check reads t.MergeExecuted first and asks nothing further: it is only ever
 // written after a merge actually happened, whether through a PR or a local
 // fast-forward that leaves no PR at all. A recorded PR the watcher's own poll saw
 // merged is that same evidence arriving the other way. Narrowing this to one route
@@ -241,7 +241,7 @@ func doneText(id, note string, verified bool) string {
 func doneVerified(home string, ts *TaskState, t state.Task) bool {
 	switch t.Kind {
 	case state.KindShip:
-		return t.Merged || (t.PR != "" && ts.PRMerged)
+		return t.MergeExecuted || (t.PR != "" && ts.PRMerged)
 	case state.KindScout:
 		_, err := os.Stat(filepath.Join(home, "data", t.ID, "report.md"))
 		return err == nil

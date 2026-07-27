@@ -366,7 +366,8 @@ Behavior (fleet overview):
 1. List all `state/*.json` files.
 2. For each, query herdr for current agent state.
 3. If agent state is `idle` or `done` (herdr's two spellings of "pane stopped being busy" - see "Agent state" below), consult the task's last report line (see "Report channel"): no report, or the last line was still `working`, appends ` (unreported)`; any other terminal report appends ` (reported: <state>)`; a report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported. Any other agent state is printed unadorned.
-4. Print one line per task.
+4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when only `hand watch`'s own `gh` poll saw it merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
+5. Print one line per task.
 
 Output (fleet overview):
 ```
@@ -375,6 +376,7 @@ dark-mode       nsr     ship    blocked     45m ago
 stuck-task      nsr     ship    idle (unreported)      1h ago
 paused-task     nsr     ship    idle (reported: needs-decision)   30m ago
 investigate     nsr     scout   done (reported: done)      10m ago
+shipped-fix     nsr     ship    done (reported: done) (merged, external)   5m ago
 ```
 
 Behavior (single task):
@@ -402,6 +404,8 @@ Report history (reported by worker, not verified current truth):
   needs-decision: two ways to fix the race, ask-user found both risky
 ```
 
+The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:         https://github.com/org/repo/pull/42 (merged, external)`.
+
 The "Report history" label is deliberate: these lines are the worker's own claims about itself, not something `hand` has verified, same caution as the `done`-vs-`reported-done` distinction in `hand watch`.
 
 Output (JSON, single task):
@@ -415,6 +419,8 @@ Output (JSON, single task):
   "worktree": "/home/user/.treehouse/nsr-abc/1/nsr",
   "herdr": {"session": "default", "tab_id": "wA:tB", "pane_id": "wA:pC"},
   "pr": "",
+  "merged": false,
+  "pr_merged_observed": false,
   "created_at": "2026-07-24T08:00:00Z",
   "reported": {"state": "needs-decision", "note": "two ways to fix the race, ask-user found both risky"},
   "report_history": ["working: added the retry loop", "needs-decision: two ways to fix the race, ask-user found both risky"]
@@ -544,7 +550,8 @@ Behavior (local merge, `--local`):
 4. In the project clone: `git merge --ff-only <task-branch>`.
 5. Refuse if fast-forward is not possible (diverged branches).
 6. Update `state/<id>.json` with merge status.
-7. Update `data/dashboard.md`.
+
+A local merge writes no dashboard row.
 
 Output:
 ```
@@ -847,7 +854,7 @@ Updated: 2026-07-24T12:30:00Z
 | `hand status` | Refresh agent states in Active Tasks (only when dashboard is stale) |
 | `hand send` | No update |
 | `hand teardown` | Move from Active Tasks to Recent Completions (keep last 10), drop the task's Pending Decisions entry |
-| `hand merge` | Update PR status, add to Recent Events |
+| `hand merge` | Refresh Projects when the follow-up project sync advanced the clone. `--local`: no update |
 | `hand pr` | Set PR on the task's row |
 | `hand watch` | Update agent states, add actionable events to Recent Events (keep last 20), update Pending Decisions, auto-record a PR seen on the report channel |
 | `hand project add` | Add to Projects |

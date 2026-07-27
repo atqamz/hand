@@ -153,8 +153,8 @@ func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Ti
 	ts.CreatedAt = t.CreatedAt
 	ts.ReportOffset = t.ReportOffset
 	ts.PersistedOffset = t.ReportOffset
-	ts.PRMerged = t.PRMergedObserved
-	ts.PersistedPRMerged = t.PRMergedObserved
+	ts.PRMerged = t.MergeAnnounced
+	ts.PersistedPRMerged = t.MergeAnnounced
 	ts.DoneVerified = t.DoneVerified
 	ts.PersistedDoneVerified = t.DoneVerified
 
@@ -370,7 +370,7 @@ func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
 		return
 	}
 	t.ReportOffset = ts.ReportOffset
-	t.PRMergedObserved = t.PRMergedObserved || ts.PRMerged
+	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
 	t.DoneVerified = t.DoneVerified || ts.DoneVerified
 	if err := state.Write(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)

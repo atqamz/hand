@@ -141,6 +141,142 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	}
 }
 
+func TestStatusSingleTaskDetailShowsMergeStateForAMergedPR(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+		PR: "https://github.com/a/b/pull/1", MergeExecuted: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "PR:         https://github.com/a/b/pull/1 (merged)") {
+		t.Fatalf("got %q, want PR line marked merged", out.String())
+	}
+}
+
+func TestStatusSingleTaskDetailUnmergedPRIsUnchanged(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+		PR: "https://github.com/a/b/pull/1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "PR:         https://github.com/a/b/pull/1\n") {
+		t.Fatalf("got %q, want unmarked PR line", out.String())
+	}
+}
+
+func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
+	cases := []struct {
+		name             string
+		merged           bool
+		prMergedObserved bool
+		want             string
+		wantNot          []string
+	}{
+		{"neither", false, false, "PR:         https://github.com/a/b/pull/1\n", []string{"merged"}},
+		{"handMerged", true, false, "PR:         https://github.com/a/b/pull/1 (merged)\n", []string{"external"}},
+		{"observedOnly", false, true, "PR:         https://github.com/a/b/pull/1 (merged, external)\n", nil},
+		{"both", true, true, "PR:         https://github.com/a/b/pull/1 (merged)\n", []string{"external"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Chdir(home)
+			writeFakeHerdrPaneStatus(t, "idle")
+
+			if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+				Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+				PR: "https://github.com/a/b/pull/1", MergeExecuted: c.merged, MergeAnnounced: c.prMergedObserved}); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := newStatusCmd()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetArgs([]string{"task-1"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			got := out.String()
+			if !strings.Contains(got, c.want) {
+				t.Fatalf("got %q, want to contain %q", got, c.want)
+			}
+			for _, absent := range c.wantNot {
+				if strings.Contains(got, absent) {
+					t.Fatalf("got %q, want no occurrence of %q", got, absent)
+				}
+			}
+		})
+	}
+}
+
+func TestStatusFleetOverviewRendersMergeMarker(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+		PR: "https://github.com/a/b/pull/1", MergeAnnounced: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "(merged, external)") {
+		t.Fatalf("got %q, want the fleet overview to carry the merge marker", out.String())
+	}
+}
+
+func TestStatusFleetOverviewTaskWithNoPRIsUnaffected(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "merged") {
+		t.Fatalf("got %q, want no merge marker without a PR", out.String())
+	}
+}
+
 func TestStatusSingleTaskJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

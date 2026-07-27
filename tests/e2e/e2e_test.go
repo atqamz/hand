@@ -435,7 +435,7 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 			name: "merge an already merged task",
 			setup: func(t *testing.T, home string) {
 				registerProject(t, home, "demo", "direct-pr")
-				if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Merged: true}); err != nil {
+				if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, MergeExecuted: true}); err != nil {
 					t.Fatal(err)
 				}
 			},
