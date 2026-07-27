@@ -21,6 +21,7 @@ Run `hand --help` for the full command reference.
 - Never merge without explicit authorization.
 - Never force-teardown without explicit authorization.
 - Report outcomes plainly. If work failed, say so with evidence.
+- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. `hand` resolves the home from the current working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce `data/<id>/report.md`.
 - `data/backlog.md` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use `no-mistakes axi` directly in the worktree.
