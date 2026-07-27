@@ -60,17 +60,32 @@ type reportedJSON struct {
 }
 
 type statusJSON struct {
-	ID            string        `json:"id"`
-	Project       string        `json:"project"`
-	Kind          string        `json:"kind"`
-	Harness       string        `json:"harness,omitempty"`
-	AgentState    string        `json:"agent_state"`
-	Worktree      string        `json:"worktree"`
-	Herdr         state.Herdr   `json:"herdr"`
-	PR            string        `json:"pr"`
-	CreatedAt     string        `json:"created_at"`
-	Reported      *reportedJSON `json:"reported,omitempty"`
-	ReportHistory []string      `json:"report_history,omitempty"`
+	ID             string        `json:"id"`
+	Project        string        `json:"project"`
+	Kind           string        `json:"kind"`
+	Harness        string        `json:"harness,omitempty"`
+	AgentState     string        `json:"agent_state"`
+	Worktree       string        `json:"worktree"`
+	Herdr          state.Herdr   `json:"herdr"`
+	PR             string        `json:"pr"`
+	MergeExecuted  bool          `json:"merged"`
+	MergeAnnounced bool          `json:"pr_merged_observed"`
+	CreatedAt      string        `json:"created_at"`
+	Reported       *reportedJSON `json:"reported,omitempty"`
+	ReportHistory  []string      `json:"report_history,omitempty"`
+}
+
+func mergeSuffix(t state.Task) string {
+	switch {
+	case t.PR == "":
+		return ""
+	case t.MergeExecuted:
+		return " (merged)"
+	case t.MergeAnnounced:
+		return " (merged, external)"
+	default:
+		return ""
+	}
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool) error {
@@ -92,10 +107,11 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		rows = append(rows, statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState,
-			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
+			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR,
+			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
 			Reported: reportedFrom(last, len(lines) > 0, readErr),
 		})
-		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr))
+		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr)+mergeSuffix(t))
 	}
 
 	if asJSON {
@@ -179,7 +195,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if asJSON {
 		out := statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
-			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR, CreatedAt: t.CreatedAt,
+			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR,
+			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
 			Reported: reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
@@ -190,6 +207,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	pr := t.PR
 	if pr == "" {
 		pr = "(none)"
+	} else {
+		pr += mergeSuffix(t)
 	}
 	reported := "(none)"
 	switch {

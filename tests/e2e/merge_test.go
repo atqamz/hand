@@ -51,8 +51,8 @@ func TestMergePR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !task1.Merged || task1.MergedAt == "" {
-		t.Fatalf("task-1 state = %+v, want Merged=true and MergedAt set", task1)
+	if !task1.MergeExecuted || task1.MergeExecutedAt == "" {
+		t.Fatalf("task-1 state = %+v, want MergeExecuted=true and MergeExecutedAt set", task1)
 	}
 
 	refused := runHand(t, home, "merge", "task-2")
@@ -61,8 +61,8 @@ func TestMergePR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task2.Merged {
-		t.Fatalf("task-2 state = %+v, want Merged=false after refused merge (red checks must never reach gh pr merge)", task2)
+	if task2.MergeExecuted {
+		t.Fatalf("task-2 state = %+v, want MergeExecuted=false after refused merge (red checks must never reach gh pr merge)", task2)
 	}
 
 	logData, err := os.ReadFile(invocationLog)

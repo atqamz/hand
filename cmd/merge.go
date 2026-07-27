@@ -48,7 +48,7 @@ func newMergeCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			if t.Merged {
+			if t.MergeExecuted {
 				return &ExitError{Err: fmt.Errorf("task %s already merged", t.ID), Code: 3}
 			}
 
@@ -104,8 +104,8 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		return fmt.Errorf("gh pr merge failed: %s", strings.TrimSpace(string(out)))
 	}
 
-	t.Merged = true
-	t.MergedAt = time.Now().UTC().Format(time.RFC3339)
+	t.MergeExecuted = true
+	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := state.Write(home, t); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}
@@ -177,8 +177,8 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
 		return &ExitError{Err: fmt.Errorf("fast-forward not possible: %s", strings.TrimSpace(string(out))), Code: 3}
 	}
 
-	t.Merged = true
-	t.MergedAt = time.Now().UTC().Format(time.RFC3339)
+	t.MergeExecuted = true
+	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := state.Write(home, t); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}

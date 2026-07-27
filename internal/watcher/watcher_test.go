@@ -223,7 +223,7 @@ func TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified(t *testing.T)
 
 	home := setupWatcherHome(t, state.Task{
 		ID: "task-1", Project: "nsr", Kind: state.KindShip,
-		PR: "https://github.com/atqamz/secondhand/pull/1", Merged: true,
+		PR: "https://github.com/atqamz/secondhand/pull/1", MergeExecuted: true,
 		Herdr: state.Herdr{PaneID: "p1"},
 	})
 	dashPath := filepath.Join(home, "data", "dashboard.md")
@@ -880,8 +880,8 @@ func TestTickAnnouncesPRMergedBeforePersistingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !task.PRMergedObserved {
-		t.Fatal("task.PRMergedObserved = false, want the announced merge persisted after the fact")
+	if !task.MergeAnnounced {
+		t.Fatal("task.MergeAnnounced = false, want the announced merge persisted after the fact")
 	}
 }
 
@@ -900,7 +900,7 @@ func (w *stateAtWriteWriter) Write(p []byte) (int, error) {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	w.observed[strings.TrimSpace(string(p))] = task.PRMergedObserved
+	w.observed[strings.TrimSpace(string(p))] = task.MergeAnnounced
 	return w.buf.Write(p)
 }
 
@@ -1056,7 +1056,7 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	if task.DoneVerified {
 		t.Fatal("task.DoneVerified = true, want the unverified report to leave the marker unset")
 	}
-	task.Merged = true
+	task.MergeExecuted = true
 	if err := state.Write(home, task); err != nil {
 		t.Fatal(err)
 	}
@@ -1176,7 +1176,7 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	}
 
 	// hand merge lands the evidence the ship's own done needs.
-	task.Merged = true
+	task.MergeExecuted = true
 	if err := state.Write(home, task); err != nil {
 		t.Fatal(err)
 	}

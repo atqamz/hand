@@ -185,7 +185,7 @@ func TestMergePRRefusesRedCI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Merged {
+	if got.MergeExecuted {
 		t.Fatal("want task not marked merged")
 	}
 }
@@ -209,10 +209,10 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Merged {
+	if !got.MergeExecuted {
 		t.Fatal("want task marked merged")
 	}
-	if got.MergedAt == "" {
+	if got.MergeExecutedAt == "" {
 		t.Fatal("want merged_at set")
 	}
 }
@@ -279,7 +279,7 @@ func TestMergeLocalFastForwardSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Merged {
+	if !got.MergeExecuted {
 		t.Fatal("want task marked merged")
 	}
 }
@@ -328,7 +328,7 @@ func TestMergeLocalRefusesWhenNotFastForwardable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Merged {
+	if got.MergeExecuted {
 		t.Fatal("want task not marked merged")
 	}
 }

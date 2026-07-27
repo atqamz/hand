@@ -218,8 +218,8 @@ func TestClassifyReportDoneVerifiedOnlyWithCompletionEvidence(t *testing.T) {
 	}{
 		{name: "ship with no PR recorded", task: state.Task{ID: "task-1", Kind: state.KindShip}},
 		{name: "ship with PR recorded but not merged", task: state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1"}},
-		{name: "ship with PR recorded and merged", task: state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1", Merged: true}, verified: true},
-		{name: "ship merged locally, which leaves no PR at all", task: state.Task{ID: "task-1", Kind: state.KindShip, Merged: true}, verified: true},
+		{name: "ship with PR recorded and merged", task: state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1", MergeExecuted: true}, verified: true},
+		{name: "ship merged locally, which leaves no PR at all", task: state.Task{ID: "task-1", Kind: state.KindShip, MergeExecuted: true}, verified: true},
 		{name: "scout with no report.md", task: state.Task{ID: "task-1", Kind: state.KindScout}},
 		{name: "scout with its report.md deliverable", task: state.Task{ID: "task-1", Kind: state.KindScout}, scoutFound: true, verified: true},
 	}
