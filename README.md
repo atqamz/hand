@@ -25,6 +25,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 - **Tasks**: units of work identified by a unique ID. Ship tasks produce a branch and PR; scout tasks investigate and produce `data/<id>/report.md`.
 - **Briefs**: task instructions at `data/<id>/brief.md`, written by the supervisory agent before spawning a worker.
 - **herdr tabs**: each worker runs in its own herdr tab. herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events, so no terminal scraping. herdr's state says whether a pane is busy, not whether a task finished - see SPECS.md's "Agent state" section.
+- **Report channel**: `state/<id>.status` is an append-only file the worker writes and `hand` only reads. It carries the task outcome herdr cannot (working/paused/blocked/needs-decision/done/failed), surfaces in `hand status` and `hand watch`, and auto-records a PR URL the worker reports - see SPECS.md's "Report channel" section.
 - **treehouse worktrees**: workers operate in isolated git checkouts acquired from a treehouse pool, never in the project clone itself.
 - **Dashboard**: `data/dashboard.md` is the living fleet overview, auto-maintained by `hand`. The agent reads it for context; the user watches it for visibility.
 - **Backlog**: `data/backlog.md` is a plain markdown task queue, read and edited directly by the supervisory agent.
@@ -43,6 +44,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 | `hand send` | Send a message to a running worker | Available |
 | `hand watch` | Blocking watcher that prints actionable fleet events | Available |
 | `hand merge` | Merge a task's completed work | Available |
+| `hand pr` | Record a task's pull request URL | Available |
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Available |
 | `hand notify` | Send an out-of-band notification via a configured command | Available |
