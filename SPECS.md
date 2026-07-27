@@ -1507,161 +1507,9 @@ Automated via [release-please](https://github.com/googleapis/release-please) (sa
 
 **Workflow files:**
 
-`.github/workflows/ci.yaml` - runs on every PR to main:
-```yaml
-name: CI
+**`.github/workflows/ci.yaml`:** the tracked file is authoritative - runs on every PR to main: lint, then test across the OS matrix, then e2e gated on test passing.
 
-on:
-  pull_request:
-    branches: [main]
-
-jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: Format
-        run: |
-          output=$(gofmt -l .)
-          if [ -n "$output" ]; then
-            echo "Files not formatted:"
-            echo "$output"
-            exit 1
-          fi
-      - name: Vet
-        run: go vet ./...
-      - name: Lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: latest
-
-  test:
-    name: Test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: Test
-        run: go test -race ./...
-      - name: Build
-        run: go build -o hand .
-
-  e2e:
-    name: E2E
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: End-to-end
-        run: go test -tags=e2e -timeout=10m ./tests/e2e/...
-```
-
-`.github/workflows/release.yaml` - runs on push to main, and manually via `workflow_dispatch` (used to re-run release-please after a conflicted release PR is rebased):
-```yaml
-name: Release
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: write
-  pull-requests: write
-
-concurrency:
-  group: release
-  cancel-in-progress: false
-
-jobs:
-  release-please:
-    name: Release Please
-    runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
-    steps:
-      - uses: googleapis/release-please-action@v5
-        id: release
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  build:
-    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            runner: ubuntu-latest
-          - goos: linux
-            goarch: arm64
-            runner: ubuntu-latest
-          - goos: darwin
-            goarch: amd64
-            runner: macos-latest
-          - goos: darwin
-            goarch: arm64
-            runner: macos-latest
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        run: |
-          go build -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }}" -o hand .
-          tar czf hand-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz hand
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: hand-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: hand-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
-
-  publish:
-    name: Publish release assets
-    needs: [release-please, build]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
-        with:
-          merge-multiple: true
-      - name: Generate checksums
-        run: sha256sum hand-*.tar.gz > checksums.txt
-      - name: Upload to release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
-          files: |
-            hand-*.tar.gz
-            checksums.txt
-```
+**`.github/workflows/release.yaml`:** the tracked file is authoritative - runs on push to main; `workflow_dispatch` exists to re-run release-please after a conflicted release PR is rebased.
 
 Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (no real ones installed, see "Integration tests"), then release-please for automated releases.
 
@@ -1687,59 +1535,11 @@ updates:
 
 Files tracked in the source repo (not generated by `hand init`):
 
-**`release-please-config.json`:**
-```json
-{
-  "packages": {
-    ".": {
-      "release-type": "go",
-      "initial-version": "0.1.0",
-      "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": true,
-      "extra-files": ["flake.nix"]
-    }
-  },
-  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
-}
-```
+**`release-please-config.json`:** the tracked file is authoritative - Go release type, 0.x versioning where a breaking change bumps minor not major, and `flake.nix` listed in `extra-files` so its `x-release-please-version`-marked version stays in sync with each release.
 
-**`.release-please-manifest.json`:**
-```json
-{
-  ".": "0.0.0"
-}
-```
+**`.release-please-manifest.json`:** the tracked file is authoritative - release-please owns this file and rewrites the version on every release, so its current value is expected to differ from any snapshot of it.
 
-**`Makefile`:**
-```makefile
-.PHONY: build test fmt lint e2e install clean
-
-VERSION ?= dev
-LDFLAGS := -s -w -X main.version=$(VERSION)
-
-build:
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o hand .
-
-test:
-	go test -race ./...
-
-fmt:
-	gofmt -w .
-
-lint:
-	@output=$$(gofmt -l .); if [ -n "$$output" ]; then echo "Files not formatted:"; echo "$$output"; exit 1; fi
-	go vet ./...
-	golangci-lint run
-
-e2e:
-	go test -tags=e2e -timeout=10m ./tests/e2e/...
-
-install: build
-	cp hand $(GOPATH)/bin/ 2>/dev/null || cp hand ~/.local/bin/
-
-clean:
-	rm -f hand
-```
+**`Makefile`:** the tracked file is authoritative - mirrors the CI workflow's format/vet/lint/test/e2e steps for local use before pushing.
 
 **`.golangci.yaml`:** the tracked file is authoritative - it keeps golangci-lint's default linter set and only sets `run.build-tags: [e2e]`, without which the `//go:build e2e` package in `tests/e2e` is invisible to the linter.
 
@@ -1792,41 +1592,6 @@ Deliverable: ready for daily use.
 
 ## AGENTS.md (target)
 
-```markdown
-<!-- hand:generated:start -->
-# Secondhand
+**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new workspace's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh.
 
-You manage a fleet of coding agents using the `hand` CLI.
-Run `hand --help` for the full command reference.
-
-## Workflow
-
-1. Read `data/dashboard.md` for current fleet state.
-2. Match the request to a project in `data/projects.md`.
-3. Edit `data/backlog.md` to record the task with a unique ID.
-4. Write a brief at `data/<id>/brief.md`, including the absolute path to `state/<id>.status` and the report vocabulary the worker should append to it.
-5. `hand spawn <id> <project>` to start a worker.
-6. `hand watch` as a background task to monitor the fleet.
-7. Act on watch output: steer blocked workers with `hand send`, relay results.
-8. When told to merge: `hand merge <id>`.
-9. `hand teardown <id>` after work is landed.
-
-## Rules
-
-- Never edit files under `projects/`. Workers do that in worktrees.
-- Never merge without explicit authorization.
-- Never force-teardown without explicit authorization.
-- Report outcomes plainly. If work failed, say so with evidence.
-- Ship tasks produce PRs or local branches. Scout tasks produce `data/<id>/report.md`.
-- `data/backlog.md` is your task queue. Edit it directly.
-- For no-mistakes projects, workers use `no-mistakes axi` directly in the worktree.
-- Use `qmd search` to find historical context in data/ when available. Fall back to reading files directly.
-- `hand status <id>` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
-<!-- hand:generated:end -->
-```
-
-~23 lines of rules. The CLI's `--help` carries the rest.
-CLAUDE.md is a symlink to AGENTS.md.
-
-The `hand:generated` markers delimit the span `hand init` and `hand update` own.
-A refresh replaces only that span, so anything a user adds outside it survives; a file with no markers at all is left untouched rather than clobbered.
+This repo's own `AGENTS.md` is not a `hand` workspace (no `data/dashboard.md`), so `agentsmd.Refresh` never touches it: its top section is a hand-kept copy of `generatedBody`, kept in sync manually rather than by the refresh mechanism.
