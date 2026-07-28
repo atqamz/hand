@@ -17,7 +17,8 @@ Without Nix, install those yourself.
 2. Make changes.
 3. make lint && make test
 4. make e2e if you changed CLI behavior (end-to-end suite, excluded from make test).
-5. Open a PR.
+5. nix build .#default if you changed Go dependencies (CI builds the flake, and a stale vendorHash in flake.nix fails it).
+6. Open a PR.
 
 Commits use conventional commits: feat:, fix:, chore:, etc.
 release-please handles versioning and changelogs from these.

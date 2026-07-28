@@ -1562,11 +1562,11 @@ Automated via [release-please](https://github.com/googleapis/release-please) (sa
 
 **Workflow files:**
 
-**`.github/workflows/ci.yaml`:** the tracked file is authoritative - runs on every PR to main: lint, then test across the OS matrix, then e2e gated on test passing.
+**`.github/workflows/ci.yaml`:** the tracked file is authoritative - runs on every PR to main and on push to main: lint, test across the OS matrix, e2e gated on test passing, and nix-build, which builds the flake package (`nix build .#default`) on x86_64-linux and runs the built binary's `--version`.
 
 **`.github/workflows/release.yaml`:** the tracked file is authoritative - runs on push to main; `workflow_dispatch` exists to re-run release-please after a conflicted release PR is rebased.
 
-Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (no real ones installed, see "Integration tests"), then release-please for automated releases.
+Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (no real ones installed, see "Integration tests"), plus a nix-build job guarding the flake package, then release-please for automated releases.
 
 `.github/dependabot.yaml` - keep Go modules and GitHub Actions up to date:
 ```yaml
