@@ -125,6 +125,99 @@ esac
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// writeFakeGHPRListAndView fakes both gh calls a gate-opened-PR detection makes:
+// `gh pr list --head <branch> --json url,state` (FindPRByBranch) and
+// `gh pr view <url> --json state` (project.ValidatePR's existence check, then
+// checkLandedWork's own merged check) - both answering with the same PR state,
+// since these tests only ever have one PR in play.
+func writeFakeGHPRListAndView(t *testing.T, url, prState string) {
+	t.Helper()
+	bin := t.TempDir()
+	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
+		"\"pr list\") printf '[{\"url\":\"" + url + "\",\"state\":\"" + prState + "\"}]' ;;\n" +
+		"\"pr view\") printf '{\"state\":\"" + prState + "\"}' ;;\n" +
+		"*) echo \"unexpected gh args: $@\" >&2; exit 1 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// setupTeardownGateProject registers a non-local-only project whose clone has a
+// GitHub origin remote (RepoSlug reads it) and re-points worktree's checked-out
+// branch to branch, so FindPRByBranch's --head argument matches it.
+func setupTeardownGateProject(t *testing.T, home, worktree, branch string) {
+	t.Helper()
+	runGitIn(t, worktree, "checkout", "-q", "-b", branch)
+
+	clonePath := filepath.Join(home, "projects", "myproj")
+	initGitRepo(t, clonePath)
+	runGitIn(t, clonePath, "remote", "add", "origin", "https://github.com/owner/repo.git")
+
+	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://github.com/owner/repo.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestTeardownDetectsAndTearsDownGateOpenedMergedPR is the first of the two
+// regression cases atqamz/secondhand#69 requires: a no-mistakes gate's own `pr`
+// step opens a PR directly, bypassing `hand pr`, so t.PR is empty even though the
+// PR is merged and the work is landed. Teardown must detect it by branch and
+// tear down without --force, not just refuse until someone passes it.
+func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "MERGED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want teardown to detect the gate-opened merged PR and succeed", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	}
+}
+
+// TestTeardownRefusesGateOpenedClosedUnmergedPR is the second regression case:
+// a detected PR that is closed without merging is not landed work, and the guard
+// must still refuse it exactly as it would a `hand pr`-recorded one.
+func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "CLOSED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "not merged") {
+		t.Fatalf("got err %v, want not merged", err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PR != "https://github.com/owner/repo/pull/9" {
+		t.Fatalf("task.PR = %q, want the detected PR recorded even though teardown refused", got.PR)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after refused teardown, want it left in place: %v %v", exists, err)
+	}
+}
+
 func setupTeardownHome(t *testing.T) (home, worktree string) {
 	t.Helper()
 	home = t.TempDir()

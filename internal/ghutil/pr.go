@@ -34,6 +34,32 @@ func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	return body.State == "MERGED", nil
 }
 
+// FindPRByBranch reports the PR on repoSlug whose head ref is exactly branch -
+// the only rule hand uses to associate a PR with a task, never a title, issue
+// number or task id. --state all is required because gh pr list defaults to
+// open only, and a gate-opened PR may already be merged or closed by the time
+// hand looks for it; found is false when no PR has that head ref.
+func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, merged bool, found bool, err error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", repoSlug, "--head", branch, "--state", "all", "--json", "url,state", "--limit", "1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false, false, fmt.Errorf("gh pr list failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	var results []struct {
+		URL   string `json:"url"`
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(out, &results); err != nil {
+		return "", false, false, fmt.Errorf("parse gh pr list output: %w", err)
+	}
+	if len(results) == 0 {
+		return "", false, false, nil
+	}
+	return results[0].URL, results[0].State == "MERGED", true, nil
+}
+
 // RepoSlugFromRemote extracts "owner/repo" from a GitHub origin remote URL in
 // https, ssh, or git@ form. Returns ok=false on anything else, so a caller
 // like hand pr can refuse rather than guess which repo a PR belongs to.

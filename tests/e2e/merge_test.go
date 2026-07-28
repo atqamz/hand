@@ -34,7 +34,8 @@ func TestMergePR(t *testing.T) {
 	// path a real fail-bucket exit 1 would; runPRMerge only checks "pr merge"
 	// for a non-nil error, never its stdout, so "ok" stands in for real gh's
 	// actual merge summary line.
-	writeFakeDispatch(t, dir, "gh", invocationLog, "$1 $2", `  "pr checks")
+	writeFakeDispatch(t, dir, "gh", invocationLog, "$1 $2", `  "pr view") echo '{"state":"OPEN"}' ;;
+  "pr checks")
     case "$3" in
       1) echo '[{"bucket":"pass"}]' ;;
       2) echo '[{"bucket":"fail"}]' ;;

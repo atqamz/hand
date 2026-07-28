@@ -376,7 +376,7 @@ Behavior (fleet overview):
 1. List all `state/*.json` files.
 2. For each, query herdr for current agent state.
 3. If agent state is `idle` or `done` (herdr's two spellings of "pane stopped being busy" - see "Agent state" below), consult the task's last report line (see "Report channel"): no report, or the last line was still `working`, appends ` (unreported)`; any other terminal report appends ` (reported: <state>)`; a report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported. Any other agent state is printed unadorned.
-4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when only `hand watch`'s own `gh` poll saw it merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
+4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
 5. Print one line per task.
 
 Output (fleet overview):
@@ -391,9 +391,10 @@ shipped-fix     nsr     ship    done (reported: done) (merged, external)   5m ag
 
 Behavior (single task):
 1. Read `state/<id>.json`.
-2. Query herdr for current agent state and recent output.
-3. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
-4. Print detailed view, including the most recent reported line and a labeled history block.
+2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task and in the Active Tasks PR column if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, a task with no branch, or a dashboard with no active row left to carry the column all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
+3. Query herdr for current agent state and recent output.
+4. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
+5. Print detailed view, including the most recent reported line and a labeled history block.
 
 Output (single task):
 ```
@@ -486,8 +487,9 @@ Flags:
 Behavior (ship task):
 1. Check worktree has no uncommitted changes.
 2. Check work is landed:
-   - If `pr` is set in state: verify the PR is merged via `gh pr view`.
    - If mode is `local-only`: verify the branch is merged into the default branch.
+   - Otherwise, if `pr` is not yet set in state and the project is registered: look for a PR on the project's repo whose head ref is the task's current branch, and record it under the task if found (same gate-opened-PR detection `hand status` performs; see that command's spec). Detection failing for any reason (no clone on disk, `gh` unreachable) is not itself an error - it falls through to the same refusal below as if no PR existed.
+   - If `pr` is set in state (recorded by `hand pr`, or just detected above): verify the PR is merged via `gh pr view`. A detected PR that is closed without merging is refused exactly like one `hand pr` recorded.
 3. Close the herdr tab.
 4. Return the worktree to treehouse: `treehouse return <path>`.
 5. Remove `state/<id>.json` and the task's report channel `state/<id>.status`.
@@ -546,12 +548,13 @@ Flags:
 Behavior (PR merge, default):
 1. Read `state/<id>.json` for PR URL.
 2. Refuse if no PR is recorded.
-3. Check PR CI status via `gh pr checks`.
-4. Refuse if checks are not green.
-5. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
-6. Update `state/<id>.json` with merge status.
-7. Run `hand project sync <project>` to fast-forward the project clone.
-8. Refresh the dashboard's Projects section, only if that sync advanced the clone.
+3. Refuse if the PR is already merged (a no-mistakes gate, or `hand teardown`/`hand status`'s own gate-opened-PR detection, can record a PR `hand merge` never merged itself).
+4. Check PR CI status via `gh pr checks`.
+5. Refuse if checks are not green.
+6. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
+7. Update `state/<id>.json` with merge status.
+8. Run `hand project sync <project>` to fast-forward the project clone.
+9. Refresh the dashboard's Projects section, only if that sync advanced the clone.
 
 Behavior (local merge, `--local`):
 1. Read `state/<id>.json` for worktree and project.
@@ -656,7 +659,7 @@ Behavior:
    - `blocked <id>: <reason>`: agent reports blocked (herdr-level; herdr gives no free-text reason, so `<reason>` is a fixed string).
    - `failed <id>`: herdr pane died unexpectedly.
    - `stale <id>`: agent hasn't changed state for longer than the stale threshold (default 300s, configurable via `config/stale-threshold`).
-   - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` in `state/<id>.json` after the line is printed, so a restart neither repeats it nor loses it to a crash between the two.
+   - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` in `state/<id>.json` after the line is printed, so a restart neither repeats it nor loses it to a crash between the two. The same marker is set outside the watcher when gate-opened-PR detection records a PR that is already merged (see `hand status`), so a watcher that first sees the task after that stays quiet about a merge it never observed.
    - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line was attempted and the recording did not complete. The token says only that much, for any cause - refused validation, an unregistered or unresolvable project, an unreadable task file, a failed state write, a state write that landed but whose dashboard update failed or found no active row to carry the PR (the same missing row `hand pr` exits `3` on, since the watcher has no per-task nonzero exit of its own) - and `<reason>` is the underlying error, which is what says which. The whole cause is kept; only its line breaks are not, since `gh`'s multi-line stderr reaches these errors verbatim and an event is one line on stdout, one entry in `state/events.log`, and one bullet on the dashboard (continuation lines would parse back as separate events in both). The fix in every case is a human running `hand pr <id> <url>`: it reconciles, so it either repairs whatever half is missing or fails with the real underlying reason. The kind is deliberately not split by cause, since an enumeration of causes is forgotten the next time a new one appears.
    - `pr-record-unknown <id>: <url> (<reason>)`: the same URL was never attempted, because another command held the task lock at that moment. Whether it ended up recorded is genuinely unknown - the holder may be the `hand pr` recording that very URL - so this event asserts nothing about the outcome and points at `hand status <id>` to confirm, except when the task's own state can't be read, where it names that read failure instead of a remedy that would hit it too. Nothing is announced at all when the lock holder is found to have already recorded that same URL.
    - Both auto-record events are durable on stdout and in `state/events.log` (plus a stderr diagnostic) rather than only a transient stderr line, since the report line is consumed either way. Neither is a Pending Decision - see "Pending Decisions".
@@ -865,7 +868,7 @@ Updated: 2026-07-24T12:30:00Z
 | Command | Dashboard update |
 |---|---|
 | `hand spawn` | Add row to Active Tasks |
-| `hand status` | Refresh agent states in Active Tasks (only when dashboard is stale) |
+| `hand status` | Refresh agent states in Active Tasks (only when dashboard is stale), set PR on the task's row when a gate-opened PR is detected |
 | `hand send` | No update |
 | `hand teardown` | Move from Active Tasks to Recent Completions (keep last 10), drop the task's Pending Decisions entry |
 | `hand merge` | Refresh Projects when the follow-up project sync advanced the clone. `--local`: no update |

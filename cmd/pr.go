@@ -41,33 +41,9 @@ func newPRCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			if t.PR != "" && t.PR != url {
-				return &ExitError{Err: fmt.Errorf("task %s already has a different PR recorded: %s", t.ID, t.PR), Code: 3}
-			}
-
-			// Reconcile rather than no-op: this command is the documented remedy for
-			// a pr-not-recorded event, and the recording it has to repair may have
-			// failed only at the dashboard, with the URL already in task state.
-			reconcile := t.PR == url
-			if !reconcile {
-				proj, exists, err := project.Find(home, t.Project)
-				if err != nil {
-					return err
-				}
-				if !exists {
-					return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
-				}
-
-				ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-				defer cancel()
-				if err := project.ValidatePR(ctx, home, proj, url); err != nil {
-					return &ExitError{Err: err, Code: 3}
-				}
-
-				t.PR = url
-				if err := state.Write(home, t); err != nil {
-					return fmt.Errorf("write task state: %w", err)
-				}
+			t, reconcile, err := recordPR(cmd.Context(), home, t, url)
+			if err != nil {
+				return err
 			}
 
 			dashPath := filepath.Join(home, "data", "dashboard.md")
@@ -90,4 +66,42 @@ func newPRCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// recordPR is hand pr's own recording logic, factored out so detectPR (cmd/prdetect.go)
+// can route a forge-discovered PR through the same conflict guard and reconciliation
+// rather than a second, divergent copy of it. reconcile reports whether url matched
+// what was already on t.PR (a no-op on t, since it was already correct).
+func recordPR(ctx context.Context, home string, t state.Task, url string) (state.Task, bool, error) {
+	if t.PR != "" && t.PR != url {
+		return t, false, &ExitError{Err: fmt.Errorf("task %s already has a different PR recorded: %s", t.ID, t.PR), Code: 3}
+	}
+
+	// Reconcile rather than no-op: this command is the documented remedy for
+	// a pr-not-recorded event, and the recording it has to repair may have
+	// failed only at the dashboard, with the URL already in task state.
+	reconcile := t.PR == url
+	if reconcile {
+		return t, true, nil
+	}
+
+	proj, exists, err := project.Find(home, t.Project)
+	if err != nil {
+		return t, false, err
+	}
+	if !exists {
+		return t, false, &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
+	}
+
+	ghCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := project.ValidatePR(ghCtx, home, proj, url); err != nil {
+		return t, false, &ExitError{Err: err, Code: 3}
+	}
+
+	t.PR = url
+	if err := state.Write(home, t); err != nil {
+		return t, false, fmt.Errorf("write task state: %w", err)
+	}
+	return t, false, nil
 }

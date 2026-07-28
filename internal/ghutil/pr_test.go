@@ -57,6 +57,60 @@ func TestPRIsMergedReportsExitStatusWithoutStderr(t *testing.T) {
 	}
 }
 
+// writeFakeGHPRList fakes `gh pr list --json url,state`, emitting a stderr
+// line ahead of the JSON array payload for the same reason writeFakeGHPRView
+// does: a CombinedOutput regression at the call site must fail the parse.
+func writeFakeGHPRList(t *testing.T, body string, exitCode int, stderrLine string) {
+	t.Helper()
+	bin := t.TempDir()
+	script := "#!/bin/sh\n"
+	if stderrLine != "" {
+		script += fmt.Sprintf("echo %q >&2\n", stderrLine)
+	}
+	if exitCode != 0 {
+		script += fmt.Sprintf("exit %d\n", exitCode)
+	} else {
+		script += fmt.Sprintf("printf '%s'\n", body)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+}
+
+func TestFindPRByBranchReturnsMatch(t *testing.T) {
+	writeFakeGHPRList(t, `[{"url":"https://github.com/owner/repo/pull/5","state":"MERGED"}]`, 0, "Warning: gh version 2.40.0 is out of date")
+	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || url != "https://github.com/owner/repo/pull/5" || !merged {
+		t.Fatalf("got (%q, %v, %v), want the merged PR", url, merged, found)
+	}
+}
+
+func TestFindPRByBranchNoMatch(t *testing.T) {
+	writeFakeGHPRList(t, `[]`, 0, "")
+	_, _, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatal("want found=false for an empty result")
+	}
+}
+
+func TestFindPRByBranchReportsExitStatusWithoutStderr(t *testing.T) {
+	writeFakeGHPRList(t, "", 1, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	if err == nil {
+		t.Fatal("want error when gh exits non-zero")
+	}
+	if !strings.Contains(err.Error(), "exit status 1") {
+		t.Fatalf("got %q, want the exit status in the message", err)
+	}
+}
+
 func TestRepoSlugFromRemote(t *testing.T) {
 	cases := []struct {
 		remote string

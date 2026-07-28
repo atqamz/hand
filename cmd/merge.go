@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
@@ -89,6 +90,17 @@ func resolveMergeMethod(squash, mergeCommit, rebase bool) (string, error) {
 func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) error {
 	if t.PR == "" {
 		return &ExitError{Err: fmt.Errorf("no PR recorded for %s", t.ID), Code: 3}
+	}
+
+	// A gate-opened PR (issue #69) can populate t.PR without hand having merged it,
+	// so t.PR no longer implies hand hasn't seen it merged yet; check before running
+	// CI checks against a PR gh already closed.
+	merged, err := ghutil.PRIsMerged(cmd.Context(), t.PR)
+	if err != nil {
+		return err
+	}
+	if merged {
+		return &ExitError{Err: fmt.Errorf("PR %s is already merged", t.PR), Code: 3}
 	}
 
 	green, err := prChecksGreen(t.PR)

@@ -42,9 +42,11 @@ func newTeardownCmd() *cobra.Command {
 			}
 
 			if !force {
-				if err := checkLandedWork(cmd.Context(), home, t); err != nil {
+				updated, err := checkLandedWork(cmd.Context(), home, t)
+				if err != nil {
 					return err
 				}
+				t = updated
 			}
 			releaseProject, err := state.Lock(home, "project:"+t.Project)
 			if err != nil {
@@ -103,50 +105,65 @@ func completionFor(t state.Task, forced bool) dashboard.Completion {
 	return c
 }
 
-func checkLandedWork(ctx context.Context, home string, t state.Task) error {
+func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task, error) {
 	if t.Kind == state.KindScout {
 		reportPath := filepath.Join("data", t.ID, "report.md")
 		if _, err := os.Stat(filepath.Join(home, reportPath)); err != nil {
-			return &ExitError{Err: fmt.Errorf("report not found at %s", reportPath), Code: 3}
+			return t, &ExitError{Err: fmt.Errorf("report not found at %s", reportPath), Code: 3}
 		}
-		return nil
+		return t, nil
 	}
 
 	dirty, err := hasUncommittedChanges(t.Worktree)
 	if err != nil {
-		return err
+		return t, err
 	}
 	if dirty {
-		return &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", t.Worktree), Code: 3}
+		return t, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", t.Worktree), Code: 3}
 	}
 
-	if t.PR != "" {
-		merged, err := ghutil.PRIsMerged(ctx, t.PR)
+	if t.PR == "" {
+		proj, exists, err := project.Find(home, t.Project)
 		if err != nil {
-			return err
+			return t, err
 		}
-		if !merged {
-			return &ExitError{Err: fmt.Errorf("PR %s is not merged", t.PR), Code: 3}
+		if exists && proj.Mode == project.ModeLocalOnly {
+			merged, err := branchIsMerged(filepath.Join(home, "projects", t.Project), t.Worktree)
+			if err != nil {
+				return t, err
+			}
+			if !merged {
+				return t, &ExitError{Err: fmt.Errorf("branch for %s is not merged into the default branch", t.ID), Code: 3}
+			}
+			return t, nil
 		}
-		return nil
+
+		// A gate-opened PR bypasses hand pr entirely (issue #69), so t.PR can still
+		// be empty for landed work; detect it here rather than only refusing on it,
+		// so the merged check below reads the same PR state hand pr would have
+		// recorded. Detection failing (no clone on disk yet, gh unreachable, ...)
+		// is not this command's failure to report: it falls through to the same
+		// "no PR recorded" refusal below that a project with no detection at all
+		// would have gotten.
+		if exists {
+			if detected, err := detectPR(ctx, home, t, proj); err == nil {
+				t = detected
+			}
+		}
+
+		if t.PR == "" {
+			return t, &ExitError{Err: fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID), Code: 3}
+		}
 	}
 
-	proj, exists, err := project.Find(home, t.Project)
+	merged, err := ghutil.PRIsMerged(ctx, t.PR)
 	if err != nil {
-		return err
+		return t, err
 	}
-	if exists && proj.Mode == project.ModeLocalOnly {
-		merged, err := branchIsMerged(filepath.Join(home, "projects", t.Project), t.Worktree)
-		if err != nil {
-			return err
-		}
-		if !merged {
-			return &ExitError{Err: fmt.Errorf("branch for %s is not merged into the default branch", t.ID), Code: 3}
-		}
-		return nil
+	if !merged {
+		return t, &ExitError{Err: fmt.Errorf("PR %s is not merged", t.PR), Code: 3}
 	}
-
-	return &ExitError{Err: fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID), Code: 3}
+	return t, nil
 }
 
 func hasUncommittedChanges(worktreePath string) (bool, error) {

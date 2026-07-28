@@ -82,6 +82,9 @@ func writeFakeGh(t *testing.T, script string) {
 const fakeGhChecksGreenAndMerge = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
+"pr view")
+	printf '{"state":"OPEN"}'
+	;;
 "pr checks")
 	printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
 	;;
@@ -102,6 +105,9 @@ esac
 const fakeGhChecksRed = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
+"pr view")
+	printf '{"state":"OPEN"}'
+	;;
 "pr checks")
 	printf '[{"bucket":"pass"},{"bucket":"fail"}]'
 	;;
@@ -158,6 +164,43 @@ func TestMergeRefusesWhenNoPRRecorded(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no PR recorded") {
 		t.Fatalf("err = %v, want no PR recorded", err)
+	}
+}
+
+// TestMergeRefusesAlreadyMergedPR covers cmd/merge.go:90's gap noted in
+// atqamz/secondhand#69: a gate-opened PR can populate t.PR without hand having
+// merged it, so t.PR != "" no longer implies hand hasn't seen it land yet.
+func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeGh(t, `#!/bin/sh
+case "$1 $2" in
+"pr view") printf '{"state":"MERGED"}' ;;
+*) echo "unexpected gh args: $@" >&2; exit 1 ;;
+esac
+`)
+
+	if err := state.Write(home, state.Task{ID: "task-1", PR: "https://github.com/org/repo/pull/42"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newMergeCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "already merged") {
+		t.Fatalf("err = %v, want already merged", err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MergeExecuted {
+		t.Fatal("want task not marked merged by hand merge itself")
 	}
 }
 
