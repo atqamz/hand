@@ -3,6 +3,7 @@ package watcher
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,7 +41,9 @@ const dashboardSkeleton = `# Dashboard
 // success and diverges from for the unexpected-args arm - a bare stderr line
 // and exit 1, so a call shape no test anticipated fails loudly instead of
 // parsing. "pane get" reads its status from statusFile so a test can drive
-// transitions between ticks; failure paths belong to
+// transitions between ticks, and counts its own calls in $CALL_LOG when a test
+// sets one (see logPaneGets), so a test driving a live watcher can wait for a
+// probe to have happened instead of sleeping; failure paths belong to
 // internal/herdr/client_test.go.
 // paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an error
 // envelope on stdout with exit code 0. A fake that exited nonzero would also reach
@@ -59,6 +62,11 @@ case "$1 $2" in
 	;;
 "pane get")
 	status=$(cat "$STATUS_FILE")
+	# Logged after the read, never before: a test that flips the status on seeing
+	# the Nth call would otherwise still be racing the Nth read of the file.
+	if [ -n "$CALL_LOG" ]; then
+		echo "pane get" >> "$CALL_LOG"
+	fi
 	if [ "$status" = "` + paneGoneStatus + `" ]; then
 		printf '{"id":"cli:1","error":{"code":"not_found","message":"pane p1 not found"}}'
 		exit 0
@@ -123,11 +131,44 @@ func registerProject(t *testing.T, home, name, remote string) {
 	}
 }
 
+// setStatus publishes a pane's status by atomic rename. The tests that drive a
+// live watcher have the fake herdr catting this file from another process, and a
+// truncating in-place write would let it read a phantom empty status mid-update -
+// which classifies as a transition to an unknown state and swallows the real one.
 func setStatus(t *testing.T, statusFile, status string) {
 	t.Helper()
-	if err := os.WriteFile(statusFile, []byte(status), 0o644); err != nil {
+	tmp := statusFile + ".tmp"
+	if err := os.WriteFile(tmp, []byte(status), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Rename(tmp, statusFile); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// logPaneGets points the herdr fake's call counter at a file, so a test can wait
+// for the watcher to have probed rather than guessing at a sleep.
+func logPaneGets(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "pane-get-calls")
+	t.Setenv("CALL_LOG", path)
+	return path
+}
+
+func waitForPaneGets(t *testing.T, callLog string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(callLog)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if bytes.Count(data, []byte("\n")) >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d pane get calls", want)
 }
 
 func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
@@ -1393,6 +1434,182 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit after context cancellation")
+	}
+}
+
+// TestRunUntilEventTakesTheStartupStateAsBaseline is the regression test for the
+// delivery failure of 2026-07-28: the grep-on-first-line wrapper this mode
+// replaces matched a done worker's startup line, took it for a transition, and
+// left the two real events that followed unread for three hours. Whatever the
+// fleet already is when the watcher arms cannot be the event it delivers,
+// including a report line a previous watcher left unconsumed - which is a fresh
+// event to the poll loop, since report_offset still points behind it.
+func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "done")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 200 * time.Millisecond}
+	err := RunUntilEvent(context.Background(), cfg, &out, io.Discard)
+
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: nothing changed after it armed", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want the startup state delivered as nothing", out.String())
+	}
+
+	logData, err := os.ReadFile(filepath.Join(home, "state", "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "reported-done task-1") {
+		t.Fatalf("events.log = %q, want the baseline's own events still recorded: the report line is consumed either way", string(logData))
+	}
+}
+
+func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	callLog := logPaneGets(t)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
+
+	// Both baseline ticks have probed the pane, so the status change below is a
+	// transition from the baseline rather than a different baseline.
+	waitForPaneGets(t, callLog, 2)
+	setStatus(t, statusFile, "done")
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunUntilEvent = %v, want nil so the exit code reads as a delivered event", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunUntilEvent did not return after a transition")
+	}
+	if !strings.Contains(out.String(), "idle-unreported task-1") {
+		t.Fatalf("out = %q, want idle-unreported task-1", out.String())
+	}
+}
+
+// TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet is issue #75's
+// acceptance test, at the layer that decides it: the signal the previous
+// workaround had to exclude, because a repeating one would wake its caller every
+// poll, is the one this mode has to deliver.
+func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	callLog := logPaneGets(t)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
+
+	waitForPaneGets(t, callLog, 2)
+	setStatus(t, statusFile, "done")
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunUntilEvent = %v, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a worker that went quiet without a terminal report never reached the caller")
+	}
+	if !strings.Contains(out.String(), "idle-unreported task-1") {
+		t.Fatalf("out = %q, want idle-unreported task-1", out.String())
+	}
+}
+
+func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
+
+	var out bytes.Buffer
+	start := time.Now()
+	err := RunUntilEvent(context.Background(), cfg, &out, io.Discard)
+
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent so a re-arm loop can tell a quiet window from an event", err)
+	}
+	if !strings.Contains(err.Error(), "100ms") {
+		t.Fatalf("err = %v, want the elapsed timeout named", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("returned after %s, want the timeout to bound the wait", elapsed)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want stdout to carry events only, never the timeout notice", out.String())
+	}
+}
+
+func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(ctx, cfg, &bytes.Buffer{}, io.Discard) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		// A signaled watcher delivered nothing, so it cannot exit 0: the caller
+		// would read the exit as fleet news and go looking for a line that is not
+		// there.
+		if !errors.Is(err, ErrNoEvent) {
+			t.Fatalf("RunUntilEvent = %v, want ErrNoEvent", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunUntilEvent did not return after context cancellation")
+	}
+}
+
+func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
+	// Same crashed-or-missing-binary shape as TestRunFailsWhenHerdrUnreachable:
+	// exit 1 with empty stdout.
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := RunUntilEvent(context.Background(), Config{Home: t.TempDir(), PollInterval: time.Second, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "herdr unreachable") {
+		t.Fatalf("got err %v, want herdr unreachable", err)
+	}
+	if errors.Is(err, ErrNoEvent) {
+		t.Fatal("a failed watcher reported ErrNoEvent, which a caller reads as a quiet fleet rather than a broken watcher")
 	}
 }
 

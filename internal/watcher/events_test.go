@@ -31,6 +31,31 @@ func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenNoTerminalReport(t
 	}
 }
 
+// TestClassifyStatusIdleUnreportedRefiresOnlyAfterTheWorkerResumesAndStopsAgain
+// holds idle-unreported to an edge, which is what lets hand watch --until-event
+// wake on it: firing every poll while a pane stays quiet is the wake storm that
+// kept it out of the earlier grep-based trigger, and firing once ever would lose
+// the second stop, which is a separate occurrence and a separate wake.
+func TestClassifyStatusIdleUnreportedRefiresOnlyAfterTheWorkerResumesAndStopsAgain(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		now := time.Now()
+		ts := NewTaskState(herdr.StatusWorking, now)
+
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+			t.Fatalf("status %q: got %+v, want idle-unreported on the first stop", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second)); e != nil {
+			t.Fatalf("status %q: fired again while the worker stayed in the condition: %+v", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(3*time.Second)); e != nil {
+			t.Fatalf("status %q: leaving the condition fired an event: %+v", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(4*time.Second)); e == nil || e.Kind != KindIdleUnreported {
+			t.Fatalf("status %q: got %+v, want idle-unreported again once the worker left and re-entered the condition", notBusy, e)
+		}
+	}
+}
+
 func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenLastReportWasStillWorking(t *testing.T) {
 	for _, notBusy := range notBusyStatuses {
 		now := time.Now()
@@ -138,6 +163,9 @@ func TestClassifyStaleFiresOncePerWindow(t *testing.T) {
 	ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(11*time.Minute))
 	if e := ClassifyStale(ts, "task-1", now.Add(12*time.Minute), threshold); e != nil {
 		t.Fatalf("stale fired right after a status change reset the window: %+v", e)
+	}
+	if e := ClassifyStale(ts, "task-1", now.Add(17*time.Minute), threshold); e == nil || e.Kind != KindStale {
+		t.Fatalf("got %+v, want stale again once the reset window elapsed: it is a wake trigger, so leaving and re-entering the condition is a second occurrence", e)
 	}
 }
 

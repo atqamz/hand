@@ -645,10 +645,13 @@ Also logs events to `state/events.log` for crash recovery.
 ```
 hand watch
 hand watch --poll 10s
+hand watch --until-event --timeout 30m
 ```
 
 Flags:
 - `--poll <duration>`: poll interval when push events aren't available. Default: value from `config/watch-interval`, or `5s`.
+- `--until-event`: block until the first events, print them, exit `0`. See "Delivering an event to a supervisory agent" below.
+- `--timeout <duration>`: with `--until-event`, give up after this long and exit `4`. Default: no timeout. Without `--until-event` it is a usage error (exit `2`), since a streaming watcher has no completion to bound.
 
 Behavior:
 1. List all active tasks from `state/*.json`.
@@ -676,6 +679,33 @@ Behavior:
 11. Every task-state write the poll loop makes - the bookkeeping it owns (`report_offset`, `pr_merged_observed`) and an auto-recorded PR - takes the task lock non-blocking, and is skipped when another command holds it. The poll loop never waits on the **task** lock, because that lock is held across unbounded network and git work (`hand merge` across `gh pr checks`/`gh pr merge`, `hand promote` across a `git push`): waiting on it can stall every other task indefinitely, and `flock` cannot honor a SIGINT/SIGTERM in the meantime. Bookkeeping is re-derivable and simply retries next tick. A skipped auto-record is announced as `pr-record-unknown` - never as `pr-not-recorded`, which covers every attempt that was made and did not complete - except when the lock holder turns out to have recorded that same URL, which is silent.
 12. The poll loop *does* wait on the dashboard lock, and that is deliberate. It guards a bounded local read-modify-write with no network call, so a brief tick delay or slightly late shutdown is acceptable - and unlike the task lock's writes, a dashboard write is not re-derivable: the dashboard is built by applying each event to a row as it arrives, so skipping one silently loses that state change. Both locks are always taken task-first, dashboard-second, never the reverse.
 13. Per-task bookkeeping is written back only after the tick's events are announced, never before. A marker persisted ahead of its line would, if the process died in between, suppress an announcement nothing can re-derive; a duplicate line is the cheaper failure.
+
+#### Delivering an event to a supervisory agent
+
+Detecting an event and delivering it are separate problems, and the streaming mode solves only the first.
+`hand watch` never exits, and a supervisory agent's background-task runner re-invokes the agent when a process *exits*, so a streaming watcher's stdout is a file that is read only if the agent independently decides to look.
+"Remember to check the watcher" is not a mechanism, and it is what failed on 2026-07-28.
+
+`--until-event` makes the process exit the delivery:
+
+1. Take the baseline silently: two ticks with stdout discarded. The first seeds tracking for every task, the second consumes whatever a previous watcher left unconsumed on the report channels, since `report_offset` survives a restart on purpose and those lines are new to the poll loop.
+2. Poll. On the first tick that produces any event, write that tick's events to stdout and exit `0`.
+3. On `--timeout`, write nothing to stdout, name the elapsed timeout on stderr, and exit `4`.
+4. On SIGINT/SIGTERM, the same as a timeout: nothing was delivered, so exit `4`, never `0`.
+
+Each rule below closes one way the `tee` + `grep -m1` wrapper this replaces failed:
+
+- **The startup state is never an event.** Only a change from the baseline exits. A worker that was already `done` when the watcher armed produces nothing on stdout, where the wrapper's `grep` matched it, exited, and left the pipeline half-alive with nobody reading the two real events that followed.
+- **Every wake trigger is edge-triggered, `idle-unreported` and `stale` included.** A worker fires one on entering the condition and does not fire again until it leaves and re-enters, so no signal has to be excluded from the trigger to avoid a wake storm - which is how the wrapper came to exclude the exact signal it was built for.
+- **The exit code says which happened**: `0` an event was delivered, `4` no event (timeout or signal), `1` the watcher itself failed, `2` a usage error. A caller can never read a crash or a quiet window as fleet news.
+- **No pipeline for the caller to get wrong.** The exit is the whole mechanism.
+
+Baseline events are withheld from stdout only.
+They still reach `state/events.log` and `data/dashboard.md`, because the report lines behind them are consumed either way and silently dropping a state change is worse than repeating one.
+So the agent's loop is: arm the watcher, read `hand status` and `state/events.log` for current truth, then treat the next exit as the answer to "what changed since I armed".
+Anything that lands between one exit and the next arming is in those same two places.
+
+One invocation delivers one wake, and re-arming is the caller's own next step after acting on the exit, which it takes anyway with no human in it.
 
 #### What survives a `hand watch` restart
 
@@ -707,12 +737,14 @@ pr-merged fix-login
 ```
 
 The supervisory agent runs `hand watch` as a background task (via its harness's background-task mechanism) and acts on each printed line.
+Streaming that way only reaches the agent if something prompts it to read; `--until-event` is how the watcher reaches it on its own (see "Delivering an event to a supervisory agent").
 
 Event durability: if the supervisory agent's context compacts or the session restarts, events since the last read are in `state/events.log`. The agent can `hand status` to recover current truth and read `state/events.log` for recent history.
 
 Errors:
 - Herdr not running (fatal: exit with error).
 - Individual task probe failure (graceful: report as "unknown" state).
+- `--until-event` reaching its `--timeout`, or being signaled, without delivering an event: a line on stderr and exit `4`, never a silent exit `0`.
 
 ---
 
@@ -1403,9 +1435,10 @@ On restart (new supervisory agent session):
 
 - `0`: success.
 - `1`: general error.
-- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive flags, an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration).
+- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
 - `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`).
+- `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 
 ### Error output
 

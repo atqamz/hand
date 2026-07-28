@@ -42,7 +42,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 | `hand spawn` | Spawn a worker agent in an isolated worktree | Available |
 | `hand status` | Show fleet overview or single-task detail | Available |
 | `hand send` | Send a message to a running worker | Available |
-| `hand watch` | Blocking watcher that prints actionable fleet events | Available |
+| `hand watch` | Blocking watcher that prints actionable fleet events; `--until-event` exits on the first one so the exit itself wakes the supervisory agent | Available |
 | `hand merge` | Merge a task's completed work | Available |
 | `hand pr` | Record a task's pull request URL | Available |
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Available |

@@ -4,6 +4,7 @@
 package watcher
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -27,7 +28,15 @@ type Config struct {
 	Home           string
 	PollInterval   time.Duration
 	StaleThreshold time.Duration
+	// Timeout bounds RunUntilEvent only. Zero blocks until an event arrives.
+	Timeout time.Duration
 }
+
+// ErrNoEvent reports a RunUntilEvent watcher that stopped without delivering an
+// event: its timeout elapsed, or it was signaled. A caller has to tell that
+// apart from both a delivered event and a watcher that failed, or a re-arm loop
+// silently stalls on one and treats the other as fleet news.
+var ErrNoEvent = errors.New("no event")
 
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is
 // canceled. It returns nil on clean cancellation, or an error if herdr is
@@ -35,9 +44,9 @@ type Config struct {
 // in SPECS.md; errOut receives internal diagnostics (list/log/dashboard
 // failures), keeping the two streams separable per the stdout/stderr contract.
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
-	client := herdr.NewClient()
-	if _, err := client.WorkspaceList(); err != nil {
-		return fmt.Errorf("herdr unreachable: %w", err)
+	client, err := connect()
+	if err != nil {
+		return err
 	}
 
 	states := make(map[string]*TaskState)
@@ -53,6 +62,73 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 			tick(ctx, cfg, client, states, out, errOut)
 		}
 	}
+}
+
+// RunUntilEvent blocks until the poll loop produces its first events, writes
+// that tick's output to out, and returns nil. The process exit is the delivery:
+// it is the one signal a supervisory agent's background-task runner already
+// honors, so waking it needs no pipeline the caller can get wrong.
+//
+// The fleet state at startup is never delivered. Two ticks take the baseline
+// with stdout discarded: the first seeds tracking for every task, the second
+// consumes whatever a previous watcher left unconsumed on the report channels,
+// which resumeTaskState deliberately does not fast-forward past. Only a change
+// from that baseline can exit. A grep-for-the-first-line wrapper is what this
+// replaces, and it failed exactly here - a worker that was already done printed
+// a matching line on startup, the grep took it for a transition, and the two
+// real events that followed reached nobody.
+//
+// Baseline events still reach state/events.log and the dashboard, since the
+// report lines behind them are consumed either way and dropping them silently
+// would lose the state change. So an agent arming a watcher reads
+// state/events.log or hand status for current truth, and takes this exit as the
+// answer to what changed since it armed.
+//
+// It returns ErrNoEvent when cfg.Timeout elapses or ctx is canceled first, and
+// an error only when the watcher itself failed.
+func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
+	client, err := connect()
+	if err != nil {
+		return err
+	}
+
+	states := make(map[string]*TaskState)
+	tick(ctx, cfg, client, states, io.Discard, errOut)
+	tick(ctx, cfg, client, states, io.Discard, errOut)
+
+	var timeout <-chan time.Time
+	if cfg.Timeout > 0 {
+		timer := time.NewTimer(cfg.Timeout)
+		defer timer.Stop()
+		timeout = timer.C
+	}
+
+	ticker := time.NewTicker(cfg.PollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: interrupted", ErrNoEvent)
+		case <-timeout:
+			return fmt.Errorf("%w within %s", ErrNoEvent, cfg.Timeout)
+		case <-ticker.C:
+			var events bytes.Buffer
+			tick(ctx, cfg, client, states, &events, errOut)
+			if events.Len() == 0 {
+				continue
+			}
+			_, err := out.Write(events.Bytes())
+			return err
+		}
+	}
+}
+
+func connect() (*herdr.Client, error) {
+	client := herdr.NewClient()
+	if _, err := client.WorkspaceList(); err != nil {
+		return nil, fmt.Errorf("herdr unreachable: %w", err)
+	}
+	return client, nil
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {
