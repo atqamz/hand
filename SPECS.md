@@ -289,9 +289,14 @@ Behavior:
 3. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
 4. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
 5. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in `state/*.json`. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
-6. Create a herdr tab in the project's workspace.
+6. Acquire the task's herdr tab in the project's workspace.
    - Workspace naming: one workspace per project, named after the project.
    - Tab naming: task ID.
+   - If the project's workspace does not exist yet, create it at the worktree's cwd. herdr has no
+     way to create an empty workspace - it always creates a root tab and pane alongside it - so
+     this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
+     second one, which would leave the root tab behind as an orphan shell in the workspace.
+   - If the workspace already exists, create a new tab in it for the task.
 7. Construct the harness launch command from the template (see harness section).
 8. Send the launch command to the herdr pane.
 9. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
@@ -302,8 +307,8 @@ Behavior:
 
 Any failure before step 10 leaves nothing behind: the worktree lease returns to treehouse and the
 herdr side is rolled back.
-A workspace this command created is closed whole, because a fresh workspace already holds an
-auto-created root tab and closing only the task's tab would leak it.
+A workspace this command created is closed whole: the task's tab is that workspace's own
+auto-created root tab, so there is nothing else in it to preserve.
 A workspace that already existed is shared with other tasks, so it keeps running and only loses
 the tab this command added.
 Once `state/<id>.json` is written the task owns its worktree and tab, so a later failure such as
@@ -756,7 +761,7 @@ Behavior:
 1. Validate the task exists and is a completed scout (has `data/<id>/report.md`, herdr pane is not busy - `idle` or `done`, which mean the same thing here, see "Agent state" - or unreachable/dead).
 2. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
 3. Acquire a fresh treehouse worktree (with collision guard).
-4. Create a new herdr tab.
+4. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 6, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 5. Launch the worker and confirm it started (same as `hand spawn`).
 6. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. `done_verified` is reset to false - the scout's verified `done` does not carry to the ship. Every other field is carried, including `created_at` and the watcher's other bookkeeping (`report_offset`) - see "What survives a `hand watch` restart", which classifies each of them.
 7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
@@ -1118,7 +1123,7 @@ either one alone.
 
 | hand command | herdr operation |
 |---|---|
-| `hand spawn` | create workspace (if needed) + create tab + send launch command + poll pane state and read pane text until the worker is confirmed started, sending keys to answer first-run dialogs |
+| `hand spawn` | create workspace (if needed, at the worktree's cwd, reusing its own root tab as the task tab) or create tab in an existing workspace + send launch command + poll pane state and read pane text until the worker is confirmed started, sending keys to answer first-run dialogs |
 | `hand status` | get agent state for pane |
 | `hand send` | check composer empty + send keys to pane |
 | `hand teardown` | close tab (+ close workspace if empty) |
@@ -1130,11 +1135,17 @@ either one alone.
 # list workspaces
 herdr workspace list
 
-# create workspace without focusing it
-herdr workspace create --no-focus --cwd <project-clone-path> --label <project-name>
+# create workspace without focusing it - herdr cannot create an empty workspace, so this always
+# creates a root tab and pane too, at --cwd; hand points --cwd at the worktree (not the clone) and
+# reuses that root tab as the first task's tab (see "herdr tab rename" below) rather than
+# discarding it and creating a second tab, which would leave it behind as an orphan shell
+herdr workspace create --no-focus --cwd <worktree> --label <project-name>
 
-# create tab in workspace
+# create tab in an already-existing workspace
 herdr tab create --workspace <ws-id> --no-focus --cwd <worktree> --label <task-id>
+
+# rename a tab - used to turn workspace create's own root tab into the first task's tab
+herdr tab rename <tab-id> <task-id>
 
 # list tabs in workspace
 herdr tab list --workspace <ws-id>

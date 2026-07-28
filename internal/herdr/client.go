@@ -138,7 +138,10 @@ func (c *Client) FindWorkspaceByLabel(label string) (Workspace, bool, error) {
 	return Workspace{}, false, nil
 }
 
-func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, error) {
+// WorkspaceCreate also returns the root tab and pane herdr creates at cwd as a side effect of
+// creating the workspace - herdr has no way to create an empty workspace - so a caller that
+// discards them leaves a live, unowned shell behind in the workspace.
+func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, Tab, Pane, error) {
 	args := []string{"workspace", "create", "--no-focus"}
 	if cwd != "" {
 		args = append(args, "--cwd", cwd)
@@ -148,18 +151,20 @@ func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, error) {
 	}
 	res, err := c.call(args...)
 	if err != nil {
-		return Workspace{}, err
+		return Workspace{}, Tab{}, Pane{}, err
 	}
 	var body struct {
 		Workspace Workspace `json:"workspace"`
+		Tab       Tab       `json:"tab"`
+		RootPane  Pane      `json:"root_pane"`
 	}
 	if err := json.Unmarshal(res, &body); err != nil {
-		return Workspace{}, fmt.Errorf("parse workspace create: %w", err)
+		return Workspace{}, Tab{}, Pane{}, fmt.Errorf("parse workspace create: %w", err)
 	}
-	if body.Workspace.WorkspaceID == "" {
-		return Workspace{}, fmt.Errorf("parse workspace create: missing workspace")
+	if body.Workspace.WorkspaceID == "" || body.Tab.TabID == "" || body.RootPane.PaneID == "" {
+		return Workspace{}, Tab{}, Pane{}, fmt.Errorf("parse workspace create: missing workspace, tab, or root pane")
 	}
-	return body.Workspace, nil
+	return body.Workspace, body.Tab, body.RootPane, nil
 }
 
 func (c *Client) WorkspaceClose(workspaceID string) error {
@@ -207,6 +212,11 @@ func (c *Client) TabCreate(workspaceID, cwd, label string) (Tab, Pane, error) {
 		return Tab{}, Pane{}, fmt.Errorf("parse tab create: missing tab or root pane")
 	}
 	return body.Tab, body.RootPane, nil
+}
+
+func (c *Client) TabRename(tabID, label string) error {
+	_, err := c.call("tab", "rename", tabID, label)
+	return err
 }
 
 func (c *Client) TabClose(tabID string) error {

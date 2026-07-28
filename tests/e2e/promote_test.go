@@ -57,8 +57,8 @@ func TestPromoteScoutToShip(t *testing.T) {
 	// The scout's old workspace holds a second tab, so releasing the scout is a
 	// tab close rather than closeTaskTab's sole-tab workspace-close shortcut.
 	writeFakeDispatch(t, dir, "herdr", invocationLog, "$1 $2", `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
-  "workspace create") echo '{"result":{"workspace":{"workspace_id":"ws-new","label":"demo","tab_count":1}}}' ;;
-  "tab create") echo '{"result":{"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"demo"},"root_pane":{"pane_id":"pane-new","tab_id":"tab-new","workspace_id":"ws-new","agent_status":"working"}}}' ;;
+  "workspace create") echo '{"result":{"workspace":{"workspace_id":"ws-new","label":"demo","tab_count":1},"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"1"},"root_pane":{"pane_id":"pane-new","tab_id":"tab-new","workspace_id":"ws-new","agent_status":"working"}}}' ;;
+  "tab rename") echo '{"result":{"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"task-1"}}}' ;;
   "pane run") echo '{"result":{}}' ;;
   "pane read") printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n' ;;
   "tab list")
@@ -121,6 +121,12 @@ func TestPromoteScoutToShip(t *testing.T) {
 	}
 	if strings.Contains(log, "herdr tab close tab-new") || strings.Contains(log, "herdr workspace close ws-new") {
 		t.Fatalf("invocation log = %q, want promote to leave the NEW ship tab open", log)
+	}
+	if !strings.Contains(log, "herdr tab rename tab-new task-1") {
+		t.Fatalf("invocation log = %q, want promote to rename the new workspace's own root tab to the task id", log)
+	}
+	if strings.Contains(log, "herdr tab create --workspace ws-new") {
+		t.Fatalf("invocation log = %q, want promote to reuse the new workspace's root tab instead of creating a second one", log)
 	}
 	if !strings.Contains(log, "treehouse return "+oldWorktree) {
 		t.Fatalf("invocation log = %q, want promote to have returned the OLD worktree %s", log, oldWorktree)

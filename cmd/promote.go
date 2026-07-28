@@ -109,8 +109,10 @@ func newPromoteCmd() *cobra.Command {
 
 			ws, found, err := client.FindWorkspaceByLabel(proj.Name)
 			createdWorkspace := false
+			var rootTab herdr.Tab
+			var rootPane herdr.Pane
 			if err == nil && !found {
-				ws, err = client.WorkspaceCreate(clonePath, proj.Name)
+				ws, rootTab, rootPane, err = client.WorkspaceCreate(wt, proj.Name)
 				createdWorkspace = err == nil
 			}
 			if err != nil {
@@ -131,9 +133,9 @@ func newPromoteCmd() *cobra.Command {
 				}
 			}()
 
-			tab, pane, err := client.TabCreate(ws.WorkspaceID, wt, id)
+			tab, pane, err := acquireTaskTab(client, createdWorkspace, ws.WorkspaceID, wt, id, rootTab, rootPane)
 			if err != nil {
-				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 			tabID = tab.TabID
 

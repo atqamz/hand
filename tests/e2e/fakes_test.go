@@ -106,9 +106,20 @@ type herdrIDs struct {
 // writeFakeHerdrStatic writes a herdr fake that always reports the same
 // workspace/tab/pane identifiers, suitable for a spawn (or promote) followed
 // by a teardown within one test: workspace list reports none so a fresh
-// workspace is created, tab list reports exactly the one tab so teardown
-// closes the whole workspace (mirroring closeTaskTab's sole-tab behavior).
+// workspace is created, and workspace create's own response carries the root
+// tab/pane herdr always creates alongside it - the ones the task then renames
+// (via "tab rename") and reuses instead of creating a second tab. tab list
+// reports exactly the one tab so teardown closes the whole workspace
+// (mirroring closeTaskTab's sole-tab behavior).
 func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
+	t.Helper()
+	writeFakeHerdrStaticLogged(t, dir, "", ids)
+}
+
+// writeFakeHerdrStaticLogged is writeFakeHerdrStatic plus an invocation log, for tests that need
+// to assert which herdr calls were actually made (e.g. that spawn reuses the workspace's own root
+// tab instead of creating a second one, and that teardown of that sole tab closes the workspace).
+func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs) {
 	t.Helper()
 	status := ids.PaneStatus
 	if status == "" {
@@ -116,11 +127,12 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 	}
 
 	workspaceList := herdrOK(t, map[string]any{"workspaces": []any{}})
-	workspaceCreate := herdrOK(t, map[string]any{"workspace": map[string]any{"workspace_id": ids.WorkspaceID, "label": ids.Label, "tab_count": 1}})
-	tabCreate := herdrOK(t, map[string]any{
-		"tab":       map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label},
+	workspaceCreate := herdrOK(t, map[string]any{
+		"workspace": map[string]any{"workspace_id": ids.WorkspaceID, "label": ids.Label, "tab_count": 1},
+		"tab":       map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": "1"},
 		"root_pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": status},
 	})
+	tabRename := herdrOK(t, map[string]any{"tab": map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}})
 	tabList := herdrOK(t, map[string]any{"tabs": []any{map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}}})
 	tabClose := herdrOK(t, map[string]any{"type": "ok"})
 	workspaceClose := herdrOK(t, map[string]any{"type": "ok"})
@@ -132,7 +144,7 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 	// is what confirmLaunch's poll loop needs to confirm the launch.
 	body := fmt.Sprintf(`  "workspace list") echo %s ;;
   "workspace create") echo %s ;;
-  "tab create") echo %s ;;
+  "tab rename") echo %s ;;
   "pane run") ;;
   "pane send-text") ;;
   "pane send-keys") ;;
@@ -141,10 +153,10 @@ func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
   "tab close") echo %s ;;
   "workspace close") echo %s ;;
   "pane get") echo %s ;;`,
-		shellSingleQuote(workspaceList), shellSingleQuote(workspaceCreate), shellSingleQuote(tabCreate),
+		shellSingleQuote(workspaceList), shellSingleQuote(workspaceCreate), shellSingleQuote(tabRename),
 		shellSingleQuote(tabList), shellSingleQuote(tabClose),
 		shellSingleQuote(workspaceClose), shellSingleQuote(paneGet))
-	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
+	writeFakeDispatch(t, dir, "herdr", logPath, "$1 $2", body)
 }
 
 // writeFakeHerdrWatch writes a herdr fake for the watch scenario: workspace

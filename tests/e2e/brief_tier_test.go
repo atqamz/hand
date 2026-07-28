@@ -30,11 +30,12 @@ func writeBriefWith(t *testing.T, home, id, body string) {
 func writeFakeHerdrLaunchLog(t *testing.T, dir, launchLog string, ids herdrIDs) {
 	t.Helper()
 	workspaceList := herdrOK(t, map[string]any{"workspaces": []any{}})
-	workspaceCreate := herdrOK(t, map[string]any{"workspace": map[string]any{"workspace_id": ids.WorkspaceID, "label": ids.Label, "tab_count": 1}})
-	tabCreate := herdrOK(t, map[string]any{
-		"tab":       map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label},
+	workspaceCreate := herdrOK(t, map[string]any{
+		"workspace": map[string]any{"workspace_id": ids.WorkspaceID, "label": ids.Label, "tab_count": 1},
+		"tab":       map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": "1"},
 		"root_pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": "working"},
 	})
+	tabRename := herdrOK(t, map[string]any{"tab": map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}})
 	status := ids.PaneStatus
 	if status == "" {
 		status = "working"
@@ -48,7 +49,7 @@ func writeFakeHerdrLaunchLog(t *testing.T, dir, launchLog string, ids herdrIDs) 
 	body := strings.Join([]string{
 		`  "workspace list") echo ` + shellSingleQuote(workspaceList) + ` ;;`,
 		`  "workspace create") echo ` + shellSingleQuote(workspaceCreate) + ` ;;`,
-		`  "tab create") echo ` + shellSingleQuote(tabCreate) + ` ;;`,
+		`  "tab rename") echo ` + shellSingleQuote(tabRename) + ` ;;`,
 		`  "tab list") echo ` + shellSingleQuote(tabList) + ` ;;`,
 		`  "tab close") echo ` + shellSingleQuote(herdrOK(t, map[string]any{"type": "ok"})) + ` ;;`,
 		`  "pane run") printf '%s\n' "$4" >> ` + shellSingleQuote(launchLog) + ` ;;`,

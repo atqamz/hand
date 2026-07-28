@@ -3,7 +3,9 @@
 package e2e
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/atqamz/secondhand/internal/state"
@@ -26,8 +28,9 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "task-1-branch", worktree)
 
 	dir := binDir(t)
+	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
 	writeFakeTreehouse(t, dir, worktree)
-	writeFakeHerdrStatic(t, dir, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
+	writeFakeHerdrStaticLogged(t, dir, invocationLog, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
 
 	spawned := runHand(t, home, "spawn", "task-1", "demo")
 	if spawned.code != 0 {
@@ -41,6 +44,20 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	if task.Project != "demo" || task.Kind != state.KindShip || task.Worktree != worktree ||
 		task.Harness == "" || task.Herdr.WorkspaceID != "ws-1" || task.Herdr.TabID != "tab-1" || task.Herdr.PaneID != "pane-1" {
 		t.Fatalf("spawned task state = %+v, want project=demo kind=ship worktree=%s herdr ids populated", task, worktree)
+	}
+
+	// The regression this cycle exists to catch: a first spawn into a fresh workspace must reuse
+	// the workspace's own root tab (renamed to the task id) rather than creating a second one,
+	// which is what used to leave an orphan shell parked in the workspace at the clone's cwd.
+	spawnLog, err := os.ReadFile(invocationLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(spawnLog), "herdr tab rename tab-1 task-1") {
+		t.Fatalf("invocation log = %q, want spawn to rename the fresh workspace's root tab to the task id", spawnLog)
+	}
+	if strings.Contains(string(spawnLog), "herdr tab create") {
+		t.Fatalf("invocation log = %q, want spawn to reuse the root tab instead of creating a second one", spawnLog)
 	}
 
 	dash := readDashboard(t, home)
@@ -78,5 +95,19 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	}
 	if len(finalDash.RecentCompletions) == 0 {
 		t.Fatal("teardown did not record a recent completion")
+	}
+
+	// The task's tab was the workspace's only tab, so teardown must close the whole workspace
+	// (closeTaskTab's sole-tab shortcut) rather than leaving it behind with nothing pointing at it -
+	// the second half of the orphan-tab regression: an unreachable last-tab check never fires.
+	finalLog, err := os.ReadFile(invocationLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(finalLog), "herdr workspace close ws-1") {
+		t.Fatalf("invocation log = %q, want teardown to close the now-empty workspace", finalLog)
+	}
+	if strings.Contains(string(finalLog), "herdr tab close tab-1") {
+		t.Fatalf("invocation log = %q, want teardown to close the workspace, not just the sole tab in it", finalLog)
 	}
 }
