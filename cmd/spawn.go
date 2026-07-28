@@ -94,8 +94,10 @@ func newSpawnCmd() *cobra.Command {
 			client := herdr.NewClient()
 			ws, found, err := client.FindWorkspaceByLabel(proj.Name)
 			createdWorkspace := false
+			var rootTab herdr.Tab
+			var rootPane herdr.Pane
 			if err == nil && !found {
-				ws, err = client.WorkspaceCreate(clonePath, proj.Name)
+				ws, rootTab, rootPane, err = client.WorkspaceCreate(wt, proj.Name)
 				createdWorkspace = err == nil
 			}
 			if err != nil {
@@ -118,9 +120,9 @@ func newSpawnCmd() *cobra.Command {
 				}
 			}()
 
-			tab, pane, err := client.TabCreate(ws.WorkspaceID, wt, id)
+			tab, pane, err := acquireTaskTab(client, createdWorkspace, ws.WorkspaceID, wt, id, rootTab, rootPane)
 			if err != nil {
-				return reportSpawnCleanup(fmt.Errorf("herdr tab create failed: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 			tabID = tab.TabID
 
@@ -189,6 +191,25 @@ func newSpawnCmd() *cobra.Command {
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort level for harnesses that support it")
 	return cmd
+}
+
+// acquireTaskTab returns the tab and pane a spawn-shaped lifecycle should use for the task. herdr
+// has no way to create an empty workspace: workspace create always creates a root tab and pane at
+// its cwd too, so a task that just created the workspace reuses that root tab (renamed to id)
+// instead of creating a second one, which would leave the root tab behind as an orphan shell. A
+// task landing in an already-existing workspace still creates its own tab.
+func acquireTaskTab(client *herdr.Client, createdWorkspace bool, workspaceID, wt, id string, rootTab herdr.Tab, rootPane herdr.Pane) (herdr.Tab, herdr.Pane, error) {
+	if createdWorkspace {
+		if err := client.TabRename(rootTab.TabID, id); err != nil {
+			return herdr.Tab{}, herdr.Pane{}, fmt.Errorf("herdr tab rename failed: %w", err)
+		}
+		return rootTab, rootPane, nil
+	}
+	tab, pane, err := client.TabCreate(workspaceID, wt, id)
+	if err != nil {
+		return herdr.Tab{}, herdr.Pane{}, fmt.Errorf("herdr tab create failed: %w", err)
+	}
+	return tab, pane, nil
 }
 
 // rollbackHerdr undoes the herdr side of a failed spawn-shaped lifecycle: a workspace this

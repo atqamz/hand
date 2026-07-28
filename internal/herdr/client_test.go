@@ -64,6 +64,50 @@ func TestFindWorkspaceByLabelNotFound(t *testing.T) {
 	}
 }
 
+// TestWorkspaceCreateParsesRootTabAndPane pins the fix for the orphan-tab bug: herdr always
+// creates a root tab and pane at cwd as a side effect of creating a workspace, so
+// WorkspaceCreate must parse and return them rather than discarding them - a caller that then
+// creates a second tab for its task leaves the root tab behind as an unowned live shell.
+func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj","tab_count":1},"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'`)
+	c := NewClient()
+	ws, tab, pane, err := c.WorkspaceCreate("/tmp/clone", "proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.WorkspaceID != "wA" {
+		t.Fatalf("got workspace %+v", ws)
+	}
+	if tab.TabID != "wA:tB" {
+		t.Fatalf("got tab %+v", tab)
+	}
+	if pane.PaneID != "wA:pC" || pane.AgentStatus != StatusIdle {
+		t.Fatalf("got pane %+v", pane)
+	}
+}
+
+func TestWorkspaceCreateRejectsMissingRootTabOrPane(t *testing.T) {
+	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"}}}'`)
+	c := NewClient()
+	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
+		t.Fatal("expected an error when the response omits the root tab and pane")
+	}
+}
+
+func TestTabRenameSendsCorrectArgs(t *testing.T) {
+	writeFakeHerdr(t, `
+if [ "$1 $2 $3 $4" != "tab rename wA:tB task-1" ]; then
+	echo "unexpected args: $@" >&2
+	exit 1
+fi
+printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"}}}'
+`)
+	c := NewClient()
+	if err := c.TabRename("wA:tB", "task-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCallReturnsErrorOnEnvelopeError(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","error":{"code":"not_found","message":"pane missing"}}'; exit 1`)
 	c := NewClient()
