@@ -391,10 +391,10 @@ shipped-fix     nsr     ship    done (reported: done) (merged, external)   5m ag
 
 Behavior (single task):
 1. Read `state/<id>.json`.
-2. If no PR is recorded and the project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, or a task with no branch all just leave the task as read) so a fleet-wide `hand status` never pays this cost.
+2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task and in the Active Tasks PR column if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, a task with no branch, or a dashboard with no active row left to carry the column all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
 3. Query herdr for current agent state and recent output.
-3. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
-4. Print detailed view, including the most recent reported line and a labeled history block.
+4. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
+5. Print detailed view, including the most recent reported line and a labeled history block.
 
 Output (single task):
 ```
@@ -868,7 +868,7 @@ Updated: 2026-07-24T12:30:00Z
 | Command | Dashboard update |
 |---|---|
 | `hand spawn` | Add row to Active Tasks |
-| `hand status` | Refresh agent states in Active Tasks (only when dashboard is stale) |
+| `hand status` | Refresh agent states in Active Tasks (only when dashboard is stale), set PR on the task's row when a gate-opened PR is detected |
 | `hand send` | No update |
 | `hand teardown` | Move from Active Tasks to Recent Completions (keep last 10), drop the task's Pending Decisions entry |
 | `hand merge` | Refresh Projects when the follow-up project sync advanced the clone. `--local`: no update |

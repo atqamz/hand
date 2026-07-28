@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -217,6 +218,100 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	}
 	if got.PR != "https://github.com/owner/repo/pull/9" {
 		t.Fatalf("task.PR = %q, want status to have recorded the detected PR", got.PR)
+	}
+}
+
+// A detected PR reaches the dashboard's PR column too, not just task state:
+// data/dashboard.md is what the supervising agent reads for fleet state, so a
+// state write the dashboard never learned about leaves the two disagreeing.
+func TestStatusDetectionFillsTheDashboardPRColumn(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeHerdrPaneStatus(t, "idle")
+	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+
+	dashPath := filepath.Join(home, "data", "dashboard.md")
+	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
+		ID: "task-1", Project: "myproj", Kind: "ship", State: "working", Age: "just now",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(dashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "https://github.com/owner/repo/pull/9") {
+		t.Fatalf("dashboard = %q, want the detected PR in the task's row", string(data))
+	}
+}
+
+// No active row for the task means only the dashboard column is left stale, and
+// detection is a side effect of a read command: it stays quiet rather than
+// failing hand status over it, unlike hand pr, which exists to record the PR.
+func TestStatusDetectionSucceedsWithNoDashboardRow(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeHerdrPaneStatus(t, "idle")
+	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want status to succeed with the PR recorded and no row to reconcile", err)
+	}
+	if !strings.Contains(out.String(), "https://github.com/owner/repo/pull/9") {
+		t.Fatalf("got %q, want the detected PR shown", out.String())
+	}
+}
+
+// A scout task's deliverable is data/<id>/report.md, never a PR, so status skips
+// the branch lookup for it exactly as checkLandedWork does - the gh fake here
+// would answer with a PR, and recording it would pin one onto a task whose
+// completion detail never uses it.
+func TestStatusSkipsPRDetectionForScoutTasks(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeHerdrPaneStatus(t, "idle")
+	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PR != "" {
+		t.Fatalf("task.PR = %q, want a scout task left without a PR", got.PR)
 	}
 }
 
