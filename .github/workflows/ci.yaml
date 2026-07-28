@@ -68,4 +68,4 @@ jobs:
       - name: Build flake package
         run: nix build .#default --no-link --print-out-paths
       - name: Run built binary
-        run: "$(nix build .#default --no-link --print-out-paths)/bin/hand --version"
+        run: '"$(nix build .#default --no-link --print-out-paths)/bin/hand" --version'
