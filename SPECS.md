@@ -707,6 +707,11 @@ Anything that lands between one exit and the next arming is in those same two pl
 
 One invocation delivers one wake, and re-arming is the caller's own next step after acting on the exit, which it takes anyway with no human in it.
 
+This covers the awake path only: an exit reaches a session that exists and re-arms.
+It has no reach when no session is running, and `hand notify` - the channel that would - is not wired to
+anything (see `hand notify` and atqamz/secondhand#80).
+So a fleet left entirely unattended still goes unread; the difference is that an attended one no longer does.
+
 #### What survives a `hand watch` restart
 
 **Anything the watcher announces is persisted at the moment it announces it, never re-derived on restart.** Re-deriving is how an announcement gets silently skipped: evidence that lands while the watcher is down makes the restarted process conclude the line already went out. Every fact the poll loop carries across a restart, and which side of that rule it is on:
@@ -844,7 +849,12 @@ Or for macOS:
 osascript -e "display notification \"$HAND_MESSAGE\" with title \"secondhand\""
 ```
 
-The watcher calls `hand notify` for captain-relevant events (done, blocked, failed) so the user gets notified even when away from the terminal.
+Nothing calls `hand notify` yet: it is operator-invoked only, and no watcher code path reaches it.
+Nothing writes `config/notify` either - `hand init --setup` covers `harness`, `model`, and `effort` - so an unconfigured
+notify prints its message and exits 0 having sent nothing.
+The channel is therefore implemented and dark, and it is the only path that would reach the user when no supervisory
+session is awake, since `hand watch --until-event` delivers by exiting into a session that must be there to be woken.
+Wiring it is atqamz/secondhand#80.
 
 Output:
 ```
@@ -1491,7 +1501,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 |---|---|---|
 | Secondmates / federation | `fm-home-seed.sh`, `fm-pending-reply-lib.sh`, `fm-config-inherit-lib.sh`, `fm-backlog-handoff.sh` (3,500 lines) | Solves a scaling problem at 10+ projects. Start with one home. |
 | X-mode / Twitter | `fm-x-*.sh`, `fmx-respond` skill (3,250 lines) | Separate product concern. Build as a separate tool if ever needed. |
-| AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch` + `hand notify` + the agent's own background task is sufficient. |
+| AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch --until-event` as the agent's own background task covers the awake path; `hand notify` is meant to cover the AFK half but is not wired to anything yet (atqamz/secondhand#80). |
 | Multiple backends | `backends/herdr.sh`, `backends/cmux.sh`, `backends/zellij.sh`, `backends/orca.sh`, `fm-backend.sh` (5,500 lines) | herdr only. Add tmux fallback later if herdr proves insufficient. |
 | Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, declare `model`/`effort` in the brief, or set defaults in `config/`. |
 | Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | Agent tracks decisions in backlog and dashboard. |

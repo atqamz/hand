@@ -47,7 +47,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 | `hand pr` | Record a task's pull request URL | Available |
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Available |
-| `hand notify` | Send an out-of-band notification via a configured command | Available |
+| `hand notify` | Send an out-of-band notification via a configured command; operator-invoked, nothing in the fleet calls it yet | Available |
 | `hand update` | Update the installed binary from the latest GitHub Release; `--check` reports availability without installing | Available |
 
 Run `hand --help` for details on currently available commands.
