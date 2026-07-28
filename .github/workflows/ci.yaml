@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
   lint:
@@ -56,3 +58,14 @@ jobs:
           go-version-file: go.mod
       - name: End-to-end
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
+
+  nix-build:
+    name: Nix build (x86_64-linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: Build flake package
+        run: nix build .#default --no-link --print-out-paths
+      - name: Run built binary
+        run: "$(nix build .#default --no-link --print-out-paths)/bin/hand --version"
