@@ -212,9 +212,9 @@ func acquireTaskTab(client *herdr.Client, createdWorkspace bool, workspaceID, wt
 	return tab, pane, nil
 }
 
-// rollbackHerdr undoes the herdr side of a failed spawn-shaped lifecycle: a workspace this
-// call created goes away whole (WorkspaceCreate auto-creates a root tab, so closeTaskTab's
-// sole-tab shortcut would never fire and the workspace would leak), while a pre-existing
+// rollbackHerdr undoes the herdr side of a failed spawn-shaped lifecycle: a workspace this call
+// created goes away whole, because its only tab is the root tab acquireTaskTab renames into the
+// task's, and a failure before that rename leaves no tabID to close it by. A pre-existing
 // workspace is shared with other tasks and only loses the tab this call added to it.
 func rollbackHerdr(client *herdr.Client, createdWorkspace bool, workspaceID, tabID string) error {
 	if createdWorkspace {

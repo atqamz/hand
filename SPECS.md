@@ -296,7 +296,7 @@ Behavior:
      way to create an empty workspace - it always creates a root tab and pane alongside it - so
      this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
      second one, which would leave the root tab behind as an orphan shell in the workspace.
-   - If the workspace already exists, create a new tab in it for the task, as before.
+   - If the workspace already exists, create a new tab in it for the task.
 7. Construct the harness launch command from the template (see harness section).
 8. Send the launch command to the herdr pane.
 9. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
