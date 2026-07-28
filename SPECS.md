@@ -391,7 +391,8 @@ shipped-fix     nsr     ship    done (reported: done) (merged, external)   5m ag
 
 Behavior (single task):
 1. Read `state/<id>.json`.
-2. Query herdr for current agent state and recent output.
+2. If no PR is recorded and the project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, or a task with no branch all just leave the task as read) so a fleet-wide `hand status` never pays this cost.
+3. Query herdr for current agent state and recent output.
 3. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
 4. Print detailed view, including the most recent reported line and a labeled history block.
 
@@ -486,8 +487,9 @@ Flags:
 Behavior (ship task):
 1. Check worktree has no uncommitted changes.
 2. Check work is landed:
-   - If `pr` is set in state: verify the PR is merged via `gh pr view`.
    - If mode is `local-only`: verify the branch is merged into the default branch.
+   - Otherwise, if `pr` is not yet set in state and the project is registered: look for a PR on the project's repo whose head ref is the task's current branch, and record it under the task if found (same gate-opened-PR detection `hand status` performs; see that command's spec). Detection failing for any reason (no clone on disk, `gh` unreachable) is not itself an error - it falls through to the same refusal below as if no PR existed.
+   - If `pr` is set in state (recorded by `hand pr`, or just detected above): verify the PR is merged via `gh pr view`. A detected PR that is closed without merging is refused exactly like one `hand pr` recorded.
 3. Close the herdr tab.
 4. Return the worktree to treehouse: `treehouse return <path>`.
 5. Remove `state/<id>.json` and the task's report channel `state/<id>.status`.
@@ -546,12 +548,13 @@ Flags:
 Behavior (PR merge, default):
 1. Read `state/<id>.json` for PR URL.
 2. Refuse if no PR is recorded.
-3. Check PR CI status via `gh pr checks`.
-4. Refuse if checks are not green.
-5. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
-6. Update `state/<id>.json` with merge status.
-7. Run `hand project sync <project>` to fast-forward the project clone.
-8. Refresh the dashboard's Projects section, only if that sync advanced the clone.
+3. Refuse if the PR is already merged (a no-mistakes gate, or `hand teardown`/`hand status`'s own gate-opened-PR detection, can record a PR `hand merge` never merged itself).
+4. Check PR CI status via `gh pr checks`.
+5. Refuse if checks are not green.
+6. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
+7. Update `state/<id>.json` with merge status.
+8. Run `hand project sync <project>` to fast-forward the project clone.
+9. Refresh the dashboard's Projects section, only if that sync advanced the clone.
 
 Behavior (local merge, `--local`):
 1. Read `state/<id>.json` for worktree and project.

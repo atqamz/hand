@@ -175,6 +175,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if err != nil {
 		return asPrecondition(err)
 	}
+	t = detectPRForStatus(cmd.Context(), home, t)
 	agentState := paneAgentStatus(client, t.Herdr.PaneID)
 
 	// An unreadable report degrades exactly as it does in the fleet view: the

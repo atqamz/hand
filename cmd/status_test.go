@@ -186,6 +186,40 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 	}
 }
 
+// TestStatusSingleTaskDetectsGateOpenedPR covers hand status's half of
+// atqamz/secondhand#69: a task whose PR a no-mistakes gate opened directly
+// (bypassing hand pr) still shows the PR, once status looks it up by branch.
+func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeHerdrPaneStatus(t, "idle")
+	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "https://github.com/owner/repo/pull/9") {
+		t.Fatalf("got %q, want the detected PR shown", out.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PR != "https://github.com/owner/repo/pull/9" {
+		t.Fatalf("task.PR = %q, want status to have recorded the detected PR", got.PR)
+	}
+}
+
 func TestStatusFleetOverviewRendersMergeMarker(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
