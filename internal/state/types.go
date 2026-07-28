@@ -33,9 +33,11 @@ type Task struct {
 	// It is durable so a watcher restart resumes exactly where it stopped
 	// instead of replaying every line the previous run already surfaced.
 	ReportOffset int64 `json:"report_offset"`
-	// MergeAnnounced records that hand watch's own gh poll already emitted the
-	// merge announcement, distinct from MergeExecuted: a restarted watcher needs
-	// to know the announcement went out even when hand itself never ran the merge.
+	// MergeAnnounced records a merge hand observed rather than performed: hand
+	// watch's own gh poll already emitted the announcement, or gate-opened-PR
+	// detection recorded a PR that was already merged. Distinct from
+	// MergeExecuted: a restarted watcher needs to know the announcement went out
+	// even when hand itself never ran the merge.
 	MergeAnnounced bool `json:"pr_merged_observed"`
 	// DoneVerified records that hand watch already announced the verified "done"
 	// line for this task. Durable for the same reason MergeAnnounced is:
