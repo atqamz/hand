@@ -14,6 +14,8 @@ import (
 )
 
 const defaultStaleThreshold = 300 * time.Second
+const defaultParkedPausedBound = 3600 * time.Second
+const defaultParkedOtherBound = 1200 * time.Second
 
 func newWatchCmd() *cobra.Command {
 	var poll string
@@ -57,6 +59,24 @@ func newWatchCmd() *cobra.Command {
 				staleThreshold = time.Duration(seconds) * time.Second
 			}
 
+			parkedPausedBound := defaultParkedPausedBound
+			if raw := configDefault(home, "parked-paused-bound", ""); raw != "" {
+				seconds, err := strconv.Atoi(raw)
+				if err != nil {
+					return fmt.Errorf("invalid config/parked-paused-bound %q: %w", raw, err)
+				}
+				parkedPausedBound = time.Duration(seconds) * time.Second
+			}
+
+			parkedOtherBound := defaultParkedOtherBound
+			if raw := configDefault(home, "parked-other-bound", ""); raw != "" {
+				seconds, err := strconv.Atoi(raw)
+				if err != nil {
+					return fmt.Errorf("invalid config/parked-other-bound %q: %w", raw, err)
+				}
+				parkedOtherBound = time.Duration(seconds) * time.Second
+			}
+
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
@@ -65,6 +85,10 @@ func newWatchCmd() *cobra.Command {
 				PollInterval:   pollInterval,
 				StaleThreshold: staleThreshold,
 				Timeout:        timeout,
+				ParkedBounds: watcher.ParkedBounds{
+					Paused: parkedPausedBound,
+					Other:  parkedOtherBound,
+				},
 			}
 			if !untilEvent {
 				return watcher.Run(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr())
@@ -76,6 +100,9 @@ func newWatchCmd() *cobra.Command {
 			if err := watcher.RunUntilEvent(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 				if errors.Is(err, watcher.ErrNoEvent) {
 					return &ExitError{Err: err, Code: 4}
+				}
+				if errors.Is(err, watcher.ErrArmFailed) {
+					return &ExitError{Err: err, Code: 5}
 				}
 				return err
 			}

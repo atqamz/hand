@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/state"
 )
@@ -43,6 +44,7 @@ const (
 	KindReportDone          = "report-done"
 	KindReportFailed        = "report-failed"
 	KindReportMalformed     = "report-malformed"
+	KindParked              = "parked"
 )
 
 // blockedReason is the only detail available: herdr reports agent_status without a
@@ -77,7 +79,13 @@ type TaskState struct {
 	PersistedOffset       int64
 	PersistedPRMerged     bool
 	PersistedDoneVerified bool
-	LastReportState       string
+	// PersistedChangedAt mirrors ChangedAt the same way: a dwell clock that
+	// resumes from "now" on every restart never survives a fleet busy enough to
+	// re-arm faster than it elapses, so ChangedAt is seeded from durable
+	// evidence on resume (see resumeTaskState) rather than reset. See
+	// ClassifyStale.
+	PersistedChangedAt time.Time
+	LastReportState    string
 	// LastReportNote is kept alongside LastReportState so a done report that only
 	// gains its completion evidence later can be re-announced with the same text a
 	// synchronous verification would have produced.
@@ -86,6 +94,11 @@ type TaskState struct {
 	// and is persisted after the announcement so it stays idempotent across a
 	// restart too.
 	DoneVerified bool
+	// ParkedFiredFor is the report evidence mtime a parked event was already
+	// announced for, so the episode fires once and only refires once the file
+	// genuinely grows past it. Deliberately not seeded to "now" on resume - see
+	// ClassifyParked.
+	ParkedFiredFor time.Time
 }
 
 // NewTaskState seeds tracking for a task first observed at now, without emitting an
@@ -154,6 +167,75 @@ func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Durat
 	}
 	ts.Stale = true
 	return &Event{TaskID: id, Kind: KindStale, Text: fmt.Sprintf("stale %s", id)}
+}
+
+// ParkedBounds is how long a task may sit silent before ClassifyParked flags it,
+// split by what the worker last reported.
+type ParkedBounds struct {
+	Paused time.Duration
+	Other  time.Duration
+}
+
+// parkedBound answers which bound applies to lastState, and whether the task is
+// exempt entirely. done/failed are terminal - no one is waiting on the pane
+// anymore, so silence there is not a park. paused earns the long bound: a worker
+// that named what it is waiting on has already explained the quiet. Everything
+// else, including working and no report at all, is the failure case: unexplained
+// silence. A non-positive bound is unconfigured, not zero-tolerance - a Config
+// that never set ParkedBounds must not park every task instantly.
+func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
+	switch lastState {
+	case state.ReportDone, state.ReportFailed:
+		return 0, true
+	case state.ReportPaused:
+		bound = bounds.Paused
+	default:
+		bound = bounds.Other
+	}
+	if bound <= 0 {
+		return 0, true
+	}
+	return bound, false
+}
+
+// ClassifyParked catches the park a transition-only watcher structurally cannot
+// see: a worker whose pane simply stops, with herdr registering no status change
+// at all, so neither ClassifyStatus nor ClassifyStale has anything to fire on.
+// mtime is the task's report file mtime - real evidence of the worker's last
+// activity - or, when it has never reported, the task's own CreatedAt.
+//
+// mtime is deliberately never reset to "now" on a watcher resume, unlike
+// ts.ChangedAt above. --until-event exits on every delivered event by design, and
+// a busy fleet re-arms it constantly; anchoring this bound to anything the
+// watcher resets on its own resume would let those unrelated re-arms keep
+// erasing the clock before it ever completes once, silencing a genuinely parked
+// worker for as long as the rest of the fleet stays busy. Anchoring to durable
+// evidence that only changes when the worker itself does something is what
+// makes the bound survive a restart intact.
+//
+// Fires once per silence episode: ts.ParkedFiredFor latches to the mtime it
+// fired for, and only a later mtime - the file actually growing - clears that
+// latch and lets a fresh episode fire again.
+func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds) *Event {
+	bound, exempt := parkedBound(lastState, bounds)
+	if exempt {
+		ts.ParkedFiredFor = time.Time{}
+		return nil
+	}
+	if mtime.Equal(ts.ParkedFiredFor) {
+		return nil
+	}
+	if now.Sub(mtime) < bound {
+		return nil
+	}
+	ts.ParkedFiredFor = mtime
+	age := dashboard.FormatDuration(now.Sub(mtime))
+	return &Event{
+		TaskID: id,
+		Kind:   KindParked,
+		Text:   fmt.Sprintf("parked %s: %s (silent %s)", id, lastLine, age),
+		Reason: fmt.Sprintf("%s (silent %s)", lastLine, age),
+	}
 }
 
 func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {

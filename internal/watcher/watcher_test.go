@@ -1052,6 +1052,117 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	}
 }
 
+// TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound
+// proves Ruling 2's park bound survives a restart on the same terms Ruling 1
+// demands of stale: anchored to the report file's own mtime, never to anything
+// a watch restart resets to now. It asserts that a task already silent past the
+// bound before hand watch even starts fires parked on the very first
+// post-resume classifying tick, not after a fresh full bound elapses from
+// resume.
+func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Backdate the report file's mtime to well past the bound, standing in for a
+	// worker that had already gone silent before this watch process ever started.
+	old := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(reportPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		Home:           home,
+		PollInterval:   time.Hour,
+		StaleThreshold: time.Hour,
+		ParkedBounds:   ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute},
+	}
+	client := herdr.NewClient()
+
+	// A fresh, empty states map is exactly what a hand watch restart produces:
+	// nothing survives in memory, only what's durable on disk. The first tick
+	// only seeds tracking (see tick's !tracked branch) - the same shape
+	// RunUntilEvent's own baseline tick takes - so the earliest a classifier can
+	// fire is the second.
+	states := make(map[string]*TaskState)
+	var buf bytes.Buffer
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "parked task-1") {
+		t.Fatal("parked fired on the seeding tick, before resume had even finished reading durable state")
+	}
+
+	buf.Reset()
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "parked task-1") {
+		t.Fatalf("output = %q, want parked task-1 on the first classifying tick after resume: the silence predates this process and must not need to reaccumulate from resume time", buf.String())
+	}
+}
+
+// TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart is issue #75's
+// Ruling 1 regression test. --until-event makes "restart" the normal steady
+// state, not a rare crash recovery: every delivered event re-arms a fresh
+// process with a fresh, empty TaskState map. Before this fix, resumeTaskState
+// seeded ClassifyStale's dwell clock (ts.ChangedAt) to the resume time itself,
+// so a task that genuinely dwelt in one status for longer than the threshold
+// before this process ever started had that entire dwell erased on every
+// single re-arm - on a fleet busy enough to re-arm faster than the threshold
+// elapses, stale never fires at all. The fix persists StatusChangedAt and
+// seeds the dwell clock from it (or from CreatedAt, if the task has never
+// transitioned) instead of from "now", so the dwell survives a restart the way
+// report_offset already does.
+//
+// This test asserts stale fires on the first classifying tick after a restart
+// for a task whose durable StatusChangedAt already exceeds the threshold - not
+// after a fresh full threshold elapses counted from resume, which is what
+// decoupling the dwell from that durable evidence would silently reintroduce.
+func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Stands in for a task that has genuinely dwelt in "working" for 30
+	// minutes across one or more prior hand watch invocations, before this
+	// process ever started.
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	task := state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: dwelling, StatusChangedAt: dwelling,
+	}
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	ctx := context.Background()
+
+	// A fresh, empty states map is exactly what a hand watch restart produces.
+	states := make(map[string]*TaskState)
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "stale task-1") {
+		t.Fatal("stale fired on the seeding tick, before resume had even read durable state")
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "stale task-1") {
+		t.Fatalf("output = %q, want stale task-1 on the first classifying tick: the task has genuinely dwelt 30m in one status, already past the 20m threshold, and a restart must not reset that clock to zero", buf.String())
+	}
+}
+
 // TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence covers the
 // window between the two halves: the worker reports done, hand watch stops, and
 // hand merge lands the work - writing merged, and touching no dashboard row. On
@@ -1487,9 +1598,10 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
 
-	// Both baseline ticks have probed the pane, so the status change below is a
-	// transition from the baseline rather than a different baseline.
-	waitForPaneGets(t, callLog, 2)
+	// The arm-time probe and both baseline ticks have probed the pane, so the
+	// status change below is a transition from the baseline rather than a
+	// different baseline.
+	waitForPaneGets(t, callLog, 3)
 	setStatus(t, statusFile, "done")
 
 	select {
@@ -1525,7 +1637,8 @@ func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T
 	done := make(chan error, 1)
 	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
 
-	waitForPaneGets(t, callLog, 2)
+	// The arm-time probe and both baseline ticks have probed the pane.
+	waitForPaneGets(t, callLog, 3)
 	setStatus(t, statusFile, "done")
 
 	select {
@@ -1610,6 +1723,30 @@ func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
 	}
 	if errors.Is(err, ErrNoEvent) {
 		t.Fatal("a failed watcher reported ErrNoEvent, which a caller reads as a quiet fleet rather than a broken watcher")
+	}
+}
+
+// TestRunUntilEventFailsToArmWhenATaskCannotBeProbed is Ruling 3 of issue #75's
+// reopening: a watcher that cannot see a worker at arm time must refuse to look
+// armed for it, with an exit distinct from both a delivered event and a timeout,
+// naming the worker it could not reach.
+func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, paneGoneStatus)
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: time.Second}
+
+	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
+	if !errors.Is(err, ErrArmFailed) {
+		t.Fatalf("RunUntilEvent = %v, want ErrArmFailed: an unprobeable worker must not look armed", err)
+	}
+	if !strings.Contains(err.Error(), "task-1") {
+		t.Fatalf("err = %q, want it to name the worker it could not probe", err.Error())
+	}
+	if errors.Is(err, ErrNoEvent) {
+		t.Fatal("an arm failure reported ErrNoEvent too, which a caller cannot tell apart from a quiet fleet")
 	}
 }
 

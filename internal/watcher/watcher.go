@@ -30,6 +30,9 @@ type Config struct {
 	StaleThreshold time.Duration
 	// Timeout bounds RunUntilEvent only. Zero blocks until an event arrives.
 	Timeout time.Duration
+	// ParkedBounds bounds how long a task may sit silent, split by its last
+	// report, before ClassifyParked flags it. See events.go.
+	ParkedBounds ParkedBounds
 }
 
 // ErrNoEvent reports a RunUntilEvent watcher that stopped without delivering an
@@ -37,6 +40,17 @@ type Config struct {
 // apart from both a delivered event and a watcher that failed, or a re-arm loop
 // silently stalls on one and treats the other as fleet news.
 var ErrNoEvent = errors.New("no event")
+
+// ErrArmFailed reports a RunUntilEvent that refused to start because it could
+// not probe every active task's pane. A watcher must never look armed for a
+// worker it cannot actually see: the ordinary per-tick "!tracked" path in tick
+// tolerates a probe failure by silently skipping that task for a cycle, which is
+// the right call for the streaming watcher's documented graceful-degradation
+// philosophy, but wrong for a mode whose whole contract is "the exit means the
+// fleet was watched." Full per-tick probe-failure tracking and any retry policy
+// for the life of the watch is out of scope here - see the arm-time check in
+// RunUntilEvent.
+var ErrArmFailed = errors.New("could not arm")
 
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is
 // canceled. It returns nil on clean cancellation, or an error if herdr is
@@ -92,6 +106,10 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 		return err
 	}
 
+	if err := probeAllTasks(cfg.Home, client); err != nil {
+		return err
+	}
+
 	states := make(map[string]*TaskState)
 	tick(ctx, cfg, client, states, io.Discard, errOut)
 	tick(ctx, cfg, client, states, io.Discard, errOut)
@@ -129,6 +147,25 @@ func connect() (*herdr.Client, error) {
 		return nil, fmt.Errorf("herdr unreachable: %w", err)
 	}
 	return client, nil
+}
+
+// probeAllTasks confirms every active task's pane answers before RunUntilEvent
+// arms, so it never sits waiting on a worker it can never actually observe. The
+// streaming Run tolerates a probe failure per tick and moves on; RunUntilEvent
+// cannot, because its whole contract is that the exit reports what the fleet
+// did, and a task it never managed to probe would otherwise wait silently until
+// the timeout (or forever) with no distinguishing signal from a real timeout.
+func probeAllTasks(home string, client *herdr.Client) error {
+	tasks, err := state.List(home)
+	if err != nil {
+		return fmt.Errorf("list tasks: %w", err)
+	}
+	for _, t := range tasks {
+		if _, err := client.PaneGet(t.Herdr.PaneID); err != nil {
+			return fmt.Errorf("%w: %s: %v", ErrArmFailed, t.ID, err)
+		}
+	}
+	return nil
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {
@@ -199,6 +236,11 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
 		}
+		if mtime, err := reportEvidenceTime(cfg.Home, t); err != nil {
+			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
+		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
+			handleEvent(cfg, e, t, out, errOut)
+		}
 		syncTaskState(cfg.Home, t.ID, ts, errOut)
 	}
 
@@ -225,7 +267,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 // unreadable report is reported as such, never quietly treated as "this worker
 // never reported".
 func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Time, errOut io.Writer) *TaskState {
-	ts := NewTaskState(status, now)
+	changedAt := statusChangeSeed(t, now)
+	ts := NewTaskState(status, changedAt)
+	ts.PersistedChangedAt = changedAt
 	ts.CreatedAt = t.CreatedAt
 	ts.ReportOffset = t.ReportOffset
 	ts.PersistedOffset = t.ReportOffset
@@ -277,6 +321,55 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 
 	ts.ReportOffset = offset
 	return t
+}
+
+// statusChangeSeed answers how long a task has already been dwelling in its
+// current herdr status when hand watch first tracks it, so a restart does not
+// artificially reset a dwell that has been real all along - the same hazard
+// ClassifyParked's mtime anchor exists to avoid (see its doc comment).
+// StatusChangedAt is durable evidence of the last observed transition; a task
+// that has never had one dwells in its first status exactly as long as it has
+// existed, so CreatedAt is the honest answer instead.
+func statusChangeSeed(t state.Task, now time.Time) time.Time {
+	if t.StatusChangedAt != "" {
+		if parsed, err := time.Parse(time.RFC3339, t.StatusChangedAt); err == nil {
+			return parsed
+		}
+	}
+	if parsed, err := time.Parse(time.RFC3339, t.CreatedAt); err == nil {
+		return parsed
+	}
+	return now
+}
+
+// reportEvidenceTime anchors ClassifyParked's silence clock to the last real
+// evidence of activity: the report file's own mtime, which a watcher restart
+// cannot touch. A task that has never reported has no file to stat yet, so its
+// creation time stands in - still durable, still untouched by a resume.
+func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
+	info, err := os.Stat(state.ReportPath(home, t.ID))
+	if err == nil {
+		return info.ModTime(), nil
+	}
+	if !os.IsNotExist(err) {
+		return time.Time{}, err
+	}
+	created, err := time.Parse(time.RFC3339, t.CreatedAt)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse created_at %q: %w", t.CreatedAt, err)
+	}
+	return created, nil
+}
+
+// lastReportLine reconstructs the last report line ClassifyParked names in its
+// event, from the same state+note ts already tracks for the idle classifier -
+// consistent with how the rest of the watcher treats "the last report" (see
+// ClassifyReportLine), rather than re-reading the file for its raw text.
+func lastReportLine(ts *TaskState) string {
+	if ts.LastReportState == "" {
+		return "no report"
+	}
+	return fmt.Sprintf("%s: %s", ts.LastReportState, ts.LastReportNote)
 }
 
 // announceAutoRecordFailure makes an auto-record that didn't happen a durable
@@ -427,7 +520,8 @@ func recordedByLockHolder(home, id, url string) error {
 // and its own ctx a prompt exit that flock can't honor - must not queue behind it.
 // Everything written here is re-derivable, so a skipped write just retries.
 func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
-	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged && ts.DoneVerified == ts.PersistedDoneVerified {
+	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged &&
+		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) {
 		return
 	}
 
@@ -448,6 +542,7 @@ func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
 	t.ReportOffset = ts.ReportOffset
 	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
 	t.DoneVerified = t.DoneVerified || ts.DoneVerified
+	t.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
 	if err := state.Write(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
@@ -455,6 +550,7 @@ func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
 	ts.PersistedOffset = ts.ReportOffset
 	ts.PersistedPRMerged = ts.PRMerged
 	ts.PersistedDoneVerified = ts.DoneVerified
+	ts.PersistedChangedAt = ts.ChangedAt
 }
 
 func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
@@ -522,6 +618,11 @@ func dashboardRowFor(e *Event, age string) (dashboardRow, error) {
 		return dashboardRow{Written: true, State: KindFailed}, nil
 	case KindReportPaused:
 		return dashboardRow{Written: true, State: KindReportPaused}, nil
+	// A park is a live pane sitting quiet, same shape as idle-unreported and
+	// blocked: something is waiting on a human, so it earns a row and a Pending
+	// Decisions slot naming the last report and how long it has been silent.
+	case KindParked:
+		return dashboardRow{Written: true, State: KindParked, Pending: e.Reason}, nil
 	case KindReportFailed:
 		return dashboardRow{Written: true, State: KindReportFailed}, nil
 	// The only two events that are evidence a question is retired: the worker is

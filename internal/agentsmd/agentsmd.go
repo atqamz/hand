@@ -32,7 +32,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 3. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
 4. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it. The brief may open with a ` + "`---`" + ` fenced block declaring ` + "`model`" + ` and ` + "`effort`" + ` for the task, which spawn and promote apply unless a flag overrides them.
 5. ` + "`hand spawn <id> <project>`" + ` to start a worker.
-6. ` + "`hand watch --until-event`" + ` as a background task to monitor the fleet. It exits on the first fleet event and that exit is what reaches you, so re-arm it every time you act on one. Bound the wait with ` + "`--timeout <duration>`" + `; exit 4 means the window passed with nothing happening.
+6. ` + "`hand watch --until-event`" + ` as a background task to monitor the fleet. It exits on the first fleet event and that exit is what reaches you, so re-arm it every time you act on one. Bound the wait with ` + "`--timeout <duration>`" + `; exit 4 means the window passed with nothing happening, exit 5 means a worker named on stderr couldn't be reached before it even started waiting.
 7. Act on watch output: steer blocked workers with ` + "`hand send`" + `, relay results.
 8. When told to merge: ` + "`hand merge <id>`" + `.
 9. ` + "`hand teardown <id>`" + ` after work is landed.

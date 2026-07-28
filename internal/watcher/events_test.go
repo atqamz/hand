@@ -193,6 +193,70 @@ func TestClassifyPRMergedFiresOnce(t *testing.T) {
 	}
 }
 
+func TestClassifyParkedExemptsDoneAndFailed(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
+	old := now.Add(-24 * time.Hour)
+
+	ts := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(ts, "task-1", state.ReportDone, "done: shipped", old, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event once the worker reported done", e)
+	}
+	if e := ClassifyParked(ts, "task-1", state.ReportFailed, "failed: build broke", old, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event once the worker reported failed", e)
+	}
+}
+
+// TestClassifyParkedSelectsBoundByLastReport is Ruling 2's split: a worker that
+// named what it is waiting on (paused) earns the long bound, everything else -
+// including a bare working report or no report at all - gets the short one.
+func TestClassifyParkedSelectsBoundByLastReport(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
+
+	pausedTs := NewTaskState(herdr.StatusIdle, now)
+	silentFor30m := now.Add(-30 * time.Minute)
+	if e := ClassifyParked(pausedTs, "task-1", state.ReportPaused, "paused: waiting on review", silentFor30m, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event: 30m silence is still under the paused bound", e)
+	}
+
+	workingTs := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(workingTs, "task-1", state.ReportWorking, "working: on it", silentFor30m, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want parked event: 30m silence exceeds the shorter default bound", e)
+	}
+
+	unreportedTs := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(unreportedTs, "task-1", "", "no report", silentFor30m, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want parked event: a task that never reported gets the short bound too", e)
+	}
+}
+
+// TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth pins the mtime latch
+// itself: the same silence episode must not repeat every tick, but a genuinely
+// new episode - the report file growing again after the first parked firing,
+// then falling silent a second time - must be allowed to fire again.
+func TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
+	ts := NewTaskState(herdr.StatusIdle, now)
+	mtime := now.Add(-30 * time.Minute)
+
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want parked event on first crossing", e)
+	}
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now.Add(10*time.Minute), bounds); e != nil {
+		t.Fatalf("parked fired again for the same episode: %+v", e)
+	}
+
+	grown := now.Add(-time.Minute)
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(11*time.Minute), bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event right after the report file grows", e)
+	}
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(45*time.Minute), bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want a second parked event once the new episode crosses the bound", e)
+	}
+}
+
 func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
 	home := t.TempDir()
 	ts := NewTaskState(herdr.StatusWorking, time.Now())

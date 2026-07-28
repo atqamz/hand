@@ -47,4 +47,12 @@ type Task struct {
 	// gone out and never print it.
 	DoneVerified bool   `json:"done_verified"`
 	CreatedAt    string `json:"created_at"`
+	// StatusChangedAt is when hand watch last observed the task's herdr agent
+	// status actually change. Durable for the same reason ReportOffset is: a
+	// dwell clock reseeded to "now" on every restart never accumulates past a
+	// threshold that resumes more often than it elapses, silencing the stale
+	// check it is supposed to bound. Empty until the first observed transition,
+	// in which case the dwell is seeded from CreatedAt instead - see
+	// ClassifyStale's caller in internal/watcher/watcher.go.
+	StatusChangedAt string `json:"status_changed_at"`
 }
