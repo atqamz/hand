@@ -106,7 +106,9 @@ func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, m
 	}
 
 	if len(mergedPRs) > 0 && len(openPRs) > 0 {
-		return "", false, false, ambiguousPRError(branch, append(append([]prListItem{}, mergedPRs...), openPRs...))
+		all := append(append([]prListItem{}, mergedPRs...), openPRs...)
+		all = append(all, closedPRs...)
+		return "", false, false, ambiguousPRError(branch, all)
 	}
 
 	for _, matches := range [][]prListItem{mergedPRs, openPRs, closedPRs} {

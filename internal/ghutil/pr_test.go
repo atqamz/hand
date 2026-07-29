@@ -157,6 +157,41 @@ func TestFindPRByBranchRefusesMergedAndOpenPR(t *testing.T) {
 	}
 }
 
+// TestFindPRByBranchRefusesMergedAndOpenPRNamesClosedCandidateToo proves the
+// merged+open refusal names every candidate on the branch, including a
+// coexisting closed-unmerged PR, not just the merged and open ones.
+func TestFindPRByBranchRefusesMergedAndOpenPRNamesClosedCandidateToo(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
+		`{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"OPEN"},`+
+		`{"number":3,"url":"https://github.com/owner/repo/pull/3","state":"CLOSED"}]`, 0, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 3 {
+		t.Fatalf("Candidates = %+v, want PR 5, PR 9, and PR 3 all named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "#5") || !strings.Contains(err.Error(), "#9") || !strings.Contains(err.Error(), "#3") {
+		t.Fatalf("got %q, want all three PR numbers named", err.Error())
+	}
+}
+
+// TestFindPRByBranchPrefersOpenOverClosedUnmerged pins the open-over-closed
+// tier boundary: with no merged PR on the branch, an open PR beats a
+// closed-unmerged one rather than either being an arbitrary loop-order pick.
+func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"},`+
+		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"OPEN"}]`, 0, "")
+	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || merged || url != "https://github.com/owner/repo/pull/5" {
+		t.Fatalf("got (%q, %v, %v), want the open PR", url, merged, found)
+	}
+}
+
 func TestFindPRByBranchNoMatch(t *testing.T) {
 	writeFakeGHPRList(t, `[]`, 0, "")
 	_, _, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
