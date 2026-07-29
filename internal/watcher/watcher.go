@@ -295,6 +295,12 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	ts.Status = herdr.StatusUnknown
 	ts.Stale = false
 	ts.Blocked = false
+	// Unconditionally true, exactly as NewTaskState seeds a first sighting: it is the
+	// convention that lets a brand-new task's very first probe failure fire `failed`
+	// with no grace period. Carrying a false left by an unresolved probe error on the
+	// old pane would instead swallow the ship's own first failure as no edge, and keep
+	// ClassifyStale's early return gated off until some probe succeeded.
+	ts.Probed = true
 	ts.LastReportState = t.LastReportState
 	ts.LastReportNote = t.LastReportNote
 }

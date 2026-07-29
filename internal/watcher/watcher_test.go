@@ -1431,7 +1431,7 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	scoutDwell := now.Add(-30 * time.Minute)
 	ts := &TaskState{
 		Status:                herdr.StatusWorking,
-		Probed:                true,
+		Probed:                false,
 		ChangedAt:             scoutDwell,
 		PersistedChangedAt:    scoutDwell,
 		PersistedChangedFor:   "working",
@@ -1468,6 +1468,9 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	}
 	if ts.Status != herdr.StatusUnknown {
 		t.Fatalf("Status = %q, want the scout's status forgotten so the ship's first probe is a baseline", ts.Status)
+	}
+	if !ts.Probed {
+		t.Fatal("Probed = false, want the scout's unresolved probe error forgotten so the ship's own first failure fires")
 	}
 }
 
