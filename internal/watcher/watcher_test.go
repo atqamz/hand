@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1474,6 +1475,84 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	}
 }
 
+// TestForgetPaneScopedCacheHandlesEveryField is a completeness guard, not a behavior
+// test: TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch above only asserts the
+// fields already known to need resetting, and would keep passing if a future field
+// repeated the exact defect Status and then Probed both had - present in TaskState,
+// absent from forgetPaneScopedCache. This test instead walks every field by
+// reflection, so a field neither reset/re-derived nor named in the carried map below
+// fails it automatically by staying equal to its deliberately-stale "before" value.
+func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
+	before := TaskState{
+		CreatedAt:             "created-marker",
+		Status:                herdr.Status("scout-status"),
+		Probed:                false,
+		ChangedAt:             time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
+		Blocked:               true,
+		Stale:                 true,
+		PRMerged:              true,
+		ReportOffset:          42,
+		PersistedOffset:       43,
+		PersistedPRMerged:     true,
+		PersistedDoneVerified: true,
+		PersistedPaneID:       "scout-pane",
+		PersistedChangedAt:    time.Date(2002, 2, 2, 0, 0, 0, 0, time.UTC),
+		PersistedChangedFor:   "scout-status-for",
+		LastReportState:       "scout-report-state",
+		LastReportNote:        "scout-report-note",
+		DoneVerified:          true,
+		ParkedFiredFor:        time.Date(2003, 3, 3, 0, 0, 0, 0, time.UTC),
+	}
+	promoted := state.Task{
+		Herdr:            state.Herdr{PaneID: "ship-pane"},
+		DoneVerified:     false,
+		CreatedAt:        "2020-01-01T00:00:00Z",
+		StatusChangedFor: "",
+		LastReportState:  "ship-report-state",
+		LastReportNote:   "ship-report-note",
+	}
+
+	// carried names every field the PR body's field-by-field table classifies as
+	// genuinely pane-independent, so forgetPaneScopedCache is correct to leave it
+	// untouched: identity (CreatedAt), PR facts (PRMerged), report-file position
+	// (ReportOffset/PersistedOffset, PersistedPRMerged mirrors the same PR fact),
+	// and the parked latch (ParkedFiredFor is keyed to the report mtime, not the
+	// pane). Anything else added to TaskState later needs an entry here with a
+	// reason, or forgetPaneScopedCache needs to handle it - this test does not
+	// care which, only that the decision was made on purpose.
+	carried := map[string]bool{
+		"CreatedAt":         true,
+		"PRMerged":          true,
+		"ReportOffset":      true,
+		"PersistedOffset":   true,
+		"PersistedPRMerged": true,
+		"ParkedFiredFor":    true,
+	}
+
+	ts := before
+	forgetPaneScopedCache(&ts, promoted, time.Now())
+
+	beforeVal, afterVal := reflect.ValueOf(before), reflect.ValueOf(ts)
+	typ := beforeVal.Type()
+	seen := make(map[string]bool, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Name
+		seen[name] = true
+		changed := !reflect.DeepEqual(beforeVal.Field(i).Interface(), afterVal.Field(i).Interface())
+		switch {
+		case carried[name] && changed:
+			t.Errorf("%s: carried field changed from %v to %v, want it left alone", name, beforeVal.Field(i).Interface(), afterVal.Field(i).Interface())
+		case !carried[name] && !changed:
+			t.Errorf("%s: pane-scoped field left at its stale value %v, want forgetPaneScopedCache to reset or re-derive it (or add it to the carried map with a reason)", name, beforeVal.Field(i).Interface())
+		}
+	}
+	for name := range carried {
+		if !seen[name] {
+			t.Errorf("carried map names %q, which is not a field of TaskState - fix the map", name)
+		}
+	}
+}
+
 func promotedTask(now time.Time) state.Task {
 	return state.Task{
 		ID: "task-1", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
@@ -1869,7 +1948,6 @@ func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T
 	done := make(chan error, 1)
 	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
 
-	// The arm-time probe plus both baseline ticks.
 	waitForPaneGets(t, callLog, 3)
 	setStatus(t, statusFile, "done")
 

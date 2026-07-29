@@ -182,8 +182,6 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 
-// writeFakeHerdrUnprobeablePanes is reachable but answers no pane, in real herdr's
-// failure shape (cmd/status_test.go's writeFakeHerdrPaneStatus has the contract).
 func writeFakeHerdrUnprobeablePanes(t *testing.T, dir string) {
 	t.Helper()
 	body := `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
