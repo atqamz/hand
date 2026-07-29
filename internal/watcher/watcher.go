@@ -114,13 +114,18 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 
 // connect races the reachability probe against ctx because unbounded, a wedged
 // herdr daemon blocks RunUntilEvent's --timeout from ever starting to count.
+// Losing that race is ErrNoEvent for the same reason probeAllTasks's is: the
+// window closed during arming, which is exit 4 wherever in arming it happens.
 func connect(ctx context.Context) (*herdr.Client, error) {
 	client := herdr.NewClient()
 	done := make(chan error, 1)
 	go func() { _, err := client.WorkspaceList(); done <- err }()
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("herdr unreachable: %w", ctx.Err())
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("%w: timed out reaching herdr", ErrNoEvent)
+		}
+		return nil, fmt.Errorf("%w: interrupted while reaching herdr", ErrNoEvent)
 	case err := <-done:
 		if err != nil {
 			return nil, fmt.Errorf("herdr unreachable: %w", err)
@@ -244,6 +249,7 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 	ts := NewTaskState(status, changedAt)
 	ts.PersistedChangedAt = changedAt
 	ts.PersistedChangedFor = t.StatusChangedFor
+	ts.PersistedPaneID = t.Herdr.PaneID
 	ts.CreatedAt = t.CreatedAt
 	ts.ReportOffset = t.ReportOffset
 	ts.PersistedOffset = t.ReportOffset
@@ -259,9 +265,12 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 // forgetPaneScopedCache drops the cached facts hand promote invalidated: it gives
 // the task a new herdr pane while keeping created_at, so tick's identity check
 // never fires, yet every pane-anchored fact cached here describes a pane the task
-// no longer has. The trigger is the disk value diverging from what this watcher
-// persisted, not the newly observed status differing - a ship whose first probe
-// reads the status the scout last held raises no transition at all.
+// no longer has. The trigger is the pane itself changing, not the newly observed
+// status differing - a ship whose first probe reads the status the scout last held
+// raises no transition at all - and not any restamped timestamp either, which is
+// both too eager (a resume reseeds the dwell to now for reasons of its own) and too
+// blunt (a restamp inside one RFC3339 second of this watcher's own write is
+// invisible).
 func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	// Compared against the persisted mirror, not the live flag: the watcher only ever
 	// sets the flag true, so a disk value that has gone false since this watcher last
@@ -271,9 +280,10 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 		ts.DoneVerified = false
 		ts.PersistedDoneVerified = false
 	}
-	if t.StatusChangedAt == "" || t.StatusChangedAt == ts.PersistedChangedAt.UTC().Format(time.RFC3339) {
+	if t.Herdr.PaneID == ts.PersistedPaneID {
 		return
 	}
+	ts.PersistedPaneID = t.Herdr.PaneID
 	seed := statusChangeSeed(t, ts.Status, now)
 	ts.ChangedAt = seed
 	ts.PersistedChangedAt = seed
@@ -336,19 +346,42 @@ func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Tim
 	return now
 }
 
+// reportEvidenceTime floors the report file's mtime at the instant the task's
+// current pane started, because hand promote leaves the scout's report file - and
+// so its mtime - untouched while clearing the last-report state that used to exempt
+// the task from parked. Unfloored, a ship seconds old inherits the scout's whole
+// silence and fires parked immediately.
 func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
-	info, err := os.Stat(state.ReportPath(home, t.ID))
-	if err == nil {
-		return info.ModTime(), nil
-	}
-	if !os.IsNotExist(err) {
+	started, err := paneStartTime(t)
+	if err != nil {
 		return time.Time{}, err
 	}
-	created, err := time.Parse(time.RFC3339, t.CreatedAt)
+	info, err := os.Stat(state.ReportPath(home, t.ID))
 	if err != nil {
-		return time.Time{}, fmt.Errorf("parse created_at %q: %w", t.CreatedAt, err)
+		if !os.IsNotExist(err) {
+			return time.Time{}, err
+		}
+		return started, nil
 	}
-	return created, nil
+	if mtime := info.ModTime(); mtime.After(started) {
+		return mtime, nil
+	}
+	return started, nil
+}
+
+// paneStartTime is when the task's current pane began holding the status it holds:
+// promote restamps StatusChangedAt, and before any status has ever been observed
+// the pane is the one spawn created.
+func paneStartTime(t state.Task) (time.Time, error) {
+	stamp, field := t.StatusChangedAt, "status_changed_at"
+	if stamp == "" {
+		stamp, field = t.CreatedAt, "created_at"
+	}
+	parsed, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse %s %q: %w", field, stamp, err)
+	}
+	return parsed, nil
 }
 
 func lastReportLine(ts *TaskState) string {

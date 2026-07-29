@@ -79,6 +79,12 @@ type TaskState struct {
 	PersistedOffset       int64
 	PersistedPRMerged     bool
 	PersistedDoneVerified bool
+	// PersistedPaneID names the herdr pane every pane-anchored field below was
+	// cached against, so hand promote handing the task a new pane is detectable as
+	// such. No timestamp can stand in for it: RFC3339 is second-granular, so a
+	// restamp landing in the same second as this watcher's own last write is
+	// indistinguishable from no promote at all.
+	PersistedPaneID string
 	// PersistedChangedAt mirrors ChangedAt the same way, and PersistedChangedFor the
 	// status it was stamped for: a dwell clock that resumes from "now" never
 	// survives a fleet re-arming faster than it elapses, so ChangedAt is seeded from

@@ -176,7 +176,9 @@ func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
 	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	taskOpts.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	if taskOpts.CreatedAt == "" {
+		taskOpts.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
 	if err := state.Write(home, taskOpts); err != nil {
 		t.Fatal(err)
 	}
@@ -1053,7 +1055,13 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	setStatus(t, statusFile, "idle")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	// Created before the silence it is about to be blamed for: reportEvidenceTime
+	// floors the mtime at the pane's start, so a task younger than its own report
+	// file could not accumulate this silence in the first place.
+	home := setupWatcherHome(t, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+	})
 	reportPath := state.ReportPath(home, "task-1")
 	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1289,10 +1297,11 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 		t.Fatal("task.DoneVerified = false, want the scout's announcement persisted")
 	}
 
-	// hand promote: same rewrite cmd/promote.go makes - kind changes, CreatedAt
-	// and the report channel do not - with the DoneVerified reset this test exists
-	// to cover.
+	// hand promote: same rewrite cmd/promote.go makes - kind and pane change,
+	// CreatedAt and the report channel do not - with the DoneVerified reset this
+	// test exists to cover.
 	task.Kind = state.KindShip
+	task.Herdr.PaneID = "p2"
 	task.DoneVerified = false
 	if err := state.Write(home, task); err != nil {
 		t.Fatal(err)
@@ -1341,7 +1350,7 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 // The ship's first probe reads the same "working" the scout last held, so no
 // observed transition reseeds ChangedAt - which is why the forget rule cannot be
 // conditioned on one.
-func TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt(t *testing.T) {
+func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -1374,6 +1383,7 @@ func TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt(t *testing.T)
 		t.Fatal(err)
 	}
 	promoted.Kind = state.KindShip
+	promoted.Herdr.PaneID = "p2"
 	promoted.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
 	promoted.StatusChangedFor = ""
 	if err := state.Write(home, promoted); err != nil {
@@ -1425,6 +1435,7 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 		ChangedAt:             scoutDwell,
 		PersistedChangedAt:    scoutDwell,
 		PersistedChangedFor:   "working",
+		PersistedPaneID:       "p1",
 		Blocked:               true,
 		Stale:                 true,
 		DoneVerified:          true,
@@ -1434,7 +1445,7 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	}
 
 	promoted := state.Task{
-		ID: "task-1", Kind: state.KindShip,
+		ID: "task-1", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
 		CreatedAt:       scoutDwell.UTC().Format(time.RFC3339),
 		StatusChangedAt: now.UTC().Format(time.RFC3339),
 	}
@@ -1470,6 +1481,7 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 		ChangedAt:             scoutDwell,
 		PersistedChangedAt:    scoutDwell,
 		PersistedChangedFor:   "working",
+		PersistedPaneID:       "p1",
 		Stale:                 true,
 		DoneVerified:          true,
 		PersistedDoneVerified: true,
@@ -1899,8 +1911,14 @@ func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
 	start := time.Now()
 	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
 
-	if !strings.Contains(err.Error(), "herdr unreachable") {
-		t.Fatalf("err = %v, want herdr unreachable: a hung connect must not be mistaken for a quiet fleet", err)
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: the timeout is exit 4 wherever in arming it elapses", err)
+	}
+	if errors.Is(err, ErrArmFailed) {
+		t.Fatal("a hung connect reported ErrArmFailed, whose exit promises the name of the task that could not be reached")
+	}
+	if !strings.Contains(err.Error(), "herdr") {
+		t.Fatalf("err = %v, want it to say the connection was what timed out, not a task probe", err)
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("returned after %s, want --timeout to bound a hung connect probe", elapsed)
