@@ -65,8 +65,8 @@ func (e *AmbiguousPRError) Error() string {
 //
 // A branch can carry more than one PR (a closed-unmerged one plus a reopened
 // replacement, say), so results are resolved by preference tier rather than
-// picked arbitrarily: merged wins over closed-unmerged. A tier with more than
-// one match is ambiguous, and so is a merged PR coexisting with an open one:
+// picked arbitrarily: merged, then open, then closed-unmerged. A tier with more
+// than one match is ambiguous, and so is a merged PR coexisting with an open one:
 // an open PR on the same head ref is live evidence the branch may still carry
 // unlanded work, so that mix refuses rather than resolving to the merged PR.
 // Either case returns AmbiguousPRError naming every candidate, rather than
