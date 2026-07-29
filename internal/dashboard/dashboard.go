@@ -259,7 +259,10 @@ func FormatAge(createdAt string) string {
 	if err != nil {
 		return "unknown"
 	}
-	d := time.Since(t)
+	return FormatDuration(time.Since(t))
+}
+
+func FormatDuration(d time.Duration) string {
 	switch {
 	case d < time.Minute:
 		return "just now"

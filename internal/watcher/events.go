@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/state"
 )
@@ -43,6 +44,7 @@ const (
 	KindReportDone          = "report-done"
 	KindReportFailed        = "report-failed"
 	KindReportMalformed     = "report-malformed"
+	KindParked              = "parked"
 )
 
 // blockedReason is the only detail available: herdr reports agent_status without a
@@ -77,7 +79,20 @@ type TaskState struct {
 	PersistedOffset       int64
 	PersistedPRMerged     bool
 	PersistedDoneVerified bool
-	LastReportState       string
+	// PersistedPaneID names the herdr pane every pane-anchored field below was
+	// cached against, so hand promote handing the task a new pane is detectable as
+	// such. No timestamp can stand in for it: RFC3339 is second-granular, so a
+	// restamp landing in the same second as this watcher's own last write is
+	// indistinguishable from no promote at all.
+	PersistedPaneID string
+	// PersistedChangedAt mirrors ChangedAt the same way, and PersistedChangedFor the
+	// status it was stamped for: a dwell clock that resumes from "now" never
+	// survives a fleet re-arming faster than it elapses, so ChangedAt is seeded from
+	// durable evidence on resume rather than reset - evidence that only holds while
+	// it still describes the status being dwelt in.
+	PersistedChangedAt  time.Time
+	PersistedChangedFor string
+	LastReportState     string
 	// LastReportNote is kept alongside LastReportState so a done report that only
 	// gains its completion evidence later can be re-announced with the same text a
 	// synchronous verification would have produced.
@@ -85,7 +100,8 @@ type TaskState struct {
 	// DoneVerified makes the verified-done announcement idempotent across ticks,
 	// and is persisted after the announcement so it stays idempotent across a
 	// restart too.
-	DoneVerified bool
+	DoneVerified   bool
+	ParkedFiredFor time.Time
 }
 
 // NewTaskState seeds tracking for a task first observed at now, without emitting an
@@ -154,6 +170,52 @@ func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Durat
 	}
 	ts.Stale = true
 	return &Event{TaskID: id, Kind: KindStale, Text: fmt.Sprintf("stale %s", id)}
+}
+
+type ParkedBounds struct {
+	Paused time.Duration
+	Other  time.Duration
+}
+
+// A non-positive bound means unconfigured rather than zero-tolerance.
+func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
+	switch lastState {
+	case state.ReportDone, state.ReportFailed:
+		return 0, true
+	case state.ReportPaused:
+		bound = bounds.Paused
+	default:
+		bound = bounds.Other
+	}
+	if bound <= 0 {
+		return 0, true
+	}
+	return bound, false
+}
+
+// mtime is deliberately never reset to "now" on resume: --until-event restarts on
+// every delivered event, and a busy fleet would otherwise erase the clock before
+// it ever completes once.
+func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds) *Event {
+	bound, exempt := parkedBound(lastState, bounds)
+	if exempt {
+		ts.ParkedFiredFor = time.Time{}
+		return nil
+	}
+	if mtime.Equal(ts.ParkedFiredFor) {
+		return nil
+	}
+	if now.Sub(mtime) < bound {
+		return nil
+	}
+	ts.ParkedFiredFor = mtime
+	age := dashboard.FormatDuration(now.Sub(mtime))
+	return &Event{
+		TaskID: id,
+		Kind:   KindParked,
+		Text:   fmt.Sprintf("parked %s: %s (silent %s)", id, lastLine, age),
+		Reason: fmt.Sprintf("%s (silent %s)", lastLine, age),
+	}
 }
 
 func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {

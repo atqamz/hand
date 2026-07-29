@@ -31,6 +31,26 @@ func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenNoTerminalReport(t
 	}
 }
 
+func TestClassifyStatusIdleUnreportedRefiresOnlyAfterTheWorkerResumesAndStopsAgain(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		now := time.Now()
+		ts := NewTaskState(herdr.StatusWorking, now)
+
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+			t.Fatalf("status %q: got %+v, want idle-unreported on the first stop", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second)); e != nil {
+			t.Fatalf("status %q: fired again while the worker stayed in the condition: %+v", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(3*time.Second)); e != nil {
+			t.Fatalf("status %q: leaving the condition fired an event: %+v", notBusy, e)
+		}
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(4*time.Second)); e == nil || e.Kind != KindIdleUnreported {
+			t.Fatalf("status %q: got %+v, want idle-unreported again once the worker left and re-entered the condition", notBusy, e)
+		}
+	}
+}
+
 func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenLastReportWasStillWorking(t *testing.T) {
 	for _, notBusy := range notBusyStatuses {
 		now := time.Now()
@@ -139,6 +159,9 @@ func TestClassifyStaleFiresOncePerWindow(t *testing.T) {
 	if e := ClassifyStale(ts, "task-1", now.Add(12*time.Minute), threshold); e != nil {
 		t.Fatalf("stale fired right after a status change reset the window: %+v", e)
 	}
+	if e := ClassifyStale(ts, "task-1", now.Add(17*time.Minute), threshold); e == nil || e.Kind != KindStale {
+		t.Fatalf("got %+v, want stale again once the reset window elapsed: it is a wake trigger, so leaving and re-entering the condition is a second occurrence", e)
+	}
 }
 
 func TestClassifyStaleSkipsUnprobedTasks(t *testing.T) {
@@ -162,6 +185,63 @@ func TestClassifyPRMergedFiresOnce(t *testing.T) {
 	}
 	if e := ClassifyPRMerged(ts, "task-1", true); e != nil {
 		t.Fatalf("pr-merged fired again: %+v", e)
+	}
+}
+
+func TestClassifyParkedExemptsDoneAndFailed(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
+	old := now.Add(-24 * time.Hour)
+
+	ts := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(ts, "task-1", state.ReportDone, "done: shipped", old, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event once the worker reported done", e)
+	}
+	if e := ClassifyParked(ts, "task-1", state.ReportFailed, "failed: build broke", old, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event once the worker reported failed", e)
+	}
+}
+
+func TestClassifyParkedSelectsBoundByLastReport(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
+
+	pausedTs := NewTaskState(herdr.StatusIdle, now)
+	silentFor30m := now.Add(-30 * time.Minute)
+	if e := ClassifyParked(pausedTs, "task-1", state.ReportPaused, "paused: waiting on review", silentFor30m, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event: 30m silence is still under the paused bound", e)
+	}
+
+	workingTs := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(workingTs, "task-1", state.ReportWorking, "working: on it", silentFor30m, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want parked event: 30m silence exceeds the shorter default bound", e)
+	}
+
+	unreportedTs := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(unreportedTs, "task-1", "", "no report", silentFor30m, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want parked event: a task that never reported gets the short bound too", e)
+	}
+}
+
+func TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
+	ts := NewTaskState(herdr.StatusIdle, now)
+	mtime := now.Add(-30 * time.Minute)
+
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want parked event on first crossing", e)
+	}
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now.Add(10*time.Minute), bounds); e != nil {
+		t.Fatalf("parked fired again for the same episode: %+v", e)
+	}
+
+	grown := now.Add(-time.Minute)
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(11*time.Minute), bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event right after the report file grows", e)
+	}
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(45*time.Minute), bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want a second parked event once the new episode crosses the bound", e)
 	}
 }
 

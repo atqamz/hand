@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -240,4 +241,16 @@ func configDefault(home, name, fallback string) string {
 		return fallback
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func configSeconds(home, name string, fallback time.Duration) (time.Duration, error) {
+	raw := configDefault(home, name, "")
+	if raw == "" {
+		return fallback, nil
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid config/%s %q: %w", name, raw, err)
+	}
+	return time.Duration(seconds) * time.Second, nil
 }

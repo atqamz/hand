@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -137,12 +138,7 @@ func TestPromoteHappyPath(t *testing.T) {
 	}
 }
 
-// TestPromoteResetsDoneVerifiedButCarriesReportOffset covers the asymmetry
-// cmd/promote.go's DoneVerified reset comment documents: the scout run's
-// verified done belongs to the scout, not the ship that inherits its task
-// state, but the report stream is continuous across the transition so the
-// offset into it must not be replayed from zero.
-func TestPromoteResetsDoneVerifiedButCarriesReportOffset(t *testing.T) {
+func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
 	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteScript)
@@ -153,6 +149,11 @@ func TestPromoteResetsDoneVerifiedButCarriesReportOffset(t *testing.T) {
 	}
 	scout.DoneVerified = true
 	scout.ReportOffset = 42
+	stale := time.Now().Add(-6 * time.Hour).UTC().Format(time.RFC3339)
+	scout.StatusChangedAt = stale
+	scout.StatusChangedFor = "working"
+	scout.LastReportState = state.ReportDone
+	scout.LastReportNote = "scout findings"
 	if err := state.Write(home, scout); err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +173,22 @@ func TestPromoteResetsDoneVerifiedButCarriesReportOffset(t *testing.T) {
 	}
 	if got.ReportOffset != 42 {
 		t.Fatalf("ReportOffset = %d, want the scout's offset carried forward", got.ReportOffset)
+	}
+	if got.StatusChangedAt == stale {
+		t.Fatal("StatusChangedAt kept the scout's transition, want the ship's dwell reseeded at promotion")
+	}
+	changed, err := time.Parse(time.RFC3339, got.StatusChangedAt)
+	if err != nil {
+		t.Fatalf("parse StatusChangedAt %q: %v", got.StatusChangedAt, err)
+	}
+	if time.Since(changed) > time.Minute {
+		t.Fatalf("StatusChangedAt = %q, want it stamped at promotion time", got.StatusChangedAt)
+	}
+	if got.StatusChangedFor != "" {
+		t.Fatalf("StatusChangedFor = %q, want it cleared so the ship's first observed status starts a fresh dwell", got.StatusChangedFor)
+	}
+	if got.LastReportState != "" || got.LastReportNote != "" {
+		t.Fatalf("LastReportState/Note = %q/%q, want the scout's report evidence cleared for the ship run", got.LastReportState, got.LastReportNote)
 	}
 }
 

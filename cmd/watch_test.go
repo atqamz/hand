@@ -87,6 +87,49 @@ func TestWatchRejectsInvalidStaleThresholdConfig(t *testing.T) {
 	}
 }
 
+func TestWatchUntilEventExitsFourWhenNoEventOccurs(t *testing.T) {
+	setupWatchHome(t)
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--until-event", "--timeout", "100ms", "--poll", "20ms"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "no event") {
+		t.Fatalf("got err %v, want a no-event error", err)
+	}
+	if code := exitCodeFor(t, err); code != 4 {
+		t.Fatalf("code = %d, want 4 (err = %v)", code, err)
+	}
+}
+
+func TestWatchRejectsTimeoutWithoutUntilEvent(t *testing.T) {
+	setupWatchHome(t)
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--timeout", "1s"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--timeout requires --until-event") {
+		t.Fatalf("got err %v, want --timeout requires --until-event", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
+func TestWatchRejectsNonPositiveTimeout(t *testing.T) {
+	setupWatchHome(t)
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--until-event", "--timeout=0"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "must be positive") {
+		t.Fatalf("got err %v, want a rejected timeout: an explicit 0 asks for a bound and would get none", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
 func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
 	setupWatchHome(t)
 

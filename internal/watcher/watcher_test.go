@@ -3,11 +3,13 @@ package watcher
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +44,7 @@ const dashboardSkeleton = `# Dashboard
 // parsing. "pane get" reads its status from statusFile so a test can drive
 // transitions between ticks; failure paths belong to
 // internal/herdr/client_test.go.
+
 // paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an error
 // envelope on stdout with exit code 0. A fake that exited nonzero would also reach
 // ClassifyStatus's probeErr branch, but through the client's empty-stdout path rather
@@ -59,6 +62,11 @@ case "$1 $2" in
 	;;
 "pane get")
 	status=$(cat "$STATUS_FILE")
+	# Logged after the read, never before: a test that flips the status on seeing
+	# the Nth call would otherwise still be racing the Nth read of the file.
+	if [ -n "$CALL_LOG" ]; then
+		echo "pane get" >> "$CALL_LOG"
+	fi
 	if [ "$status" = "` + paneGoneStatus + `" ]; then
 		printf '{"id":"cli:1","error":{"code":"not_found","message":"pane p1 not found"}}'
 		exit 0
@@ -123,11 +131,41 @@ func registerProject(t *testing.T, home, name, remote string) {
 	}
 }
 
+// setStatus publishes by atomic rename because the fake herdr cats this file from
+// another process: a truncating write would let it read a phantom empty status,
+// which classifies as a transition to unknown and swallows the real one.
 func setStatus(t *testing.T, statusFile, status string) {
 	t.Helper()
-	if err := os.WriteFile(statusFile, []byte(status), 0o644); err != nil {
+	tmp := statusFile + ".tmp"
+	if err := os.WriteFile(tmp, []byte(status), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Rename(tmp, statusFile); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func logPaneGets(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "pane-get-calls")
+	t.Setenv("CALL_LOG", path)
+	return path
+}
+
+func waitForPaneGets(t *testing.T, callLog string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(callLog)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if bytes.Count(data, []byte("\n")) >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d pane get calls", want)
 }
 
 func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
@@ -139,7 +177,9 @@ func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
 	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	taskOpts.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	if taskOpts.CreatedAt == "" {
+		taskOpts.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
 	if err := state.Write(home, taskOpts); err != nil {
 		t.Fatal(err)
 	}
@@ -941,9 +981,7 @@ func TestTickDoesNotReannounceAPollObservedMergeAfterRestart(t *testing.T) {
 	}
 }
 
-// TestTickReportsAnUnreadableReportOnResume keeps the unreadable-vs-unreported
-// distinction hand status makes: an I/O fault must not degrade into silence.
-func TestTickReportsAnUnreadableReportOnResume(t *testing.T) {
+func TestTickReportsAnUnreadableReport(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -954,10 +992,12 @@ func TestTickReportsAnUnreadableReportOnResume(t *testing.T) {
 	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	states := make(map[string]*TaskState)
 	var buf, errBuf bytes.Buffer
-	tick(context.Background(), cfg, herdr.NewClient(), make(map[string]*TaskState), &buf, &errBuf)
+	tick(context.Background(), cfg, herdr.NewClient(), states, &buf, &errBuf)
+	tick(context.Background(), cfg, herdr.NewClient(), states, &buf, &errBuf)
 
-	if !strings.Contains(errBuf.String(), "read report for task-1 failed") {
+	if !strings.Contains(errBuf.String(), "tail report task-1 failed") {
 		t.Fatalf("errOut = %q, want the unreadable report diagnosed, not silently treated as no report", errBuf.String())
 	}
 }
@@ -1008,6 +1048,132 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "idle-unreported") {
 		t.Fatalf("output = %q, want the not-busy transition still absorbed by the resumed report state", buf.String())
+	}
+}
+
+func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+
+	// Created before the silence it is about to be blamed for: reportEvidenceTime
+	// floors the mtime at the pane's start, so a task younger than its own report
+	// file could not accumulate this silence in the first place.
+	home := setupWatcherHome(t, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+	})
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(reportPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		Home:           home,
+		PollInterval:   time.Hour,
+		StaleThreshold: time.Hour,
+		ParkedBounds:   ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute},
+	}
+	client := herdr.NewClient()
+
+	// A restart's first tick only seeds tracking, so the earliest any classifier can
+	// fire is the second.
+	states := make(map[string]*TaskState)
+	var buf bytes.Buffer
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "parked task-1") {
+		t.Fatal("parked fired on the seeding tick, before resume had even finished reading durable state")
+	}
+
+	buf.Reset()
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "parked task-1") {
+		t.Fatalf("output = %q, want parked task-1 on the first classifying tick after resume: the silence predates this process and must not need to reaccumulate from resume time", buf.String())
+	}
+}
+
+func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	task := state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "working",
+	}
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	ctx := context.Background()
+
+	states := make(map[string]*TaskState)
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "stale task-1") {
+		t.Fatal("stale fired on the seeding tick, before resume had even read durable state")
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "stale task-1") {
+		t.Fatalf("output = %q, want stale task-1 on the first classifying tick: the task has genuinely dwelt 30m in one status, already past the 20m threshold, and a restart must not reset that clock to zero", buf.String())
+	}
+}
+
+func TestTickRefusesADurableDwellStampedForADifferentStatus(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "blocked",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	ctx := context.Background()
+
+	states := make(map[string]*TaskState)
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if strings.Contains(buf.String(), "stale task-1") {
+		t.Fatalf("output = %q, want no stale: the 30m stamp was recorded for blocked, so it says nothing about how long working has been held", buf.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StatusChangedFor != "working" || got.StatusChangedAt == dwelling {
+		t.Fatalf("status_changed_at/for = %q/%q, want the dwell restamped for the status actually observed", got.StatusChangedAt, got.StatusChangedFor)
 	}
 }
 
@@ -1091,15 +1257,8 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	}
 }
 
-// TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker covers
-// the third layer of the inherited-bookkeeping family (SPECS.md's "What survives
-// a hand watch restart", the hand promote row): a promoted task keeps CreatedAt,
-// so the identity check that resets state across a torn-down-and-respawned ID
-// never fires here, and the watcher's own long-running in-memory TaskState - not
-// just the on-disk marker a restart would re-read - carries the scout's
-// DoneVerified into the ship run. Clearing the disk field in cmd/promote.go alone
-// is not the fix: syncTaskState's ts.DoneVerified-OR would resurrect it on the
-// very next tick unless the cached copy is forgotten too.
+// A promoted task keeps CreatedAt, so tick's identity check never fires and
+// clearing the disk field in cmd/promote.go alone is not enough.
 func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1139,10 +1298,11 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 		t.Fatal("task.DoneVerified = false, want the scout's announcement persisted")
 	}
 
-	// hand promote: same rewrite cmd/promote.go makes - kind changes, CreatedAt
-	// and the report channel do not - with the DoneVerified reset this test exists
-	// to cover.
+	// hand promote: same rewrite cmd/promote.go makes - kind and pane change,
+	// CreatedAt and the report channel do not - with the DoneVerified reset this
+	// test exists to cover.
 	task.Kind = state.KindShip
+	task.Herdr.PaneID = "p2"
 	task.DoneVerified = false
 	if err := state.Write(home, task); err != nil {
 		t.Fatal(err)
@@ -1185,6 +1345,317 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !hasEventLine(buf.String(), "done task-1: ship work") {
 		t.Fatalf("out = %q, want the ship's own verified done announced", buf.String())
+	}
+}
+
+// The ship's first probe reads the same "working" the scout last held, so no
+// observed transition reseeds ChangedAt - which is why the forget rule cannot be
+// conditioned on one.
+func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "working",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	promoted, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	promoted.Kind = state.KindShip
+	promoted.Herdr.PaneID = "p2"
+	promoted.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
+	promoted.StatusChangedFor = ""
+	if err := state.Write(home, promoted); err != nil {
+		t.Fatal(err)
+	}
+
+	// Moves report_offset, which is what makes the next tick write task state at all.
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: starting the ship run\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "stale task-1") {
+		t.Fatalf("out = %q, want no stale: the ship's dwell starts at the promotion, not at the scout's last observed transition", buf.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StatusChangedAt == dwelling {
+		t.Fatal("status_changed_at = the scout's stamp, want the cached scout dwell not written back over promote's restamp")
+	}
+	stamped, err := time.Parse(time.RFC3339, got.StatusChangedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restamped, err := time.Parse(time.RFC3339, promoted.StatusChangedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped.Before(restamped) {
+		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", got.StatusChangedAt, promoted.StatusChangedAt)
+	}
+	if got.StatusChangedFor != "working" {
+		t.Fatalf("status_changed_for = %q, want the status the ship's dwell was stamped for", got.StatusChangedFor)
+	}
+}
+
+// The latches are what make each announcement fire only once, so any one of them
+// surviving a promote silences that announcement for the ship's own pane.
+func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
+	now := time.Now()
+	scoutDwell := now.Add(-30 * time.Minute)
+	ts := &TaskState{
+		Status:                herdr.StatusWorking,
+		Probed:                false,
+		ChangedAt:             scoutDwell,
+		PersistedChangedAt:    scoutDwell,
+		PersistedChangedFor:   "working",
+		PersistedPaneID:       "p1",
+		Blocked:               true,
+		Stale:                 true,
+		DoneVerified:          true,
+		PersistedDoneVerified: true,
+		LastReportState:       state.ReportDone,
+		LastReportNote:        "scout findings",
+	}
+
+	promoted := state.Task{
+		ID: "task-1", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
+		CreatedAt:       scoutDwell.UTC().Format(time.RFC3339),
+		StatusChangedAt: now.UTC().Format(time.RFC3339),
+	}
+	forgetPaneScopedCache(ts, promoted, now)
+
+	if ts.Stale || ts.Blocked {
+		t.Fatalf("Stale = %v, Blocked = %v, want both latches cleared for the ship's new pane", ts.Stale, ts.Blocked)
+	}
+	if ts.DoneVerified || ts.PersistedDoneVerified {
+		t.Fatal("DoneVerified survived, want the scout's verified done forgotten")
+	}
+	if ts.LastReportState != "" || ts.LastReportNote != "" {
+		t.Fatalf("LastReportState/Note = %q/%q, want the scout's report evidence dropped", ts.LastReportState, ts.LastReportNote)
+	}
+	if ts.ChangedAt.Before(now) || !ts.ChangedAt.Equal(ts.PersistedChangedAt) {
+		t.Fatalf("ChangedAt = %s, want a fresh dwell mirrored into PersistedChangedAt (%s)", ts.ChangedAt, ts.PersistedChangedAt)
+	}
+	if ts.PersistedChangedFor != "" {
+		t.Fatalf("PersistedChangedFor = %q, want the disk value mirrored so the next write restamps it", ts.PersistedChangedFor)
+	}
+	if ts.Status != herdr.StatusUnknown {
+		t.Fatalf("Status = %q, want the scout's status forgotten so the ship's first probe is a baseline", ts.Status)
+	}
+	if !ts.Probed {
+		t.Fatal("Probed = false, want the scout's unresolved probe error forgotten so the ship's own first failure fires")
+	}
+}
+
+// TestForgetPaneScopedCacheHandlesEveryField is a completeness guard, not a behavior
+// test: TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch above only asserts the
+// fields already known to need resetting, and would keep passing if a future field
+// repeated the exact defect Status and then Probed both had - present in TaskState,
+// absent from forgetPaneScopedCache. This test instead walks every field by
+// reflection, so a field neither reset/re-derived nor named in the carried map below
+// fails it automatically by staying equal to its deliberately-stale "before" value.
+func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
+	before := TaskState{
+		CreatedAt:             "created-marker",
+		Status:                herdr.Status("scout-status"),
+		Probed:                false,
+		ChangedAt:             time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
+		Blocked:               true,
+		Stale:                 true,
+		PRMerged:              true,
+		ReportOffset:          42,
+		PersistedOffset:       43,
+		PersistedPRMerged:     true,
+		PersistedDoneVerified: true,
+		PersistedPaneID:       "scout-pane",
+		PersistedChangedAt:    time.Date(2002, 2, 2, 0, 0, 0, 0, time.UTC),
+		PersistedChangedFor:   "scout-status-for",
+		LastReportState:       "scout-report-state",
+		LastReportNote:        "scout-report-note",
+		DoneVerified:          true,
+		ParkedFiredFor:        time.Date(2003, 3, 3, 0, 0, 0, 0, time.UTC),
+	}
+	promoted := state.Task{
+		Herdr:            state.Herdr{PaneID: "ship-pane"},
+		DoneVerified:     false,
+		CreatedAt:        "2020-01-01T00:00:00Z",
+		StatusChangedFor: "",
+		LastReportState:  "ship-report-state",
+		LastReportNote:   "ship-report-note",
+	}
+
+	// carried names every field the PR body's field-by-field table classifies as
+	// genuinely pane-independent, so forgetPaneScopedCache is correct to leave it
+	// untouched: identity (CreatedAt), PR facts (PRMerged), report-file position
+	// (ReportOffset/PersistedOffset, PersistedPRMerged mirrors the same PR fact),
+	// and the parked latch (ParkedFiredFor is keyed to the report mtime, not the
+	// pane). Anything else added to TaskState later needs an entry here with a
+	// reason, or forgetPaneScopedCache needs to handle it - this test does not
+	// care which, only that the decision was made on purpose.
+	carried := map[string]bool{
+		"CreatedAt":         true,
+		"PRMerged":          true,
+		"ReportOffset":      true,
+		"PersistedOffset":   true,
+		"PersistedPRMerged": true,
+		"ParkedFiredFor":    true,
+	}
+
+	ts := before
+	forgetPaneScopedCache(&ts, promoted, time.Now())
+
+	beforeVal, afterVal := reflect.ValueOf(before), reflect.ValueOf(ts)
+	typ := beforeVal.Type()
+	seen := make(map[string]bool, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		name := typ.Field(i).Name
+		seen[name] = true
+		changed := !reflect.DeepEqual(beforeVal.Field(i).Interface(), afterVal.Field(i).Interface())
+		switch {
+		case carried[name] && changed:
+			t.Errorf("%s: carried field changed from %v to %v, want it left alone", name, beforeVal.Field(i).Interface(), afterVal.Field(i).Interface())
+		case !carried[name] && !changed:
+			t.Errorf("%s: pane-scoped field left at its stale value %v, want forgetPaneScopedCache to reset or re-derive it (or add it to the carried map with a reason)", name, beforeVal.Field(i).Interface())
+		}
+	}
+	for name := range carried {
+		if !seen[name] {
+			t.Errorf("carried map names %q, which is not a field of TaskState - fix the map", name)
+		}
+	}
+}
+
+func promotedTask(now time.Time) state.Task {
+	return state.Task{
+		ID: "task-1", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
+		CreatedAt:       now.Add(-30 * time.Minute).UTC().Format(time.RFC3339),
+		StatusChangedAt: now.UTC().Format(time.RFC3339),
+	}
+}
+
+// The scout's status is the baseline the ship's first probe would be diffed
+// against, so carrying it invents a transition the ship never made.
+func TestForgetPaneScopedCacheStopsIdleUnreportedForAStatusTheShipNeverHeld(t *testing.T) {
+	now := time.Now()
+	ts := &TaskState{
+		Status:          herdr.StatusWorking,
+		Probed:          true,
+		ChangedAt:       now.Add(-30 * time.Minute),
+		PersistedPaneID: "p1",
+		LastReportState: state.ReportDone,
+		LastReportNote:  "scout findings",
+	}
+
+	forgetPaneScopedCache(ts, promotedTask(now), now)
+
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second)); e != nil {
+		t.Fatalf("event = %+v, want none: the ship was never observed working, so its first probe cannot be an unexplained stop", e)
+	}
+}
+
+// The mirror image: the ship's own blocked is suppressed when the scout happened
+// to be blocked too, because ClassifyStatus short-circuits on the stale equality.
+func TestForgetPaneScopedCacheLetsTheShipsOwnBlockedFireAfterABlockedScout(t *testing.T) {
+	now := time.Now()
+	ts := &TaskState{
+		Status:          herdr.StatusBlocked,
+		Probed:          true,
+		Blocked:         true,
+		ChangedAt:       now.Add(-30 * time.Minute),
+		PersistedPaneID: "p1",
+	}
+
+	forgetPaneScopedCache(ts, promotedTask(now), now)
+
+	e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(time.Second))
+	if e == nil || e.Kind != KindBlocked {
+		t.Fatalf("event = %+v, want blocked: the ship's pane raised its own question", e)
+	}
+}
+
+// A promote landing after this tick's state.List but before the write-back is the
+// one window tick's own forget rules structurally cannot see.
+func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	scoutDwell := now.Add(-30 * time.Minute)
+
+	ts := &TaskState{
+		Status:                herdr.StatusWorking,
+		Probed:                true,
+		ChangedAt:             scoutDwell,
+		PersistedChangedAt:    scoutDwell,
+		PersistedChangedFor:   "working",
+		PersistedPaneID:       "p1",
+		Stale:                 true,
+		DoneVerified:          true,
+		PersistedDoneVerified: true,
+		LastReportState:       state.ReportDone,
+		LastReportNote:        "scout findings",
+		ReportOffset:          42,
+	}
+
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
+		CreatedAt:       scoutDwell.UTC().Format(time.RFC3339),
+		StatusChangedAt: now.UTC().Format(time.RFC3339),
+		ReportOffset:    42,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errBuf bytes.Buffer
+	syncTaskState(home, "task-1", ts, now, &errBuf)
+	if errBuf.Len() != 0 {
+		t.Fatalf("errOut = %q, want a clean write", errBuf.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StatusChangedAt == scoutDwell.UTC().Format(time.RFC3339) {
+		t.Fatal("status_changed_at = the scout's stamp, want promote's restamp not overwritten")
+	}
+	if got.StatusChangedFor != string(herdr.StatusUnknown) {
+		t.Fatalf("status_changed_for = %q, want the restamped dwell to belong to no observed status: this tick probed the scout's pane", got.StatusChangedFor)
+	}
+	if got.DoneVerified {
+		t.Fatal("done_verified = true, want the scout's marker not resurrected by the cached copy")
+	}
+	if got.LastReportState != "" || got.LastReportNote != "" {
+		t.Fatalf("last_report_state/note = %q/%q, want the scout's report evidence not written back", got.LastReportState, got.LastReportNote)
+	}
+	if ts.Stale {
+		t.Fatal("ts.Stale = true, want the cached stale latch cleared for the ship's pane")
 	}
 }
 
@@ -1393,6 +1864,251 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit after context cancellation")
+	}
+}
+
+// TestRunUntilEventTakesTheStartupStateAsBaseline is the regression test for the
+// delivery failure of 2026-07-28: the grep-on-first-line wrapper this mode
+// replaces matched a done worker's startup line, took it for a transition, and
+// left the two real events that followed unread for three hours.
+func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "done")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 200 * time.Millisecond}
+	err := RunUntilEvent(context.Background(), cfg, &out, io.Discard)
+
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: nothing changed after it armed", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want the startup state delivered as nothing", out.String())
+	}
+
+	logData, err := os.ReadFile(filepath.Join(home, "state", "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "reported-done task-1") {
+		t.Fatalf("events.log = %q, want the baseline's own events still recorded: the report line is consumed either way", string(logData))
+	}
+}
+
+func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	callLog := logPaneGets(t)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
+
+	// Three probes: the arm-time one plus both baseline ticks. Only after them is a
+	// status change a transition rather than a different baseline.
+	waitForPaneGets(t, callLog, 3)
+	setStatus(t, statusFile, "done")
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunUntilEvent = %v, want nil so the exit code reads as a delivered event", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunUntilEvent did not return after a transition")
+	}
+	if !strings.Contains(out.String(), "idle-unreported task-1") {
+		t.Fatalf("out = %q, want idle-unreported task-1", out.String())
+	}
+}
+
+func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	callLog := logPaneGets(t)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
+
+	waitForPaneGets(t, callLog, 3)
+	setStatus(t, statusFile, "done")
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunUntilEvent = %v, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a worker that went quiet without a terminal report never reached the caller")
+	}
+	if !strings.Contains(out.String(), "idle-unreported task-1") {
+		t.Fatalf("out = %q, want idle-unreported task-1", out.String())
+	}
+}
+
+func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
+
+	var out bytes.Buffer
+	start := time.Now()
+	err := RunUntilEvent(context.Background(), cfg, &out, io.Discard)
+
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent so a re-arm loop can tell a quiet window from an event", err)
+	}
+	if !strings.Contains(err.Error(), "100ms") {
+		t.Fatalf("err = %v, want the elapsed timeout named", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("returned after %s, want the timeout to bound the wait", elapsed)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want stdout to carry events only, never the timeout notice", out.String())
+	}
+}
+
+func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(ctx, cfg, &bytes.Buffer{}, io.Discard) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrNoEvent) {
+			t.Fatalf("RunUntilEvent = %v, want ErrNoEvent", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunUntilEvent did not return after context cancellation")
+	}
+}
+
+func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := RunUntilEvent(context.Background(), Config{Home: t.TempDir(), PollInterval: time.Second, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "herdr unreachable") {
+		t.Fatalf("got err %v, want herdr unreachable", err)
+	}
+	if errors.Is(err, ErrNoEvent) {
+		t.Fatal("a failed watcher reported ErrNoEvent, which a caller reads as a quiet fleet rather than a broken watcher")
+	}
+}
+
+func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\nsleep 5\nprintf '{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := Config{Home: t.TempDir(), PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
+	start := time.Now()
+	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
+
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: the timeout is exit 4 wherever in arming it elapses", err)
+	}
+	if errors.Is(err, ErrArmFailed) {
+		t.Fatal("a hung connect reported ErrArmFailed, whose exit promises the name of the task that could not be reached")
+	}
+	if !strings.Contains(err.Error(), "herdr") {
+		t.Fatalf("err = %v, want it to say the connection was what timed out, not a task probe", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("returned after %s, want --timeout to bound a hung connect probe", elapsed)
+	}
+}
+
+func TestRunUntilEventReportsNoEventWhenTheArmProbeHangs(t *testing.T) {
+	bin := t.TempDir()
+	script := `#!/bin/sh
+case "$1 $2" in
+"workspace list")
+	printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	;;
+"pane get")
+	sleep 5
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"working"}}}'
+	;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
+
+	start := time.Now()
+	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
+
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: the timeout passed with nothing delivered, and no single task can be named as the cause", err)
+	}
+	if errors.Is(err, ErrArmFailed) {
+		t.Fatal("a hung arm probe reported ErrArmFailed, whose exit promises the name of the task that could not be reached")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("returned after %s, want --timeout to bound a hung pane probe", elapsed)
+	}
+}
+
+func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, paneGoneStatus)
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: time.Second}
+
+	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
+	if !errors.Is(err, ErrArmFailed) {
+		t.Fatalf("RunUntilEvent = %v, want ErrArmFailed: an unprobeable worker must not look armed", err)
+	}
+	if !strings.Contains(err.Error(), "task-1") {
+		t.Fatalf("err = %q, want it to name the worker it could not probe", err.Error())
+	}
+	if errors.Is(err, ErrNoEvent) {
+		t.Fatal("an arm failure reported ErrNoEvent too, which a caller cannot tell apart from a quiet fleet")
 	}
 }
 

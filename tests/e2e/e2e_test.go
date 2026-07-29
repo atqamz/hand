@@ -184,6 +184,14 @@ func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 	if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal hand watch: %v", err)
 	}
+	return b.waitForExit(t, timeout, "SIGTERM")
+}
+
+// waitForExit reaps a process expected to exit on its own, unlike stop: that exit
+// is the whole delivery mechanism of `hand watch --until-event`, so it has to be
+// observed rather than caused by a signal.
+func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, because string) invocation {
+	t.Helper()
 	b.reaping = true
 	done := make(chan error, 1)
 	go func() { done <- b.cmd.Wait() }()
@@ -200,7 +208,7 @@ func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 		return invocation{code: code, stdout: b.stdout.String(), stderr: b.stderr.String()}
 	case <-time.After(timeout):
 		_ = b.cmd.Process.Kill()
-		t.Fatalf("hand watch did not exit within %s of SIGTERM; stdout=%q stderr=%q", timeout, b.stdout.String(), b.stderr.String())
+		t.Fatalf("hand watch did not exit within %s of %s; stdout=%q stderr=%q", timeout, because, b.stdout.String(), b.stderr.String())
 		return invocation{}
 	}
 }
@@ -210,19 +218,24 @@ func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 // actually reached a given call instead of guessing with a sleep.
 func waitForInvocation(t *testing.T, logPath, substr string, timeout time.Duration) {
 	t.Helper()
+	waitForInvocations(t, logPath, substr, 1, timeout)
+}
+
+func waitForInvocations(t *testing.T, logPath, substr string, want int, timeout time.Duration) {
+	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(logPath)
 		if err != nil && !os.IsNotExist(err) {
 			t.Fatalf("read invocation log %s: %v", logPath, err)
 		}
-		if strings.Contains(string(data), substr) {
+		if strings.Count(string(data), substr) >= want {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	data, _ := os.ReadFile(logPath)
-	t.Fatalf("timed out waiting for %q in invocation log; log=%q", substr, data)
+	t.Fatalf("timed out waiting for %d occurrences of %q in invocation log; log=%q", want, substr, data)
 }
 
 func newHome(t *testing.T) string {

@@ -139,6 +139,8 @@ secondhand/                 # repo root = working directory
     notify                  # notification command template (optional)
     stale-threshold         # seconds before a task is considered stale (default: 300)
     watch-interval          # poll interval for `hand watch` (default: 5s)
+    parked-paused-bound     # seconds a paused-and-silent task may sit before it's parked (default: 3600)
+    parked-other-bound      # seconds a silent task in any other state may sit before it's parked (default: 1200)
 ```
 
 ## CLI specification
@@ -353,7 +355,11 @@ State file written (`state/fix-login.json`):
   "report_offset": 0,
   "pr_merged_observed": false,
   "done_verified": false,
-  "created_at": "2026-07-24T10:00:00Z"
+  "created_at": "2026-07-24T10:00:00Z",
+  "status_changed_at": "",
+  "status_changed_for": "",
+  "last_report_state": "",
+  "last_report_note": ""
 }
 ```
 
@@ -645,10 +651,13 @@ Also logs events to `state/events.log` for crash recovery.
 ```
 hand watch
 hand watch --poll 10s
+hand watch --until-event --timeout 30m
 ```
 
 Flags:
 - `--poll <duration>`: poll interval when push events aren't available. Default: value from `config/watch-interval`, or `5s`.
+- `--until-event`: block until the first events, print them, exit `0`. See "Delivering an event to a supervisory agent" below.
+- `--timeout <duration>`: with `--until-event`, give up after this long and exit `4`. Default: no timeout. Without `--until-event` it is a usage error (exit `2`), since a streaming watcher has no completion to bound.
 
 Behavior:
 1. List all active tasks from `state/*.json`.
@@ -659,6 +668,7 @@ Behavior:
    - `blocked <id>: <reason>`: agent reports blocked (herdr-level; herdr gives no free-text reason, so `<reason>` is a fixed string).
    - `failed <id>`: herdr pane died unexpectedly.
    - `stale <id>`: agent hasn't changed state for longer than the stale threshold (default 300s, configurable via `config/stale-threshold`).
+   - `parked <id>: <last-report-line> (silent <age>)`: the report channel itself has stopped growing for longer than its bound - independent of `stale`, which only ever watches herdr transitions and has nothing to fire on when herdr registers no transition at all (a pane can sit healthy and quiet forever without one). The bound is chosen by the last classified report line: `done`/`failed` are exempt (already terminal, nothing to wait on), `paused` gets the long bound (`config/parked-paused-bound`, default 3600s) since naming what it's waiting on already explains the quiet, everything else - `working`, `blocked`, `needs-decision`, or no report at all - gets the short one (`config/parked-other-bound`, default 1200s) since that silence is unexplained. Edge-triggered like every other trigger: fires once per silence episode and only refires once the report file actually grows past the mtime it fired for. A parked worker and a crashed one are indistinguishable from the status file alone - both are a report line that stopped moving - so the event carries only the last line and its age and leaves the process check itself to the caller (`hand status <id>`, or the session directly).
    - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` in `state/<id>.json` after the line is printed, so a restart neither repeats it nor loses it to a crash between the two. The same marker is set outside the watcher when gate-opened-PR detection records a PR that is already merged (see `hand status`), so a watcher that first sees the task after that stays quiet about a merge it never observed.
    - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line was attempted and the recording did not complete. The token says only that much, for any cause - refused validation, an unregistered or unresolvable project, an unreadable task file, a failed state write, a state write that landed but whose dashboard update failed or found no active row to carry the PR (the same missing row `hand pr` exits `3` on, since the watcher has no per-task nonzero exit of its own) - and `<reason>` is the underlying error, which is what says which. The whole cause is kept; only its line breaks are not, since `gh`'s multi-line stderr reaches these errors verbatim and an event is one line on stdout, one entry in `state/events.log`, and one bullet on the dashboard (continuation lines would parse back as separate events in both). The fix in every case is a human running `hand pr <id> <url>`: it reconciles, so it either repairs whatever half is missing or fails with the real underlying reason. The kind is deliberately not split by cause, since an enumeration of causes is forgotten the next time a new one appears.
    - `pr-record-unknown <id>: <url> (<reason>)`: the same URL was never attempted, because another command held the task lock at that moment. Whether it ended up recorded is genuinely unknown - the holder may be the `hand pr` recording that very URL - so this event asserts nothing about the outcome and points at `hand status <id>` to confirm, except when the task's own state can't be read, where it names that read failure instead of a remedy that would hit it too. Nothing is announced at all when the lock holder is found to have already recorded that same URL.
@@ -677,6 +687,42 @@ Behavior:
 12. The poll loop *does* wait on the dashboard lock, and that is deliberate. It guards a bounded local read-modify-write with no network call, so a brief tick delay or slightly late shutdown is acceptable - and unlike the task lock's writes, a dashboard write is not re-derivable: the dashboard is built by applying each event to a row as it arrives, so skipping one silently loses that state change. Both locks are always taken task-first, dashboard-second, never the reverse.
 13. Per-task bookkeeping is written back only after the tick's events are announced, never before. A marker persisted ahead of its line would, if the process died in between, suppress an announcement nothing can re-derive; a duplicate line is the cheaper failure.
 
+#### Delivering an event to a supervisory agent
+
+Detecting an event and delivering it are separate problems, and the streaming mode solves only the first.
+`hand watch` never exits, and a supervisory agent's background-task runner re-invokes the agent when a process *exits*, so a streaming watcher's stdout is a file that is read only if the agent independently decides to look.
+"Remember to check the watcher" is not a mechanism, and it is what failed on 2026-07-28.
+
+`--until-event` makes the process exit the delivery:
+
+1. Arm: connect to herdr and probe every active task's pane once, before anything else - both bounded by `--timeout` so a wedged herdr daemon cannot strand the wait past it before the poll loop even starts. Any task that *fails* its probe names it on stderr and exits `5` - never enters the baseline half-armed, since a task invisible to the very first probe has no herdr transition to ever fire on. Losing the race against `--timeout` instead is exit `4`, not `5`: the wait window is simply over, exactly as it is for a timeout in the poll loop, and no single task can be named as the cause the way `5` promises. Full per-tick probe-failure tracking and retry policy during the live poll that follows is a separate concern - see atqamz/secondhand#81.
+2. Take the baseline silently: two ticks with stdout discarded. The first seeds tracking for every task, the second consumes whatever a previous watcher left unconsumed on the report channels, since `report_offset` survives a restart on purpose and those lines are new to the poll loop. This second tick is also the first to classify against durable evidence, so a task already `stale` or already `parked` before this process ever started is absorbed here exactly as an already-`done` one is (see "The startup state is never an event" below).
+3. Poll. On the first tick that produces any event, write that tick's events to stdout and exit `0`.
+4. On `--timeout`, whether it elapses during arming or during the poll, write nothing to stdout, name the elapsed timeout on stderr, and exit `4`.
+5. On SIGINT/SIGTERM, the same as a timeout: nothing was delivered, so exit `4`, never `0`.
+
+Each rule below closes one way the `tee` + `grep -m1` wrapper this replaces failed:
+
+- **The startup state is never an event.** Only a change from the baseline exits. A worker that was already `done` when the watcher armed produces nothing on stdout, where the wrapper's `grep` matched it, exited, and left the pipeline half-alive with nobody reading the two real events that followed.
+- **Every wake trigger is edge-triggered, `idle-unreported`, `stale`, and `parked` included.** A worker fires one on entering the condition and does not fire again until it leaves and re-enters, so no signal has to be excluded from the trigger to avoid a wake storm - which is how the wrapper came to exclude the exact signal it was built for.
+- **Arming itself can fail loudly, distinct from every other exit.** A worker whose pane answers with a failure at arm time is not a quiet fleet (`4`) and not a delivered event (`0`) - it is `5`, naming the worker, because the caller would otherwise wait out the full `--timeout` for a cause it can never see on stdout. An arm probe that instead runs past `--timeout` names no worker and is `4`.
+- **The exit code says which happened**: `0` an event was delivered, `4` no event (timeout or signal, wherever the timeout lands), `5` a named task's pane failed its arm-time probe, `1` the watcher itself failed, `2` a usage error. A caller can never read a crash or a quiet window as fleet news.
+- **No pipeline for the caller to get wrong.** The exit is the whole mechanism.
+
+Worst-case delay from a real transition to the exit that delivers it is one `--poll` interval (`config/watch-interval`, default 5s) plus that tick's own bounded work - the only unbounded-looking piece, a `gh pr view` check for each task with a recorded, not-yet-confirmed-merged PR, is itself capped at 30s per task and run one task at a time, so a fleet with several such tasks can push a single tick past the poll interval alone, but never past that per-task cap times the count. Once the event is written to stdout, the process exits immediately; nothing after that adds delay.
+
+Baseline events are withheld from stdout only.
+They still reach `state/events.log` and `data/dashboard.md`, because the report lines behind them are consumed either way and silently dropping a state change is worse than repeating one.
+So the agent's loop is: arm the watcher, read `hand status` and `state/events.log` for current truth, then treat the next exit as the answer to "what changed since I armed".
+Anything that lands between one exit and the next arming is in those same two places.
+
+One invocation delivers one wake, and re-arming is the caller's own next step after acting on the exit, which it takes anyway with no human in it.
+
+This covers the awake path only: an exit reaches a session that exists and re-arms.
+It has no reach when no session is running, and `hand notify` - the channel that would - is not wired to
+anything (see `hand notify` and atqamz/secondhand#80).
+So a fleet left entirely unattended still goes unread; the difference is that an attended one no longer does.
+
 #### What survives a `hand watch` restart
 
 **Anything the watcher announces is persisted at the moment it announces it, never re-derived on restart.** Re-deriving is how an announcement gets silently skipped: evidence that lands while the watcher is down makes the restarted process conclude the line already went out. Every fact the poll loop carries across a restart, and which side of that rule it is on:
@@ -687,13 +733,52 @@ Behavior:
 | A merge this watcher's own `gh` poll saw | Persisted as `pr_merged_observed`, after `pr-merged <id>` is printed. |
 | The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. `hand merge` writes `merged` without touching the dashboard, so the evidence can appear while the watcher is down. |
 | An auto-recorded PR URL | Persisted as `pr` on the task, and every outcome that isn't a silently self-resolving race is announced (`pr-not-recorded` / `pr-record-unknown`) and logged. |
-| Last reported state and note | Re-derived, safely: they are read back from `state/<id>.status`, itself durable and consumed by offset - from the last line that *classified*, so a trailing malformed one doesn't erase the report it follows, exactly as the live classifier refuses to. They gate no announcement of their own - they only explain a quiet pane - and the marker for the one announcement they can lead to (`done_verified`) is persisted separately. |
+| Last reported state and note | Persisted as `last_report_state` and `last_report_note`, written alongside `report_offset` on the same tick that consumed the line. Re-reading them from `state/<id>.status` on resume instead - the previous behavior - meant re-reading history the durable offset says has already been consumed, and re-derived them from a file `hand promote` deliberately leaves alone, so a promoted ship inherited the scout's last report as if it were its own. They explain a quiet pane (`parked`'s bound is selected by the state, and `hand status` renders the note) and gate the scout's deferred-`done` bookkeeping. |
 | The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh JSON, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
-| The same bookkeeping across `hand promote` | Not covered by the identity check above: promote rewrites the task JSON in place and keeps `created_at`. `report_offset` is carried - promote never touches `state/<id>.status`, so the report stream is continuous and the offset already points exactly where the ship's first line lands; resetting it would replay the scout's consumed lines, the hazard the durable offset exists to prevent. `done_verified` is reset - the marker belongs to the scout's own verified `done`, not the ship's, which has not earned it yet; carrying it would leave the ship run unable to ever announce its own, since the write-back only ORs the marker to true. The reset alone is not enough: a long-running watcher's in-memory `TaskState` for the task survives the same identity check untouched, and would OR the stale cached copy straight back onto the freshly-reset JSON on the very next tick. `tick` also forgets the cached copy whenever the freshly read task's `done_verified` has gone false while the tracked copy is still true - the only way that regression happens outside the watcher itself. |
+| The same bookkeeping across `hand promote` | Not covered by the identity check above, and the sharper problem: promote rewrites the task JSON in place, keeps `created_at`, and gives the task a *new herdr pane*. Every cached fact anchored to the old pane is therefore not evidence about the ship at all, however plausible it looks. See "Pane-anchored facts across `hand promote`" below for the field-by-field classification and for how the watcher forgets its cached copies. |
 | Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane as `(unreported)` or `(reported: <state>)` from the same report channel, and the stale timer below re-flags the task within one window. |
-| The stale timer | Re-derived, safely: the clock restarts on resume, so `stale <id>` is at most one threshold late and never skipped. |
+| Whether the last probe of the pane succeeded | Re-derived, safely: seeded unconditionally true on resume, the same value a first sighting gets, so the first probe after a restart is compared against a clean slate. It gates the once-only `failed` latch and `stale`'s detection, and true is the conservative seed for both - a still-unreachable pane re-announces `failed` on the first tick rather than staying silent. A live `hand promote` reseeds it the same way, and for the same reason; see below. |
+| How long the current herdr status has been dwelt in | Persisted as `status_changed_at`, updated whenever a herdr status transition is actually observed - any transition, not only ones that raise an event - and re-seeded from `created_at` until the first one. This is what `stale`'s dwell is measured against. Seeding it from the resume time instead - the previous behavior - erased a real dwell on every restart, and since `--until-event` restarts on every delivered event by design, a fleet busy enough to re-arm faster than the threshold elapses could erase that dwell before it ever completed once, silencing `stale` for exactly the fleet it exists to watch (issue #75's Ruling 1). |
+| Which status that dwell clock describes | Persisted alongside it as `status_changed_for`, and the timestamp is trusted only while the two agree. A timestamp on its own cannot prove the dwell it describes is still running: a status observed in a different pane is a new dwell even when it spells the same word, so a mismatch means the transition into the observed status happened at an unknown point since and the dwell can only honestly start now. Without this a restart after a `hand promote` read the restamped `status_changed_at` as the ship's own dwell in whatever status the ship happened to be in. |
+| The stale timer's fired latch, as opposed to its dwell above | Re-derived, safely: cleared on every observed transition and reset to unfired on resume, so the worst a restart causes is one duplicate `stale <id>` after a further full threshold past a dwell that already fired once - it never suppresses a genuine re-announcement. The dwell it is measured against is not re-derived; see the row above. A restart is the safe direction, but a `hand promote` in a *live* watcher is not, and the latch is cleared there explicitly; see below. |
+| Which silence episode `parked` already fired for | Re-derived, safely, the same way the stale latch above is: `ParkedFiredFor` is not persisted and starts unset on resume. A task already silent past its bound at arm time fires on the baseline's second tick - the same tick that first classifies against durable evidence for every other trigger - and is absorbed into the silent baseline exactly as an already-`stale` or already-`done` task is. What the bound is measured against - the report file's own mtime, or `created_at` for a task that has never reported - is untouched by a restart because neither one is process state to begin with; see "Delivering an event to a supervisory agent". |
 
 Anything added to `TaskState` belongs in this table before it ships.
+
+#### Pane-anchored facts across `hand promote`
+
+`hand promote` keeps the task's `id` and `created_at` but hands it a **new herdr pane**.
+Every cached fact anchored to the old pane is invalidated at that moment, so the governing question for each one is not "is it durable" but "was it anchored to the pane".
+Both halves have to be dealt with, because neither is sufficient alone: promote clears the durable fields itself rather than leaving it to `hand watch`, since a watcher may not be running at all; and a watcher that *is* running holds an in-memory `TaskState` that passes the `created_at` identity check untouched and would write its cached copy straight back onto the freshly-rewritten JSON on the very next tick.
+`forgetPaneScopedCache` is the single place that drops those cached copies.
+
+Pane-anchored, and reset:
+
+| Fact | Why it is not evidence about the ship |
+|---|---|
+| `done_verified` | The marker belongs to the scout's own verified `done`. The ship has not earned one, and carrying it would leave the ship run unable to ever announce its own, since the write-back only ORs the marker to true. |
+| `status_changed_at` / `status_changed_for` | The scout's last observed transition happened in a pane the task no longer has. Carrying it would hand the ship a dwell already grown past `stale`'s threshold before its worker had run for a second. Promote restamps the timestamp to the promotion time and clears the status it was stamped for, which is what makes the ship's first observed status a fresh dwell rather than a resumed one. |
+| `last_report_state` / `last_report_note` | The scout's last report describes work in that pane. It selects `parked`'s bound and feeds the scout's deferred-`done` bookkeeping, so an inherited one both mis-bounds the ship's silence and can hand it a `done` it never reported. |
+| The `stale` and `blocked` fired latches | Each is what makes its announcement fire only once. A latch surviving the promote silences that announcement for the ship's own pane - the `stale` one until the ship transitions at least once, which a genuinely stuck ship never does. |
+| Whether the last probe of the pane succeeded | It gates the once-only `failed` latch - the announcement fires on the true-to-false edge, so a false inherited from an unresolved probe error on the scout's pane swallows the ship's own first failure as no edge at all - and gates `stale` detection off entirely until some probe succeeds. It is reset to true, matching the unconditional true a brand-new task's tracking is seeded with, which is what lets a first sighting's very first probe failure fire `failed` with no grace period. |
+| The cached herdr status the next probe is diffed against | The status a transition is measured *from*, so an inherited one invents or erases transitions in both directions: a scout cached as `working` turns the ship's first not-busy probe into `idle-unreported` for a pane never observed working, and a scout cached as `blocked` makes the ship's own `blocked` probe compare equal and never fire at all. It is reset to herdr's `unknown`, which matches neither branch, so the ship's first probe is the baseline a first sighting always is. This is not self-correcting in the same-status case, as was once assumed: equality is exactly what suppresses the announcement. |
+
+Genuinely pane-independent, and carried:
+
+| Fact | Why it survives |
+|---|---|
+| `report_offset`, and the report channel it indexes | Promote never touches `state/<id>.status`: the report stream is continuous across the promotion and the offset already points exactly where the ship's first line lands. Resetting it would replay the scout's consumed lines, the hazard the durable offset exists to prevent. |
+| `pr`, `merged`, `pr_merged_observed` | Facts about the branch and its PR, not about any pane. |
+| `created_at` | The task's identity, which promote deliberately preserves - this is one task's lifecycle, not two. |
+| The `parked` fired latch | Keyed to the report mtime it fired for, not to a pane, and the report channel is itself carried. The ship's own silence is a new episode against a new mtime, so the latch cannot suppress it. |
+| The report mtime `parked` measures silence from | Carried with the report channel, but *floored* at the pane-start instant: `status_changed_at`, or `created_at` before any status has ever been recorded. Promote leaves the scout's last append - and so its mtime - untouched while clearing the `last_report_state` that used to exempt the task from `parked` entirely, so an unfloored mtime would hand a pane seconds old the scout's whole accumulated silence and fire `parked` on it immediately. |
+
+Two properties of the forget rule are load-bearing:
+
+- **The trigger is the task's herdr pane id differing from the one the cache was built against, not a status or a timestamp.** A ship whose first probe happens to read the same status the scout last held raises no transition at all, so a status-conditioned rule misses it. A timestamp-conditioned rule is wrong in both directions: `status_changed_at` is legitimately reseeded to "now" on a resume that finds the observed status no longer matching `status_changed_for`, which is not a promote, and RFC3339 is second-granular, so a real restamp landing inside the same second as this watcher's own last write is invisible. Only the pane id changes exactly when, and only when, the pane changes.
+- **It runs on every read of the task, including `syncTaskState`'s re-read under the task lock.** A promote can land after a tick's `state.List` snapshot but before that tick's write-back; writing the cached values back there would erase the restamp, and since that write-back also advances `report_offset`, the report line the tick had already consumed and cached would be lost with no way to re-derive it.
+
+Forgetting the cached status is what makes a ship's first probe a baseline in the same sense a cold start's is - transitions, not states, are events - and a promote is a first sighting in every sense that matters, even though the task id and its tracking state are reused.
 
 Output (stream):
 ```
@@ -702,17 +787,21 @@ blocked dark-mode: needs API key for third-party service
 needs-decision fix-login: two ways to fix the race, ask-user found both risky
 reported-done fix-login: PR https://github.com/org/repo/pull/42 checks green
 stale investigate-crash
+parked slow-migration: working: still on the migration (silent 42m)
 failed api-refactor
 pr-merged fix-login
 ```
 
 The supervisory agent runs `hand watch` as a background task (via its harness's background-task mechanism) and acts on each printed line.
+Streaming that way only reaches the agent if something prompts it to read; `--until-event` is how the watcher reaches it on its own (see "Delivering an event to a supervisory agent").
 
 Event durability: if the supervisory agent's context compacts or the session restarts, events since the last read are in `state/events.log`. The agent can `hand status` to recover current truth and read `state/events.log` for recent history.
 
 Errors:
-- Herdr not running (fatal: exit with error).
-- Individual task probe failure (graceful: report as "unknown" state).
+- Herdr not running (fatal: exit `1`, the reachability probe answering with a failure). Under `--until-event` that probe is additionally raced against `--timeout` so a wedged daemon can't strand the wait, and *losing that race* is exit `4`, not `1` or `5`: the window closed with nothing delivered, which is what `4` means wherever in the process it happens, and stderr names herdr as what it was still waiting on. A signal during the same probe is `4` for the same reason.
+- Individual task probe failure (graceful: report as "unknown" state). This graceful handling is the streaming path only; see atqamz/secondhand#81 for the gap it leaves (an unreachable task is never entered into tracking, so it is never stale-checked either).
+- `--until-event` reaching its `--timeout`, or being signaled, without delivering an event: a line on stderr and exit `4`, never a silent exit `0`. This covers the timeout elapsing anywhere in arming - the herdr reachability probe as well as the per-task probe sweep - as well as during the poll: the window is over either way, and no one task is at fault.
+- `--until-event` failing to arm because a task's herdr pane answers its probe with a failure: names the task on stderr and exits `5`, distinct from both `4` (no event: either arming succeeded and nothing happened, or the window closed mid-arm) and `0` (arming succeeded and something did). Unlike the streaming path's graceful "unknown" above, `--until-event` cannot tolerate an unprobeable task at all: a task invisible to the arm-time probe would never enter `states` and so could never produce the transition the caller is blocking on, silently degrading the wait into a guaranteed timeout. Full per-tick probe-failure tracking and any retry policy during the live poll that follows arming is out of scope here - see atqamz/secondhand#81.
 
 ---
 
@@ -766,7 +855,7 @@ Behavior:
 3. Acquire a fresh treehouse worktree (with collision guard).
 4. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 6, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 5. Launch the worker and confirm it started (same as `hand spawn`).
-6. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. `done_verified` is reset to false - the scout's verified `done` does not carry to the ship. Every other field is carried, including `created_at` and the watcher's other bookkeeping (`report_offset`) - see "What survives a `hand watch` restart", which classifies each of them.
+6. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
@@ -812,7 +901,12 @@ Or for macOS:
 osascript -e "display notification \"$HAND_MESSAGE\" with title \"secondhand\""
 ```
 
-The watcher calls `hand notify` for captain-relevant events (done, blocked, failed) so the user gets notified even when away from the terminal.
+Nothing calls `hand notify` yet: it is operator-invoked only, and no watcher code path reaches it.
+Nothing writes `config/notify` either - `hand init --setup` covers `harness`, `model`, and `effort` - so an unconfigured
+notify prints its message and exits 0 having sent nothing.
+The channel is therefore implemented and dark, and it is the only path that would reach the user when no supervisory
+session is awake, since `hand watch --until-event` delivers by exiting into a session that must be there to be woken.
+Wiring it is atqamz/secondhand#80.
 
 Output:
 ```
@@ -891,6 +985,7 @@ The supervisor reads this row first, so each kind's disposition is fixed here ra
 | Event kind | `state` column | Pending Decisions |
 |---|---|---|
 | `idle-unreported` | `idle-unreported` | stopped, reason unknown |
+| `parked` | `parked` | the last report line and how long it has been silent |
 | `blocked` (herdr) | `blocked` | herdr's blocked reason |
 | `report-blocked`, `report-needs-decision` | the kind | the worker's own note |
 | `report-working` | `working` | cleared |
@@ -899,7 +994,7 @@ The supervisor reads this row first, so each kind's disposition is fixed here ra
 | unverified `report-done`, `stale`, `pr-merged`, `pr-not-recorded`, `pr-record-unknown`, `report-malformed` | no row write | untouched |
 
 `failed` is the case that fixes the rule: it fires on any failure to probe the pane, so clearing there would let one herdr daemon restart wipe every tracked task's slot in a single tick.
-`report-paused` is parked, not answered.
+`report-paused` leaves the question standing, not answered - a worker that names what it is waiting on has not resolved it.
 The last group writes nothing to the row at all: an unverified `report-done` is a claim rather than evidence, `stale` is elapsed time in a state rather than a new one, the PR notices are facts about a record rather than about the worker, and a malformed line classifies to nothing.
 They still reach Recent Events and `state/events.log`.
 A kind that is silently *absent* from this table is the actual failure mode, so it is an error rather than a partial row - `hand watch` refuses to write it, and the test that enumerates the kind vocabulary fails.
@@ -1362,10 +1457,10 @@ Fixed vocabulary (anything else is malformed, and malformed lines are surfaced, 
 
 Read/classify semantics:
 
-- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` in `state/<id>.json`, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. On first tracking a task, the watcher also re-reads the last report line that classified - skipping trailing free text, which explains nothing and so must not erase the report above it - so a pane found not-busy after a restart isn't mistaken for an unexplained stop; a report file that exists but can't be read is diagnosed on stderr, never treated as "this worker never reported".
+- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` in `state/<id>.json`, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. The last state and note a line classified to are carried across a restart as `last_report_state` and `last_report_note` rather than re-read from the file, so a pane found not-busy after a restart isn't mistaken for an unexplained stop - see "What survives a `hand watch` restart".
 - Blank and whitespace-only lines are skipped by every reader, so `hand status`'s history never shows an entry `hand watch` didn't surface and a stray trailing newline can't masquerade as a malformed terminal report.
 - If the file shrinks below the last known offset (recreated, truncated), tailing restarts from the beginning rather than erroring.
-- Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult. Both read the last line that *classified*, never simply the last line, so free text appended after a real report cannot erase it or make the two commands answer differently about the same quiet pane. A line reporting a stop (`paused`, `blocked`, `needs-decision`, `failed`) also moves the task's Active Tasks row out of `working`, since the herdr transition that follows is absorbed on purpose, and a later `working` line moves it back (see "Update rules").
+- Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult. Both answer from the last line that *classified*, never simply the last line - `hand watch` by only advancing its carried state on one, `hand status` by skipping trailing malformed lines when it re-reads the file - so free text appended after a real report cannot erase it or make the two commands answer differently about the same quiet pane. A line reporting a stop (`paused`, `blocked`, `needs-decision`, `failed`) also moves the task's Active Tasks row out of `working`, since the herdr transition that follows is absorbed on purpose, and a later `working` line moves it back (see "Update rules").
 - **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`) - including when it landed while the watcher was stopped, since the announcement is tracked by the durable `done_verified` marker rather than re-derived from whatever evidence is on disk at startup (see "What survives a `hand watch` restart").
 - A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended, flattened onto the event's single line, and its remedy is a human running `hand pr`, which reconciles whatever half is missing or says so when there is no dashboard row left to repair; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
 
@@ -1403,9 +1498,11 @@ On restart (new supervisory agent session):
 
 - `0`: success.
 - `1`: general error.
-- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive flags, an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration).
+- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
 - `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`).
+- `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
+- `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
 
 ### Error output
 
@@ -1458,7 +1555,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 |---|---|---|
 | Secondmates / federation | `fm-home-seed.sh`, `fm-pending-reply-lib.sh`, `fm-config-inherit-lib.sh`, `fm-backlog-handoff.sh` (3,500 lines) | Solves a scaling problem at 10+ projects. Start with one home. |
 | X-mode / Twitter | `fm-x-*.sh`, `fmx-respond` skill (3,250 lines) | Separate product concern. Build as a separate tool if ever needed. |
-| AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch` + `hand notify` + the agent's own background task is sufficient. |
+| AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch --until-event` as the agent's own background task covers the awake path; `hand notify` is meant to cover the AFK half but is not wired to anything yet (atqamz/secondhand#80). |
 | Multiple backends | `backends/herdr.sh`, `backends/cmux.sh`, `backends/zellij.sh`, `backends/orca.sh`, `fm-backend.sh` (5,500 lines) | herdr only. Add tmux fallback later if herdr proves insufficient. |
 | Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, declare `model`/`effort` in the brief, or set defaults in `config/`. |
 | Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | Agent tracks decisions in backlog and dashboard. |

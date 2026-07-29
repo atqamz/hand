@@ -169,16 +169,24 @@ func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs)
 // exit or an error envelope. This fake always succeeds for both, mirroring
 // the real success shape; the failure path is exercised for real elsewhere
 // (see cmd/status_test.go's writeFakeHerdrPaneStatus for the full contract).
-// Every invocation is appended to logPath so the test can tell "the watcher
-// has polled this pane" apart from "the watcher hasn't got there yet".
+// Each "pane get" is logged after the status read, never before: a test waiting on
+// the Nth poll before publishing would otherwise still be racing that poll's read.
 func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	t.Helper()
 	body := fmt.Sprintf(`  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "pane get")
     status=$(cat %s/"$3" 2>/dev/null || echo idle)
+    echo "herdr pane get $3" >> %s
     printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent_status":"%%s"}}}\n' "$3" "$status"
-    ;;`, shellSingleQuote(statusDir))
-	writeFakeDispatch(t, dir, "herdr", logPath, "$1 $2", body)
+    ;;`, shellSingleQuote(statusDir), shellSingleQuote(logPath))
+	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
+}
+
+func writeFakeHerdrUnprobeablePanes(t *testing.T, dir string) {
+	t.Helper()
+	body := `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
+  "pane get") echo "herdr: pane $3 not found" >&2; exit 1 ;;`
+	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 
 // setPaneStatus publishes a pane's status by atomic rename: the fake herdr
