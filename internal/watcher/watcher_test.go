@@ -1466,6 +1466,57 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	if ts.PersistedChangedFor != "" {
 		t.Fatalf("PersistedChangedFor = %q, want the disk value mirrored so the next write restamps it", ts.PersistedChangedFor)
 	}
+	if ts.Status != herdr.StatusUnknown {
+		t.Fatalf("Status = %q, want the scout's status forgotten so the ship's first probe is a baseline", ts.Status)
+	}
+}
+
+func promotedTask(now time.Time) state.Task {
+	return state.Task{
+		ID: "task-1", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
+		CreatedAt:       now.Add(-30 * time.Minute).UTC().Format(time.RFC3339),
+		StatusChangedAt: now.UTC().Format(time.RFC3339),
+	}
+}
+
+// The scout's status is the baseline the ship's first probe would be diffed
+// against, so carrying it invents a transition the ship never made.
+func TestForgetPaneScopedCacheStopsIdleUnreportedForAStatusTheShipNeverHeld(t *testing.T) {
+	now := time.Now()
+	ts := &TaskState{
+		Status:          herdr.StatusWorking,
+		Probed:          true,
+		ChangedAt:       now.Add(-30 * time.Minute),
+		PersistedPaneID: "p1",
+		LastReportState: state.ReportDone,
+		LastReportNote:  "scout findings",
+	}
+
+	forgetPaneScopedCache(ts, promotedTask(now), now)
+
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second)); e != nil {
+		t.Fatalf("event = %+v, want none: the ship was never observed working, so its first probe cannot be an unexplained stop", e)
+	}
+}
+
+// The mirror image: the ship's own blocked is suppressed when the scout happened
+// to be blocked too, because ClassifyStatus short-circuits on the stale equality.
+func TestForgetPaneScopedCacheLetsTheShipsOwnBlockedFireAfterABlockedScout(t *testing.T) {
+	now := time.Now()
+	ts := &TaskState{
+		Status:          herdr.StatusBlocked,
+		Probed:          true,
+		Blocked:         true,
+		ChangedAt:       now.Add(-30 * time.Minute),
+		PersistedPaneID: "p1",
+	}
+
+	forgetPaneScopedCache(ts, promotedTask(now), now)
+
+	e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(time.Second))
+	if e == nil || e.Kind != KindBlocked {
+		t.Fatalf("event = %+v, want blocked: the ship's pane raised its own question", e)
+	}
 }
 
 // A promote landing after this tick's state.List but before the write-back is the
@@ -1512,8 +1563,8 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 	if got.StatusChangedAt == scoutDwell.UTC().Format(time.RFC3339) {
 		t.Fatal("status_changed_at = the scout's stamp, want promote's restamp not overwritten")
 	}
-	if got.StatusChangedFor != "working" {
-		t.Fatalf("status_changed_for = %q, want the status the persisted dwell belongs to", got.StatusChangedFor)
+	if got.StatusChangedFor != string(herdr.StatusUnknown) {
+		t.Fatalf("status_changed_for = %q, want the restamped dwell to belong to no observed status: this tick probed the scout's pane", got.StatusChangedFor)
 	}
 	if got.DoneVerified {
 		t.Fatal("done_verified = true, want the scout's marker not resurrected by the cached copy")

@@ -288,6 +288,11 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	ts.ChangedAt = seed
 	ts.PersistedChangedAt = seed
 	ts.PersistedChangedFor = t.StatusChangedFor
+	// Reset after the seed above, which asks what status the cached dwell describes.
+	// StatusUnknown is the sentinel a ship's first probe is diffed against, matching
+	// neither the working nor the blocked branch, so that probe reads as the baseline
+	// a first sighting always is rather than as a transition out of the scout's status.
+	ts.Status = herdr.StatusUnknown
 	ts.Stale = false
 	ts.Blocked = false
 	ts.LastReportState = t.LastReportState
