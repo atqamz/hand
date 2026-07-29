@@ -93,16 +93,9 @@ func TestWatchEventStream(t *testing.T) {
 	}
 }
 
-// TestWatchUntilEventExitsOnTheFirstTransition drives the delivery contract of
-// atqamz/secondhand#75 against the real binary, because the exit status is the
-// delivery: a supervisory agent's background-task runner is re-invoked when the
-// process ends, and nothing else about a long-running watcher reaches it.
-//
-// The startup state is the other half. task-2 sits in a state a wrapper grepping
-// this stream would have matched immediately - the failure of 2026-07-28, where
-// the match killed the pipeline and the two real events that followed were read
-// three hours later - so nothing about task-2 may appear on stdout, and the exit
-// must be task-1's later transition.
+// task-2 sits in a state the grep-on-first-line wrapper this mode replaces would
+// have matched immediately (see TestRunUntilEventTakesTheStartupStateAsBaseline),
+// so nothing about it may appear on stdout.
 func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -132,11 +125,9 @@ func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 
 	watch := startHandBackground(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "60s")
 
-	// Three polls of each pane: the arm-time probe, then the tick that seeds
-	// tracking, then the tick that consumes the report backlog. Only after all
-	// three is the watcher armed - publishing a status before the seeding tick
-	// has read the pane makes the new value the baseline, and the transition the
-	// test is waiting on never happens.
+	// Three polls each - arm probe, seeding tick, report-backlog tick - and only
+	// then is the watcher armed: a status published earlier becomes the baseline
+	// and the transition this test waits on never happens.
 	waitForInvocations(t, herdrLog, "herdr pane get pane-1", 3, 5*time.Second)
 	waitForInvocations(t, herdrLog, "herdr pane get pane-2", 3, 5*time.Second)
 
@@ -153,8 +144,6 @@ func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 		t.Fatalf("stdout = %q, want nothing about task-2: its state and its unconsumed report line are both baseline, not transitions", result.stdout)
 	}
 
-	// The suppressed baseline is still the audit trail, so what stdout withheld
-	// is on file for the agent to read when it acts on this exit.
 	logData, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
 	if err != nil {
 		t.Fatalf("read events.log: %v", err)
@@ -164,9 +153,6 @@ func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 	}
 }
 
-// TestWatchUntilEventTimesOutWithADistinctCode keeps a re-arm loop honest: an
-// armed watcher that saw nothing must be distinguishable from one that delivered
-// an event (0) and from one that broke (1), and must say so rather than hanging.
 func TestWatchUntilEventTimesOutWithADistinctCode(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -197,10 +183,9 @@ func TestWatchUntilEventTimesOutWithADistinctCode(t *testing.T) {
 	}
 }
 
-// TestWatchUntilEventFailsToArmWithADistinctCode covers the third exit the
-// re-arm loop can see. A worker that can't be probed would otherwise burn the
-// whole `--timeout` and come back as a quiet fleet, so the generous timeout here
-// is the assertion: exit 5 has to arrive well before it, naming the worker.
+// The generous --timeout is the assertion: an unprobeable worker would otherwise
+// burn the whole window and come back as a quiet fleet, so exit 5 has to arrive
+// well before it.
 func TestWatchUntilEventFailsToArmWithADistinctCode(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -227,10 +212,9 @@ func TestWatchUntilEventFailsToArmWithADistinctCode(t *testing.T) {
 	}
 }
 
-// TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent covers the one
-// trigger no herdr transition can produce: the pane stays "working" for the whole
-// run, so a watcher that only ever classified status changes would sit here until
-// its timeout while the worker was already gone.
+// The pane stays "working" for the whole run: no herdr transition can produce
+// this event, so a watcher that only classified status changes would sit here
+// until its timeout while the worker was already gone.
 func TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -243,8 +227,7 @@ func TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent(t *testing.
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Fresh enough that the baseline absorbs nothing: the bound is crossed while
-	// the poll loop is running, which is the case the caller is blocking on.
+	// Written now so the bound is crossed while the poll loop runs, not before it.
 	if err := os.WriteFile(state.ReportPath(home, "slow-migration"), []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -79,13 +79,14 @@ type TaskState struct {
 	PersistedOffset       int64
 	PersistedPRMerged     bool
 	PersistedDoneVerified bool
-	// PersistedChangedAt mirrors ChangedAt the same way: a dwell clock that
-	// resumes from "now" on every restart never survives a fleet busy enough to
-	// re-arm faster than it elapses, so ChangedAt is seeded from durable
-	// evidence on resume (see resumeTaskState) rather than reset. See
-	// ClassifyStale.
-	PersistedChangedAt time.Time
-	LastReportState    string
+	// PersistedChangedAt mirrors ChangedAt the same way, and PersistedChangedFor the
+	// status it was stamped for: a dwell clock that resumes from "now" never
+	// survives a fleet re-arming faster than it elapses, so ChangedAt is seeded from
+	// durable evidence on resume rather than reset - evidence that only holds while
+	// it still describes the status being dwelt in.
+	PersistedChangedAt  time.Time
+	PersistedChangedFor string
+	LastReportState     string
 	// LastReportNote is kept alongside LastReportState so a done report that only
 	// gains its completion evidence later can be re-announced with the same text a
 	// synchronous verification would have produced.
@@ -93,9 +94,7 @@ type TaskState struct {
 	// DoneVerified makes the verified-done announcement idempotent across ticks,
 	// and is persisted after the announcement so it stays idempotent across a
 	// restart too.
-	DoneVerified bool
-	// ParkedFiredFor is the report evidence mtime a parked event already fired
-	// for; the latch clears once the file grows past it. See ClassifyParked.
+	DoneVerified   bool
 	ParkedFiredFor time.Time
 }
 
@@ -167,16 +166,12 @@ func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Durat
 	return &Event{TaskID: id, Kind: KindStale, Text: fmt.Sprintf("stale %s", id)}
 }
 
-// ParkedBounds is how long a task may sit silent before ClassifyParked flags it,
-// split by what the worker last reported.
 type ParkedBounds struct {
 	Paused time.Duration
 	Other  time.Duration
 }
 
-// parkedBound answers which bound applies to lastState, and whether the task is
-// exempt: done/failed are terminal, paused already explained its own wait, and
-// a non-positive bound means unconfigured rather than zero-tolerance.
+// A non-positive bound means unconfigured rather than zero-tolerance.
 func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
 	switch lastState {
 	case state.ReportDone, state.ReportFailed:
@@ -192,13 +187,9 @@ func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, ex
 	return bound, false
 }
 
-// ClassifyParked catches a worker gone silent with no herdr status change at
-// all, a case ClassifyStatus/ClassifyStale structurally cannot see. mtime -
-// the report file's, or CreatedAt if it has never reported - is deliberately
-// never reset to "now" on resume: --until-event restarts on every delivered
-// event, and a busy fleet would otherwise erase the clock before it ever
-// completes once. Fires once per silence episode; ts.ParkedFiredFor latches
-// until the file actually grows past it.
+// mtime is deliberately never reset to "now" on resume: --until-event restarts on
+// every delivered event, and a busy fleet would otherwise erase the clock before
+// it ever completes once.
 func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds) *Event {
 	bound, exempt := parkedBound(lastState, bounds)
 	if exempt {

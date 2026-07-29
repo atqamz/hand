@@ -41,10 +41,9 @@ const dashboardSkeleton = `# Dashboard
 // success and diverges from for the unexpected-args arm - a bare stderr line
 // and exit 1, so a call shape no test anticipated fails loudly instead of
 // parsing. "pane get" reads its status from statusFile so a test can drive
-// transitions between ticks, and counts its own calls in $CALL_LOG when a test
-// sets one (see logPaneGets), so a test driving a live watcher can wait for a
-// probe to have happened instead of sleeping; failure paths belong to
+// transitions between ticks; failure paths belong to
 // internal/herdr/client_test.go.
+
 // paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an error
 // envelope on stdout with exit code 0. A fake that exited nonzero would also reach
 // ClassifyStatus's probeErr branch, but through the client's empty-stdout path rather
@@ -131,10 +130,9 @@ func registerProject(t *testing.T, home, name, remote string) {
 	}
 }
 
-// setStatus publishes a pane's status by atomic rename. The tests that drive a
-// live watcher have the fake herdr catting this file from another process, and a
-// truncating in-place write would let it read a phantom empty status mid-update -
-// which classifies as a transition to an unknown state and swallows the real one.
+// setStatus publishes by atomic rename because the fake herdr cats this file from
+// another process: a truncating write would let it read a phantom empty status,
+// which classifies as a transition to unknown and swallows the real one.
 func setStatus(t *testing.T, statusFile, status string) {
 	t.Helper()
 	tmp := statusFile + ".tmp"
@@ -146,8 +144,6 @@ func setStatus(t *testing.T, statusFile, status string) {
 	}
 }
 
-// logPaneGets points the herdr fake's call counter at a file, so a test can wait
-// for the watcher to have probed rather than guessing at a sleep.
 func logPaneGets(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "pane-get-calls")
@@ -982,9 +978,7 @@ func TestTickDoesNotReannounceAPollObservedMergeAfterRestart(t *testing.T) {
 	}
 }
 
-// TestTickReportsAnUnreadableReportOnResume keeps the unreadable-vs-unreported
-// distinction hand status makes: an I/O fault must not degrade into silence.
-func TestTickReportsAnUnreadableReportOnResume(t *testing.T) {
+func TestTickReportsAnUnreadableReport(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -995,10 +989,12 @@ func TestTickReportsAnUnreadableReportOnResume(t *testing.T) {
 	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	states := make(map[string]*TaskState)
 	var buf, errBuf bytes.Buffer
-	tick(context.Background(), cfg, herdr.NewClient(), make(map[string]*TaskState), &buf, &errBuf)
+	tick(context.Background(), cfg, herdr.NewClient(), states, &buf, &errBuf)
+	tick(context.Background(), cfg, herdr.NewClient(), states, &buf, &errBuf)
 
-	if !strings.Contains(errBuf.String(), "read report for task-1 failed") {
+	if !strings.Contains(errBuf.String(), "tail report task-1 failed") {
 		t.Fatalf("errOut = %q, want the unreadable report diagnosed, not silently treated as no report", errBuf.String())
 	}
 }
@@ -1052,9 +1048,6 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	}
 }
 
-// TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound
-// asserts the park bound is anchored to the report file's mtime, not to
-// resume time, so silence that predates this process fires immediately.
 func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "idle")
@@ -1065,8 +1058,6 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Backdate the report file's mtime to well past the bound, standing in for a
-	// worker that had already gone silent before this watch process ever started.
 	old := time.Now().Add(-30 * time.Minute)
 	if err := os.Chtimes(reportPath, old, old); err != nil {
 		t.Fatal(err)
@@ -1080,10 +1071,7 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 	client := herdr.NewClient()
 
-	// A fresh, empty states map is exactly what a hand watch restart produces:
-	// nothing survives in memory, only what's durable on disk. The first tick
-	// only seeds tracking (see tick's !tracked branch) - the same shape
-	// RunUntilEvent's own baseline tick takes - so the earliest a classifier can
+	// A restart's first tick only seeds tracking, so the earliest any classifier can
 	// fire is the second.
 	states := make(map[string]*TaskState)
 	var buf bytes.Buffer
@@ -1099,10 +1087,6 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
-// TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart asserts stale fires
-// on the first classifying tick after a restart when durable StatusChangedAt
-// already exceeds the threshold, not after a fresh threshold counted from
-// resume.
 func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1115,13 +1099,10 @@ func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Stands in for a task that has genuinely dwelt in "working" for 30
-	// minutes across one or more prior hand watch invocations, before this
-	// process ever started.
 	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
 	task := state.Task{
 		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt: dwelling, StatusChangedAt: dwelling,
+		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "working",
 	}
 	if err := state.Write(home, task); err != nil {
 		t.Fatal(err)
@@ -1131,7 +1112,6 @@ func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 	client := herdr.NewClient()
 	ctx := context.Background()
 
-	// A fresh, empty states map is exactly what a hand watch restart produces.
 	states := make(map[string]*TaskState)
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
@@ -1143,6 +1123,48 @@ func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "stale task-1") {
 		t.Fatalf("output = %q, want stale task-1 on the first classifying tick: the task has genuinely dwelt 30m in one status, already past the 20m threshold, and a restart must not reset that clock to zero", buf.String())
+	}
+}
+
+func TestTickRefusesADurableDwellStampedForADifferentStatus(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "blocked",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	ctx := context.Background()
+
+	states := make(map[string]*TaskState)
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if strings.Contains(buf.String(), "stale task-1") {
+		t.Fatalf("output = %q, want no stale: the 30m stamp was recorded for blocked, so it says nothing about how long working has been held", buf.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StatusChangedFor != "working" || got.StatusChangedAt == dwelling {
+		t.Fatalf("status_changed_at/for = %q/%q, want the dwell restamped for the status actually observed", got.StatusChangedAt, got.StatusChangedFor)
 	}
 }
 
@@ -1226,15 +1248,8 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	}
 }
 
-// TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker covers
-// the third layer of the inherited-bookkeeping family (SPECS.md's "What survives
-// a hand watch restart", the hand promote row): a promoted task keeps CreatedAt,
-// so the identity check that resets state across a torn-down-and-respawned ID
-// never fires here, and the watcher's own long-running in-memory TaskState - not
-// just the on-disk marker a restart would re-read - carries the scout's
-// DoneVerified into the ship run. Clearing the disk field in cmd/promote.go alone
-// is not the fix: syncTaskState's ts.DoneVerified-OR would resurrect it on the
-// very next tick unless the cached copy is forgotten too.
+// A promoted task keeps CreatedAt, so tick's identity check never fires and
+// clearing the disk field in cmd/promote.go alone is not enough.
 func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1323,14 +1338,9 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	}
 }
 
-// TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt is the dwell half
-// of the same hazard the test above covers for DoneVerified: promote keeps
-// CreatedAt, so the identity check never fires, and a watcher already tracking the
-// task still holds the scout's dwell in memory. The ship's first probe here reads
-// the same "working" the scout last held, so no observed transition reseeds
-// ChangedAt - which is exactly why the forget rule cannot be conditioned on one.
-// Without it the write-back puts the scout's half-hour-old stamp back over
-// promote's fresh one, and the ship is stale before its worker has run a second.
+// The ship's first probe reads the same "working" the scout last held, so no
+// observed transition reseeds ChangedAt - which is why the forget rule cannot be
+// conditioned on one.
 func TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1346,7 +1356,7 @@ func TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt(t *testing.T)
 	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
 	if err := state.Write(home, state.Task{
 		ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt: dwelling, StatusChangedAt: dwelling,
+		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "working",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1359,20 +1369,18 @@ func TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt(t *testing.T)
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
-	// hand promote's rewrite: the kind flips, CreatedAt stays, and StatusChangedAt
-	// is restamped for the pane the ship actually runs in.
 	promoted, err := state.Read(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	promoted.Kind = state.KindShip
 	promoted.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
+	promoted.StatusChangedFor = ""
 	if err := state.Write(home, promoted); err != nil {
 		t.Fatal(err)
 	}
 
-	// The ship's first report line moves report_offset, which is what makes the
-	// next tick write task state back at all.
+	// Moves report_offset, which is what makes the next tick write task state at all.
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: starting the ship run\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1387,8 +1395,122 @@ func TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.StatusChangedAt != promoted.StatusChangedAt {
-		t.Fatalf("StatusChangedAt = %q, want promote's stamp %q intact - the cached scout dwell must not be written back over it", got.StatusChangedAt, promoted.StatusChangedAt)
+	if got.StatusChangedAt == dwelling {
+		t.Fatal("status_changed_at = the scout's stamp, want the cached scout dwell not written back over promote's restamp")
+	}
+	stamped, err := time.Parse(time.RFC3339, got.StatusChangedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restamped, err := time.Parse(time.RFC3339, promoted.StatusChangedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped.Before(restamped) {
+		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", got.StatusChangedAt, promoted.StatusChangedAt)
+	}
+	if got.StatusChangedFor != "working" {
+		t.Fatalf("status_changed_for = %q, want the status the ship's dwell was stamped for", got.StatusChangedFor)
+	}
+}
+
+// The latches are what make each announcement fire only once, so any one of them
+// surviving a promote silences that announcement for the ship's own pane.
+func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
+	now := time.Now()
+	scoutDwell := now.Add(-30 * time.Minute)
+	ts := &TaskState{
+		Status:                herdr.StatusWorking,
+		Probed:                true,
+		ChangedAt:             scoutDwell,
+		PersistedChangedAt:    scoutDwell,
+		PersistedChangedFor:   "working",
+		Blocked:               true,
+		Stale:                 true,
+		DoneVerified:          true,
+		PersistedDoneVerified: true,
+		LastReportState:       state.ReportDone,
+		LastReportNote:        "scout findings",
+	}
+
+	promoted := state.Task{
+		ID: "task-1", Kind: state.KindShip,
+		CreatedAt:       scoutDwell.UTC().Format(time.RFC3339),
+		StatusChangedAt: now.UTC().Format(time.RFC3339),
+	}
+	forgetPaneScopedCache(ts, promoted, now)
+
+	if ts.Stale || ts.Blocked {
+		t.Fatalf("Stale = %v, Blocked = %v, want both latches cleared for the ship's new pane", ts.Stale, ts.Blocked)
+	}
+	if ts.DoneVerified || ts.PersistedDoneVerified {
+		t.Fatal("DoneVerified survived, want the scout's verified done forgotten")
+	}
+	if ts.LastReportState != "" || ts.LastReportNote != "" {
+		t.Fatalf("LastReportState/Note = %q/%q, want the scout's report evidence dropped", ts.LastReportState, ts.LastReportNote)
+	}
+	if ts.ChangedAt.Before(now) || !ts.ChangedAt.Equal(ts.PersistedChangedAt) {
+		t.Fatalf("ChangedAt = %s, want a fresh dwell mirrored into PersistedChangedAt (%s)", ts.ChangedAt, ts.PersistedChangedAt)
+	}
+	if ts.PersistedChangedFor != "" {
+		t.Fatalf("PersistedChangedFor = %q, want the disk value mirrored so the next write restamps it", ts.PersistedChangedFor)
+	}
+}
+
+// A promote landing after this tick's state.List but before the write-back is the
+// one window tick's own forget rules structurally cannot see.
+func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	scoutDwell := now.Add(-30 * time.Minute)
+
+	ts := &TaskState{
+		Status:                herdr.StatusWorking,
+		Probed:                true,
+		ChangedAt:             scoutDwell,
+		PersistedChangedAt:    scoutDwell,
+		PersistedChangedFor:   "working",
+		Stale:                 true,
+		DoneVerified:          true,
+		PersistedDoneVerified: true,
+		LastReportState:       state.ReportDone,
+		LastReportNote:        "scout findings",
+		ReportOffset:          42,
+	}
+
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
+		CreatedAt:       scoutDwell.UTC().Format(time.RFC3339),
+		StatusChangedAt: now.UTC().Format(time.RFC3339),
+		ReportOffset:    42,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errBuf bytes.Buffer
+	syncTaskState(home, "task-1", ts, now, &errBuf)
+	if errBuf.Len() != 0 {
+		t.Fatalf("errOut = %q, want a clean write", errBuf.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StatusChangedAt == scoutDwell.UTC().Format(time.RFC3339) {
+		t.Fatal("status_changed_at = the scout's stamp, want promote's restamp not overwritten")
+	}
+	if got.StatusChangedFor != "working" {
+		t.Fatalf("status_changed_for = %q, want the status the persisted dwell belongs to", got.StatusChangedFor)
+	}
+	if got.DoneVerified {
+		t.Fatal("done_verified = true, want the scout's marker not resurrected by the cached copy")
+	}
+	if got.LastReportState != "" || got.LastReportNote != "" {
+		t.Fatalf("last_report_state/note = %q/%q, want the scout's report evidence not written back", got.LastReportState, got.LastReportNote)
+	}
+	if ts.Stale {
+		t.Fatal("ts.Stale = true, want the cached stale latch cleared for the ship's pane")
 	}
 }
 
@@ -1603,10 +1725,7 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 // TestRunUntilEventTakesTheStartupStateAsBaseline is the regression test for the
 // delivery failure of 2026-07-28: the grep-on-first-line wrapper this mode
 // replaces matched a done worker's startup line, took it for a transition, and
-// left the two real events that followed unread for three hours. Whatever the
-// fleet already is when the watcher arms cannot be the event it delivers,
-// including a report line a previous watcher left unconsumed - which is a fresh
-// event to the poll loop, since report_offset still points behind it.
+// left the two real events that followed unread for three hours.
 func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "done")
@@ -1650,9 +1769,8 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
 
-	// The arm-time probe and both baseline ticks have probed the pane, so the
-	// status change below is a transition from the baseline rather than a
-	// different baseline.
+	// Three probes: the arm-time one plus both baseline ticks. Only after them is a
+	// status change a transition rather than a different baseline.
 	waitForPaneGets(t, callLog, 3)
 	setStatus(t, statusFile, "done")
 
@@ -1669,10 +1787,6 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	}
 }
 
-// TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet is issue #75's
-// acceptance test, at the layer that decides it: the signal the previous
-// workaround had to exclude, because a repeating one would wake its caller every
-// poll, is the one this mode has to deliver.
 func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1689,7 +1803,7 @@ func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T
 	done := make(chan error, 1)
 	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
 
-	// The arm-time probe and both baseline ticks have probed the pane.
+	// The arm-time probe plus both baseline ticks.
 	waitForPaneGets(t, callLog, 3)
 	setStatus(t, statusFile, "done")
 
@@ -1749,9 +1863,6 @@ func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
 
 	select {
 	case err := <-done:
-		// A signaled watcher delivered nothing, so it cannot exit 0: the caller
-		// would read the exit as fleet news and go looking for a line that is not
-		// there.
 		if !errors.Is(err, ErrNoEvent) {
 			t.Fatalf("RunUntilEvent = %v, want ErrNoEvent", err)
 		}
@@ -1761,8 +1872,6 @@ func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
 }
 
 func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
-	// Same crashed-or-missing-binary shape as TestRunFailsWhenHerdrUnreachable:
-	// exit 1 with empty stdout.
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1778,10 +1887,6 @@ func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
 	}
 }
 
-// TestRunUntilEventReportsNoEventWhenConnectHangs proves the arm-time herdr
-// reachability probe is bounded by --timeout: before connect raced ctx, a
-// wedged herdr daemon blocked the timeout from ever starting to count, so
-// RunUntilEvent hung forever instead of exiting 4.
 func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
 	bin := t.TempDir()
 	script := "#!/bin/sh\nsleep 5\nprintf '{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}'\n"
@@ -1802,10 +1907,7 @@ func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
 	}
 }
 
-// TestRunUntilEventFailsToArmWhenProbeHangs is connect's counterpart for the
-// per-task probe loop: a pane that never answers must not strand arming past
-// --timeout either.
-func TestRunUntilEventFailsToArmWhenProbeHangs(t *testing.T) {
+func TestRunUntilEventReportsNoEventWhenTheArmProbeHangs(t *testing.T) {
 	bin := t.TempDir()
 	script := `#!/bin/sh
 case "$1 $2" in
@@ -1829,18 +1931,17 @@ esac
 	start := time.Now()
 	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
 
-	if !errors.Is(err, ErrArmFailed) {
-		t.Fatalf("RunUntilEvent = %v, want ErrArmFailed: a hung pane probe must not look armed", err)
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: the timeout passed with nothing delivered, and no single task can be named as the cause", err)
+	}
+	if errors.Is(err, ErrArmFailed) {
+		t.Fatal("a hung arm probe reported ErrArmFailed, whose exit promises the name of the task that could not be reached")
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("returned after %s, want --timeout to bound a hung pane probe", elapsed)
 	}
 }
 
-// TestRunUntilEventFailsToArmWhenATaskCannotBeProbed is Ruling 3 of issue #75's
-// reopening: a watcher that cannot see a worker at arm time must refuse to look
-// armed for it, with an exit distinct from both a delivered event and a timeout,
-// naming the worker it could not reach.
 func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, paneGoneStatus)

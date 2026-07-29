@@ -31,11 +31,6 @@ func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenNoTerminalReport(t
 	}
 }
 
-// TestClassifyStatusIdleUnreportedRefiresOnlyAfterTheWorkerResumesAndStopsAgain
-// holds idle-unreported to an edge, which is what lets hand watch --until-event
-// wake on it: firing every poll while a pane stays quiet is the wake storm that
-// kept it out of the earlier grep-based trigger, and firing once ever would lose
-// the second stop, which is a separate occurrence and a separate wake.
 func TestClassifyStatusIdleUnreportedRefiresOnlyAfterTheWorkerResumesAndStopsAgain(t *testing.T) {
 	for _, notBusy := range notBusyStatuses {
 		now := time.Now()
@@ -207,9 +202,6 @@ func TestClassifyParkedExemptsDoneAndFailed(t *testing.T) {
 	}
 }
 
-// TestClassifyParkedSelectsBoundByLastReport is Ruling 2's split: a worker that
-// named what it is waiting on (paused) earns the long bound, everything else -
-// including a bare working report or no report at all - gets the short one.
 func TestClassifyParkedSelectsBoundByLastReport(t *testing.T) {
 	now := time.Now()
 	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
@@ -231,10 +223,6 @@ func TestClassifyParkedSelectsBoundByLastReport(t *testing.T) {
 	}
 }
 
-// TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth pins the mtime latch
-// itself: the same silence episode must not repeat every tick, but a genuinely
-// new episode - the report file growing again after the first parked firing,
-// then falling silent a second time - must be allowed to fire again.
 func TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth(t *testing.T) {
 	now := time.Now()
 	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}

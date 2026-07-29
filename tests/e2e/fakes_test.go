@@ -169,12 +169,8 @@ func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs)
 // exit or an error envelope. This fake always succeeds for both, mirroring
 // the real success shape; the failure path is exercised for real elsewhere
 // (see cmd/status_test.go's writeFakeHerdrPaneStatus for the full contract).
-// Each "pane get" is appended to logPath so the test can tell "the watcher has
-// polled this pane" apart from "the watcher hasn't got there yet". It is logged
-// after the status read, not by writeFakeDispatch before the dispatch: a test
-// that publishes a new status on seeing the poll would otherwise still be racing
-// that poll's own read, and a status change swallowed into the seeding tick is a
-// transition that never fires.
+// Each "pane get" is logged after the status read, never before: a test waiting on
+// the Nth poll before publishing would otherwise still be racing that poll's read.
 func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	t.Helper()
 	body := fmt.Sprintf(`  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
@@ -186,11 +182,8 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 
-// writeFakeHerdrUnprobeablePanes writes a herdr fake that is reachable but
-// answers no pane: the shape `hand watch --until-event` has to refuse to arm on,
-// since a task it cannot see has no transition to ever deliver. Real herdr's
-// failure is a non-zero exit with the reason on stderr (cmd/status_test.go's
-// writeFakeHerdrPaneStatus documents the full contract).
+// writeFakeHerdrUnprobeablePanes is reachable but answers no pane, in real herdr's
+// failure shape (cmd/status_test.go's writeFakeHerdrPaneStatus has the contract).
 func writeFakeHerdrUnprobeablePanes(t *testing.T, dir string) {
 	t.Helper()
 	body := `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;

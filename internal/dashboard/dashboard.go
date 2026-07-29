@@ -262,9 +262,6 @@ func FormatAge(createdAt string) string {
 	return FormatDuration(time.Since(t))
 }
 
-// FormatDuration renders d in the same compact form FormatAge uses, for callers
-// that already have an elapsed duration rather than a timestamp to parse - the
-// watcher's silence age among them.
 func FormatDuration(d time.Duration) string {
 	switch {
 	case d < time.Minute:

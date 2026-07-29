@@ -87,9 +87,6 @@ func TestWatchRejectsInvalidStaleThresholdConfig(t *testing.T) {
 	}
 }
 
-// TestWatchUntilEventExitsFourWhenNoEventOccurs pins the exit code an armed
-// watcher reports a quiet window with. It has to differ from both 0, which the
-// caller reads as a delivered event, and 1, which is the watcher itself failing.
 func TestWatchUntilEventExitsFourWhenNoEventOccurs(t *testing.T) {
 	setupWatchHome(t)
 

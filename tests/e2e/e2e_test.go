@@ -187,9 +187,9 @@ func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 	return b.waitForExit(t, timeout, "SIGTERM")
 }
 
-// waitForExit reaps a process expected to exit on its own. That exit is the
-// whole delivery mechanism of `hand watch --until-event`, so a test asserting on
-// it must observe the real process ending, not a signal ending it.
+// waitForExit reaps a process expected to exit on its own, unlike stop: that exit
+// is the whole delivery mechanism of `hand watch --until-event`, so it has to be
+// observed rather than caused by a signal.
 func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, because string) invocation {
 	t.Helper()
 	b.reaping = true
@@ -221,9 +221,6 @@ func waitForInvocation(t *testing.T, logPath, substr string, timeout time.Durati
 	waitForInvocations(t, logPath, substr, 1, timeout)
 }
 
-// waitForInvocations is waitForInvocation for a call a test needs to have
-// happened more than once, such as both of the baseline ticks `hand watch
-// --until-event` takes before it can deliver anything.
 func waitForInvocations(t *testing.T, logPath, substr string, want int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

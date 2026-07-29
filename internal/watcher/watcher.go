@@ -29,19 +29,14 @@ type Config struct {
 	PollInterval   time.Duration
 	StaleThreshold time.Duration
 	// Timeout bounds RunUntilEvent only. Zero blocks until an event arrives.
-	Timeout time.Duration
-	// ParkedBounds bounds how long a task may sit silent, split by its last
-	// report, before ClassifyParked flags it. See events.go.
+	Timeout      time.Duration
 	ParkedBounds ParkedBounds
 }
 
-// ErrNoEvent reports a RunUntilEvent that stopped without delivering an event
-// (timeout or signal) - distinct from a delivered event or a watcher failure.
 var ErrNoEvent = errors.New("no event")
 
-// ErrArmFailed reports a RunUntilEvent that could not probe every active
-// task's pane before arming: unlike tick's per-tick skip for the streaming
-// watcher, an exit here must mean the fleet was actually watched.
+// ErrArmFailed names the one task whose pane could not be probed at arm time, so
+// an exit from RunUntilEvent always means the whole fleet was actually watched.
 var ErrArmFailed = errors.New("could not arm")
 
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is
@@ -70,17 +65,12 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 }
 
-// RunUntilEvent blocks until the poll loop's first tick produces events, writes
-// them to out, and returns nil - the exit is the delivery, since it's the one
-// signal a supervisory agent's background-task runner already honors.
-//
-// The startup state is never delivered: two ticks take a silent baseline first,
-// so an already-done worker isn't mistaken for a fresh transition the way a
-// grep-for-first-line wrapper was. Baseline events still reach events.log and
-// the dashboard, just not stdout.
-//
-// Returns ErrNoEvent when cfg.Timeout elapses or ctx is canceled, and an error
-// only when the watcher itself failed.
+// RunUntilEvent blocks until a tick produces events, writes them to out, and
+// returns nil - the exit is the delivery, since it's the one signal a supervisory
+// agent's background-task runner already honors. The startup state is never
+// delivered: two ticks take a silent baseline first, so an already-done worker
+// isn't mistaken for a fresh transition. Baseline events still reach events.log
+// and the dashboard, just not stdout.
 func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -122,10 +112,8 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	}
 }
 
-// connect races herdr's reachability probe against ctx: unbounded, a wedged
+// connect races the reachability probe against ctx because unbounded, a wedged
 // herdr daemon blocks RunUntilEvent's --timeout from ever starting to count.
-// A lost race abandons the stuck call rather than waiting on it - herdr owns
-// that process's lifetime, and the caller is about to exit either way.
 func connect(ctx context.Context) (*herdr.Client, error) {
 	client := herdr.NewClient()
 	done := make(chan error, 1)
@@ -142,9 +130,10 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 }
 
 // probeAllTasks confirms every active task's pane answers before RunUntilEvent
-// arms: unlike the streaming Run's per-tick tolerance, an unprobed task here
-// would otherwise wait out the timeout with no distinguishing signal. Raced
-// against ctx for the same reason connect is.
+// arms, since an unprobed task would otherwise wait out the timeout with no
+// distinguishing signal. Losing the race against ctx is ErrNoEvent, not
+// ErrArmFailed: the window is simply over and no single task can be named as the
+// cause the way ErrArmFailed's exit promises.
 func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error {
 	tasks, err := state.List(home)
 	if err != nil {
@@ -162,7 +151,10 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 	}()
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("%w: timed out probing tasks: %s", ErrArmFailed, ctx.Err())
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("%w: timed out probing tasks before arming", ErrNoEvent)
+		}
+		return fmt.Errorf("%w: interrupted while probing tasks before arming", ErrNoEvent)
 	case err := <-done:
 		return err
 	}
@@ -200,32 +192,11 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			if probeErr != nil {
 				continue
 			}
-			states[t.ID] = resumeTaskState(cfg.Home, t, status, now, errOut)
+			states[t.ID] = resumeTaskState(t, status, now)
 			continue
 		}
 
-		// A verified-done marker only ever regresses from true to false on disk
-		// through a rewrite outside the watcher - the watcher itself only ever sets
-		// it true. hand promote clearing it for a task's new ship run is that
-		// rewrite, and CreatedAt is unchanged so the identity check above doesn't
-		// catch it. Forget the cached copy too, or syncTaskState's OR would
-		// resurrect the marker promote just cleared.
-		if !t.DoneVerified && ts.DoneVerified {
-			ts.DoneVerified = false
-			ts.PersistedDoneVerified = false
-		}
-
-		// Same rewrite, same blind spot: promote restamps status_changed_at for the
-		// ship's new pane, and the cached scout-era dwell would be written straight
-		// back over it. The trigger is the disk value diverging from what this
-		// watcher last persisted, not the newly observed status differing - a ship
-		// whose first probe happens to read the status the scout last held would
-		// otherwise keep the dwell promote just cleared.
-		if t.StatusChangedAt != "" && t.StatusChangedAt != ts.PersistedChangedAt.UTC().Format(time.RFC3339) {
-			seed := statusChangeSeed(t, now)
-			ts.ChangedAt = seed
-			ts.PersistedChangedAt = seed
-		}
+		forgetPaneScopedCache(ts, t, now)
 
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
@@ -253,7 +224,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
 			handleEvent(cfg, e, t, out, errOut)
 		}
-		syncTaskState(cfg.Home, t.ID, ts, errOut)
+		syncTaskState(cfg.Home, t.ID, ts, now, errOut)
 	}
 
 	for id := range states {
@@ -263,25 +234,16 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 }
 
-// resumeTaskState picks up where a previous hand watch left off rather than
-// starting cold. Every fact the watcher announces comes back from the task's
-// durable state, never re-derived from current evidence: the report offset, the
-// merge its own gh poll announced, and the verified done. Re-deriving any of
-// them lets evidence that landed while the watcher was down (hand merge writing
-// merged, say) look like an announcement that already went out.
-//
-// What is deliberately re-derived, and why that is safe, is enumerated in
-// SPECS.md's "What survives a hand watch restart". The last reported state is
-// one of them: it is re-read from the report file - itself durable - so a pane
-// found not-busy after a restart isn't mistaken for an unexplained stop. It is the
-// last line that classified, not simply the last line, so a trailing malformed one
-// doesn't erase what the worker did report, exactly as the live path refuses to. An
-// unreadable report is reported as such, never quietly treated as "this worker
-// never reported".
-func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Time, errOut io.Writer) *TaskState {
-	changedAt := statusChangeSeed(t, now)
+// Every fact resumeTaskState restores comes from durable state, never re-derived
+// from current evidence: evidence that landed while the watcher was down (hand
+// merge writing merged, say) would otherwise look like an announcement that
+// already went out. SPECS.md's "What survives a hand watch restart" enumerates
+// what is deliberately re-derived instead, and why that is safe.
+func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskState {
+	changedAt := statusChangeSeed(t, status, now)
 	ts := NewTaskState(status, changedAt)
 	ts.PersistedChangedAt = changedAt
+	ts.PersistedChangedFor = t.StatusChangedFor
 	ts.CreatedAt = t.CreatedAt
 	ts.ReportOffset = t.ReportOffset
 	ts.PersistedOffset = t.ReportOffset
@@ -289,17 +251,37 @@ func resumeTaskState(home string, t state.Task, status herdr.Status, now time.Ti
 	ts.PersistedPRMerged = t.MergeAnnounced
 	ts.DoneVerified = t.DoneVerified
 	ts.PersistedDoneVerified = t.DoneVerified
-
-	lines, err := state.ReadReportLines(home, t.ID)
-	if err != nil {
-		_, _ = fmt.Fprintf(errOut, "watch: read report for %s failed: %v\n", t.ID, err)
-		return ts
-	}
-	if last, ok := state.LastReportedState(lines); ok {
-		ts.LastReportState = last.State
-		ts.LastReportNote = last.Note
-	}
+	ts.LastReportState = t.LastReportState
+	ts.LastReportNote = t.LastReportNote
 	return ts
+}
+
+// forgetPaneScopedCache drops the cached facts hand promote invalidated: it gives
+// the task a new herdr pane while keeping created_at, so tick's identity check
+// never fires, yet every pane-anchored fact cached here describes a pane the task
+// no longer has. The trigger is the disk value diverging from what this watcher
+// persisted, not the newly observed status differing - a ship whose first probe
+// reads the status the scout last held raises no transition at all.
+func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
+	// Compared against the persisted mirror, not the live flag: the watcher only ever
+	// sets the flag true, so a disk value that has gone false since this watcher last
+	// wrote true is such a rewrite - whereas a flag set true earlier in this very tick
+	// is simply not persisted yet, and syncTaskState's OR is how it gets there.
+	if !t.DoneVerified && ts.PersistedDoneVerified {
+		ts.DoneVerified = false
+		ts.PersistedDoneVerified = false
+	}
+	if t.StatusChangedAt == "" || t.StatusChangedAt == ts.PersistedChangedAt.UTC().Format(time.RFC3339) {
+		return
+	}
+	seed := statusChangeSeed(t, ts.Status, now)
+	ts.ChangedAt = seed
+	ts.PersistedChangedAt = seed
+	ts.PersistedChangedFor = t.StatusChangedFor
+	ts.Stale = false
+	ts.Blocked = false
+	ts.LastReportState = t.LastReportState
+	ts.LastReportNote = t.LastReportNote
 }
 
 // tailReport classifies whatever report lines have arrived since ts.ReportOffset,
@@ -335,15 +317,15 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 	return t
 }
 
-// statusChangeSeed answers how long a task has already been dwelling in its
-// current herdr status when hand watch first tracks it, so a restart does not
-// artificially reset a dwell that has been real all along - the same hazard
-// ClassifyParked's mtime anchor exists to avoid (see its doc comment).
-// StatusChangedAt is durable evidence of the last observed transition; a task
-// that has never had one dwells in its first status exactly as long as it has
-// existed, so CreatedAt is the honest answer instead.
-func statusChangeSeed(t state.Task, now time.Time) time.Time {
+// statusChangeSeed answers how long a task has already been dwelling in status, so
+// a restart does not reset a dwell that has been real all along. StatusChangedAt
+// is only evidence about the status it was stamped for; a task with no observed
+// transition at all has been dwelling since CreatedAt.
+func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Time {
 	if t.StatusChangedAt != "" {
+		if t.StatusChangedFor != string(status) {
+			return now
+		}
 		if parsed, err := time.Parse(time.RFC3339, t.StatusChangedAt); err == nil {
 			return parsed
 		}
@@ -354,9 +336,6 @@ func statusChangeSeed(t state.Task, now time.Time) time.Time {
 	return now
 }
 
-// reportEvidenceTime anchors ClassifyParked's silence clock to the report
-// file's own mtime, untouched by a watcher restart; a task that has never
-// reported falls back to its creation time.
 func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 	info, err := os.Stat(state.ReportPath(home, t.ID))
 	if err == nil {
@@ -372,8 +351,6 @@ func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 	return created, nil
 }
 
-// lastReportLine renders the same state+note ts already tracks for the idle
-// classifier, rather than re-reading the report file.
 func lastReportLine(ts *TaskState) string {
 	if ts.LastReportState == "" {
 		return "no report"
@@ -528,9 +505,10 @@ func recordedByLockHolder(home, id, url string) error {
 // gh round-trips, and the poll loop - which owes every other task a timely tick,
 // and its own ctx a prompt exit that flock can't honor - must not queue behind it.
 // Everything written here is re-derivable, so a skipped write just retries.
-func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
+func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writer) {
 	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged &&
-		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) {
+		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) &&
+		ts.PersistedChangedFor == string(ts.Status) {
 		return
 	}
 
@@ -548,10 +526,18 @@ func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
 		_, _ = fmt.Fprintf(errOut, "watch: read task %s failed: %v\n", id, err)
 		return
 	}
+	// A promote may have landed since this tick's state.List. Writing the cached
+	// values back would erase its restamp and leave the disk value matching what
+	// this watcher persisted, so no later tick would find anything to forget either.
+	forgetPaneScopedCache(ts, t, now)
+
 	t.ReportOffset = ts.ReportOffset
 	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
 	t.DoneVerified = t.DoneVerified || ts.DoneVerified
 	t.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
+	t.StatusChangedFor = string(ts.Status)
+	t.LastReportState = ts.LastReportState
+	t.LastReportNote = ts.LastReportNote
 	if err := state.Write(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
@@ -560,6 +546,7 @@ func syncTaskState(home, id string, ts *TaskState, errOut io.Writer) {
 	ts.PersistedPRMerged = ts.PRMerged
 	ts.PersistedDoneVerified = ts.DoneVerified
 	ts.PersistedChangedAt = ts.ChangedAt
+	ts.PersistedChangedFor = string(ts.Status)
 }
 
 func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
@@ -627,8 +614,6 @@ func dashboardRowFor(e *Event, age string) (dashboardRow, error) {
 		return dashboardRow{Written: true, State: KindFailed}, nil
 	case KindReportPaused:
 		return dashboardRow{Written: true, State: KindReportPaused}, nil
-	// Same shape as idle-unreported and blocked: a live pane sitting quiet earns
-	// a row and a Pending Decisions slot.
 	case KindParked:
 		return dashboardRow{Written: true, State: KindParked, Pending: e.Reason}, nil
 	case KindReportFailed:

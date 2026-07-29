@@ -48,11 +48,17 @@ type Task struct {
 	DoneVerified bool   `json:"done_verified"`
 	CreatedAt    string `json:"created_at"`
 	// StatusChangedAt is when hand watch last observed the task's herdr agent
-	// status actually change. Durable for the same reason ReportOffset is: a
-	// dwell clock reseeded to "now" on every restart never accumulates past a
-	// threshold that resumes more often than it elapses, silencing the stale
-	// check it is supposed to bound. Empty until the first observed transition,
-	// in which case the dwell is seeded from CreatedAt instead - see
-	// ClassifyStale's caller in internal/watcher/watcher.go.
-	StatusChangedAt string `json:"status_changed_at"`
+	// status change, and StatusChangedFor the status it was stamped for. Durable
+	// for the same reason ReportOffset is: a dwell clock reseeded to "now" on every
+	// restart never accumulates past a threshold that resumes more often than it
+	// elapses. Only trustworthy while StatusChangedFor still matches the observed
+	// status, since hand promote hands the task a new pane whose identical-looking
+	// status is a new dwell. Empty seeds the dwell from CreatedAt instead.
+	StatusChangedAt  string `json:"status_changed_at"`
+	StatusChangedFor string `json:"status_changed_for"`
+	// LastReportState and LastReportNote are durable so a restart resumes the
+	// scout's deferred-done bookkeeping without re-reading report history it has
+	// already consumed past ReportOffset.
+	LastReportState string `json:"last_report_state"`
+	LastReportNote  string `json:"last_report_note"`
 }

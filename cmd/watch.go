@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -50,31 +49,17 @@ func newWatchCmd() *cobra.Command {
 				return usageValue(pollFromFlag, fmt.Errorf("invalid poll interval %q: %w", poll, err))
 			}
 
-			staleThreshold := defaultStaleThreshold
-			if raw := configDefault(home, "stale-threshold", ""); raw != "" {
-				seconds, err := strconv.Atoi(raw)
-				if err != nil {
-					return fmt.Errorf("invalid config/stale-threshold %q: %w", raw, err)
-				}
-				staleThreshold = time.Duration(seconds) * time.Second
+			staleThreshold, err := configSeconds(home, "stale-threshold", defaultStaleThreshold)
+			if err != nil {
+				return err
 			}
-
-			parkedPausedBound := defaultParkedPausedBound
-			if raw := configDefault(home, "parked-paused-bound", ""); raw != "" {
-				seconds, err := strconv.Atoi(raw)
-				if err != nil {
-					return fmt.Errorf("invalid config/parked-paused-bound %q: %w", raw, err)
-				}
-				parkedPausedBound = time.Duration(seconds) * time.Second
+			parkedPausedBound, err := configSeconds(home, "parked-paused-bound", defaultParkedPausedBound)
+			if err != nil {
+				return err
 			}
-
-			parkedOtherBound := defaultParkedOtherBound
-			if raw := configDefault(home, "parked-other-bound", ""); raw != "" {
-				seconds, err := strconv.Atoi(raw)
-				if err != nil {
-					return fmt.Errorf("invalid config/parked-other-bound %q: %w", raw, err)
-				}
-				parkedOtherBound = time.Duration(seconds) * time.Second
+			parkedOtherBound, err := configSeconds(home, "parked-other-bound", defaultParkedOtherBound)
+			if err != nil {
+				return err
 			}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
