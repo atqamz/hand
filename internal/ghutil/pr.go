@@ -69,9 +69,13 @@ func (e *AmbiguousPRError) Error() string {
 // A tier with more than one match is ambiguous and returns AmbiguousPRError
 // naming every candidate, rather than guessing (atqamz/secondhand#77) - the
 // same guess that let cmd/teardown.go's landed-work guard trust a merged PR
-// while the branch's real state was closed-unmerged.
+// while the branch's real state was closed-unmerged. That rule is only sound
+// on the complete set of PRs for the head ref, so --limit is stated explicitly
+// rather than left on gh pr list's implicit 30: the cap is set far above any
+// realistic count for one branch, so a same-tier duplicate cannot be truncated
+// out of the page and silently resolve as a single winner.
 func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, merged bool, found bool, err error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", repoSlug, "--head", branch, "--state", "all", "--json", "number,url,state")
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", repoSlug, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

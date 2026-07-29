@@ -58,7 +58,7 @@ func TestPRIsMergedReportsExitStatusWithoutStderr(t *testing.T) {
 	}
 }
 
-// writeFakeGHPRList fakes `gh pr list --json url,state`, emitting a stderr
+// writeFakeGHPRList fakes `gh pr list --json number,url,state`, emitting a stderr
 // line ahead of the JSON array payload for the same reason writeFakeGHPRView
 // does: a CombinedOutput regression at the call site must fail the parse.
 func writeFakeGHPRList(t *testing.T, body string, exitCode int, stderrLine string) {
