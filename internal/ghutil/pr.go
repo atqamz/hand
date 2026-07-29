@@ -65,15 +65,18 @@ func (e *AmbiguousPRError) Error() string {
 //
 // A branch can carry more than one PR (a closed-unmerged one plus a reopened
 // replacement, say), so results are resolved by preference tier rather than
-// picked arbitrarily: merged wins over open, open wins over closed-unmerged.
-// A tier with more than one match is ambiguous and returns AmbiguousPRError
-// naming every candidate, rather than guessing (atqamz/secondhand#77) - the
-// same guess that let cmd/teardown.go's landed-work guard trust a merged PR
-// while the branch's real state was closed-unmerged. That rule is only sound
-// on the complete set of PRs for the head ref, so --limit is stated explicitly
-// rather than left on gh pr list's implicit 30: the cap is set far above any
-// realistic count for one branch, so a same-tier duplicate cannot be truncated
-// out of the page and silently resolve as a single winner.
+// picked arbitrarily: merged wins over closed-unmerged. A tier with more than
+// one match is ambiguous, and so is a merged PR coexisting with an open one:
+// an open PR on the same head ref is live evidence the branch may still carry
+// unlanded work, so that mix refuses rather than resolving to the merged PR.
+// Either case returns AmbiguousPRError naming every candidate, rather than
+// guessing (atqamz/secondhand#77) - the same guess that let
+// cmd/teardown.go's landed-work guard trust a merged PR while the branch's
+// real state was closed-unmerged. That rule is only sound on the complete
+// set of PRs for the head ref, so --limit is stated explicitly rather than
+// left on gh pr list's implicit 30: the cap is set far above any realistic
+// count for one branch, so a same-tier duplicate cannot be truncated out of
+// the page and silently resolve as a single winner.
 func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, merged bool, found bool, err error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", repoSlug, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state")
 	var stderr bytes.Buffer
@@ -90,27 +93,41 @@ func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, m
 		return "", false, false, nil
 	}
 
-	for _, tier := range []string{"MERGED", "OPEN", "CLOSED"} {
-		var matches []prListItem
-		for _, r := range results {
-			if r.State == tier {
-				matches = append(matches, r)
-			}
+	var mergedPRs, openPRs, closedPRs []prListItem
+	for _, r := range results {
+		switch r.State {
+		case "MERGED":
+			mergedPRs = append(mergedPRs, r)
+		case "OPEN":
+			openPRs = append(openPRs, r)
+		case "CLOSED":
+			closedPRs = append(closedPRs, r)
 		}
+	}
+
+	if len(mergedPRs) > 0 && len(openPRs) > 0 {
+		return "", false, false, ambiguousPRError(branch, append(append([]prListItem{}, mergedPRs...), openPRs...))
+	}
+
+	for _, matches := range [][]prListItem{mergedPRs, openPRs, closedPRs} {
 		switch len(matches) {
 		case 0:
 			continue
 		case 1:
 			return matches[0].URL, matches[0].State == "MERGED", true, nil
 		default:
-			candidates := make([]PRCandidate, len(matches))
-			for i, m := range matches {
-				candidates[i] = PRCandidate{Number: m.Number, State: m.State}
-			}
-			return "", false, false, &AmbiguousPRError{Branch: branch, Candidates: candidates}
+			return "", false, false, ambiguousPRError(branch, matches)
 		}
 	}
 	return "", false, false, fmt.Errorf("gh pr list returned no PR in a recognized state for branch %s", branch)
+}
+
+func ambiguousPRError(branch string, matches []prListItem) *AmbiguousPRError {
+	candidates := make([]PRCandidate, len(matches))
+	for i, m := range matches {
+		candidates[i] = PRCandidate{Number: m.Number, State: m.State}
+	}
+	return &AmbiguousPRError{Branch: branch, Candidates: candidates}
 }
 
 // prListItem is one entry of `gh pr list --json number,url,state`.

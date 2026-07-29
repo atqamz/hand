@@ -138,6 +138,25 @@ func TestFindPRByBranchRefusesTwoMergedPRs(t *testing.T) {
 	}
 }
 
+// TestFindPRByBranchRefusesMergedAndOpenPR proves a branch carrying both a
+// merged PR and a still-open one refuses rather than resolving to the merged
+// PR: the open PR is live evidence the branch may carry unlanded work.
+func TestFindPRByBranchRefusesMergedAndOpenPR(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
+		`{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"OPEN"}]`, 0, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 2 {
+		t.Fatalf("Candidates = %+v, want both PR 5 and PR 9 named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "#5") || !strings.Contains(err.Error(), "#9") {
+		t.Fatalf("got %q, want both PR numbers named", err.Error())
+	}
+}
+
 func TestFindPRByBranchNoMatch(t *testing.T) {
 	writeFakeGHPRList(t, `[]`, 0, "")
 	_, _, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")

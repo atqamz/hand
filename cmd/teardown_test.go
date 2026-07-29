@@ -304,6 +304,38 @@ func TestTeardownRefusesAmbiguousBranch(t *testing.T) {
 	}
 }
 
+// TestTeardownRefusesMergedAndOpenPR proves a branch carrying both a merged PR
+// and a still-open one refuses instead of tearing down on the merged PR: the
+// open PR is live evidence the branch may carry unlanded work.
+func TestTeardownRefusesMergedAndOpenPR(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeGHPRListAndView(t,
+		ghFakePR{Number: 5, URL: "https://github.com/owner/repo/pull/5", State: "MERGED"},
+		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	var ambiguous *ghutil.AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if !strings.Contains(err.Error(), "#5") || !strings.Contains(err.Error(), "#9") {
+		t.Fatalf("got %q, want both PR numbers named", err.Error())
+	}
+
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after refused teardown, want it left in place: %v %v", exists, err)
+	}
+}
+
 func setupTeardownHome(t *testing.T) (home, worktree string) {
 	t.Helper()
 	home = t.TempDir()
