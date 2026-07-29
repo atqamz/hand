@@ -186,6 +186,18 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 
+// writeFakeHerdrUnprobeablePanes writes a herdr fake that is reachable but
+// answers no pane: the shape `hand watch --until-event` has to refuse to arm on,
+// since a task it cannot see has no transition to ever deliver. Real herdr's
+// failure is a non-zero exit with the reason on stderr (cmd/status_test.go's
+// writeFakeHerdrPaneStatus documents the full contract).
+func writeFakeHerdrUnprobeablePanes(t *testing.T, dir string) {
+	t.Helper()
+	body := `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
+  "pane get") echo "herdr: pane $3 not found" >&2; exit 1 ;;`
+	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
+}
+
 // setPaneStatus publishes a pane's status by atomic rename: the fake herdr
 // cats these files from a concurrently polling `hand watch`, and a truncating
 // in-place write would let it read a phantom empty status mid-update.

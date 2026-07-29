@@ -132,11 +132,13 @@ func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 
 	watch := startHandBackground(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "60s")
 
-	// Two polls of each pane: the first tick seeds, the second consumes the
-	// report backlog. Only after both is the watcher armed, so a status change
-	// now is a transition rather than a different baseline.
-	waitForInvocations(t, herdrLog, "herdr pane get pane-1", 2, 5*time.Second)
-	waitForInvocations(t, herdrLog, "herdr pane get pane-2", 2, 5*time.Second)
+	// Three polls of each pane: the arm-time probe, then the tick that seeds
+	// tracking, then the tick that consumes the report backlog. Only after all
+	// three is the watcher armed - publishing a status before the seeding tick
+	// has read the pane makes the new value the baseline, and the transition the
+	// test is waiting on never happens.
+	waitForInvocations(t, herdrLog, "herdr pane get pane-1", 3, 5*time.Second)
+	waitForInvocations(t, herdrLog, "herdr pane get pane-2", 3, 5*time.Second)
 
 	setPaneStatus(t, statusDir, "pane-1", "done")
 
@@ -192,5 +194,70 @@ func TestWatchUntilEventTimesOutWithADistinctCode(t *testing.T) {
 	}
 	if strings.TrimSpace(got.stdout) != "" {
 		t.Fatalf("stdout = %q, want events only, never the timeout notice", got.stdout)
+	}
+}
+
+// TestWatchUntilEventFailsToArmWithADistinctCode covers the third exit the
+// re-arm loop can see. A worker that can't be probed would otherwise burn the
+// whole `--timeout` and come back as a quiet fleet, so the generous timeout here
+// is the assertion: exit 5 has to arrive well before it, naming the worker.
+func TestWatchUntilEventFailsToArmWithADistinctCode(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFakeHerdrUnprobeablePanes(t, binDir(t))
+
+	got := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "10s")
+	if got.code != 5 {
+		t.Fatalf("exit = %d, want 5 for a task that could not be probed at arm time (stdout %q, stderr %q)", got.code, got.stdout, got.stderr)
+	}
+	if !strings.Contains(got.stderr, "task-1") {
+		t.Fatalf("stderr = %q, want the unreachable worker named: the caller has nothing on stdout to go on", got.stderr)
+	}
+	if strings.TrimSpace(got.stdout) != "" {
+		t.Fatalf("stdout = %q, want nothing: arming never completed, so no fleet news was delivered", got.stdout)
+	}
+}
+
+// TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent covers the one
+// trigger no herdr transition can produce: the pane stays "working" for the whole
+// run, so a watcher that only ever classified status changes would sit here until
+// its timeout while the worker was already gone.
+func TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	writeConfig(t, home, "parked-other-bound", "2")
+
+	if err := state.Write(home, state.Task{
+		ID: "slow-migration", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Fresh enough that the baseline absorbs nothing: the bound is crossed while
+	// the poll loop is running, which is the case the caller is blocking on.
+	if err := os.WriteFile(state.ReportPath(home, "slow-migration"), []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "working")
+	writeFakeHerdrWatch(t, binDir(t), statusDir, filepath.Join(t.TempDir(), "herdr-invocations.log"))
+
+	got := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "30s")
+	if got.code != 0 {
+		t.Fatalf("exit = %d, want 0 for a delivered parked event (stdout %q, stderr %q)", got.code, got.stdout, got.stderr)
+	}
+	if !strings.Contains(got.stdout, "parked slow-migration: working: still on the migration") {
+		t.Fatalf("stdout = %q, want the parked line carrying the worker's last report", got.stdout)
 	}
 }
