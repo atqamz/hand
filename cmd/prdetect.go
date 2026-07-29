@@ -60,11 +60,14 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 // lock on the task, so it takes its own non-blocking one - mirroring the watcher's
 // own recordAutoPR - and re-reads the task under it in case a concurrent hand pr or
 // teardown recorded a PR first. It never fails the command: a task with no branch,
-// an unregistered or local-only project, a lock held elsewhere, or a failed gh call
-// all just leave t as read, so a forge round trip on an already-recorded PR is the
-// only cost this can ever add, and only that task pays it once. A scout task never
-// answers for a PR - its deliverable is data/<id>/report.md - so it skips the
-// lookup entirely, the same short-circuit checkLandedWork opens with.
+// an unregistered or local-only project, a lock held elsewhere, a branch whose PRs
+// are ambiguous, or a failed gh call all just leave t as read, so a forge round trip
+// on an already-recorded PR is the only cost this can ever add, and only that task
+// pays it once. Unlike hand teardown's landed-work guard, nothing here is gated on
+// the answer, so an ambiguous branch degrades like any other detection failure
+// instead of refusing. A scout task never answers for a PR - its deliverable is
+// data/<id>/report.md - so it skips the lookup entirely, the same short-circuit
+// checkLandedWork opens with.
 func detectPRForStatus(ctx context.Context, home string, t state.Task) state.Task {
 	if t.PR != "" || t.Kind == state.KindScout {
 		return t

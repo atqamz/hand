@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -145,8 +146,18 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		// is not this command's failure to report: it falls through to the same
 		// "no PR recorded" refusal below that a project with no detection at all
 		// would have gotten.
+		//
+		// An ambiguous branch is a different failure and must not fall through the
+		// same way: "no PR recorded" reads as unlanded, but ambiguous means unknown,
+		// and picking either meaning here for the operator is the guess atqamz/secondhand#77
+		// exists to remove.
 		if exists {
-			if detected, err := detectPR(ctx, home, t, proj); err == nil {
+			detected, err := detectPR(ctx, home, t, proj)
+			var ambiguous *ghutil.AmbiguousPRError
+			if errors.As(err, &ambiguous) {
+				return t, &ExitError{Err: fmt.Errorf("PR for %s is ambiguous, refusing to guess: %w", t.ID, ambiguous), Code: 3}
+			}
+			if err == nil {
 				t = detected
 			}
 		}

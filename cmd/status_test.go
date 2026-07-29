@@ -194,7 +194,7 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
 	writeFakeHerdrPaneStatus(t, "idle")
-	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
 		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -228,7 +228,7 @@ func TestStatusDetectionFillsTheDashboardPRColumn(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
 	writeFakeHerdrPaneStatus(t, "idle")
-	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
 	dashPath := filepath.Join(home, "data", "dashboard.md")
 	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
@@ -265,7 +265,7 @@ func TestStatusDetectionSucceedsWithNoDashboardRow(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
 	writeFakeHerdrPaneStatus(t, "idle")
-	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
 		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -292,7 +292,7 @@ func TestStatusSkipsPRDetectionForScoutTasks(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
 	writeFakeHerdrPaneStatus(t, "idle")
-	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "OPEN")
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout, Worktree: worktree, Project: "myproj",
 		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {

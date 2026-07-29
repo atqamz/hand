@@ -2,6 +2,7 @@ package ghutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ func TestPRIsMergedReportsExitStatusWithoutStderr(t *testing.T) {
 	}
 }
 
-// writeFakeGHPRList fakes `gh pr list --json url,state`, emitting a stderr
+// writeFakeGHPRList fakes `gh pr list --json number,url,state`, emitting a stderr
 // line ahead of the JSON array payload for the same reason writeFakeGHPRView
 // does: a CombinedOutput regression at the call site must fail the parse.
 func writeFakeGHPRList(t *testing.T, body string, exitCode int, stderrLine string) {
@@ -86,6 +87,129 @@ func TestFindPRByBranchReturnsMatch(t *testing.T) {
 	}
 	if !found || url != "https://github.com/owner/repo/pull/5" || !merged {
 		t.Fatalf("got (%q, %v, %v), want the merged PR", url, merged, found)
+	}
+}
+
+// TestFindPRByBranchPrefersMergedOverClosedUnmerged is the atqamz/secondhand#77
+// regression: a branch carrying a merged PR alongside a closed-unmerged one
+// (a duplicate opened by mistake, say) must resolve to the merged PR rather
+// than an arbitrary pick.
+func TestFindPRByBranchPrefersMergedOverClosedUnmerged(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"},`+
+		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"}]`, 0, "")
+	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || !merged || url != "https://github.com/owner/repo/pull/5" {
+		t.Fatalf("got (%q, %v, %v), want the merged PR", url, merged, found)
+	}
+}
+
+// TestFindPRByBranchReturnsSoleClosedUnmergedPR proves a branch with only a
+// closed-unmerged PR still resolves to it rather than treating the tier rule
+// as requiring a merged candidate to exist.
+func TestFindPRByBranchReturnsSoleClosedUnmergedPR(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"}]`, 0, "")
+	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || merged || url != "https://github.com/owner/repo/pull/9" {
+		t.Fatalf("got (%q, %v, %v), want the sole closed-unmerged PR unmerged", url, merged, found)
+	}
+}
+
+// TestFindPRByBranchRefusesTwoMergedPRs proves an ambiguous winning tier
+// refuses rather than picking either candidate.
+func TestFindPRByBranchRefusesTwoMergedPRs(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"MERGED"},`+
+		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"}]`, 0, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 2 {
+		t.Fatalf("Candidates = %+v, want both PR 9 and PR 5 named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "#9") || !strings.Contains(err.Error(), "#5") {
+		t.Fatalf("got %q, want both PR numbers named", err.Error())
+	}
+}
+
+// TestFindPRByBranchRefusesTwoMergedPRsNamesClosedCandidateToo proves the
+// same-tier refusal names every PR on the head ref, including one sitting in a
+// losing tier, so the operator resolves the whole branch rather than the pair
+// that happened to trigger the refusal.
+func TestFindPRByBranchRefusesTwoMergedPRsNamesClosedCandidateToo(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":7,"url":"https://github.com/owner/repo/pull/7","state":"MERGED"},`+
+		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
+		`{"number":3,"url":"https://github.com/owner/repo/pull/3","state":"CLOSED"}]`, 0, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 3 {
+		t.Fatalf("Candidates = %+v, want PR 7, PR 5, and PR 3 all named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "#7") || !strings.Contains(err.Error(), "#5") || !strings.Contains(err.Error(), "#3") {
+		t.Fatalf("got %q, want all three PR numbers named", err.Error())
+	}
+}
+
+// TestFindPRByBranchRefusesMergedAndOpenPR proves a branch carrying both a
+// merged PR and a still-open one refuses rather than resolving to the merged
+// PR: the open PR is live evidence the branch may carry unlanded work.
+func TestFindPRByBranchRefusesMergedAndOpenPR(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
+		`{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"OPEN"}]`, 0, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 2 {
+		t.Fatalf("Candidates = %+v, want both PR 5 and PR 9 named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "#5") || !strings.Contains(err.Error(), "#9") {
+		t.Fatalf("got %q, want both PR numbers named", err.Error())
+	}
+}
+
+// TestFindPRByBranchRefusesMergedAndOpenPRNamesClosedCandidateToo proves the
+// merged+open refusal names every candidate on the branch, including a
+// coexisting closed-unmerged PR, not just the merged and open ones.
+func TestFindPRByBranchRefusesMergedAndOpenPRNamesClosedCandidateToo(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
+		`{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"OPEN"},`+
+		`{"number":3,"url":"https://github.com/owner/repo/pull/3","state":"CLOSED"}]`, 0, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 3 {
+		t.Fatalf("Candidates = %+v, want PR 5, PR 9, and PR 3 all named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "#5") || !strings.Contains(err.Error(), "#9") || !strings.Contains(err.Error(), "#3") {
+		t.Fatalf("got %q, want all three PR numbers named", err.Error())
+	}
+}
+
+// TestFindPRByBranchPrefersOpenOverClosedUnmerged pins the open-over-closed
+// tier boundary: with no merged PR on the branch, an open PR beats a
+// closed-unmerged one rather than either being an arbitrary loop-order pick.
+func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"},`+
+		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"OPEN"}]`, 0, "")
+	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || merged || url != "https://github.com/owner/repo/pull/5" {
+		t.Fatalf("got (%q, %v, %v), want the open PR", url, merged, found)
 	}
 }
 

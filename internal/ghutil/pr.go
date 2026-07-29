@@ -34,30 +34,110 @@ func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	return body.State == "MERGED", nil
 }
 
+// PRCandidate names one PR under consideration by FindPRByBranch, for use in
+// an AmbiguousPRError message.
+type PRCandidate struct {
+	Number int
+	State  string
+}
+
+// AmbiguousPRError reports that a branch's PRs do not resolve to a usable
+// winner: either no preference tier yields a single match (two merged, two
+// open, ...), or a merged PR coexists with an open one, which refuses by rule
+// even though the merged tier has a lone match. Candidates names every PR on
+// the head ref, whatever its state, not just the tier that triggered the
+// refusal. FindPRByBranch returns this instead of guessing; the caller decides.
+type AmbiguousPRError struct {
+	Branch     string
+	Candidates []PRCandidate
+}
+
+func (e *AmbiguousPRError) Error() string {
+	parts := make([]string, len(e.Candidates))
+	for i, c := range e.Candidates {
+		parts[i] = fmt.Sprintf("#%d (%s)", c.Number, c.State)
+	}
+	return fmt.Sprintf("ambiguous PR for branch %s: %s", e.Branch, strings.Join(parts, ", "))
+}
+
 // FindPRByBranch reports the PR on repoSlug whose head ref is exactly branch -
 // the only rule hand uses to associate a PR with a task, never a title, issue
 // number or task id. --state all is required because gh pr list defaults to
 // open only, and a gate-opened PR may already be merged or closed by the time
 // hand looks for it; found is false when no PR has that head ref.
+//
+// A branch can carry more than one PR (a closed-unmerged one plus a reopened
+// replacement, say), so results are resolved by preference tier rather than
+// picked arbitrarily: merged, then open, then closed-unmerged. A tier with more
+// than one match is ambiguous, and so is a merged PR coexisting with an open one:
+// an open PR on the same head ref is live evidence the branch may still carry
+// unlanded work, so that mix refuses rather than resolving to the merged PR.
+// Either case returns AmbiguousPRError naming every candidate, rather than
+// guessing (atqamz/secondhand#77) - the same guess that let
+// cmd/teardown.go's landed-work guard trust a merged PR while the branch's
+// real state was closed-unmerged. That rule is only sound on the complete
+// set of PRs for the head ref, so --limit is stated explicitly rather than
+// left on gh pr list's implicit 30: the cap is set far above any realistic
+// count for one branch, so a same-tier duplicate cannot be truncated out of
+// the page and silently resolve as a single winner.
 func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, merged bool, found bool, err error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", repoSlug, "--head", branch, "--state", "all", "--json", "url,state", "--limit", "1")
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", repoSlug, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
 		return "", false, false, fmt.Errorf("gh pr list failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	var results []struct {
-		URL   string `json:"url"`
-		State string `json:"state"`
-	}
+	var results []prListItem
 	if err := json.Unmarshal(out, &results); err != nil {
 		return "", false, false, fmt.Errorf("parse gh pr list output: %w", err)
 	}
 	if len(results) == 0 {
 		return "", false, false, nil
 	}
-	return results[0].URL, results[0].State == "MERGED", true, nil
+
+	var mergedPRs, openPRs, closedPRs []prListItem
+	for _, r := range results {
+		switch r.State {
+		case "MERGED":
+			mergedPRs = append(mergedPRs, r)
+		case "OPEN":
+			openPRs = append(openPRs, r)
+		case "CLOSED":
+			closedPRs = append(closedPRs, r)
+		}
+	}
+
+	if len(mergedPRs) > 0 && len(openPRs) > 0 {
+		return "", false, false, ambiguousPRError(branch, results)
+	}
+
+	for _, matches := range [][]prListItem{mergedPRs, openPRs, closedPRs} {
+		switch len(matches) {
+		case 0:
+			continue
+		case 1:
+			return matches[0].URL, matches[0].State == "MERGED", true, nil
+		default:
+			return "", false, false, ambiguousPRError(branch, results)
+		}
+	}
+	return "", false, false, fmt.Errorf("gh pr list returned no PR in a recognized state for branch %s", branch)
+}
+
+func ambiguousPRError(branch string, matches []prListItem) *AmbiguousPRError {
+	candidates := make([]PRCandidate, len(matches))
+	for i, m := range matches {
+		candidates[i] = PRCandidate{Number: m.Number, State: m.State}
+	}
+	return &AmbiguousPRError{Branch: branch, Candidates: candidates}
+}
+
+// prListItem is one entry of `gh pr list --json number,url,state`.
+type prListItem struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	State  string `json:"state"`
 }
 
 // RepoSlugFromRemote extracts "owner/repo" from a GitHub origin remote URL in
