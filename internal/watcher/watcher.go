@@ -215,6 +215,18 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			ts.PersistedDoneVerified = false
 		}
 
+		// Same rewrite, same blind spot: promote restamps status_changed_at for the
+		// ship's new pane, and the cached scout-era dwell would be written straight
+		// back over it. The trigger is the disk value diverging from what this
+		// watcher last persisted, not the newly observed status differing - a ship
+		// whose first probe happens to read the status the scout last held would
+		// otherwise keep the dwell promote just cleared.
+		if t.StatusChangedAt != "" && t.StatusChangedAt != ts.PersistedChangedAt.UTC().Format(time.RFC3339) {
+			seed := statusChangeSeed(t, now)
+			ts.ChangedAt = seed
+			ts.PersistedChangedAt = seed
+		}
+
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {

@@ -1323,6 +1323,75 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	}
 }
 
+// TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt is the dwell half
+// of the same hazard the test above covers for DoneVerified: promote keeps
+// CreatedAt, so the identity check never fires, and a watcher already tracking the
+// task still holds the scout's dwell in memory. The ship's first probe here reads
+// the same "working" the scout last held, so no observed transition reseeds
+// ChangedAt - which is exactly why the forget rule cannot be conditioned on one.
+// Without it the write-back puts the scout's half-hour-old stamp back over
+// promote's fresh one, and the ship is stale before its worker has run a second.
+func TestTickDropsTheCachedDwellWhenPromoteRestampsStatusChangedAt(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: dwelling, StatusChangedAt: dwelling,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	// hand promote's rewrite: the kind flips, CreatedAt stays, and StatusChangedAt
+	// is restamped for the pane the ship actually runs in.
+	promoted, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	promoted.Kind = state.KindShip
+	promoted.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := state.Write(home, promoted); err != nil {
+		t.Fatal(err)
+	}
+
+	// The ship's first report line moves report_offset, which is what makes the
+	// next tick write task state back at all.
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: starting the ship run\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "stale task-1") {
+		t.Fatalf("out = %q, want no stale: the ship's dwell starts at the promotion, not at the scout's last observed transition", buf.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StatusChangedAt != promoted.StatusChangedAt {
+		t.Fatalf("StatusChangedAt = %q, want promote's stamp %q intact - the cached scout dwell must not be written back over it", got.StatusChangedAt, promoted.StatusChangedAt)
+	}
+}
+
 // hasEventLine matches want as a whole output line, so "reported-done <id>" and
 // "done <id>" - one a substring of the other - can't be confused.
 func hasEventLine(out, want string) bool {
