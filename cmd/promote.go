@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -175,7 +176,11 @@ func newPromoteCmd() *cobra.Command {
 			// report stream is continuous and the offset already points where the
 			// ship's first line lands. DoneVerified is not: that marker belongs to the
 			// scout's own verified done, not the ship's, which has not earned it yet.
+			// StatusChangedAt is restamped for the same reason: the scout's last
+			// observed transition happened in a pane this task no longer has, so it is
+			// no evidence about how long the ship has been dwelling.
 			t.DoneVerified = false
+			t.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
 			if err := state.Write(home, t); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}
