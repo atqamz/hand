@@ -35,21 +35,13 @@ type Config struct {
 	ParkedBounds ParkedBounds
 }
 
-// ErrNoEvent reports a RunUntilEvent watcher that stopped without delivering an
-// event: its timeout elapsed, or it was signaled. A caller has to tell that
-// apart from both a delivered event and a watcher that failed, or a re-arm loop
-// silently stalls on one and treats the other as fleet news.
+// ErrNoEvent reports a RunUntilEvent that stopped without delivering an event
+// (timeout or signal) - distinct from a delivered event or a watcher failure.
 var ErrNoEvent = errors.New("no event")
 
-// ErrArmFailed reports a RunUntilEvent that refused to start because it could
-// not probe every active task's pane. A watcher must never look armed for a
-// worker it cannot actually see: the ordinary per-tick "!tracked" path in tick
-// tolerates a probe failure by silently skipping that task for a cycle, which is
-// the right call for the streaming watcher's documented graceful-degradation
-// philosophy, but wrong for a mode whose whole contract is "the exit means the
-// fleet was watched." Full per-tick probe-failure tracking and any retry policy
-// for the life of the watch is out of scope here - see the arm-time check in
-// RunUntilEvent.
+// ErrArmFailed reports a RunUntilEvent that could not probe every active
+// task's pane before arming: unlike tick's per-tick skip for the streaming
+// watcher, an exit here must mean the fleet was actually watched.
 var ErrArmFailed = errors.New("could not arm")
 
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is
@@ -78,28 +70,17 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 }
 
-// RunUntilEvent blocks until the poll loop produces its first events, writes
-// that tick's output to out, and returns nil. The process exit is the delivery:
-// it is the one signal a supervisory agent's background-task runner already
-// honors, so waking it needs no pipeline the caller can get wrong.
+// RunUntilEvent blocks until the poll loop's first tick produces events, writes
+// them to out, and returns nil - the exit is the delivery, since it's the one
+// signal a supervisory agent's background-task runner already honors.
 //
-// The fleet state at startup is never delivered. Two ticks take the baseline
-// with stdout discarded: the first seeds tracking for every task, the second
-// consumes whatever a previous watcher left unconsumed on the report channels,
-// which resumeTaskState deliberately does not fast-forward past. Only a change
-// from that baseline can exit. A grep-for-the-first-line wrapper is what this
-// replaces, and it failed exactly here - a worker that was already done printed
-// a matching line on startup, the grep took it for a transition, and the two
-// real events that followed reached nobody.
+// The startup state is never delivered: two ticks take a silent baseline first,
+// so an already-done worker isn't mistaken for a fresh transition the way a
+// grep-for-first-line wrapper was. Baseline events still reach events.log and
+// the dashboard, just not stdout.
 //
-// Baseline events still reach state/events.log and the dashboard, since the
-// report lines behind them are consumed either way and dropping them silently
-// would lose the state change. So an agent arming a watcher reads
-// state/events.log or hand status for current truth, and takes this exit as the
-// answer to what changed since it armed.
-//
-// It returns ErrNoEvent when cfg.Timeout elapses or ctx is canceled first, and
-// an error only when the watcher itself failed.
+// Returns ErrNoEvent when cfg.Timeout elapses or ctx is canceled, and an error
+// only when the watcher itself failed.
 func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect()
 	if err != nil {
@@ -150,11 +131,8 @@ func connect() (*herdr.Client, error) {
 }
 
 // probeAllTasks confirms every active task's pane answers before RunUntilEvent
-// arms, so it never sits waiting on a worker it can never actually observe. The
-// streaming Run tolerates a probe failure per tick and moves on; RunUntilEvent
-// cannot, because its whole contract is that the exit reports what the fleet
-// did, and a task it never managed to probe would otherwise wait silently until
-// the timeout (or forever) with no distinguishing signal from a real timeout.
+// arms: unlike the streaming Run's per-tick tolerance, an unprobed task here
+// would otherwise wait out the timeout with no distinguishing signal.
 func probeAllTasks(home string, client *herdr.Client) error {
 	tasks, err := state.List(home)
 	if err != nil {
@@ -342,10 +320,9 @@ func statusChangeSeed(t state.Task, now time.Time) time.Time {
 	return now
 }
 
-// reportEvidenceTime anchors ClassifyParked's silence clock to the last real
-// evidence of activity: the report file's own mtime, which a watcher restart
-// cannot touch. A task that has never reported has no file to stat yet, so its
-// creation time stands in - still durable, still untouched by a resume.
+// reportEvidenceTime anchors ClassifyParked's silence clock to the report
+// file's own mtime, untouched by a watcher restart; a task that has never
+// reported falls back to its creation time.
 func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 	info, err := os.Stat(state.ReportPath(home, t.ID))
 	if err == nil {
@@ -361,10 +338,8 @@ func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 	return created, nil
 }
 
-// lastReportLine reconstructs the last report line ClassifyParked names in its
-// event, from the same state+note ts already tracks for the idle classifier -
-// consistent with how the rest of the watcher treats "the last report" (see
-// ClassifyReportLine), rather than re-reading the file for its raw text.
+// lastReportLine renders the same state+note ts already tracks for the idle
+// classifier, rather than re-reading the report file.
 func lastReportLine(ts *TaskState) string {
 	if ts.LastReportState == "" {
 		return "no report"
@@ -618,9 +593,8 @@ func dashboardRowFor(e *Event, age string) (dashboardRow, error) {
 		return dashboardRow{Written: true, State: KindFailed}, nil
 	case KindReportPaused:
 		return dashboardRow{Written: true, State: KindReportPaused}, nil
-	// A park is a live pane sitting quiet, same shape as idle-unreported and
-	// blocked: something is waiting on a human, so it earns a row and a Pending
-	// Decisions slot naming the last report and how long it has been silent.
+	// Same shape as idle-unreported and blocked: a live pane sitting quiet earns
+	// a row and a Pending Decisions slot.
 	case KindParked:
 		return dashboardRow{Written: true, State: KindParked, Pending: e.Reason}, nil
 	case KindReportFailed:

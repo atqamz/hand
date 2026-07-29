@@ -94,10 +94,8 @@ type TaskState struct {
 	// and is persisted after the announcement so it stays idempotent across a
 	// restart too.
 	DoneVerified bool
-	// ParkedFiredFor is the report evidence mtime a parked event was already
-	// announced for, so the episode fires once and only refires once the file
-	// genuinely grows past it. Deliberately not seeded to "now" on resume - see
-	// ClassifyParked.
+	// ParkedFiredFor is the report evidence mtime a parked event already fired
+	// for; the latch clears once the file grows past it. See ClassifyParked.
 	ParkedFiredFor time.Time
 }
 
@@ -177,12 +175,8 @@ type ParkedBounds struct {
 }
 
 // parkedBound answers which bound applies to lastState, and whether the task is
-// exempt entirely. done/failed are terminal - no one is waiting on the pane
-// anymore, so silence there is not a park. paused earns the long bound: a worker
-// that named what it is waiting on has already explained the quiet. Everything
-// else, including working and no report at all, is the failure case: unexplained
-// silence. A non-positive bound is unconfigured, not zero-tolerance - a Config
-// that never set ParkedBounds must not park every task instantly.
+// exempt: done/failed are terminal, paused already explained its own wait, and
+// a non-positive bound means unconfigured rather than zero-tolerance.
 func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
 	switch lastState {
 	case state.ReportDone, state.ReportFailed:
@@ -198,24 +192,13 @@ func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, ex
 	return bound, false
 }
 
-// ClassifyParked catches the park a transition-only watcher structurally cannot
-// see: a worker whose pane simply stops, with herdr registering no status change
-// at all, so neither ClassifyStatus nor ClassifyStale has anything to fire on.
-// mtime is the task's report file mtime - real evidence of the worker's last
-// activity - or, when it has never reported, the task's own CreatedAt.
-//
-// mtime is deliberately never reset to "now" on a watcher resume, unlike
-// ts.ChangedAt above. --until-event exits on every delivered event by design, and
-// a busy fleet re-arms it constantly; anchoring this bound to anything the
-// watcher resets on its own resume would let those unrelated re-arms keep
-// erasing the clock before it ever completes once, silencing a genuinely parked
-// worker for as long as the rest of the fleet stays busy. Anchoring to durable
-// evidence that only changes when the worker itself does something is what
-// makes the bound survive a restart intact.
-//
-// Fires once per silence episode: ts.ParkedFiredFor latches to the mtime it
-// fired for, and only a later mtime - the file actually growing - clears that
-// latch and lets a fresh episode fire again.
+// ClassifyParked catches a worker gone silent with no herdr status change at
+// all, a case ClassifyStatus/ClassifyStale structurally cannot see. mtime -
+// the report file's, or CreatedAt if it has never reported - is deliberately
+// never reset to "now" on resume: --until-event restarts on every delivered
+// event, and a busy fleet would otherwise erase the clock before it ever
+// completes once. Fires once per silence episode; ts.ParkedFiredFor latches
+// until the file actually grows past it.
 func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds) *Event {
 	bound, exempt := parkedBound(lastState, bounds)
 	if exempt {

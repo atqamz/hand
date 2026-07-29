@@ -1053,12 +1053,8 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 }
 
 // TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound
-// proves Ruling 2's park bound survives a restart on the same terms Ruling 1
-// demands of stale: anchored to the report file's own mtime, never to anything
-// a watch restart resets to now. It asserts that a task already silent past the
-// bound before hand watch even starts fires parked on the very first
-// post-resume classifying tick, not after a fresh full bound elapses from
-// resume.
+// asserts the park bound is anchored to the report file's mtime, not to
+// resume time, so silence that predates this process fires immediately.
 func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "idle")
@@ -1103,23 +1099,10 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
-// TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart is issue #75's
-// Ruling 1 regression test. --until-event makes "restart" the normal steady
-// state, not a rare crash recovery: every delivered event re-arms a fresh
-// process with a fresh, empty TaskState map. Before this fix, resumeTaskState
-// seeded ClassifyStale's dwell clock (ts.ChangedAt) to the resume time itself,
-// so a task that genuinely dwelt in one status for longer than the threshold
-// before this process ever started had that entire dwell erased on every
-// single re-arm - on a fleet busy enough to re-arm faster than the threshold
-// elapses, stale never fires at all. The fix persists StatusChangedAt and
-// seeds the dwell clock from it (or from CreatedAt, if the task has never
-// transitioned) instead of from "now", so the dwell survives a restart the way
-// report_offset already does.
-//
-// This test asserts stale fires on the first classifying tick after a restart
-// for a task whose durable StatusChangedAt already exceeds the threshold - not
-// after a fresh full threshold elapses counted from resume, which is what
-// decoupling the dwell from that durable evidence would silently reintroduce.
+// TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart asserts stale fires
+// on the first classifying tick after a restart when durable StatusChangedAt
+// already exceeds the threshold, not after a fresh threshold counted from
+// resume.
 func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
