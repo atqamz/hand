@@ -355,7 +355,8 @@ State file written (`state/fix-login.json`):
   "report_offset": 0,
   "pr_merged_observed": false,
   "done_verified": false,
-  "created_at": "2026-07-24T10:00:00Z"
+  "created_at": "2026-07-24T10:00:00Z",
+  "status_changed_at": ""
 }
 ```
 
@@ -757,7 +758,7 @@ Streaming that way only reaches the agent if something prompts it to read; `--un
 Event durability: if the supervisory agent's context compacts or the session restarts, events since the last read are in `state/events.log`. The agent can `hand status` to recover current truth and read `state/events.log` for recent history.
 
 Errors:
-- Herdr not running (fatal: exit with error).
+- Herdr not running (fatal: exit with error). Under `--until-event` the reachability probe is raced against `--timeout` so a wedged daemon can't strand the wait, and losing that race is still this same unreachable-herdr failure - exit `1`, not `4` or `5`, since arming never reached the fleet at all.
 - Individual task probe failure (graceful: report as "unknown" state). This graceful handling is the streaming path only; see atqamz/secondhand#81 for the gap it leaves (an unreachable task is never entered into tracking, so it is never stale-checked either).
 - `--until-event` reaching its `--timeout`, or being signaled, without delivering an event: a line on stderr and exit `4`, never a silent exit `0`.
 - `--until-event` failing to arm because a task's herdr pane can't be probed: names the task on stderr and exits `5`, distinct from both `4` (timeout or signal, arming succeeded but nothing happened) and `0` (arming succeeded and something did). Unlike the streaming path's graceful "unknown" above, `--until-event` cannot tolerate an unprobeable task at all: a task invisible to the arm-time probe would never enter `states` and so could never produce the transition the caller is blocking on, silently degrading the wait into a guaranteed timeout. Full per-tick probe-failure tracking and any retry policy during the live poll that follows arming is out of scope here - see atqamz/secondhand#81.
@@ -814,7 +815,7 @@ Behavior:
 3. Acquire a fresh treehouse worktree (with collision guard).
 4. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 6, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 5. Launch the worker and confirm it started (same as `hand spawn`).
-6. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. `done_verified` is reset to false - the scout's verified `done` does not carry to the ship. Every other field is carried, including `created_at` and the watcher's other bookkeeping (`report_offset`) - see "What survives a `hand watch` restart", which classifies each of them.
+6. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. `done_verified` is reset to false - the scout's verified `done` does not carry to the ship. Every other field is carried, including `created_at` and the watcher's other bookkeeping (`report_offset`, `status_changed_at`) - see "What survives a `hand watch` restart", which classifies each of them.
 7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
@@ -944,6 +945,7 @@ The supervisor reads this row first, so each kind's disposition is fixed here ra
 | Event kind | `state` column | Pending Decisions |
 |---|---|---|
 | `idle-unreported` | `idle-unreported` | stopped, reason unknown |
+| `parked` | `parked` | the last report line and how long it has been silent |
 | `blocked` (herdr) | `blocked` | herdr's blocked reason |
 | `report-blocked`, `report-needs-decision` | the kind | the worker's own note |
 | `report-working` | `working` | cleared |
@@ -952,7 +954,7 @@ The supervisor reads this row first, so each kind's disposition is fixed here ra
 | unverified `report-done`, `stale`, `pr-merged`, `pr-not-recorded`, `pr-record-unknown`, `report-malformed` | no row write | untouched |
 
 `failed` is the case that fixes the rule: it fires on any failure to probe the pane, so clearing there would let one herdr daemon restart wipe every tracked task's slot in a single tick.
-`report-paused` is parked, not answered.
+`report-paused` leaves the question standing, not answered - a worker that names what it is waiting on has not resolved it.
 The last group writes nothing to the row at all: an unverified `report-done` is a claim rather than evidence, `stale` is elapsed time in a state rather than a new one, the PR notices are facts about a record rather than about the worker, and a malformed line classifies to nothing.
 They still reach Recent Events and `state/events.log`.
 A kind that is silently *absent* from this table is the actual failure mode, so it is an error rather than a partial row - `hand watch` refuses to write it, and the test that enumerates the kind vocabulary fails.
