@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -125,17 +127,34 @@ esac
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// ghFakePR is one PR writeFakeGHPRListAndView reports for a branch.
+type ghFakePR struct {
+	Number int
+	URL    string
+	State  string
+}
+
 // writeFakeGHPRListAndView fakes both gh calls a gate-opened-PR detection makes:
-// `gh pr list --head <branch> --json url,state` (FindPRByBranch) and
+// `gh pr list --head <branch> --json number,url,state` (FindPRByBranch) and
 // `gh pr view <url> --json state` (project.ValidatePR's existence check, then
-// checkLandedWork's own merged check) - both answering with the same PR state,
-// since these tests only ever have one PR in play.
-func writeFakeGHPRListAndView(t *testing.T, url, prState string) {
+// checkLandedWork's own merged check). Accepting several PRs, rather than only
+// the one the old fake could produce, is what lets these tests exercise
+// FindPRByBranch's preference-tier rule (atqamz/secondhand#77) instead of just
+// its single-result path.
+func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	t.Helper()
 	bin := t.TempDir()
+
+	items := make([]string, len(prs))
+	viewCases := make([]string, len(prs))
+	for i, pr := range prs {
+		items[i] = fmt.Sprintf(`{"number":%d,"url":%q,"state":%q}`, pr.Number, pr.URL, pr.State)
+		viewCases[i] = fmt.Sprintf("%q) printf '{\"state\":%q}' ;;\n", pr.URL, pr.State)
+	}
 	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
-		"\"pr list\") printf '[{\"url\":\"" + url + "\",\"state\":\"" + prState + "\"}]' ;;\n" +
-		"\"pr view\") printf '{\"state\":\"" + prState + "\"}' ;;\n" +
+		"\"pr list\") printf '[" + strings.Join(items, ",") + "]' ;;\n" +
+		"\"pr view\") case \"$3\" in\n" + strings.Join(viewCases, "") +
+		"*) echo \"unexpected gh pr view arg: $3\" >&2; exit 1 ;;\nesac ;;\n" +
 		"*) echo \"unexpected gh args: $@\" >&2; exit 1 ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
@@ -168,7 +187,7 @@ func setupTeardownGateProject(t *testing.T, home, worktree, branch string) {
 func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
-	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "MERGED")
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
@@ -191,7 +210,7 @@ func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
 func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
-	writeFakeGHPRListAndView(t, "https://github.com/owner/repo/pull/9", "CLOSED")
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "CLOSED"})
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
@@ -212,6 +231,73 @@ func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {
 	}
 	if got.PR != "https://github.com/owner/repo/pull/9" {
 		t.Fatalf("task.PR = %q, want the detected PR recorded even though teardown refused", got.PR)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after refused teardown, want it left in place: %v %v", exists, err)
+	}
+}
+
+// TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR is the
+// atqamz/secondhand#77 landed case: a branch carrying a closed-unmerged PR
+// alongside a merged one (a duplicate opened by mistake, say) must tear down
+// on the merged PR, not fall to an arbitrary pick that could land on the
+// unmerged one instead.
+func TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeGHPRListAndView(t,
+		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "CLOSED"},
+		ghFakePR{Number: 5, URL: "https://github.com/owner/repo/pull/5", State: "MERGED"})
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want teardown to tear down on the merged PR", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	}
+}
+
+// TestTeardownRefusesAmbiguousBranch is atqamz/secondhand#77's refusal case:
+// two merged PRs on the same branch do not resolve to a winner, and teardown
+// must refuse naming both rather than guess which one to trust - the exact
+// guess that could wave through unlanded work.
+func TestTeardownRefusesAmbiguousBranch(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeGHPRListAndView(t,
+		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"},
+		ghFakePR{Number: 5, URL: "https://github.com/owner/repo/pull/5", State: "MERGED"})
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	var ambiguous *ghutil.AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if !strings.Contains(err.Error(), "#9") || !strings.Contains(err.Error(), "#5") {
+		t.Fatalf("got %q, want both PR numbers named", err.Error())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PR != "" {
+		t.Fatalf("task.PR = %q, want no PR recorded for an ambiguous branch", got.PR)
 	}
 	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
 		t.Fatalf("state gone after refused teardown, want it left in place: %v %v", exists, err)
