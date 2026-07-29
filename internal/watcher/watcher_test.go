@@ -1709,6 +1709,65 @@ func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
 	}
 }
 
+// TestRunUntilEventReportsNoEventWhenConnectHangs proves the arm-time herdr
+// reachability probe is bounded by --timeout: before connect raced ctx, a
+// wedged herdr daemon blocked the timeout from ever starting to count, so
+// RunUntilEvent hung forever instead of exiting 4.
+func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\nsleep 5\nprintf '{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := Config{Home: t.TempDir(), PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
+	start := time.Now()
+	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
+
+	if !strings.Contains(err.Error(), "herdr unreachable") {
+		t.Fatalf("err = %v, want herdr unreachable: a hung connect must not be mistaken for a quiet fleet", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("returned after %s, want --timeout to bound a hung connect probe", elapsed)
+	}
+}
+
+// TestRunUntilEventFailsToArmWhenProbeHangs is connect's counterpart for the
+// per-task probe loop: a pane that never answers must not strand arming past
+// --timeout either.
+func TestRunUntilEventFailsToArmWhenProbeHangs(t *testing.T) {
+	bin := t.TempDir()
+	script := `#!/bin/sh
+case "$1 $2" in
+"workspace list")
+	printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	;;
+"pane get")
+	sleep 5
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"working"}}}'
+	;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
+
+	start := time.Now()
+	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
+
+	if !errors.Is(err, ErrArmFailed) {
+		t.Fatalf("RunUntilEvent = %v, want ErrArmFailed: a hung pane probe must not look armed", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("returned after %s, want --timeout to bound a hung pane probe", elapsed)
+	}
+}
+
 // TestRunUntilEventFailsToArmWhenATaskCannotBeProbed is Ruling 3 of issue #75's
 // reopening: a watcher that cannot see a worker at arm time must refuse to look
 // armed for it, with an exit distinct from both a delivered event and a timeout,

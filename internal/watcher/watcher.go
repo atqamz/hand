@@ -50,7 +50,7 @@ var ErrArmFailed = errors.New("could not arm")
 // in SPECS.md; errOut receives internal diagnostics (list/log/dashboard
 // failures), keeping the two streams separable per the stdout/stderr contract.
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
-	client, err := connect()
+	client, err := connect(ctx)
 	if err != nil {
 		return err
 	}
@@ -82,12 +82,18 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 // Returns ErrNoEvent when cfg.Timeout elapses or ctx is canceled, and an error
 // only when the watcher itself failed.
 func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
-	client, err := connect()
+	if cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+	}
+
+	client, err := connect(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := probeAllTasks(cfg.Home, client); err != nil {
+	if err := probeAllTasks(ctx, cfg.Home, client); err != nil {
 		return err
 	}
 
@@ -95,21 +101,15 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	tick(ctx, cfg, client, states, io.Discard, errOut)
 	tick(ctx, cfg, client, states, io.Discard, errOut)
 
-	var timeout <-chan time.Time
-	if cfg.Timeout > 0 {
-		timer := time.NewTimer(cfg.Timeout)
-		defer timer.Stop()
-		timeout = timer.C
-	}
-
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("%w within %s", ErrNoEvent, cfg.Timeout)
+			}
 			return fmt.Errorf("%w: interrupted", ErrNoEvent)
-		case <-timeout:
-			return fmt.Errorf("%w within %s", ErrNoEvent, cfg.Timeout)
 		case <-ticker.C:
 			var events bytes.Buffer
 			tick(ctx, cfg, client, states, &events, errOut)
@@ -122,28 +122,50 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	}
 }
 
-func connect() (*herdr.Client, error) {
+// connect races herdr's reachability probe against ctx: unbounded, a wedged
+// herdr daemon blocks RunUntilEvent's --timeout from ever starting to count.
+// A lost race abandons the stuck call rather than waiting on it - herdr owns
+// that process's lifetime, and the caller is about to exit either way.
+func connect(ctx context.Context) (*herdr.Client, error) {
 	client := herdr.NewClient()
-	if _, err := client.WorkspaceList(); err != nil {
-		return nil, fmt.Errorf("herdr unreachable: %w", err)
+	done := make(chan error, 1)
+	go func() { _, err := client.WorkspaceList(); done <- err }()
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("herdr unreachable: %w", ctx.Err())
+	case err := <-done:
+		if err != nil {
+			return nil, fmt.Errorf("herdr unreachable: %w", err)
+		}
+		return client, nil
 	}
-	return client, nil
 }
 
 // probeAllTasks confirms every active task's pane answers before RunUntilEvent
 // arms: unlike the streaming Run's per-tick tolerance, an unprobed task here
-// would otherwise wait out the timeout with no distinguishing signal.
-func probeAllTasks(home string, client *herdr.Client) error {
+// would otherwise wait out the timeout with no distinguishing signal. Raced
+// against ctx for the same reason connect is.
+func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error {
 	tasks, err := state.List(home)
 	if err != nil {
 		return fmt.Errorf("list tasks: %w", err)
 	}
-	for _, t := range tasks {
-		if _, err := client.PaneGet(t.Herdr.PaneID); err != nil {
-			return fmt.Errorf("%w: %s: %v", ErrArmFailed, t.ID, err)
+	done := make(chan error, 1)
+	go func() {
+		for _, t := range tasks {
+			if _, err := client.PaneGet(t.Herdr.PaneID); err != nil {
+				done <- fmt.Errorf("%w: %s: %v", ErrArmFailed, t.ID, err)
+				return
+			}
 		}
+		done <- nil
+	}()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("%w: timed out probing tasks: %s", ErrArmFailed, ctx.Err())
+	case err := <-done:
+		return err
 	}
-	return nil
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {
