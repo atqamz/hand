@@ -138,6 +138,27 @@ func TestFindPRByBranchRefusesTwoMergedPRs(t *testing.T) {
 	}
 }
 
+// TestFindPRByBranchRefusesTwoMergedPRsNamesClosedCandidateToo proves the
+// same-tier refusal names every PR on the head ref, including one sitting in a
+// losing tier, so the operator resolves the whole branch rather than the pair
+// that happened to trigger the refusal.
+func TestFindPRByBranchRefusesTwoMergedPRsNamesClosedCandidateToo(t *testing.T) {
+	writeFakeGHPRList(t, `[{"number":7,"url":"https://github.com/owner/repo/pull/7","state":"MERGED"},`+
+		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
+		`{"number":3,"url":"https://github.com/owner/repo/pull/3","state":"CLOSED"}]`, 0, "")
+	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 3 {
+		t.Fatalf("Candidates = %+v, want PR 7, PR 5, and PR 3 all named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "#7") || !strings.Contains(err.Error(), "#5") || !strings.Contains(err.Error(), "#3") {
+		t.Fatalf("got %q, want all three PR numbers named", err.Error())
+	}
+}
+
 // TestFindPRByBranchRefusesMergedAndOpenPR proves a branch carrying both a
 // merged PR and a still-open one refuses rather than resolving to the merged
 // PR: the open PR is live evidence the branch may carry unlanded work.

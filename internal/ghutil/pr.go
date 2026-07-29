@@ -41,9 +41,12 @@ type PRCandidate struct {
 	State  string
 }
 
-// AmbiguousPRError reports that a branch's PRs do not resolve to a single
-// winner at any preference tier (two merged, two open, ...). FindPRByBranch
-// returns this instead of guessing; the caller decides.
+// AmbiguousPRError reports that a branch's PRs do not resolve to a usable
+// winner: either no preference tier yields a single match (two merged, two
+// open, ...), or a merged PR coexists with an open one, which refuses by rule
+// even though the merged tier has a lone match. Candidates names every PR on
+// the head ref, whatever its state, not just the tier that triggered the
+// refusal. FindPRByBranch returns this instead of guessing; the caller decides.
 type AmbiguousPRError struct {
 	Branch     string
 	Candidates []PRCandidate
@@ -106,9 +109,7 @@ func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, m
 	}
 
 	if len(mergedPRs) > 0 && len(openPRs) > 0 {
-		all := append(append([]prListItem{}, mergedPRs...), openPRs...)
-		all = append(all, closedPRs...)
-		return "", false, false, ambiguousPRError(branch, all)
+		return "", false, false, ambiguousPRError(branch, results)
 	}
 
 	for _, matches := range [][]prListItem{mergedPRs, openPRs, closedPRs} {
@@ -118,7 +119,7 @@ func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, m
 		case 1:
 			return matches[0].URL, matches[0].State == "MERGED", true, nil
 		default:
-			return "", false, false, ambiguousPRError(branch, matches)
+			return "", false, false, ambiguousPRError(branch, results)
 		}
 	}
 	return "", false, false, fmt.Errorf("gh pr list returned no PR in a recognized state for branch %s", branch)
