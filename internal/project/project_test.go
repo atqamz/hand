@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -213,6 +214,72 @@ func TestRemoveNotFound(t *testing.T) {
 
 	if err := Remove(dir, "missing"); err == nil {
 		t.Fatal("expected error for missing project")
+	}
+}
+
+// fakeNoMistakes puts a fake no-mistakes binary at the front of PATH. It only ever needs to
+// answer `status`, so it ignores its arguments and always exits 0, matching the real binary's
+// observed behavior: no-mistakes status exits 0 whether the repo is initialized or not, so
+// GateStatus reads the outcome from stdout text rather than the exit code.
+func fakeNoMistakes(t *testing.T, stdout string) {
+	t.Helper()
+	bin := t.TempDir()
+	script := "#!/bin/sh\ncat <<'EOF'\n" + stdout + "\nEOF\n"
+	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestGateStatusReady(t *testing.T) {
+	fakeNoMistakes(t, "    repo:  /home/atqa/secondhand/projects/secondhand\n  remote:  git@github.com:atqamz/secondhand.git\n    gate:  /home/atqa/.no-mistakes/repos/0b474f2021dd.git\n  daemon:  running\n\n  no active run")
+
+	got, err := GateStatus(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != GateReady {
+		t.Fatalf("got %v, want GateReady", got)
+	}
+}
+
+// TestGateStatusNotInitialized covers both real histories from atqamz/secondhand#60 at once: a
+// project registered but never given a no-mistakes init, and a project whose working_path went
+// stale when the fleet home was renamed (/home/atqa/fleet to /home/atqa/secondhand). Both were
+// checked against the real binary and print this one text byte-for-byte, exiting 0 either way, so
+// a second test replaying the same literal would assert nothing new.
+func TestGateStatusNotInitialized(t *testing.T) {
+	fakeNoMistakes(t, "repo not initialized (run 'no-mistakes init' first)")
+
+	got, err := GateStatus(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != GateNotInitialized {
+		t.Fatalf("got %v, want GateNotInitialized", got)
+	}
+}
+
+func TestGateStatusMissingBinaryIsDistinctFromNotInitialized(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	gotState, err := GateStatus(t.TempDir())
+	if err == nil {
+		t.Fatal("expected error when no-mistakes binary is not on PATH")
+	}
+	if gotState == GateNotInitialized {
+		t.Fatal("missing binary must not report GateNotInitialized, it has a different remedy")
+	}
+	if strings.Contains(err.Error(), gateNotInitializedMarker) {
+		t.Fatalf("err = %v, must not read as the not-initialized case", err)
+	}
+}
+
+func TestGateInitCommand(t *testing.T) {
+	got := GateInitCommand("/home/atqa/secondhand/projects/secondhand")
+	want := "cd /home/atqa/secondhand/projects/secondhand && no-mistakes init"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 

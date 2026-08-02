@@ -205,6 +205,82 @@ func TestProjectListColumnsDoNotMergeAtFieldWidth(t *testing.T) {
 	}
 }
 
+func TestProjectListMarksGateNotInitialized(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)"))
+	t.Chdir(home)
+
+	cmd := newProjectListCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "(gate: not initialized)") {
+		t.Fatalf("project list output = %q, want a not-initialized gate marker", out.String())
+	}
+}
+
+func TestProjectListJSONIncludesGateIssue(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)"))
+	t.Chdir(home)
+
+	cmd := newProjectListCmd()
+	cmd.SetArgs([]string{"--json"})
+	var out strings.Builder
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"gate_issue": "not initialized"`) {
+		t.Fatalf("project list --json output = %q, want gate_issue: not initialized", out.String())
+	}
+}
+
+func TestProjectListOmitsGateMarkerWhenGateReady(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeNoMistakesPath(t, "gate: ready\n\n  no active run"))
+	t.Chdir(home)
+
+	cmd := newProjectListCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "(gate:") {
+		t.Fatalf("project list output = %q, want no gate marker for a ready gate", out.String())
+	}
+}
+
 func TestReserveCloneDestinationIsAtomic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "projects", "repo")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

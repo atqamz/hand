@@ -231,16 +231,22 @@ hand project list --json
 Output (human):
 ```
 nsr         https://github.com/yes2games/nsr          direct-pr
-yes2infra   https://github.com/yes2games/yes2infra    no-mistakes
+yes2infra   https://github.com/yes2games/yes2infra    no-mistakes  (gate: not initialized)
 ```
 
 Output (JSON):
 ```json
 [
   {"name": "nsr", "url": "https://github.com/yes2games/nsr", "mode": "direct-pr"},
-  {"name": "yes2infra", "url": "https://github.com/yes2games/yes2infra", "mode": "no-mistakes"}
+  {"name": "yes2infra", "url": "https://github.com/yes2games/yes2infra", "mode": "no-mistakes", "gate_issue": "not initialized"}
 ]
 ```
+
+A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or the
+`no-mistakes` binary itself unreachable) gets a `(gate: <issue>)` suffix in human output and a
+`gate_issue` field in JSON output (omitted when there is no issue). See "Gate preflight" for what
+this checks and why. Every `no-mistakes`-mode project pays one `no-mistakes status` call per
+`hand project list` invocation; other modes pay nothing.
 
 ---
 
@@ -279,6 +285,7 @@ Flags:
 - `--harness <name>`: agent harness to launch. Default: value from `config/harness`, or `claude`.
 - `--model <name>`: model override for harnesses that support it. Default: the brief's declared `model`, else `config/model`.
 - `--effort <level>`: effort level for harnesses that support it. Default: the brief's declared `effort`, else `config/effort`.
+- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized (see "Gate preflight").
 
 Model and effort resolve most-specific-first: the flag, then the brief's `---` declaration (see
 "Brief format"), then the config default, then unset. A resolved effort under a harness with no
@@ -287,11 +294,14 @@ the effort recorded in state and ignored by the launch command.
 
 Behavior:
 1. Validate project exists in registry.
-2. Validate no active task with this ID exists.
-3. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
-4. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
-5. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in `state/*.json`. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
-6. Acquire the task's herdr tab in the project's workspace.
+2. If the project's mode is `no-mistakes`, run the gate preflight check (see "Gate preflight");
+   refuse before touching any task or worktree state if it comes back not initialized or
+   unreachable, unless `--skip-gate-check` is set.
+3. Validate no active task with this ID exists.
+4. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
+5. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
+6. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in `state/*.json`. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
+7. Acquire the task's herdr tab in the project's workspace.
    - Workspace naming: one workspace per project, named after the project.
    - Tab naming: task ID.
    - If the project's workspace does not exist yet, create it at the worktree's cwd. herdr has no
@@ -299,15 +309,15 @@ Behavior:
      this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
      second one, which would leave the root tab behind as an orphan shell in the workspace.
    - If the workspace already exists, create a new tab in it for the task.
-7. Construct the harness launch command from the template (see harness section).
-8. Send the launch command to the herdr pane.
-9. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
+8. Construct the harness launch command from the template (see harness section).
+9. Send the launch command to the herdr pane.
+10. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
    no first-run dialog is left, answering any known dialog along the way, or the poll window
    elapses (see Harness launch templates).
-10. Write `state/<id>.json` with all metadata.
-11. Update `data/dashboard.md` with the new task.
+11. Write `state/<id>.json` with all metadata.
+12. Update `data/dashboard.md` with the new task.
 
-Any failure before step 10 leaves nothing behind: the worktree lease returns to treehouse and the
+Any failure before step 11 leaves nothing behind: the worktree lease returns to treehouse and the
 herdr side is rolled back.
 A workspace this command created is closed whole: the task's tab is that workspace's own
 auto-created root tab, so there is nothing else in it to preserve.
@@ -323,6 +333,9 @@ spawned fix-login project=nsr kind=ship harness=claude worktree=/home/user/.tree
 
 Errors:
 - Project not registered.
+- `no-mistakes` gate not initialized for a `no-mistakes`-mode project (names the exact remedy
+  command; see "Gate preflight"). Skipped entirely with `--skip-gate-check`.
+- `no-mistakes` binary missing or not runnable, distinct from the above (see "Gate preflight").
 - Task ID already active.
 - Brief not found at `data/<id>/brief.md`.
 - Treehouse worktree acquisition failed (pool exhausted, git error).
@@ -856,6 +869,7 @@ Flags:
 - `--harness <name>`: harness for the new ship worker. Default: value from `config/harness`.
 - `--model <name>`: model override. Default: the brief's declared `model`, else `config/model`.
 - `--effort <level>`: effort override. Default: the brief's declared `effort`, else `config/effort`.
+- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized (see "Gate preflight").
 
 Promote resolves model and effort exactly as `hand spawn` does, against the brief the agent
 updated for the ship phase, so a scout brief that declared a tier keeps it through promotion
@@ -864,14 +878,17 @@ unless the brief or a flag says otherwise.
 Behavior:
 1. Validate the task exists and is a completed scout (has `data/<id>/report.md`, herdr pane is not busy - `idle` or `done`, which mean the same thing here, see "Agent state" - or unreachable/dead).
 2. Create or update `data/<id>/brief.md` - the agent should update it with implementation instructions before calling promote, referencing the scout report.
-3. Acquire a fresh treehouse worktree (with collision guard).
-4. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 6, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
-5. Launch the worker and confirm it started (same as `hand spawn`).
-6. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
-7. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
+3. If the project's mode is `no-mistakes`, run the gate preflight check (see "Gate preflight");
+   refuse before acquiring any worktree if it comes back not initialized or unreachable, unless
+   `--skip-gate-check` is set.
+4. Acquire a fresh treehouse worktree (with collision guard).
+5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 7, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
+6. Launch the worker and confirm it started (same as `hand spawn`).
+7. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
+8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
-to step 6, so a promotion that fails partway still leaves the scout's pane and worktree intact
+to step 7, so a promotion that fails partway still leaves the scout's pane and worktree intact
 instead of stranding the task with nothing to look at.
 `data/dashboard.md` is deliberately left untouched, so the task's row keeps reading `scout` until
 something else rewrites it.
@@ -885,6 +902,9 @@ Errors:
 - Task not found.
 - Task is not a completed scout.
 - Scout report not found.
+- `no-mistakes` gate not initialized, or the binary missing/not runnable, for a `no-mistakes`-mode
+  project (same two distinct errors as `hand spawn`; see "Gate preflight"). Skipped entirely with
+  `--skip-gate-check`.
 - Worktree or herdr errors (same as `hand spawn`).
 
 ---
@@ -1313,7 +1333,46 @@ The worker uses `no-mistakes` directly in the worktree:
 Secondhand's only no-mistakes awareness:
 - `hand project add` initializes it when `--mode no-mistakes`.
 - The ship brief template mentions the no-mistakes workflow when the project mode is `no-mistakes`.
-- `hand` itself never calls `no-mistakes`. The worker does.
+- `hand spawn` and `hand promote` ask `no-mistakes status` before dispatching into a `no-mistakes`
+  project, refusing if the gate is not initialized for that repo (see "Gate preflight" below). This
+  is a read-only status check, not driving the pipeline: `hand` still never calls `axi run`,
+  `axi respond`, or `axi abort`. The worker does.
+
+### Gate preflight
+
+`no-mistakes`'s own state is keyed on the absolute `working_path` of the repo it was initialized
+against. Two real histories orphan that row without either `hand` or `no-mistakes` reporting it
+anywhere: the fleet home gets renamed (moving every project's clone path at once), or a project is
+registered with `--mode no-mistakes` but `no-mistakes init` is never run against it. Both leave a
+`no-mistakes`-mode project silently ungated - a worker's `axi run` either fails deep into the task
+or, worse, is never invoked at all - with nothing obliging anyone to notice.
+
+`hand spawn` and `hand promote` each run a preflight check before dispatching into a `no-mistakes`
+project: `no-mistakes status`, run inside the project's clone. `no-mistakes status` always exits 0,
+whether or not the repo is initialized, and reports both of the histories above with the identical
+text `repo not initialized (run 'no-mistakes init' first)` - there is no way to distinguish a
+never-initialized repo from a stale renamed one from the outside, so the preflight does not try.
+The outcome is read from that text, never from `~/.no-mistakes/state.sqlite` directly,
+which is another tool's private schema.
+
+Three outcomes:
+- **Initialized:** proceed.
+- **Not initialized** (either history): refuse with exit code 3, naming the exact remedy verbatim -
+  `no-mistakes init` is idempotent and repairs a stale `working_path` in place, so the message reads
+  `no-mistakes gate not initialized for project "<name>", run: cd <clone-path> && no-mistakes init`.
+- **Binary missing or not runnable:** refuse with a distinctly different message (`no-mistakes
+  binary not found or not runnable: <error>`), never collapsed into "not initialized" - the remedy
+  for a missing binary is not `no-mistakes init`. This is a general error (exit code `1`), not a
+  precondition: the world is not in a state the operator can fix by initializing anything.
+
+Escape hatch: `--skip-gate-check` on both `hand spawn` and `hand promote` bypasses the preflight
+and prints a warning to stderr naming the project, so bypassing it is visible in the transcript
+rather than a silent env var.
+
+`hand project list` runs the same check for every `no-mistakes`-mode project and appends `(gate:
+not initialized)` or `(gate: unreachable)` to its output line (and `"gate_issue"` in `--json`
+output) when the check doesn't come back clean, so a stale or never-initialized gate is visible
+without waiting for a spawn or promote to refuse.
 
 ## Brief format
 
@@ -1429,7 +1488,9 @@ Fields:
 - `mode=<mode>`: delivery mode.
 
 Delivery modes:
-- `no-mistakes`: worker runs no-mistakes pipeline, ships via PR with validation evidence.
+- `no-mistakes`: worker runs no-mistakes pipeline, ships via PR with validation evidence. `hand
+  spawn` and `hand promote` refuse to dispatch into a `no-mistakes` project whose gate is not
+  initialized (see "Gate preflight").
 - `direct-pr`: worker pushes branch and opens PR directly.
 - `local-only`: worker commits to a local branch. Merging into default branch via `hand merge --local`.
 
@@ -1512,7 +1573,7 @@ On restart (new supervisory agent session):
 - `1`: general error.
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`).
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
 

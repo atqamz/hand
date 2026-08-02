@@ -242,13 +242,14 @@ func newProjectListCmd() *cobra.Command {
 
 			if asJSON {
 				type projectJSON struct {
-					Name string `json:"name"`
-					URL  string `json:"url"`
-					Mode string `json:"mode"`
+					Name      string `json:"name"`
+					URL       string `json:"url"`
+					Mode      string `json:"mode"`
+					GateIssue string `json:"gate_issue,omitempty"`
 				}
 				out := make([]projectJSON, 0, len(projects))
 				for _, p := range projects {
-					out = append(out, projectJSON{Name: p.Name, URL: p.URL, Mode: p.Mode})
+					out = append(out, projectJSON{Name: p.Name, URL: p.URL, Mode: p.Mode, GateIssue: gateIssue(home, p)})
 				}
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -257,7 +258,11 @@ func newProjectListCmd() *cobra.Command {
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			for _, p := range projects {
-				if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, p.URL, p.Mode); err != nil {
+				line := fmt.Sprintf("%s\t%s\t%s", p.Name, p.URL, p.Mode)
+				if issue := gateIssue(home, p); issue != "" {
+					line += "\t(gate: " + issue + ")"
+				}
+				if _, err := fmt.Fprintln(w, line); err != nil {
 					return err
 				}
 			}
@@ -267,6 +272,24 @@ func newProjectListCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON")
 	return cmd
+}
+
+// gateIssue reports why a no-mistakes project's recorded mode cannot currently be honoured, so
+// hand project list is the surface an operator catches a stale or missing gate registration on,
+// instead of a worker discovering it mid-dispatch with nothing obliging it to say so.
+func gateIssue(home string, p project.Project) string {
+	if p.Mode != project.ModeNoMistakes {
+		return ""
+	}
+	clonePath := filepath.Join(home, "projects", p.Name)
+	gateState, err := project.GateStatus(clonePath)
+	if err != nil {
+		return "unreachable"
+	}
+	if gateState == project.GateNotInitialized {
+		return "not initialized"
+	}
+	return ""
 }
 
 func newProjectRemoveCmd() *cobra.Command {

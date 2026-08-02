@@ -18,6 +18,7 @@ func newPromoteCmd() *cobra.Command {
 	var harnessName string
 	var model string
 	var effort string
+	var skipGateCheck bool
 
 	cmd := &cobra.Command{
 		Use:   "promote <id>",
@@ -81,6 +82,11 @@ func newPromoteCmd() *cobra.Command {
 				return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
 			}
 
+			clonePath := filepath.Join(home, "projects", proj.Name)
+			if err := gatePreflight(cmd, proj, clonePath, skipGateCheck); err != nil {
+				return err
+			}
+
 			releaseProject, err := state.Lock(home, "project:"+proj.Name)
 			if err != nil {
 				return fmt.Errorf("lock project %q: %w", proj.Name, err)
@@ -91,7 +97,6 @@ func newPromoteCmd() *cobra.Command {
 			oldWorkspaceID := t.Herdr.WorkspaceID
 			oldTabID := t.Herdr.TabID
 
-			clonePath := filepath.Join(home, "projects", proj.Name)
 			wt, err := worktree.Get(clonePath, "hand:"+id)
 			if err != nil {
 				return fmt.Errorf("acquire treehouse worktree: %w", err)
@@ -207,5 +212,6 @@ func newPromoteCmd() *cobra.Command {
 	cmd.Flags().StringVar(&harnessName, "harness", "", "harness for the new ship worker (default: config/harness, or claude)")
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort override for harnesses that support it")
+	cmd.Flags().BoolVar(&skipGateCheck, "skip-gate-check", false, "dispatch even if the no-mistakes gate is not initialized for this project")
 	return cmd
 }
