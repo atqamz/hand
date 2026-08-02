@@ -178,7 +178,7 @@ func TestGeneratedRulesMatchThisRepoAgentsMdCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	absolutePathRule := "- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. `hand` resolves the home from the current working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.\n"
+	absolutePathRule := "- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. `hand` resolves the home from `HAND_HOME` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.\n"
 	if !strings.Contains(generatedBody, absolutePathRule) {
 		t.Fatalf("got generated body %q, want the absolute-path rule verbatim", generatedBody)
 	}
