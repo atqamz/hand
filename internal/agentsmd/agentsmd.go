@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/atomicfile"
@@ -44,6 +45,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Never merge without explicit authorization.
 - Never force-teardown without explicit authorization.
 - Report outcomes plainly. If work failed, say so with evidence.
+- Only a ` + "`hand send`" + ` message carries an operator decision. Answering your own harness's question dialog is you deciding, not the operator - never record that answer as "operator said" or "operator chose". You may decide anything reversible yourself and proceed; say so in first person - ` + "`working: deciding myself: <the call> because <reason>`" + ` - and reserve ` + "`needs-decision:`" + ` for what you cannot take back.
 - Name a path in a brief, a status report, or an operator message: full and absolute, never relative. ` + "`hand`" + ` resolves the home from ` + "`HAND_HOME`" + ` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce ` + "`data/<id>/report.md`" + `.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
@@ -110,14 +112,141 @@ func generatedBlock() string {
 // with no markers (never refreshed by this mechanism) is left as-is rather
 // than risk clobbering hand-written content.
 func mergeGenerated(content string) string {
-	start := strings.Index(content, beginMarker)
-	if start == -1 {
+	start, end, ok := generatedBlockSpan(content)
+	if !ok {
 		return content
 	}
-	end := strings.Index(content, endMarker)
-	if end == -1 || end < start {
-		return content
-	}
-	end += len(endMarker)
 	return content[:start] + strings.TrimSuffix(generatedBlock(), "\n") + content[end:]
+}
+
+// generatedBlockSpan returns the byte range of the generated block, including
+// its markers, or ok=false when the markers are absent or malformed (an end
+// marker missing, or appearing before any begin marker).
+func generatedBlockSpan(content string) (start, end int, ok bool) {
+	start = strings.Index(content, beginMarker)
+	if start == -1 {
+		return 0, 0, false
+	}
+	relEnd := strings.Index(content[start:], endMarker)
+	if relEnd == -1 {
+		return 0, 0, false
+	}
+	return start, start + relEnd + len(endMarker), true
+}
+
+var (
+	// dateRe and selfExpiringRe describe the two shapes of perishable content
+	// that belong in data/learnings.md, not AGENTS.md: a dated fact is an
+	// incident, and phrasing that names its own expiry is not an invariant.
+	dateRe         = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
+	selfExpiringRe = regexp.MustCompile(`(?i)\b(?:until|once)\s+#\d+\s+lands\b|\bawaiting\b`)
+
+	// inlineCodeRe and urlRe are stripped from a line before it's tested against
+	// dateRe/selfExpiringRe: a date in a quoted example or a URL is not an
+	// incident, and flagging it anyway is the false positive that gets a
+	// checker ignored (atqamz/secondhand#90).
+	inlineCodeRe = regexp.MustCompile("`[^`]*`")
+	urlRe        = regexp.MustCompile(`https?://\S+`)
+)
+
+// Violation is one perishable-content or generated-block-drift hit Check
+// found. Line is 1-based, or 0 for a violation that isn't about a single line
+// (generated-block drift).
+type Violation struct {
+	Line int
+	Text string
+}
+
+// Check reports perishable content and generated-block drift in dir's
+// AGENTS.md, described in SPECS.md's "AGENTS.md (target)" section
+// (atqamz/secondhand#90). It never writes: the point is to make a human look
+// at prose judgment a machine cannot make, not to rewrite it. A nil result
+// with no error means dir is not a fleet home, or has no AGENTS.md yet -
+// both are an absence, not a violation.
+func Check(dir string) ([]Violation, error) {
+	isHome, err := home.IsHome(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !isHome {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, filename))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", filename, err)
+	}
+	content := string(data)
+	blockStart, blockEnd, hasBlock := generatedBlockSpan(content)
+
+	var violations []Violation
+	inFence := false
+	offset := 0
+	for i, line := range strings.Split(content, "\n") {
+		lineNo := i + 1
+		insideBlock := hasBlock && offset >= blockStart && offset < blockEnd
+		offset += len(line) + 1
+
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+
+		if r, found := firstBannedRune(line); found {
+			violations = append(violations, Violation{Line: lineNo, Text: fmt.Sprintf("banned character %q: no em dash or emoji, house rule everywhere in this file", r)})
+		}
+		if insideBlock {
+			continue
+		}
+
+		stripped := urlRe.ReplaceAllString(inlineCodeRe.ReplaceAllString(line, ""), "")
+		if dateRe.MatchString(stripped) {
+			violations = append(violations, Violation{Line: lineNo, Text: "date outside the generated block: a dated fact is an incident, belongs in data/learnings.md"})
+		}
+		if selfExpiringRe.MatchString(stripped) {
+			violations = append(violations, Violation{Line: lineNo, Text: "self-expiring phrasing outside the generated block: not an invariant, belongs in data/learnings.md"})
+		}
+	}
+
+	if hasBlock && content[blockStart:blockEnd] != strings.TrimSuffix(generatedBlock(), "\n") {
+		violations = append(violations, Violation{Text: "generated block has drifted from generatedBody: run hand update (or hand init) to refresh"})
+	}
+
+	return violations, nil
+}
+
+func firstBannedRune(line string) (rune, bool) {
+	for _, r := range line {
+		if r == '—' || isEmojiRune(r) {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// isEmojiRune covers the Unicode blocks an accidental emoji actually comes
+// from, not a formal emoji property table: pictographs, symbols/dingbats,
+// regional-indicator flag letters, and the variation-selector/ZWJ modifiers
+// that ride along with them.
+func isEmojiRune(r rune) bool {
+	switch {
+	case r >= 0x1F300 && r <= 0x1FAFF:
+		return true
+	case r >= 0x2600 && r <= 0x27BF:
+		return true
+	case r >= 0x2B00 && r <= 0x2BFF:
+		return true
+	case r >= 0x1F1E6 && r <= 0x1F1FF:
+		return true
+	case r == 0xFE0F || r == 0x200D:
+		return true
+	}
+	return false
 }

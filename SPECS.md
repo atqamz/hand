@@ -1163,6 +1163,29 @@ Both are general errors (`1`), never usage errors: the operator typed the comman
 
 ---
 
+### `hand doctor`
+
+Report-only check of the resolved fleet home's `AGENTS.md` for perishable content and generated-block drift. Fixes nothing; a human or agent reads the findings and edits the file.
+
+```
+hand doctor
+```
+
+Behavior:
+1. Resolve the fleet home (same resolution as every other command; a `hand doctor` outside one is the same precondition failure as elsewhere).
+2. Scan `AGENTS.md` line by line, tracking fenced code blocks and the `hand:generated` span (see "AGENTS.md (target)"), and flag:
+   - a date (`YYYY-MM-DD`) outside the generated span, since a date only stays true as long as the day it names,
+   - self-expiring phrasing outside the generated span - `until #N lands`, `once #N lands`, `awaiting` - the same shape of problem as a bare date,
+   - an em dash or emoji anywhere in the file, generated span included,
+   - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`.
+3. Print one line per hit to stdout - `AGENTS.md:<line>: <finding>` for a line-anchored finding, `AGENTS.md: <finding>` for the whole-file drift check - and exit `1` if anything was found, `0` if the file is clean.
+
+A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
+
+A missing `AGENTS.md` is not an error: same as a directory that is not a fleet home at all, `hand doctor` finds nothing to flag and exits `0` silently, leaving `hand init` to be the one place that complains about an incomplete fleet home.
+
+---
+
 ## Dashboard: `data/dashboard.md`
 
 The dashboard is secondhand's answer to the session clobbering problem.
@@ -1794,6 +1817,8 @@ Fixed vocabulary (anything else is malformed, and malformed lines are surfaced, 
 - `done`: the worker believes the task is complete. `<note>` should include the PR URL for ship tasks.
 - `failed`: the worker gave up. `<note>` is why.
 
+Only a `hand send` message carries an operator decision. A worker answering its own harness's question dialog is deciding for itself, not being told - it must never write that answer as if the operator said it. There is no separate vocabulary word for this: the worker records it as `working: deciding myself: <the call> because <reason>`, first person, and reserves `needs-decision:` for what it cannot take back itself (see atqamz/secondhand#87).
+
 Read/classify semantics:
 
 - `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` on the task, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. The last state and note a line classified to are carried across a restart as `last_report_state` and `last_report_note` rather than re-read from the file, so a pane found not-busy after a restart isn't mistaken for an unexplained stop - see "What survives a `hand watch` restart".
@@ -2150,7 +2175,6 @@ Deliverable: ready for daily use.
 
 ## AGENTS.md (target)
 
-**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh.
+**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh. `hand doctor` (see the CLI specification) reports perishable content and generated-block drift in a real fleet home's `AGENTS.md` without fixing either.
 
-This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even once a maintainer runs `hand init` in the checkout and makes it a fleet home: its top section is a hand-kept copy of `generatedBody`, kept in sync manually rather than by the refresh mechanism.
-Drift between the two copies is caught by a unit test in `internal/agentsmd` asserting the repo copy's rules open with the generated ones verbatim, not by the mechanism that would remove the duplication.
+This repo's own `AGENTS.md` is deliberately not a fleet home - `internal/home.IsHome` reports false for this checkout, so `agentsmd.Refresh` has nothing to gate here even if a maintainer ran `hand init` in it. Rather than hand-keep a second copy of `generatedBody` in sync (the drift #44 was filed against), this file's own Rules section points at `generatedBody` and SPECS.md by name instead of restating it: one prose template, one place it can go stale.
