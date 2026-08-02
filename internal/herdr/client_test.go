@@ -136,6 +136,46 @@ esac
 	}
 }
 
+// TestWorkspaceCreateClosesWorkspaceOnMalformedResponse covers the sibling of the partial-response
+// path: encoding/json keeps decoding past its first type error, so a response that types a field
+// wrongly still yields a workspace ID herdr has already created and this call must still close.
+func TestWorkspaceCreateClosesWorkspaceOnMalformedResponse(t *testing.T) {
+	writeFakeHerdr(t, `
+echo "$@" >> "$HERDR_CALL_LOG"
+case "$1 $2" in
+"workspace create")
+	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"},"tab":"none"}}'
+	;;
+"workspace close")
+	if [ "$3" != "wA" ]; then
+		echo "unexpected close target: $@" >&2
+		exit 1
+	fi
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`)
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+
+	c := NewClient()
+	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
+		t.Fatal("expected an error when the response mistypes the tab field")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "workspace close wA") {
+		t.Fatalf("calls = %q, want the workspace herdr created to be closed", calls)
+	}
+}
+
 func TestTabRenameSendsCorrectArgs(t *testing.T) {
 	writeFakeHerdr(t, `
 if [ "$1 $2 $3 $4" != "tab rename wA:tB task-1" ]; then

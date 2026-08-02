@@ -242,6 +242,9 @@ func acquireTaskWorkspace(client *herdr.Client, wt, id, projName string) (herdr.
 
 	tab, pane, err := acquireTaskTab(client, createdWorkspace, ws.WorkspaceID, wt, id, rootTab, rootPane)
 	if err != nil {
+		// No rollback reaches the caller on this path, so a workspace this call just created has
+		// to be undone here or it stays open with nobody left holding its ID.
+		err = reportSpawnCleanup(err, rollbackHerdr(client, createdWorkspace, ws.WorkspaceID, ""))
 		return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, nil, err
 	}
 	tabID := tab.TabID
