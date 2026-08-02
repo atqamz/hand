@@ -112,39 +112,23 @@ func newSpawnCmd() *cobra.Command {
 			}
 
 			client := herdr.NewClient()
-			ws, found, err := client.FindWorkspaceByLabel(proj.Name)
-			createdWorkspace := false
-			var rootTab herdr.Tab
-			var rootPane herdr.Pane
-			if err == nil && !found {
-				ws, rootTab, rootPane, err = client.WorkspaceCreate(wt, proj.Name)
-				createdWorkspace = err == nil
-			}
+			ws, tab, pane, rollback, err := acquireTaskWorkspace(client, wt, id, proj.Name)
 			if err != nil {
-				return reportSpawnCleanup(fmt.Errorf("herdr workspace lookup/create failed: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 
 			// spawned disarms the rollback below once state.Write has durably recorded the
 			// task: from that point its workspace and tab are owned by the running task, not
-			// by this call, even if a later step (dashboard update) fails. Before that point,
-			// a single deferred rollback - rather than repeating the createdWorkspace check at
-			// every exit - undoes whatever this call created.
+			// by this call, even if a later step (dashboard update) fails.
 			spawned := false
-			var tabID string
 			defer func() {
 				if spawned {
 					return
 				}
-				if closeErr := rollbackHerdr(client, createdWorkspace, ws.WorkspaceID, tabID); closeErr != nil {
+				if closeErr := rollback(); closeErr != nil {
 					err = reportSpawnCleanup(err, closeErr)
 				}
 			}()
-
-			tab, pane, err := acquireTaskTab(client, createdWorkspace, ws.WorkspaceID, wt, id, rootTab, rootPane)
-			if err != nil {
-				return reportSpawnCleanup(err, worktree.Return(wt, true))
-			}
-			tabID = tab.TabID
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
 				Worktree:            wt,
@@ -235,6 +219,35 @@ func gatePreflight(cmd *cobra.Command, proj project.Project, clonePath string, s
 		return &ExitError{Err: fmt.Errorf("no-mistakes gate not initialized for project %q, run: %s", proj.Name, project.GateInitCommand(clonePath)), Code: 3}
 	}
 	return nil
+}
+
+// The caller must invoke the returned rollback, guarded by its own spawned/promoted flag,
+// until state.Write durably records the task.
+func acquireTaskWorkspace(client *herdr.Client, wt, id, projName string) (herdr.Workspace, herdr.Tab, herdr.Pane, func() error, error) {
+	ws, found, err := client.FindWorkspaceByLabel(projName)
+	createdWorkspace := false
+	var rootTab herdr.Tab
+	var rootPane herdr.Pane
+	if err == nil && !found {
+		ws, rootTab, rootPane, err = client.WorkspaceCreate(wt, projName)
+		createdWorkspace = err == nil
+	}
+	if err != nil {
+		return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, nil, fmt.Errorf("herdr workspace lookup/create failed: %w", err)
+	}
+
+	tab, pane, err := acquireTaskTab(client, createdWorkspace, ws.WorkspaceID, wt, id, rootTab, rootPane)
+	if err != nil {
+		// No rollback reaches the caller on this path, so a workspace this call just created has
+		// to be undone here or it stays open with nobody left holding its ID.
+		err = reportSpawnCleanup(err, rollbackHerdr(client, createdWorkspace, ws.WorkspaceID, ""))
+		return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, nil, err
+	}
+	tabID := tab.TabID
+	rollback := func() error {
+		return rollbackHerdr(client, createdWorkspace, ws.WorkspaceID, tabID)
+	}
+	return ws, tab, pane, rollback, nil
 }
 
 // acquireTaskTab returns the tab and pane a spawn-shaped lifecycle should use for the task. herdr

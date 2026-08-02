@@ -115,37 +115,23 @@ func newPromoteCmd() *cobra.Command {
 				return reportSpawnCleanup(&ExitError{Err: fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), Code: 3}, worktree.Return(wt, true))
 			}
 
-			ws, found, err := client.FindWorkspaceByLabel(proj.Name)
-			createdWorkspace := false
-			var rootTab herdr.Tab
-			var rootPane herdr.Pane
-			if err == nil && !found {
-				ws, rootTab, rootPane, err = client.WorkspaceCreate(wt, proj.Name)
-				createdWorkspace = err == nil
-			}
+			ws, tab, pane, rollback, err := acquireTaskWorkspace(client, wt, id, proj.Name)
 			if err != nil {
-				return reportSpawnCleanup(fmt.Errorf("herdr workspace lookup/create failed: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 
 			// Same rollback contract as hand spawn: until state.Write records the promotion,
 			// this call owns the new workspace or tab and must undo it on any failure; after
 			// that the promoted task owns them and later warnings must not tear them down.
 			promoted := false
-			var tabID string
 			defer func() {
 				if promoted {
 					return
 				}
-				if closeErr := rollbackHerdr(client, createdWorkspace, ws.WorkspaceID, tabID); closeErr != nil {
+				if closeErr := rollback(); closeErr != nil {
 					err = reportSpawnCleanup(err, closeErr)
 				}
 			}()
-
-			tab, pane, err := acquireTaskTab(client, createdWorkspace, ws.WorkspaceID, wt, id, rootTab, rootPane)
-			if err != nil {
-				return reportSpawnCleanup(err, worktree.Return(wt, true))
-			}
-			tabID = tab.TabID
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
 				Worktree:            wt,

@@ -431,6 +431,106 @@ func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {
 	}
 }
 
+// fakeHerdrPartialWorkspaceCreateScript answers "workspace create" the way a herdr whose protocol
+// predates the tab/root_pane fields on workspace_created would: it reports the workspace but
+// omits both, the partial-response shape atqamz/secondhand#74 fixes. herdr has still created the
+// workspace by the time this responds, so a faithful fake must also accept "workspace close" and
+// log it, or a test using this script could pass with the leak fix reverted.
+const fakeHerdrPartialWorkspaceCreateScript = `#!/bin/sh
+echo "$@" >> "$HERDR_CALL_LOG"
+cmd="$1 $2"
+case "$cmd" in
+"workspace list")
+	printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	;;
+"workspace create")
+	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"}}}'
+	;;
+"workspace close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`
+
+func TestSpawnPartialWorkspaceCreateLeavesNoWorkspaceBehind(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, fakeHerdrPartialWorkspaceCreateScript)
+	callLog := setupSpawnLeakEnv(t, false)
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "missing workspace, tab, or root pane") {
+		t.Fatalf("got err %v, want the partial workspace_created response rejected", err)
+	}
+
+	if exists, existsErr := state.Exists(home, "task-1"); existsErr != nil || exists {
+		t.Fatalf("state written for a partial workspace_created response: exists=%v err=%v", exists, existsErr)
+	}
+	calls, readErr := os.ReadFile(callLog)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(calls), "workspace close wA") {
+		t.Fatalf("calls = %q, want the workspace herdr created to be closed", calls)
+	}
+}
+
+// fakeHerdrTabRenameFailureScript answers "workspace create" in full and then fails the rename of
+// the root tab into the task's - the one failure that lands between herdr creating the workspace
+// and the caller arming its own rollback, so the workspace has to be closed by the acquisition
+// step itself.
+const fakeHerdrTabRenameFailureScript = `#!/bin/sh
+echo "$@" >> "$HERDR_CALL_LOG"
+cmd="$1 $2"
+case "$cmd" in
+"workspace list")
+	printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	;;
+"workspace create")
+	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"},"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
+	;;
+"tab rename")
+	exit 1
+	;;
+"workspace close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`
+
+func TestSpawnTabRenameFailureClosesWorkspaceItCreated(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, fakeHerdrTabRenameFailureScript)
+	callLog := setupSpawnLeakEnv(t, false)
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "herdr tab rename failed") {
+		t.Fatalf("got err %v, want the tab rename failure surfaced", err)
+	}
+
+	if exists, existsErr := state.Exists(home, "task-1"); existsErr != nil || exists {
+		t.Fatalf("state written for a failed tab rename: exists=%v err=%v", exists, existsErr)
+	}
+	calls, readErr := os.ReadFile(callLog)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(calls), "workspace close wA") {
+		t.Fatalf("calls = %q, want the workspace hand created to be closed", calls)
+	}
+}
+
 func TestSpawnFailureKeepsPreexistingWorkspace(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	setupSpawnHome(t, wt, fakeHerdrLeakScript)

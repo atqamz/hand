@@ -158,11 +158,24 @@ func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, Tab, Pane, error
 		Tab       Tab       `json:"tab"`
 		RootPane  Pane      `json:"root_pane"`
 	}
+	// A workspace ID on any failure path below means herdr already created the workspace before
+	// the response came back unusable - reachable only against a herdr whose protocol predates
+	// the tab/root_pane fields - so it must be closed here, before the parse error leaves this
+	// function, or nothing else will ever learn the workspace exists to clean it up. Unmarshal
+	// keeps decoding past its first type error, so a partly-decoded body carries an ID too.
+	failed := func(parseErr error) (Workspace, Tab, Pane, error) {
+		if body.Workspace.WorkspaceID != "" {
+			if closeErr := c.WorkspaceClose(body.Workspace.WorkspaceID); closeErr != nil {
+				return Workspace{}, Tab{}, Pane{}, fmt.Errorf("%w; cleanup failed: %w", parseErr, closeErr)
+			}
+		}
+		return Workspace{}, Tab{}, Pane{}, parseErr
+	}
 	if err := json.Unmarshal(res, &body); err != nil {
-		return Workspace{}, Tab{}, Pane{}, fmt.Errorf("parse workspace create: %w", err)
+		return failed(fmt.Errorf("parse workspace create: %w", err))
 	}
 	if body.Workspace.WorkspaceID == "" || body.Tab.TabID == "" || body.RootPane.PaneID == "" {
-		return Workspace{}, Tab{}, Pane{}, fmt.Errorf("parse workspace create: missing workspace, tab, or root pane")
+		return failed(fmt.Errorf("parse workspace create: missing workspace, tab, or root pane"))
 	}
 	return body.Workspace, body.Tab, body.RootPane, nil
 }

@@ -1038,7 +1038,7 @@ Behavior:
    refuse before acquiring any worktree if it comes back not initialized or unreachable, unless
    `--skip-gate-check` is set.
 4. Acquire a fresh treehouse worktree (with collision guard).
-5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 7, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
+5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 8, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
 7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
