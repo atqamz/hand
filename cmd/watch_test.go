@@ -131,6 +131,34 @@ func TestWatchRejectsNonPositiveTimeout(t *testing.T) {
 	}
 }
 
+func TestWatchRejectsEventWithoutUntilEvent(t *testing.T) {
+	setupWatchHome(t)
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--event", "blocked"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--event requires --until-event") {
+		t.Fatalf("got err %v, want --event requires --until-event", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
+func TestWatchRejectsUnknownEventKind(t *testing.T) {
+	setupWatchHome(t)
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--until-event", "--event", "not-a-kind"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `unknown --event "not-a-kind"`) {
+		t.Fatalf("got err %v, want unknown --event", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
 func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
 	setupWatchHome(t)
 
