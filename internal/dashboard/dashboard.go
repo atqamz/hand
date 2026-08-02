@@ -169,14 +169,11 @@ func derive(d *Dashboard, homeDir string) error {
 	activeCounts := make(map[string]int, len(projects))
 	for _, t := range tasks {
 		activeCounts[t.Project]++
-		lines, err := state.ReadReportLines(homeDir, t.ID)
-		if err != nil {
-			return err
-		}
+		lines, readErr := state.ReadReportLines(homeDir, t.ID)
 		reported, ok := state.LastReportedState(lines)
 		d.ActiveTasks = append(d.ActiveTasks, ActiveTask{
 			ID: t.ID, Project: t.Project, Kind: t.Kind,
-			State: taskState(reported, ok), Age: FormatAge(t.CreatedAt), PR: t.PR,
+			State: taskState(reported, ok, readErr), Age: FormatAge(t.CreatedAt), PR: t.PR,
 		})
 		if open, waiting := openQuestion(lines); waiting {
 			d.PendingDecisions = append(d.PendingDecisions,
@@ -195,8 +192,16 @@ func derive(d *Dashboard, homeDir string) error {
 // "not recorded", never "guessed wrong".
 const unreported = "unreported"
 
-func taskState(reported state.ReportLine, ok bool) string {
-	if !ok {
+// Distinct from "unreported", as in hand status: an I/O fault is not evidence
+// the worker never reported, and failing the render over one unreadable file
+// would cost every command that writes the dashboard its whole fleet view.
+const unreadable = "unreadable"
+
+func taskState(reported state.ReportLine, ok bool, readErr error) string {
+	switch {
+	case readErr != nil:
+		return unreadable
+	case !ok:
 		return unreported
 	}
 	return reported.State

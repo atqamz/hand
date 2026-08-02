@@ -73,6 +73,18 @@ func importLegacyRegistry(db *store.DB, homeDir string) error {
 	if err != nil || done {
 		return err
 	}
+	// The check, the inserts and the mark are separate statements over a file
+	// sqlite cannot see, so unlocked they can re-insert a project another
+	// process removed after importing it. Same lock as the task import.
+	unlock, err := store.Lock(homeDir, store.MigrationLock, false)
+	if err != nil {
+		return fmt.Errorf("lock migration: %w", err)
+	}
+	defer unlock()
+
+	if done, err := db.Migrated(legacyRegistryKey); err != nil || done {
+		return err
+	}
 	projects, err := parseRegistryFile(homeDir)
 	if err != nil {
 		return err

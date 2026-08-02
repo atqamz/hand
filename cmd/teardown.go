@@ -79,14 +79,14 @@ func newTeardownCmd() *cobra.Command {
 			c := completionFor(t, force)
 
 			// Recorded before state.Delete, not after: the record is derived from t, which
-			// state.Delete would remove out from under us. Failing here leaves state/<id>.json
+			// state.Delete would remove out from under us. Failing here leaves the task row
 			// untouched, so the whole command is simply retryable and no completion is lost.
 			// A failure the other way around - after the record lands but before teardown
 			// actually finishes - cannot make the record inaccurate, only late to remove its
 			// source: everything the record claims (landed work, a returned worktree) is
 			// already true by this line, --force or not, so the completion is durable either
 			// way. What a retry then does depends on which later step faulted: state.Delete
-			// failing leaves state/<id>.json in place, so a retry replays the whole command
+			// failing leaves the task row in place, so a retry replays the whole command
 			// and appends a second, identical record - a harmless duplicate this trades for
 			// never losing a completion. A dashboard.Update fault comes after the delete
 			// succeeded, so a retry stops at state.Read with task-not-found; the record is

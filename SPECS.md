@@ -139,6 +139,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       types.go              # herdr data types
     store/                  # machine state in sqlite (see "Machine state and the prose corpus")
       store.go              # schema, task and project rows, meta keys
+      lock.go               # named flocks over state/, shared by state and the import
       migrate.go            # one-way import of pre-sqlite state/<id>.json and data/projects.md
       index.go              # derived full-text index over the prose corpus
     state/                  # task state management, a thin facade over store
@@ -405,7 +406,7 @@ Errors:
 - Worker never confirmed started within the poll window, or is waiting on a first-run prompt hand
   refuses to answer (pane content and the blocking prompt included in the error).
 
-State file written (`state/fix-login.json`):
+Task row written to the `task` table in `state/hand.db`, one column per field below:
 ```json
 {
   "id": "fix-login",
@@ -834,8 +835,8 @@ So a fleet left entirely unattended still goes unread; the difference is that an
 | The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. `hand merge` writes `merged` without touching the dashboard, so the evidence can appear while the watcher is down. |
 | An auto-recorded PR URL | Persisted as `pr` on the task, and every outcome that isn't a silently self-resolving race is announced (`pr-not-recorded` / `pr-record-unknown`) and logged. |
 | Last reported state and note | Persisted as `last_report_state` and `last_report_note`, written alongside `report_offset` on the same tick that consumed the line. Re-reading them from `state/<id>.status` on resume instead - the previous behavior - meant re-reading history the durable offset says has already been consumed, and re-derived them from a file `hand promote` deliberately leaves alone, so a promoted ship inherited the scout's last report as if it were its own. They explain a quiet pane (`parked`'s bound is selected by the state, and `hand status` renders the note) and gate the scout's deferred-`done` bookkeeping. |
-| The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh JSON, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
-| The same bookkeeping across `hand promote` | Not covered by the identity check above, and the sharper problem: promote rewrites the task JSON in place, keeps `created_at`, and gives the task a *new herdr pane*. Every cached fact anchored to the old pane is therefore not evidence about the ship at all, however plausible it looks. See "Pane-anchored facts across `hand promote`" below for the field-by-field classification and for how the watcher forgets its cached copies. |
+| The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh row, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
+| The same bookkeeping across `hand promote` | Not covered by the identity check above, and the sharper problem: promote rewrites the task row in place, keeps `created_at`, and gives the task a *new herdr pane*. Every cached fact anchored to the old pane is therefore not evidence about the ship at all, however plausible it looks. See "Pane-anchored facts across `hand promote`" below for the field-by-field classification and for how the watcher forgets its cached copies. |
 | Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane as `(unreported)` or `(reported: <state>)` from the same report channel, and the stale timer below re-flags the task within one window. |
 | Whether the last probe of the pane succeeded | Re-derived, safely: seeded unconditionally true on resume, the same value a first sighting gets, so the first probe after a restart is compared against a clean slate. It gates the once-only `failed` latch and `stale`'s detection, and true is the conservative seed for both - a still-unreachable pane re-announces `failed` on the first tick rather than staying silent. A live `hand promote` reseeds it the same way, and for the same reason; see below. |
 | How long the current herdr status has been dwelt in | Persisted as `status_changed_at`, updated whenever a herdr status transition is actually observed - any transition, not only ones that raise an event - and re-seeded from `created_at` until the first one. This is what `stale`'s dwell is measured against. Seeding it from the resume time instead - the previous behavior - erased a real dwell on every restart, and since `--until-event` restarts on every delivered event by design, a fleet busy enough to re-arm faster than the threshold elapses could erase that dwell before it ever completed once, silencing `stale` for exactly the fleet it exists to watch (issue #75's Ruling 1). |
@@ -1053,6 +1054,9 @@ The index lives in its own database at `state/index.db`, separate from machine s
 
 Errors:
 - Corpus unreadable (the rebuild names the file it could not read).
+- Index unusable, past what a refresh repairs - the condition `--rebuild` exists for.
+
+Both are general errors (`1`), never usage errors: the operator typed the command correctly and the fault is in the world.
 
 ---
 
@@ -1118,7 +1122,8 @@ Recent Completions is a capped view, not the record of truth: every entry `hand 
 
 ### Derived sections
 
-**Active Tasks** is one row per task in the store. The `state` column is the task's last classified report line - `working`, `paused`, `blocked`, `needs-decision`, `done`, `failed` - or `unreported` when the worker has written nothing that classified.
+**Active Tasks** is one row per task in the store. The `state` column is the task's last classified report line - `working`, `paused`, `blocked`, `needs-decision`, `done`, `failed` - or `unreported` when the worker has written nothing that classified, or `unreadable` when its report file exists but can't be read.
+`unreadable` is the same distinction `hand status` draws with ` (report unreadable)`, and for the same reason: an I/O fault is not evidence the worker never reported, and reads fail open, so one unreadable report costs its own row's state and not the whole render - which every command that mutates fleet state writes.
 It speaks the report vocabulary and nothing else.
 It is deliberately not a live herdr probe and not an event kind: a probe would give the column a second source that disagrees with `hand status`, and an event kind put watcher-internal spellings like `idle-unreported` and `pr-not-recorded` in a column that is meant to say what the *worker* said.
 A pane observation that has no report behind it belongs in Recent Events, where it is a thing the fleet saw rather than a thing the worker claimed.
@@ -1671,6 +1676,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 - `data/projects.md` is imported the same way, once. Unlike the task files it survives the import as its own projection, so its absence cannot serve as the done marker; a `migrated:projects.md` row in the store's `meta` table serves instead.
 - **The import is idempotent, because running it twice is what actually happens.** A second run finds no JSON left to import and a registry already marked imported, and changes nothing.
 - **A row already in the database wins over a file.** A legacy file that reappears - restored from a backup, or copied back out of `state/migrated/` by an operator reading it - is a snapshot from before the import and must never overwrite what `hand` has recorded since.
+- **The whole import runs under one named lock**, the same primitive that guards a command sequence elsewhere, because it spans files sqlite cannot see. Without it two `hand` processes opening a not-yet-migrated home interleave: one parses a file, the other imports it, archives it and then deletes the row under `hand teardown`, and the first lands its insert afterwards and resurrects a torn-down task. It is a lock of its own, not the project registry's, since `hand project add` and `remove` already hold that one when they trigger the registry import.
 - **A legacy file that will not parse stops the import and names the file**, rather than importing the rest and leaving an operator to notice a task went missing. Moving the named file aside is the way forward.
 - There is no reverse migration. The `state/migrated/` copies are what a rollback would read.
 

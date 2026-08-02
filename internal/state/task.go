@@ -1,7 +1,6 @@
 package state
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -44,7 +43,7 @@ func Claim(homeDir, id string) (func(), error) {
 	if err := ValidateID(id); err != nil {
 		return nil, err
 	}
-	release, err := lock(homeDir, "task:"+id, true)
+	release, err := store.Lock(homeDir, "task:"+id, true)
 	if err != nil {
 		if err == syscall.EWOULDBLOCK {
 			return nil, fmt.Errorf("task %q %w", id, ErrTaskActive)
@@ -64,44 +63,18 @@ func Claim(homeDir, id string) (func(), error) {
 }
 
 func Lock(homeDir, name string) (func(), error) {
-	return lock(homeDir, name, false)
+	return store.Lock(homeDir, name, false)
 }
 
 // TryLock is Lock for callers that must never wait - a poll loop, or anything
 // holding no claim of its own on the work the lock protects. It reports
 // ErrLockBusy instead of blocking behind a holder that may be mid-network-call.
 func TryLock(homeDir, name string) (func(), error) {
-	release, err := lock(homeDir, name, true)
+	release, err := store.Lock(homeDir, name, true)
 	if err == syscall.EWOULDBLOCK {
 		return nil, ErrLockBusy
 	}
 	return release, err
-}
-
-// These locks guard whole command sequences, not database writes: hand merge
-// holds one across a network call. sqlite's own locking is per statement and
-// cannot express that, so both exist and neither replaces the other.
-func lock(homeDir, name string, nonblock bool) (func(), error) {
-	if err := os.MkdirAll(Dir(homeDir), 0o755); err != nil {
-		return nil, fmt.Errorf("create state directory: %w", err)
-	}
-	lockName := fmt.Sprintf(".%x.lock", sha256.Sum256([]byte(name)))
-	file, err := os.OpenFile(filepath.Join(Dir(homeDir), lockName), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open lock: %w", err)
-	}
-	flags := syscall.LOCK_EX
-	if nonblock {
-		flags |= syscall.LOCK_NB
-	}
-	if err := syscall.Flock(int(file.Fd()), flags); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	return func() {
-		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		_ = file.Close()
-	}, nil
 }
 
 func Exists(homeDir, id string) (bool, error) {

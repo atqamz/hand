@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+
+	"github.com/atqamz/secondhand/internal/store"
 )
 
 func TestWriteReadRoundTrip(t *testing.T) {
@@ -188,7 +190,7 @@ func TestLockIsExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lock(dir, "project:myproj", true); err != syscall.EWOULDBLOCK {
+	if _, err := store.Lock(dir, "project:myproj", true); err != syscall.EWOULDBLOCK {
 		t.Fatalf("second lock error = %v, want EWOULDBLOCK", err)
 	}
 	release()

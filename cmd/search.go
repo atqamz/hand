@@ -55,7 +55,7 @@ func newSearchCmd() *cobra.Command {
 			query := strings.Join(args, " ")
 			hits, err := ix.Search(query, limit)
 			if err != nil {
-				return &ExitError{Err: err, Code: 2}
+				return err
 			}
 
 			// An empty stdout is the honest answer for a pipeline, but on its own

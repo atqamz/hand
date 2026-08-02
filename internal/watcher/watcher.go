@@ -186,7 +186,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		// respawned between two ticks is a different task, and inheriting the
 		// previous run's TaskState would suppress the new task's verified done
 		// forever - syncTaskState writes that inherited done_verified onto the fresh
-		// JSON, making the suppression durable - and absorb its first unexplained
+		// row, making the suppression durable - and absorb its first unexplained
 		// stop. Same hazard as a surviving report channel, one layer in; see
 		// state.Delete for that half.
 		ts, tracked := states[t.ID]

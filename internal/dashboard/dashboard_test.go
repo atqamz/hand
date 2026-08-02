@@ -263,6 +263,30 @@ func TestStateColumnAgreesWithTheReportBesideThePR(t *testing.T) {
 	}
 }
 
+func TestUnreadableReportCostsOnlyItsOwnStateColumn(t *testing.T) {
+	home := newHome(t)
+	writeTask(t, home, state.Task{ID: "broken", Project: "nsr", Kind: state.KindShip})
+	writeTask(t, home, state.Task{ID: "fine", Project: "nsr", Kind: state.KindShip})
+	writeReport(t, home, "fine", "working: on it")
+	// A directory at the report path fails ReadFile for any uid, where a chmod
+	// would not stop a test running as root.
+	if err := os.Mkdir(state.ReportPath(home, "broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Update(home, UpdateOpts{}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := rendered(t, home)
+	if !strings.Contains(out, "| broken | nsr | ship | unreadable |") {
+		t.Fatalf("unreadable report did not render as unreadable:\n%s", out)
+	}
+	if !strings.Contains(out, "| fine | nsr | ship | working |") {
+		t.Fatalf("readable row lost to the unreadable one:\n%s", out)
+	}
+}
+
 // atqamz/secondhand#53 defect 4: one ~200-word report line consumed the whole
 // Recent Events section.
 func TestLongEventIsTruncatedWithAMarker(t *testing.T) {
