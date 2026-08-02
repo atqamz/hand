@@ -48,12 +48,9 @@ func TestSyncOneProjectUpToDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg, advanced, err := syncOneProject(home, project.Project{Name: "myproj"})
+	msg, err := syncOneProject(home, project.Project{Name: "myproj"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if advanced {
-		t.Fatalf("want not advanced, got %q", msg)
 	}
 	if !strings.Contains(msg, "up to date") {
 		t.Fatalf("message = %q, want up to date", msg)
@@ -78,12 +75,9 @@ func TestSyncOneProjectFastForwards(t *testing.T) {
 	runGitIn(t, remotePath, "add", "new.txt")
 	runGitIn(t, remotePath, "commit", "-q", "-m", "add new file")
 
-	msg, advanced, err := syncOneProject(home, project.Project{Name: "myproj"})
+	msg, err := syncOneProject(home, project.Project{Name: "myproj"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !advanced {
-		t.Fatalf("want advanced, got message %q", msg)
 	}
 	if !strings.Contains(msg, "fast-forwarded") || !strings.Contains(msg, "was 1 behind") {
 		t.Fatalf("message = %q, want fast-forwarded/was 1 behind", msg)
@@ -108,12 +102,9 @@ func TestSyncOneProjectSkipsDirtyWorkingTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg, advanced, err := syncOneProject(home, project.Project{Name: "myproj"})
+	msg, err := syncOneProject(home, project.Project{Name: "myproj"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if advanced {
-		t.Fatalf("want not advanced, got %q", msg)
 	}
 	if !strings.Contains(msg, "dirty working tree") {
 		t.Fatalf("message = %q, want dirty working tree", msg)
@@ -132,12 +123,9 @@ func TestSyncOneProjectSkipsNonDefaultBranch(t *testing.T) {
 	}
 	runGitIn(t, movedClone, "checkout", "-q", "-b", "other")
 
-	msg, advanced, err := syncOneProject(home, project.Project{Name: "myproj"})
+	msg, err := syncOneProject(home, project.Project{Name: "myproj"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if advanced {
-		t.Fatalf("want not advanced, got %q", msg)
 	}
 	if !strings.Contains(msg, "on branch other, not main") {
 		t.Fatalf("message = %q, want branch mismatch warning", msg)
@@ -167,12 +155,9 @@ func TestSyncOneProjectSkipsDiverged(t *testing.T) {
 	runGitIn(t, movedClone, "add", "local-only.txt")
 	runGitIn(t, movedClone, "commit", "-q", "-m", "local commit")
 
-	msg, advanced, err := syncOneProject(home, project.Project{Name: "myproj"})
+	msg, err := syncOneProject(home, project.Project{Name: "myproj"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if advanced {
-		t.Fatalf("want not advanced, got %q", msg)
 	}
 	if !strings.Contains(msg, "diverged") {
 		t.Fatalf("message = %q, want diverged warning", msg)
@@ -187,12 +172,9 @@ func TestSyncOneProjectSkipsWhenNoOriginRemote(t *testing.T) {
 	clonePath := filepath.Join(home, "projects", "myproj")
 	initGitRepo(t, clonePath)
 
-	msg, advanced, err := syncOneProject(home, project.Project{Name: "myproj"})
+	msg, err := syncOneProject(home, project.Project{Name: "myproj"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if advanced {
-		t.Fatalf("want not advanced, got %q", msg)
 	}
 	if !strings.Contains(msg, "no origin remote") {
 		t.Fatalf("message = %q, want no origin remote warning", msg)

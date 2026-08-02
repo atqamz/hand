@@ -347,7 +347,7 @@ func newProjectSyncCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("lock project %q: %w", p.Name, err)
 				}
-				msg, _, syncErr := syncOneProject(home, p)
+				msg, syncErr := syncOneProject(home, p)
 				releaseProject()
 
 				if syncErr != nil {
@@ -373,62 +373,62 @@ func newProjectSyncCmd() *cobra.Command {
 // syncOneProject fetches and, when eligible, fast-forwards a single project clone.
 // It never errors on a benign skip (dirty, wrong branch, diverged, no remote) -
 // those are reported in the returned message, per SPECS.md's fail-open policy.
-func syncOneProject(home string, p project.Project) (string, bool, error) {
+func syncOneProject(home string, p project.Project) (string, error) {
 	clonePath := filepath.Join(home, "projects", p.Name)
 
 	if !hasOriginRemote(clonePath) {
-		return fmt.Sprintf("%s: skipped (no origin remote)", p.Name), false, nil
+		return fmt.Sprintf("%s: skipped (no origin remote)", p.Name), nil
 	}
 
 	fetch := exec.Command("git", "fetch", "origin", "--prune")
 	fetch.Dir = clonePath
 	if out, err := fetch.CombinedOutput(); err != nil {
-		return "", false, fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
 	}
 
 	pruneGoneBranches(clonePath)
 
 	defaultBr, err := defaultBranch(clonePath)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: resolve default branch: %w", p.Name, err)
+		return "", fmt.Errorf("%s: resolve default branch: %w", p.Name, err)
 	}
 	currentBr, err := currentBranch(clonePath)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: current branch: %w", p.Name, err)
+		return "", fmt.Errorf("%s: current branch: %w", p.Name, err)
 	}
 	if currentBr != defaultBr {
-		return fmt.Sprintf("%s: skipped (on branch %s, not %s)", p.Name, currentBr, defaultBr), false, nil
+		return fmt.Sprintf("%s: skipped (on branch %s, not %s)", p.Name, currentBr, defaultBr), nil
 	}
 	dirty, err := hasUncommittedChanges(clonePath)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if dirty {
-		return fmt.Sprintf("%s: skipped (dirty working tree)", p.Name), false, nil
+		return fmt.Sprintf("%s: skipped (dirty working tree)", p.Name), nil
 	}
 
 	remoteRef := "origin/" + defaultBr
 	behind, err := commitCount(clonePath, "HEAD.."+remoteRef)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if behind == 0 {
-		return fmt.Sprintf("%s: up to date", p.Name), false, nil
+		return fmt.Sprintf("%s: up to date", p.Name), nil
 	}
 	ahead, err := commitCount(clonePath, remoteRef+"..HEAD")
 	if err != nil {
-		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if ahead > 0 {
-		return fmt.Sprintf("%s: skipped (diverged from %s)", p.Name, remoteRef), false, nil
+		return fmt.Sprintf("%s: skipped (diverged from %s)", p.Name, remoteRef), nil
 	}
 
 	merge := exec.Command("git", "merge", "--ff-only", remoteRef)
 	merge.Dir = clonePath
 	if out, err := merge.CombinedOutput(); err != nil {
-		return fmt.Sprintf("%s: skipped (fast-forward failed: %s)", p.Name, strings.TrimSpace(string(out))), false, nil
+		return fmt.Sprintf("%s: skipped (fast-forward failed: %s)", p.Name, strings.TrimSpace(string(out))), nil
 	}
-	return fmt.Sprintf("%s: fast-forwarded to %s (was %d behind)", p.Name, remoteRef, behind), true, nil
+	return fmt.Sprintf("%s: fast-forwarded to %s (was %d behind)", p.Name, remoteRef, behind), nil
 }
 
 func hasOriginRemote(clonePath string) bool {

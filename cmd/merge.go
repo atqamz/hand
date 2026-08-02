@@ -130,7 +130,7 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		if err != nil {
 			return fmt.Errorf("lock project %q: %w", proj.Name, err)
 		}
-		_, _, syncErr := syncOneProject(home, proj)
+		_, syncErr := syncOneProject(home, proj)
 		releaseProject()
 		if syncErr != nil {
 			if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project sync failed: %v\n", syncErr); printErr != nil {
