@@ -88,7 +88,7 @@ func newProjectAddCmd() *cobra.Command {
 			if err := project.Add(home, project.Project{Name: name, URL: url, Mode: mode}); err != nil {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
-			if err := updateDashboardProjects(home); err != nil {
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 				_ = project.Remove(home, name)
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
@@ -103,32 +103,6 @@ func newProjectAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", project.ModeDirectPR, "delivery mode: no-mistakes, direct-pr, local-only")
 	cmd.Flags().StringVar(&name, "name", "", "override the project name")
 	return cmd
-}
-
-// updateDashboardProjects rewrites the dashboard's Projects section; it is the
-// single updater shared by project add, remove, and sync, and by merge's
-// post-merge re-sync.
-func updateDashboardProjects(home string) error {
-	projects, err := project.List(home)
-	if err != nil {
-		return err
-	}
-	tasks, err := state.List(home)
-	if err != nil {
-		return err
-	}
-	activeCounts := make(map[string]int, len(projects))
-	for _, t := range tasks {
-		activeCounts[t.Project]++
-	}
-
-	summaries := make([]dashboard.ProjectSummary, len(projects))
-	for i, p := range projects {
-		summaries[i] = dashboard.ProjectSummary{Name: p.Name, Mode: p.Mode, ActiveTaskCount: activeCounts[p.Name]}
-	}
-
-	path := filepath.Join(home, "data", "dashboard.md")
-	return dashboard.Update(path, dashboard.UpdateOpts{SetProjects: summaries})
 }
 
 func cleanupCloneAfterFailure(clonePath string, cause error) error {
@@ -314,7 +288,7 @@ func newProjectRemoveCmd() *cobra.Command {
 			if err := project.Remove(home, name); err != nil {
 				return asPrecondition(err)
 			}
-			if err := updateDashboardProjects(home); err != nil {
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 				return err
 			}
 
@@ -328,32 +302,12 @@ func newProjectRemoveCmd() *cobra.Command {
 }
 
 func hasActiveTasksForProject(home, name string) (bool, error) {
-	entries, err := os.ReadDir(filepath.Join(home, "state"))
-	if os.IsNotExist(err) {
-		return false, nil
-	}
+	tasks, err := state.List(home)
 	if err != nil {
-		return false, fmt.Errorf("read state directory: %w", err)
+		return false, err
 	}
-
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(home, "state", e.Name()))
-		if err != nil {
-			return false, fmt.Errorf("read state file %s: %w", e.Name(), err)
-		}
-		var task struct {
-			Project string `json:"project"`
-		}
-		if err := json.Unmarshal(data, &task); err != nil {
-			return false, fmt.Errorf("parse state file %s: %w", e.Name(), err)
-		}
-		if strings.TrimSpace(task.Project) == "" {
-			return false, fmt.Errorf("parse state file %s: missing project", e.Name())
-		}
-		if task.Project == name {
+	for _, t := range tasks {
+		if t.Project == name {
 			return true, nil
 		}
 	}
@@ -388,13 +342,12 @@ func newProjectSyncCmd() *cobra.Command {
 				}
 			}
 
-			advancedAny := false
 			for _, p := range targets {
 				releaseProject, err := state.Lock(home, "project:"+p.Name)
 				if err != nil {
 					return fmt.Errorf("lock project %q: %w", p.Name, err)
 				}
-				msg, advanced, syncErr := syncOneProject(home, p)
+				msg, syncErr := syncOneProject(home, p)
 				releaseProject()
 
 				if syncErr != nil {
@@ -406,20 +359,12 @@ func newProjectSyncCmd() *cobra.Command {
 					}
 					continue
 				}
-				if advanced {
-					advancedAny = true
-				}
 				if _, err := fmt.Fprintln(cmd.OutOrStdout(), msg); err != nil {
 					return err
 				}
 			}
 
-			if advancedAny {
-				if err := updateDashboardProjects(home); err != nil {
-					return err
-				}
-			}
-			return nil
+			return dashboard.Update(home, dashboard.UpdateOpts{})
 		},
 	}
 	return cmd
@@ -428,62 +373,62 @@ func newProjectSyncCmd() *cobra.Command {
 // syncOneProject fetches and, when eligible, fast-forwards a single project clone.
 // It never errors on a benign skip (dirty, wrong branch, diverged, no remote) -
 // those are reported in the returned message, per SPECS.md's fail-open policy.
-func syncOneProject(home string, p project.Project) (string, bool, error) {
+func syncOneProject(home string, p project.Project) (string, error) {
 	clonePath := filepath.Join(home, "projects", p.Name)
 
 	if !hasOriginRemote(clonePath) {
-		return fmt.Sprintf("%s: skipped (no origin remote)", p.Name), false, nil
+		return fmt.Sprintf("%s: skipped (no origin remote)", p.Name), nil
 	}
 
 	fetch := exec.Command("git", "fetch", "origin", "--prune")
 	fetch.Dir = clonePath
 	if out, err := fetch.CombinedOutput(); err != nil {
-		return "", false, fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
 	}
 
 	pruneGoneBranches(clonePath)
 
 	defaultBr, err := defaultBranch(clonePath)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: resolve default branch: %w", p.Name, err)
+		return "", fmt.Errorf("%s: resolve default branch: %w", p.Name, err)
 	}
 	currentBr, err := currentBranch(clonePath)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: current branch: %w", p.Name, err)
+		return "", fmt.Errorf("%s: current branch: %w", p.Name, err)
 	}
 	if currentBr != defaultBr {
-		return fmt.Sprintf("%s: skipped (on branch %s, not %s)", p.Name, currentBr, defaultBr), false, nil
+		return fmt.Sprintf("%s: skipped (on branch %s, not %s)", p.Name, currentBr, defaultBr), nil
 	}
 	dirty, err := hasUncommittedChanges(clonePath)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if dirty {
-		return fmt.Sprintf("%s: skipped (dirty working tree)", p.Name), false, nil
+		return fmt.Sprintf("%s: skipped (dirty working tree)", p.Name), nil
 	}
 
 	remoteRef := "origin/" + defaultBr
 	behind, err := commitCount(clonePath, "HEAD.."+remoteRef)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if behind == 0 {
-		return fmt.Sprintf("%s: up to date", p.Name), false, nil
+		return fmt.Sprintf("%s: up to date", p.Name), nil
 	}
 	ahead, err := commitCount(clonePath, remoteRef+"..HEAD")
 	if err != nil {
-		return "", false, fmt.Errorf("%s: %w", p.Name, err)
+		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if ahead > 0 {
-		return fmt.Sprintf("%s: skipped (diverged from %s)", p.Name, remoteRef), false, nil
+		return fmt.Sprintf("%s: skipped (diverged from %s)", p.Name, remoteRef), nil
 	}
 
 	merge := exec.Command("git", "merge", "--ff-only", remoteRef)
 	merge.Dir = clonePath
 	if out, err := merge.CombinedOutput(); err != nil {
-		return fmt.Sprintf("%s: skipped (fast-forward failed: %s)", p.Name, strings.TrimSpace(string(out))), false, nil
+		return fmt.Sprintf("%s: skipped (fast-forward failed: %s)", p.Name, strings.TrimSpace(string(out))), nil
 	}
-	return fmt.Sprintf("%s: fast-forwarded to %s (was %d behind)", p.Name, remoteRef, behind), true, nil
+	return fmt.Sprintf("%s: fast-forwarded to %s (was %d behind)", p.Name, remoteRef, behind), nil
 }
 
 func hasOriginRemote(clonePath string) bool {

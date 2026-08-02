@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDeriveName(t *testing.T) {
@@ -293,5 +294,45 @@ func TestRemoveFailsClosedOnMalformedLine(t *testing.T) {
 	}
 	if got, err := os.ReadFile(RegistryPath(dir)); err != nil || string(got) != content {
 		t.Fatalf("registry changed after failed remove: %q, %v", got, err)
+	}
+}
+
+// The projection is a read-modify-write over a whole file, so a second writer
+// has to wait for the first: rendering from its own snapshot mid-write is how a
+// registered project goes missing from data/projects.md.
+func TestAddWaitsForTheRegistryLock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lockRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Add(dir, Project{Name: "alpha", URL: "https://example.com/alpha.git", Mode: ModeDirectPR})
+	}()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("add returned %v while the registry lock was held", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("add never completed after the lock was released")
+	}
+
+	projection, err := os.ReadFile(RegistryPath(dir))
+	if err != nil || !strings.Contains(string(projection), "- alpha: ") {
+		t.Fatalf("projection = %q, %v, want alpha listed", projection, err)
 	}
 }

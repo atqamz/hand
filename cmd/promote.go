@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
@@ -165,8 +166,6 @@ func newPromoteCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), worktree.Return(wt, true))
 			}
 
-			// Dashboard is deliberately left untouched: the task's row stays
-			// KindScout even though the underlying task becomes a ship task.
 			t.Kind = state.KindShip
 			t.Harness = harnessName
 			t.Model = model
@@ -201,6 +200,10 @@ func newPromoteCmd() *cobra.Command {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: return scout worktree failed: %v\n", err); printErr != nil {
 					return printErr
 				}
+			}
+
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
+				return fmt.Errorf("update dashboard: %w", err)
 			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "promoted %s: scout -> ship project=%s harness=%s\n", id, proj.Name, harnessName); err != nil {

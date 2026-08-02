@@ -1,20 +1,21 @@
-// Package dashboard reads, renders, and updates data/dashboard.md, the fleet's
-// living status file described in SPECS.md.
+// Package dashboard renders data/dashboard.md, described in SPECS.md. Every
+// derivable section is re-derived from the store on every write rather than
+// patched into the previous rendering, the root of atqamz/secondhand#53.
 package dashboard
 
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/atomicfile"
+	"github.com/atqamz/secondhand/internal/project"
+	"github.com/atqamz/secondhand/internal/state"
 )
 
 const TimeFormat = time.RFC3339
@@ -56,12 +57,6 @@ type Dashboard struct {
 	Projects          []ProjectSummary
 }
 
-type AgentStateUpdate struct {
-	ID    string
-	State string
-	Age   string
-}
-
 // Completion describes a task moving into Recent Completions, e.g. rendered as
 // "fix-login: nsr | ship | merged | PR #40".
 type Completion struct {
@@ -72,49 +67,22 @@ type Completion struct {
 	Detail  string
 }
 
-// PendingDecision is upserted by ID: a later SetPendingDecision for the same ID
-// replaces the previous line instead of appending a duplicate.
-type PendingDecision struct {
-	ID   string
-	Text string
-}
-
-// PRUpdate sets the PR column for an existing active task row. A missing row is
-// never created here - active rows come from hand spawn, and a fabricated one
-// would invent state rather than reconcile it.
-type PRUpdate struct {
-	ID string
-	PR string
-}
-
-// ErrPRRowNotFound reports a SetPR that matched no active row. It is an error
-// rather than a flag on PRUpdate because no caller wants to ignore it and three
-// call sites in a row did exactly that by accident: a returned flag is silently
-// droppable, whereas ignoring an error takes an explicit discard a linter flags
-// and a reviewer sees. Every caller has to tell a repair from a no-op - the PR is
-// on the task either way, and only the dashboard column is left stale.
-var ErrPRRowNotFound = errors.New("no active dashboard row")
-
+// Only what cannot be derived: the two append-only logs. Every other section
+// is rebuilt from the store on every call, so no caller can leave one behind.
 type UpdateOpts struct {
-	AddActiveTask        *ActiveTask
-	UpdateAgentState     *AgentStateUpdate
-	AddEvent             string
-	Complete             *Completion
-	SetPendingDecision   *PendingDecision
-	ClearPendingDecision string
-	SetProjects          []ProjectSummary
-	SetPR                *PRUpdate
+	AddEvent string
+	Complete *Completion
 }
 
-// Update performs a read-modify-write of the dashboard at path, applying opts and
-// stamping the Updated timestamp. Every hand command that mutates fleet state calls
-// this so data/dashboard.md stays current, except promote - see cmd/promote.go for why
-// its row deliberately stays unchanged.
-//
-// A SetPR that matched no active row returns ErrPRRowNotFound, after the rest of
-// opts has been applied and written: the update that did land is still worth
-// keeping, and the caller decides what an unreconciled PR column means for it.
-func Update(path string, opts UpdateOpts) error {
+func Path(homeDir string) string {
+	return filepath.Join(homeDir, "data", "dashboard.md")
+}
+
+// Every hand command that mutates fleet state calls this, and a command that
+// only reads may call it too: the result depends on the store, not on which
+// caller got there first.
+func Update(homeDir string, opts UpdateOpts) error {
+	path := Path(homeDir)
 	unlock, err := flock(path + ".lock")
 	if err != nil {
 		return fmt.Errorf("lock dashboard: %w", err)
@@ -130,13 +98,121 @@ func Update(path string, opts UpdateOpts) error {
 		return err
 	}
 
-	applyErr := apply(&d, opts)
+	apply(&d, opts)
+	if err := derive(&d, homeDir); err != nil {
+		return err
+	}
 	d.Updated = time.Now().UTC().Format(TimeFormat)
 
 	if err := atomicfile.Write(path, ".dashboard.md-", Render(d), 0o644); err != nil {
 		return fmt.Errorf("write dashboard: %w", err)
 	}
-	return applyErr
+	return nil
+}
+
+// A worker's needs-decision line has run to ~200 words, and one entry that
+// long consumes the whole section it is meant to be scanned in
+// (atqamz/secondhand#53).
+const pendingDecisionBudget = 160
+
+// The same bound for Recent Events, whose entries are raw report text.
+const eventBudget = 160
+
+// The whole membership rule for Pending Decisions: a worker said, in its own
+// words, that it is waiting on someone. Nothing infers an entry from an idle
+// pane any more (atqamz/secondhand#53).
+var awaitsOperator = map[string]bool{
+	state.ReportBlocked:       true,
+	state.ReportNeedsDecision: true,
+}
+
+// The words that retire a pending question. `paused` is deliberately absent: a
+// worker that asks something and then parks is still waiting for the answer.
+var answersTheQuestion = map[string]bool{
+	state.ReportWorking: true,
+	state.ReportDone:    true,
+	state.ReportFailed:  true,
+}
+
+// The open question is not the last line: `needs-decision:` then `paused:`
+// leaves it open. Replaying beats remembering, because a latched flag is how a
+// cleared question used to survive the line that cleared it.
+func openQuestion(lines []state.ReportLine) (state.ReportLine, bool) {
+	var open state.ReportLine
+	found := false
+	for _, line := range lines {
+		switch {
+		case line.Malformed:
+		case awaitsOperator[line.State]:
+			open, found = line, true
+		case answersTheQuestion[line.State]:
+			found = false
+		}
+	}
+	return open, found
+}
+
+// The whole answer to the dashboard disagreeing with machine state: there is
+// nothing to reconcile if the previous rendering is never a source.
+func derive(d *Dashboard, homeDir string) error {
+	tasks, err := state.List(homeDir)
+	if err != nil {
+		return err
+	}
+	projects, err := project.List(homeDir)
+	if err != nil {
+		return err
+	}
+
+	d.ActiveTasks = nil
+	d.PendingDecisions = nil
+	activeCounts := make(map[string]int, len(projects))
+	for _, t := range tasks {
+		activeCounts[t.Project]++
+		lines, readErr := state.ReadReportLines(homeDir, t.ID)
+		reported, ok := state.LastReportedState(lines)
+		d.ActiveTasks = append(d.ActiveTasks, ActiveTask{
+			ID: t.ID, Project: t.Project, Kind: t.Kind,
+			State: taskState(reported, ok, readErr), Age: FormatAge(t.CreatedAt), PR: t.PR,
+		})
+		if open, waiting := openQuestion(lines); waiting {
+			d.PendingDecisions = append(d.PendingDecisions,
+				fmt.Sprintf("%s: %s: %s (see %s)", t.ID, open.State, truncate(open.Note, pendingDecisionBudget), state.ReportPath(homeDir, t.ID)))
+		}
+	}
+
+	d.Projects = make([]ProjectSummary, len(projects))
+	for i, p := range projects {
+		d.Projects[i] = ProjectSummary{Name: p.Name, Mode: p.Mode, ActiveTaskCount: activeCounts[p.Name]}
+	}
+	return nil
+}
+
+// The state column for a worker that has not classified a line yet. It means
+// "not recorded", never "guessed wrong".
+const unreported = "unreported"
+
+// Distinct from "unreported", as in hand status: an I/O fault is not evidence
+// the worker never reported, and failing the render over one unreadable file
+// would cost every command that writes the dashboard its whole fleet view.
+const unreadable = "unreadable"
+
+func taskState(reported state.ReportLine, ok bool, readErr error) string {
+	switch {
+	case readErr != nil:
+		return unreadable
+	case !ok:
+		return unreported
+	}
+	return reported.State
+}
+
+func truncate(text string, budget int) string {
+	runes := []rune(text)
+	if len(runes) <= budget {
+		return text
+	}
+	return fmt.Sprintf("%s... [+%d chars]", string(runes[:budget]), len(runes)-budget)
 }
 
 func flock(path string) (func(), error) {
@@ -157,68 +233,15 @@ func flock(path string) (func(), error) {
 	}, nil
 }
 
-func apply(d *Dashboard, opts UpdateOpts) error {
-	if t := opts.AddActiveTask; t != nil {
-		d.ActiveTasks = append(d.ActiveTasks, *t)
-	}
-	if u := opts.UpdateAgentState; u != nil {
-		for i := range d.ActiveTasks {
-			if d.ActiveTasks[i].ID == u.ID {
-				d.ActiveTasks[i].State = u.State
-				d.ActiveTasks[i].Age = u.Age
-				break
-			}
-		}
-	}
+func apply(d *Dashboard, opts UpdateOpts) {
 	if opts.AddEvent != "" {
-		line := time.Now().UTC().Format("15:04") + " " + opts.AddEvent
+		line := time.Now().UTC().Format("15:04") + " " + truncate(opts.AddEvent, eventBudget)
 		d.RecentEvents = appendBounded(d.RecentEvents, line, maxRecentEvents)
 	}
-	// Nothing may reference a task with no Active Tasks row: completion removes every
-	// trace of the task, not just the row. A question left behind by a torn-down task
-	// is one nobody can answer and no later event can retire - the ID is gone from the
-	// task list, so the watcher stops tracking it. This is not a third way for the
-	// watcher to infer that a question was answered; it is the operator deleting the
-	// task, and it is what keeps the section bounded by the live fleet without a cap.
 	if c := opts.Complete; c != nil {
-		d.ActiveTasks = removeActiveTask(d.ActiveTasks, c.ID)
-		d.PendingDecisions = removeByID(d.PendingDecisions, c.ID)
 		line := fmt.Sprintf("%s: %s | %s | %s | %s", c.ID, c.Project, c.Kind, c.Outcome, c.Detail)
 		d.RecentCompletions = appendBounded(d.RecentCompletions, line, maxRecentCompletions)
 	}
-	if pd := opts.SetPendingDecision; pd != nil {
-		d.PendingDecisions = upsertByID(d.PendingDecisions, pd.ID, fmt.Sprintf("%s: %s", pd.ID, pd.Text))
-	}
-	if opts.ClearPendingDecision != "" {
-		d.PendingDecisions = removeByID(d.PendingDecisions, opts.ClearPendingDecision)
-	}
-	if opts.SetProjects != nil {
-		d.Projects = opts.SetProjects
-	}
-	if p := opts.SetPR; p != nil {
-		matched := false
-		for i := range d.ActiveTasks {
-			if d.ActiveTasks[i].ID == p.ID {
-				d.ActiveTasks[i].PR = p.PR
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return fmt.Errorf("%w for %s", ErrPRRowNotFound, p.ID)
-		}
-	}
-	return nil
-}
-
-func removeActiveTask(tasks []ActiveTask, id string) []ActiveTask {
-	kept := tasks[:0]
-	for _, t := range tasks {
-		if t.ID != id {
-			kept = append(kept, t)
-		}
-	}
-	return kept
 }
 
 func appendBounded(lines []string, line string, max int) []string {
@@ -227,28 +250,6 @@ func appendBounded(lines []string, line string, max int) []string {
 		lines = lines[len(lines)-max:]
 	}
 	return lines
-}
-
-func upsertByID(lines []string, id, line string) []string {
-	prefix := id + ":"
-	for i, existing := range lines {
-		if strings.HasPrefix(existing, prefix) {
-			lines[i] = line
-			return lines
-		}
-	}
-	return append(lines, line)
-}
-
-func removeByID(lines []string, id string) []string {
-	prefix := id + ":"
-	kept := lines[:0]
-	for _, existing := range lines {
-		if !strings.HasPrefix(existing, prefix) {
-			kept = append(kept, existing)
-		}
-	}
-	return kept
 }
 
 // FormatAge renders the elapsed time since createdAt (RFC3339) as a compact
@@ -275,20 +276,21 @@ func FormatDuration(d time.Duration) string {
 	}
 }
 
+// Only what Update cannot rebuild: the Updated stamp and the two append-only
+// logs. The previous rendering is not evidence about the fleet, and reading it
+// back as such is what let a stale row outlive the state behind it.
 func Parse(data []byte) (Dashboard, error) {
 	var d Dashboard
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
 	section := ""
-	tableRow := 0
 	for scanner.Scan() {
 		trimmed := strings.TrimSpace(scanner.Text())
 
 		switch {
 		case strings.HasPrefix(trimmed, "## "):
 			section = strings.TrimPrefix(trimmed, "## ")
-			tableRow = 0
 			continue
 		case strings.HasPrefix(trimmed, "# "):
 			section = ""
@@ -301,24 +303,10 @@ func Parse(data []byte) (Dashboard, error) {
 		}
 
 		switch section {
-		case sectionActiveTasks:
-			tableRow++
-			if tableRow <= 2 {
-				continue
-			}
-			if task, ok := parseActiveTaskRow(trimmed); ok {
-				d.ActiveTasks = append(d.ActiveTasks, task)
-			}
-		case sectionPendingDecisions:
-			d.PendingDecisions = append(d.PendingDecisions, parseListLine(trimmed))
 		case sectionRecentEvents:
 			d.RecentEvents = append(d.RecentEvents, parseListLine(trimmed))
 		case sectionRecentCompletions:
 			d.RecentCompletions = append(d.RecentCompletions, parseListLine(trimmed))
-		case sectionProjects:
-			if p, ok := parseProjectLine(parseListLine(trimmed)); ok {
-				d.Projects = append(d.Projects, p)
-			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -329,50 +317,6 @@ func Parse(data []byte) (Dashboard, error) {
 
 func parseListLine(line string) string {
 	return strings.TrimPrefix(line, "- ")
-}
-
-func parseActiveTaskRow(line string) (ActiveTask, bool) {
-	if !strings.HasPrefix(line, "|") {
-		return ActiveTask{}, false
-	}
-	fields := splitTableRow(line)
-	if len(fields) != 6 {
-		return ActiveTask{}, false
-	}
-	pr := fields[5]
-	if pr == "-" {
-		pr = ""
-	}
-	return ActiveTask{ID: fields[0], Project: fields[1], Kind: fields[2], State: fields[3], Age: fields[4], PR: pr}, true
-}
-
-func splitTableRow(line string) []string {
-	parts := strings.Split(strings.Trim(line, "|"), "|")
-	for i, p := range parts {
-		parts[i] = strings.TrimSpace(p)
-	}
-	return parts
-}
-
-func parseProjectLine(line string) (ProjectSummary, bool) {
-	nameRest := strings.SplitN(line, ":", 2)
-	if len(nameRest) != 2 {
-		return ProjectSummary{}, false
-	}
-	modeCount := strings.SplitN(strings.TrimSpace(nameRest[1]), "|", 2)
-	if len(modeCount) != 2 {
-		return ProjectSummary{}, false
-	}
-	countStr := strings.TrimSuffix(strings.TrimSpace(modeCount[1]), "active tasks")
-	count, err := strconv.Atoi(strings.TrimSpace(countStr))
-	if err != nil {
-		return ProjectSummary{}, false
-	}
-	return ProjectSummary{
-		Name:            strings.TrimSpace(nameRest[0]),
-		Mode:            strings.TrimSpace(modeCount[0]),
-		ActiveTaskCount: count,
-	}, true
 }
 
 func Render(d Dashboard) []byte {

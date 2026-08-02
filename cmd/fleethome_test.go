@@ -3,7 +3,10 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/atqamz/secondhand/internal/dashboard"
 )
 
 // mkFleetDirs lays down the state/ directory and data/dashboard.md marker
@@ -21,12 +24,41 @@ func mkFleetDirs(t *testing.T, dir string) {
 			t.Fatal(err)
 		}
 	}
-	dashboard := filepath.Join(dir, "data", "dashboard.md")
-	if _, err := os.Stat(dashboard); os.IsNotExist(err) {
-		if err := os.WriteFile(dashboard, []byte(dashboardSkeleton), 0o644); err != nil {
+	marker := filepath.Join(dir, "data", "dashboard.md")
+	if _, err := os.Stat(marker); os.IsNotExist(err) {
+		if err := os.WriteFile(marker, []byte(dashboardSkeleton), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	} else if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// dashboard.Parse deliberately recovers only the append-only sections, so a
+// test asserting on a derived one has to read the same text an operator reads.
+func dashboardSection(t *testing.T, home, title string) []string {
+	t.Helper()
+	data, err := os.ReadFile(dashboard.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	in := false
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			in = strings.TrimPrefix(trimmed, "## ") == title
+			continue
+		}
+		if !in {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			lines = append(lines, strings.TrimPrefix(trimmed, "- "))
+		}
+		if strings.HasPrefix(trimmed, "| ") && !strings.HasPrefix(trimmed, "| id |") {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
 }

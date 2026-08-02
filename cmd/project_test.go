@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
@@ -396,37 +395,5 @@ func TestReadSetupChoice(t *testing.T) {
 	}
 	if _, err := readSetupChoice(strings.NewReader("3\n"), []string{"claude", "codex"}, "harness"); err == nil {
 		t.Fatal("expected out-of-range setup choice to fail")
-	}
-}
-
-func TestUpdateDashboardProjects(t *testing.T) {
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "data", "projects.md"), []byte("# Projects\n\n- repo: https://example.com/repo mode=direct-pr\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "repo", Kind: state.KindShip}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := updateDashboardProjects(home); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := dashboard.Parse(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(d.Projects) != 1 || d.Projects[0].Name != "repo" || d.Projects[0].Mode != "direct-pr" || d.Projects[0].ActiveTaskCount != 1 {
-		t.Fatalf("Projects = %+v", d.Projects)
 	}
 }

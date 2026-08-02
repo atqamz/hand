@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
@@ -46,14 +44,7 @@ func newPRCmd() *cobra.Command {
 				return err
 			}
 
-			dashPath := filepath.Join(home, "data", "dashboard.md")
-			// Exiting 0 with no row updated would report this command as done while
-			// the dashboard's PR column stays exactly as empty as before, on either
-			// path: the URL is on the task, and only the dashboard is left stale.
-			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: t.ID, PR: url}}); err != nil {
-				if errors.Is(err, dashboard.ErrPRRowNotFound) {
-					return &ExitError{Err: fmt.Errorf("pr recorded for %s: %s, but the dashboard has no active row for it - nothing reconciled", t.ID, url), Code: 3}
-				}
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 				return fmt.Errorf("update dashboard: %w", err)
 			}
 

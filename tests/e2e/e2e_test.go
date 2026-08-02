@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -550,26 +549,39 @@ func TestExitCodeOneOnGeneralError(t *testing.T) {
 	}
 }
 
-func readDashboard(t *testing.T, home string) dashboard.Dashboard {
+// dashboard.Parse deliberately recovers only the append-only sections, and an
+// end-to-end check owes the operator's own view anyway, not a struct.
+func dashboardSection(t *testing.T, home, title string) []string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := dashboard.Parse(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return d
-}
-
-func findActiveTask(d dashboard.Dashboard, id string) (dashboard.ActiveTask, bool) {
-	for _, at := range d.ActiveTasks {
-		if at.ID == id {
-			return at, true
+	var lines []string
+	in := false
+	for _, line := range strings.Split(string(readDashboardRaw(t, home)), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			in = strings.TrimPrefix(trimmed, "## ") == title
+			continue
+		}
+		if !in {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			lines = append(lines, strings.TrimPrefix(trimmed, "- "))
+		}
+		if strings.HasPrefix(trimmed, "| ") && !strings.HasPrefix(trimmed, "| id |") {
+			lines = append(lines, trimmed)
 		}
 	}
-	return dashboard.ActiveTask{}, false
+	return lines
+}
+
+func activeTaskRow(t *testing.T, home, id string) (string, bool) {
+	t.Helper()
+	for _, row := range dashboardSection(t, home, "Active Tasks") {
+		if strings.HasPrefix(row, "| "+id+" |") {
+			return row, true
+		}
+	}
+	return "", false
 }
 
 // gitConfigIsolated marks the current test as already pointed at a scratch git

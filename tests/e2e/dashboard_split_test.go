@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,9 +24,10 @@ func readDashboardRaw(t *testing.T, home string) []byte {
 
 // TestDashboardUpdateSplit walks spawn -> merge --local -> teardown -> promote
 // -> project add -> project remove through the built binary, checking
-// data/dashboard.md's raw bytes after each step against CLAUDE.md's recorded
-// per-command split: spawn, teardown, project add, and project remove must
-// change it; merge --local and promote must leave it byte-for-byte alone.
+// data/dashboard.md's raw bytes after each step against SPECS.md's recorded
+// per-command split: every mutating command re-renders the whole file, and
+// only merge --local leaves it byte-for-byte alone, because it records a merge
+// flag no section reads and runs no project sync.
 func TestDashboardUpdateSplit(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
@@ -84,8 +86,12 @@ func TestDashboardUpdateSplit(t *testing.T) {
 		t.Fatalf("promote: exit %d, stderr %q", promoted.code, promoted.stderr)
 	}
 	dashAfterPromote := readDashboardRaw(t, home)
-	if !bytes.Equal(dashBeforePromote, dashAfterPromote) {
-		t.Fatalf("promote changed dashboard.md, want it untouched:\nbefore: %s\nafter:  %s", dashBeforePromote, dashAfterPromote)
+	if bytes.Equal(dashBeforePromote, dashAfterPromote) {
+		t.Fatal("promote left dashboard.md byte-identical, want task-2's row re-rendered")
+	}
+	rows := dashboardSection(t, home, "Active Tasks")
+	if len(rows) != 1 || !strings.Contains(rows[0], "| ship |") {
+		t.Fatalf("Active Tasks = %v, want one row with the kind column re-rendered as ship", rows)
 	}
 
 	remote := filepath.Join(t.TempDir(), "remote")

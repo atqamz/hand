@@ -48,7 +48,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Ship tasks produce PRs or local branches. Scout tasks produce ` + "`data/<id>/report.md`" + `.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use ` + "`no-mistakes axi`" + ` directly in the worktree.
-- Use ` + "`qmd search`" + ` to find historical context in data/ when available. Fall back to reading files directly.
+- Use ` + "`hand search <query>`" + ` to find historical context in data/. ` + "`qmd search`" + ` adds semantic matching when installed.
 - ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
 `
 

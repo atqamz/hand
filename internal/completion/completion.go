@@ -36,8 +36,8 @@ func Path(homeDir string) string {
 // not do: state/events.log's appendEventLog reads the whole file, adds a line,
 // and atomically replaces it, so two writers racing that read-modify-write can
 // each read the same old content and one's line clobbers the other's on
-// rename. Append instead takes the same named-lock primitive state/<id>.json's
-// writers use, serializing against any other Append, and writes one complete
+// rename. Append instead takes the same named-lock primitive hand's other
+// command sequences use, serializing against any other Append, and writes one complete
 // line with a single O_APPEND syscall - no read, no rename, nothing for a
 // second writer to race.
 func Append(homeDir string, r Record) error {
@@ -64,7 +64,7 @@ func Append(homeDir string, r Record) error {
 	}
 	// Not deferred and not discarded: a filesystem that reports a write fault
 	// only at close (NFS, delayed-allocation ENOSPC) makes Close the sole signal
-	// that the record reached disk, and teardown removes state/<id>.json on the
+	// that the record reached disk, and teardown removes the task's row on the
 	// strength of this call returning nil.
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close completions store: %w", err)

@@ -31,6 +31,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
 4. **Text editing stays with the agent.** The backlog is a markdown file. The agent reads and edits it directly. No CLI wrapper for text operations.
 5. **No feature without friction.** Every feature in firstmate that doesn't have a proven use case is cut. Features get added when their absence causes real pain.
 6. **A fleet home is any directory with `data/dashboard.md` and `state/`.** `hand init` creates one anywhere on disk; put `hand` on PATH and launch the agent there. The marker is the dashboard file rather than the `data/` directory because only `hand init` writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` cannot capture the walk up. Maintainers dogfood a fleet home inside the secondhand repo checkout itself, with runtime state gitignored alongside the tracked code, but the CLI has no opinion about the two: `HAND_HOME`, or an ancestor of the working directory, is all it looks for.
+`state/hand.db` would be the better marker on both counts - only `hand` creates it, and unlike the dashboard it is not scheduled for deletion (atqamz/secondhand#62) - but the marker is deliberately left alone here, since changing what identifies a fleet home is its own change with its own migration.
 7. **The dashboard is the memory.** `data/dashboard.md` is the living document the CLI maintains. The agent reads it for context. The user watches it for visibility. No session digests, no bootstrap scripts, no 187-line status dumps.
 8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic.
 
@@ -65,6 +66,47 @@ It reads AGENTS.md, understands the `hand` CLI, and manages the fleet.
 Workers are autonomous agents launched by `hand spawn` into herdr tabs with treehouse worktrees.
 They follow the brief, do the work, and report through herdr's agent state.
 
+## Machine state and the prose corpus
+
+A fleet home holds two kinds of state, and they have different owners.
+
+**Machine state is authoritative in sqlite**, at `state/hand.db`: the task registry, PR state, herdr pane and tab ids, `hand watch`'s report offsets, and the project registry.
+It is what `hand` writes and what `hand` reads back.
+Nothing derives it from a file, and no view is assembled by re-reading a rendering of it.
+
+**The prose corpus is authoritative in files**, under `data/`: briefs, scout reports, the backlog's prose, and whatever else a human or a worker writes there.
+sqlite holds only a *derived* index of it, at `state/index.db`, for `hand search`.
+
+The boundary is the design, more than the engine is.
+It is drawn where recovery cost differs: machine state is cheap to reconstruct and expensive to disagree about, while the corpus is the opposite.
+
+Three rules keep the derived half honest:
+
+1. **A corrupt index costs a rebuild and never the corpus.** `state/index.db` can be deleted outright at any time; the next `hand search` rebuilds it, and `hand search --rebuild` forces the rebuild against an index that is present but wrong.
+2. **Nothing may depend on the index being correct in order to recover.** The index is read by exactly one command, and the rebuild reads the corpus directly, never the index and never machine state - a `state/hand.db` that is missing or unreadable does not stop a supervisor from searching their way back to what the fleet was doing.
+3. **Prose bodies are not schematized.** The index holds a path, an mtime, a size, a title and the full text for matching. The body stays the file's, and no command parses a brief into columns.
+
+### Which to believe when they disagree
+
+`state/<id>.status` - the worker-to-supervisor report channel - survives this design unconditionally, and it is a projection, not an input.
+The database never holds a second copy of it.
+
+**When the database and a `.status` file disagree about what a worker said, believe the file.**
+Not because the database is unreliable, but because of what the two failure modes cost.
+The fleet has twice run a stale `hand` binary while every signal it produced read healthy, and both recoveries were `cat` on those status files.
+A `.status` file is readable by `cat`, `tail -f`, an editor, and a human with no tooling at all; the database is readable by a working `hand`, which is the thing that was broken both times.
+There is deliberately no `hand dump`: a dump command is one more thing that depends on the binary, and so is no help in the case that actually happens.
+
+The database is authoritative for everything the file does not carry - what `hand` recorded, decided, or observed - which is most of machine state.
+The file is authoritative for what the worker said.
+
+### Not Postgres, and no daemon
+
+sqlite in rollback journal mode, one short-lived process per command, one writer at a time.
+No server, no connection pool, no background process holding the database open.
+`hand watch` is still the only long-running process, and it holds no lock between ticks.
+This keeps a fleet home a directory that can be copied, backed up and inspected with ordinary tools, which the whole design depends on.
+
 ## Directory layout
 
 A standalone fleet home has no tracked section: `hand init` lays down only the gitignored
@@ -88,6 +130,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     watch.go
     project.go
     promote.go
+    search.go
     notify.go
   internal/
     home/                   # fleet home definition and resolution
@@ -95,9 +138,14 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     herdr/                  # herdr client library
       client.go             # API calls: create tab, get state, send keys
       types.go              # herdr data types
-    state/                  # task state management
-      task.go               # read/write/list state/<id>.json
-      types.go              # Task struct definition
+    store/                  # machine state in sqlite (see "Machine state and the prose corpus")
+      store.go              # schema, task and project rows, meta keys
+      lock.go               # named flocks over state/, shared by state and the import
+      migrate.go            # one-way import of pre-sqlite state/<id>.json and data/projects.md
+      index.go              # derived full-text index over the prose corpus
+    state/                  # task state management, a thin facade over store
+      task.go               # read/write/list task rows
+      types.go              # Task struct aliases
       report.go             # read/classify state/<id>.status (see "Report channel")
       pr.go                 # PR URL validation and extraction
     worktree/               # treehouse integration
@@ -129,15 +177,17 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
   .gitignore
 
   # gitignored runtime (created by `hand init`)
-  state/                    # volatile per-task metadata, plus the durable completion store
-    <id>.json               # current task state, one file per active task
+  state/                    # machine state, the report channel, and the durable completion store
+    hand.db                 # authoritative machine state: tasks, PR state, pane ids, report offsets, projects
+    index.db                # derived full-text index over data/, safe to delete at any time
+    migrated/               # pre-sqlite state/<id>.json files, moved aside once imported
     <id>.status             # worker-to-supervisor report channel, worker-written, hand-read-only
     events.log              # recent watcher events, bounded rotating log
     completions.jsonl       # durable teardown completion records, one JSON object per line, uncapped
   data/
     dashboard.md            # living fleet dashboard, auto-maintained by `hand`
     backlog.md              # plain markdown task queue, agent-edited
-    projects.md             # thin project registry
+    projects.md             # project registry projection (see "Project registry format")
     <id>/                   # per-task data directory
       brief.md              # task instructions written by the supervisory agent
       report.md             # scout task deliverable, written by the worker
@@ -159,7 +209,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
 
 Initialize secondhand runtime directories in the current working directory.
 Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
-Creates `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` with skeleton content.
+Creates `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` with skeleton content. The machine-state database is created on first use, not here.
 Idempotent: safe to run multiple times.
 This is the one command that does not resolve its home: it creates the one its argument or the working directory names.
 When `HAND_HOME` is set and names some other directory it still initializes the requested target, and warns on stderr that every other command will use `HAND_HOME` instead.
@@ -195,7 +245,7 @@ Errors:
 
 ### `hand project add <repo-url> [flags]`
 
-Clone a git repository into `projects/` and register it in `data/projects.md`.
+Clone a git repository into `projects/` and register it in the store.
 
 ```
 hand project add https://github.com/org/repo
@@ -214,7 +264,7 @@ Behavior:
 4. `git clone` into `projects/<name>`.
 5. If `--mode no-mistakes`, run `no-mistakes init` inside the clone.
 6. Initialize treehouse for the project: `treehouse init` inside the clone if no `treehouse.toml` exists.
-7. Append a line to `data/projects.md`: `- <name>: <url> mode=<mode>`.
+7. Add the project to the store and rewrite the `data/projects.md` projection.
 8. Update `data/dashboard.md` projects section.
 9. If clone or init fails, clean up partial state (remove the clone dir, don't append to registry).
 
@@ -233,7 +283,7 @@ Errors:
 
 ### `hand project list`
 
-List registered projects from `data/projects.md`.
+List registered projects from the store.
 
 ```
 hand project list
@@ -312,7 +362,7 @@ Behavior:
 3. Validate no active task with this ID exists.
 4. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
 5. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
-6. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in `state/*.json`. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
+6. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
 7. Acquire the task's herdr tab in the project's workspace.
    - Workspace naming: one workspace per project, named after the project.
    - Tab naming: task ID.
@@ -326,7 +376,7 @@ Behavior:
 10. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
    no first-run dialog is left, answering any known dialog along the way, or the poll window
    elapses (see Harness launch templates).
-11. Write `state/<id>.json` with all metadata.
+11. Write the task's row with all metadata.
 12. Update `data/dashboard.md` with the new task.
 
 Any failure before step 11 leaves nothing behind: the worktree lease returns to treehouse and the
@@ -335,7 +385,7 @@ A workspace this command created is closed whole: the task's tab is that workspa
 auto-created root tab, so there is nothing else in it to preserve.
 A workspace that already existed is shared with other tasks, so it keeps running and only loses
 the tab this command added.
-Once `state/<id>.json` is written the task owns its worktree and tab, so a later failure such as
+Once the task's row is written the task owns its worktree and tab, so a later failure such as
 the dashboard update never tears down a task that is already running.
 
 Output:
@@ -357,7 +407,7 @@ Errors:
 - Worker never confirmed started within the poll window, or is waiting on a first-run prompt hand
   refuses to answer (pane content and the blocking prompt included in the error).
 
-State file written (`state/fix-login.json`):
+Task row written to the `task` table in `state/hand.db`, one column per field below:
 ```json
 {
   "id": "fix-login",
@@ -406,25 +456,31 @@ Flags:
 - `--full`: in the single-task view, show the reported line and history untruncated and skip the history dedup below, reproducing the output from before atqamz/secondhand#65 exactly.
 
 Behavior (fleet overview):
-1. List all `state/*.json` files.
+1. List every task in the store.
 2. For each, query herdr for current agent state.
-3. If agent state is `idle` or `done` (herdr's two spellings of "pane stopped being busy" - see "Agent state" below), consult the task's last report line (see "Report channel"): no report, or the last line was still `working`, appends ` (unreported)`; any other terminal report appends ` (reported: <state>)`; a report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported. Any other agent state is printed unadorned.
+3. Append the worker's own last classified report to the same column as ` (reported: <state>)`, whatever the pane is doing. A pane state and a report answer different questions, so both print: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. `working` is the one report that stays unadorned, because it is what the column already says. ` (unreported)` still requires a not-busy pane (herdr's `idle` or `done` - see "Agent state" below), since a busy pane that has not reported yet is not a stop anyone has to explain. A report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported.
 4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
-5. Print one line per task.
+5. Print one line per task, with a header row.
+
+The `last report` column is the mtime of `state/<id>.status`, and `(none)` when the worker has never written one.
+It is deliberately not the task's age: the two used to be conflated, so a task spawned hours ago read as hours stale next to a status file its worker had touched minutes earlier - a reporting worker that looked abandoned.
+`age` measures the task, `last report` measures the channel.
 
 Output (fleet overview):
 ```
-fix-login       nsr     ship    working     2h ago
-dark-mode       nsr     ship    blocked     45m ago
-stuck-task      nsr     ship    idle (unreported)      1h ago
-paused-task     nsr     ship    idle (reported: needs-decision)   30m ago
-investigate     nsr     scout   done (reported: done)      10m ago
-shipped-fix     nsr     ship    done (reported: done) (merged, external)   5m ago
+id           project  kind   state                                     age     last report
+fix-login    nsr      ship   working                                   2h ago  3m ago
+dark-mode    nsr      ship   blocked                                   45m ago 40m ago
+build-wait   nsr      ship   working (reported: paused)                20m ago 5m ago
+stuck-task   nsr      ship   idle (unreported)                         1h ago  (none)
+paused-task  nsr      ship   idle (reported: needs-decision)           30m ago 12m ago
+investigate  nsr      scout  done (reported: done)                     10m ago 9m ago
+shipped-fix  nsr      ship   done (reported: done) (merged, external)  5m ago  4m ago
 ```
 
 Behavior (single task):
-1. Read `state/<id>.json`.
-2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task and in the Active Tasks PR column if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A branch carrying several PRs resolves by preference tier - merged, then open, then closed-unmerged - and only when the winning tier holds exactly one PR: a tier with more than one match is ambiguous, and so is a merged PR coexisting with an open one on the same head ref - an open PR is live evidence the branch may carry unlanded work, so that mix refuses rather than resolving to the merged PR. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, an ambiguous branch, a task with no branch, or a dashboard with no active row left to carry the column all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
+1. Read the task from the store.
+2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task and in the Active Tasks PR column if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A branch carrying several PRs resolves by preference tier - merged, then open, then closed-unmerged - and only when the winning tier holds exactly one PR: a tier with more than one match is ambiguous, and so is a merged PR coexisting with an open one on the same head ref - an open PR is live evidence the branch may carry unlanded work, so that mix refuses rather than resolving to the merged PR. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, an ambiguous branch, or a task with no branch all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
 3. Query herdr for current agent state and recent output.
 4. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
 5. Print detailed view, including the most recent reported line and a labeled history block.
@@ -440,6 +496,7 @@ State:       working
 Worktree:    /home/user/.treehouse/nsr-abc/1/nsr
 Herdr:       default / wA:tB
 Created:     2h ago
+Last report: 3m ago
 PR:          (none)
 Reported:    needs-decision: two ways to fix the race, ask-user found both risky
 Report file: /home/user/secondhand/state/fix-login.status
@@ -475,12 +532,13 @@ Output (JSON, single task):
   "merged": false,
   "pr_merged_observed": false,
   "created_at": "2026-07-24T08:00:00Z",
+  "last_report_at": "2026-07-24T09:57:00Z",
   "reported": {"state": "needs-decision", "note": "two ways to fix the race, ask-user found both risky"},
   "report_history": ["working: added the retry loop", "needs-decision: two ways to fix the race, ask-user found both risky"]
 }
 ```
 
-`reported` and `report_history` are omitted when the task has no report file yet. In fleet-overview JSON, only `reported` is included (no history) per row.
+`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. In fleet-overview JSON, only `reported` is included (no history) per row.
 
 Errors:
 - Task ID not found.
@@ -497,7 +555,7 @@ hand send fix-login "focus on the auth middleware, not the test framework"
 ```
 
 Behavior:
-1. Read `state/<id>.json` for herdr pane coordinates.
+1. Read the task's row for herdr pane coordinates.
 2. Check herdr pane exists and agent is present.
 3. Wait for composer to be empty (agent not mid-response).
 4. Submit the message text.
@@ -535,7 +593,7 @@ Behavior (ship task):
 3. Close the herdr tab.
 4. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
 5. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
-6. Remove `state/<id>.json` and the task's report channel `state/<id>.status`.
+6. Remove the task's row and the task's report channel `state/<id>.status`.
 7. Update `data/dashboard.md`: move task to Recent Completions (keep last 10).
 8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
 
@@ -546,7 +604,7 @@ Behavior (scout task):
 2. Close the herdr tab.
 3. Return the worktree to treehouse.
 4. Append a completion record to `state/completions.jsonl`.
-5. Remove `state/<id>.json` and `state/<id>.status`.
+5. Remove the task's row and `state/<id>.status`.
 6. Update `data/dashboard.md`.
 
 Behavior with `--force`:
@@ -556,14 +614,14 @@ Behavior with `--force`:
 Teardown removes several resources in sequence, and any step can fault, so the command has to be runnable a second time: a resource already released is that step's goal already reached, not an error, and never something `--force` should be needed for.
 A tab herdr no longer lists counts as closed.
 A worktree already back in its pool counts as returned - that is treehouse's own answer, since `treehouse return` on an already-returned path is a no-op success, and it is not inferred from the path being gone: a returned worktree keeps its pool slot directory, so nothing can tell it from a leased one by looking.
-The removals are ordered the same way - the report channel goes before `state/<id>.json`, since the report removal is the one that can fail on a permissions or I/O fault and doing it first leaves the task JSON, and with it the retry, intact.
+The removals are ordered the same way - the report channel goes before the task's row, since the report removal is the one that can fail on a permissions or I/O fault and doing it first leaves the row, and with it the retry, intact.
 
 #### Completion store
 
-The completion record is appended before `state/<id>.json` is removed, not after, because the record is derived from the task state that removal would take out from under it. That ordering has to hold under a fault on either side of it, and the two sides fail in different, deliberate directions:
+The completion record is appended before the task's row is removed, not after, because the record is derived from the task state that removal would take out from under it. That ordering has to hold under a fault on either side of it, and the two sides fail in different, deliberate directions:
 
-- If the append itself fails, the command returns before `state/<id>.json` is touched. Nothing was recorded, but the task is untouched too, so the whole command is simply retryable.
-- If a later step fails - state removal, the dashboard render - the record already written is not thereby wrong, and it is already durable. Everything it claims (work landed, worktree returned) was independently true earlier in the same run regardless of what a later bookkeeping step does. What a retry does then depends on which step faulted: a failed state removal leaves `state/<id>.json` in place, so the retry replays the whole command and appends a second, functionally duplicate record - a harmless duplicate traded for never silently losing a completion, on purpose. A failed dashboard render comes after the state removal succeeded, so a retry stops at the task-not-found check with nothing left to re-verify; the completion is on disk and only the dashboard row is left to redo.
+- If the append itself fails, the command returns before the task's row is touched. Nothing was recorded, but the task is untouched too, so the whole command is simply retryable.
+- If a later step fails - state removal, the dashboard render - the record already written is not thereby wrong, and it is already durable. Everything it claims (work landed, worktree returned) was independently true earlier in the same run regardless of what a later bookkeeping step does. What a retry does then depends on which step faulted: a failed state removal leaves the task's row in place, so the retry replays the whole command and appends a second, functionally duplicate record - a harmless duplicate traded for never silently losing a completion, on purpose. A failed dashboard render comes after the state removal succeeded, so a retry stops at the task-not-found check with nothing left to re-verify; the completion is on disk and only the dashboard row is left to redo.
 
 `state/completions.jsonl` exists as a sibling to `state/events.log` rather than a share of it: `events.log`'s writer reads the whole file, appends, and rewrites it via a temp-file rename, which is fine for its single long-lived writer (`hand watch`) but loses a line outright if a second process's read-modify-write race lands its rename over the first's. Teardown is a short-lived process that can genuinely overlap a running `hand watch`, so the completion store instead takes a dedicated lock and performs one `O_APPEND` write per record - no read, no rename, nothing for a second writer to clobber.
 
@@ -603,25 +661,26 @@ Flags:
 - `--local`: fast-forward merge for local-only tasks (merges task branch into default branch in the project clone).
 
 Behavior (PR merge, default):
-1. Read `state/<id>.json` for PR URL.
+1. Read the task's row for the PR URL.
 2. Refuse if no PR is recorded.
 3. Refuse if the PR is already merged (a no-mistakes gate, or `hand teardown`/`hand status`'s own gate-opened-PR detection, can record a PR `hand merge` never merged itself).
 4. Check PR CI status via `gh pr checks`.
 5. Refuse if checks are not green.
 6. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
-7. Update `state/<id>.json` with merge status.
+7. Update the task's row with merge status.
 8. Run `hand project sync <project>` to fast-forward the project clone.
-9. Refresh the dashboard's Projects section, only if that sync advanced the clone.
+9. Re-render the dashboard.
 
 Behavior (local merge, `--local`):
-1. Read `state/<id>.json` for worktree and project.
+1. Read the task's row for worktree and project.
 2. Refuse if worktree has uncommitted changes.
 3. Determine the task branch from the worktree.
 4. In the project clone: `git merge --ff-only <task-branch>`.
 5. Refuse if fast-forward is not possible (diverged branches).
-6. Update `state/<id>.json` with merge status.
+6. Update the task's row with merge status.
 
-A local merge writes no dashboard row.
+No derived section carries a merge, so neither path renders on account of the merge itself.
+The PR path renders because it runs `hand project sync`, which renders unconditionally like every other mutating command; `--local` runs no sync and so writes no dashboard.
 
 Output:
 ```
@@ -655,15 +714,14 @@ hand pr fix-login https://github.com/org/repo/pull/42
 
 Behavior:
 1. Validate `<url>` matches `https://github.com/<owner>/<repo>/pull/<number>` exactly (anchored, no substring matching - a PR URL feeds `gh pr merge` and `gh pr view` downstream, so a loose match here is a command-injection-adjacent risk).
-2. Read `state/<id>.json`.
-3. If the task already has this exact PR recorded, skip steps 5-7 (the URL is already on record, so there is nothing left to validate) but still update `data/dashboard.md` before reporting success. This reconciling repeat is why `hand pr <id> <url>` is a sound remedy for every `pr-not-recorded` event: a recording can fail after the task-state write and before the dashboard update, and a plain no-op here would exit `0` while leaving the dashboard's PR column empty with no signal left.
-   Both paths report what actually happened. If the task has no active dashboard row, there is nothing to update: say so and exit `3`, rather than printing a recording or a repair that did not reach the dashboard. A fresh record answers exactly as the repeat does - the asymmetry was the same silent success, one call site over. The missing row is never created - active rows come from `hand spawn`, and inventing one would fabricate state instead of reconciling it. The PR stays recorded on the task either way, which the message says too; it is the dashboard the operator came to fix that is still broken.
-   The dashboard PR update reports a missing row as an *error*, not as a flag on the update value. Three call sites in a row ignored that flag by accident, which is a design that requires every caller to remember something and does not make forgetting visible; an error takes an explicit discard to ignore.
+2. Read the task's row.
+3. If the task already has this exact PR recorded, skip steps 5-7 (the URL is already on record, so there is nothing left to validate) but still re-render `data/dashboard.md` before reporting success. This reconciling repeat is why `hand pr <id> <url>` is a sound remedy for every `pr-not-recorded` event: a recording can fail after the task-state write and before the render, and a plain no-op here would exit `0` while leaving the dashboard's PR column empty with no signal left.
+   There is no longer a "missing row" case to refuse: the row is derived from the task, so a task that exists has one and a re-render produces it (see "Derived sections").
 4. If the task already has a *different* PR recorded, refuse - one task, one PR; correcting a wrong record is a deliberate `hand teardown`/`hand spawn` decision, not something `hand pr` overwrites silently.
 5. Resolve the task's project and derive `owner/repo` from the project clone's own `origin` remote (`git config --get remote.origin.url`, not `git remote get-url`, so a local `url.<base>.insteadOf` rewrite never turns a genuine mismatch into a false match).
 6. Refuse if the URL's `owner/repo` doesn't match the derived repo slug.
 7. Confirm the PR exists via `gh pr view` (network check, 30s timeout) - shape validation in step 1 only proves the URL looks right, not that the PR is real.
-8. Write `pr` into `state/<id>.json` and update `data/dashboard.md`.
+8. Write `pr` into the task's row and re-render `data/dashboard.md`.
 
 Steps 5-7 live in `project.ValidatePR` and are the *only* validation path: `hand watch`'s auto-record calls the same function, so a worker-supplied URL can never reach task state on weaker terms than an explicit `hand pr`.
 
@@ -677,16 +735,10 @@ Output (reconciling repeat):
 pr already recorded for fix-login: https://github.com/org/repo/pull/42 (dashboard reconciled)
 ```
 
-Error output (no row to update, exit `3`, on a fresh record and a reconciling repeat alike):
-```
-pr recorded for fix-login: https://github.com/org/repo/pull/42, but the dashboard has no active row for it - nothing reconciled
-```
-
 Errors:
 - Malformed PR URL (usage error, code `2`).
 - Task not found.
 - Task already has a different PR recorded.
-- No active dashboard row for the task (nothing was reconciled; the PR stays recorded on the task).
 - Project not registered.
 - Cannot derive `owner/repo` from the project clone's origin remote.
 - URL's repo doesn't match the project's repo.
@@ -711,7 +763,7 @@ Flags:
 - `--timeout <duration>`: with `--until-event`, give up after this long and exit `4`. Default: no timeout. Without `--until-event` it is a usage error (exit `2`), since a streaming watcher has no completion to bound.
 
 Behavior:
-1. List all active tasks from `state/*.json`.
+1. List all active tasks from the store.
 2. Subscribe to herdr's `agent_status_changed` push events if available.
 3. Fall back to polling herdr agent states at `--poll` interval.
 4. Classify each state change:
@@ -720,8 +772,8 @@ Behavior:
    - `failed <id>`: herdr pane died unexpectedly.
    - `stale <id>`: agent hasn't changed state for longer than the stale threshold (default 300s, configurable via `config/stale-threshold`).
    - `parked <id>: <last-report-line> (silent <age>)`: the report channel itself has stopped growing for longer than its bound - independent of `stale`, which only ever watches herdr transitions and has nothing to fire on when herdr registers no transition at all (a pane can sit healthy and quiet forever without one). The bound is chosen by the last classified report line: `done`/`failed` are exempt (already terminal, nothing to wait on), `paused` gets the long bound (`config/parked-paused-bound`, default 3600s) since naming what it's waiting on already explains the quiet, everything else - `working`, `blocked`, `needs-decision`, or no report at all - gets the short one (`config/parked-other-bound`, default 1200s) since that silence is unexplained. Edge-triggered like every other trigger: fires once per silence episode and only refires once the report file actually grows past the mtime it fired for. A parked worker and a crashed one are indistinguishable from the status file alone - both are a report line that stopped moving - so the event carries only the last line and its age and leaves the process check itself to the caller (`hand status <id>`, or the session directly).
-   - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` in `state/<id>.json` after the line is printed, so a restart neither repeats it nor loses it to a crash between the two. The same marker is set outside the watcher when gate-opened-PR detection records a PR that is already merged (see `hand status`), so a watcher that first sees the task after that stays quiet about a merge it never observed.
-   - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line was attempted and the recording did not complete. The token says only that much, for any cause - refused validation, an unregistered or unresolvable project, an unreadable task file, a failed state write, a state write that landed but whose dashboard update failed or found no active row to carry the PR (the same missing row `hand pr` exits `3` on, since the watcher has no per-task nonzero exit of its own) - and `<reason>` is the underlying error, which is what says which. The whole cause is kept; only its line breaks are not, since `gh`'s multi-line stderr reaches these errors verbatim and an event is one line on stdout, one entry in `state/events.log`, and one bullet on the dashboard (continuation lines would parse back as separate events in both). The fix in every case is a human running `hand pr <id> <url>`: it reconciles, so it either repairs whatever half is missing or fails with the real underlying reason. The kind is deliberately not split by cause, since an enumeration of causes is forgotten the next time a new one appears.
+   - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` on the task after the line is printed, so a restart neither repeats it nor loses it to a crash between the two. The same marker is set outside the watcher when gate-opened-PR detection records a PR that is already merged (see `hand status`), so a watcher that first sees the task after that stays quiet about a merge it never observed.
+   - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line was attempted and the recording did not complete. The token says only that much, for any cause - refused validation, an unregistered or unresolvable project, an unreadable task record, a failed state write, a state write that landed but whose dashboard render failed - and `<reason>` is the underlying error, which is what says which. The whole cause is kept; only its line breaks are not, since `gh`'s multi-line stderr reaches these errors verbatim and an event is one line on stdout, one entry in `state/events.log`, and one bullet on the dashboard (continuation lines would parse back as separate events in both). The fix in every case is a human running `hand pr <id> <url>`: it reconciles, so it either repairs whatever half is missing or fails with the real underlying reason. The kind is deliberately not split by cause, since an enumeration of causes is forgotten the next time a new one appears.
    - `pr-record-unknown <id>: <url> (<reason>)`: the same URL was never attempted, because another command held the task lock at that moment. Whether it ended up recorded is genuinely unknown - the holder may be the `hand pr` recording that very URL - so this event asserts nothing about the outcome and points at `hand status <id>` to confirm, except when the task's own state can't be read, where it names that read failure instead of a remedy that would hit it too. Nothing is announced at all when the lock holder is found to have already recorded that same URL.
    - Both auto-record events are durable on stdout and in `state/events.log` (plus a stderr diagnostic) rather than only a transient stderr line, since the report line is consumed either way. Neither is a Pending Decision - see "Pending Decisions".
    - `working <id>: <note>` / `paused <id>: <note>` / `report-blocked <id>: <note>` / `needs-decision <id>: <note>` / `report-failed <id>: <note>`: a new line landed on the task's report channel, classified per "Report channel" above.
@@ -730,12 +782,12 @@ Behavior:
    - Benign events (working herdr transitions, routine transitions): absorbed silently.
 5. Print one line to stdout per actionable event.
 6. Append each actionable event to `state/events.log` (bounded: keep last 200 lines, rotate on overflow).
-7. Update `data/dashboard.md` with state changes and events.
+7. Re-render `data/dashboard.md`, appending each actionable event to Recent Events.
 8. Re-scan `state/` periodically to pick up newly spawned or torn-down tasks.
 9. Exit cleanly on SIGINT/SIGTERM.
 10. While tailing a task's report channel, a line carrying exactly one PR URL auto-records it if the task doesn't already have one, subject to the same validation `hand pr` enforces; a URL whose recording was attempted and did not complete is surfaced as `pr-not-recorded`, and one the watcher never got to attempt as `pr-record-unknown` (see "Report channel").
 11. Every task-state write the poll loop makes - the bookkeeping it owns (`report_offset`, `pr_merged_observed`) and an auto-recorded PR - takes the task lock non-blocking, and is skipped when another command holds it. The poll loop never waits on the **task** lock, because that lock is held across unbounded network and git work (`hand merge` across `gh pr checks`/`gh pr merge`, `hand promote` across a `git push`): waiting on it can stall every other task indefinitely, and `flock` cannot honor a SIGINT/SIGTERM in the meantime. Bookkeeping is re-derivable and simply retries next tick. A skipped auto-record is announced as `pr-record-unknown` - never as `pr-not-recorded`, which covers every attempt that was made and did not complete - except when the lock holder turns out to have recorded that same URL, which is silent.
-12. The poll loop *does* wait on the dashboard lock, and that is deliberate. It guards a bounded local read-modify-write with no network call, so a brief tick delay or slightly late shutdown is acceptable - and unlike the task lock's writes, a dashboard write is not re-derivable: the dashboard is built by applying each event to a row as it arrives, so skipping one silently loses that state change. Both locks are always taken task-first, dashboard-second, never the reverse.
+12. The poll loop *does* wait on the dashboard lock, and that is deliberate. It guards a bounded local read-modify-write with no network call, so a brief tick delay or slightly late shutdown is acceptable - and unlike the task lock's writes, a dashboard write is not entirely re-derivable: the derived sections would be rebuilt by the next render either way, but Recent Events is append-only, so skipping a write silently loses that event. Both locks are always taken task-first, dashboard-second, never the reverse.
 13. Per-task bookkeeping is written back only after the tick's events are announced, never before. A marker persisted ahead of its line would, if the process died in between, suppress an announcement nothing can re-derive; a duplicate line is the cheaper failure.
 
 #### Delivering an event to a supervisory agent
@@ -782,11 +834,11 @@ So a fleet left entirely unattended still goes unread; the difference is that an
 |---|---|
 | How far the report file is consumed | Persisted as `report_offset`, after the tick's events are announced. |
 | A merge this watcher's own `gh` poll saw | Persisted as `pr_merged_observed`, after `pr-merged <id>` is printed. |
-| The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. `hand merge` writes `merged` without touching the dashboard, so the evidence can appear while the watcher is down. |
+| The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. No dashboard section carries a merge, so `hand merge`'s evidence can appear while the watcher is down. |
 | An auto-recorded PR URL | Persisted as `pr` on the task, and every outcome that isn't a silently self-resolving race is announced (`pr-not-recorded` / `pr-record-unknown`) and logged. |
 | Last reported state and note | Persisted as `last_report_state` and `last_report_note`, written alongside `report_offset` on the same tick that consumed the line. Re-reading them from `state/<id>.status` on resume instead - the previous behavior - meant re-reading history the durable offset says has already been consumed, and re-derived them from a file `hand promote` deliberately leaves alone, so a promoted ship inherited the scout's last report as if it were its own. They explain a quiet pane (`parked`'s bound is selected by the state, and `hand status` renders the note) and gate the scout's deferred-`done` bookkeeping. |
-| The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh JSON, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
-| The same bookkeeping across `hand promote` | Not covered by the identity check above, and the sharper problem: promote rewrites the task JSON in place, keeps `created_at`, and gives the task a *new herdr pane*. Every cached fact anchored to the old pane is therefore not evidence about the ship at all, however plausible it looks. See "Pane-anchored facts across `hand promote`" below for the field-by-field classification and for how the watcher forgets its cached copies. |
+| The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh row, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
+| The same bookkeeping across `hand promote` | Not covered by the identity check above, and the sharper problem: promote rewrites the task row in place, keeps `created_at`, and gives the task a *new herdr pane*. Every cached fact anchored to the old pane is therefore not evidence about the ship at all, however plausible it looks. See "Pane-anchored facts across `hand promote`" below for the field-by-field classification and for how the watcher forgets its cached copies. |
 | Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane as `(unreported)` or `(reported: <state>)` from the same report channel, and the stale timer below re-flags the task within one window. |
 | Whether the last probe of the pane succeeded | Re-derived, safely: seeded unconditionally true on resume, the same value a first sighting gets, so the first probe after a restart is compared against a clean slate. It gates the once-only `failed` latch and `stale`'s detection, and true is the conservative seed for both - a still-unreachable pane re-announces `failed` on the first tick rather than staying silent. A live `hand promote` reseeds it the same way, and for the same reason; see below. |
 | How long the current herdr status has been dwelt in | Persisted as `status_changed_at`, updated whenever a herdr status transition is actually observed - any transition, not only ones that raise an event - and re-seeded from `created_at` until the first one. This is what `stale`'s dwell is measured against. Seeding it from the resume time instead - the previous behavior - erased a real dwell on every restart, and since `--until-event` restarts on every delivered event by design, a fleet busy enough to re-arm faster than the threshold elapses could erase that dwell before it ever completed once, silencing `stale` for exactly the fleet it exists to watch (issue #75's Ruling 1). |
@@ -871,7 +923,7 @@ Behavior:
    - If on default branch and clean: fast-forward to `origin/<default>`.
    - If dirty, on non-default branch, or diverged: skip with warning.
 2. Prune local branches whose remote tracking branch is gone.
-3. Update `data/dashboard.md` if any project advanced.
+3. Re-render `data/dashboard.md`.
 
 Output:
 ```
@@ -910,14 +962,15 @@ Behavior:
 4. Acquire a fresh treehouse worktree (with collision guard).
 5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 7, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
-7. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
+7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
+9. Re-render `data/dashboard.md`, so the Active Tasks `kind` column reads `ship`.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
 to step 7, so a promotion that fails partway still leaves the scout's pane and worktree intact
 instead of stranding the task with nothing to look at.
-`data/dashboard.md` is deliberately left untouched, so the task's row keeps reading `scout` until
-something else rewrites it.
+The render is last of all, after that teardown, so a render fault cannot strand the scout's pane and
+worktree behind a promotion the store has already recorded.
 
 Output:
 ```
@@ -976,14 +1029,54 @@ Errors:
 
 ---
 
+### `hand search <query> [flags]`
+
+Full-text search the prose corpus under `data/`.
+
+```
+hand search login auth decision
+hand search --json "no-mistakes gate"
+hand search --rebuild deploy failure
+```
+
+Flags:
+- `--json`: output as JSON, one object per hit with `Path`, `Title` and `Snippet`. An empty result is `[]`, never `null`, so a caller can iterate without special-casing it.
+- `--rebuild`: discard and re-derive the index before searching. The recovery for an index that is present but wrong; an index that is simply *missing* needs no flag.
+- `--limit <n>`: maximum hits, default 20.
+
+Behavior:
+1. Scan `data/` for markdown files, comparing each against the index by mtime and size, and index what changed. Refreshing on every query rather than on a schedule keeps every other command free of the index entirely: the index is derived, so a stale answer is always settled by the corpus, and nothing else in `hand` has to know the index exists.
+2. Match against the FTS5 index, ranked by bm25, and print `path`, `title` and a snippet per hit.
+3. With no hits, print nothing to stdout and say `no matches for "<query>"` on stderr, so an empty result reads differently from a search that never ran while a pipeline still reads nothing.
+
+Every whitespace-separated token in the query is quoted before it reaches FTS5, so a query a supervisor would actually type - `no-mistakes gate`, `atqamz/secondhand#53` - is matched as the literal text it looks like rather than parsed as query operators.
+
+`data/dashboard.md` is deliberately excluded from the corpus: it is rendered from machine state, so indexing it would answer prose searches out of a cache of the database the search exists to complement.
+
+The index lives in its own database at `state/index.db`, separate from machine state, and is safe to delete at any time (see "Machine state and the prose corpus"). Neither the search nor the rebuild reads `state/hand.db`.
+
+Errors:
+- Corpus unreadable (the rebuild names the file it could not read).
+- Index unusable, past what a refresh repairs - the condition `--rebuild` exists for.
+
+Both are general errors (`1`), never usage errors: the operator typed the command correctly and the fault is in the world.
+
+---
+
 ## Dashboard: `data/dashboard.md`
 
 The dashboard is secondhand's answer to the session clobbering problem.
 Instead of dumping fleet state into the agent's context on every session start, `hand` maintains a persistent markdown file that both the agent and the user can read.
 
-Every `hand` command that mutates state also updates the relevant section of `data/dashboard.md`.
+Every `hand` command that changes what the dashboard shows rewrites `data/dashboard.md` (see "Update rules").
 The agent reads it at session start.
 The user can watch it in a side-by-side editor for real-time fleet visibility.
+
+**The dashboard is a rendering, not a record.**
+Every section that can be derived - Active Tasks, Pending Decisions, Projects - is rebuilt from the store and the report channel on every write, never patched into the previous rendering.
+The two append-only logs, Recent Events and Recent Completions, are the only things read back out of the file, because nothing else holds them.
+This is what closes atqamz/secondhand#53's four accuracy defects at the source rather than one write path at a time: a row cannot go stale, disagree with `hand status`, or outlive the state behind it, because it is not stored anywhere to go stale in.
+It also means a hand-edited dashboard is overwritten on the next write, and that a caller which only reads may render it too - the result depends on the store, not on which command got there first.
 
 ### Format
 
@@ -1017,72 +1110,57 @@ Updated: 2026-07-24T12:30:00Z
 
 ### Update rules
 
-| Command | Dashboard update |
+Only the append-only sections have per-command rules, because only they carry anything a command has to supply:
+
+| Command | Appends |
 |---|---|
-| `hand spawn` | Add row to Active Tasks |
-| `hand status` | Refresh agent states in Active Tasks (only when dashboard is stale), set PR on the task's row when a gate-opened PR is detected |
-| `hand send` | No update |
-| `hand teardown` | Move from Active Tasks to Recent Completions (keep last 10), drop the task's Pending Decisions entry |
-| `hand merge` | Refresh Projects when the follow-up project sync advanced the clone. `--local`: no update |
-| `hand pr` | Set PR on the task's row |
-| `hand watch` | Update agent states, add actionable events to Recent Events (keep last 20), update Pending Decisions, auto-record a PR seen on the report channel |
-| `hand project add` | Add to Projects |
-| `hand project remove` | Remove from Projects |
-| `hand project sync` | Update project sync status |
-| `hand promote` | No update (the row keeps its scout kind) |
-| `hand notify` | No update (notification is a side channel) |
+| `hand teardown` | One Recent Completions entry (keep last 10) |
+| `hand watch` | One Recent Events entry per actionable event (keep last 20) |
+| every other command | Nothing to append; whether it writes at all is below |
+
+A mutating command re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
+It re-renders unconditionally, never after testing whether its own effect reached a section: `hand promote` changes the `kind` the Active Tasks row derives, while `hand project sync` and `hand merge`'s PR path may leave every derived value identical, and a command that had to know which case it was in would be deciding from outside the render what the render already answers.
+Three commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
 
 Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 
-The Active Tasks `state` column and the task's Pending Decisions slot are two halves of one row, and one rule governs both: **an event kind that writes the task's row answers every field of it.**
-Not the state column alone - a kind that sets the column and says nothing about the slot leaves the previous event's question standing under a state that has moved on, which is the same two-views-disagree defect as a stopped worker whose row still reads `working`.
-Answering is not a choice between set and clear, though: **clearing the slot is destructive and requires positive evidence that the question is retired.**
-Exactly two events are that evidence - `report-working` and a verified `report-done`.
-Every other kind either sets the slot with its own supervisor-actionable text or leaves it untouched; no kind clears on inference.
-Leaving a stale question is merely visible, next to a state column that already says what happened, and a reader can act on it; clearing one destroys information nothing restores, since the report line is already past `report_offset` and no later tick re-emits it.
-The supervisor reads this row first, so each kind's disposition is fixed here rather than decided field by field:
+### Derived sections
 
-| Event kind | `state` column | Pending Decisions |
-|---|---|---|
-| `idle-unreported` | `idle-unreported` | stopped, reason unknown |
-| `parked` | `parked` | the last report line and how long it has been silent |
-| `blocked` (herdr) | `blocked` | herdr's blocked reason |
-| `report-blocked`, `report-needs-decision` | the kind | the worker's own note |
-| `report-working` | `working` | cleared |
-| verified `report-done` | `done` | cleared |
-| `failed`, `report-failed`, `report-paused` | the kind | untouched |
-| unverified `report-done`, `stale`, `pr-merged`, `pr-not-recorded`, `pr-record-unknown`, `report-malformed` | no row write | untouched |
+**Active Tasks** is one row per task in the store. The `state` column is the task's last classified report line - `working`, `paused`, `blocked`, `needs-decision`, `done`, `failed` - or `unreported` when the worker has written nothing that classified, or `unreadable` when its report file exists but can't be read.
+`unreadable` is the same distinction `hand status` draws with ` (report unreadable)`, and for the same reason: an I/O fault is not evidence the worker never reported, and reads fail open, so one unreadable report costs its own row's state and not the whole render.
+It speaks the report vocabulary and nothing else.
+It is deliberately not a live herdr probe and not an event kind: a probe would give the column a second source that disagrees with `hand status`, and an event kind put watcher-internal spellings like `idle-unreported` and `pr-not-recorded` in a column that is meant to say what the *worker* said.
+A pane observation that has no report behind it belongs in Recent Events, where it is a thing the fleet saw rather than a thing the worker claimed.
 
-`failed` is the case that fixes the rule: it fires on any failure to probe the pane, so clearing there would let one herdr daemon restart wipe every tracked task's slot in a single tick.
-`report-paused` leaves the question standing, not answered - a worker that names what it is waiting on has not resolved it.
-The last group writes nothing to the row at all: an unverified `report-done` is a claim rather than evidence, `stale` is elapsed time in a state rather than a new one, the PR notices are facts about a record rather than about the worker, and a malformed line classifies to nothing.
-They still reach Recent Events and `state/events.log`.
-A kind that is silently *absent* from this table is the actual failure mode, so it is an error rather than a partial row - `hand watch` refuses to write it, and the test that enumerates the kind vocabulary fails.
-There is deliberately no bare `done` event kind: a done announcement is always a verified `report-done`, and `done` exists only as the column value that event writes.
-The column has one source, the event stream; it is never refreshed from a live herdr probe, which would give it two.
+**Pending Decisions** holds the questions a worker is waiting on an answer for: a `blocked:` or `needs-decision:` line, in the worker's own words, one entry per task.
+Nothing else may appear there.
+Inferring an entry from an idle or blocked pane - the old `stopped, reason unknown` and `parked` entries - is what crowded the genuine questions out of the section in atqamz/secondhand#53, and those observations now surface only in Recent Events, on `hand watch`'s stdout and in `hand status`.
+Which of `blocked` and `needs-decision` a worker reached for does not change who has to act, so both belong.
 
-Pending Decisions holds at most one entry per task, replaced on write.
-That slot is reserved for what the supervisor has to answer about the task: the worker's own `blocked`/`needs-decision` note, or an unexplained stop that leaves no one to ask.
-Anything else a supervisor should notice - an operator notice like `pr-not-recorded` or `pr-record-unknown` - goes to Recent Events and `state/events.log`, never to Pending Decisions, since writing there would erase a worker's question.
+An entry is retired by replaying the append-log, not by remembering a flag: the section holds the question a worker is *still* waiting on, which is not the same as its last line.
+`needs-decision:` followed by `paused: sleeping on it` leaves the question open, because a worker that parks on something has not resolved it.
+`working:`, `done:` and `failed:` retire it - the worker resumed, finished, or gave up.
+Replaying beats remembering here for the same reason the whole section is derived: a latched flag in machine state is how a cleared question used to survive the line that cleared it, and the log already holds the whole answer.
 
-The rule that no event kind clears the slot on inference governs the watcher deciding, from an observation, whether a question got answered.
-Teardown is not that: **nothing on the dashboard may reference a task with no Active Tasks row**, so completing a task removes its Pending Decisions entry along with its row.
-There is nothing left to answer about a task the operator deleted, and no later event could retire the entry anyway - the ID is gone from the task list, so `hand watch` stops tracking it.
-This is also what bounds the section without a cap: one entry per task ID, and entries die with their tasks, so it is bounded by the live fleet.
+The section needs no cap: one entry per task, and a task's entry disappears with the task, so it is bounded by the live fleet.
 
-### Optional: qmd for historical search
+**Projects** is one row per registered project with its mode and its live active-task count.
+
+### Optional: qmd for semantic search
 
 `data/` grows large over time (400+ files, 4MB+ in real usage - briefs, reports, decisions accumulate).
 The dashboard solves "what's happening now".
 For "what did we decide about X three months ago", searching hundreds of markdown files by hand is tedious.
 
-[qmd](https://github.com/tobi/qmd) is a local search engine for markdown that provides keyword, semantic, and hybrid search.
+`hand search` covers the keyword half of that in the binary, with no dependency and no setup (see its command section).
+
+[qmd](https://github.com/tobi/qmd) is a local search engine for markdown that adds what `hand search` deliberately does not do: semantic and hybrid search over embeddings.
 Secondhand recommends it but does not require it:
 
 - `hand init --setup` does not require or configure qmd.
 - If qmd is available, the agent can create a collection pointing at `data/` manually.
-- The AGENTS.md sketch mentions `qmd search` as the way to find historical context.
-- All `hand` operations work without qmd. The agent can always fall back to reading files directly.
+- The AGENTS.md sketch mentions `qmd search` as a way to find historical context, alongside `hand search`.
+- All `hand` operations work without qmd. The agent can always fall back to `hand search`, or to reading files directly.
 
 ```sh
 # user installs qmd separately
@@ -1500,7 +1578,9 @@ The backlog is the agent's document. `hand` is a consumer, not an owner.
 
 ## Project registry format
 
-`data/projects.md` is a simple list managed by `hand project add/remove`.
+The registry is machine state, so the store owns it and `data/projects.md` is its projection, rewritten by `hand project add/remove`.
+The file is still what an operator reads, so the projection preserves the file: comments, prose and ordering survive a rewrite, a re-registered project keeps its place, and a new one goes at the end.
+Hand-editing it is not the way to register a project - the next write rewrites the file from the store - and a pre-sqlite file is imported once (see "Migration").
 
 ```markdown
 # Projects
@@ -1526,10 +1606,11 @@ Delivery modes:
 
 ### Design decisions
 
-- **JSON, not .meta key=value files.** Structured, typed, parseable without sed/grep/awk.
-- **Current state, not append-only logs.** One file per task, updated in place. History comes from the dashboard, events.log, and herdr event streams, not from accumulating status lines.
-  `state/completions.jsonl` is a deliberate exception, not a contradiction: it does not track a task's current state, which the JSON file above already owns and which teardown deletes outright. It is durable history of a state that no longer exists, kept precisely because the dashboard's own history (Recent Completions) is capped and scheduled to disappear with `data/dashboard.md` itself (atqamz/secondhand#62) - the log this principle warns against is one substituting for state that should be current, not one recording state that is gone for good.
-- **No separate status files for herdr-visible state.** The worker's herdr-visible state (working/idle/blocked/done/unknown) is queried from herdr in real-time, not persisted by `hand`. The JSON state file tracks static metadata (project, worktree, harness, PR URL), not dynamic agent state.
+- **sqlite, not one JSON file per task.** Machine state lives in `state/hand.db` (see "Machine state and the prose corpus"). One row per task and per project, queried rather than globbed, with the whole registry consistent at every read. Pre-sqlite `state/<id>.json` files are imported once and moved to `state/migrated/`; see "Migration" below.
+- **Current state, not append-only logs.** One row per task, updated in place. History comes from the dashboard, events.log, and herdr event streams, not from accumulating status lines.
+  `state/completions.jsonl` is a deliberate exception, not a contradiction: it does not track a task's current state, which the store already owns and which teardown deletes outright. It is durable history of a state that no longer exists, kept precisely because the dashboard's own history (Recent Completions) is capped and scheduled to disappear with `data/dashboard.md` itself (atqamz/secondhand#62) - the log this principle warns against is one substituting for state that should be current, not one recording state that is gone for good.
+- **Nothing durable is derived from a rendering.** Every view - the dashboard's derived sections, `hand status`, the watcher's classification - is computed from the store and the report channel at the moment it is asked for. Reading a previous rendering back in as evidence is what produced atqamz/secondhand#53's accuracy defects, and no code path does it any more.
+- **No separate status files for herdr-visible state.** The worker's herdr-visible state (working/idle/blocked/done/unknown) is queried from herdr in real-time, not persisted by `hand`. The store tracks static metadata (project, worktree, harness, PR URL), not dynamic agent state.
   The one exception is `state/<id>.status`, the worker-to-supervisor report channel (see "Report channel" below): herdr's agent state answers "is the pane busy," not "why did it stop" or "what actually happened," and that gap is exactly what caused done/blocked/needs-decision to go unreported in production. This file is not a second copy of herdr's state - it's a channel for information herdr has no way to carry, and it exists only because that specific gap caused a real incident, per principle 5 (no feature without friction).
   This is the strongest argument for the whole design: herdr's `idle`/`done` split (see "Agent state") carries no task-outcome information at all for `hand`'s headless deployment, only whether a human happened to be looking at the time. The report channel isn't a supplement to herdr's status for learning how a task ended - it's the only source of that information there is.
 - **Event log for crash recovery.** `state/events.log` is a bounded rotating log (last 200 lines) of actionable watcher events. Not for real-time consumption - the watcher prints to stdout for that. The log exists so a restarted agent can read recent history that happened while its context was down.
@@ -1538,7 +1619,7 @@ Delivery modes:
 
 `state/<id>.status` is an append-only text file the worker writes and `hand` only ever reads.
 The brief the supervisory agent writes for a worker must include this file's absolute path and the vocabulary below, so the worker knows to append to it.
-It lives and dies with the task: `hand teardown` removes it alongside `state/<id>.json`, so an ID respawned later starts with an empty channel rather than inheriting the previous run's log (see `hand teardown`).
+It lives and dies with the task: `hand teardown` removes it alongside the task's row, so an ID respawned later starts with an empty channel rather than inheriting the previous run's log (see `hand teardown`).
 
 Each line has the shape `<state>: <note>`, one state transition per line:
 
@@ -1559,22 +1640,23 @@ Fixed vocabulary (anything else is malformed, and malformed lines are surfaced, 
 
 Read/classify semantics:
 
-- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` in `state/<id>.json`, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. The last state and note a line classified to are carried across a restart as `last_report_state` and `last_report_note` rather than re-read from the file, so a pane found not-busy after a restart isn't mistaken for an unexplained stop - see "What survives a `hand watch` restart".
+- `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` on the task, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. The last state and note a line classified to are carried across a restart as `last_report_state` and `last_report_note` rather than re-read from the file, so a pane found not-busy after a restart isn't mistaken for an unexplained stop - see "What survives a `hand watch` restart".
 - Blank and whitespace-only lines are skipped by every reader, so `hand status`'s history never shows an entry `hand watch` didn't surface and a stray trailing newline can't masquerade as a malformed terminal report.
 - If the file shrinks below the last known offset (recreated, truncated), tailing restarts from the beginning rather than erroring.
-- Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult. Both answer from the last line that *classified*, never simply the last line - `hand watch` by only advancing its carried state on one, `hand status` by skipping trailing malformed lines when it re-reads the file - so free text appended after a real report cannot erase it or make the two commands answer differently about the same quiet pane. A line reporting a stop (`paused`, `blocked`, `needs-decision`, `failed`) also moves the task's Active Tasks row out of `working`, since the herdr transition that follows is absorbed on purpose, and a later `working` line moves it back (see "Update rules").
+- Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult. Both answer from the last line that *classified*, never simply the last line - `hand watch` by only advancing its carried state on one, `hand status` by skipping trailing malformed lines when it re-reads the file - so free text appended after a real report cannot erase it or make the two commands answer differently about the same quiet pane. The Active Tasks `state` column is this same last classified line, derived on every render rather than written by an event, so the row cannot disagree with `hand status` about it (see "Derived sections").
 - **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`) - including when it landed while the watcher was stopped, since the announcement is tracked by the durable `done_verified` marker rather than re-derived from whatever evidence is on disk at startup (see "What survives a `hand watch` restart").
-- A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended, flattened onto the event's single line, and its remedy is a human running `hand pr`, which reconciles whatever half is missing or says so when there is no dashboard row left to repair; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
+- A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended, flattened onto the event's single line, and its remedy is a human running `hand pr`, which reconciles whatever half is missing; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
 
 ### Concurrency
 
-- Each task has its own state file. No shared mutable state between tasks.
+- Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, dashboard) sit above that and guard whole command sequences, which a per-statement database lock cannot. The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
 - `hand watch` is the only long-running process; all other commands are short-lived.
-- File locking: `state/<id>.json` is written atomically (write to temp + rename). No lock files.
+- File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.
 - Multiple `hand` invocations against the same task should be avoided (agent discipline, not locking).
 - **Concurrent tasks on same project:** allowed. Each gets its own treehouse worktree. The collision guard in `hand spawn` prevents worktree overlap. File-level conflicts are resolved at merge time (rebase or conflict resolution), not at spawn time. The agent should avoid spawning tasks that touch the same files when possible, but this is a judgment call, not an enforced constraint.
-- **No session lock.** Multiple supervisory sessions can run `hand` commands. The agent is responsible for not conflicting with itself. Atomic file writes prevent corruption; duplicate work is an agent-level problem, not a CLI-level problem.
+- **No session lock.** Multiple supervisory sessions can run `hand` commands. The agent is responsible for not conflicting with itself. sqlite's own locking and the dashboard's atomic rewrite prevent corruption; duplicate work is an agent-level problem, not a CLI-level problem.
+- **No daemon and no connection pool.** Every command opens the database, does its work and closes it, on a single connection (see "Not Postgres, and no daemon").
 
 ### Recovery
 
@@ -1585,6 +1667,22 @@ On restart (new supervisory agent session):
 4. For each task, herdr state shows whether the pane is busy (working/blocked), not-busy (idle/done - see "Agent state" for why these carry no task-outcome signal by themselves), unreachable (unknown), or dead.
 5. Dead herdr pane = dead worker. Agent decides: respawn or teardown.
 6. No special recovery logic in `hand`. The CLI shows state; the agent decides action.
+
+When `hand` itself is the thing that is broken - a stale binary, a database that will not open - none of the above is available, and the recovery is `cat state/<id>.status`.
+That is why the report channel is a plain append-only text file and why there is no `hand dump` (see "Which to believe when they disagree").
+A corrupt `state/index.db` is not a recovery situation at all: delete it, and the next `hand search` rebuilds it from `data/`.
+
+### Migration
+
+An existing fleet home has live state on disk, and the import has to meet it without a working previous binary.
+
+- On first open, `hand` imports every `state/<id>.json` it finds by reading the JSON directly - not by asking the old binary for anything - and moves each imported file into `state/migrated/`. The files are kept rather than deleted so an operator can still read what was imported, and moved rather than left in place so `state/` never holds a second file that looks authoritative.
+- `data/projects.md` is imported the same way, once. Unlike the task files it survives the import as its own projection, so its absence cannot serve as the done marker; a `migrated:projects.md` row in the store's `meta` table serves instead.
+- **The import is idempotent, because running it twice is what actually happens.** A second run finds no JSON left to import and a registry already marked imported, and changes nothing.
+- **A row already in the database wins over a file.** A legacy file that reappears - restored from a backup, or copied back out of `state/migrated/` by an operator reading it - is a snapshot from before the import and must never overwrite what `hand` has recorded since.
+- **The whole import runs under one named lock**, the same primitive that guards a command sequence elsewhere, because it spans files sqlite cannot see. Without it two `hand` processes opening a not-yet-migrated home interleave: one parses a file, the other imports it, archives it and then deletes the row under `hand teardown`, and the first lands its insert afterwards and resurrects a torn-down task. It is a lock of its own, not the project registry's, since `hand project add` and `remove` already hold that one when they trigger the registry import.
+- **A legacy file that will not parse stops the import and names the file**, rather than importing the rest and leaving an operator to notice a task went missing. Moving the named file aside is the way forward.
+- There is no reverse migration. The `state/migrated/` copies are what a rollback would read.
 
 ## Error handling
 
@@ -1602,7 +1700,7 @@ On restart (new supervisory agent session):
 - `1`: general error.
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
@@ -1621,7 +1719,9 @@ Such a fake must model the state its own commands leave behind, and its fidelity
 
 ### Unit tests
 
-- State file reading/writing.
+- Machine state reading/writing, and that every field survives a round trip.
+- Legacy import: idempotence over repeated runs, a database row winning over a restored file, and a loud refusal on an unparseable one.
+- Index rebuild: that deleting `state/index.db` costs neither machine state nor corpus, and that a corrupt index recovers.
 - Project registry parsing.
 - Harness launch command construction.
 - Event classification logic.
@@ -1641,6 +1741,7 @@ CI therefore installs no real herdr or treehouse.
 - Project add/remove/list/sync cycle.
 - Merge with mock gh responses.
 - Dashboard updates through full lifecycle.
+- Migration of a pre-sqlite fleet home the suite builds by hand, run twice.
 - Promote scout-to-ship cycle.
 - Collision guard with concurrent tasks.
 
