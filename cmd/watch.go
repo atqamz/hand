@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/watcher"
 	"github.com/spf13/cobra"
 )
@@ -26,9 +27,9 @@ func newWatchCmd() *cobra.Command {
 		Short: "Poll herdr agent states and report actionable events",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			if cmd.Flags().Changed("timeout") {

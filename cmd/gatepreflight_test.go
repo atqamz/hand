@@ -60,6 +60,7 @@ func setupSpawnHomeGate(t *testing.T, noMistakesPath string) string {
 	}
 	t.Setenv("PATH", noMistakesPath)
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	return home
 }
 
@@ -104,6 +105,7 @@ func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 	}
 	t.Setenv("PATH", herdrBin+string(os.PathListSeparator)+noMistakesPath)
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	return home
 }
 

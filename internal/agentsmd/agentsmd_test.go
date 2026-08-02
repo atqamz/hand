@@ -13,45 +13,23 @@ func makeWorkspace(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "data", "dashboard.md"), []byte("# Dashboard\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return dir
 }
 
-func TestIsWorkspaceTrueWhenDashboardExists(t *testing.T) {
-	dir := makeWorkspace(t)
-	got, err := isWorkspace(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got {
-		t.Fatal("got false, want true")
-	}
-}
-
-func TestIsWorkspaceFalseWhenNotInitialized(t *testing.T) {
-	dir := t.TempDir()
-	got, err := isWorkspace(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got {
-		t.Fatal("got true, want false")
-	}
-}
-
-func TestRefreshSkipsSilentlyWhenNotWorkspace(t *testing.T) {
+func TestRefreshSkipsSilentlyWhenNotAFleetHome(t *testing.T) {
 	dir := t.TempDir()
 	refreshed, err := Refresh(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if refreshed {
-		t.Fatal("got refreshed=true, want false outside a workspace")
+		t.Fatal("got refreshed=true, want false outside a fleet home")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(err) {
-		t.Fatalf("got AGENTS.md written outside a workspace, err=%v", err)
+		t.Fatalf("got AGENTS.md written outside a fleet home, err=%v", err)
 	}
 }
 

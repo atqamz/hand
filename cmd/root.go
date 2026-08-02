@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,7 @@ func newRootCmd(version string) *cobra.Command {
 			if cmd.Name() == "update" {
 				return nil
 			}
-			if home, err := os.Getwd(); err == nil {
+			if home, err := home.Resolve(); err == nil {
 				if notice := selfupdate.CheckNotice(home, selfupdate.Repo, version); notice != "" {
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
 				}

@@ -52,6 +52,7 @@ func setupPRHome(t *testing.T) (home, clonePath string) {
 	t.Helper()
 	home = t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}

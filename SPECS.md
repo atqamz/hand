@@ -30,7 +30,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
 3. **herdr-native.** herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events. Use them instead of regex-scraping terminal output. herdr's own agent state carries no task-outcome signal (see "Agent state"); the report channel is what actually tells hand whether a task finished.
 4. **Text editing stays with the agent.** The backlog is a markdown file. The agent reads and edits it directly. No CLI wrapper for text operations.
 5. **No feature without friction.** Every feature in firstmate that doesn't have a proven use case is cut. Features get added when their absence causes real pain.
-6. **The repo is the working directory.** Clone secondhand, cd in, launch your agent. The repo contains tracked code; runtime state is gitignored.
+6. **A fleet home is any directory with `data/` and `state/`.** `hand init` creates one anywhere on disk; put `hand` on PATH and launch the agent there. Maintainers dogfood a fleet home inside the secondhand repo checkout itself, with runtime state gitignored alongside the tracked code, but the CLI has no opinion about the two: `HAND_HOME`, or an ancestor of the working directory, is all it looks for.
 7. **The dashboard is the memory.** `data/dashboard.md` is the living document the CLI maintains. The agent reads it for context. The user watches it for visibility. No session digests, no bootstrap scripts, no 187-line status dumps.
 8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic.
 
@@ -67,8 +67,13 @@ They follow the brief, do the work, and report through herdr's agent state.
 
 ## Directory layout
 
+A standalone fleet home has no tracked section: `hand init` lays down only the gitignored
+runtime below, and `hand` runs against it from wherever it lives on disk. The tracked section
+exists because secondhand's own maintainers dogfood a fleet home inside the repo checkout,
+alongside the code that implements it.
+
 ```
-secondhand/                 # repo root = working directory
+secondhand/                 # maintainer's in-repo fleet home = repo checkout
   # tracked (committed)
   main.go                   # entry point
   cmd/                      # cobra command implementations

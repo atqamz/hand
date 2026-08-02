@@ -72,6 +72,7 @@ func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	cmd := newProjectAddCmd()
 	cmd.SetArgs([]string{"https://example.com/org/repo.git", "--mode", "local-only"})
@@ -101,6 +102,7 @@ func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	cmd := newProjectAddCmd()
 	cmd.SetArgs([]string{"https://example.com/org/repo.git", "--mode", "local-only"})
@@ -118,6 +120,7 @@ func TestProjectAddRefusesAlreadyRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := project.Add(home, project.Project{Name: "repo", URL: "https://example.com/org/repo.git", Mode: project.ModeDirectPR}); err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +143,7 @@ func TestProjectRemoveRefusesActiveTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/org/myproj.git", Mode: project.ModeDirectPR}); err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +169,7 @@ func TestProjectRemoveRefusesUnregistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	cmd := newProjectRemoveCmd()
 	cmd.SetArgs([]string{"missing-proj"})
@@ -184,6 +189,7 @@ func TestProjectListColumnsDoNotMergeAtFieldWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	url := "https://github.com/atqamz/secondhand.git"
 	if err := project.Add(home, project.Project{Name: "secondhand", URL: url, Mode: project.ModeNoMistakes}); err != nil {
@@ -218,6 +224,7 @@ func TestProjectListMarksGateNotInitialized(t *testing.T) {
 	}
 	t.Setenv("PATH", fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)"))
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	cmd := newProjectListCmd()
 	var out strings.Builder
@@ -243,6 +250,7 @@ func TestProjectListJSONIncludesGateIssue(t *testing.T) {
 	}
 	t.Setenv("PATH", fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)"))
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	cmd := newProjectListCmd()
 	cmd.SetArgs([]string{"--json"})
@@ -269,6 +277,7 @@ func TestProjectListOmitsGateMarkerWhenGateReady(t *testing.T) {
 	}
 	t.Setenv("PATH", fakeNoMistakesPath(t, "gate: ready\n\n  no active run"))
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	cmd := newProjectListCmd()
 	var out strings.Builder

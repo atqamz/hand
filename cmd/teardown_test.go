@@ -373,6 +373,7 @@ func setupTeardownHome(t *testing.T) (home, worktree string) {
 	t.Helper()
 	home = t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -638,6 +639,7 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	clonePath := filepath.Join(t.TempDir(), "clone")
 	initGitRepo(t, clonePath)
 

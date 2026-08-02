@@ -132,6 +132,7 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	setFakeExecutable(t)
 	home := makeUpdateWorkspace(t)
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
@@ -184,7 +185,7 @@ func TestUpdateSkipsAgentsRefreshOutsideWorkspace(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !os.IsNotExist(err) {
-		t.Fatalf("got AGENTS.md written outside a workspace, err=%v", err)
+		t.Fatalf("got AGENTS.md written outside a fleet home, err=%v", err)
 	}
 }
 
@@ -195,6 +196,7 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 	setFakeExecutable(t)
 	home := makeUpdateWorkspace(t)
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "", fixture)
@@ -226,6 +228,7 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)

@@ -30,6 +30,7 @@ func writeFakeHerdrPaneStatus(t *testing.T, status string) {
 func TestStatusFleetListsAllTasks(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -52,6 +53,7 @@ func TestStatusFleetListsAllTasks(t *testing.T) {
 func TestStatusFleetColumnsDoNotMergeAtFieldWidth(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
 	id := "task-aaaaaaaaaaa"
@@ -78,6 +80,7 @@ func TestStatusFleetColumnsDoNotMergeAtFieldWidth(t *testing.T) {
 func TestStatusFleetDegradesToUnknownWhenHerdrUnreachable(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	t.Setenv("PATH", t.TempDir())
 
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
@@ -99,6 +102,7 @@ func TestStatusFleetDegradesToUnknownWhenHerdrUnreachable(t *testing.T) {
 func TestStatusFleetJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -124,6 +128,7 @@ func TestStatusFleetJSON(t *testing.T) {
 func TestStatusSingleTaskDetail(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, Harness: "claude",
@@ -160,6 +165,7 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Chdir(home)
+			mkFleetDirs(t, home)
 			writeFakeHerdrPaneStatus(t, "idle")
 
 			if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -319,6 +325,7 @@ func TestStatusSkipsPRDetectionForScoutTasks(t *testing.T) {
 func TestStatusFleetOverviewRendersMergeMarker(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -342,6 +349,7 @@ func TestStatusFleetOverviewRendersMergeMarker(t *testing.T) {
 func TestStatusFleetOverviewTaskWithNoPRIsUnaffected(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -364,6 +372,7 @@ func TestStatusFleetOverviewTaskWithNoPRIsUnaffected(t *testing.T) {
 func TestStatusSingleTaskJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "blocked")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
@@ -385,6 +394,7 @@ func TestStatusSingleTaskJSON(t *testing.T) {
 func TestStatusSingleTaskMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	cmd := newStatusCmd()
 	cmd.SetArgs([]string{"missing-task"})
@@ -396,6 +406,7 @@ func TestStatusSingleTaskMissing(t *testing.T) {
 func TestStatusFleetFlagsIdleWithoutTerminalReportAsUnreported(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -418,6 +429,7 @@ func TestStatusFleetFlagsIdleWithoutTerminalReportAsUnreported(t *testing.T) {
 func TestStatusFleetFlagsIdleWithTerminalReportInsteadOfUnreported(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -450,6 +462,7 @@ func TestStatusFleetFlagsIdleWithTerminalReportInsteadOfUnreported(t *testing.T)
 func TestStatusFleetKeepsTheReportedFlagAfterATrailingMalformedLine(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -476,6 +489,7 @@ func TestStatusFleetKeepsTheReportedFlagAfterATrailingMalformedLine(t *testing.T
 func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -498,6 +512,7 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -536,6 +551,7 @@ func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
 func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -604,6 +620,7 @@ func TestTruncateReportLineDoesNotSplitAMultibyteRune(t *testing.T) {
 func TestStatusSingleTaskTruncatesALongReportedLineAndPointsAtTheFile(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -643,6 +660,7 @@ func TestStatusSingleTaskTruncatesALongReportedLineAndPointsAtTheFile(t *testing
 func TestStatusSingleTaskAlignsEveryLabeledValueInOneColumn(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -685,6 +703,7 @@ func TestStatusSingleTaskAlignsEveryLabeledValueInOneColumn(t *testing.T) {
 func TestStatusSingleTaskHistoryDoesNotRepeatTheReportedEntry(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -717,6 +736,7 @@ func TestStatusSingleTaskHistoryDoesNotRepeatTheReportedEntry(t *testing.T) {
 func TestStatusSingleTaskFullFlagRestoresThePreviousBehaviorExactly(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -748,6 +768,7 @@ func TestStatusSingleTaskFullFlagRestoresThePreviousBehaviorExactly(t *testing.T
 func TestStatusSingleTaskJSONKeepsTheFullReportUntruncated(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
@@ -773,6 +794,7 @@ func TestStatusSingleTaskJSONKeepsTheFullReportUntruncated(t *testing.T) {
 func TestStatusSingleTaskJSONIncludesReportedAndHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {

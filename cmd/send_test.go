@@ -13,6 +13,7 @@ func setupSendHome(t *testing.T, herdrScript string) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
