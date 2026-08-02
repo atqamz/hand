@@ -47,10 +47,6 @@ func Append(homeDir string, r Record) error {
 	}
 	defer release()
 
-	if err := os.MkdirAll(state.Dir(homeDir), 0o755); err != nil {
-		return fmt.Errorf("create state directory: %w", err)
-	}
-
 	data, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("encode completion record %q: %w", r.ID, err)
@@ -61,16 +57,29 @@ func Append(homeDir string, r Record) error {
 	if err != nil {
 		return fmt.Errorf("open completions store: %w", err)
 	}
-	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("append completion record %q: %w", r.ID, err)
+	}
+	// Not deferred and not discarded: a filesystem that reports a write fault
+	// only at close (NFS, delayed-allocation ENOSPC) makes Close the sole signal
+	// that the record reached disk, and teardown removes state/<id>.json on the
+	// strength of this call returning nil.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close completions store: %w", err)
 	}
 	return nil
 }
 
 // List returns every record in the store, oldest first. Returns nil if the
 // store doesn't exist yet.
+//
+// A line that does not parse is skipped rather than failing the read. A
+// truncated write (a short write on ENOSPC leaves a partial line that the next
+// O_APPEND write glues a complete object onto) damages one line, and a store
+// whose purpose is surviving loss must not let that one line hide every good
+// record written before it.
 func List(homeDir string) ([]Record, error) {
 	f, err := os.Open(Path(homeDir))
 	if os.IsNotExist(err) {
@@ -91,7 +100,7 @@ func List(homeDir string) ([]Record, error) {
 		}
 		var r Record
 		if err := json.Unmarshal(line, &r); err != nil {
-			return nil, fmt.Errorf("parse completions store: %w", err)
+			continue
 		}
 		records = append(records, r)
 	}

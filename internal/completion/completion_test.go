@@ -2,6 +2,7 @@ package completion
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 )
@@ -61,6 +62,47 @@ func TestAppendUncapped(t *testing.T) {
 	}
 	if len(got) != n {
 		t.Fatalf("List returned %d records, want %d - store must stay uncapped", len(got), n)
+	}
+}
+
+// TestListSkipsDamagedLine covers the read semantic a durable store needs: a
+// truncated write leaves one unparseable line, and every good record around it
+// must still be readable.
+func TestListSkipsDamagedLine(t *testing.T) {
+	dir := t.TempDir()
+	first := Record{ID: "before", Project: "nsr", Kind: "ship", Outcome: "merged", Detail: "PR 1", TornDownAt: "2026-08-02T13:00:00Z"}
+	last := Record{ID: "after", Project: "nsr", Kind: "ship", Outcome: "merged", Detail: "PR 2", TornDownAt: "2026-08-02T13:10:00Z"}
+	if err := Append(dir, first); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.OpenFile(Path(dir), os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("{\"id\":\"damag\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Append(dir, last); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := List(dir)
+	if err != nil {
+		t.Fatalf("List failed on a store with one damaged line: %v", err)
+	}
+	want := []Record{first, last}
+	if len(got) != len(want) {
+		t.Fatalf("List returned %d records, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("record %d = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
 

@@ -83,9 +83,13 @@ func newTeardownCmd() *cobra.Command {
 			// A failure the other way around - after the record lands but before teardown
 			// actually finishes - cannot make the record inaccurate, only late to remove its
 			// source: everything the record claims (landed work, a returned worktree) is
-			// already true by this line, --force or not. A retry after such a failure re-reads
-			// the same still-existing task and appends a second, identical record rather than
-			// none at all, which is the direction this trades toward on purpose.
+			// already true by this line, --force or not, so the completion is durable either
+			// way. What a retry then does depends on which later step faulted: state.Delete
+			// failing leaves state/<id>.json in place, so a retry replays the whole command
+			// and appends a second, identical record - a harmless duplicate this trades for
+			// never losing a completion. A dashboard.Update fault comes after the delete
+			// succeeded, so a retry stops at state.Read with task-not-found; the record is
+			// already on disk and only the dashboard row is left for the operator to redo.
 			record := completion.Record{
 				ID: c.ID, Project: c.Project, Kind: c.Kind, Outcome: c.Outcome, Detail: c.Detail,
 				TornDownAt: time.Now().UTC().Format(time.RFC3339),
