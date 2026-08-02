@@ -202,6 +202,46 @@ func TestSpawnRejectsAlreadyActiveTask(t *testing.T) {
 	}
 }
 
+// A hold survives the teardown of the task it was set on, so the id it names can
+// be free while its question is still open. Reusing that id has to refuse rather
+// than reattach the old question to unrelated work.
+func TestSpawnRejectsHeldIDWithNoTaskRow(t *testing.T) {
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator, Reason: "needs a call"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "open hold") || !strings.Contains(err.Error(), "hand hold clear task-1") {
+		t.Fatalf("got err %v, want an open-hold refusal naming the remedy", err)
+	}
+	if _, readErr := state.Read(home, "task-1"); !errors.Is(readErr, state.ErrTaskNotFound) {
+		t.Fatalf("got %v, want no task row written for a refused spawn", readErr)
+	}
+}
+
+func TestSpawnAcceptsIDWhoseHoldWasCleared(t *testing.T) {
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator, Reason: "needs a call"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.ClearHold(home, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.Read(home, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSpawnRejectsMissingBrief(t *testing.T) {
 	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
 	if err := os.Remove(filepath.Join(home, "data", "task-1", "brief.md")); err != nil {

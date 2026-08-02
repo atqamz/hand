@@ -69,7 +69,7 @@ They follow the brief, do the work, and report through herdr's agent state.
 
 A fleet home holds two kinds of state, and they have different owners.
 
-**Machine state is authoritative in sqlite**, at `state/hand.db`: the task registry, PR state, herdr pane and tab ids, `hand watch`'s report offsets, and the project registry.
+**Machine state is authoritative in sqlite**, at `state/hand.db`: the task registry, PR state, herdr pane and tab ids, `hand watch`'s report offsets, the project registry, and holds (see `hand hold set` and "Holds" under "State management").
 It is what `hand` writes and what `hand` reads back.
 Nothing derives it from a file, and no view is assembled by re-reading a rendering of it.
 
@@ -138,13 +138,14 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       client.go             # API calls: create tab, get state, send keys
       types.go              # herdr data types
     store/                  # machine state in sqlite (see "Machine state and the prose corpus")
-      store.go              # schema, task and project rows, meta keys
+      store.go              # schema, task, project and hold rows, meta keys
       lock.go               # named flocks over state/, shared by state and the import
       migrate.go            # one-way import of pre-sqlite state/<id>.json and data/projects.md
       index.go              # derived full-text index over the prose corpus
     state/                  # task state management, a thin facade over store
       task.go               # read/write/list task rows
-      types.go              # Task struct aliases
+      hold.go               # set/clear/read/list hold rows (see "Holds")
+      types.go              # Task and Hold struct aliases
       report.go             # read/classify state/<id>.status (see "Report channel")
       pr.go                 # PR URL validation and extraction
     worktree/               # treehouse integration
@@ -177,7 +178,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
 
   # gitignored runtime (created by `hand init`)
   state/                    # machine state, the report channel, and the durable completion store
-    hand.db                 # authoritative machine state: tasks, PR state, pane ids, report offsets, projects
+    hand.db                 # authoritative machine state: tasks, PR state, pane ids, report offsets, projects, holds
     index.db                # derived full-text index over data/, safe to delete at any time
     migrated/               # pre-sqlite state/<id>.json files, moved aside once imported
     <id>.status             # worker-to-supervisor report channel, worker-written, hand-read-only
@@ -359,10 +360,11 @@ Behavior:
    refuse before touching any task or worktree state if it comes back not initialized or
    unreachable, unless `--skip-gate-check` is set.
 3. Validate no active task with this ID exists.
-4. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
-5. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
-6. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
-7. Acquire the task's herdr tab in the project's workspace.
+4. Validate no hold is set on this ID (see "Holds" under "State management"). A hold survives the teardown of the task it was set on, so reusing the id for new work would reattach the previous incarnation's open question to an unrelated task; the error names `hand hold clear <id>` as the remedy.
+5. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
+6. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
+7. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
+8. Acquire the task's herdr tab in the project's workspace.
    - Workspace naming: one workspace per project, named after the project.
    - Tab naming: task ID.
    - If the project's workspace does not exist yet, create it at the worktree's cwd. herdr has no
@@ -370,15 +372,15 @@ Behavior:
      this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
      second one, which would leave the root tab behind as an orphan shell in the workspace.
    - If the workspace already exists, create a new tab in it for the task.
-8. Construct the harness launch command from the template (see harness section).
-9. Send the launch command to the herdr pane.
-10. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
+9. Construct the harness launch command from the template (see harness section).
+10. Send the launch command to the herdr pane.
+11. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
    no first-run dialog is left, answering any known dialog along the way, or the poll window
    elapses (see Harness launch templates).
-11. Write the task's row with all metadata.
-12. Update `data/dashboard.md` with the new task.
+12. Write the task's row with all metadata.
+13. Update `data/dashboard.md` with the new task.
 
-Any failure before step 11 leaves nothing behind: the worktree lease returns to treehouse and the
+Any failure before step 12 leaves nothing behind: the worktree lease returns to treehouse and the
 herdr side is rolled back.
 A workspace this command created is closed whole: the task's tab is that workspace's own
 auto-created root tab, so there is nothing else in it to preserve.
@@ -398,6 +400,7 @@ Errors:
   command; see "Gate preflight"). Skipped entirely with `--skip-gate-check`.
 - `no-mistakes` binary missing or not runnable, distinct from the above (see "Gate preflight").
 - Task ID already active.
+- Task ID has an open hold (names `hand hold clear <id>` as the remedy).
 - Brief not found at `data/<id>/brief.md`.
 - Treehouse worktree acquisition failed (pool exhausted, git error).
 - Worktree collision with another active task (names the conflicting task).
@@ -460,6 +463,7 @@ Behavior (fleet overview):
 3. Append the worker's own last classified report to the same column as ` (reported: <state>)`, whatever the pane is doing. A pane state and a report answer different questions, so both print: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. `working` is the one report that stays unadorned, because it is what the column already says. ` (unreported)` still requires a not-busy pane (herdr's `idle` or `done` - see "Agent state" below), since a busy pane that has not reported yet is not a stop anyone has to explain. A report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported.
 4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
 5. Print one line per task, with a header row.
+6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
 
 The `last report` column is the mtime of `state/<id>.status`, and `(none)` when the worker has never written one.
 It is deliberately not the task's age: the two used to be conflated, so a task spawned hours ago read as hours stale next to a status file its worker had touched minutes earlier - a reporting worker that looked abandoned.
@@ -475,14 +479,21 @@ stuck-task   nsr      ship   idle (unreported)                         1h ago  (
 paused-task  nsr      ship   idle (reported: needs-decision)           30m ago 12m ago
 investigate  nsr      scout  done (reported: done)                     10m ago 9m ago
 shipped-fix  nsr      ship   done (reported: done) (merged, external)  5m ago  4m ago
+
+held:
+  fix-login         operator  two ways to fix this, needs a call          2h ago
+  torn-down-task    operator  question never answered                    1d ago
 ```
+
+A hold row that can't be trusted at face value - an unrecognized kind, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one - is still printed, never dropped, with `inconsistent: <why>` in place of its detail: an external write to `state/hand.db` is the only way such a row exists, since `hand hold set` validates before writing, and filtering it out here would silently drop the row most worth seeing.
 
 Behavior (single task):
 1. Read the task from the store.
 2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task and in the Active Tasks PR column if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A branch carrying several PRs resolves by preference tier - merged, then open, then closed-unmerged - and only when the winning tier holds exactly one PR: a tier with more than one match is ambiguous, and so is a merged PR coexisting with an open one on the same head ref - an open PR is live evidence the branch may carry unlanded work, so that mix refuses rather than resolving to the merged PR. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, an ambiguous branch, or a task with no branch all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
 3. Query herdr for current agent state and recent output.
 4. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
-5. Print detailed view, including the most recent reported line and a labeled history block.
+5. Read the hold on this id, if any (see "Holds" under "State management"). Unlike the report channel, a failure to read it fails the command - the same reasoning as the fleet overview's `held:` block.
+6. Print detailed view, including the most recent reported line and a labeled history block.
 
 Output (single task):
 ```
@@ -499,12 +510,15 @@ Last report: 3m ago
 PR:          (none)
 Reported:    needs-decision: two ways to fix the race, ask-user found both risky
 Report file: /home/user/secondhand/state/fix-login.status
+Held:        waiting on migrate-schema: needs the new column before this can proceed
 
 Report history (reported by worker, not verified current truth):
   working: added the retry loop
 ```
 
 The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:          https://github.com/org/repo/pull/42 (merged, external)`.
+
+The `Held:` line is present only when this id has a hold, and reads the reason alone for an `operator` hold or `waiting on <blocked_on>: <reason>` for a `blocked` one; an inconsistent row (see the fleet overview above) prints `inconsistent: <why>` instead.
 
 atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `Reported:`, again as the last line of `Report history`. Without `--full`:
 - The `Reported` line and every history line are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut line always carries a trailing `... [+N chars]` marker naming how much was dropped, so a short report is never mistaken for a truncated one. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").
@@ -533,15 +547,26 @@ Output (JSON, single task):
   "created_at": "2026-07-24T08:00:00Z",
   "last_report_at": "2026-07-24T09:57:00Z",
   "reported": {"state": "needs-decision", "note": "two ways to fix the race, ask-user found both risky"},
-  "report_history": ["working: added the retry loop", "needs-decision: two ways to fix the race, ask-user found both risky"]
+  "report_history": ["working: added the retry loop", "needs-decision: two ways to fix the race, ask-user found both risky"],
+  "held": {"id": "fix-login", "kind": "blocked", "reason": "needs the new column before this can proceed", "blocked_on": "migrate-schema", "set_at": "2026-07-24T09:00:00Z"}
 }
 ```
 
-`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. In fleet-overview JSON, only `reported` is included (no history) per row.
+`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted.
+
+Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it:
+
+```json
+{
+  "tasks": [{"id": "fix-login", "...": "one row per task, reported only, no history"}],
+  "holds": [{"id": "fix-login", "kind": "blocked", "reason": "needs the new column before this can proceed", "blocked_on": "migrate-schema", "set_at": "2026-07-24T09:00:00Z"}]
+}
+```
 
 Errors:
 - Task ID not found.
 - Herdr unreachable (graceful degradation: show state as "unknown").
+- The hold store can't be read (fails the command; never degrades to an empty `holds`/no `held` - see "Holds" under "State management").
 
 ---
 
@@ -571,6 +596,59 @@ Errors:
 
 ---
 
+### `hand hold set <id> --kind <kind> --reason <reason> [--blocked-on <id>]`
+
+Record that an id is waiting on something (atqamz/secondhand#63). See "Holds" under "State management" for the design this command exposes.
+
+```
+hand hold set fix-login --kind operator --reason "two ways to fix this, needs a call"
+hand hold set fix-login --kind blocked --reason "waiting on the migration task" --blocked-on migrate-schema
+```
+
+`<id>` is any id, not only a live task's - see "Holds" for why. It is validated with the same charset as a task id (`state.ValidateID`), never read back against the task table.
+
+Flags:
+- `--kind`: `operator` (waiting on a human) or `blocked` (waiting on another id). Required.
+- `--reason`: why the id is waiting. Required.
+- `--blocked-on`: the id being waited on. Required for `--kind blocked`, refused for `--kind operator`.
+
+Behavior:
+1. Validate `--kind`, `--reason`, and the `--blocked-on` pairing.
+2. Upsert the hold row - a second `hand hold set` on the same id replaces the previous kind, reason, and blocked-on rather than requiring a clear first, and refreshes `set_at` to when it was last set.
+
+Output:
+```
+hold set on fix-login (kind=operator)
+```
+
+Errors:
+- Invalid `--kind` (exit 2).
+- Missing `--reason` (exit 2).
+- `--blocked-on` missing for a `blocked` hold, or given for an `operator` hold (exit 2).
+
+---
+
+### `hand hold clear <id>`
+
+Clear the hold on an id.
+
+```
+hand hold clear fix-login
+```
+
+Behavior:
+1. Delete the hold row. Leaves no residue - a subsequent `hand status` shows nothing held for this id.
+
+Output:
+```
+hold cleared on fix-login
+```
+
+Errors:
+- No hold set on `<id>` (exit 3).
+
+---
+
 ### `hand teardown <id> [flags]`
 
 Clean up a completed task. Fail-closed: refuses if work isn't properly landed.
@@ -597,6 +675,7 @@ Behavior (ship task):
 8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
 
 The report channel goes because it is the volatile wake log, not a deliverable: a task respawned under a used ID starts at `report_offset` 0, so a surviving log would be replayed as this run's - re-raising decisions already resolved, absorbing a genuine unexplained stop as one already seen, and auto-recording a PR URL out of the previous run's `done` line onto a task nobody recorded it for. The durable deliverables under `data/<id>/` survive teardown, as before; keeping a torn-down task's wake history would be its own feature with its own reason, not a side effect of cleanup.
+A hold on the id is not removed either, deliberately - it is not task-scoped, so it outlives the row and keeps an unanswered question visible, which is also why `hand spawn` then refuses the id until `hand hold clear` (see "Holds" under "State management").
 
 Behavior (scout task):
 1. Check `data/<id>/report.md` exists (the report is the deliverable).
@@ -1119,7 +1198,7 @@ Only the append-only sections have per-command rules, because only they carry an
 
 A mutating command re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
 It re-renders unconditionally, never after testing whether its own effect reached a section: `hand promote` changes the `kind` the Active Tasks row derives, while `hand project sync` and `hand merge`'s PR path may leave every derived value identical, and a command that had to know which case it was in would be deciding from outside the render what the render already answers.
-Three commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
+Five commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, `hand hold set` and `hand hold clear` mutate only the `hold` table, which no section of this file derives from (see "Holds" under "State management"), and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
 
 Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 
@@ -1613,6 +1692,7 @@ Delivery modes:
   The one exception is `state/<id>.status`, the worker-to-supervisor report channel (see "Report channel" below): herdr's agent state answers "is the pane busy," not "why did it stop" or "what actually happened," and that gap is exactly what caused done/blocked/needs-decision to go unreported in production. This file is not a second copy of herdr's state - it's a channel for information herdr has no way to carry, and it exists only because that specific gap caused a real incident, per principle 5 (no feature without friction).
   This is the strongest argument for the whole design: herdr's `idle`/`done` split (see "Agent state") carries no task-outcome information at all for `hand`'s headless deployment, only whether a human happened to be looking at the time. The report channel isn't a supplement to herdr's status for learning how a task ended - it's the only source of that information there is.
 - **Event log for crash recovery.** `state/events.log` is a bounded rotating log (last 200 lines) of actionable watcher events. Not for real-time consumption - the watcher prints to stdout for that. The log exists so a restarted agent can read recent history that happened while its context was down.
+- **Holds are their own table, not a task column.** See "Holds" below for the full reasoning: a task-scoped hold would be destroyed by `hand teardown` exactly when it matters most.
 
 ### Report channel
 
@@ -1645,6 +1725,24 @@ Read/classify semantics:
 - Each classified line becomes a `report-*` event (see `hand watch`) and updates the task's last-known report state, which `hand watch`'s idle classifier and `hand status`'s report suffix both consult. Both answer from the last line that *classified*, never simply the last line - `hand watch` by only advancing its carried state on one, `hand status` by skipping trailing malformed lines when it re-reads the file - so free text appended after a real report cannot erase it or make the two commands answer differently about the same quiet pane. The Active Tasks `state` column is this same last classified line, derived on every render rather than written by an event, so the row cannot disagree with `hand status` about it (see "Derived sections").
 - **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`) - including when it landed while the watcher was stopped, since the announcement is tracked by the durable `done_verified` marker rather than re-derived from whatever evidence is on disk at startup (see "What survives a `hand watch` restart").
 - A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended, flattened onto the event's single line, and its remedy is a human running `hand pr`, which reconciles whatever half is missing; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
+
+### Holds
+
+A hold (atqamz/secondhand#63) records that an id is waiting on something, so "what needs the operator" is derived from the store rather than authored by hand in `data/backlog.md` - that file stays out of scope for holds entirely; a design that finds itself parsing it has gone wrong.
+
+**A hold is its own row, keyed by an arbitrary id, not a foreign key into the task table.** The alternative - a column or side table hanging off a task row - was rejected: it would fit the common case, but `hand teardown` deletes the task row, so a hold set on a task torn down while its question stayed open would vanish exactly when it matters most. A standalone row survives that teardown, which is the motivating case the issue names - work with no task row behind it, either never dispatched or torn down mid-question.
+
+A second, independent reason favors the same answer: atqamz/secondhand#111 found that `Open` has no schema-version mechanism - it applies `schema` with `CREATE TABLE IF NOT EXISTS`, which is a correct create against a table that does not exist yet but a silent no-op against one that exists and is merely missing a new column, with no error and no column added. Adding a `blocked_on`-style column to the existing `task` table would pass every test (which build fresh databases) and silently fail to apply to any already-migrated `state/hand.db` on disk. A brand-new `hold` table sidesteps the gap entirely: every existing database is missing the whole table, so `CREATE TABLE IF NOT EXISTS` takes the create branch, not the no-op one, on both a fresh database and a migrated one. atqamz/secondhand#111 itself is not fixed here - it remains open for whatever change first needs to alter an existing table.
+
+Two kinds, no others invented without a new issue:
+- `operator`: waiting on a human. `reason` says what for.
+- `blocked`: waiting on another id. `reason` says what for, `blocked_on` names the id.
+
+Set with `hand hold set`, which upserts - a second call on the same id replaces its kind, reason, and blocked-on, so narrowing down a reason is a re-run, not a clear-then-set. Cleared with `hand hold clear`, which deletes the row outright: no residue survives a clear for `hand status` to find later.
+
+**Surviving teardown makes id reuse a hazard, so `hand spawn` refuses a held id.** The same standalone row that keeps a torn-down task's question visible would otherwise reattach it to whatever new work claimed the id next, which is the replay hazard `Delete` already guards against for the report channel by removing `state/<id>.status` (see "Report channel"). The report channel is a volatile wake log and can simply be discarded; a hold is operator-authored, so `hand spawn` refuses with exit 3 and names `hand hold clear <id>` rather than clearing it silently - answering the question is an acknowledgement `hand` has no business making on the operator's behalf. Clearing the hold is therefore the explicit step that says the question is settled, and it is the only escape hatch, since a `--force`-style flag would be the silent clear wearing a different name.
+
+**A hold that cannot be read must never read as nothing waiting.** `ListHolds`/`ReadHold` surface every row exactly as stored, inconsistent ones included - filtering here is what would let an external write's mistake silently disappear from "what is held" - and `hand status` flags an inconsistent row (an unrecognized `kind`, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one) rather than rendering it as if it were valid. A store-level failure to read holds at all - not a single bad row, the whole read - propagates as a hard error out of `hand status`, fleet or single-task, rather than degrading to an empty list: this is the one place in `hand status` that does not fail open on a read, because an empty `held:` block and "the store couldn't be read" look identical unless the second one is a fatal error instead.
 
 ### Concurrency
 
@@ -1682,6 +1780,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 - **The whole import runs under one named lock**, the same primitive that guards a command sequence elsewhere, because it spans files sqlite cannot see. Without it two `hand` processes opening a not-yet-migrated home interleave: one parses a file, the other imports it, archives it and then deletes the row under `hand teardown`, and the first lands its insert afterwards and resurrects a torn-down task. It is a lock of its own, not the project registry's, since `hand project add` and `remove` already hold that one when they trigger the registry import.
 - **A legacy file that will not parse stops the import and names the file**, rather than importing the rest and leaving an operator to notice a task went missing. Moving the named file aside is the way forward.
 - There is no reverse migration. The `state/migrated/` copies are what a rollback would read.
+- **A new table needs no migration step of its own, and a new column would need one this codebase does not have.** `Open` runs the whole `schema` string, `CREATE TABLE IF NOT EXISTS` and all, on every open - not only the first. That statement is correct for a table an existing database is missing outright, which is why adding the `hold` table was sufficient on its own for an existing `state/hand.db` to gain it on its next open. It is a silent no-op for a column an existing table is missing, since sqlite has already satisfied "if not exists" at the table level and never looks at the column list again - there is no schema-version check anywhere in this package to catch that gap (atqamz/secondhand#111, filed and left open, not fixed by this change). Holds are a new table for exactly this reason among others; see "Holds" above.
 
 ## Error handling
 
@@ -1697,9 +1796,9 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 
 - `0`: success.
 - `1`: general error.
-- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
+- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, a required flag left out (`hand hold set --reason`), mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`, `hand hold set --blocked-on` on any kind but `blocked` and its absence on a `blocked` one), an invalid argument or flag value (malformed project URL, unknown project mode, harness or hold kind, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
@@ -1743,6 +1842,7 @@ CI therefore installs no real herdr or treehouse.
 - Migration of a pre-sqlite fleet home the suite builds by hand, run twice.
 - Promote scout-to-ship cycle.
 - Collision guard with concurrent tasks.
+- Hold lifecycle: set, every `hand status` surface, surviving the teardown of the task it was set on, the spawn refusal on the reused id, and clear.
 
 ### No test categories from firstmate
 
@@ -1761,7 +1861,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 | AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch --until-event` as the agent's own background task covers the awake path; `hand notify` is meant to cover the AFK half but is not wired to anything yet (atqamz/secondhand#80). |
 | Multiple backends | `backends/herdr.sh`, `backends/cmux.sh`, `backends/zellij.sh`, `backends/orca.sh`, `fm-backend.sh` (5,500 lines) | herdr only. Add tmux fallback later if herdr proves insufficient. |
 | Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, declare `model`/`effort` in the brief, or set defaults in `config/`. |
-| Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | Agent tracks decisions in backlog and dashboard. |
+| Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | No longer cut: `hand hold set`/`hand hold clear` record a hold in the store and `hand status` renders it (see "Holds" under "State management"). Only the lifecycle skill wrapped around it stays out. |
 | Hook-based guards | `fm-continuity-pretool-check.sh`, `fm-continuity-command-policy.mjs`, `fm-subagent-pretool-check.sh` (450 lines) | CLI refuses bad operations internally. No hooks. |
 | PR-check migration | `fm-pr-check-migrate.sh` (1,148 lines) | No legacy to migrate. |
 | Fleet snapshot / bearings | `fm-fleet-snapshot.sh`, `fm-bearings-snapshot.sh` (1,860 lines) | `hand status --json` and `data/dashboard.md` cover it. |

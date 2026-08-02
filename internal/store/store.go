@@ -20,8 +20,16 @@ const (
 	KindScout = "scout"
 )
 
+const (
+	HoldKindOperator = "operator"
+	HoldKindBlocked  = "blocked"
+)
+
 // Wrapped by DeleteTask, rendered by callers as `task "<id>" not found`.
 var ErrTaskNotFound = errors.New("not found")
+
+// Wrapped by ClearHold, rendered by callers as `hold "<id>" not found`.
+var ErrHoldNotFound = errors.New("not found")
 
 // Wrapped by AddProject so a caller importing a registry that already lists a
 // name can tell a duplicate from a real write fault.
@@ -78,6 +86,18 @@ type Project struct {
 	Mode string
 }
 
+// Hold is its own row keyed by an arbitrary id, not a foreign key into task:
+// the case it exists for is a question left open by work that has no task row
+// behind it any more, because hand teardown already removed it. BlockedOn
+// carries the id a HoldKindBlocked hold waits on; empty for HoldKindOperator.
+type Hold struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Reason    string `json:"reason"`
+	BlockedOn string `json:"blocked_on"`
+	SetAt     string `json:"set_at"`
+}
+
 // Every machine-state file lives here, database included, so a human looking
 // for fleet state has one directory to look in.
 func Dir(homeDir string) string {
@@ -128,6 +148,13 @@ CREATE TABLE IF NOT EXISTS project (
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS hold (
+	id         TEXT PRIMARY KEY,
+	kind       TEXT NOT NULL DEFAULT '',
+	reason     TEXT NOT NULL DEFAULT '',
+	blocked_on TEXT NOT NULL DEFAULT '',
+	set_at     TEXT NOT NULL DEFAULT ''
 );
 `
 
@@ -338,4 +365,80 @@ func (db *DB) RemoveProject(name string) (bool, error) {
 		return false, fmt.Errorf("remove project %q: %w", name, err)
 	}
 	return affected > 0, nil
+}
+
+const holdColumns = `id, kind, reason, blocked_on, set_at`
+
+func scanHold(row interface{ Scan(...any) error }) (Hold, error) {
+	var h Hold
+	err := row.Scan(&h.ID, &h.Kind, &h.Reason, &h.BlockedOn, &h.SetAt)
+	return h, err
+}
+
+// SetHold upserts, so an operator narrowing down a reason re-runs the same
+// command rather than needing a clear first - SetAt then reads as when the
+// hold was last set, not when it was first raised.
+func (db *DB) SetHold(h Hold) error {
+	_, err := db.sql.Exec(`INSERT INTO hold (`+holdColumns+`)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			kind = excluded.kind, reason = excluded.reason,
+			blocked_on = excluded.blocked_on, set_at = excluded.set_at`,
+		h.ID, h.Kind, h.Reason, h.BlockedOn, h.SetAt)
+	if err != nil {
+		return fmt.Errorf("write hold %q: %w", h.ID, err)
+	}
+	return nil
+}
+
+func (db *DB) ReadHold(id string) (Hold, bool, error) {
+	row := db.sql.QueryRow(`SELECT `+holdColumns+` FROM hold WHERE id = ?`, id)
+	h, err := scanHold(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Hold{}, false, nil
+	}
+	if err != nil {
+		return Hold{}, false, fmt.Errorf("read hold %q: %w", id, err)
+	}
+	return h, true, nil
+}
+
+// ListHolds surfaces every row, whatever it holds: a caller that filtered
+// here on kind or on BlockedOn being consistent with kind would let a row an
+// external write left inconsistent silently disappear from "what is held"
+// instead of being reported as a hold that needs attention.
+func (db *DB) ListHolds() ([]Hold, error) {
+	rows, err := db.sql.Query(`SELECT ` + holdColumns + ` FROM hold ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list holds: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var holds []Hold
+	for rows.Next() {
+		h, err := scanHold(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list holds: %w", err)
+		}
+		holds = append(holds, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list holds: %w", err)
+	}
+	return holds, nil
+}
+
+func (db *DB) ClearHold(id string) error {
+	res, err := db.sql.Exec(`DELETE FROM hold WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("clear hold %q: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("clear hold %q: %w", id, err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("hold %q %w", id, ErrHoldNotFound)
+	}
+	return nil
 }

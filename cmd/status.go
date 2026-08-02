@@ -106,6 +106,71 @@ type statusJSON struct {
 	LastReportAt   string        `json:"last_report_at,omitempty"`
 	Reported       *reportedJSON `json:"reported,omitempty"`
 	ReportHistory  []string      `json:"report_history,omitempty"`
+	Held           *holdJSON     `json:"held,omitempty"`
+}
+
+// fleetJSON wraps the task rows with the fleet's holds, which name any id -
+// not only a live task - so a torn-down task's still-open hold keeps
+// surfacing here after its task row is gone.
+type fleetJSON struct {
+	Tasks []statusJSON `json:"tasks"`
+	Holds []holdJSON   `json:"holds"`
+}
+
+// holdJSON mirrors state.Hold, plus Inconsistent, which is set instead of the
+// row being dropped when a value can't be trusted at face value - see
+// holdInconsistency.
+type holdJSON struct {
+	ID           string `json:"id"`
+	Kind         string `json:"kind"`
+	Reason       string `json:"reason"`
+	BlockedOn    string `json:"blocked_on,omitempty"`
+	SetAt        string `json:"set_at"`
+	Inconsistent string `json:"inconsistent,omitempty"`
+}
+
+// holdInconsistency names why a hold row can't be trusted at face value, so
+// that ListHolds surfacing every row (rather than filtering) turns into a
+// visible flag instead of a silently wrong render: an unrecognized kind, a
+// blocked hold with nothing to point at, or an operator hold carrying a
+// blocked_on nothing set. Nothing in this codebase writes such a row today -
+// only hand hold set, which validates first - so seeing one here means
+// something outside hand touched state/hand.db directly.
+func holdInconsistency(h state.Hold) string {
+	switch h.Kind {
+	case state.HoldKindOperator:
+		if h.BlockedOn != "" {
+			return fmt.Sprintf("operator hold carries a blocked_on %q", h.BlockedOn)
+		}
+		return ""
+	case state.HoldKindBlocked:
+		if h.BlockedOn == "" {
+			return "blocked hold has no blocked_on"
+		}
+		return ""
+	default:
+		return fmt.Sprintf("unrecognized kind %q", h.Kind)
+	}
+}
+
+func holdToJSON(h state.Hold) holdJSON {
+	return holdJSON{
+		ID: h.ID, Kind: h.Kind, Reason: h.Reason, BlockedOn: h.BlockedOn, SetAt: h.SetAt,
+		Inconsistent: holdInconsistency(h),
+	}
+}
+
+// holdDetail renders a hold's non-identifying fields for the plain-text held
+// block. An inconsistency takes over the whole line: a garbled blocked-on or
+// reason next to it would read as a valid detail rather than as the flag it is.
+func holdDetail(h state.Hold) string {
+	if inc := holdInconsistency(h); inc != "" {
+		return "inconsistent: " + inc
+	}
+	if h.Kind == state.HoldKindBlocked {
+		return fmt.Sprintf("waiting on %s: %s", h.BlockedOn, h.Reason)
+	}
+	return h.Reason
 }
 
 func mergeSuffix(t state.Task) string {
@@ -123,6 +188,12 @@ func mergeSuffix(t state.Task) string {
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool) error {
 	tasks, err := state.List(home)
+	if err != nil {
+		return err
+	}
+	// Propagated rather than degraded to an empty list: a store fault reading
+	// as no holds is exactly the false all-clear this feature exists to avoid.
+	holds, err := state.ListHolds(home)
 	if err != nil {
 		return err
 	}
@@ -149,9 +220,13 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	if asJSON {
+		holdRows := make([]holdJSON, 0, len(holds))
+		for _, h := range holds {
+			holdRows = append(holdRows, holdToJSON(h))
+		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(rows)
+		return enc.Encode(fleetJSON{Tasks: rows, Holds: holdRows})
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
@@ -163,7 +238,28 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			return err
 		}
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	return printHeldBlock(cmd, holds)
+}
+
+// printHeldBlock is skipped entirely when holds is empty, so a fleet with
+// nothing waiting prints exactly what it did before this feature existed.
+func printHeldBlock(cmd *cobra.Command, holds []state.Hold) error {
+	if len(holds) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "\nheld:"); err != nil {
+		return err
+	}
+	hw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+	for _, h := range holds {
+		if _, err := fmt.Fprintf(hw, "  %s\t%s\t%s\t%s\n", h.ID, h.Kind, holdDetail(h), formatAge(h.SetAt)); err != nil {
+			return err
+		}
+	}
+	return hw.Flush()
 }
 
 // A stat fault reads the same as no report at all: the column is a staleness
@@ -220,6 +316,12 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	t = detectPRForStatus(cmd.Context(), home, t)
 	agentState := paneAgentStatus(client, t.Herdr.PaneID)
 
+	// Propagated, not degraded: see the same comment in runStatusFleet.
+	hold, held, err := state.ReadHold(home, id)
+	if err != nil {
+		return err
+	}
+
 	// An unreadable report degrades exactly as it does in the fleet view: the
 	// fault is named on the Reported line and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
@@ -235,6 +337,12 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		last = tail[len(tail)-1]
 	}
 
+	var heldJSON *holdJSON
+	if held {
+		j := holdToJSON(hold)
+		heldJSON = &j
+	}
+
 	if asJSON {
 		out := statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
@@ -242,6 +350,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, id),
 			Reported:     reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
+			Held: heldJSON,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -283,6 +392,9 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		fmt.Sprintf("Last report: %s", formatReportAge(lastReportAt(home, id))),
 		fmt.Sprintf("PR:          %s", pr),
 		fmt.Sprintf("Reported:    %s", reported),
+	}
+	if held {
+		lines = append(lines, fmt.Sprintf("Held:        %s", holdDetail(hold)))
 	}
 	if !full && (len(tail) > 0 || readErr != nil) {
 		lines = append(lines, fmt.Sprintf("Report file: %s", state.ReportPath(home, id)))
