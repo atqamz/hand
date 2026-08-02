@@ -59,7 +59,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
        +-- scout: investigate -> report.md -> teardown
 ```
 
-The supervisory agent is any supported harness (claude, codex, pi, grok, opencode) launched inside the secondhand directory.
+The supervisory agent is any supported harness (claude, codex, pi, grok, opencode) launched inside a fleet home.
 It reads AGENTS.md, understands the `hand` CLI, and manages the fleet.
 
 Workers are autonomous agents launched by `hand spawn` into herdr tabs with treehouse worktrees.
@@ -90,6 +90,8 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     promote.go
     notify.go
   internal/
+    home/                   # fleet home definition and resolution
+      home.go               # IsHome marker check, HAND_HOME/ancestor-walk Resolve
     herdr/                  # herdr client library
       client.go             # API calls: create tab, get state, send keys
       types.go              # herdr data types
