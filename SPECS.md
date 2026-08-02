@@ -406,24 +406,24 @@ Behavior (single task):
 
 Output (single task):
 ```
-Task:       fix-login
-Project:    nsr
-Kind:       ship
-Harness:    claude
-Model:      sonnet
-State:      working
-Worktree:   /home/user/.treehouse/nsr-abc/1/nsr
-Herdr:      default / wA:tB
-Created:    2h ago
-PR:         (none)
-Reported:   needs-decision: two ways to fix the race, ask-user found both risky
+Task:        fix-login
+Project:     nsr
+Kind:        ship
+Harness:     claude
+Model:       sonnet
+State:       working
+Worktree:    /home/user/.treehouse/nsr-abc/1/nsr
+Herdr:       default / wA:tB
+Created:     2h ago
+PR:          (none)
+Reported:    needs-decision: two ways to fix the race, ask-user found both risky
 Report file: /home/user/secondhand/state/fix-login.status
 
 Report history (reported by worker, not verified current truth):
   working: added the retry loop
 ```
 
-The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:         https://github.com/org/repo/pull/42 (merged, external)`.
+The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:          https://github.com/org/repo/pull/42 (merged, external)`.
 
 atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `Reported:`, again as the last line of `Report history`. Without `--full`:
 - The `Reported` line and every history line are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut line always carries a trailing `... [+N chars]` marker naming how much was dropped, so a short report is never mistaken for a truncated one. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").

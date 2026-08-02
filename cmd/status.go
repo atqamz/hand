@@ -34,7 +34,7 @@ func newStatusCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON")
-	cmd.Flags().BoolVar(&full, "full", false, "show the reported line and history untruncated, with no history dedup")
+	cmd.Flags().BoolVar(&full, "full", false, "show the reported line and history untruncated, with no history dedup (single task only)")
 	return cmd
 }
 
@@ -242,29 +242,34 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	} else {
 		pr += mergeSuffix(t)
 	}
+	// One render choice drives both the Reported line and every history entry,
+	// so a change to the budget can never reach one of them and miss the other.
+	render := reportLineText
+	if !full {
+		render = func(line state.ReportLine) string { return truncateReportLine(line, reportSummaryBudget) }
+	}
+
 	reported := "(none)"
 	switch {
 	case readErr != nil:
 		reported = fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
-	case len(tail) > 0 && full:
-		reported = reportLineText(last)
 	case len(tail) > 0:
-		reported = truncateReportLine(last, reportSummaryBudget)
+		reported = render(last)
 	}
 
 	w := cmd.OutOrStdout()
 	lines := []string{
-		fmt.Sprintf("Task:       %s", t.ID),
-		fmt.Sprintf("Project:    %s", t.Project),
-		fmt.Sprintf("Kind:       %s", t.Kind),
-		fmt.Sprintf("Harness:    %s", t.Harness),
-		fmt.Sprintf("Model:      %s", t.Model),
-		fmt.Sprintf("State:      %s", agentState),
-		fmt.Sprintf("Worktree:   %s", t.Worktree),
-		fmt.Sprintf("Herdr:      %s / %s", t.Herdr.Session, t.Herdr.TabID),
-		fmt.Sprintf("Created:    %s", formatAge(t.CreatedAt)),
-		fmt.Sprintf("PR:         %s", pr),
-		fmt.Sprintf("Reported:   %s", reported),
+		fmt.Sprintf("Task:        %s", t.ID),
+		fmt.Sprintf("Project:     %s", t.Project),
+		fmt.Sprintf("Kind:        %s", t.Kind),
+		fmt.Sprintf("Harness:     %s", t.Harness),
+		fmt.Sprintf("Model:       %s", t.Model),
+		fmt.Sprintf("State:       %s", agentState),
+		fmt.Sprintf("Worktree:    %s", t.Worktree),
+		fmt.Sprintf("Herdr:       %s / %s", t.Herdr.Session, t.Herdr.TabID),
+		fmt.Sprintf("Created:     %s", formatAge(t.CreatedAt)),
+		fmt.Sprintf("PR:          %s", pr),
+		fmt.Sprintf("Reported:    %s", reported),
 	}
 	if !full && (len(tail) > 0 || readErr != nil) {
 		lines = append(lines, fmt.Sprintf("Report file: %s", state.ReportPath(home, id)))
@@ -289,11 +294,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			return err
 		}
 		for _, line := range historyTail {
-			text := reportLineText(line)
-			if !full {
-				text = truncateReportLine(line, reportSummaryBudget)
-			}
-			if _, err := fmt.Fprintf(w, "  %s\n", text); err != nil {
+			if _, err := fmt.Fprintf(w, "  %s\n", render(line)); err != nil {
 				return err
 			}
 		}
