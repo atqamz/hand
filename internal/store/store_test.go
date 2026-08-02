@@ -3,10 +3,13 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func openTemp(t *testing.T) (*DB, string) {
@@ -249,6 +252,107 @@ func TestOpenRefusesAnUnreadableLegacyFile(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Fatalf("refusing consumed the file it could not read: %v", statErr)
+	}
+}
+
+// Every hand command opens the store, so the first contact with a legacy home
+// is routinely several of them at once. The import spans a readdir, an insert
+// and an archive rename, none of which sqlite serializes, so concurrent opens
+// have to come out of it with each task imported exactly once and every legacy
+// file archived - not a partial import and not a second copy of a task.
+func TestConcurrentOpensImportALegacyHomeExactlyOnce(t *testing.T) {
+	home := t.TempDir()
+	const legacyTasks = 5
+	for i := range legacyTasks {
+		task := sampleTask()
+		task.ID = fmt.Sprintf("task-%d", i)
+		writeLegacyTask(t, home, task)
+	}
+
+	const openers = 8
+	errs := make([]error, openers)
+	var wg sync.WaitGroup
+	for i := range openers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			db, err := Open(home)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			errs[i] = db.Close()
+		}()
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent open %d: %v", i, err)
+		}
+	}
+
+	db, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	tasks, err := db.ListTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != legacyTasks {
+		t.Fatalf("ListTasks = %d tasks, want %d imported exactly once", len(tasks), legacyTasks)
+	}
+	for _, task := range tasks {
+		if _, err := os.Stat(filepath.Join(Dir(home), task.ID+".json")); !os.IsNotExist(err) {
+			t.Fatalf("stat state/%s.json: %v, want every imported file moved aside", task.ID, err)
+		}
+		if _, err := os.Stat(filepath.Join(LegacyDir(home), task.ID+".json")); err != nil {
+			t.Fatalf("stat archived %s.json: %v, want it kept for the operator", task.ID, err)
+		}
+	}
+}
+
+// The parse -> insert -> archive sequence only holds together while one
+// importer runs it, so an import that meets the lock held has to wait for it
+// rather than run its own copy alongside.
+func TestLegacyImportWaitsForTheMigrationLock(t *testing.T) {
+	home := t.TempDir()
+	writeLegacyTask(t, home, sampleTask())
+
+	unlock, err := Lock(home, MigrationLock, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		db, err := Open(home)
+		if err == nil {
+			err = db.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("Open returned %v while the migration lock was held", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Open never completed after the lock was released")
+	}
+
+	if _, err := os.Stat(filepath.Join(LegacyDir(home), sampleTask().ID+".json")); err != nil {
+		t.Fatalf("stat archived task file: %v, want the import to have finished", err)
 	}
 }
 

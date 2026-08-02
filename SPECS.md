@@ -130,6 +130,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     watch.go
     project.go
     promote.go
+    search.go
     notify.go
   internal/
     home/                   # fleet home definition and resolution
@@ -186,7 +187,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
   data/
     dashboard.md            # living fleet dashboard, auto-maintained by `hand`
     backlog.md              # plain markdown task queue, agent-edited
-    projects.md             # thin project registry
+    projects.md             # project registry projection (see "Project registry format")
     <id>/                   # per-task data directory
       brief.md              # task instructions written by the supervisory agent
       report.md             # scout task deliverable, written by the worker
@@ -244,7 +245,7 @@ Errors:
 
 ### `hand project add <repo-url> [flags]`
 
-Clone a git repository into `projects/` and register it in `data/projects.md`.
+Clone a git repository into `projects/` and register it in the store.
 
 ```
 hand project add https://github.com/org/repo
@@ -668,7 +669,7 @@ Behavior (PR merge, default):
 6. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
 7. Update the task's row with merge status.
 8. Run `hand project sync <project>` to fast-forward the project clone.
-9. Refresh the dashboard's Projects section, only if that sync advanced the clone.
+9. Re-render the dashboard, only if that sync advanced the clone.
 
 Behavior (local merge, `--local`):
 1. Read the task's row for worktree and project.
@@ -678,7 +679,7 @@ Behavior (local merge, `--local`):
 5. Refuse if fast-forward is not possible (diverged branches).
 6. Update the task's row with merge status.
 
-A local merge records the merge on the task like any other, and the row follows from it.
+A local merge writes no dashboard: no derived section carries a merge, so there is nothing for it to render.
 
 Output:
 ```
@@ -780,7 +781,7 @@ Behavior:
    - Benign events (working herdr transitions, routine transitions): absorbed silently.
 5. Print one line to stdout per actionable event.
 6. Append each actionable event to `state/events.log` (bounded: keep last 200 lines, rotate on overflow).
-7. Update `data/dashboard.md` with state changes and events.
+7. Re-render `data/dashboard.md`, appending each actionable event to Recent Events.
 8. Re-scan `state/` periodically to pick up newly spawned or torn-down tasks.
 9. Exit cleanly on SIGINT/SIGTERM.
 10. While tailing a task's report channel, a line carrying exactly one PR URL auto-records it if the task doesn't already have one, subject to the same validation `hand pr` enforces; a URL whose recording was attempted and did not complete is surfaced as `pr-not-recorded`, and one the watcher never got to attempt as `pr-record-unknown` (see "Report channel").
@@ -1065,7 +1066,7 @@ Both are general errors (`1`), never usage errors: the operator typed the comman
 The dashboard is secondhand's answer to the session clobbering problem.
 Instead of dumping fleet state into the agent's context on every session start, `hand` maintains a persistent markdown file that both the agent and the user can read.
 
-Every `hand` command that mutates state also updates `data/dashboard.md`.
+Every `hand` command that changes what the dashboard shows rewrites `data/dashboard.md` (see "Update rules").
 The agent reads it at session start.
 The user can watch it in a side-by-side editor for real-time fleet visibility.
 
@@ -1113,17 +1114,18 @@ Only the append-only sections have per-command rules, because only they carry an
 |---|---|
 | `hand teardown` | One Recent Completions entry (keep last 10) |
 | `hand watch` | One Recent Events entry per actionable event (keep last 20) |
-| every other command | Nothing; it re-renders |
+| every other command | Nothing to append; whether it writes at all is below |
 
-Every command that mutates fleet state re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
-`hand send`, `hand promote` and `hand notify` change nothing a section derives from, so their render is a no-op in content; they still pay for it rather than each deciding whether they are the exception.
+A command that changes what a section shows re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
+A command that does not, does not write at all: `hand send` and `hand notify` change nothing any section shows, `hand merge --local` records a merge no column carries, and `hand merge`'s PR path and `hand project sync` write only when the follow-up sync advanced a clone.
+`hand promote` is the one command that changes a column and still writes nothing, deliberately; see its own section for what that leaves on the row.
 
 Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 
 ### Derived sections
 
 **Active Tasks** is one row per task in the store. The `state` column is the task's last classified report line - `working`, `paused`, `blocked`, `needs-decision`, `done`, `failed` - or `unreported` when the worker has written nothing that classified, or `unreadable` when its report file exists but can't be read.
-`unreadable` is the same distinction `hand status` draws with ` (report unreadable)`, and for the same reason: an I/O fault is not evidence the worker never reported, and reads fail open, so one unreadable report costs its own row's state and not the whole render - which every command that mutates fleet state writes.
+`unreadable` is the same distinction `hand status` draws with ` (report unreadable)`, and for the same reason: an I/O fault is not evidence the worker never reported, and reads fail open, so one unreadable report costs its own row's state and not the whole render.
 It speaks the report vocabulary and nothing else.
 It is deliberately not a live herdr probe and not an event kind: a probe would give the column a second source that disagrees with `hand status`, and an event kind put watcher-internal spellings like `idle-unreported` and `pr-not-recorded` in a column that is meant to say what the *worker* said.
 A pane observation that has no report behind it belongs in Recent Events, where it is a thing the fleet saw rather than a thing the worker claimed.
