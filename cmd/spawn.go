@@ -23,6 +23,7 @@ func newSpawnCmd() *cobra.Command {
 	var harnessName string
 	var model string
 	var effort string
+	var skipGateCheck bool
 
 	cmd := &cobra.Command{
 		Use:   "spawn <id> <project>",
@@ -43,6 +44,11 @@ func newSpawnCmd() *cobra.Command {
 			}
 			if !exists {
 				return &ExitError{Err: fmt.Errorf("project %q not registered", projectName), Code: 3}
+			}
+
+			clonePath := filepath.Join(home, "projects", proj.Name)
+			if err := gatePreflight(cmd, proj, clonePath, skipGateCheck); err != nil {
+				return err
 			}
 
 			releaseClaim, err := state.Claim(home, id)
@@ -75,7 +81,6 @@ func newSpawnCmd() *cobra.Command {
 			}
 			defer releaseProject()
 
-			clonePath := filepath.Join(home, "projects", proj.Name)
 			wt, err := worktree.Get(clonePath, "hand:"+id)
 			if err != nil {
 				return fmt.Errorf("acquire treehouse worktree: %w", err)
@@ -191,7 +196,34 @@ func newSpawnCmd() *cobra.Command {
 	cmd.Flags().StringVar(&harnessName, "harness", "", "agent harness to launch (default: config/harness, or claude)")
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort level for harnesses that support it")
+	cmd.Flags().BoolVar(&skipGateCheck, "skip-gate-check", false, "dispatch even if the no-mistakes gate is not initialized for this project")
 	return cmd
+}
+
+// gatePreflight refuses to dispatch into a no-mistakes project whose gate is not initialized,
+// rather than letting the worker discover it mid-run with nothing obliged to report it. It asks
+// the no-mistakes binary rather than reading its private state.sqlite, so a stale or missing gate
+// registration (renamed working_path, never-initialized repo) is caught here instead of silently
+// producing an ungated "done". skipGateCheck is the escape hatch for a project mid-migration; it
+// still prints so bypassing it is visible, not silent.
+func gatePreflight(cmd *cobra.Command, proj project.Project, clonePath string, skipGateCheck bool) error {
+	if proj.Mode != project.ModeNoMistakes {
+		return nil
+	}
+	if skipGateCheck {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: --skip-gate-check bypassing the no-mistakes gate check for project %q\n", proj.Name); err != nil {
+			return err
+		}
+		return nil
+	}
+	gateState, err := project.GateStatus(clonePath)
+	if err != nil {
+		return fmt.Errorf("check no-mistakes gate for project %q: %w", proj.Name, err)
+	}
+	if gateState == project.GateNotInitialized {
+		return &ExitError{Err: fmt.Errorf("no-mistakes gate not initialized for project %q, run: %s", proj.Name, project.GateInitCommand(clonePath)), Code: 3}
+	}
+	return nil
 }
 
 // acquireTaskTab returns the tab and pane a spawn-shaped lifecycle should use for the task. herdr

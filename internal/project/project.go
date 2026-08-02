@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 
@@ -121,6 +122,41 @@ func Find(homeDir, name string) (Project, bool, error) {
 		}
 	}
 	return Project{}, false, nil
+}
+
+// GateState is the result of asking the no-mistakes binary whether a repo's gate is initialized.
+type GateState int
+
+const (
+	GateReady GateState = iota
+	GateNotInitialized
+)
+
+const gateNotInitializedMarker = "repo not initialized"
+
+// GateInitCommand is the exact remedy for GateNotInitialized. no-mistakes init is idempotent and
+// repairs a stale working_path in place, so callers should print this verbatim rather than describe it.
+func GateInitCommand(clonePath string) string {
+	return fmt.Sprintf("cd %s && no-mistakes init", clonePath)
+}
+
+// GateStatus asks the no-mistakes binary whether clonePath's gate is initialized, rather than
+// reading /home/atqa/.no-mistakes/state.sqlite directly, which is another tool's private schema.
+// no-mistakes status exits 0 whether or not the repo is initialized, so the outcome is read from
+// its output text, not its exit code. Any failure to run the binary at all (missing, unexecutable,
+// unexpected nonzero exit) is returned as an error distinct from GateNotInitialized: the remedy for
+// a missing binary is not `no-mistakes init`.
+func GateStatus(clonePath string) (GateState, error) {
+	cmd := exec.Command("no-mistakes", "status")
+	cmd.Dir = clonePath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return GateReady, fmt.Errorf("no-mistakes binary not found or not runnable: %w", err)
+	}
+	if strings.Contains(string(out), gateNotInitializedMarker) {
+		return GateNotInitialized, nil
+	}
+	return GateReady, nil
 }
 
 // Add appends a project line to the registry. Returns an error if the name is already registered.
