@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,12 +43,14 @@ func newTeardownCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
+			dirtWasSafe := false
 			if !force {
-				updated, err := checkLandedWork(cmd.Context(), home, t)
+				updated, safeDirt, err := checkLandedWork(cmd.Context(), home, t)
 				if err != nil {
 					return err
 				}
 				t = updated
+				dirtWasSafe = safeDirt
 			}
 			releaseProject, err := state.Lock(home, "project:"+t.Project)
 			if err != nil {
@@ -62,7 +65,11 @@ func newTeardownCmd() *cobra.Command {
 				}
 			}
 
-			if err := worktree.Return(t.Worktree, force); err != nil {
+			// treehouse refuses to clean a dirty worktree without --force, and
+			// nothing is left to answer its prompt here, so dirt this command
+			// already judged discardable has to be returned forcibly or the
+			// slot goes back to the pool still dirty.
+			if err := worktree.Return(t.Worktree, force || dirtWasSafe); err != nil {
 				return err
 			}
 
@@ -106,37 +113,45 @@ func completionFor(t state.Task, forced bool) dashboard.Completion {
 	return c
 }
 
-func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task, error) {
+// checkLandedWork reports whether the task's work is landed, and whether it got
+// there past dirt it judged safe to discard - the caller has to force the
+// worktree return in that case, since treehouse will not clean a dirty worktree
+// on its own.
+func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task, bool, error) {
 	if t.Kind == state.KindScout {
 		reportPath := filepath.Join("data", t.ID, "report.md")
 		if _, err := os.Stat(filepath.Join(home, reportPath)); err != nil {
-			return t, &ExitError{Err: fmt.Errorf("report not found at %s", reportPath), Code: 3}
+			return t, false, &ExitError{Err: fmt.Errorf("report not found at %s", reportPath), Code: 3}
 		}
-		return t, nil
+		return t, false, nil
 	}
 
-	dirty, err := hasUncommittedChanges(t.Worktree)
+	status, err := gitStatusPorcelain(t.Worktree)
 	if err != nil {
-		return t, err
+		return t, false, err
 	}
-	if dirty {
-		return t, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", t.Worktree), Code: 3}
+	dirtWasSafe := false
+	if status != "" {
+		if !dirtIsSafeToDiscard(t.Worktree, status) {
+			return t, false, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s:\n%s", t.Worktree, capStatusLines(status)), Code: 3}
+		}
+		dirtWasSafe = true
 	}
 
 	if t.PR == "" {
 		proj, exists, err := project.Find(home, t.Project)
 		if err != nil {
-			return t, err
+			return t, false, err
 		}
 		if exists && proj.Mode == project.ModeLocalOnly {
 			merged, err := branchIsMerged(filepath.Join(home, "projects", t.Project), t.Worktree)
 			if err != nil {
-				return t, err
+				return t, false, err
 			}
 			if !merged {
-				return t, &ExitError{Err: fmt.Errorf("branch for %s is not merged into the default branch", t.ID), Code: 3}
+				return t, false, &ExitError{Err: fmt.Errorf("branch for %s is not merged into the default branch", t.ID), Code: 3}
 			}
-			return t, nil
+			return t, dirtWasSafe, nil
 		}
 
 		// A gate-opened PR bypasses hand pr entirely (issue #69), so t.PR can still
@@ -155,7 +170,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			detected, err := detectPR(ctx, home, t, proj)
 			var ambiguous *ghutil.AmbiguousPRError
 			if errors.As(err, &ambiguous) {
-				return t, &ExitError{Err: fmt.Errorf("PR for %s is ambiguous, refusing to guess: %w", t.ID, ambiguous), Code: 3}
+				return t, false, &ExitError{Err: fmt.Errorf("PR for %s is ambiguous, refusing to guess: %w", t.ID, ambiguous), Code: 3}
 			}
 			if err == nil {
 				t = detected
@@ -163,28 +178,158 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		}
 
 		if t.PR == "" {
-			return t, &ExitError{Err: fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID), Code: 3}
+			return t, false, &ExitError{Err: fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID), Code: 3}
 		}
 	}
 
 	merged, err := ghutil.PRIsMerged(ctx, t.PR)
 	if err != nil {
-		return t, err
+		return t, false, err
 	}
 	if !merged {
-		return t, &ExitError{Err: fmt.Errorf("PR %s is not merged", t.PR), Code: 3}
+		return t, false, &ExitError{Err: fmt.Errorf("PR %s is not merged", t.PR), Code: 3}
 	}
-	return t, nil
+	return t, dirtWasSafe, nil
 }
 
-func hasUncommittedChanges(worktreePath string) (bool, error) {
+func gitStatusPorcelain(worktreePath string) (string, error) {
 	c := exec.Command("git", "status", "--porcelain")
 	c.Dir = worktreePath
 	out, err := c.Output()
 	if err != nil {
-		return false, fmt.Errorf("git status failed: %w", err)
+		return "", fmt.Errorf("git status failed: %w", err)
 	}
-	return len(strings.TrimSpace(string(out))) > 0, nil
+	return strings.TrimRight(string(out), "\n"), nil
+}
+
+func hasUncommittedChanges(worktreePath string) (bool, error) {
+	status, err := gitStatusPorcelain(worktreePath)
+	if err != nil {
+		return false, err
+	}
+	return status != "", nil
+}
+
+// maxDirtStatusLines bounds the refusal's git status dump (atqamz/secondhand#65
+// is the same lesson for report rendering): an unbounded dump into a session is its
+// own problem, so this prints the first N entries and a count of the rest.
+const maxDirtStatusLines = 20
+
+func capStatusLines(status string) string {
+	trimmed := strings.TrimRight(status, "\n")
+	if trimmed == "" {
+		return trimmed
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) <= maxDirtStatusLines {
+		return strings.Join(lines, "\n")
+	}
+	rest := len(lines) - maxDirtStatusLines
+	return strings.Join(lines[:maxDirtStatusLines], "\n") + fmt.Sprintf("\n...and %d more", rest)
+}
+
+// dirtIsSafeToDiscard reports whether every uncommitted change in status - the
+// worktree's `git status --porcelain` output - is a tracked modification whose
+// content already matches the local default branch's tip byte-for-byte: the
+// no-mistakes gate re-editing a file to exactly the content its own merged fix
+// already carries (atqamz/secondhand#79). Discarding dirt like that on teardown
+// loses nothing.
+//
+// Each porcelain line reports two layers, index and working tree, and a change at
+// either one is content that teardown would throw away, so each layer that reports
+// a change is compared against the base on its own: an "MM" path whose working copy
+// matches the base still hides a third, differing version staged in the index.
+//
+// Untracked files are never safe: there is nothing in the base to compare them
+// against, so their mere presence fails this check. Checking only that the path
+// exists in the base, or comparing paths without comparing content, both pass
+// cases that lose data (a same-named file with different content, or a path
+// that only coincidentally matches); this compares actual bytes for that reason.
+//
+// Every failure to resolve, read, or parse fails closed - the caller gets the
+// ordinary refusal, never a discard on unverified dirt. Resolution is local-only,
+// no fetch: a stale local ref just means a real safe case is missed.
+func dirtIsSafeToDiscard(worktreePath, status string) bool {
+	if status == "" {
+		return true
+	}
+	baseRef, err := localDefaultBranchRef(worktreePath)
+	if err != nil {
+		return false
+	}
+
+	for _, line := range strings.Split(status, "\n") {
+		if len(line) < 4 {
+			return false
+		}
+		indexState, workingState, path := line[0], line[1], line[3:]
+		if indexState == '?' || workingState == '?' {
+			return false
+		}
+		if idx := strings.Index(path, " -> "); idx >= 0 {
+			path = path[idx+len(" -> "):]
+		}
+
+		base, err := gitShowBlob(worktreePath, baseRef, path)
+		if err != nil {
+			return false
+		}
+		if indexState != ' ' {
+			staged, err := gitShowBlob(worktreePath, "", path)
+			if err != nil || !bytes.Equal(staged, base) {
+				return false
+			}
+		}
+		if workingState != ' ' {
+			working, err := os.ReadFile(filepath.Join(worktreePath, path))
+			if err != nil || !bytes.Equal(working, base) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// localDefaultBranchRef resolves the worktree's local knowledge of the default
+// branch without touching the network: a real treehouse worktree shares its
+// refs with the project clone it was leased from, so a prior fetch there
+// already left refs/remotes/origin/HEAD in place for it to read directly.
+func localDefaultBranchRef(worktreePath string) (string, error) {
+	c := exec.Command("git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+	c.Dir = worktreePath
+	if out, err := c.Output(); err == nil {
+		if ref := strings.TrimSpace(string(out)); ref != "" {
+			return ref, nil
+		}
+	}
+
+	current, err := currentBranch(worktreePath)
+	if err != nil {
+		return "", err
+	}
+	for _, branch := range []string{"main", "master"} {
+		if branch == current {
+			continue
+		}
+		c := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+		c.Dir = worktreePath
+		if err := c.Run(); err == nil {
+			return branch, nil
+		}
+	}
+	return "", fmt.Errorf("cannot resolve a local default branch ref")
+}
+
+// gitShowBlob reads path's content at ref. An empty ref reads the index's
+// stage-0 blob, which is what `git show :path` means.
+func gitShowBlob(worktreePath, ref, path string) ([]byte, error) {
+	c := exec.Command("git", "show", ref+":"+path)
+	c.Dir = worktreePath
+	out, err := c.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git show %s:%s failed: %w", ref, path, err)
+	}
+	return out, nil
 }
 
 func branchIsMerged(clonePath, worktreePath string) (bool, error) {
