@@ -107,6 +107,8 @@ secondhand/                 # repo root = working directory
       harness.go            # per-harness launch command construction
     dashboard/              # living dashboard maintenance
       dashboard.go          # read/write/update data/dashboard.md
+    completion/             # durable teardown completion record
+      completion.go         # append/list state/completions.jsonl
     agentsmd/               # generated AGENTS.md template
       agentsmd.go           # write and refresh the generated span
     atomicfile/             # shared write-to-temp-then-rename helper
@@ -124,6 +126,7 @@ secondhand/                 # repo root = working directory
     <id>.json               # current task state, one file per active task
     <id>.status             # worker-to-supervisor report channel, worker-written, hand-read-only
     events.log              # recent watcher events, bounded rotating log
+    completions.jsonl       # durable teardown completion records, one JSON object per line, uncapped
   data/
     dashboard.md            # living fleet dashboard, auto-maintained by `hand`
     backlog.md              # plain markdown task queue, agent-edited
@@ -522,9 +525,10 @@ Behavior (ship task):
    - If `pr` is set in state (recorded by `hand pr`, or just detected above): verify the PR is merged via `gh pr view`. A detected PR that is closed without merging is refused exactly like one `hand pr` recorded.
 3. Close the herdr tab.
 4. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
-5. Remove `state/<id>.json` and the task's report channel `state/<id>.status`.
-6. Update `data/dashboard.md`: move task to Recent Completions (keep last 10).
-7. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
+5. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
+6. Remove `state/<id>.json` and the task's report channel `state/<id>.status`.
+7. Update `data/dashboard.md`: move task to Recent Completions (keep last 10).
+8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
 
 The report channel goes because it is the volatile wake log, not a deliverable: a task respawned under a used ID starts at `report_offset` 0, so a surviving log would be replayed as this run's - re-raising decisions already resolved, absorbing a genuine unexplained stop as one already seen, and auto-recording a PR URL out of the previous run's `done` line onto a task nobody recorded it for. The durable deliverables under `data/<id>/` survive teardown, as before; keeping a torn-down task's wake history would be its own feature with its own reason, not a side effect of cleanup.
 
@@ -532,8 +536,9 @@ Behavior (scout task):
 1. Check `data/<id>/report.md` exists (the report is the deliverable).
 2. Close the herdr tab.
 3. Return the worktree to treehouse.
-4. Remove `state/<id>.json` and `state/<id>.status`.
-5. Update `data/dashboard.md`.
+4. Append a completion record to `state/completions.jsonl`.
+5. Remove `state/<id>.json` and `state/<id>.status`.
+6. Update `data/dashboard.md`.
 
 Behavior with `--force`:
 - Skip steps 1-2 for ship tasks, skip step 1 for scout tasks.
@@ -543,6 +548,17 @@ Teardown removes several resources in sequence, and any step can fault, so the c
 A tab herdr no longer lists counts as closed.
 A worktree already back in its pool counts as returned - that is treehouse's own answer, since `treehouse return` on an already-returned path is a no-op success, and it is not inferred from the path being gone: a returned worktree keeps its pool slot directory, so nothing can tell it from a leased one by looking.
 The removals are ordered the same way - the report channel goes before `state/<id>.json`, since the report removal is the one that can fail on a permissions or I/O fault and doing it first leaves the task JSON, and with it the retry, intact.
+
+#### Completion store
+
+The completion record is appended before `state/<id>.json` is removed, not after, because the record is derived from the task state that removal would take out from under it. That ordering has to hold under a fault on either side of it, and the two sides fail in different, deliberate directions:
+
+- If the append itself fails, the command returns before `state/<id>.json` is touched. Nothing was recorded, but the task is untouched too, so the whole command is simply retryable.
+- If a later step fails - state removal, the dashboard render - the record already written is not thereby wrong. Everything it claims (work landed, worktree returned) was independently true earlier in the same run regardless of what a later bookkeeping step does, so a retry after such a fault re-verifies the same facts and appends a second, functionally duplicate record rather than losing the first one. This trades a harmless duplicate for never silently losing a completion, on purpose.
+
+`state/completions.jsonl` exists as a sibling to `state/events.log` rather than a share of it: `events.log`'s writer reads the whole file, appends, and rewrites it via a temp-file rename, which is fine for its single long-lived writer (`hand watch`) but loses a line outright if a second process's read-modify-write race lands its rename over the first's. Teardown is a short-lived process that can genuinely overlap a running `hand watch`, so the completion store instead takes a dedicated lock and performs one `O_APPEND` write per record - no read, no rename, nothing for a second writer to clobber.
+
+The store is deliberately uncapped. `data/dashboard.md`'s Recent Completions section caps at 10 entries, but that is a rendering choice (see "Dashboard" below) - the store behind it keeps every record `hand teardown` has ever appended, since it is the durable history that survives `data/dashboard.md` being deleted (atqamz/secondhand#62) or its cap being reached. Each line is a complete JSON object (`id`, `project`, `kind`, `outcome`, `detail`, `torndown_at`), readable without parsing markdown.
 
 Output:
 ```
@@ -557,6 +573,7 @@ Errors:
 - Report not found for scout task (without `--force`).
 - Treehouse return failed (worktree locked, path no pool manages).
 - Herdr tab close failed (graceful: warn and continue).
+- Completion record append failed (lock or I/O fault): task state is left untouched, so a retry is safe.
 
 ---
 
@@ -1005,6 +1022,8 @@ Updated: 2026-07-24T12:30:00Z
 | `hand project sync` | Update project sync status |
 | `hand promote` | No update (the row keeps its scout kind) |
 | `hand notify` | No update (notification is a side channel) |
+
+Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 
 The Active Tasks `state` column and the task's Pending Decisions slot are two halves of one row, and one rule governs both: **an event kind that writes the task's row answers every field of it.**
 Not the state column alone - a kind that sets the column and says nothing about the slot leaves the previous event's question standing under a state that has moved on, which is the same two-views-disagree defect as a stopped worker whose row still reads `working`.
@@ -1500,6 +1519,7 @@ Delivery modes:
 
 - **JSON, not .meta key=value files.** Structured, typed, parseable without sed/grep/awk.
 - **Current state, not append-only logs.** One file per task, updated in place. History comes from the dashboard, events.log, and herdr event streams, not from accumulating status lines.
+  `state/completions.jsonl` is a deliberate exception, not a contradiction: it does not track a task's current state, which the JSON file above already owns and which teardown deletes outright. It is durable history of a state that no longer exists, kept precisely because the dashboard's own history (Recent Completions) is capped and scheduled to disappear with `data/dashboard.md` itself (atqamz/secondhand#62) - the log this principle warns against is one substituting for state that should be current, not one recording state that is gone for good.
 - **No separate status files for herdr-visible state.** The worker's herdr-visible state (working/idle/blocked/done/unknown) is queried from herdr in real-time, not persisted by `hand`. The JSON state file tracks static metadata (project, worktree, harness, PR URL), not dynamic agent state.
   The one exception is `state/<id>.status`, the worker-to-supervisor report channel (see "Report channel" below): herdr's agent state answers "is the pane busy," not "why did it stop" or "what actually happened," and that gap is exactly what caused done/blocked/needs-decision to go unreported in production. This file is not a second copy of herdr's state - it's a channel for information herdr has no way to carry, and it exists only because that specific gap caused a real incident, per principle 5 (no feature without friction).
   This is the strongest argument for the whole design: herdr's `idle`/`done` split (see "Agent state") carries no task-outcome information at all for `hand`'s headless deployment, only whether a human happened to be looking at the time. The report channel isn't a supplement to herdr's status for learning how a task ended - it's the only source of that information there is.

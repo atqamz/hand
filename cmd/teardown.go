@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/atqamz/secondhand/internal/completion"
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -73,13 +75,31 @@ func newTeardownCmd() *cobra.Command {
 				return err
 			}
 
+			c := completionFor(t, force)
+
+			// Recorded before state.Delete, not after: the record is derived from t, which
+			// state.Delete would remove out from under us. Failing here leaves state/<id>.json
+			// untouched, so the whole command is simply retryable and no completion is lost.
+			// A failure the other way around - after the record lands but before teardown
+			// actually finishes - cannot make the record inaccurate, only late to remove its
+			// source: everything the record claims (landed work, a returned worktree) is
+			// already true by this line, --force or not. A retry after such a failure re-reads
+			// the same still-existing task and appends a second, identical record rather than
+			// none at all, which is the direction this trades toward on purpose.
+			record := completion.Record{
+				ID: c.ID, Project: c.Project, Kind: c.Kind, Outcome: c.Outcome, Detail: c.Detail,
+				TornDownAt: time.Now().UTC().Format(time.RFC3339),
+			}
+			if err := completion.Append(home, record); err != nil {
+				return fmt.Errorf("record completion: %w", err)
+			}
+
 			if err := state.Delete(home, id); err != nil {
 				return asPrecondition(err)
 			}
 
-			completion := completionFor(t, force)
 			dashPath := filepath.Join(home, "data", "dashboard.md")
-			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{Complete: &completion}); err != nil {
+			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{Complete: &c}); err != nil {
 				return fmt.Errorf("update dashboard: %w", err)
 			}
 
