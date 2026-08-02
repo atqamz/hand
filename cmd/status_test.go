@@ -1203,3 +1203,61 @@ func TestStatusSingleTaskPropagatesAnUnreadableHoldStore(t *testing.T) {
 		t.Fatal("got nil error, want the unreadable hold store to fail the command")
 	}
 }
+
+func TestStatusFleetEmptyIsAPositiveStatement(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != "no tasks (0)" {
+		t.Fatalf("got %q, want an explicit no-tasks count and nothing else", out.String())
+	}
+}
+
+func TestStatusFleetEmptyJSONCarriesACount(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"task_count": 0`) {
+		t.Fatalf("got %q, want an explicit task_count of 0", out.String())
+	}
+}
+
+// An empty fleet must never read as "nothing to see" when a hold is still open on a torn-down
+// task's id - the exact false-all-clear atqamz/secondhand#63 guards against.
+func TestStatusFleetEmptyStillShowsHeldBlock(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := state.SetHold(home, state.Hold{ID: "gone-task", Kind: state.HoldKindOperator,
+		Reason: "needs a call", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "no tasks (0)") || !strings.Contains(out.String(), "held:") ||
+		!strings.Contains(out.String(), "needs a call") {
+		t.Fatalf("got %q, want both the no-tasks count and the held block", out.String())
+	}
+}

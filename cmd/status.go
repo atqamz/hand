@@ -111,10 +111,13 @@ type statusJSON struct {
 
 // fleetJSON wraps the task rows with the fleet's holds, which name any id -
 // not only a live task - so a torn-down task's still-open hold keeps
-// surfacing here after its task row is gone.
+// surfacing here after its task row is gone. TaskCount is always present,
+// zero included, so an empty fleet is a positive statement ("no tasks") and
+// not the same absence of output a broken command would also produce.
 type fleetJSON struct {
-	Tasks []statusJSON `json:"tasks"`
-	Holds []holdJSON   `json:"holds"`
+	TaskCount int          `json:"task_count"`
+	Tasks     []statusJSON `json:"tasks"`
+	Holds     []holdJSON   `json:"holds"`
 }
 
 // holdJSON mirrors state.Hold, plus Inconsistent, which is set instead of the
@@ -226,7 +229,14 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(fleetJSON{Tasks: rows, Holds: holdRows})
+		return enc.Encode(fleetJSON{TaskCount: len(rows), Tasks: rows, Holds: holdRows})
+	}
+
+	if len(rows) == 0 {
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "no tasks (0)"); err != nil {
+			return err
+		}
+		return printHeldBlock(cmd, holds)
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)

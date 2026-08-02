@@ -464,8 +464,8 @@ Behavior (fleet overview):
 2. For each, query herdr for current agent state.
 3. Append the worker's own last classified report to the same column as ` (reported: <state>)`, whatever the pane is doing. A pane state and a report answer different questions, so both print: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. `working` is the one report that stays unadorned, because it is what the column already says. ` (unreported)` still requires a not-busy pane (herdr's `idle` or `done` - see "Agent state" below), since a busy pane that has not reported yet is not a stop anyone has to explain. A report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported.
 4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
-5. Print one line per task, with a header row.
-6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
+5. Print one line per task, with a header row - or, if there are no tasks at all, `no tasks (0)` in place of the table, so an empty fleet reads as a positive statement with a count rather than the same bare output a broken command could also produce.
+6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held - printed even when there are no tasks, so a torn-down task's still-open hold is never hidden behind the `no tasks (0)` line above it. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
 
 The `last report` column is the mtime of `state/<id>.status`, and `(none)` when the worker has never written one.
 It is deliberately not the task's age: the two used to be conflated, so a task spawned hours ago read as hours stale next to a status file its worker had touched minutes earlier - a reporting worker that looked abandoned.
@@ -488,6 +488,12 @@ held:
 ```
 
 A hold row that can't be trusted at face value - an unrecognized kind, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one - is still printed, never dropped, with `inconsistent: <why>` in place of its detail: an external write to `state/hand.db` is the only way such a row exists, since `hand hold set` validates before writing, and filtering it out here would silently drop the row most worth seeing.
+
+Output (fleet overview, empty):
+```
+no tasks (0)
+```
+Still followed by a `held:` block if any hold is open (step 6 above).
 
 Behavior (single task):
 1. Read the task from the store.
@@ -556,14 +562,18 @@ Output (JSON, single task):
 
 `reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted.
 
-Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it:
+Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it, and `task_count` alongside that, always present (never omitted, zero included) so an empty fleet is a positive statement rather than the same absence of output a broken command could also produce:
 
 ```json
 {
+  "task_count": 1,
   "tasks": [{"id": "fix-login", "...": "one row per task, reported only, no history"}],
   "holds": [{"id": "fix-login", "kind": "blocked", "reason": "needs the new column before this can proceed", "blocked_on": "migrate-schema", "set_at": "2026-07-24T09:00:00Z"}]
 }
 ```
+
+An empty fleet returns `{"task_count": 0, "tasks": [], "holds": [...]}` - `holds` still carries any
+open hold, never suppressed by there being no tasks.
 
 Errors:
 - Task ID not found.
