@@ -3,12 +3,14 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"text/tabwriter"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
+	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -107,6 +109,7 @@ type statusJSON struct {
 	Reported       *reportedJSON `json:"reported,omitempty"`
 	ReportHistory  []string      `json:"report_history,omitempty"`
 	Held           *holdJSON     `json:"held,omitempty"`
+	GateRunIssue   string        `json:"gate_run_issue,omitempty"`
 }
 
 // fleetJSON wraps the task rows with the fleet's holds, which name any id -
@@ -189,6 +192,39 @@ func mergeSuffix(t state.Task) string {
 	}
 }
 
+// gateRunIssue reports why a done ship task's recorded PR cannot be confirmed to have gone through a
+// no-mistakes gate run, using the same "unreachable" bucket gateIssue (cmd/project.go) uses for any
+// failure to ask no-mistakes at all - a missing clone, an unrunnable binary - so a question this check
+// cannot answer never renders as the stronger claim "no run found".
+//
+// Only a done ship task with a recorded PR on a registered no-mistakes project has anything for this
+// check to say; an in-progress or scout task, a PR-less task, or a project not registered or not run
+// through no-mistakes stays silent, since the check does not apply to it.
+func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Project, registered bool) string {
+	if t.Kind != state.KindShip || t.PR == "" || !reportedDone {
+		return ""
+	}
+	if !registered || p.Mode != project.ModeNoMistakes {
+		return ""
+	}
+	clonePath := filepath.Join(home, "projects", p.Name)
+	ran, err := project.GateRanForPR(clonePath, t.PR)
+	if err != nil {
+		return "unreachable"
+	}
+	if !ran {
+		return "no run found"
+	}
+	return ""
+}
+
+func gateRunSuffix(issue string) string {
+	if issue == "" {
+		return ""
+	}
+	return " (gate: " + issue + ")"
+}
+
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool) error {
 	tasks, err := state.List(home)
 	if err != nil {
@@ -201,6 +237,15 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		return err
 	}
 
+	// Best-effort, like project.List elsewhere in this fleet view: a registry
+	// read fault degrades every task's gate-run check to silent rather than
+	// failing the whole fleet overview over it.
+	projects, _ := project.List(home)
+	projectByName := make(map[string]project.Project, len(projects))
+	for _, p := range projects {
+		projectByName[p.Name] = p
+	}
+
 	rows := make([]statusJSON, 0, len(tasks))
 	suffixes := make([]string, 0, len(tasks))
 	for _, t := range tasks {
@@ -211,6 +256,8 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			last = lines[len(lines)-1]
 		}
 		reported, reportedOK := state.LastReportedState(lines)
+		p, registered := projectByName[t.Project]
+		runIssue := gateRunIssue(home, t, reportedOK && reported.State == state.ReportDone, p, registered)
 		rows = append(rows, statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState,
@@ -218,8 +265,9 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, t.ID),
 			Reported:     reportedFrom(last, len(lines) > 0, readErr),
+			GateRunIssue: runIssue,
 		})
-		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr)+mergeSuffix(t))
+		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr)+mergeSuffix(t)+gateRunSuffix(runIssue))
 	}
 
 	if asJSON {
@@ -346,12 +394,22 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if len(tail) > 0 {
 		last = tail[len(tail)-1]
 	}
+	lastReported, lastReportedOK := state.LastReportedState(tail)
 
 	var heldJSON *holdJSON
 	if held {
 		j := holdToJSON(hold)
 		heldJSON = &j
 	}
+
+	// Propagated, not degraded: a single task's own project is the one fact
+	// this check is about, unlike the fleet view's best-effort lookup across
+	// every task's project at once.
+	p, registered, err := project.Find(home, t.Project)
+	if err != nil {
+		return err
+	}
+	runIssue := gateRunIssue(home, t, lastReportedOK && lastReported.State == state.ReportDone, p, registered)
 
 	if asJSON {
 		out := statusJSON{
@@ -360,7 +418,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, id),
 			Reported:     reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
-			Held: heldJSON,
+			Held: heldJSON, GateRunIssue: runIssue,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -405,6 +463,9 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	}
 	if held {
 		lines = append(lines, fmt.Sprintf("Held:        %s", holdDetail(hold)))
+	}
+	if runIssue != "" {
+		lines = append(lines, fmt.Sprintf("Gate run:    %s", runIssue))
 	}
 	if !full && (len(tail) > 0 || readErr != nil) {
 		lines = append(lines, fmt.Sprintf("Report file: %s", state.ReportPath(home, id)))

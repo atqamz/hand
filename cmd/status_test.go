@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/atqamz/secondhand/internal/store"
 )
@@ -1259,5 +1260,229 @@ func TestStatusFleetEmptyStillShowsHeldBlock(t *testing.T) {
 	if !strings.Contains(out.String(), "no tasks (0)") || !strings.Contains(out.String(), "held:") ||
 		!strings.Contains(out.String(), "needs a call") {
 		t.Fatalf("got %q, want both the no-tasks count and the held block", out.String())
+	}
+}
+
+// registerNoMistakesProject registers a no-mistakes-mode project and creates its clone directory, so
+// gateRunIssue's os.Stat(clonePath) check and its no-mistakes invocation both have something to find.
+func registerNoMistakesProject(t *testing.T, home, name string) {
+	t.Helper()
+	if err := project.Add(home, project.Project{Name: name, URL: "https://example.com/" + name + ".git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeDoneReport writes a single done report line, so LastReportedState reads the task as reported done.
+func writeDoneReport(t *testing.T, home, id, note string) {
+	t.Helper()
+	if err := os.WriteFile(state.ReportPath(home, id), []byte("done: "+note+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const gateRunTestPR = "https://github.com/atqamz/secondhand/pull/120"
+
+func TestStatusFleetFlagsShippedPRWithNoGateRun(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "(gate: no run found)") {
+		t.Fatalf("got %q, want a gate marker naming the shipped PR never ran through the gate", out.String())
+	}
+}
+
+func TestStatusFleetJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"gate_run_issue": "no run found"`) {
+		t.Fatalf("got %q, want gate_run_issue naming no run found", out.String())
+	}
+}
+
+func TestStatusFleetNoGateMarkerWhenRunFound(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  "+gateRunTestPR+"\n"))
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "(gate:") {
+		t.Fatalf("got %q, want no gate marker once a completed run recorded this PR", out.String())
+	}
+}
+
+func TestStatusFleetGateRunUnreachableWhenNoMistakesBinaryMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", t.TempDir())
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "(gate: unreachable)") {
+		t.Fatalf("got %q, want the gate check named unreachable rather than the stronger no-run-found claim", out.String())
+	}
+}
+
+// TestStatusFleetSkipsGateCheckWhenItDoesNotApply covers a scout task with a PR-like field unset and
+// no report at all: the check has nothing to say about a task that never shipped, so it must stay
+// silent rather than misreport it as an ungated ship.
+func TestStatusFleetSkipsGateCheckWhenItDoesNotApply(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", t.TempDir())
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindScout,
+		CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "(gate:") {
+		t.Fatalf("got %q, want no gate marker for a scout task with no shipped PR", out.String())
+	}
+}
+
+func TestStatusSingleTaskFlagsShippedPRWithNoGateRun(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Gate run:    no run found") {
+		t.Fatalf("got %q, want a Gate run line naming the shipped PR never ran through the gate", out.String())
+	}
+}
+
+func TestStatusSingleTaskJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"gate_run_issue": "no run found"`) {
+		t.Fatalf("got %q, want gate_run_issue naming no run found", out.String())
+	}
+}
+
+func TestStatusSingleTaskNoGateLineWhenRunFound(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  "+gateRunTestPR+"\n"))
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Gate run:") {
+		t.Fatalf("got %q, want no Gate run line once a completed run recorded this PR", out.String())
 	}
 }
