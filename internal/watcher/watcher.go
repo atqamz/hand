@@ -1,6 +1,6 @@
 // Package watcher implements the poll loop behind hand watch: it tracks herdr
 // agent states for active tasks, classifies transitions into actionable events,
-// and keeps state/events.log and data/dashboard.md current.
+// and keeps state/events.log current.
 package watcher
 
 import (
@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/atomicfile"
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
@@ -42,8 +41,8 @@ var ErrArmFailed = errors.New("could not arm")
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is
 // canceled. It returns nil on clean cancellation, or an error if herdr is
 // unreachable at startup. out receives the actionable event stream documented
-// in SPECS.md; errOut receives internal diagnostics (list/log/dashboard
-// failures), keeping the two streams separable per the stdout/stderr contract.
+// in SPECS.md; errOut receives internal diagnostics (list/log failures),
+// keeping the two streams separable per the stdout/stderr contract.
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect(ctx)
 	if err != nil {
@@ -69,8 +68,8 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 // returns nil - the exit is the delivery, since it's the one signal a supervisory
 // agent's background-task runner already honors. The startup state is never
 // delivered: two ticks take a silent baseline first, so an already-done worker
-// isn't mistaken for a fresh transition. Baseline events still reach events.log
-// and the dashboard, just not stdout.
+// isn't mistaken for a fresh transition. Baseline events still reach
+// events.log, just not stdout.
 func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -429,9 +428,9 @@ func announceAutoRecordFailure(cfg Config, t state.Task, url string, err error, 
 }
 
 // flattenError renders err's whole cause on one line. An event is one line on
-// stdout, one entry in events.log, and one dashboard bullet; the errors reaching
-// here wrap gh's stderr verbatim, which is routinely multi-line for auth and
-// network failures. The stderr diagnostic above keeps the original formatting.
+// stdout and one entry in events.log; the errors reaching here wrap gh's
+// stderr verbatim, which is routinely multi-line for auth and network
+// failures. The stderr diagnostic above keeps the original formatting.
 func flattenError(err error) string {
 	var parts []string
 	for _, line := range strings.FieldsFunc(err.Error(), func(r rune) bool { return r == '\n' || r == '\r' }) {
@@ -493,12 +492,6 @@ func recordAutoPR(home, id, url string) error {
 	t.PR = url
 	if err := state.Write(home, t); err != nil {
 		return fmt.Errorf("write task %s: %w", id, err)
-	}
-
-	// Task lock before dashboard lock, never the reverse - the one ordering
-	// every site that takes both follows.
-	if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-		return fmt.Errorf("recorded PR for %s in task state but dashboard update failed: %w", id, err)
 	}
 	return nil
 }
@@ -584,19 +577,12 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedChangedFor = string(ts.Status)
 }
 
-// Nothing here decides anything about the task's dashboard row any more: every
-// column is derived from the store when the dashboard is written, so an event
-// kind can neither leave one stale nor invent a Pending Decision.
 func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	_, _ = fmt.Fprintln(out, e.Text)
 
 	logPath := filepath.Join(state.Dir(cfg.Home), "events.log")
 	if err := appendEventLog(logPath, time.Now().UTC().Format(time.RFC3339)+" "+e.Text); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: append events.log failed: %v\n", err)
-	}
-
-	if err := dashboard.Update(cfg.Home, dashboard.UpdateOpts{AddEvent: e.Text}); err != nil {
-		_, _ = fmt.Fprintf(errOut, "watch: update dashboard failed: %v\n", err)
 	}
 }
 

@@ -1,8 +1,7 @@
 // Package completion is the durable record of tasks hand teardown has finished
-// with: state/completions.jsonl, one JSON object per line, uncapped. It exists
-// because data/dashboard.md's Recent Completions section is capped at 10 and is
-// a rendering choice, not storage - see atqamz/secondhand#61. Every line is
-// readable on its own terms without parsing markdown.
+// with: state/completions.jsonl, one JSON object per line, uncapped - see
+// atqamz/secondhand#61. Every line is readable on its own terms without
+// parsing markdown.
 package completion
 
 import (
@@ -15,9 +14,7 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// Record is one task's teardown outcome. Fields mirror dashboard.Completion,
-// which stays the input to the capped render; TornDownAt is the one addition
-// the durable store needs and the render does not.
+// Record is one task's teardown outcome.
 type Record struct {
 	ID         string `json:"id"`
 	Project    string `json:"project"`

@@ -194,24 +194,6 @@ func TestDeletingTheIndexCostsNeitherMachineStateNorCorpus(t *testing.T) {
 	}
 }
 
-func TestIndexSkipsTheGeneratedDashboard(t *testing.T) {
-	home := t.TempDir()
-	writeDoc(t, home, "data/dashboard.md", "# Dashboard\n\nzebra\n")
-	writeDoc(t, home, "data/a.md", "# A\n\nalpha\n")
-
-	ix := openIndex(t, home)
-	sync, err := ix.Refresh()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sync.Total != 1 {
-		t.Fatalf("Total = %d, want the dashboard skipped", sync.Total)
-	}
-	if hits := search(t, ix, "zebra"); len(hits) != 0 {
-		t.Fatalf("indexed a generated file: %+v", hits)
-	}
-}
-
 // Fleet vocabulary is full of hyphens, and FTS5 reads `no-mistakes gate` as a
 // column filter unless every token is quoted first.
 func TestSearchTreatsOperatorSyntaxAsLiteralText(t *testing.T) {

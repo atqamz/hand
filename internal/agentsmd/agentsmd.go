@@ -41,7 +41,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 
 ## Workflow
 
-1. Read ` + "`data/dashboard.md`" + ` for current fleet state.
+1. Run ` + "`hand status`" + ` for current fleet state.
 2. Match the request to a project in ` + "`data/projects.md`" + `.
 3. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
 4. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it. The brief may open with a ` + "`---`" + ` fenced block declaring ` + "`model`" + ` and ` + "`effort`" + ` for the task, which spawn and promote apply unless a flag overrides them.

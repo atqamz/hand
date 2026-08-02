@@ -81,9 +81,6 @@ func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/myproj.git", Mode: project.ModeDirectPR}); err != nil {
 		t.Fatal(err)
 	}

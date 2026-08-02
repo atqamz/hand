@@ -7,7 +7,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/age"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
@@ -550,11 +550,11 @@ func reportLineText(line state.ReportLine) string {
 }
 
 func formatAge(createdAt string) string {
-	age := dashboard.FormatAge(createdAt)
-	if age == "just now" || age == "unknown" {
-		return age
+	a := age.FormatAge(createdAt)
+	if a == "just now" || a == "unknown" {
+		return a
 	}
-	return age + " ago"
+	return a + " ago"
 }
 
 func formatReportAge(at string) string {

@@ -298,21 +298,6 @@ func writeBrief(t *testing.T, home, id string) {
 	}
 }
 
-// sealDir makes dir reject new entries for the rest of the test, the portable
-// way to fault a write that creates its temp file next to the target (see
-// internal/atomicfile). Root ignores the mode, so a run as root skips rather
-// than silently proving nothing.
-func sealDir(t *testing.T, dir string) {
-	t.Helper()
-	if os.Geteuid() == 0 {
-		t.Skip("a read-only directory does not stop root")
-	}
-	if err := os.Chmod(dir, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
-}
-
 func assertInvocation(t *testing.T, got invocation, wantCode int, wantStderr string) {
 	t.Helper()
 	if got.code != wantCode {
@@ -547,41 +532,6 @@ func TestExitCodeOneOnGeneralError(t *testing.T) {
 			assertInvocation(t, runHand(t, home, tc.args...), 1, tc.wantStderr)
 		})
 	}
-}
-
-// dashboard.Parse deliberately recovers only the append-only sections, and an
-// end-to-end check owes the operator's own view anyway, not a struct.
-func dashboardSection(t *testing.T, home, title string) []string {
-	t.Helper()
-	var lines []string
-	in := false
-	for _, line := range strings.Split(string(readDashboardRaw(t, home)), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "## ") {
-			in = strings.TrimPrefix(trimmed, "## ") == title
-			continue
-		}
-		if !in {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "- ") {
-			lines = append(lines, strings.TrimPrefix(trimmed, "- "))
-		}
-		if strings.HasPrefix(trimmed, "| ") && !strings.HasPrefix(trimmed, "| id |") {
-			lines = append(lines, trimmed)
-		}
-	}
-	return lines
-}
-
-func activeTaskRow(t *testing.T, home, id string) (string, bool) {
-	t.Helper()
-	for _, row := range dashboardSection(t, home, "Active Tasks") {
-		if strings.HasPrefix(row, "| "+id+" |") {
-			return row, true
-		}
-	}
-	return "", false
 }
 
 // gitConfigIsolated marks the current test as already pointed at a scratch git

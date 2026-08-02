@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/secondhand/internal/completion"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -60,20 +61,12 @@ func TestSpawnTeardownCycle(t *testing.T) {
 		t.Fatalf("invocation log = %q, want spawn to reuse the root tab instead of creating a second one", spawnLog)
 	}
 
-	row, ok := activeTaskRow(t, home, "task-1")
-	if !ok || !strings.Contains(row, "| demo |") || !strings.Contains(row, "| "+string(state.KindShip)+" |") {
-		t.Fatalf("Active Tasks row = %q, %v, want an entry for task-1", row, ok)
-	}
-
 	runGitIn(t, worktree, "commit", "--allow-empty", "-q", "-m", "wip")
 
 	refused := runHand(t, home, "teardown", "task-1")
 	assertInvocation(t, refused, 3, "not merged into the default branch")
 	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
 		t.Fatalf("state.Exists after refused teardown = %v, %v, want task to still exist", exists, err)
-	}
-	if _, ok := activeTaskRow(t, home, "task-1"); !ok {
-		t.Fatal("dashboard lost task-1's active row after a refused teardown")
 	}
 
 	merged := runHand(t, home, "merge", "task-1", "--local")
@@ -89,10 +82,11 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state.Exists after teardown = %v, %v, want task removed", exists, err)
 	}
-	if _, ok := activeTaskRow(t, home, "task-1"); ok {
-		t.Fatal("teardown left task-1 in the dashboard's active tasks")
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(dashboardSection(t, home, "Recent Completions")) == 0 {
+	if len(records) == 0 {
 		t.Fatal("teardown did not record a recent completion")
 	}
 

@@ -233,63 +233,6 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	}
 }
 
-// A detected PR reaches the dashboard's PR column too, not just task state:
-// data/dashboard.md is what the supervising agent reads for fleet state, so a
-// state write the dashboard never learned about leaves the two disagreeing.
-func TestStatusDetectionFillsTheDashboardPRColumn(t *testing.T) {
-	home, worktree := setupTeardownHome(t)
-	setupTeardownGateProject(t, home, worktree, "task-1-branch")
-	writeFakeHerdrPaneStatus(t, "idle")
-	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
-
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := newStatusCmd()
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(dashPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "https://github.com/owner/repo/pull/9") {
-		t.Fatalf("dashboard = %q, want the detected PR in the task's row", string(data))
-	}
-}
-
-// No active row for the task means only the dashboard column is left stale, and
-// detection is a side effect of a read command: it stays quiet rather than
-// failing hand status over it, unlike hand pr, which exists to record the PR.
-func TestStatusDetectionSucceedsWithNoDashboardRow(t *testing.T) {
-	home, worktree := setupTeardownHome(t)
-	setupTeardownGateProject(t, home, worktree, "task-1-branch")
-	writeFakeHerdrPaneStatus(t, "idle")
-	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
-
-	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := newStatusCmd()
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("got %v, want status to succeed with the PR recorded and no row to reconcile", err)
-	}
-	if !strings.Contains(out.String(), "https://github.com/owner/repo/pull/9") {
-		t.Fatalf("got %q, want the detected PR shown", out.String())
-	}
-}
-
 // A scout task's deliverable is data/<id>/report.md, never a PR, so status skips
 // the branch lookup for it exactly as checkLandedWork does - the gh fake here
 // would answer with a PR, and recording it would pin one onto a task whose
@@ -1092,6 +1035,9 @@ func TestStatusFleetPropagatesAnUnreadableHoldStore(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
+	if err := os.Remove(store.Path(home)); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(store.Path(home), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -17,13 +16,6 @@ import (
 // check hand pr itself enforces, and reuses MergeAnnounced (pr_merged_observed) for
 // "already merged, not by hand merge" rather than inventing a new field - the same
 // meaning the watcher's own gh poll gives that field for an externally merged PR.
-//
-// The dashboard's PR column is filled from here too, so a detected PR reaches both
-// halves every other recording path writes and data/dashboard.md never disagrees
-// with task state. Unlike hand pr, which exists to record a PR and exits non-zero
-// when only the dashboard half lands, this write is best-effort: detection is a
-// side effect of commands that were asked for something else, the URL is on the
-// task either way, and hand pr stays the explicit repair for a stale column.
 //
 // Called only where t.PR == "" already; a task with a PR on record already answers
 // this question and never reaches here.
@@ -50,7 +42,6 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 	if err != nil {
 		return t, err
 	}
-	_ = dashboard.Update(home, dashboard.UpdateOpts{})
 	return updated, nil
 }
 

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/completion"
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
@@ -76,7 +75,8 @@ func newTeardownCmd() *cobra.Command {
 				return err
 			}
 
-			c := completionFor(t, force)
+			record := completionFor(t, force)
+			record.TornDownAt = time.Now().UTC().Format(time.RFC3339)
 
 			// Recorded before state.Delete, not after: the record is derived from t, which
 			// state.Delete would remove out from under us. Failing here leaves the task row
@@ -85,26 +85,15 @@ func newTeardownCmd() *cobra.Command {
 			// actually finishes - cannot make the record inaccurate, only late to remove its
 			// source: everything the record claims (landed work, a returned worktree) is
 			// already true by this line, --force or not, so the completion is durable either
-			// way. What a retry then does depends on which later step faulted: state.Delete
-			// failing leaves the task row in place, so a retry replays the whole command
-			// and appends a second, identical record - a harmless duplicate this trades for
-			// never losing a completion. A dashboard.Update fault comes after the delete
-			// succeeded, so a retry stops at state.Read with task-not-found; the record is
-			// already on disk and only the dashboard row is left for the operator to redo.
-			record := completion.Record{
-				ID: c.ID, Project: c.Project, Kind: c.Kind, Outcome: c.Outcome, Detail: c.Detail,
-				TornDownAt: time.Now().UTC().Format(time.RFC3339),
-			}
+			// way. state.Delete failing leaves the task row in place, so a retry replays the
+			// whole command and appends a second, identical record - a harmless duplicate this
+			// trades for never losing a completion.
 			if err := completion.Append(home, record); err != nil {
 				return fmt.Errorf("record completion: %w", err)
 			}
 
 			if err := state.Delete(home, id); err != nil {
 				return asPrecondition(err)
-			}
-
-			if err := dashboard.Update(home, dashboard.UpdateOpts{Complete: &c}); err != nil {
-				return fmt.Errorf("update dashboard: %w", err)
 			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "teardown %s complete\n", id); err != nil {
@@ -118,8 +107,8 @@ func newTeardownCmd() *cobra.Command {
 	return cmd
 }
 
-func completionFor(t state.Task, forced bool) dashboard.Completion {
-	c := dashboard.Completion{ID: t.ID, Project: t.Project, Kind: t.Kind}
+func completionFor(t state.Task, forced bool) completion.Record {
+	c := completion.Record{ID: t.ID, Project: t.Project, Kind: t.Kind}
 	switch {
 	case forced:
 		c.Outcome = "torn-down"

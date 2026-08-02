@@ -30,21 +30,6 @@ const projectsSkeleton = `# Projects
 
 `
 
-const dashboardSkeleton = `# Dashboard
-
-## Active Tasks
-| id | project | kind | state | age | pr |
-|---|---|---|---|---|---|
-
-## Pending Decisions
-
-## Recent Events
-
-## Recent Completions
-
-## Projects
-`
-
 func newInitCmd() *cobra.Command {
 	var setup bool
 
@@ -107,9 +92,8 @@ func initDirs(home string) error {
 
 func initSkeletonFiles(home string) error {
 	files := map[string]string{
-		"data/backlog.md":   backlogSkeleton,
-		"data/projects.md":  projectsSkeleton,
-		"data/dashboard.md": dashboardSkeleton,
+		"data/backlog.md":  backlogSkeleton,
+		"data/projects.md": projectsSkeleton,
 	}
 	for rel, content := range files {
 		path := filepath.Join(home, rel)

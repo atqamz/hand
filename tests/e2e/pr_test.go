@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,20 +52,12 @@ func TestPRCommand(t *testing.T) {
 		t.Fatalf("task.PR = %q, want %q", task.PR, url)
 	}
 
-	dashPath := filepath.Join(home, "data", "dashboard.md")
 	again := runHand(t, home, "pr", "task-1", url)
 	if again.code != 0 {
 		t.Fatalf("repeated identical pr record: exit %d, stderr %q", again.code, again.stderr)
 	}
-	if !strings.Contains(again.stdout, "already recorded") || !strings.Contains(again.stdout, "reconciled") {
-		t.Fatalf("repeat stdout = %q, want the reconciling repeat reported", again.stdout)
-	}
-	dash, err := os.ReadFile(dashPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(dash), url) {
-		t.Fatalf("dashboard.md = %q, want the PR column repaired by the repeat", string(dash))
+	if !strings.Contains(again.stdout, "already recorded") {
+		t.Fatalf("repeat stdout = %q, want the repeat reported", again.stdout)
 	}
 
 	different := runHand(t, home, "pr", "task-1", "https://github.com/owner/e2e-fixture/pull/8")

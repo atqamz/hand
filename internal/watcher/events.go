@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/age"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// Kind values classify an Event for dashboard/log routing.
+// Kind values classify an Event for stdout/log routing.
 //
 // There is deliberately no bare "done" kind. A done announcement only exists once a
 // worker's own done report is cross-checked against recorded evidence that the task
@@ -28,9 +28,9 @@ const (
 	KindPRMerged       = "pr-merged"
 	// KindPRNotRecorded and KindPRRecordUnknown are two different facts, kept as
 	// two greppable tokens: an auto-record that was attempted and did not
-	// complete - for any reason, refused validation through unreadable state to a
-	// failed dashboard write - whose remedy is `hand pr`, which reconciles all of
-	// them rather than no-opping; versus one never attempted because another
+	// complete - for any reason, refused validation through unreadable state -
+	// whose remedy is `hand pr`, which reconciles all of them rather than
+	// no-opping; versus one never attempted because another
 	// process held the task lock, where whether the PR got recorded is unknown
 	// and the only honest instruction is to check `hand status`. The split is by
 	// whether an attempt happened, never by cause, so a new cause needs no new
@@ -209,12 +209,12 @@ func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now ti
 		return nil
 	}
 	ts.ParkedFiredFor = mtime
-	age := dashboard.FormatDuration(now.Sub(mtime))
+	silentFor := age.FormatDuration(now.Sub(mtime))
 	return &Event{
 		TaskID: id,
 		Kind:   KindParked,
-		Text:   fmt.Sprintf("parked %s: %s (silent %s)", id, lastLine, age),
-		Reason: fmt.Sprintf("%s (silent %s)", lastLine, age),
+		Text:   fmt.Sprintf("parked %s: %s (silent %s)", id, lastLine, silentFor),
+		Reason: fmt.Sprintf("%s (silent %s)", lastLine, silentFor),
 	}
 }
 
@@ -256,7 +256,7 @@ func ClassifyReportLine(home string, ts *TaskState, t state.Task, line state.Rep
 }
 
 // classifyReportDone never trusts a worker's own belief that it's finished: without
-// independent completion evidence the event is marked unverified so dashboard/watch
+// independent completion evidence the event is marked unverified so watch
 // consumers surface "worker says done" without treating it as confirmed fact.
 func classifyReportDone(home string, ts *TaskState, t state.Task, line state.ReportLine) *Event {
 	verified := doneVerified(home, ts, t)

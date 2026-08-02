@@ -236,12 +236,6 @@ func (ix *Index) Search(query string, limit int) ([]Hit, error) {
 	return hits, nil
 }
 
-// Rendered from machine state rather than written by a human, so indexing them
-// would answer a prose search with a cache of the database it complements.
-var generatedCorpusFiles = map[string]bool{
-	filepath.Join("data", "dashboard.md"): true,
-}
-
 func scanCorpus(homeDir string) (map[string]corpusFile, error) {
 	found := map[string]corpusFile{}
 	root := CorpusDir(homeDir)
@@ -255,9 +249,6 @@ func scanCorpus(homeDir string) (map[string]corpusFile, error) {
 		rel, err := filepath.Rel(homeDir, path)
 		if err != nil {
 			return err
-		}
-		if generatedCorpusFiles[rel] {
-			return nil
 		}
 		info, err := d.Info()
 		if err != nil {

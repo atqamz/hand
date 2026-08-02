@@ -28,10 +28,11 @@ var ErrHandHomeInvalid = errors.New("is not a secondhand home; check the path or
 // than the state/ directory itself: project clones live at
 // <home>/projects/<name>, so a clone carrying its own generic top-level
 // data/ and state/ directories would otherwise stop the ancestor walk short
-// and be dispatched into as the home. A home initialized before this marker
-// existed falls back to the marker it was initialized with, data/dashboard.md
+// and be dispatched into as the home. A home initialized before hand.db
+// existed falls back to the marker it was initialized with, data/projects.md
 // plus state/, so an operator upgrading in place never has to re-run
-// anything by hand.
+// anything by hand and the legacy state/<id>.json import (see
+// internal/store's migrateLegacy) still finds a home to run against.
 func IsHome(dir string) (bool, error) {
 	for _, markers := range markerSets {
 		ok, err := matchesMarkers(dir, markers)
@@ -54,7 +55,7 @@ var markerSets = [][]homeMarker{
 	},
 	{
 		{"data", true},
-		{filepath.Join("data", "dashboard.md"), false},
+		{filepath.Join("data", "projects.md"), false},
 		{"state", true},
 	},
 }
