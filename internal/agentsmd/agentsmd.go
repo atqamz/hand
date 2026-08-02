@@ -136,8 +136,10 @@ func generatedBlockSpan(content string) (start, end int, ok bool) {
 
 var (
 	// dateRe and selfExpiringRe describe the two shapes of perishable content
-	// that belong in data/learnings.md, not AGENTS.md: a dated fact is an
-	// incident, and phrasing that names its own expiry is not an invariant.
+	// that belong in the fleet home's own notes, not AGENTS.md: a dated fact
+	// is an incident, and phrasing that names its own expiry is not an
+	// invariant. hand does not create or own that notes convention, so
+	// neither the violation text nor SPECS.md names a specific path for it.
 	dateRe         = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
 	selfExpiringRe = regexp.MustCompile(`(?i)\b(?:until|once)\s+#\d+\s+lands\b|\bawaiting\b`)
 
@@ -190,33 +192,30 @@ func Check(dir string) ([]Violation, error) {
 		insideBlock := hasBlock && offset >= blockStart && offset < blockEnd
 		offset += len(line) + 1
 
+		if r, found := firstBannedRune(line); found {
+			violations = append(violations, Violation{Line: lineNo, Text: fmt.Sprintf("banned character %q: no em dash or emoji, house rule everywhere in this file", r)})
+		}
+
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inFence = !inFence
 			continue
 		}
-		if inFence {
-			continue
-		}
-
-		if r, found := firstBannedRune(line); found {
-			violations = append(violations, Violation{Line: lineNo, Text: fmt.Sprintf("banned character %q: no em dash or emoji, house rule everywhere in this file", r)})
-		}
-		if insideBlock {
+		if inFence || insideBlock {
 			continue
 		}
 
 		stripped := urlRe.ReplaceAllString(inlineCodeRe.ReplaceAllString(line, ""), "")
 		if dateRe.MatchString(stripped) {
-			violations = append(violations, Violation{Line: lineNo, Text: "date outside the generated block: a dated fact is an incident, belongs in data/learnings.md"})
+			violations = append(violations, Violation{Line: lineNo, Text: "date outside the generated block: a dated fact is an incident, belongs in the home's own notes, not the generated block"})
 		}
 		if selfExpiringRe.MatchString(stripped) {
-			violations = append(violations, Violation{Line: lineNo, Text: "self-expiring phrasing outside the generated block: not an invariant, belongs in data/learnings.md"})
+			violations = append(violations, Violation{Line: lineNo, Text: "self-expiring phrasing outside the generated block: not an invariant, belongs in the home's own notes, not the generated block"})
 		}
 	}
 
 	if hasBlock && content[blockStart:blockEnd] != strings.TrimSuffix(generatedBlock(), "\n") {
-		violations = append(violations, Violation{Text: "generated block has drifted from generatedBody: run hand update (or hand init) to refresh"})
+		violations = append(violations, Violation{Text: "generated block has drifted from generatedBody: run hand init to refresh"})
 	}
 
 	return violations, nil

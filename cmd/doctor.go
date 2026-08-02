@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
 	"github.com/atqamz/secondhand/internal/home"
@@ -23,20 +24,21 @@ func newDoctorCmd() *cobra.Command {
 				return err
 			}
 
+			path := filepath.Join(fleetHome, "AGENTS.md")
 			out := cmd.OutOrStdout()
 			for _, v := range violations {
 				if v.Line > 0 {
-					if _, err := fmt.Fprintf(out, "AGENTS.md:%d: %s\n", v.Line, v.Text); err != nil {
+					if _, err := fmt.Fprintf(out, "%s:%d: %s\n", path, v.Line, v.Text); err != nil {
 						return err
 					}
 					continue
 				}
-				if _, err := fmt.Fprintf(out, "AGENTS.md: %s\n", v.Text); err != nil {
+				if _, err := fmt.Fprintf(out, "%s: %s\n", path, v.Text); err != nil {
 					return err
 				}
 			}
 			if len(violations) > 0 {
-				return fmt.Errorf("AGENTS.md: %d issue(s) found", len(violations))
+				return fmt.Errorf("%s: %d issue(s) found", path, len(violations))
 			}
 			return nil
 		},

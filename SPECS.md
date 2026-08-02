@@ -1178,7 +1178,7 @@ Behavior:
    - self-expiring phrasing outside the generated span - `until #N lands`, `once #N lands`, `awaiting` - the same shape of problem as a bare date,
    - an em dash or emoji anywhere in the file, generated span included,
    - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`.
-3. Print one line per hit to stdout - `AGENTS.md:<line>: <finding>` for a line-anchored finding, `AGENTS.md: <finding>` for the whole-file drift check - and exit `1` if anything was found, `0` if the file is clean.
+3. Print one line per hit to stdout, prefixed with the resolved fleet home's absolute path to `AGENTS.md` (the same absolute-path rule this PR adds to `generatedBody` - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope) - `<path>:<line>: <finding>` for a line-anchored finding, `<path>: <finding>` for the whole-file drift check - and exit `1` if anything was found, `0` if the file is clean.
 
 A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
 
@@ -2177,4 +2177,4 @@ Deliverable: ready for daily use.
 
 **`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh. `hand doctor` (see the CLI specification) reports perishable content and generated-block drift in a real fleet home's `AGENTS.md` without fixing either.
 
-This repo's own `AGENTS.md` is deliberately not a fleet home - `internal/home.IsHome` reports false for this checkout, so `agentsmd.Refresh` has nothing to gate here even if a maintainer ran `hand init` in it. Rather than hand-keep a second copy of `generatedBody` in sync (the drift #44 was filed against), this file's own Rules section points at `generatedBody` and SPECS.md by name instead of restating it: one prose template, one place it can go stale.
+This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even if a maintainer runs `hand init` in the checkout and `state/hand.db` makes `internal/home.IsHome` report true for it. Rather than hand-keep a second copy of `generatedBody` in sync (the drift #44 was filed against), this file's own Rules section points at `generatedBody` and SPECS.md by name instead of restating it: one prose template, one place it can go stale.

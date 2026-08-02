@@ -334,6 +334,23 @@ func TestCheckFlagsEmDashAndEmoji(t *testing.T) {
 	}
 }
 
+func TestCheckFlagsBannedCharacterInsideFence(t *testing.T) {
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, filename)
+	appendLine(t, path, "```\nan example — with an em dash\n```")
+
+	violations, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countViolations(violations, "banned character"); n != 1 {
+		t.Fatalf("got %d banned-character violations in %v, want 1 inside a fenced block", n, violations)
+	}
+}
+
 func countViolations(violations []Violation, substr string) int {
 	n := 0
 	for _, v := range violations {

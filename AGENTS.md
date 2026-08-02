@@ -1,7 +1,7 @@
 # Secondhand
 
 `hand` is a CLI that manages a fleet of coding agents from a fleet home (`data/`, `state/`, this file).
-This checkout is the tool's own source, not a fleet home itself - `internal/home.IsHome` reports false here.
+This checkout is the tool's own source, not a fleet home itself - there is no `state/hand.db` here, so `internal/home.IsHome` reports false.
 `internal/agentsmd`'s `generatedBody` constant is the authoritative template `hand init` writes and `hand update` refreshes into every real fleet home's `AGENTS.md`; see SPECS.md's "AGENTS.md (target)" section for the full design, and `hand --help` for the command reference.
 
 ## Rules
