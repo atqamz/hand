@@ -58,8 +58,9 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("got nil error, want a non-nil error for a perishable-content hit")
 	}
-	if !strings.Contains(out.String(), "AGENTS.md:") {
-		t.Fatalf("stdout = %q, want a per-line AGENTS.md violation", out.String())
+	want := filepath.Join(home, "AGENTS.md") + ":"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("stdout = %q, want a violation anchored at the resolved home's absolute path %q", out.String(), want)
 	}
 }
 
