@@ -373,10 +373,12 @@ Show fleet overview or single-task detail.
 hand status
 hand status fix-login
 hand status --json
+hand status fix-login --full
 ```
 
 Flags:
-- `--json`: output as JSON.
+- `--json`: output as JSON. Always carries the reported line and history untruncated - a machine consumer wants the whole field, and silently truncating a JSON field is a data-loss bug, not a rendering choice.
+- `--full`: in the single-task view, show the reported line and history untruncated and skip the history dedup below, reproducing the output from before atqamz/secondhand#65 exactly.
 
 Behavior (fleet overview):
 1. List all `state/*.json` files.
@@ -415,13 +417,22 @@ Herdr:      default / wA:tB
 Created:    2h ago
 PR:         (none)
 Reported:   needs-decision: two ways to fix the race, ask-user found both risky
+Report file: /home/user/secondhand/state/fix-login.status
 
 Report history (reported by worker, not verified current truth):
   working: added the retry loop
-  needs-decision: two ways to fix the race, ask-user found both risky
 ```
 
 The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:         https://github.com/org/repo/pull/42 (merged, external)`.
+
+atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `Reported:`, again as the last line of `Report history`. Without `--full`:
+- The `Reported` line and every history line are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut line always carries a trailing `... [+N chars]` marker naming how much was dropped, so a short report is never mistaken for a truncated one. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").
+- `Report history` drops the entry already shown on the `Reported:` line above it, so the same report is never printed twice in one invocation.
+- A `Report file:` line names the absolute path to `state/<id>.status`, so nothing is lost: the full text stays on disk and the path to it is one line away.
+
+`--full` restores the exact pre-#65 shape: both lines untruncated, the latest entry repeated in history, and no `Report file:` line.
+
+`--json` is never truncated or deduped, `--full` or not - see the JSON section below.
 
 The "Report history" label is deliberate: these lines are the worker's own claims about itself, not something `hand` has verified, same caution as the `done`-vs-`reported-done` distinction in `hand watch`.
 

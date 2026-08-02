@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/state"
@@ -558,6 +559,169 @@ func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
 	}
 	if !strings.Contains(got, "Task:       task-1") || !strings.Contains(got, "State:      idle") {
 		t.Fatalf("got %q, want the rest of the detail view still printed", got)
+	}
+}
+
+// atqamz/secondhand#65: a worker's report prose has run 2.7-4.3 KB for a
+// single task, and hand status rendered it in full - the point of this test.
+func TestTruncateReportLineKeepsVocabularyPrefixIntactUnderAnAdversarialBudget(t *testing.T) {
+	line := state.ParseReportLine("done: " + strings.Repeat("x", 500))
+	got := truncateReportLine(line, 3) // smaller than the "done: " prefix itself
+	if !strings.HasPrefix(got, "done: ") {
+		t.Fatalf("got %q, want the done: prefix preserved even when the budget can't fit it", got)
+	}
+}
+
+func TestTruncateReportLineMarksTruncationVisibly(t *testing.T) {
+	line := state.ParseReportLine("working: " + strings.Repeat("x", 500))
+	got := truncateReportLine(line, 50)
+	if strings.Contains(got, strings.Repeat("x", 500)) {
+		t.Fatalf("got %q, want the note cut short", got)
+	}
+	if !strings.Contains(got, "[+") {
+		t.Fatalf("got %q, want a visible marker naming the cut, not a silently shortened line", got)
+	}
+}
+
+func TestTruncateReportLineLeavesShortLinesUntouched(t *testing.T) {
+	line := state.ParseReportLine("done: short")
+	if got := truncateReportLine(line, reportSummaryBudget); got != "done: short" {
+		t.Fatalf("got %q, want a report already under budget left exactly as reported", got)
+	}
+}
+
+func TestTruncateReportLineDoesNotSplitAMultibyteRune(t *testing.T) {
+	line := state.ParseReportLine("done: " + strings.Repeat("héllo", 100))
+	got := truncateReportLine(line, 50)
+	if !utf8.ValidString(got) {
+		t.Fatalf("got %q, want valid utf8 even when the cut lands inside a multi-byte character", got)
+	}
+}
+
+// atqamz/secondhand#65's core complaint: hand status <id> printed the latest
+// report twice, once under Reported: and again as the last entry of Report
+// history. This asserts the fix at the command level, not just the helper.
+func TestStatusSingleTaskTruncatesALongReportedLineAndPointsAtTheFile(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	longNote := strings.Repeat("x", 500)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+longNote+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Reported:   done: ") {
+		t.Fatalf("got %q, want the done: prefix intact on the Reported line", got)
+	}
+	if strings.Contains(got, longNote) {
+		t.Fatalf("got %q, want the long note truncated rather than printed in full", got)
+	}
+	if !strings.Contains(got, "[+") {
+		t.Fatalf("got %q, want a visible truncation marker", got)
+	}
+	if !strings.Contains(got, "Report file: "+state.ReportPath(home, "task-1")) {
+		t.Fatalf("got %q, want the absolute path to the full report shown", got)
+	}
+}
+
+func TestStatusSingleTaskHistoryDoesNotRepeatTheReportedEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	reportBody := "working: started\nneeds-decision: waiting on review\n"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(reportBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if strings.Count(got, "needs-decision: waiting on review") != 1 {
+		t.Fatalf("got %q, want the latest report shown exactly once, not repeated in history", got)
+	}
+	if !strings.Contains(got, "working: started") {
+		t.Fatalf("got %q, want the earlier report kept in history", got)
+	}
+}
+
+// --full is the literal opt-out: it must reproduce the pre-#65 shape exactly,
+// duplicate entry and all, with no new report-file pointer line.
+func TestStatusSingleTaskFullFlagRestoresThePreviousBehaviorExactly(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	longNote := strings.Repeat("x", 500)
+	reportBody := "working: started\ndone: " + longNote + "\n"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(reportBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--full"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if strings.Count(got, "done: "+longNote) != 2 {
+		t.Fatalf("got %q, want --full to show the full untruncated entry twice, matching prior behavior", got)
+	}
+	if strings.Contains(got, "Report file:") {
+		t.Fatalf("got %q, want --full to skip the new report-file pointer line", got)
+	}
+}
+
+func TestStatusSingleTaskJSONKeepsTheFullReportUntruncated(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	longNote := strings.Repeat("x", 500)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+longNote+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), longNote) {
+		t.Fatalf("got %q, want the JSON report note left fully untruncated - a machine consumer wants the whole field", out.String())
 	}
 }
 
