@@ -17,7 +17,7 @@
             pname = "secondhand";
             inherit version;
             src = ./.;
-            vendorHash = "sha256-7K17JaXFsjf163g5PXCb5ng2gYdotnZ2IDKk8KFjNj0=";
+            vendorHash = "sha256-KSLMqyrISDOrcLtO/qxC2geFYY2ypPxQ9mWU+xreJ1I=";
             ldflags = [ "-s" "-w" "-X main.version=v${version}" ];
             nativeCheckInputs = [ pkgs.git ]; # test suite execs git directly
             # buildGoModule names the output after the module (secondhand);

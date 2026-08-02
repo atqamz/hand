@@ -60,9 +60,9 @@ func TestSpawnTeardownCycle(t *testing.T) {
 		t.Fatalf("invocation log = %q, want spawn to reuse the root tab instead of creating a second one", spawnLog)
 	}
 
-	dash := readDashboard(t, home)
-	if at, ok := findActiveTask(dash, "task-1"); !ok || at.Project != "demo" || at.Kind != string(state.KindShip) {
-		t.Fatalf("dashboard active tasks = %+v, want an entry for task-1", dash.ActiveTasks)
+	row, ok := activeTaskRow(t, home, "task-1")
+	if !ok || !strings.Contains(row, "| demo |") || !strings.Contains(row, "| "+string(state.KindShip)+" |") {
+		t.Fatalf("Active Tasks row = %q, %v, want an entry for task-1", row, ok)
 	}
 
 	runGitIn(t, worktree, "commit", "--allow-empty", "-q", "-m", "wip")
@@ -72,7 +72,7 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
 		t.Fatalf("state.Exists after refused teardown = %v, %v, want task to still exist", exists, err)
 	}
-	if _, ok := findActiveTask(readDashboard(t, home), "task-1"); !ok {
+	if _, ok := activeTaskRow(t, home, "task-1"); !ok {
 		t.Fatal("dashboard lost task-1's active row after a refused teardown")
 	}
 
@@ -89,11 +89,10 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state.Exists after teardown = %v, %v, want task removed", exists, err)
 	}
-	finalDash := readDashboard(t, home)
-	if _, ok := findActiveTask(finalDash, "task-1"); ok {
+	if _, ok := activeTaskRow(t, home, "task-1"); ok {
 		t.Fatal("teardown left task-1 in the dashboard's active tasks")
 	}
-	if len(finalDash.RecentCompletions) == 0 {
+	if len(dashboardSection(t, home, "Recent Completions")) == 0 {
 		t.Fatal("teardown did not record a recent completion")
 	}
 

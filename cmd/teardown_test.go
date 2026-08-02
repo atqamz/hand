@@ -586,12 +586,9 @@ func TestTeardownCompletionAppendFailureLeavesStateIntact(t *testing.T) {
 	}
 }
 
-// A worker that asks a question and then gives up leaves that question on the
-// dashboard on purpose - no event kind clears it on inference. Teardown is not
-// inference, it is the operator deleting the task, and once the Active Tasks row is
-// gone nothing can ever retire the entry: the ID leaves the task list, so hand watch
-// stops tracking it. Leaving it strands an unanswerable question in the supervisor's
-// queue for good, and it is the leak that made the section look unbounded.
+// Nothing retires a standing question on inference, but teardown is the
+// operator deleting the task: the ID leaves the task list, so a question left
+// behind here could never be retired by anything afterwards.
 func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
@@ -600,18 +597,14 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
-
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{
-		AddActiveTask:      &dashboard.ActiveTask{ID: "task-1", Project: "myproj", Kind: "ship", State: "working", Age: "just now"},
-		SetPendingDecision: &dashboard.PendingDecision{ID: "task-1", Text: "which base branch?"},
-	}); err != nil {
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: which base branch?\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{
-		UpdateAgentState: &dashboard.AgentStateUpdate{ID: "task-1", State: "report-failed", Age: "5m"},
-	}); err != nil {
+	if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 		t.Fatal(err)
+	}
+	if before := dashboardSection(t, home, "Pending Decisions"); len(before) != 1 {
+		t.Fatalf("Pending Decisions = %+v before teardown, want the question this test retires", before)
 	}
 
 	cmd := newTeardownCmd()
@@ -620,19 +613,11 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(dashPath)
-	if err != nil {
-		t.Fatal(err)
+	if pending := dashboardSection(t, home, "Pending Decisions"); len(pending) != 0 {
+		t.Fatalf("Pending Decisions = %+v, want the torn-down task's question gone", pending)
 	}
-	d, err := dashboard.Parse(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(d.PendingDecisions) != 0 {
-		t.Fatalf("PendingDecisions = %+v, want the torn-down task's question gone", d.PendingDecisions)
-	}
-	if len(d.ActiveTasks) != 0 {
-		t.Fatalf("ActiveTasks = %+v, want the row gone too", d.ActiveTasks)
+	if rows := dashboardSection(t, home, "Active Tasks"); len(rows) != 0 {
+		t.Fatalf("Active Tasks = %+v, want the row gone too", rows)
 	}
 }
 

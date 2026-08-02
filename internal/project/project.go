@@ -1,4 +1,6 @@
-// Package project manages the registry of git projects tracked in data/projects.md.
+// Package project manages the registry of git projects: a table in hand's
+// sqlite database, with data/projects.md kept in step as the human-readable
+// projection. SPECS.md's "Which one to believe" covers a disagreement.
 package project
 
 import (
@@ -8,9 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 
 	"github.com/atqamz/secondhand/internal/atomicfile"
+	"github.com/atqamz/secondhand/internal/store"
 )
 
 const (
@@ -24,11 +26,7 @@ const (
 // wording the cmd layer uses for the same condition.
 var ErrNotFound = errors.New("not registered")
 
-type Project struct {
-	Name string
-	URL  string
-	Mode string
-}
+type Project = store.Project
 
 func RegistryPath(homeDir string) string {
 	return homeDir + "/data/projects.md"
@@ -44,10 +42,54 @@ func DeriveName(url string) string {
 	return name
 }
 
-// List reads and parses the registry file. Returns an empty slice if the file doesn't exist.
 func List(homeDir string) ([]Project, error) {
-	path := RegistryPath(homeDir)
-	f, err := os.Open(path)
+	db, err := openRegistry(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ListProjects()
+}
+
+// data/projects.md survives its own import as the projection, so its absence
+// cannot serve as the done marker the way a task's JSON file does.
+const legacyRegistryKey = "projects.md"
+
+func openRegistry(homeDir string) (*store.DB, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	if err := importLegacyRegistry(db, homeDir); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+func importLegacyRegistry(db *store.DB, homeDir string) error {
+	done, err := db.Migrated(legacyRegistryKey)
+	if err != nil || done {
+		return err
+	}
+	projects, err := parseRegistryFile(homeDir)
+	if err != nil {
+		return err
+	}
+	for _, p := range projects {
+		// A name listed twice was already unreachable past the first match, so
+		// dropping the later one imports exactly what the file resolved to.
+		if err := db.AddProject(p); err != nil && !errors.Is(err, store.ErrProjectExists) {
+			return err
+		}
+	}
+	return db.MarkMigrated(legacyRegistryKey)
+}
+
+// Reading the file without going through the database is what keeps importing
+// an existing fleet independent of the binary that wrote it.
+func parseRegistryFile(homeDir string) ([]Project, error) {
+	f, err := os.Open(RegistryPath(homeDir))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -159,111 +201,98 @@ func GateStatus(clonePath string) (GateState, error) {
 	return GateReady, nil
 }
 
-// Add appends a project line to the registry. Returns an error if the name is already registered.
 func Add(homeDir string, p Project) error {
 	if !validMode(p.Mode) {
 		return fmt.Errorf("invalid project mode %q", p.Mode)
 	}
-
-	unlock, err := lockRegistry(homeDir)
+	db, err := openRegistry(homeDir)
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer func() { _ = db.Close() }()
 
-	_, exists, err := Find(homeDir, p.Name)
-	if err != nil {
+	if err := db.AddProject(p); err != nil {
 		return err
 	}
-	if exists {
-		return fmt.Errorf("project %q already registered", p.Name)
-	}
-
-	path := RegistryPath(homeDir)
-	content, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read project registry: %w", err)
-	}
-
-	if len(content) > 0 && content[len(content)-1] != '\n' {
-		content = append(content, '\n')
-	}
-	line := fmt.Sprintf("- %s: %s mode=%s\n", p.Name, p.URL, p.Mode)
-	if err := atomicfile.Write(path, ".projects.md-", append(content, line...), 0o644); err != nil {
-		return fmt.Errorf("write project registry: %w", err)
-	}
-	return nil
+	return writeProjection(db, homeDir)
 }
 
 func validMode(mode string) bool {
 	return mode == ModeNoMistakes || mode == ModeDirectPR || mode == ModeLocalOnly
 }
 
-// Remove deletes the project line matching name from the registry.
 func Remove(homeDir, name string) error {
-	unlock, err := lockRegistry(homeDir)
+	db, err := openRegistry(homeDir)
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer func() { _ = db.Close() }()
 
-	path := RegistryPath(homeDir)
-	f, err := os.Open(path)
-	if os.IsNotExist(err) {
+	removed, err := db.RemoveProject(name)
+	if err != nil {
+		return err
+	}
+	if !removed {
 		return fmt.Errorf("project %q %w", name, ErrNotFound)
 	}
+	return writeProjection(db, homeDir)
+}
+
+// Each project line is rewritten in place rather than regrouped: the live file
+// interleaves hand-written `# profile=` comments with the entries they
+// describe, and moving entries would rebind a comment to the wrong repo.
+func writeProjection(db *store.DB, homeDir string) error {
+	projects, err := db.ListProjects()
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-
-	found := false
-	var kept []string
-	scanner := bufio.NewScanner(f)
-	lineNumber := 0
-	for scanner.Scan() {
-		lineNumber++
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			kept = append(kept, line)
-			continue
-		}
-		p, ok := parseLine(trimmed)
-		if !ok {
-			return fmt.Errorf("invalid project registry line %d", lineNumber)
-		}
-		if p.Name == name {
-			found = true
-			continue
-		}
-		kept = append(kept, line)
+	registered := make(map[string]Project, len(projects))
+	for _, p := range projects {
+		registered[p.Name] = p
 	}
-	if err := scanner.Err(); err != nil {
+
+	existing, err := os.ReadFile(RegistryPath(homeDir))
+	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read project registry: %w", err)
 	}
-	if !found {
-		return fmt.Errorf("project %q %w", name, ErrNotFound)
+
+	var rendered []string
+	placed := make(map[string]bool, len(projects))
+	for _, line := range strings.Split(strings.TrimSuffix(string(existing), "\n"), "\n") {
+		p, isProject := parseLine(strings.TrimSpace(line))
+		if !isProject {
+			rendered = append(rendered, line)
+			continue
+		}
+		current, ok := registered[p.Name]
+		if !ok || placed[p.Name] {
+			continue
+		}
+		placed[p.Name] = true
+		rendered = append(rendered, renderProjectLine(current))
 	}
 
-	content := strings.Join(kept, "\n") + "\n"
-	if err := atomicfile.Write(path, ".projects.md-", []byte(content), 0o644); err != nil {
+	rendered = trimTrailingBlanks(rendered)
+	for _, p := range projects {
+		if !placed[p.Name] {
+			rendered = append(rendered, renderProjectLine(p))
+		}
+	}
+
+	content := strings.Join(rendered, "\n")
+	if err := atomicfile.Write(RegistryPath(homeDir), ".projects.md-", []byte(content+"\n"), 0o644); err != nil {
 		return fmt.Errorf("write project registry: %w", err)
 	}
 	return nil
 }
 
-func lockRegistry(homeDir string) (func(), error) {
-	lock, err := os.OpenFile(RegistryPath(homeDir)+".lock", os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("lock project registry: %w", err)
+func renderProjectLine(p Project) string {
+	return fmt.Sprintf("- %s: %s mode=%s", p.Name, p.URL, p.Mode)
+}
+
+func trimTrailingBlanks(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		_ = lock.Close()
-		return nil, fmt.Errorf("lock project registry: %w", err)
-	}
-	return func() {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = lock.Close()
-	}, nil
+	return lines
 }

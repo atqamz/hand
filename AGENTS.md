@@ -25,7 +25,7 @@ Run `hand --help` for the full command reference.
 - Ship tasks produce PRs or local branches. Scout tasks produce `data/<id>/report.md`.
 - `data/backlog.md` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use `no-mistakes axi` directly in the worktree.
-- Use `qmd search` to find historical context in data/ when available. Fall back to reading files directly.
+- Use `hand search <query>` to find historical context in data/. `qmd search` adds semantic matching when installed.
 - `hand status <id>` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
 - Zero comments by default. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug. Never restate code, narrate what, add banners, or docstring the obvious.
 - Harness/herdr syntax, exit-code enforcement, watch's stdout/errOut split, per-command dashboard rules, and first-run prompt handling are commented at point of use (`internal/herdr`, `internal/harness`, `cmd/root.go`, `cmd/precondition.go`, `internal/watcher`, `cmd/project.go`, `cmd/promote.go`, `cmd/merge.go`, `cmd/launch.go`); SPECS.md's "Exit codes" and each command's spec section own the authoritative tables.

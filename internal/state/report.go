@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Report states are a fixed vocabulary: free text after the state can't be
@@ -35,6 +36,20 @@ var reportStates = map[string]bool{
 // brief the supervisor writes) - hand only ever reads it, never writes it.
 func ReportPath(homeDir, id string) string {
 	return filepath.Join(Dir(homeDir), id+".status")
+}
+
+// A different question from the task's own age, which is why hand status shows
+// both: a task spawned hours ago whose worker reported a minute ago is healthy,
+// and one age column cannot say that.
+func ReportModTime(homeDir, id string) (time.Time, bool, error) {
+	info, err := os.Stat(ReportPath(homeDir, id))
+	if os.IsNotExist(err) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("stat report %q: %w", id, err)
+	}
+	return info.ModTime(), true, nil
 }
 
 // ReportLine is one classified line from a task's report file.

@@ -18,6 +18,7 @@ import (
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/secondhand/internal/store"
 )
 
 const dashboardSkeleton = `# Dashboard
@@ -201,12 +202,6 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
-	}}); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -229,10 +224,14 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 		t.Fatalf("errOut = %q, want actionable events on out only", errBuf.String())
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindIdleUnreported {
-		t.Fatalf("ActiveTasks = %+v", d.ActiveTasks)
+	// The state column says `unreported` rather than `idle-unreported`: it is
+	// derived from what the worker wrote, and an idle pane is an observation
+	// about the harness, not a word the worker said.
+	rows := dashboardSection(t, home, "Active Tasks")
+	if len(rows) != 1 || !strings.Contains(rows[0], "| unreported |") {
+		t.Fatalf("Active Tasks = %+v", rows)
 	}
+	d := readDashboard(t, home)
 	if len(d.RecentEvents) != 1 || !strings.Contains(d.RecentEvents[0], "idle-unreported task-1") {
 		t.Fatalf("RecentEvents = %+v", d.RecentEvents)
 	}
@@ -266,12 +265,6 @@ func TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified(t *testing.T)
 		PR: "https://github.com/atqamz/secondhand/pull/1", MergeExecuted: true,
 		Herdr: state.Herdr{PaneID: "p1"},
 	})
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
-	}}); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -290,19 +283,21 @@ func TestTickUpdatesDashboardToDoneOnlyOnceAReportedDoneIsVerified(t *testing.T)
 		t.Fatalf("output = %q, want a verified done event", buf.String())
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != state.ReportDone {
-		t.Fatalf("ActiveTasks = %+v", d.ActiveTasks)
+	rows := dashboardSection(t, home, "Active Tasks")
+	if len(rows) != 1 || !strings.Contains(rows[0], "| "+state.ReportDone+" |") {
+		t.Fatalf("Active Tasks = %+v", rows)
 	}
 }
 
-func TestTickClassifiesBlockedAndSetsPendingDecision(t *testing.T) {
+// The one event kind that used to break the section's membership rule: a
+// blocked pane is something the watcher observed, not something the worker
+// said, so it belongs nowhere near the operator's decision queue.
+func TestTickClassifiesBlockedWithoutInventingAPendingDecision(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	dashPath := filepath.Join(home, "data", "dashboard.md")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -319,9 +314,8 @@ func TestTickClassifiesBlockedAndSetsPendingDecision(t *testing.T) {
 		t.Fatalf("output = %q, want blocked task-1", buf.String())
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.PendingDecisions) != 1 || !strings.HasPrefix(d.PendingDecisions[0], "task-1:") {
-		t.Fatalf("PendingDecisions = %+v", d.PendingDecisions)
+	if pd := dashboardSection(t, home, "Pending Decisions"); len(pd) != 0 {
+		t.Fatalf("Pending Decisions = %+v, want nothing inferred from a pane the worker never explained", pd)
 	}
 }
 
@@ -360,7 +354,6 @@ func TestTickFiresIdleUnreportedWhenPaneGoesNotBusyWithNoReport(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	dashPath := filepath.Join(home, "data", "dashboard.md")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -379,9 +372,8 @@ func TestTickFiresIdleUnreportedWhenPaneGoesNotBusyWithNoReport(t *testing.T) {
 		t.Fatalf("output = %q, want idle-unreported task-1 when nothing explained the stop", buf.String())
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.PendingDecisions) != 1 || !strings.HasPrefix(d.PendingDecisions[0], "task-1:") {
-		t.Fatalf("PendingDecisions = %+v, want an idle-unreported task flagged actionable", d.PendingDecisions)
+	if pd := dashboardSection(t, home, "Pending Decisions"); len(pd) != 0 {
+		t.Fatalf("Pending Decisions = %+v, want the idle pane raised as an event and not as a decision the worker never asked for", pd)
 	}
 }
 
@@ -425,12 +417,6 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
-	}}); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -458,68 +444,9 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 		t.Fatalf("task.PR = %q, want the embedded URL auto-recorded", task.PR)
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].PR != "https://github.com/atqamz/secondhand/pull/31" {
-		t.Fatalf("ActiveTasks = %+v, want the dashboard PR column updated", d.ActiveTasks)
-	}
-}
-
-// TestTickAutoRecordsPRButAnnouncesAMissingDashboardRow is the auto-record path's
-// half of what every caller of the dashboard PR update owes: recordAutoPR shares
-// SetPR with hand pr, and could write the PR to task state, find no active row to
-// carry it, and still return nil - the exact silent no-op hand pr exits non-zero
-// to refuse, just in the sibling caller. That is why the missing row is now an
-// error from dashboard.Update rather than a flag to remember. No active row ever
-// gets created here (that would fabricate state); it must be pr-not-recorded.
-func TestTickAutoRecordsPRButAnnouncesAMissingDashboardRow(t *testing.T) {
-	statusFile := filepath.Join(t.TempDir(), "status")
-	setStatus(t, statusFile, "working")
-	writeFakeHerdr(t, statusFile)
-	writeFakeGh(t, "OPEN")
-
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
-	// Deliberately no AddActiveTask: the dashboard has no row for task-1, so the
-	// watcher's own auto-record has nothing to reconcile either.
-
-	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
-	client := herdr.NewClient()
-	states := make(map[string]*TaskState)
-	ctx := context.Background()
-
-	var buf, errBuf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf, &errBuf)
-
-	url := "https://github.com/atqamz/secondhand/pull/31"
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR "+url+" checks green\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	buf.Reset()
-	errBuf.Reset()
-	tick(ctx, cfg, client, states, &buf, &errBuf)
-
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.PR != url {
-		t.Fatalf("task.PR = %q, want the URL recorded on the task despite the missing row", task.PR)
-	}
-
-	if !strings.Contains(buf.String(), "pr-not-recorded task-1: "+url) {
-		t.Fatalf("out = %q, want pr-not-recorded for the unreconciled dashboard row", buf.String())
-	}
-	if strings.Contains(buf.String(), "pr-record-unknown") {
-		t.Fatalf("out = %q, want no pr-record-unknown - the outcome is known, not contended", buf.String())
-	}
-	if !strings.Contains(errBuf.String(), "task-1") {
-		t.Fatalf("errOut = %q, want a stderr diagnostic naming the task", errBuf.String())
-	}
-
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 0 {
-		t.Fatalf("ActiveTasks = %+v, want no row fabricated for a task the dashboard never had", d.ActiveTasks)
+	rows := dashboardSection(t, home, "Active Tasks")
+	if len(rows) != 1 || !strings.Contains(rows[0], "| https://github.com/atqamz/secondhand/pull/31 |") {
+		t.Fatalf("Active Tasks = %+v, want the dashboard PR column updated", rows)
 	}
 }
 
@@ -565,7 +492,6 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
-	dashPath := filepath.Join(home, "data", "dashboard.md")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -602,9 +528,8 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 		t.Fatalf("events.log = %q, want the refusal recorded as a durable lifecycle fact", log)
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.PendingDecisions) != 0 {
-		t.Fatalf("PendingDecisions = %+v, want an operator notice kept out of the worker's slot", d.PendingDecisions)
+	if pd := dashboardSection(t, home, "Pending Decisions"); len(pd) != 0 {
+		t.Fatalf("Pending Decisions = %+v, want an operator notice kept out of the worker's slot", pd)
 	}
 }
 
@@ -673,7 +598,6 @@ func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
-	dashPath := filepath.Join(home, "data", "dashboard.md")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -693,9 +617,9 @@ func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
 		t.Fatalf("out = %q, want the refusal still announced", buf.String())
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "which base branch?") {
-		t.Fatalf("PendingDecisions = %+v, want the worker's own question intact", d.PendingDecisions)
+	pd := dashboardSection(t, home, "Pending Decisions")
+	if len(pd) != 1 || !strings.Contains(pd[0], "which base branch?") {
+		t.Fatalf("Pending Decisions = %+v, want the worker's own question intact", pd)
 	}
 }
 
@@ -781,7 +705,7 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 
 	url := "https://github.com/atqamz/secondhand/pull/7"
 	snapshot := taskSnapshotWithPR(t, home, "task-1", url)
-	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", snapshot, state.Path(home, "task-1")))
+	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", snapshot, store.Path(home)))
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -820,9 +744,9 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	}
 }
 
-// taskSnapshotWithPR copies home's task file with pr recorded into a scratch
-// directory, giving a test a file it can drop over the live one to stand in for
-// a concurrent writer that finished while hand was mid-call.
+// A file a test can drop over the live database to stand in for a concurrent
+// writer. The store runs in rollback journal mode, not WAL, so the one file is
+// the whole database and copying it is the whole substitution.
 func taskSnapshotWithPR(t *testing.T, home, id, pr string) string {
 	t.Helper()
 	task, err := state.Read(home, id)
@@ -834,12 +758,12 @@ func taskSnapshotWithPR(t *testing.T, home, id, pr string) string {
 	if err := state.Write(scratch, task); err != nil {
 		t.Fatal(err)
 	}
-	return state.Path(scratch, id)
+	return store.Path(scratch)
 }
 
-// TestTickReportsAnUnreadableTaskWhenTheLockIsContended pins the honest message
-// for the other half of the contention path: with the task file unreadable, the
-// operator must be told that, not sent to a hand status that reads the same file.
+// The other half of the contention path: with machine state unreadable, the
+// operator must be told that, not sent to a hand status that opens the same
+// database.
 func TestTickReportsAnUnreadableTaskWhenTheLockIsContended(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -849,11 +773,11 @@ func TestTickReportsAnUnreadableTaskWhenTheLockIsContended(t *testing.T) {
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
 
 	url := "https://github.com/atqamz/secondhand/pull/7"
-	corrupt := filepath.Join(t.TempDir(), "corrupt.json")
-	if err := os.WriteFile(corrupt, []byte("{not json"), 0o644); err != nil {
+	corrupt := filepath.Join(t.TempDir(), "corrupt.db")
+	if err := os.WriteFile(corrupt, []byte("this is not a database"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", corrupt, state.Path(home, "task-1")))
+	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", corrupt, store.Path(home)))
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -1189,12 +1113,6 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, State: "working", Age: "just now",
-	}}); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -1235,9 +1153,9 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 		t.Fatalf("out = %q, want the verified done announced by the restarted watcher", buf.String())
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != state.ReportDone {
-		t.Fatalf("ActiveTasks = %+v, want the row moved to done", d.ActiveTasks)
+	rows := dashboardSection(t, home, "Active Tasks")
+	if len(rows) != 1 || !strings.Contains(rows[0], "| "+state.ReportDone+" |") {
+		t.Fatalf("Active Tasks = %+v, want the row moved to done", rows)
 	}
 
 	task, err = state.Read(home, "task-1")
@@ -1684,7 +1602,6 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
-	dashPath := filepath.Join(home, "data", "dashboard.md")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -1730,7 +1647,7 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 		t.Fatalf("events.log = %q, want %d lines for %d events against the 200-line bound", log, len(printed), len(printed))
 	}
 
-	d := readDashboard(t, dashPath)
+	d := readDashboard(t, home)
 	if len(d.RecentEvents) != len(printed) {
 		t.Fatalf("RecentEvents = %+v, want %d bullets, not a mangled section", d.RecentEvents, len(printed))
 	}
@@ -1809,8 +1726,7 @@ func TestHandleEventSendsLogFailureToErrOut(t *testing.T) {
 	}
 
 	var buf, errBuf bytes.Buffer
-	handleEvent(Config{Home: home}, &Event{Kind: KindReportDone, Verified: true, TaskID: "task-1", Text: "done task-1"},
-		state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, &buf, &errBuf)
+	handleEvent(Config{Home: home}, &Event{Kind: KindReportDone, Verified: true, TaskID: "task-1", Text: "done task-1"}, &buf, &errBuf)
 
 	if buf.String() != "done task-1\n" {
 		t.Fatalf("out = %q, want the event text only", buf.String())
@@ -2112,9 +2028,9 @@ func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
 	}
 }
 
-func readDashboard(t *testing.T, path string) dashboard.Dashboard {
+func readDashboard(t *testing.T, home string) dashboard.Dashboard {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(dashboard.Path(home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2123,6 +2039,35 @@ func readDashboard(t *testing.T, path string) dashboard.Dashboard {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// dashboard.Parse deliberately recovers only the append-only sections, so a
+// test asserting on a derived one has to read the same text an operator reads.
+func dashboardSection(t *testing.T, home, title string) []string {
+	t.Helper()
+	data, err := os.ReadFile(dashboard.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	in := false
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			in = strings.TrimPrefix(trimmed, "## ") == title
+			continue
+		}
+		if !in {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			lines = append(lines, strings.TrimPrefix(trimmed, "- "))
+		}
+		if strings.HasPrefix(trimmed, "| ") && !strings.HasPrefix(trimmed, "| id |") {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
 }
 
 // TestTickResumesTheLastStateAfterATrailingMalformedLine holds resume to what the
@@ -2164,10 +2109,10 @@ func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
 		t.Fatalf("output = %q, want the stop still explained by the needs-decision the malformed line followed", buf.String())
 	}
 
-	d := readDashboard(t, filepath.Join(home, "data", "dashboard.md"))
-	for _, pd := range d.PendingDecisions {
+	pending := dashboardSection(t, home, "Pending Decisions")
+	for _, pd := range pending {
 		if strings.Contains(pd, "reason unknown") {
-			t.Fatalf("PendingDecisions = %+v, want the worker's own question left intact", d.PendingDecisions)
+			t.Fatalf("Pending Decisions = %+v, want the worker's own question left intact", pending)
 		}
 	}
 }
@@ -2261,12 +2206,6 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
-	}}); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -2276,10 +2215,10 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 
 	report := ""
 	for _, tc := range []struct{ line, wantState, wantPending string }{
-		{"paused: waiting on the nightly build\n", KindReportPaused, ""},
-		{"blocked: needs an API key\n", KindReportBlocked, "needs an API key"},
-		{"needs-decision: which base branch?\n", KindReportNeedsDecision, "which base branch?"},
-		{"paused: sleeping on it\n", KindReportPaused, "which base branch?"},
+		{"paused: waiting on the nightly build\n", state.ReportPaused, ""},
+		{"blocked: needs an API key\n", state.ReportBlocked, "needs an API key"},
+		{"needs-decision: which base branch?\n", state.ReportNeedsDecision, "which base branch?"},
+		{"paused: sleeping on it\n", state.ReportPaused, "which base branch?"},
 		{"working: main, carrying on\n", state.ReportWorking, ""},
 	} {
 		report += tc.line
@@ -2288,17 +2227,18 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 		}
 		tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
 
-		d := readDashboard(t, dashPath)
-		if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != tc.wantState {
-			t.Fatalf("ActiveTasks = %+v after %q, want state %s", d.ActiveTasks, tc.line, tc.wantState)
+		rows := dashboardSection(t, home, "Active Tasks")
+		if len(rows) != 1 || !strings.Contains(rows[0], "| "+tc.wantState+" |") {
+			t.Fatalf("Active Tasks = %+v after %q, want state %s", rows, tc.line, tc.wantState)
 		}
+		pending := dashboardSection(t, home, "Pending Decisions")
 		switch {
 		case tc.wantPending == "":
-			if len(d.PendingDecisions) != 0 {
-				t.Fatalf("PendingDecisions = %+v after %q, want the slot empty", d.PendingDecisions, tc.line)
+			if len(pending) != 0 {
+				t.Fatalf("Pending Decisions = %+v after %q, want the slot empty", pending, tc.line)
 			}
-		case len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], tc.wantPending):
-			t.Fatalf("PendingDecisions = %+v after %q, want %q", d.PendingDecisions, tc.line, tc.wantPending)
+		case len(pending) != 1 || !strings.Contains(pending[0], tc.wantPending):
+			t.Fatalf("Pending Decisions = %+v after %q, want %q", pending, tc.line, tc.wantPending)
 		}
 	}
 }
@@ -2315,12 +2255,6 @@ func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-		ID: "task-1", Project: "nsr", Kind: "ship", State: "working", Age: "just now",
-	}}); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -2340,11 +2274,8 @@ func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
 		t.Fatalf("output = %q, want the failed event", buf.String())
 	}
 
-	d := readDashboard(t, dashPath)
-	if len(d.ActiveTasks) != 1 || d.ActiveTasks[0].State != KindFailed {
-		t.Fatalf("ActiveTasks = %+v, want the failed state column", d.ActiveTasks)
-	}
-	if len(d.PendingDecisions) != 1 || !strings.Contains(d.PendingDecisions[0], "which base branch?") {
-		t.Fatalf("PendingDecisions = %+v, want the worker's question left standing", d.PendingDecisions)
+	pending := dashboardSection(t, home, "Pending Decisions")
+	if len(pending) != 1 || !strings.Contains(pending[0], "which base branch?") {
+		t.Fatalf("Pending Decisions = %+v, want the worker's question left standing", pending)
 	}
 }

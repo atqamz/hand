@@ -2,21 +2,18 @@ package state
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"syscall"
 
-	"github.com/atqamz/secondhand/internal/atomicfile"
+	"github.com/atqamz/secondhand/internal/store"
 )
 
 // ErrTaskNotFound is wrapped into errors returned by Read and Delete when no
-// state file exists for the given task ID, rendering as `task "<id>" not found`.
-var ErrTaskNotFound = errors.New("not found")
+// task row exists for the given ID, rendering as `task "<id>" not found`.
+var ErrTaskNotFound = store.ErrTaskNotFound
 
 // ErrTaskActive is wrapped into errors returned by Claim when the task is
 // already claimed by another running command, rendering as
@@ -27,14 +24,7 @@ var ErrTaskActive = errors.New("already active")
 var ErrLockBusy = errors.New("lock held by another process")
 
 func Dir(homeDir string) string {
-	return filepath.Join(homeDir, "state")
-}
-
-func Path(homeDir, id string) string {
-	if err := ValidateID(id); err != nil {
-		return ""
-	}
-	return filepath.Join(Dir(homeDir), id+".json")
+	return store.Dir(homeDir)
 }
 
 func ValidateID(id string) error {
@@ -88,6 +78,9 @@ func TryLock(homeDir, name string) (func(), error) {
 	return release, err
 }
 
+// These locks guard whole command sequences, not database writes: hand merge
+// holds one across a network call. sqlite's own locking is per statement and
+// cannot express that, so both exist and neither replaces the other.
 func lock(homeDir, name string, nonblock bool) (func(), error) {
 	if err := os.MkdirAll(Dir(homeDir), 0o755); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
@@ -115,97 +108,68 @@ func Exists(homeDir, id string) (bool, error) {
 	if err := ValidateID(id); err != nil {
 		return false, err
 	}
-	_, err := os.Stat(Path(homeDir, id))
-	if err == nil {
-		return true, nil
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return false, err
 	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, fmt.Errorf("stat task state %q: %w", id, err)
+	defer func() { _ = db.Close() }()
+	return db.TaskExists(id)
 }
 
 func Read(homeDir, id string) (Task, error) {
 	if err := ValidateID(id); err != nil {
 		return Task{}, err
 	}
-	data, err := os.ReadFile(Path(homeDir, id))
-	if os.IsNotExist(err) {
-		return Task{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
-	}
+	db, err := store.Open(homeDir)
 	if err != nil {
-		return Task{}, fmt.Errorf("read task state %q: %w", id, err)
+		return Task{}, err
 	}
-	var t Task
-	if err := json.Unmarshal(data, &t); err != nil {
-		return Task{}, fmt.Errorf("parse task state %q: %w", id, err)
+	defer func() { _ = db.Close() }()
+
+	t, ok, err := db.ReadTask(id)
+	if err != nil {
+		return Task{}, err
 	}
-	if t.ID != id {
-		return Task{}, fmt.Errorf("task state %q has mismatched ID %q", id, t.ID)
+	if !ok {
+		return Task{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
 	}
 	return t, nil
 }
 
-// Write persists t atomically (write to temp file, then rename).
 func Write(homeDir string, t Task) error {
 	if err := ValidateID(t.ID); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(Dir(homeDir), 0o755); err != nil {
-		return fmt.Errorf("create state directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(t, "", "  ")
+	db, err := store.Open(homeDir)
 	if err != nil {
-		return fmt.Errorf("encode task state %q: %w", t.ID, err)
+		return err
 	}
-	data = append(data, '\n')
-
-	if err := atomicfile.Write(Path(homeDir, t.ID), "."+t.ID+".json-", data, 0o644); err != nil {
-		return fmt.Errorf("write task state %q: %w", t.ID, err)
-	}
-	return nil
+	defer func() { _ = db.Close() }()
+	return db.WriteTask(t)
 }
 
-// List returns all active tasks, sorted by ID. Returns nil if the state directory doesn't exist.
 func List(homeDir string) ([]Task, error) {
-	entries, err := os.ReadDir(Dir(homeDir))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+	db, err := store.Open(homeDir)
 	if err != nil {
-		return nil, fmt.Errorf("read state directory: %w", err)
+		return nil, err
 	}
-
-	var tasks []Task
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		id := strings.TrimSuffix(e.Name(), ".json")
-		t, err := Read(homeDir, id)
-		if err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, t)
-	}
-	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
-	return tasks, nil
+	defer func() { _ = db.Close() }()
+	return db.ListTasks()
 }
 
-// Delete removes the state file for id, along with the task's report channel at
+// Delete removes a task's row along with its report channel at
 // state/<id>.status. The report file is the volatile wake log, not a
 // deliverable: a task respawned under a used ID starts at report_offset 0, so a
 // surviving log would replay the previous run's lines as if they were new -
 // re-raising resolved decisions, absorbing a genuine unexplained stop, and
 // auto-recording a PR URL out of an old done line onto a task nobody recorded it
 // for. The durable deliverables (data/<id>/) survive teardown as before.
-// Delete removes the report channel before the task state file, not after: the
-// report removal is the one that can fail on a permissions or I/O fault, and
-// doing it first means that fault leaves nothing durable gone yet, so the whole
-// command is simply retryable. Removing the state file first would let a
-// report-removal failure strand the caller with the state already gone and no
-// way to retry (see cmd/teardown.go's guarded path).
+//
+// The report channel goes first, not last: that removal is the one that can
+// fail on a permissions or I/O fault, and doing it first means the fault leaves
+// nothing durable gone yet, so the whole command is simply retryable. Removing
+// the row first would let a report-removal failure strand the caller with the
+// state already gone and no way to retry (see cmd/teardown.go's guarded path).
 func Delete(homeDir, id string) error {
 	if err := ValidateID(id); err != nil {
 		return err
@@ -213,11 +177,10 @@ func Delete(homeDir, id string) error {
 	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove report channel %q: %w", id, err)
 	}
-	if err := os.Remove(Path(homeDir, id)); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("task %q %w", id, ErrTaskNotFound)
-		}
-		return fmt.Errorf("remove task state %q: %w", id, err)
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
 	}
-	return nil
+	defer func() { _ = db.Close() }()
+	return db.DeleteTask(id)
 }

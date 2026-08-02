@@ -88,7 +88,7 @@ func newProjectAddCmd() *cobra.Command {
 			if err := project.Add(home, project.Project{Name: name, URL: url, Mode: mode}); err != nil {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
-			if err := updateDashboardProjects(home); err != nil {
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 				_ = project.Remove(home, name)
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
@@ -103,32 +103,6 @@ func newProjectAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", project.ModeDirectPR, "delivery mode: no-mistakes, direct-pr, local-only")
 	cmd.Flags().StringVar(&name, "name", "", "override the project name")
 	return cmd
-}
-
-// updateDashboardProjects rewrites the dashboard's Projects section; it is the
-// single updater shared by project add, remove, and sync, and by merge's
-// post-merge re-sync.
-func updateDashboardProjects(home string) error {
-	projects, err := project.List(home)
-	if err != nil {
-		return err
-	}
-	tasks, err := state.List(home)
-	if err != nil {
-		return err
-	}
-	activeCounts := make(map[string]int, len(projects))
-	for _, t := range tasks {
-		activeCounts[t.Project]++
-	}
-
-	summaries := make([]dashboard.ProjectSummary, len(projects))
-	for i, p := range projects {
-		summaries[i] = dashboard.ProjectSummary{Name: p.Name, Mode: p.Mode, ActiveTaskCount: activeCounts[p.Name]}
-	}
-
-	path := filepath.Join(home, "data", "dashboard.md")
-	return dashboard.Update(path, dashboard.UpdateOpts{SetProjects: summaries})
 }
 
 func cleanupCloneAfterFailure(clonePath string, cause error) error {
@@ -314,7 +288,7 @@ func newProjectRemoveCmd() *cobra.Command {
 			if err := project.Remove(home, name); err != nil {
 				return asPrecondition(err)
 			}
-			if err := updateDashboardProjects(home); err != nil {
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 				return err
 			}
 
@@ -328,32 +302,12 @@ func newProjectRemoveCmd() *cobra.Command {
 }
 
 func hasActiveTasksForProject(home, name string) (bool, error) {
-	entries, err := os.ReadDir(filepath.Join(home, "state"))
-	if os.IsNotExist(err) {
-		return false, nil
-	}
+	tasks, err := state.List(home)
 	if err != nil {
-		return false, fmt.Errorf("read state directory: %w", err)
+		return false, err
 	}
-
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(home, "state", e.Name()))
-		if err != nil {
-			return false, fmt.Errorf("read state file %s: %w", e.Name(), err)
-		}
-		var task struct {
-			Project string `json:"project"`
-		}
-		if err := json.Unmarshal(data, &task); err != nil {
-			return false, fmt.Errorf("parse state file %s: %w", e.Name(), err)
-		}
-		if strings.TrimSpace(task.Project) == "" {
-			return false, fmt.Errorf("parse state file %s: missing project", e.Name())
-		}
-		if task.Project == name {
+	for _, t := range tasks {
+		if t.Project == name {
 			return true, nil
 		}
 	}
@@ -415,7 +369,7 @@ func newProjectSyncCmd() *cobra.Command {
 			}
 
 			if advancedAny {
-				if err := updateDashboardProjects(home); err != nil {
+				if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 					return err
 				}
 			}

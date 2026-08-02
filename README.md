@@ -40,7 +40,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 
 ## Core concepts
 
-- **Projects**: git repositories cloned under `projects/` and registered in `data/projects.md`. Each has a delivery mode: `no-mistakes`, `direct-pr`, or `local-only`.
+- **Projects**: git repositories cloned under `projects/`, registered in `hand`'s machine state and projected to `data/projects.md`. Each has a delivery mode: `no-mistakes`, `direct-pr`, or `local-only`.
 - **Tasks**: units of work identified by a unique ID. Ship tasks produce a branch and PR; scout tasks investigate and produce `data/<id>/report.md`.
 - **Briefs**: task instructions at `data/<id>/brief.md`, written by the supervisory agent before spawning a worker.
 - **herdr tabs**: each worker runs in its own herdr tab. herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events, so no terminal scraping. herdr's state says whether a pane is busy, not whether a task finished - see SPECS.md's "Agent state" section.
@@ -48,6 +48,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 - **treehouse worktrees**: workers operate in isolated git checkouts acquired from a treehouse pool, never in the project clone itself.
 - **Dashboard**: `data/dashboard.md` is the living fleet overview, auto-maintained by `hand`. The agent reads it for context; the user watches it for visibility.
 - **Backlog**: `data/backlog.md` is a plain markdown task queue, read and edited directly by the supervisory agent.
+- **Machine state vs. the prose corpus**: machine state - tasks, PR state, pane ids, the project registry - is authoritative in sqlite at `state/hand.db`. The prose under `data/` stays authoritative in files, with a derived full-text index at `state/index.db` that `hand search` reads and that is safe to delete at any time. When the database and a `state/<id>.status` file disagree about what a worker said, believe the file: it is readable without a working `hand`, which is what recovery has actually needed - see SPECS.md's "Machine state and the prose corpus" section.
 
 ## CLI overview
 
@@ -64,6 +65,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 | `hand watch` | Blocking watcher that prints actionable fleet events, including a worker gone silent with no herdr transition at all (`parked`); `--until-event` exits on the first one so the exit itself wakes the supervisory agent, and exits `5` naming any worker it can't reach before arming | Available |
 | `hand merge` | Merge a task's completed work | Available |
 | `hand pr` | Record a task's pull request URL | Available |
+| `hand search` | Full-text search the prose corpus under `data/` | Available |
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work, recording it in `state/completions.jsonl` first | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Available |
 | `hand notify` | Send an out-of-band notification via a configured command; operator-invoked, nothing in the fleet calls it yet | Available |
@@ -96,7 +98,7 @@ flowchart TD
 Optional:
 
 - [no-mistakes](https://github.com/yes2games/no-mistakes) - validation pipeline for projects in `no-mistakes` mode
-- [qmd](https://github.com/tobi/qmd) - search over historical task data
+- [qmd](https://github.com/tobi/qmd) - semantic search over historical task data, beyond `hand search`'s keyword matching
 
 ## Installation
 

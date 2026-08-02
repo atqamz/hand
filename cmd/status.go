@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"text/tabwriter"
+	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -102,6 +103,7 @@ type statusJSON struct {
 	MergeExecuted  bool          `json:"merged"`
 	MergeAnnounced bool          `json:"pr_merged_observed"`
 	CreatedAt      string        `json:"created_at"`
+	LastReportAt   string        `json:"last_report_at,omitempty"`
 	Reported       *reportedJSON `json:"reported,omitempty"`
 	ReportHistory  []string      `json:"report_history,omitempty"`
 }
@@ -140,7 +142,8 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			AgentState: agentState,
 			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR,
 			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
-			Reported: reportedFrom(last, len(lines) > 0, readErr),
+			LastReportAt: lastReportAt(home, t.ID),
+			Reported:     reportedFrom(last, len(lines) > 0, readErr),
 		})
 		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr)+mergeSuffix(t))
 	}
@@ -152,38 +155,46 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(w, "id\tproject\tkind\tstate\tage\tlast report"); err != nil {
+		return err
+	}
 	for i, r := range rows {
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, r.AgentState+suffixes[i], formatAge(r.CreatedAt)); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, r.AgentState+suffixes[i], formatAge(r.CreatedAt), formatReportAge(r.LastReportAt)); err != nil {
 			return err
 		}
 	}
 	return w.Flush()
 }
 
-// reportUnreadable is the state both fleet views use when the report file exists
-// but can't be read. It is deliberately distinct from "unreported": an I/O fault
-// is not evidence that the worker never reported.
-const reportUnreadable = "unreadable"
-
-// reportSuffix flags, in the fleet table's state column, whether a not-busy pane
-// (herdr's idle or done - see herdr.Status) left a terminal report behind or not -
-// the same distinction SPECS.md's classifier draws between idle-unreported and an
-// absorbed stop. Any other agent state is left unadorned; herdr's own state is
-// already informative there.
-//
-// reported is the last line that classified, not simply the last line, so this
-// answers the same question hand watch answers about the same quiet pane: free
-// text appended after a real report explains nothing and must not erase it. The
-// raw last line is still what the Reported field shows, verbatim.
-func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr error) string {
-	if !herdr.Status(agentState).NotBusy() {
+// A stat fault reads the same as no report at all: the column is a staleness
+// hint, and failing hand status over it would trade a whole fleet view for one
+// unreadable timestamp.
+func lastReportAt(home, id string) string {
+	mtime, ok, err := state.ReportModTime(home, id)
+	if err != nil || !ok {
 		return ""
 	}
+	return mtime.UTC().Format(time.RFC3339)
+}
+
+// Distinct from "unreported": an I/O fault is not evidence that the worker
+// never reported.
+const reportUnreadable = "unreadable"
+
+// A pane state and a report answer different questions, so both print. This
+// used to speak only for a not-busy pane, which rendered a worker that appended
+// `paused:` with its harness still running as a bare `working`.
+func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr error) string {
 	if readErr != nil {
 		return fmt.Sprintf(" (report %s)", reportUnreadable)
 	}
+	// `working` is what the column already says, and a busy pane that has not
+	// reported yet is not a stop anyone has to explain.
 	if !ok || reported.State == "" || reported.State == state.ReportWorking {
-		return " (unreported)"
+		if herdr.Status(agentState).NotBusy() {
+			return " (unreported)"
+		}
+		return ""
 	}
 	return fmt.Sprintf(" (reported: %s)", reported.State)
 }
@@ -229,7 +240,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR,
 			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
-			Reported: reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
+			LastReportAt: lastReportAt(home, id),
+			Reported:     reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -268,6 +280,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		fmt.Sprintf("Worktree:    %s", t.Worktree),
 		fmt.Sprintf("Herdr:       %s / %s", t.Herdr.Session, t.Herdr.TabID),
 		fmt.Sprintf("Created:     %s", formatAge(t.CreatedAt)),
+		fmt.Sprintf("Last report: %s", formatReportAge(lastReportAt(home, id))),
 		fmt.Sprintf("PR:          %s", pr),
 		fmt.Sprintf("Reported:    %s", reported),
 	}
@@ -315,4 +328,11 @@ func formatAge(createdAt string) string {
 		return age
 	}
 	return age + " ago"
+}
+
+func formatReportAge(at string) string {
+	if at == "" {
+		return "(none)"
+	}
+	return formatAge(at)
 }

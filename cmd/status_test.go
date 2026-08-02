@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -238,12 +238,6 @@ func TestStatusDetectionFillsTheDashboardPRColumn(t *testing.T) {
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
 	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-		ID: "task-1", Project: "myproj", Kind: "ship", State: "working", Age: "just now",
-	}}); err != nil {
-		t.Fatal(err)
-	}
-
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
 		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
 		t.Fatal(err)
@@ -509,6 +503,144 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 	}
 }
 
+// A worker that appends `paused:` and leaves its harness running used to render
+// as a bare `working`: the column showed the pane and hid the only party that
+// said why. One of the two live symptoms atqamz/secondhand#89 names.
+func TestStatusFleetCarriesAPausedReportThroughABusyPane(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("paused: waiting on the nightly build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "working (reported: paused)") {
+		t.Fatalf("got %q, want the paused report carried through the busy pane", out.String())
+	}
+}
+
+// The second live symptom in atqamz/secondhand#89: an hours-old figure sitting
+// next to a status file touched minutes earlier, which reads as a stalled
+// worker that is in fact reporting.
+func TestStatusFleetDwellTimeFollowsTheReportFileNotTheTaskAge(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr:     state.Herdr{PaneID: "wA:pB"},
+		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+	report := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(report, []byte("working: still going\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	touched := time.Now().Add(-3 * time.Minute)
+	if err := os.Chtimes(report, touched, touched); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	row := ""
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(line, "task-1") {
+			row = line
+		}
+	}
+	if !strings.Contains(row, "5h ago") {
+		t.Fatalf("got %q, want the age column still measuring the task", row)
+	}
+	if !strings.Contains(row, "3m ago") {
+		t.Fatalf("got %q, want the last report column measuring the report file", row)
+	}
+}
+
+// The same distinction in the detail view, where a stale figure is worse: it is
+// the view an operator opens once the fleet table has already worried them.
+func TestStatusSingleTaskDwellTimeFollowsTheReportFileNotTheTaskAge(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr:     state.Herdr{PaneID: "wA:pB"},
+		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+	report := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(report, []byte("working: still going\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	touched := time.Now().Add(-3 * time.Minute)
+	if err := os.Chtimes(report, touched, touched); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Created:     5h ago") {
+		t.Fatalf("got %q, want Created still measuring the task", got)
+	}
+	if !strings.Contains(got, "Last report: 3m ago") {
+		t.Fatalf("got %q, want Last report measuring the report file", got)
+	}
+}
+
+// A task whose worker has never written a report has no dwell time to show, and
+// the column must say so rather than fall back to the task's age - the fallback
+// is what made an untouched report look freshly written.
+func TestStatusReportsNoDwellTimeWithoutAReportFile(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr:     state.Herdr{PaneID: "wA:pB"},
+		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Last report: (none)") {
+		t.Fatalf("got %q, want no dwell time invented for a task that never reported", out.String())
+	}
+}
+
 func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -695,8 +827,8 @@ func TestStatusSingleTaskAlignsEveryLabeledValueInOneColumn(t *testing.T) {
 			t.Fatalf("got %q starting its value at column %d, want every value at column %d", line, col+1, len("Report file: ")+1)
 		}
 	}
-	if labels != 12 {
-		t.Fatalf("got %d labeled lines, want all 12 checked for alignment", labels)
+	if labels != 13 {
+		t.Fatalf("got %d labeled lines, want all 13 checked for alignment", labels)
 	}
 }
 

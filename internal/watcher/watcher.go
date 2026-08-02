@@ -206,10 +206,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {
-			handleEvent(cfg, e, t, out, errOut)
+			handleEvent(cfg, e, out, errOut)
 		}
 		if e := ClassifyStale(ts, t.ID, now, cfg.StaleThreshold); e != nil {
-			handleEvent(cfg, e, t, out, errOut)
+			handleEvent(cfg, e, out, errOut)
 		}
 		if t.PR != "" && !ts.PRMerged {
 			ghCtx, ghCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -217,17 +217,17 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			ghCancel()
 			if err == nil {
 				if e := ClassifyPRMerged(ts, t.ID, merged); e != nil {
-					handleEvent(cfg, e, t, out, errOut)
+					handleEvent(cfg, e, out, errOut)
 				}
 			}
 		}
 		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
-			handleEvent(cfg, e, t, out, errOut)
+			handleEvent(cfg, e, out, errOut)
 		}
 		if mtime, err := reportEvidenceTime(cfg.Home, t); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
 		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
-			handleEvent(cfg, e, t, out, errOut)
+			handleEvent(cfg, e, out, errOut)
 		}
 		syncTaskState(cfg.Home, t.ID, ts, now, errOut)
 	}
@@ -321,7 +321,7 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 
 	for _, line := range lines {
 		if e := ClassifyReportLine(cfg.Home, ts, t, line); e != nil {
-			handleEvent(cfg, e, t, out, errOut)
+			handleEvent(cfg, e, out, errOut)
 		}
 		if t.PR == "" {
 			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
@@ -425,7 +425,7 @@ func announceAutoRecordFailure(cfg Config, t state.Task, url string, err error, 
 		Kind:   kind,
 		Text:   fmt.Sprintf("%s %s: %s (%s)", kind, t.ID, url, flattenError(err)),
 		Reason: url,
-	}, t, out, errOut)
+	}, out, errOut)
 }
 
 // flattenError renders err's whole cause on one line. An event is one line on
@@ -497,16 +497,7 @@ func recordAutoPR(home, id, url string) error {
 
 	// Task lock before dashboard lock, never the reverse - the one ordering
 	// every site that takes both follows.
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: id, PR: url}}); err != nil {
-		if errors.Is(err, dashboard.ErrPRRowNotFound) {
-			// The write above succeeded, so the PR is genuinely on record - only the
-			// dashboard has no active row to carry it, the same silent no-op cmd/pr.go
-			// exits non-zero to refuse. The watcher cannot exit non-zero per task, so
-			// pr-not-recorded is how an operator learns the dashboard column is stale
-			// despite the state write having landed.
-			return fmt.Errorf("%w - the PR is recorded on the task but nothing was reconciled", err)
-		}
+	if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 		return fmt.Errorf("recorded PR for %s in task state but dashboard update failed: %w", id, err)
 	}
 	return nil
@@ -593,7 +584,10 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedChangedFor = string(ts.Status)
 }
 
-func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
+// Nothing here decides anything about the task's dashboard row any more: every
+// column is derived from the store when the dashboard is written, so an event
+// kind can neither leave one stale nor invent a Pending Decision.
+func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	_, _ = fmt.Fprintln(out, e.Text)
 
 	logPath := filepath.Join(state.Dir(cfg.Home), "events.log")
@@ -601,108 +595,9 @@ func handleEvent(cfg Config, e *Event, t state.Task, out, errOut io.Writer) {
 		_, _ = fmt.Fprintf(errOut, "watch: append events.log failed: %v\n", err)
 	}
 
-	if err := updateDashboardForEvent(cfg.Home, e, t); err != nil {
+	if err := dashboard.Update(cfg.Home, dashboard.UpdateOpts{AddEvent: e.Text}); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: update dashboard failed: %v\n", err)
 	}
-}
-
-// dashboardRow is one event kind's complete disposition of a task's row. The row has
-// two event-driven fields and a kind must answer both: a kind that answered only the
-// state column is how a stopped worker's row kept reading "working", then how a steered
-// worker's row kept reading "needs-decision", and answering only that column again is
-// how the Pending Decisions slot kept a question the worker had already resolved. Three
-// misses of the same shape, so the disposition is a value each kind returns rather than
-// a set of assignments each kind is trusted to remember.
-//
-// Answering is not the same as choosing between set and clear. "Leave it" is a real
-// answer and the safe one, so each field is a tri-state; what closes the family is that
-// no kind may be silently absent, which dashboardRowFor enforces on its own.
-type dashboardRow struct {
-	// Written false is the third answer, not a default: the kind says nothing about
-	// the worker and only appends to Recent Events.
-	Written bool
-	State   string
-	// Pending is the Pending Decisions text this kind writes; ClearPending retires
-	// whatever is there. Leaving both zero is the third answer for that slot, and it
-	// is the default on purpose: clearing destroys a supervisor question nothing can
-	// restore - the report line is already past report_offset - so it takes positive
-	// evidence that the question is retired, not merely a kind with nothing of its
-	// own to say. A stale question next to a state column that already reads "failed"
-	// is visible and actionable; an erased one is gone.
-	Pending      string
-	ClearPending bool
-}
-
-// dashboardRowFor gives every event kind a disposition, or fails. An unknown kind is
-// a programming error rather than a silent no-op, which is what makes the rule
-// checkable: TestEveryEventKindHasADashboardRowDisposition reads the kind constants
-// straight out of events.go, so a new kind that reaches here without a decision fails
-// the build's tests instead of quietly leaving a field stale.
-func dashboardRowFor(e *Event, age string) (dashboardRow, error) {
-	switch e.Kind {
-	case KindIdleUnreported:
-		return dashboardRow{Written: true, State: KindIdleUnreported, Pending: fmt.Sprintf("stopped, reason unknown (idle %s)", age)}, nil
-	case KindBlocked:
-		return dashboardRow{Written: true, State: KindBlocked, Pending: fmt.Sprintf("%s (blocked %s)", e.Reason, age)}, nil
-	// The slot is upserted by task ID, so a second writer for the same task erases
-	// the first. It belongs to whatever the supervisor has to answer about that task
-	// - the worker's own question, or an unexplained stop that leaves no one to ask.
-	// Operator notices go to the event stream.
-	case KindReportBlocked, KindReportNeedsDecision:
-		return dashboardRow{Written: true, State: e.Kind, Pending: e.Reason}, nil
-	// A pane hand cannot probe, and a worker parked or stopped on its own, all say
-	// nothing about a question already asked. KindFailed is the sharpest: ClassifyStatus
-	// fires it on any probe error, so clearing here would let one herdr daemon restart
-	// wipe every tracked task's slot in a single tick.
-	case KindFailed:
-		return dashboardRow{Written: true, State: KindFailed}, nil
-	case KindReportPaused:
-		return dashboardRow{Written: true, State: KindReportPaused}, nil
-	case KindParked:
-		return dashboardRow{Written: true, State: KindParked, Pending: e.Reason}, nil
-	case KindReportFailed:
-		return dashboardRow{Written: true, State: KindReportFailed}, nil
-	// The only two events that are evidence a question is retired: the worker is
-	// working again, or the task verifiably landed.
-	case KindReportWorking:
-		return dashboardRow{Written: true, State: state.ReportWorking, ClearPending: true}, nil
-	case KindReportDone:
-		// A reported done is never trusted alone. Only once doneVerified finds
-		// recorded evidence that the task actually landed (Verified) does it get to
-		// touch the row at all, so an unverified self-report shows up in Recent
-		// Events without silently overriding what's still pending.
-		if !e.Verified {
-			return dashboardRow{}, nil
-		}
-		return dashboardRow{Written: true, State: state.ReportDone, ClearPending: true}, nil
-	case KindStale, KindPRMerged, KindPRNotRecorded, KindPRRecordUnknown, KindReportMalformed:
-		// Nothing about what the worker is doing: elapsed time in a state rather than
-		// a new one, facts about a PR record, and free text that classifies to
-		// nothing.
-		return dashboardRow{}, nil
-	}
-	return dashboardRow{}, fmt.Errorf("no dashboard row disposition for event kind %q", e.Kind)
-}
-
-func updateDashboardForEvent(home string, e *Event, t state.Task) error {
-	age := dashboard.FormatAge(t.CreatedAt)
-	row, err := dashboardRowFor(e, age)
-	if err != nil {
-		return err
-	}
-
-	opts := dashboard.UpdateOpts{AddEvent: e.Text}
-	if row.Written {
-		opts.UpdateAgentState = &dashboard.AgentStateUpdate{ID: t.ID, State: row.State, Age: age}
-		switch {
-		case row.Pending != "":
-			opts.SetPendingDecision = &dashboard.PendingDecision{ID: t.ID, Text: row.Pending}
-		case row.ClearPending:
-			opts.ClearPendingDecision = t.ID
-		}
-	}
-
-	return dashboard.Update(filepath.Join(home, "data", "dashboard.md"), opts)
 }
 
 func appendEventLog(path, line string) error {

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
@@ -51,8 +50,7 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 	if err != nil {
 		return t, err
 	}
-	dashPath := filepath.Join(home, "data", "dashboard.md")
-	_ = dashboard.Update(dashPath, dashboard.UpdateOpts{SetPR: &dashboard.PRUpdate{ID: updated.ID, PR: url}})
+	_ = dashboard.Update(home, dashboard.UpdateOpts{})
 	return updated, nil
 }
 

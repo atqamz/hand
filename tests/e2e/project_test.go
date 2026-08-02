@@ -44,9 +44,8 @@ func TestProjectLifecycle(t *testing.T) {
 		t.Fatalf("project.List = %+v, want a single demo/direct-pr entry", projects)
 	}
 
-	dash := readDashboard(t, home)
-	if len(dash.Projects) != 1 || dash.Projects[0].Name != "demo" || dash.Projects[0].Mode != "direct-pr" {
-		t.Fatalf("dashboard projects = %+v, want a single demo/direct-pr summary", dash.Projects)
+	if summaries := dashboardSection(t, home, "Projects"); len(summaries) != 1 || !strings.HasPrefix(summaries[0], "demo: direct-pr") {
+		t.Fatalf("dashboard projects = %+v, want a single demo/direct-pr summary", summaries)
 	}
 
 	listed := runHand(t, home, "project", "list")
@@ -91,7 +90,7 @@ func TestProjectLifecycle(t *testing.T) {
 	if _, err := os.Stat(clonePath); err != nil {
 		t.Fatalf("clone at %s should survive project remove: %v", clonePath, err)
 	}
-	if dash := readDashboard(t, home); len(dash.Projects) != 0 {
-		t.Fatalf("dashboard projects after remove = %+v, want none", dash.Projects)
+	if summaries := dashboardSection(t, home, "Projects"); len(summaries) != 0 {
+		t.Fatalf("dashboard projects after remove = %+v, want none", summaries)
 	}
 }

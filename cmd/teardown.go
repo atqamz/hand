@@ -103,8 +103,7 @@ func newTeardownCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			dashPath := filepath.Join(home, "data", "dashboard.md")
-			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{Complete: &c}); err != nil {
+			if err := dashboard.Update(home, dashboard.UpdateOpts{Complete: &c}); err != nil {
 				return fmt.Errorf("update dashboard: %w", err)
 			}
 

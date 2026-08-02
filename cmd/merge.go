@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
@@ -139,7 +140,7 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 				return printErr
 			}
 		} else if advanced {
-			if err := updateDashboardProjects(home); err != nil {
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 				return err
 			}
 		}

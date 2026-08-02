@@ -1,64 +1,18 @@
-// Package state manages per-task metadata in state/<id>.json.
+// Package state is the task-level API over hand's machine state, which
+// internal/store keeps in sqlite, plus the plain-text report channel at
+// state/<id>.status that hand only ever reads.
 package state
 
+import "github.com/atqamz/secondhand/internal/store"
+
 const (
-	KindShip  = "ship"
-	KindScout = "scout"
+	KindShip  = store.KindShip
+	KindScout = store.KindScout
 )
 
-type Herdr struct {
-	Session     string `json:"session"`
-	WorkspaceID string `json:"workspace_id"`
-	TabID       string `json:"tab_id"`
-	PaneID      string `json:"pane_id"`
-}
-
-type Task struct {
-	ID       string `json:"id"`
-	Project  string `json:"project"`
-	Kind     string `json:"kind"`
-	Harness  string `json:"harness"`
-	Model    string `json:"model"`
-	Effort   string `json:"effort"`
-	Worktree string `json:"worktree"`
-	Brief    string `json:"brief"`
-	Herdr    Herdr  `json:"herdr"`
-	PR       string `json:"pr"`
-	// MergeExecuted records that hand itself ran the merge - not that the PR is
-	// merged, since a PR merged by other means leaves this false and is what
-	// MergeAnnounced records instead.
-	MergeExecuted   bool   `json:"merged"`
-	MergeExecutedAt string `json:"merged_at"`
-	// ReportOffset is how far hand watch has consumed the task's report file.
-	// It is durable so a watcher restart resumes exactly where it stopped
-	// instead of replaying every line the previous run already surfaced.
-	ReportOffset int64 `json:"report_offset"`
-	// MergeAnnounced records a merge hand observed rather than performed: hand
-	// watch's own gh poll already emitted the announcement, or gate-opened-PR
-	// detection recorded a PR that was already merged. Distinct from
-	// MergeExecuted: a restarted watcher needs to know the announcement went out
-	// even when hand itself never ran the merge.
-	MergeAnnounced bool `json:"pr_merged_observed"`
-	// DoneVerified records that hand watch already announced the verified "done"
-	// line for this task. Durable for the same reason MergeAnnounced is:
-	// evidence can land while the watcher is down (hand merge writes
-	// MergeExecuted without touching the dashboard), and a restart that
-	// re-derived this from current evidence would conclude the line had already
-	// gone out and never print it.
-	DoneVerified bool   `json:"done_verified"`
-	CreatedAt    string `json:"created_at"`
-	// StatusChangedAt is when hand watch last observed the task's herdr agent
-	// status change, and StatusChangedFor the status it was stamped for. Durable
-	// for the same reason ReportOffset is: a dwell clock reseeded to "now" on every
-	// restart never accumulates past a threshold that resumes more often than it
-	// elapses. Only trustworthy while StatusChangedFor still matches the observed
-	// status, since hand promote hands the task a new pane whose identical-looking
-	// status is a new dwell. Empty seeds the dwell from CreatedAt instead.
-	StatusChangedAt  string `json:"status_changed_at"`
-	StatusChangedFor string `json:"status_changed_for"`
-	// LastReportState and LastReportNote are durable so a restart resumes the
-	// scout's deferred-done bookkeeping without re-reading report history it has
-	// already consumed past ReportOffset.
-	LastReportState string `json:"last_report_state"`
-	LastReportNote  string `json:"last_report_note"`
-}
+// Aliases rather than separate structs: the store owns the columns these map
+// to, and a second definition would be one more place to forget a field.
+type (
+	Herdr = store.Herdr
+	Task  = store.Task
+)

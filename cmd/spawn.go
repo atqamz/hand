@@ -179,10 +179,7 @@ func newSpawnCmd() *cobra.Command {
 			}
 			spawned = true
 
-			dashPath := filepath.Join(home, "data", "dashboard.md")
-			if err := dashboard.Update(dashPath, dashboard.UpdateOpts{AddActiveTask: &dashboard.ActiveTask{
-				ID: id, Project: proj.Name, Kind: kind, State: string(pane.AgentStatus), Age: dashboard.FormatAge(task.CreatedAt),
-			}}); err != nil {
+			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
 				return fmt.Errorf("update dashboard: %w", err)
 			}
 
