@@ -142,6 +142,26 @@ func TestIsHomeFalseWhenDashboardIsADirNotAFile(t *testing.T) {
 	}
 }
 
+// A plain file named data must read as a clean no-match, not a stat error that
+// aborts the whole ancestor walk and fails every command.
+func TestIsHomeFalseWhenDataIsAFileNotADir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "data"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := IsHome(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("got true, want false")
+	}
+}
+
 func TestResolveReturnsCwdWhenItIsAHome(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	dir := t.TempDir()

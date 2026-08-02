@@ -14,6 +14,7 @@ func TestInitCreatesTheHandDbMarker(t *testing.T) {
 	t.Chdir(dir)
 
 	cmd := newInitCmd()
+	cmd.SetArgs([]string{})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -37,6 +38,7 @@ func TestInitIsIdempotentAboutTheHandDbMarker(t *testing.T) {
 
 	for i := 0; i < 2; i++ {
 		cmd := newInitCmd()
+		cmd.SetArgs([]string{})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("run %d: %v", i+1, err)
 		}

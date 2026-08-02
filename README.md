@@ -34,8 +34,9 @@ hand project add https://github.com/org/repo
 `hand init` only writes runtime directories and skeleton files under the current directory; it never places a `hand` binary there.
 Install `hand` from one of the options under "Installation" below and make sure it is on `PATH` before running any command.
 
-Every `hand` command resolves its fleet home the same way: the `HAND_HOME` environment variable if set, otherwise the current directory or the nearest ancestor holding both `data/dashboard.md` and `state/`.
-`data/dashboard.md` is the marker because only `hand init` writes it, so a project clone under `projects/` never captures the walk up.
+Every `hand` command resolves its fleet home the same way: the `HAND_HOME` environment variable if set, otherwise the current directory or the nearest ancestor holding `state/hand.db`.
+`state/hand.db` is the marker because only `hand` ever writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` never captures the walk up.
+A home initialized before this marker existed falls back to the marker it was initialized with, `data/dashboard.md` plus `state/`, so upgrading in place needs nothing re-run by hand.
 Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a script or a different working directory; pointed at a directory that is not a fleet home it refuses rather than falling back.
 
 ## Core concepts

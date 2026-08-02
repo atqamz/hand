@@ -53,15 +53,16 @@ var markerSets = [][]homeMarker{
 		{filepath.Join("state", "hand.db"), false},
 	},
 	{
+		{"data", true},
 		{filepath.Join("data", "dashboard.md"), false},
 		{"state", true},
 	},
 }
 
-// matchesMarkers checks state before state/hand.db so a state/ that turned
-// out to be a plain file, not a directory, is rejected before the nested
-// stat, which would otherwise fail with "not a directory" instead of the
-// not-exist the caller treats as a clean no-match.
+// matchesMarkers relies on every marker set listing a directory ahead of the
+// markers nested under it, so a parent that turned out to be a plain file is
+// rejected before the nested stat, which would otherwise fail with "not a
+// directory" instead of the not-exist the caller treats as a clean no-match.
 func matchesMarkers(dir string, markers []homeMarker) (bool, error) {
 	for _, m := range markers {
 		info, err := os.Stat(filepath.Join(dir, m.rel))
