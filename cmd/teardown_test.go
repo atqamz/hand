@@ -169,7 +169,14 @@ func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 func setupTeardownGateProject(t *testing.T, home, worktree, branch string) {
 	t.Helper()
 	runGitIn(t, worktree, "checkout", "-q", "-b", branch)
+	registerGateProject(t, home)
+}
 
+// registerGateProject is setupTeardownGateProject's clone-and-register half only,
+// for tests that need to control the worktree's branch checkout themselves (e.g.
+// to leave a diverging commit on main before switching to the task branch).
+func registerGateProject(t *testing.T, home string) {
+	t.Helper()
 	clonePath := filepath.Join(home, "projects", "myproj")
 	initGitRepo(t, clonePath)
 	runGitIn(t, clonePath, "remote", "add", "origin", "https://github.com/owner/repo.git")
@@ -808,5 +815,138 @@ esac
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:tB"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func writeAndCommit(t *testing.T, dir, name, content, message string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitIn(t, dir, "add", name)
+	runGitIn(t, dir, "commit", "-q", "-m", message)
+}
+
+// diverge creates task-1-branch off the worktree's current HEAD, then advances
+// main past it with a further commit to readmeContent - simulating the gate
+// fix landing on main after the task branch forked - and leaves the worktree
+// checked out on task-1-branch, still at the pre-fix commit.
+func diverge(t *testing.T, worktree, readmeContent string) {
+	t.Helper()
+	runGitIn(t, worktree, "branch", "task-1-branch")
+	writeAndCommit(t, worktree, "README.md", readmeContent, "gate fix lands on main")
+	runGitIn(t, worktree, "checkout", "-q", "task-1-branch")
+}
+
+// TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase is atqamz/secondhand#79's
+// safe case: the worktree's uncommitted edit to README.md reproduces byte-for-byte
+// content main already carries (the no-mistakes gate's own re-edit of a file its
+// merged fix already covers), so discarding it on teardown loses nothing.
+func TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	diverge(t, worktree, "fixed")
+	if err := os.WriteFile(filepath.Join(worktree, "README.md"), []byte("fixed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registerGateProject(t, home)
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want teardown to proceed past dirt that already matches the merged base", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	}
+}
+
+// TestTeardownRefusesDirtWhenContentDiffersFromBase is the counter-proof the brief
+// asks for: README.md exists in base under the same path (both weaker checks -
+// "the file exists in the base" and "the paths match" - would pass this), but its
+// content differs from the worktree's uncommitted edit, so it must still refuse.
+func TestTeardownRefusesDirtWhenContentDiffersFromBase(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	diverge(t, worktree, "fixed")
+	if err := os.WriteFile(filepath.Join(worktree, "README.md"), []byte("a different fix"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registerGateProject(t, home)
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("got %v, want the uncommitted changes refusal", err)
+	}
+}
+
+// TestTeardownRefusesDirtWithUntrackedFileEvenWhenTrackedChangeMatchesBase proves
+// an untracked file blocks on its own even when every tracked change is safe:
+// there is nothing in the base to compare an untracked file against, so its mere
+// presence must refuse, and the refusal must name it.
+func TestTeardownRefusesDirtWithUntrackedFileEvenWhenTrackedChangeMatchesBase(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	diverge(t, worktree, "fixed")
+	if err := os.WriteFile(filepath.Join(worktree, "README.md"), []byte("fixed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "scratch.txt"), []byte("leftover"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registerGateProject(t, home)
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "scratch.txt") {
+		t.Fatalf("got %v, want the untracked file named in the refusal", err)
+	}
+}
+
+// TestTeardownRefusalCapsGitStatusOutput proves the refusal's git status --short
+// dump is bounded (atqamz/secondhand#65 is the same lesson for report rendering):
+// the first 20 entries print, the rest collapse to a count.
+func TestTeardownRefusalCapsGitStatusOutput(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	for i := 0; i < 25; i++ {
+		name := fmt.Sprintf("untracked-%02d.txt", i)
+		if err := os.WriteFile(filepath.Join(worktree, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "untracked-00.txt") {
+		t.Fatalf("got %v, want the first entry present", err)
+	}
+	if strings.Contains(err.Error(), "untracked-24.txt") {
+		t.Fatalf("got %v, want entries past the cap omitted", err)
+	}
+	if !strings.Contains(err.Error(), "...and 5 more") {
+		t.Fatalf("got %v, want a count of the remaining entries", err)
 	}
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -120,7 +121,14 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		return t, err
 	}
 	if dirty {
-		return t, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", t.Worktree), Code: 3}
+		safe, safeErr := dirtIsSafeToDiscard(t.Worktree)
+		if safeErr != nil || !safe {
+			status, statusErr := gitStatusShort(t.Worktree)
+			if statusErr != nil {
+				return t, statusErr
+			}
+			return t, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s:\n%s", t.Worktree, capStatusLines(status)), Code: 3}
+		}
 	}
 
 	if t.PR == "" {
@@ -185,6 +193,135 @@ func hasUncommittedChanges(worktreePath string) (bool, error) {
 		return false, fmt.Errorf("git status failed: %w", err)
 	}
 	return len(strings.TrimSpace(string(out))) > 0, nil
+}
+
+// maxDirtStatusLines bounds the refusal's git status --short dump (atqamz/secondhand#65
+// is the same lesson for report rendering): an unbounded dump into a session is its
+// own problem, so this prints the first N entries and a count of the rest.
+const maxDirtStatusLines = 20
+
+func gitStatusShort(worktreePath string) (string, error) {
+	c := exec.Command("git", "status", "--short")
+	c.Dir = worktreePath
+	out, err := c.Output()
+	if err != nil {
+		return "", fmt.Errorf("git status --short failed: %w", err)
+	}
+	return string(out), nil
+}
+
+func capStatusLines(status string) string {
+	trimmed := strings.TrimRight(status, "\n")
+	if trimmed == "" {
+		return trimmed
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) <= maxDirtStatusLines {
+		return strings.Join(lines, "\n")
+	}
+	rest := len(lines) - maxDirtStatusLines
+	return strings.Join(lines[:maxDirtStatusLines], "\n") + fmt.Sprintf("\n...and %d more", rest)
+}
+
+// dirtIsSafeToDiscard reports whether every uncommitted change in worktreePath is
+// a tracked modification whose current content already matches the local default
+// branch's tip byte-for-byte - the no-mistakes gate re-editing a file to exactly
+// the content its own merged fix already carries (atqamz/secondhand#79). Discarding
+// dirt like that on teardown loses nothing.
+//
+// Untracked files are never safe: there is nothing in the base to compare them
+// against, so their mere presence fails this check. Checking only that the path
+// exists in the base, or comparing paths without comparing content, both pass
+// cases that lose data (a same-named file with different content, or a path
+// that only coincidentally matches); this compares actual bytes for that reason.
+//
+// Resolution is local-only, no fetch: a stale local ref just means a real safe
+// case is missed and falls through to the ordinary refusal, never the reverse.
+func dirtIsSafeToDiscard(worktreePath string) (bool, error) {
+	c := exec.Command("git", "status", "--porcelain")
+	c.Dir = worktreePath
+	out, err := c.Output()
+	if err != nil {
+		return false, fmt.Errorf("git status failed: %w", err)
+	}
+	trimmed := strings.TrimRight(string(out), "\n")
+	if trimmed == "" {
+		return true, nil
+	}
+
+	var paths []string
+	for _, line := range strings.Split(trimmed, "\n") {
+		if len(line) < 3 {
+			return false, fmt.Errorf("unexpected git status --porcelain line %q", line)
+		}
+		status, path := line[:2], line[3:]
+		if status == "??" {
+			return false, nil
+		}
+		if idx := strings.Index(path, " -> "); idx >= 0 {
+			path = path[idx+len(" -> "):]
+		}
+		paths = append(paths, path)
+	}
+
+	baseRef, err := localDefaultBranchRef(worktreePath)
+	if err != nil {
+		return false, nil
+	}
+	for _, path := range paths {
+		working, err := os.ReadFile(filepath.Join(worktreePath, path))
+		if err != nil {
+			return false, nil
+		}
+		base, err := gitShowBlob(worktreePath, baseRef, path)
+		if err != nil {
+			return false, nil
+		}
+		if !bytes.Equal(working, base) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// localDefaultBranchRef resolves the worktree's local knowledge of the default
+// branch without touching the network: a real treehouse worktree shares its
+// refs with the project clone it was leased from, so a prior fetch there
+// already left refs/remotes/origin/HEAD in place for it to read directly.
+func localDefaultBranchRef(worktreePath string) (string, error) {
+	c := exec.Command("git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+	c.Dir = worktreePath
+	if out, err := c.Output(); err == nil {
+		if ref := strings.TrimSpace(string(out)); ref != "" {
+			return ref, nil
+		}
+	}
+
+	current, err := currentBranch(worktreePath)
+	if err != nil {
+		return "", err
+	}
+	for _, branch := range []string{"main", "master"} {
+		if branch == current {
+			continue
+		}
+		c := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+		c.Dir = worktreePath
+		if err := c.Run(); err == nil {
+			return branch, nil
+		}
+	}
+	return "", fmt.Errorf("cannot resolve a local default branch ref")
+}
+
+func gitShowBlob(worktreePath, ref, path string) ([]byte, error) {
+	c := exec.Command("git", "show", ref+":"+path)
+	c.Dir = worktreePath
+	out, err := c.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git show %s:%s failed: %w", ref, path, err)
+	}
+	return out, nil
 }
 
 func branchIsMerged(clonePath, worktreePath string) (bool, error) {
