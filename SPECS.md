@@ -299,9 +299,9 @@ Behavior:
    unreachable, unless `--skip-gate-check` is set.
 3. Validate no active task with this ID exists.
 4. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
-6. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
-7. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in `state/*.json`. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
-8. Acquire the task's herdr tab in the project's workspace.
+5. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
+6. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in `state/*.json`. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
+7. Acquire the task's herdr tab in the project's workspace.
    - Workspace naming: one workspace per project, named after the project.
    - Tab naming: task ID.
    - If the project's workspace does not exist yet, create it at the worktree's cwd. herdr has no
@@ -309,15 +309,15 @@ Behavior:
      this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
      second one, which would leave the root tab behind as an orphan shell in the workspace.
    - If the workspace already exists, create a new tab in it for the task.
-9. Construct the harness launch command from the template (see harness section).
-10. Send the launch command to the herdr pane.
-11. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
+8. Construct the harness launch command from the template (see harness section).
+9. Send the launch command to the herdr pane.
+10. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
    no first-run dialog is left, answering any known dialog along the way, or the poll window
    elapses (see Harness launch templates).
-12. Write `state/<id>.json` with all metadata.
-13. Update `data/dashboard.md` with the new task.
+11. Write `state/<id>.json` with all metadata.
+12. Update `data/dashboard.md` with the new task.
 
-Any failure before step 12 leaves nothing behind: the worktree lease returns to treehouse and the
+Any failure before step 11 leaves nothing behind: the worktree lease returns to treehouse and the
 herdr side is rolled back.
 A workspace this command created is closed whole: the task's tab is that workspace's own
 auto-created root tab, so there is nothing else in it to preserve.
@@ -871,7 +871,7 @@ Behavior:
    refuse before acquiring any worktree if it comes back not initialized or unreachable, unless
    `--skip-gate-check` is set.
 4. Acquire a fresh treehouse worktree (with collision guard).
-5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 8, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
+5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 7, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
 7. Rewrite `state/<id>.json` in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.

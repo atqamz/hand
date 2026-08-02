@@ -243,27 +243,12 @@ func TestGateStatusReady(t *testing.T) {
 	}
 }
 
-// TestGateStatusNotInitialized_NeverInitialized covers the first real history from
-// atqamz/secondhand#60: a project that was registered but never had no-mistakes init run
-// against it. Output text mirrors a real never-initialized repo verbatim.
-func TestGateStatusNotInitialized_NeverInitialized(t *testing.T) {
-	fakeNoMistakes(t, "repo not initialized (run 'no-mistakes init' first)")
-
-	got, err := GateStatus(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != GateNotInitialized {
-		t.Fatalf("got %v, want GateNotInitialized", got)
-	}
-}
-
-// TestGateStatusNotInitialized_StaleRenamedPath covers the second real history: the fleet home
-// was renamed (/home/atqa/fleet to /home/atqa/secondhand), orphaning no-mistakes's own
-// working_path row. Verified empirically against the real binary: init, then move the repo, then
-// status from the new path prints this exact text, byte-for-byte identical to the
-// never-initialized case, and exits 0 either way.
-func TestGateStatusNotInitialized_StaleRenamedPath(t *testing.T) {
+// TestGateStatusNotInitialized covers both real histories from atqamz/secondhand#60 at once: a
+// project registered but never given a no-mistakes init, and a project whose working_path went
+// stale when the fleet home was renamed (/home/atqa/fleet to /home/atqa/secondhand). Both were
+// checked against the real binary and print this one text byte-for-byte, exiting 0 either way, so
+// a second test replaying the same literal would assert nothing new.
+func TestGateStatusNotInitialized(t *testing.T) {
 	fakeNoMistakes(t, "repo not initialized (run 'no-mistakes init' first)")
 
 	got, err := GateStatus(t.TempDir())

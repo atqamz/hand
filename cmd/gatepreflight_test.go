@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,9 +109,8 @@ func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 
 // TestSpawnRefusesWhenNoMistakesGateNotInitialized stands in for both real histories from
 // atqamz/secondhand#60 (never-initialized project, and a project whose working_path went stale
-// after the fleet home was renamed): internal/project.TestGateStatusNotInitialized_* already prove
-// those two histories produce byte-identical no-mistakes status output, so one refusal test here
-// covers both.
+// after the fleet home was renamed): both were checked against the real binary and emit the same
+// status text, so one refusal test here covers both.
 func TestSpawnRefusesWhenNoMistakesGateNotInitialized(t *testing.T) {
 	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")
 	home := setupSpawnHomeGate(t, path)
@@ -153,6 +153,29 @@ func TestSpawnProceedsWhenNoMistakesGateReady(t *testing.T) {
 	}
 	if exitCodeFor(t, err) == 3 && strings.Contains(err.Error(), "gate") {
 		t.Fatalf("err = %v, gate check should have passed and failed later for an unrelated reason", err)
+	}
+}
+
+// TestSpawnSkipGateCheckBypassesRefusalAndWarns pairs the two halves of the escape hatch: the
+// not-initialized gate no longer refuses, and the bypass still announces itself on stderr, which
+// is the only thing that keeps it visible in a transcript.
+func TestSpawnSkipGateCheckBypassesRefusalAndWarns(t *testing.T) {
+	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")
+	setupSpawnHomeGate(t, path)
+
+	var errOut bytes.Buffer
+	cmd := newSpawnCmd()
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"task-1", "gated", "--skip-gate-check"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected spawn to still fail past the gate check (no brief, no herdr fake)")
+	}
+	if exitCodeFor(t, err) == 3 && strings.Contains(err.Error(), "gate") {
+		t.Fatalf("err = %v, --skip-gate-check should have bypassed the gate refusal", err)
+	}
+	if !strings.Contains(errOut.String(), "--skip-gate-check") || !strings.Contains(errOut.String(), "gated") {
+		t.Fatalf("stderr = %q, want a warning naming the flag and the project", errOut.String())
 	}
 }
 
