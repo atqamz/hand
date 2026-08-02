@@ -141,7 +141,7 @@ func GateInitCommand(clonePath string) string {
 }
 
 // GateStatus asks the no-mistakes binary whether clonePath's gate is initialized, rather than
-// reading /home/atqa/.no-mistakes/state.sqlite directly, which is another tool's private schema.
+// reading ~/.no-mistakes/state.sqlite directly, which is another tool's private schema.
 // no-mistakes status exits 0 whether or not the repo is initialized, so the outcome is read from
 // its output text, not its exit code. Any failure to run the binary at all (missing, unexecutable,
 // unexpected nonzero exit) is returned as an error distinct from GateNotInitialized: the remedy for

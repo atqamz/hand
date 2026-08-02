@@ -1341,7 +1341,7 @@ project: `no-mistakes status`, run inside the project's clone. `no-mistakes stat
 whether or not the repo is initialized, and reports both of the histories above with the identical
 text `repo not initialized (run 'no-mistakes init' first)` - there is no way to distinguish a
 never-initialized repo from a stale renamed one from the outside, so the preflight does not try.
-The outcome is read from that text, never from `/home/atqa/.no-mistakes/state.sqlite` directly,
+The outcome is read from that text, never from `~/.no-mistakes/state.sqlite` directly,
 which is another tool's private schema.
 
 Three outcomes:
@@ -1351,7 +1351,8 @@ Three outcomes:
   `no-mistakes gate not initialized for project "<name>", run: cd <clone-path> && no-mistakes init`.
 - **Binary missing or not runnable:** refuse with a distinctly different message (`no-mistakes
   binary not found or not runnable: <error>`), never collapsed into "not initialized" - the remedy
-  for a missing binary is not `no-mistakes init`.
+  for a missing binary is not `no-mistakes init`. This is a general error (exit code `1`), not a
+  precondition: the world is not in a state the operator can fix by initializing anything.
 
 Escape hatch: `--skip-gate-check` on both `hand spawn` and `hand promote` bypasses the preflight
 and prints a warning to stderr naming the project, so bypassing it is visible in the transcript
@@ -1561,7 +1562,7 @@ On restart (new supervisory agent session):
 - `1`: general error.
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`).
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
 
