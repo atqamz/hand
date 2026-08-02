@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/completion"
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -492,6 +493,95 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 	}
 	if !strings.Contains(string(dashboardData), "task-1: myproj | ship | merged | PR https://example.com/pr/1") {
 		t.Fatalf("dashboard = %q, want task-1 moved to Recent Completions", dashboardData)
+	}
+}
+
+func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	before := time.Now().UTC().Truncate(time.Second)
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("completions store has %d records, want 1: %+v", len(records), records)
+	}
+	got := records[0]
+	torndownAt, err := time.Parse(time.RFC3339, got.TornDownAt)
+	if err != nil {
+		t.Fatalf("TornDownAt %q did not parse as RFC3339: %v", got.TornDownAt, err)
+	}
+	if torndownAt.Before(before) {
+		t.Fatalf("TornDownAt %v predates teardown start %v", torndownAt, before)
+	}
+	got.TornDownAt = ""
+	want := completion.Record{ID: "task-1", Project: "myproj", Kind: "ship", Outcome: "merged", Detail: "PR https://example.com/pr/1"}
+	if got != want {
+		t.Fatalf("record = %+v, want %+v", got, want)
+	}
+}
+
+// TestTeardownCompletionAppendFailureLeavesStateIntact proves the ordering in
+// cmd/teardown.go survives a fault in completion.Append the same way
+// TestTeardownRetriesAfterReportRemovalFails proves it for state.Delete's report
+// removal: state.Delete never runs, so the task stays retryable, and the retry
+// succeeds without leaving a second, duplicate record behind a failed first line.
+func TestTeardownCompletionAppendFailureLeavesStateIntact(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	storePath := completion.Path(home)
+	if err := os.MkdirAll(storePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "record completion") {
+		t.Fatalf("got err %v, want a record completion failure", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after failed teardown, want it retryable: %v %v", exists, err)
+	}
+
+	if err := os.Remove(storePath); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd = newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after retried teardown: %v %v", exists, err)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("completions store has %d records after the failed attempt and its retry, want 1: %+v", len(records), records)
 	}
 }
 
