@@ -23,18 +23,46 @@ var ErrHandHomeInvalid = errors.New("is not a secondhand home; check the path or
 
 // IsHome reports whether dir is a fleet home, the one definition every caller
 // (the resolver, hand init, and agentsmd's refresh) shares. The marker is
-// data/dashboard.md, which only hand init writes, rather than the data/
-// directory itself: project clones live at <home>/projects/<name>, so a clone
-// carrying its own generic top-level data/ and state/ directories would
-// otherwise stop the ancestor walk short and be dispatched into as the home.
+// state/hand.db, which only hand ever creates (hand init writes it up front;
+// every command that touches machine state recreates it if missing), rather
+// than the state/ directory itself: project clones live at
+// <home>/projects/<name>, so a clone carrying its own generic top-level
+// data/ and state/ directories would otherwise stop the ancestor walk short
+// and be dispatched into as the home. A home initialized before this marker
+// existed falls back to the marker it was initialized with, data/dashboard.md
+// plus state/, so an operator upgrading in place never has to re-run
+// anything by hand.
 func IsHome(dir string) (bool, error) {
-	markers := []struct {
-		rel   string
-		isDir bool
-	}{
+	for _, markers := range markerSets {
+		ok, err := matchesMarkers(dir, markers)
+		if err != nil || ok {
+			return ok, err
+		}
+	}
+	return false, nil
+}
+
+type homeMarker struct {
+	rel   string
+	isDir bool
+}
+
+var markerSets = [][]homeMarker{
+	{
+		{"state", true},
+		{filepath.Join("state", "hand.db"), false},
+	},
+	{
 		{filepath.Join("data", "dashboard.md"), false},
 		{"state", true},
-	}
+	},
+}
+
+// matchesMarkers checks state before state/hand.db so a state/ that turned
+// out to be a plain file, not a directory, is rejected before the nested
+// stat, which would otherwise fail with "not a directory" instead of the
+// not-exist the caller treats as a clean no-match.
+func matchesMarkers(dir string, markers []homeMarker) (bool, error) {
 	for _, m := range markers {
 		info, err := os.Stat(filepath.Join(dir, m.rel))
 		if os.IsNotExist(err) {

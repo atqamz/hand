@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
+	"github.com/atqamz/secondhand/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -67,6 +68,9 @@ func newInitCmd() *cobra.Command {
 			if err := initSkeletonFiles(home); err != nil {
 				return err
 			}
+			if err := initMarker(home); err != nil {
+				return err
+			}
 			if _, err := agentsmd.Refresh(home); err != nil {
 				return err
 			}
@@ -119,6 +123,17 @@ func initSkeletonFiles(home string) error {
 		}
 	}
 	return nil
+}
+
+// initMarker creates state/hand.db up front so home.IsHome's marker exists as
+// soon as init returns, rather than waiting for the first command that
+// happens to touch machine state. store.Open is safe to call repeatedly.
+func initMarker(home string) error {
+	db, err := store.Open(home)
+	if err != nil {
+		return fmt.Errorf("create state/hand.db: %w", err)
+	}
+	return db.Close()
 }
 
 func runInteractiveSetup(cmd *cobra.Command, home string) error {
