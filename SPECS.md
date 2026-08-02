@@ -669,7 +669,7 @@ Behavior (PR merge, default):
 6. Run `gh pr merge <number> --repo <owner/repo> --squash` (or specified method).
 7. Update the task's row with merge status.
 8. Run `hand project sync <project>` to fast-forward the project clone.
-9. Re-render the dashboard, only if that sync advanced the clone.
+9. Re-render the dashboard.
 
 Behavior (local merge, `--local`):
 1. Read the task's row for worktree and project.
@@ -679,7 +679,8 @@ Behavior (local merge, `--local`):
 5. Refuse if fast-forward is not possible (diverged branches).
 6. Update the task's row with merge status.
 
-A local merge writes no dashboard: no derived section carries a merge, so there is nothing for it to render.
+No derived section carries a merge, so neither path renders on account of the merge itself.
+The PR path renders because it runs `hand project sync`, which renders unconditionally like every other mutating command; `--local` runs no sync and so writes no dashboard.
 
 Output:
 ```
@@ -833,7 +834,7 @@ So a fleet left entirely unattended still goes unread; the difference is that an
 |---|---|
 | How far the report file is consumed | Persisted as `report_offset`, after the tick's events are announced. |
 | A merge this watcher's own `gh` poll saw | Persisted as `pr_merged_observed`, after `pr-merged <id>` is printed. |
-| The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. `hand merge` writes `merged` without touching the dashboard, so the evidence can appear while the watcher is down. |
+| The verified `done` announcement | Persisted as `done_verified`, after `done <id>` is printed. No dashboard section carries a merge, so `hand merge`'s evidence can appear while the watcher is down. |
 | An auto-recorded PR URL | Persisted as `pr` on the task, and every outcome that isn't a silently self-resolving race is announced (`pr-not-recorded` / `pr-record-unknown`) and logged. |
 | Last reported state and note | Persisted as `last_report_state` and `last_report_note`, written alongside `report_offset` on the same tick that consumed the line. Re-reading them from `state/<id>.status` on resume instead - the previous behavior - meant re-reading history the durable offset says has already been consumed, and re-derived them from a file `hand promote` deliberately leaves alone, so a promoted ship inherited the scout's last report as if it were its own. They explain a quiet pane (`parked`'s bound is selected by the state, and `hand status` renders the note) and gate the scout's deferred-`done` bookkeeping. |
 | The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh row, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
@@ -922,7 +923,7 @@ Behavior:
    - If on default branch and clean: fast-forward to `origin/<default>`.
    - If dirty, on non-default branch, or diverged: skip with warning.
 2. Prune local branches whose remote tracking branch is gone.
-3. Update `data/dashboard.md` if any project advanced.
+3. Re-render `data/dashboard.md`.
 
 Output:
 ```
@@ -963,12 +964,13 @@ Behavior:
 6. Launch the worker and confirm it started (same as `hand spawn`).
 7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
+9. Re-render `data/dashboard.md`, so the Active Tasks `kind` column reads `ship`.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
 to step 7, so a promotion that fails partway still leaves the scout's pane and worktree intact
 instead of stranding the task with nothing to look at.
-`data/dashboard.md` is deliberately left untouched, so the task's row keeps reading `scout` until
-something else rewrites it.
+The render is last of all, after that teardown, so a render fault cannot strand the scout's pane and
+worktree behind a promotion the store has already recorded.
 
 Output:
 ```
@@ -1116,9 +1118,9 @@ Only the append-only sections have per-command rules, because only they carry an
 | `hand watch` | One Recent Events entry per actionable event (keep last 20) |
 | every other command | Nothing to append; whether it writes at all is below |
 
-A command that changes what a section shows re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
-A command that does not, does not write at all: `hand send` and `hand notify` change nothing any section shows, `hand merge --local` records a merge no column carries, and `hand merge`'s PR path and `hand project sync` write only when the follow-up sync advanced a clone.
-`hand promote` is the one command that changes a column and still writes nothing, deliberately; see its own section for what that leaves on the row.
+A mutating command re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
+It re-renders unconditionally, never after testing whether its own effect reached a section: `hand promote` changes the `kind` the Active Tasks row derives, while `hand project sync` and `hand merge`'s PR path may leave every derived value identical, and a command that had to know which case it was in would be deciding from outside the render what the render already answers.
+Three commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
 
 Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 

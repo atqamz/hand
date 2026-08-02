@@ -193,6 +193,26 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	}
 }
 
+func TestPromoteRerendersTheDashboardKindColumn(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteScript)
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := dashboardSection(t, home, "Active Tasks")
+	if len(rows) != 1 {
+		t.Fatalf("Active Tasks = %v, want one row", rows)
+	}
+	if !strings.Contains(rows[0], "| ship |") {
+		t.Fatalf("Active Tasks row = %q, want the kind column re-rendered as ship", rows[0])
+	}
+}
+
 func TestPromoteRefusesNonScout(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

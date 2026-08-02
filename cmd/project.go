@@ -342,13 +342,12 @@ func newProjectSyncCmd() *cobra.Command {
 				}
 			}
 
-			advancedAny := false
 			for _, p := range targets {
 				releaseProject, err := state.Lock(home, "project:"+p.Name)
 				if err != nil {
 					return fmt.Errorf("lock project %q: %w", p.Name, err)
 				}
-				msg, advanced, syncErr := syncOneProject(home, p)
+				msg, _, syncErr := syncOneProject(home, p)
 				releaseProject()
 
 				if syncErr != nil {
@@ -360,20 +359,12 @@ func newProjectSyncCmd() *cobra.Command {
 					}
 					continue
 				}
-				if advanced {
-					advancedAny = true
-				}
 				if _, err := fmt.Fprintln(cmd.OutOrStdout(), msg); err != nil {
 					return err
 				}
 			}
 
-			if advancedAny {
-				if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-					return err
-				}
-			}
-			return nil
+			return dashboard.Update(home, dashboard.UpdateOpts{})
 		},
 	}
 	return cmd

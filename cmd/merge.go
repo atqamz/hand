@@ -123,9 +123,6 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		return fmt.Errorf("write task state: %w", err)
 	}
 
-	// Re-sync the project clone and touch the Projects dashboard section only
-	// if the sync actually advanced it; runLocalMerge never touches the
-	// dashboard at all.
 	if proj, exists, err := project.Find(home, t.Project); err != nil {
 		return err
 	} else if exists {
@@ -133,16 +130,15 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		if err != nil {
 			return fmt.Errorf("lock project %q: %w", proj.Name, err)
 		}
-		_, advanced, syncErr := syncOneProject(home, proj)
+		_, _, syncErr := syncOneProject(home, proj)
 		releaseProject()
 		if syncErr != nil {
 			if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project sync failed: %v\n", syncErr); printErr != nil {
 				return printErr
 			}
-		} else if advanced {
-			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-				return err
-			}
+		}
+		if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
+			return err
 		}
 	}
 
