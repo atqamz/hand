@@ -1,0 +1,24 @@
+name: Triage label
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  label-non-author-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label needs-triage if not filed by atqamz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          if [ "$(echo "$AUTHOR" | tr '[:upper:]' '[:lower:]')" = "atqamz" ]; then
+            echo "Filed by atqamz, skipping"
+            exit 0
+          fi
+          gh issue edit "$ISSUE_URL" --add-label needs-triage
