@@ -67,19 +67,28 @@ func TestOpenRefusesADatabaseNewerThanThisBuild(t *testing.T) {
 }
 
 // Registering a migration step is meant to be the whole job for a column
-// addition: one entry, applied automatically, without an operator running
-// anything, and cheap to run again on the next open.
+// addition to a database that already exists: one entry, applied
+// automatically, without an operator running anything, and cheap to run again
+// on the next open.
 func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
+	home := t.TempDir()
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.AddProject(Project{Name: "nsr", URL: "u", Mode: "direct-pr"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	restore := migrations
 	migrations = []string{`ALTER TABLE project ADD COLUMN note TEXT NOT NULL DEFAULT ''`}
 	t.Cleanup(func() { migrations = restore })
 
-	home := t.TempDir()
 	db, err := Open(home)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AddProject(Project{Name: "nsr", URL: "u", Mode: "direct-pr"}); err != nil {
 		t.Fatal(err)
 	}
 	var note string
@@ -138,4 +147,39 @@ func TestMigrationReachesADatabaseCreatedBeforeThisMechanismExisted(t *testing.T
 	if err := post.sql.QueryRow(`SELECT note FROM project WHERE name = 'nsr'`).Scan(&note); err != nil {
 		t.Fatalf("pre-existing database did not gain the pending column: %v", err)
 	}
+}
+
+// Adding a column puts it in the `schema` constant, so new databases are built
+// with it, and appends the matching ALTER TABLE to `migrations`, so existing
+// ones gain it. A brand-new database must take only the first of those: the
+// column is already there, and replaying the migration would fail with
+// "duplicate column name" on every fresh home. `mode` stands in for such a
+// column - the baseline `project` table already has it.
+func TestFreshDatabaseSkipsAMigrationTheSchemaAlreadyBuilds(t *testing.T) {
+	restore := migrations
+	migrations = []string{`ALTER TABLE project ADD COLUMN mode TEXT NOT NULL DEFAULT ''`}
+	t.Cleanup(func() { migrations = restore })
+
+	home := t.TempDir()
+	db, err := Open(home)
+	if err != nil {
+		t.Fatalf("fresh database replayed a migration its schema already builds: %v", err)
+	}
+	version, err := db.schemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Fatalf("schemaVersion = %d, want 1", version)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stamped, not merely skipped: the next open must not read it as pending.
+	second, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopening a stamped fresh database: %v", err)
+	}
+	defer func() { _ = second.Close() }()
 }
