@@ -28,9 +28,34 @@ func makeGenericDataAndState(t *testing.T, dir string) {
 	}
 }
 
+// makeHandDBHome builds a home carrying only the current marker, state/hand.db,
+// without the legacy data/dashboard.md marker a pre-upgrade home would also have.
+func makeHandDBHome(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state", "hand.db"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestIsHomeTrueWhenDashboardFileAndStateDirExist(t *testing.T) {
 	dir := t.TempDir()
 	makeHome(t, dir)
+
+	got, err := IsHome(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("got false, want true")
+	}
+}
+
+func TestIsHomeTrueWhenHandDbExistsWithoutDashboard(t *testing.T) {
+	dir := t.TempDir()
+	makeHandDBHome(t, dir)
 
 	got, err := IsHome(dir)
 	if err != nil {
@@ -117,6 +142,26 @@ func TestIsHomeFalseWhenDashboardIsADirNotAFile(t *testing.T) {
 	}
 }
 
+// A plain file named data must read as a clean no-match, not a stat error that
+// aborts the whole ancestor walk and fails every command.
+func TestIsHomeFalseWhenDataIsAFileNotADir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "data"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := IsHome(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("got true, want false")
+	}
+}
+
 func TestResolveReturnsCwdWhenItIsAHome(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	dir := t.TempDir()
@@ -157,6 +202,25 @@ func TestResolveWalksPastAProjectCloneWithGenericDataAndStateDirs(t *testing.T) 
 	t.Setenv("HAND_HOME", "")
 	home := t.TempDir()
 	makeHome(t, home)
+	clone := filepath.Join(home, "projects", "myapp")
+	makeGenericDataAndState(t, clone)
+	t.Chdir(clone)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != home {
+		t.Fatalf("got %q, want %q", got, home)
+	}
+}
+
+// A home that only carries the current marker must still survive the same
+// clone-shaped directory below it that the legacy marker had to survive.
+func TestResolveWalksPastAProjectCloneWhenAncestorHomeHasOnlyTheHandDbMarker(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	home := t.TempDir()
+	makeHandDBHome(t, home)
 	clone := filepath.Join(home, "projects", "myapp")
 	makeGenericDataAndState(t, clone)
 	t.Chdir(clone)

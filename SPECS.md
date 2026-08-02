@@ -30,8 +30,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
 3. **herdr-native.** herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events. Use them instead of regex-scraping terminal output. herdr's own agent state carries no task-outcome signal (see "Agent state"); the report channel is what actually tells hand whether a task finished.
 4. **Text editing stays with the agent.** The backlog is a markdown file. The agent reads and edits it directly. No CLI wrapper for text operations.
 5. **No feature without friction.** Every feature in firstmate that doesn't have a proven use case is cut. Features get added when their absence causes real pain.
-6. **A fleet home is any directory with `data/dashboard.md` and `state/`.** `hand init` creates one anywhere on disk; put `hand` on PATH and launch the agent there. The marker is the dashboard file rather than the `data/` directory because only `hand init` writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` cannot capture the walk up. Maintainers dogfood a fleet home inside the secondhand repo checkout itself, with runtime state gitignored alongside the tracked code, but the CLI has no opinion about the two: `HAND_HOME`, or an ancestor of the working directory, is all it looks for.
-`state/hand.db` would be the better marker on both counts - only `hand` creates it, and unlike the dashboard it is not scheduled for deletion (atqamz/secondhand#62) - but the marker is deliberately left alone here, since changing what identifies a fleet home is its own change with its own migration.
+6. **A fleet home is any directory `state/hand.db` marks as one.** `hand init` creates the file up front; put `hand` on PATH and launch the agent there. Only `hand` ever writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` cannot capture the walk up. A home initialized before this marker existed falls back to the marker it was initialized with, `data/dashboard.md` plus `state/`, so an operator upgrading in place never has to re-run anything by hand; new homes do not depend on the dashboard file at all, so deleting it (atqamz/secondhand#62) is safe. Maintainers dogfood a fleet home inside the secondhand repo checkout itself, with runtime state gitignored alongside the tracked code, but the CLI has no opinion about the two: `HAND_HOME`, or an ancestor of the working directory, is all it looks for.
 7. **The dashboard is the memory.** `data/dashboard.md` is the living document the CLI maintains. The agent reads it for context. The user watches it for visibility. No session digests, no bootstrap scripts, no 187-line status dumps.
 8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic.
 
@@ -209,7 +208,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
 
 Initialize secondhand runtime directories in the current working directory.
 Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
-Creates `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` with skeleton content. The machine-state database is created on first use, not here.
+Creates `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` with skeleton content, and creates `state/hand.db` if it does not already exist - the fleet-home marker `IsHome` checks for (see "Core principles").
 Idempotent: safe to run multiple times.
 This is the one command that does not resolve its home: it creates the one its argument or the working directory names.
 When `HAND_HOME` is set and names some other directory it still initializes the requested target, and warns on stderr that every other command will use `HAND_HOME` instead.
@@ -1812,7 +1811,7 @@ hand init --setup
 hand init ~/fleet --setup
 ```
 
-`hand init` writes the runtime dirs (`data/`, `state/`, `config/`, `projects/`) and creates missing `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` skeletons.
+`hand init` writes the runtime dirs (`data/`, `state/`, `config/`, `projects/`), creates missing `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` skeletons, and creates `state/hand.db` if it is not already there.
 It also writes the generated AGENTS.md template and its CLAUDE.md symlink (see "AGENTS.md (target)").
 Other existing files are left unchanged, and an optional target path is accepted.
 
