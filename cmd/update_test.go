@@ -196,11 +196,12 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 	}
 }
 
-func TestUpdateSkipsAgentsRefreshOutsideWorkspace(t *testing.T) {
+func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("update binary layout targets unix asset names")
 	}
 	setFakeExecutable(t)
+	t.Setenv("HAND_HOME", "")
 	home := t.TempDir()
 	t.Chdir(home)
 
@@ -222,6 +223,41 @@ func TestUpdateSkipsAgentsRefreshOutsideWorkspace(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("got AGENTS.md written outside a fleet home, err=%v", err)
+	}
+}
+
+// "No home here" is the silent skip; "HAND_HOME names something that is not a
+// home" is a misconfiguration, and swallowing it would leave the operator with
+// an unrefreshed AGENTS.md and nothing on stderr saying why.
+func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := t.TempDir()
+	t.Chdir(home)
+	notAHome := t.TempDir()
+	t.Setenv("HAND_HOME", notAHome)
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want a successful update despite the misconfigured HAND_HOME", err)
+	}
+
+	got := out.String()
+	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nchanged:\nfixed the frobnicator\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), notAHome) {
+		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), notAHome)
 	}
 }
 

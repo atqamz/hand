@@ -10,25 +10,40 @@ import (
 	"path/filepath"
 )
 
-// ErrNotFound is wrapped into the error Resolve returns when no directory
-// from the resolution order qualifies as a fleet home. It renders as the
-// full user-facing sentence on its own, so callers should not add more
-// context around it.
+// ErrNotFound is wrapped into the error Resolve returns when the working
+// directory has no fleet home above it. It renders as the full user-facing
+// sentence on its own, so callers should not add more context around it.
 var ErrNotFound = errors.New("not inside a secondhand home; run `hand init` or set HAND_HOME")
 
-// IsHome reports whether dir holds both data/ and state/ as directories,
-// the one definition of a fleet home every caller (the resolver, hand init,
-// and agentsmd's refresh) shares.
+// ErrHandHomeInvalid is wrapped into the error Resolve returns when HAND_HOME
+// is set but does not name a fleet home. It is separate from ErrNotFound
+// because the remedy differs: an operator who already set HAND_HOME is not
+// helped by being told to set it.
+var ErrHandHomeInvalid = errors.New("is not a secondhand home; check the path or unset HAND_HOME to search up from the working directory")
+
+// IsHome reports whether dir is a fleet home, the one definition every caller
+// (the resolver, hand init, and agentsmd's refresh) shares. The marker is
+// data/dashboard.md, which only hand init writes, rather than the data/
+// directory itself: project clones live at <home>/projects/<name>, so a clone
+// carrying its own generic top-level data/ and state/ directories would
+// otherwise stop the ancestor walk short and be dispatched into as the home.
 func IsHome(dir string) (bool, error) {
-	for _, sub := range []string{"data", "state"} {
-		info, err := os.Stat(filepath.Join(dir, sub))
+	markers := []struct {
+		rel   string
+		isDir bool
+	}{
+		{filepath.Join("data", "dashboard.md"), false},
+		{"state", true},
+	}
+	for _, m := range markers {
+		info, err := os.Stat(filepath.Join(dir, m.rel))
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		if err != nil {
-			return false, fmt.Errorf("check %s: %w", sub, err)
+			return false, fmt.Errorf("check %s: %w", m.rel, err)
 		}
-		if !info.IsDir() {
+		if info.IsDir() != m.isDir {
 			return false, nil
 		}
 	}
@@ -48,7 +63,7 @@ func Resolve() (string, error) {
 			return "", fmt.Errorf("check HAND_HOME %q: %w", handHome, err)
 		}
 		if !ok {
-			return "", fmt.Errorf("HAND_HOME %q: %w", handHome, ErrNotFound)
+			return "", fmt.Errorf("HAND_HOME %q %w", handHome, ErrHandHomeInvalid)
 		}
 		return handHome, nil
 	}

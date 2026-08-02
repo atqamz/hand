@@ -77,6 +77,9 @@ func newInitCmd() *cobra.Command {
 				}
 			}
 
+			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), home); err != nil {
+				return err
+			}
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "initialized secondhand home at %s\n", home); err != nil {
 				return err
 			}
@@ -210,6 +213,22 @@ func resolveInitHome(cwd string, args []string) (string, error) {
 		home = filepath.Join(cwd, home)
 	}
 	return filepath.Clean(home), nil
+}
+
+// warnHandHomeMismatch reports the one asymmetry in home handling: init
+// creates the home its argument or working directory names, while every other
+// command resolves HAND_HOME first, so an operator who exported HAND_HOME and
+// initialized somewhere else would otherwise get a home nothing ever uses.
+func warnHandHomeMismatch(w io.Writer, home string) error {
+	handHome := os.Getenv("HAND_HOME")
+	if handHome == "" {
+		return nil
+	}
+	if abs, err := filepath.Abs(handHome); err == nil && abs == home {
+		return nil
+	}
+	_, err := fmt.Fprintf(w, "warning: HAND_HOME is set to %s, so every other hand command will use that home, not %s\n", handHome, home)
+	return err
 }
 
 func readSetupChoice(in io.Reader, choices []string, label string) (string, error) {

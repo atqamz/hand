@@ -357,6 +357,38 @@ func TestResolveInitHome(t *testing.T) {
 	}
 }
 
+func TestWarnHandHomeMismatch(t *testing.T) {
+	home := t.TempDir()
+
+	t.Setenv("HAND_HOME", "")
+	var quiet strings.Builder
+	if err := warnHandHomeMismatch(&quiet, home); err != nil {
+		t.Fatal(err)
+	}
+	if quiet.String() != "" {
+		t.Fatalf("got %q, want no warning without HAND_HOME", quiet.String())
+	}
+
+	t.Setenv("HAND_HOME", home)
+	quiet.Reset()
+	if err := warnHandHomeMismatch(&quiet, home); err != nil {
+		t.Fatal(err)
+	}
+	if quiet.String() != "" {
+		t.Fatalf("got %q, want no warning when HAND_HOME is the initialized home", quiet.String())
+	}
+
+	elsewhere := t.TempDir()
+	t.Setenv("HAND_HOME", elsewhere)
+	var warned strings.Builder
+	if err := warnHandHomeMismatch(&warned, home); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(warned.String(), elsewhere) || !strings.Contains(warned.String(), home) {
+		t.Fatalf("got %q, want a warning naming both %q and %q", warned.String(), elsewhere, home)
+	}
+}
+
 func TestReadSetupChoice(t *testing.T) {
 	choice, err := readSetupChoice(strings.NewReader("2\n"), []string{"claude", "codex"}, "harness")
 	if err != nil || choice != "codex" {

@@ -79,6 +79,14 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	// Every hand process this suite drives inherits this environment and
+	// resolves HAND_HOME ahead of its working directory, so a developer who
+	// exported one would otherwise have the suite spawn, merge and tear down
+	// against their real fleet.
+	if err := os.Unsetenv("HAND_HOME"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	code := m.Run()
 	_ = os.RemoveAll(dir)
@@ -93,8 +101,18 @@ type invocation struct {
 
 func runHand(t *testing.T, home string, args ...string) invocation {
 	t.Helper()
+	return runHandEnv(t, home, nil, args...)
+}
+
+// runHandEnv is runHand for the cases that need one extra environment entry,
+// appended to the suite's own (already HAND_HOME-free) environment.
+func runHandEnv(t *testing.T, home string, extraEnv []string, args ...string) invocation {
+	t.Helper()
 	cmd := exec.Command(handBin, args...)
 	cmd.Dir = home
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -281,6 +299,21 @@ func writeBrief(t *testing.T, home, id string) {
 	}
 }
 
+// sealDir makes dir reject new entries for the rest of the test, the portable
+// way to fault a write that creates its temp file next to the target (see
+// internal/atomicfile). Root ignores the mode, so a run as root skips rather
+// than silently proving nothing.
+func sealDir(t *testing.T, dir string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("a read-only directory does not stop root")
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+}
+
 func assertInvocation(t *testing.T, got invocation, wantCode int, wantStderr string) {
 	t.Helper()
 	if got.code != wantCode {
@@ -465,6 +498,25 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 			assertInvocation(t, runHand(t, home, tc.args...), 3, tc.wantStderr)
 		})
 	}
+}
+
+// Every command routes home.Resolve's failure through asPrecondition, so this
+// covers that wiring for all of them at once: a regression downgrades the
+// refusal to a plain exit 1.
+func TestExitCodeThreeOutsideAnyFleetHome(t *testing.T) {
+	assertInvocation(t, runHand(t, t.TempDir(), "status"), 3,
+		"not inside a secondhand home; run `hand init` or set HAND_HOME")
+}
+
+// A HAND_HOME pointing at a directory that is not a fleet home refuses rather
+// than silently falling back to the working directory, which here is a real
+// home the fallback would have found.
+func TestExitCodeThreeWhenHandHomeIsNotAFleetHome(t *testing.T) {
+	home := newHome(t)
+	notAHome := t.TempDir()
+
+	got := runHandEnv(t, home, []string{"HAND_HOME=" + notAHome}, "status")
+	assertInvocation(t, got, 3, fmt.Sprintf("HAND_HOME %q is not a secondhand home", notAHome))
 }
 
 func TestExitCodeOneOnGeneralError(t *testing.T) {

@@ -20,6 +20,7 @@ var preconditionSentinels = []error{
 	state.ErrTaskActive,
 	project.ErrNotFound,
 	home.ErrNotFound,
+	home.ErrHandHomeInvalid,
 }
 
 func asPrecondition(err error) error {

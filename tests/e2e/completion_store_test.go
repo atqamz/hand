@@ -14,10 +14,11 @@ import (
 // TestTeardownCompletionSurvivesMissingDashboard is atqamz/secondhand#61's
 // done-when condition run literally: data/dashboard.md is gone from disk before
 // teardown runs, so the only way this test can pass is if the completion record
-// lives somewhere else. Deleting the file here, rather than after hand init
-// as usual, sidesteps internal/agentsmd's dashboard.md stat for fleet-home
-// detection (atqamz/secondhand#46, not this issue's fix) simply by never calling
-// hand init or hand update again once the file is gone.
+// lives somewhere else. data/dashboard.md is also the fleet-home marker
+// home.Resolve looks for (atqamz/secondhand#46, not this issue's fix), so the
+// final teardown names the home through HAND_HOME instead of the walk up: an
+// operator whose dashboard is gone runs `hand init` to restore it, which is
+// what the resolver's own refusal tells them to do.
 func TestTeardownCompletionSurvivesMissingDashboard(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
@@ -44,24 +45,29 @@ func TestTeardownCompletionSurvivesMissingDashboard(t *testing.T) {
 	}
 
 	dashPath := filepath.Join(home, "data", "dashboard.md")
-	if err := os.Remove(dashPath); err != nil {
+	before, err := os.ReadFile(dashPath)
+	if err != nil {
 		t.Fatal(err)
 	}
+	sealDir(t, filepath.Join(home, "data"))
 
 	// teardown still fails here: its last step renders into data/dashboard.md,
-	// and that file's removal belongs to atqamz/secondhand#62, not this issue.
-	// The point this test proves is what happens before that last step: the
-	// completion record and the task state deletion both come earlier in
-	// cmd/teardown.go, so neither is lost when the dashboard step has nothing
-	// left to read.
+	// and surviving that failure belongs to atqamz/secondhand#62, not this
+	// issue. The point this test proves is what happens before that last step:
+	// the completion record and the task state deletion both come earlier in
+	// cmd/teardown.go, so neither is lost when the dashboard step cannot write.
 	done := runHand(t, home, "teardown", "task-1")
 	assertInvocation(t, done, 1, "update dashboard")
 
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state.Exists after teardown = %v, %v, want task removed", exists, err)
 	}
-	if _, err := os.Stat(dashPath); !os.IsNotExist(err) {
-		t.Fatalf("dashboard.md stat = %v, want it to stay gone: teardown must not have recreated it", err)
+	after, err := os.ReadFile(dashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("dashboard.md = %q, want it unchanged: the step that could not write must not have half-written", after)
 	}
 
 	records, err := completion.List(home)
