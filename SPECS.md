@@ -122,7 +122,7 @@ secondhand/                 # repo root = working directory
   .gitignore
 
   # gitignored runtime (created by `hand init`)
-  state/                    # volatile per-task metadata
+  state/                    # volatile per-task metadata, plus the durable completion store
     <id>.json               # current task state, one file per active task
     <id>.status             # worker-to-supervisor report channel, worker-written, hand-read-only
     events.log              # recent watcher events, bounded rotating log

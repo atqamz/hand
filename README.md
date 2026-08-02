@@ -45,7 +45,7 @@ The worker lifecycle commands are available, including `hand spawn`, `hand statu
 | `hand watch` | Blocking watcher that prints actionable fleet events, including a worker gone silent with no herdr transition at all (`parked`); `--until-event` exits on the first one so the exit itself wakes the supervisory agent, and exits `5` naming any worker it can't reach before arming | Available |
 | `hand merge` | Merge a task's completed work | Available |
 | `hand pr` | Record a task's pull request URL | Available |
-| `hand teardown` | Clean up a completed task, fail-closed on unlanded work | Available |
+| `hand teardown` | Clean up a completed task, fail-closed on unlanded work, recording it in `state/completions.jsonl` first | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Available |
 | `hand notify` | Send an out-of-band notification via a configured command; operator-invoked, nothing in the fleet calls it yet | Available |
 | `hand update` | Update the installed binary from the latest GitHub Release; `--check` reports availability without installing | Available |
