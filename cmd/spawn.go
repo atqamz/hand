@@ -221,12 +221,8 @@ func gatePreflight(cmd *cobra.Command, proj project.Project, clonePath string, s
 	return nil
 }
 
-// acquireTaskWorkspace runs the shared spawn/promote workspace lifecycle: find or create the
-// project's herdr workspace, then acquire the task's tab within it. The returned rollback func
-// undoes whatever this call created; the caller must invoke it, guarded by its own
-// spawned/promoted flag, until state.Write durably records the task - the same ordering
-// rollbackHerdr and acquireTaskTab already encode, now installed in one place instead of once per
-// caller.
+// The caller must invoke the returned rollback, guarded by its own spawned/promoted flag,
+// until state.Write durably records the task.
 func acquireTaskWorkspace(client *herdr.Client, wt, id, projName string) (herdr.Workspace, herdr.Tab, herdr.Pane, func() error, error) {
 	ws, found, err := client.FindWorkspaceByLabel(projName)
 	createdWorkspace := false
