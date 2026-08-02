@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/atqamz/secondhand/internal/atomicfile"
 	"github.com/atqamz/secondhand/internal/store"
@@ -205,6 +206,12 @@ func Add(homeDir string, p Project) error {
 	if !validMode(p.Mode) {
 		return fmt.Errorf("invalid project mode %q", p.Mode)
 	}
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	db, err := openRegistry(homeDir)
 	if err != nil {
 		return err
@@ -222,6 +229,12 @@ func validMode(mode string) bool {
 }
 
 func Remove(homeDir, name string) error {
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	db, err := openRegistry(homeDir)
 	if err != nil {
 		return err
@@ -236,6 +249,24 @@ func Remove(homeDir, name string) error {
 		return fmt.Errorf("project %q %w", name, ErrNotFound)
 	}
 	return writeProjection(db, homeDir)
+}
+
+// sqlite serializes the row write, but the projection is a whole read-modify-
+// write over a file: without this, two concurrent adds can each render from
+// their own snapshot and the later write drops the other's line.
+func lockRegistry(homeDir string) (func(), error) {
+	lock, err := os.OpenFile(RegistryPath(homeDir)+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("lock project registry: %w", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("lock project registry: %w", err)
+	}
+	return func() {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+	}, nil
 }
 
 // Each project line is rewritten in place rather than regrouped: the live file

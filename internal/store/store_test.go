@@ -279,3 +279,31 @@ func TestPathsLiveUnderTheStateDirectory(t *testing.T) {
 		t.Errorf("LegacyDir = %q", got)
 	}
 }
+
+// A fleet home can sit anywhere an operator put it, and the pragmas require a
+// file: URI, where `%`, `#` and `?` are syntax rather than filename.
+func TestOpenHandlesAHomePathWithURISyntaxInIt(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "fleet 100%#a?b")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := Open(home)
+	if err != nil {
+		t.Fatalf("open %q: %v", home, err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := db.WriteTask(sampleTask()); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := db.ReadTask(sampleTask().ID)
+	if err != nil || !ok {
+		t.Fatalf("ReadTask = %v, %v", ok, err)
+	}
+	if got.Project != sampleTask().Project {
+		t.Fatalf("got %+v, want the task written back", got)
+	}
+	if _, err := os.Stat(Path(home)); err != nil {
+		t.Fatalf("stat %s: %v, want the database inside the home", Path(home), err)
+	}
+}

@@ -256,3 +256,38 @@ func TestRefreshOnAHomeWithNoCorpus(t *testing.T) {
 		t.Fatalf("Sync = %+v", sync)
 	}
 }
+
+// A doc row carries the size and mtime that let Refresh skip the file, so a row
+// without matching text would be a file silently unsearchable until a rebuild.
+func TestEveryIndexedDocHasItsText(t *testing.T) {
+	home := t.TempDir()
+	writeDoc(t, home, "data/a.md", "# A\n\nalpha\n")
+	writeDoc(t, home, "data/b.md", "# B\n\nbravo\n")
+
+	ix := openIndex(t, home)
+	if _, err := ix.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, "data", "b.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+
+	var orphans int
+	row := ix.sql.QueryRow(`SELECT count(*) FROM doc WHERE path NOT IN (SELECT path FROM doc_fts)`)
+	if err := row.Scan(&orphans); err != nil {
+		t.Fatal(err)
+	}
+	if orphans != 0 {
+		t.Fatalf("got %d doc rows with no text", orphans)
+	}
+	row = ix.sql.QueryRow(`SELECT count(*) FROM doc_fts WHERE path NOT IN (SELECT path FROM doc)`)
+	if err := row.Scan(&orphans); err != nil {
+		t.Fatal(err)
+	}
+	if orphans != 0 {
+		t.Fatalf("got %d indexed texts with no doc row", orphans)
+	}
+}

@@ -150,25 +150,47 @@ func (ix *Index) indexFile(f corpusFile) error {
 	}
 	title := docTitle(body, f.path)
 
-	if err := ix.deleteDoc(f.path); err != nil {
-		return err
-	}
-	if _, err := ix.sql.Exec(`INSERT INTO doc (path, size, mtime, title) VALUES (?, ?, ?, ?)`,
-		f.path, f.size, f.mtime, title); err != nil {
+	// One transaction, because a doc row records the size and mtime that let
+	// Refresh skip the file: landing it without its text would leave the file
+	// silently unsearchable until someone thought to rebuild.
+	tx, err := ix.sql.Begin()
+	if err != nil {
 		return fmt.Errorf("index %s: %w", f.path, err)
 	}
-	if _, err := ix.sql.Exec(`INSERT INTO doc_fts (path, title, body) VALUES (?, ?, ?)`,
-		f.path, title, string(body)); err != nil {
+	defer func() { _ = tx.Rollback() }()
+
+	for _, stmt := range []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM doc WHERE path = ?`, []any{f.path}},
+		{`DELETE FROM doc_fts WHERE path = ?`, []any{f.path}},
+		{`INSERT INTO doc (path, size, mtime, title) VALUES (?, ?, ?, ?)`, []any{f.path, f.size, f.mtime, title}},
+		{`INSERT INTO doc_fts (path, title, body) VALUES (?, ?, ?)`, []any{f.path, title, string(body)}},
+	} {
+		if _, err := tx.Exec(stmt.query, stmt.args...); err != nil {
+			return fmt.Errorf("index %s: %w", f.path, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("index %s: %w", f.path, err)
 	}
 	return nil
 }
 
 func (ix *Index) deleteDoc(path string) error {
-	if _, err := ix.sql.Exec(`DELETE FROM doc WHERE path = ?`, path); err != nil {
+	tx, err := ix.sql.Begin()
+	if err != nil {
 		return fmt.Errorf("drop %s from index: %w", path, err)
 	}
-	if _, err := ix.sql.Exec(`DELETE FROM doc_fts WHERE path = ?`, path); err != nil {
+	defer func() { _ = tx.Rollback() }()
+
+	for _, query := range []string{`DELETE FROM doc WHERE path = ?`, `DELETE FROM doc_fts WHERE path = ?`} {
+		if _, err := tx.Exec(query, path); err != nil {
+			return fmt.Errorf("drop %s from index: %w", path, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("drop %s from index: %w", path, err)
 	}
 	return nil

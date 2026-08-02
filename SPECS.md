@@ -1640,7 +1640,7 @@ Read/classify semantics:
 
 ### Concurrency
 
-- Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, dashboard) sit above that and guard whole command sequences, which a per-statement database lock cannot.
+- Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, dashboard) sit above that and guard whole command sequences, which a per-statement database lock cannot. The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
 - `hand watch` is the only long-running process; all other commands are short-lived.
 - File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.

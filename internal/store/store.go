@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,7 +138,10 @@ func open(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+	// The pragmas need a file: URI, and a URI means sqlite reads `%`, `#` and
+	// `?` in the fleet home's path as syntax rather than as filename.
+	uri := "file:" + (&url.URL{Path: path}).EscapedPath() + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
