@@ -11,15 +11,15 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestTeardownCompletionSurvivesMissingDashboard is atqamz/secondhand#61's
-// done-when condition run literally: data/dashboard.md is gone from disk before
-// teardown runs, so the only way this test can pass is if the completion record
-// lives somewhere else. data/dashboard.md is also the fleet-home marker
-// home.Resolve looks for (atqamz/secondhand#46, not this issue's fix), so the
-// final teardown names the home through HAND_HOME instead of the walk up: an
-// operator whose dashboard is gone runs `hand init` to restore it, which is
-// what the resolver's own refusal tells them to do.
-func TestTeardownCompletionSurvivesMissingDashboard(t *testing.T) {
+// TestTeardownCompletionSurvivesUnwritableDashboard is atqamz/secondhand#61's
+// done-when condition, reached through the fault that can still happen now that
+// data/dashboard.md is also the fleet-home marker (atqamz/secondhand#46):
+// deleting the file would make every command refuse to resolve a home before it
+// ran, so instead data/ is sealed against writes and the file stays on disk and
+// unchanged throughout. Teardown's closing dashboard render fails, and the only
+// way this test can pass is if the completion record lives somewhere else. The
+// home here resolves through the plain ancestor walk, with no HAND_HOME.
+func TestTeardownCompletionSurvivesUnwritableDashboard(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
 	writeBrief(t, home, "task-1")

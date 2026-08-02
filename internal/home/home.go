@@ -55,9 +55,16 @@ func IsHome(dir string) (bool, error) {
 // the working directory itself) that IsHome reports true for. HAND_HOME set
 // to a directory that isn't a home fails loudly instead of silently falling
 // back to the walk-up, since a silent fallback is how an operator ends up
-// dispatching into the wrong fleet.
+// dispatching into the wrong fleet. The returned path is always absolute:
+// commands derive paths they hand to subprocesses running elsewhere from it,
+// and a relative HAND_HOME would otherwise name a different home per
+// working directory.
 func Resolve() (string, error) {
 	if handHome := os.Getenv("HAND_HOME"); handHome != "" {
+		handHome, err := filepath.Abs(handHome)
+		if err != nil {
+			return "", fmt.Errorf("resolve HAND_HOME: %w", err)
+		}
 		ok, err := IsHome(handHome)
 		if err != nil {
 			return "", fmt.Errorf("check HAND_HOME %q: %w", handHome, err)

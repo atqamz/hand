@@ -205,6 +205,26 @@ func TestResolvePrefersHandHomeOverCwd(t *testing.T) {
 	}
 }
 
+// A relative HAND_HOME names one fleet home, not a different one per working
+// directory: commands join paths onto the resolved home and hand them to
+// subprocesses that run somewhere else entirely (hand spawn's brief path, which
+// the harness reads from inside the worktree).
+func TestResolveAbsolutizesARelativeHandHome(t *testing.T) {
+	parent := t.TempDir()
+	home := filepath.Join(parent, "fleet")
+	makeHome(t, home)
+	t.Chdir(parent)
+	t.Setenv("HAND_HOME", "fleet")
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != home {
+		t.Fatalf("got %q, want %q", got, home)
+	}
+}
+
 // A misconfigured HAND_HOME reports its own sentinel, not ErrNotFound: the two
 // have different remedies, and callers that quietly tolerate "no home here"
 // (hand update's AGENTS.md refresh) must still surface this one.
