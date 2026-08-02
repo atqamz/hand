@@ -138,13 +138,14 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       client.go             # API calls: create tab, get state, send keys
       types.go              # herdr data types
     store/                  # machine state in sqlite (see "Machine state and the prose corpus")
-      store.go              # schema, task and project rows, meta keys
+      store.go              # schema, task, project and hold rows, meta keys
       lock.go               # named flocks over state/, shared by state and the import
       migrate.go            # one-way import of pre-sqlite state/<id>.json and data/projects.md
       index.go              # derived full-text index over the prose corpus
     state/                  # task state management, a thin facade over store
       task.go               # read/write/list task rows
-      types.go              # Task struct aliases
+      hold.go               # set/clear/read/list hold rows (see "Holds")
+      types.go              # Task and Hold struct aliases
       report.go             # read/classify state/<id>.status (see "Report channel")
       pr.go                 # PR URL validation and extraction
     worktree/               # treehouse integration
@@ -177,7 +178,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
 
   # gitignored runtime (created by `hand init`)
   state/                    # machine state, the report channel, and the durable completion store
-    hand.db                 # authoritative machine state: tasks, PR state, pane ids, report offsets, projects
+    hand.db                 # authoritative machine state: tasks, PR state, pane ids, report offsets, projects, holds
     index.db                # derived full-text index over data/, safe to delete at any time
     migrated/               # pre-sqlite state/<id>.json files, moved aside once imported
     <id>.status             # worker-to-supervisor report channel, worker-written, hand-read-only
@@ -674,6 +675,7 @@ Behavior (ship task):
 8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
 
 The report channel goes because it is the volatile wake log, not a deliverable: a task respawned under a used ID starts at `report_offset` 0, so a surviving log would be replayed as this run's - re-raising decisions already resolved, absorbing a genuine unexplained stop as one already seen, and auto-recording a PR URL out of the previous run's `done` line onto a task nobody recorded it for. The durable deliverables under `data/<id>/` survive teardown, as before; keeping a torn-down task's wake history would be its own feature with its own reason, not a side effect of cleanup.
+A hold on the id is not removed either, deliberately - it is not task-scoped, so it outlives the row and keeps an unanswered question visible, which is also why `hand spawn` then refuses the id until `hand hold clear` (see "Holds" under "State management").
 
 Behavior (scout task):
 1. Check `data/<id>/report.md` exists (the report is the deliverable).
@@ -1794,9 +1796,9 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 
 - `0`: success.
 - `1`: general error.
-- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
+- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, a required flag left out (`hand hold set --reason`), mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`, `hand hold set --blocked-on` on any kind but `blocked` and its absence on a `blocked` one), an invalid argument or flag value (malformed project URL, unknown project mode, harness or hold kind, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
@@ -1840,6 +1842,7 @@ CI therefore installs no real herdr or treehouse.
 - Migration of a pre-sqlite fleet home the suite builds by hand, run twice.
 - Promote scout-to-ship cycle.
 - Collision guard with concurrent tasks.
+- Hold lifecycle: set, every `hand status` surface, surviving the teardown of the task it was set on, the spawn refusal on the reused id, and clear.
 
 ### No test categories from firstmate
 
