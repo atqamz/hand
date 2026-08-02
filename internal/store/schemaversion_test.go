@@ -66,10 +66,12 @@ func TestOpenRefusesADatabaseNewerThanThisBuild(t *testing.T) {
 	}
 }
 
+// The real hand.db this mechanism has to keep working is exactly the shape
+// this sets up: tables already created by the pre-mechanism schema,
+// user_version at its sqlite default of 0, no meta row claiming a version.
 // Registering a migration step is meant to be the whole job for a column
-// addition to a database that already exists: one entry, applied
-// automatically, without an operator running anything, and cheap to run again
-// on the next open.
+// addition to such a database: one entry, applied automatically without an
+// operator running anything, and cheap to run again on the next open.
 func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	home := t.TempDir()
 	existing, err := Open(home)
@@ -114,39 +116,6 @@ func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 		t.Fatalf("second open re-ran an already-applied migration: %v", err)
 	}
 	defer func() { _ = second.Close() }()
-}
-
-// The real hand.db this mechanism has to keep working is exactly this shape:
-// tables already created by the pre-mechanism schema, user_version at its
-// sqlite default of 0, no meta row claiming a version. A pending migration
-// still has to reach it without any operator step.
-func TestMigrationReachesADatabaseCreatedBeforeThisMechanismExisted(t *testing.T) {
-	home := t.TempDir()
-	pre, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := pre.AddProject(Project{Name: "nsr", URL: "u", Mode: "direct-pr"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := pre.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	restore := migrations
-	migrations = []string{`ALTER TABLE project ADD COLUMN note TEXT NOT NULL DEFAULT ''`}
-	t.Cleanup(func() { migrations = restore })
-
-	post, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = post.Close() }()
-
-	var note string
-	if err := post.sql.QueryRow(`SELECT note FROM project WHERE name = 'nsr'`).Scan(&note); err != nil {
-		t.Fatalf("pre-existing database did not gain the pending column: %v", err)
-	}
 }
 
 // Adding a column puts it in the `schema` constant, so new databases are built

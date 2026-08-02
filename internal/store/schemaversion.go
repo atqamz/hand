@@ -86,16 +86,42 @@ func (db *DB) migrateSchema() error {
 	if err != nil {
 		return err
 	}
-	if _, err := db.sql.Exec(schema); err != nil {
-		return fmt.Errorf("create schema: %w", err)
+	if err := db.createSchema(isNew, latest); err != nil {
+		return err
 	}
 	if isNew {
-		return recordSchemaVersion(db.sql, latest)
+		return nil
 	}
 	for version := current; version < latest; version++ {
 		if err := db.applyMigration(version); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// One transaction, because a new database's tables and the version stamp that
+// says migrations are already folded into them have to land together: a crash
+// between the two would leave the migrated columns present at version 0, and
+// every later open replaying those migrations against them - a freshly
+// initialized home no operator step short of a hand-written PRAGMA reopens.
+func (db *DB) createSchema(isNew bool, latest int) error {
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return fmt.Errorf("begin create schema: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(schema); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if isNew {
+		if err := recordSchemaVersion(tx, latest); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("create schema: %w", err)
 	}
 	return nil
 }
@@ -114,14 +140,10 @@ func (db *DB) isNewDatabase() (bool, error) {
 	return false, nil
 }
 
-// Satisfied by both *sql.DB and *sql.Tx: a new database is stamped outside a
-// transaction, a migration step from inside the one that applied it.
-type execer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
-
-func recordSchemaVersion(e execer, version int) error {
-	if _, err := e.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+// Always from inside the transaction that made the schema match the version
+// being recorded, so the two cannot disagree on disk.
+func recordSchemaVersion(tx *sql.Tx, version int) error {
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
 		return fmt.Errorf("record schema version %d: %w", version, err)
 	}
 	return nil
