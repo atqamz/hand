@@ -160,6 +160,42 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	}
 }
 
+func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	fleetHome := makeUpdateWorkspace(t)
+	mkFleetDirs(t, fleetHome)
+	t.Setenv("HAND_HOME", fleetHome)
+	t.Chdir(t.TempDir())
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nupdated AGENTS.md template\nchanged:\nfixed the frobnicator\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+
+	agentsMD, err := os.ReadFile(filepath.Join(fleetHome, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(agentsMD), "## Workflow") {
+		t.Fatalf("got %q, want AGENTS.md written with the workflow template", agentsMD)
+	}
+}
+
 func TestUpdateSkipsAgentsRefreshOutsideWorkspace(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("update binary layout targets unix asset names")
