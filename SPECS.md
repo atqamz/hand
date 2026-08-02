@@ -359,10 +359,11 @@ Behavior:
    refuse before touching any task or worktree state if it comes back not initialized or
    unreachable, unless `--skip-gate-check` is set.
 3. Validate no active task with this ID exists.
-4. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
-5. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
-6. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
-7. Acquire the task's herdr tab in the project's workspace.
+4. Validate no hold is set on this ID (see "Holds" under "State management"). A hold survives the teardown of the task it was set on, so reusing the id for new work would reattach the previous incarnation's open question to an unrelated task; the error names `hand hold clear <id>` as the remedy.
+5. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
+6. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
+7. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
+8. Acquire the task's herdr tab in the project's workspace.
    - Workspace naming: one workspace per project, named after the project.
    - Tab naming: task ID.
    - If the project's workspace does not exist yet, create it at the worktree's cwd. herdr has no
@@ -370,15 +371,15 @@ Behavior:
      this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
      second one, which would leave the root tab behind as an orphan shell in the workspace.
    - If the workspace already exists, create a new tab in it for the task.
-8. Construct the harness launch command from the template (see harness section).
-9. Send the launch command to the herdr pane.
-10. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
+9. Construct the harness launch command from the template (see harness section).
+10. Send the launch command to the herdr pane.
+11. Confirm the worker actually started: poll the pane until herdr reports a live agent on it and
    no first-run dialog is left, answering any known dialog along the way, or the poll window
    elapses (see Harness launch templates).
-11. Write the task's row with all metadata.
-12. Update `data/dashboard.md` with the new task.
+12. Write the task's row with all metadata.
+13. Update `data/dashboard.md` with the new task.
 
-Any failure before step 11 leaves nothing behind: the worktree lease returns to treehouse and the
+Any failure before step 12 leaves nothing behind: the worktree lease returns to treehouse and the
 herdr side is rolled back.
 A workspace this command created is closed whole: the task's tab is that workspace's own
 auto-created root tab, so there is nothing else in it to preserve.
@@ -398,6 +399,7 @@ Errors:
   command; see "Gate preflight"). Skipped entirely with `--skip-gate-check`.
 - `no-mistakes` binary missing or not runnable, distinct from the above (see "Gate preflight").
 - Task ID already active.
+- Task ID has an open hold (names `hand hold clear <id>` as the remedy).
 - Brief not found at `data/<id>/brief.md`.
 - Treehouse worktree acquisition failed (pool exhausted, git error).
 - Worktree collision with another active task (names the conflicting task).
@@ -1194,7 +1196,7 @@ Only the append-only sections have per-command rules, because only they carry an
 
 A mutating command re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
 It re-renders unconditionally, never after testing whether its own effect reached a section: `hand promote` changes the `kind` the Active Tasks row derives, while `hand project sync` and `hand merge`'s PR path may leave every derived value identical, and a command that had to know which case it was in would be deciding from outside the render what the render already answers.
-Three commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
+Five commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, `hand hold set` and `hand hold clear` mutate only the `hold` table, which no section of this file derives from (see "Holds" under "State management"), and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
 
 Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 
@@ -1736,6 +1738,8 @@ Two kinds, no others invented without a new issue:
 
 Set with `hand hold set`, which upserts - a second call on the same id replaces its kind, reason, and blocked-on, so narrowing down a reason is a re-run, not a clear-then-set. Cleared with `hand hold clear`, which deletes the row outright: no residue survives a clear for `hand status` to find later.
 
+**Surviving teardown makes id reuse a hazard, so `hand spawn` refuses a held id.** The same standalone row that keeps a torn-down task's question visible would otherwise reattach it to whatever new work claimed the id next, which is the replay hazard `Delete` already guards against for the report channel by removing `state/<id>.status` (see "Report channel"). The report channel is a volatile wake log and can simply be discarded; a hold is operator-authored, so `hand spawn` refuses with exit 3 and names `hand hold clear <id>` rather than clearing it silently - answering the question is an acknowledgement `hand` has no business making on the operator's behalf. Clearing the hold is therefore the explicit step that says the question is settled, and it is the only escape hatch, since a `--force`-style flag would be the silent clear wearing a different name.
+
 **A hold that cannot be read must never read as nothing waiting.** `ListHolds`/`ReadHold` surface every row exactly as stored, inconsistent ones included - filtering here is what would let an external write's mistake silently disappear from "what is held" - and `hand status` flags an inconsistent row (an unrecognized `kind`, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one) rather than rendering it as if it were valid. A store-level failure to read holds at all - not a single bad row, the whole read - propagates as a hard error out of `hand status`, fleet or single-task, rather than degrading to an empty list: this is the one place in `hand status` that does not fail open on a read, because an empty `held:` block and "the store couldn't be read" look identical unless the second one is a fatal error instead.
 
 ### Concurrency
@@ -1854,7 +1858,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 | AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch --until-event` as the agent's own background task covers the awake path; `hand notify` is meant to cover the AFK half but is not wired to anything yet (atqamz/secondhand#80). |
 | Multiple backends | `backends/herdr.sh`, `backends/cmux.sh`, `backends/zellij.sh`, `backends/orca.sh`, `fm-backend.sh` (5,500 lines) | herdr only. Add tmux fallback later if herdr proves insufficient. |
 | Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, declare `model`/`effort` in the brief, or set defaults in `config/`. |
-| Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | Agent tracks decisions in backlog and dashboard. |
+| Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | No longer cut: `hand hold set`/`hand hold clear` record a hold in the store and `hand status` renders it (see "Holds" under "State management"). Only the lifecycle skill wrapped around it stays out. |
 | Hook-based guards | `fm-continuity-pretool-check.sh`, `fm-continuity-command-policy.mjs`, `fm-subagent-pretool-check.sh` (450 lines) | CLI refuses bad operations internally. No hooks. |
 | PR-check migration | `fm-pr-check-migrate.sh` (1,148 lines) | No legacy to migrate. |
 | Fleet snapshot / bearings | `fm-fleet-snapshot.sh`, `fm-bearings-snapshot.sh` (1,860 lines) | `hand status --json` and `data/dashboard.md` cover it. |
