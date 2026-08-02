@@ -140,7 +140,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     store/                  # machine state in sqlite (see "Machine state and the prose corpus")
       store.go              # schema, task, project and hold rows, meta keys
       schemaversion.go      # PRAGMA user_version gate and registered ALTER TABLE steps
-      lock.go               # named flocks over state/, shared by state and the import and the schema migration
+      lock.go               # named flocks over state/, shared by state, the import and the schema migration
       migrate.go            # one-way import of pre-sqlite state/<id>.json and data/projects.md
       index.go              # derived full-text index over the prose corpus
     state/                  # task state management, a thin facade over store
@@ -1793,7 +1793,6 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 - **A database newer than the binary is refused, not guessed at.** If `user_version` exceeds `len(migrations)`, `Open` fails wrapping `ErrSchemaNewer` before running a single statement against the tables - an old `hand` opening a new database and writing malformed rows into it would be worse than refusing to run.
 - **Applying pending migrations takes a lock**, `SchemaLock` in lock.go, because sqlite's per-statement locking cannot make "add this column, then bump `user_version`" atomic across a whole `Open`. Two `hand` processes opening the same freshly-upgraded home both re-check the version after acquiring the lock, so whichever loses the race finds the version already caught up and applies nothing, rather than re-running `ALTER TABLE ADD COLUMN` against a column the winner already added.
 - Each pending step on a database that already exists runs in its own transaction, after the baseline `schema` exec, one step at a time, so a migration that fails partway leaves `user_version` at the last step that fully committed rather than at a state nothing on disk matches.
-- The version check runs before the baseline `schema` exec, not after: a newer database is refused before `hand` runs even the idempotent `CREATE TABLE IF NOT EXISTS` against it - "runs on open, before any other statement" is the literal order in `migrateSchema`, not just a description of intent.
 
 ## Error handling
 
@@ -1831,6 +1830,7 @@ Such a fake must model the state its own commands leave behind, and its fidelity
 ### Unit tests
 
 - Machine state reading/writing, and that every field survives a round trip.
+- Schema versioning: an existing version-0 database opening as the baseline, a registered migration applying automatically and only once, a fresh database skipping a migration its `schema` already builds, and a refusal on a database newer than the binary.
 - Legacy import: idempotence over repeated runs, a database row winning over a restored file, and a loud refusal on an unparseable one.
 - Index rebuild: that deleting `state/index.db` costs neither machine state nor corpus, and that a corrupt index recovers.
 - Project registry parsing.

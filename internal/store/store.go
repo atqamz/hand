@@ -113,6 +113,9 @@ type DB struct {
 	home string
 }
 
+// The version-0 baseline plus every registered migration folded in: a column
+// added here also needs its ALTER TABLE appended to migrations in
+// schemaversion.go, or no database that already exists ever gains it.
 const schema = `
 CREATE TABLE IF NOT EXISTS task (
 	id                 TEXT PRIMARY KEY,
