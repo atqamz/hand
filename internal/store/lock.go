@@ -13,6 +13,10 @@ import (
 // because project.Add and Remove already hold that one when they import.
 const MigrationLock = "migration"
 
+// Serializes a pending schema migration; see migrateSchema in
+// schemaversion.go for why sqlite's own per-statement locking cannot replace it.
+const SchemaLock = "schema"
+
 // These locks guard whole command sequences, not database writes: hand merge
 // holds one across a network call. sqlite's own locking is per statement and
 // cannot express that, so both exist and neither replaces the other.

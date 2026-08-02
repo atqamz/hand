@@ -186,9 +186,9 @@ func Open(homeDir string) (*DB, error) {
 		return nil, err
 	}
 	db := &DB{sql: sqlDB, home: homeDir}
-	if _, err := sqlDB.Exec(schema); err != nil {
+	if err := db.migrateSchema(); err != nil {
 		_ = sqlDB.Close()
-		return nil, fmt.Errorf("create schema: %w", err)
+		return nil, err
 	}
 	if err := db.migrateLegacy(); err != nil {
 		_ = sqlDB.Close()
