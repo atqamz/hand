@@ -305,11 +305,12 @@ Output (JSON):
 ]
 ```
 
-A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or the
-`no-mistakes` binary itself unreachable) gets a `(gate: <issue>)` suffix in human output and a
-`gate_issue` field in JSON output (omitted when there is no issue). See "Gate preflight" for what
-this checks and why. Every `no-mistakes`-mode project pays one `no-mistakes status` call per
-`hand project list` invocation; other modes pay nothing.
+A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or
+`unreachable` - the binary itself missing, the clone path missing on disk, or the clone path
+existing but not a git repository; see "Gate preflight") gets a `(gate: <issue>)` suffix in human
+output and a `gate_issue` field in JSON output (omitted when there is no issue). Every
+`no-mistakes`-mode project pays one `no-mistakes status` call per `hand project list` invocation;
+other modes pay nothing.
 
 ---
 
@@ -1540,7 +1541,7 @@ never-initialized repo from a stale renamed one from the outside, so the preflig
 The outcome is read from that text, never from `~/.no-mistakes/state.sqlite` directly,
 which is another tool's private schema.
 
-Three outcomes:
+Five outcomes:
 - **Initialized:** proceed.
 - **Not initialized** (either history): refuse with exit code 3, naming the exact remedy verbatim -
   `no-mistakes init` is idempotent and repairs a stale `working_path` in place, so the message reads
@@ -1549,6 +1550,18 @@ Three outcomes:
   binary not found or not runnable: <error>`), never collapsed into "not initialized" - the remedy
   for a missing binary is not `no-mistakes init`. This is a general error (exit code `1`), not a
   precondition: the world is not in a state the operator can fix by initializing anything.
+- **Clone path does not exist on disk:** refuse with `no-mistakes clone path: <stat error>`, naming
+  the real cause instead of the misleading "binary not found or not runnable" a chdir failure used
+  to produce. Also a general error (exit code `1`).
+- **Clone path exists but is not a git repository:** `no-mistakes status` itself exits 0 and prints
+  `not in a git repository` in this case - a plain-looking success that used to read as a ready
+  gate. Refuse instead with `no-mistakes clone path is not a git repository: <path>`, also a general
+  error (exit code `1`), never `GateReady`: a caller must never be told to dispatch into a project
+  the gate cannot cover.
+
+The last two are atqamz/secondhand#97: both are read the same way as every other outcome here,
+from `no-mistakes status`'s own text (a missing clone path fails the chdir before the binary ever
+runs), never from `~/.no-mistakes/state.sqlite`.
 
 Escape hatch: `--skip-gate-check` on both `hand spawn` and `hand promote` bypasses the preflight
 and prints a warning to stderr naming the project, so bypassing it is visible in the transcript

@@ -276,6 +276,49 @@ func TestGateStatusMissingBinaryIsDistinctFromNotInitialized(t *testing.T) {
 	}
 }
 
+// TestGateStatusNotGitRepo covers atqamz/secondhand#97's first clone-path outcome: clonePath exists
+// but isn't a git repository at all. no-mistakes status still exits 0 and prints this text verbatim,
+// so without this branch GateStatus would fall through to GateReady and let a caller dispatch into a
+// project the gate cannot cover.
+func TestGateStatusNotGitRepo(t *testing.T) {
+	fakeNoMistakes(t, "not in a git repository")
+
+	dir := t.TempDir()
+	gotState, err := GateStatus(dir)
+	if err == nil {
+		t.Fatal("expected error when clone path is not a git repository")
+	}
+	if gotState == GateNotInitialized {
+		t.Fatal("not-a-git-repo must not report GateNotInitialized, it has a different (unrepairable) remedy")
+	}
+	if !strings.Contains(err.Error(), dir) {
+		t.Fatalf("err = %v, want it to name the clone path", err)
+	}
+}
+
+// TestGateStatusMissingClonePath covers atqamz/secondhand#97's second clone-path outcome: clonePath
+// does not exist on disk at all, so exec.Command's chdir fails before the binary ever runs. Without
+// the os.Stat check, this used to read as "no-mistakes binary not found or not runnable", which is
+// true in the letter and misleading in substance - the binary is fine, the clone directory is missing.
+// No fake binary is installed for this test: os.Stat must fail before GateStatus ever tries to exec.
+func TestGateStatusMissingClonePath(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	gotState, err := GateStatus(missing)
+	if err == nil {
+		t.Fatal("expected error for a clone path that does not exist")
+	}
+	if gotState == GateNotInitialized {
+		t.Fatal("missing clone path must not report GateNotInitialized, it has a different remedy")
+	}
+	if strings.Contains(err.Error(), "no-mistakes binary not found or not runnable") {
+		t.Fatalf("err = %v, must not read as a binary problem", err)
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("err = %v, want it to name the missing clone path", err)
+	}
+}
+
 func TestGateInitCommand(t *testing.T) {
 	got := GateInitCommand("/home/atqa/secondhand/projects/secondhand")
 	want := "cd /home/atqa/secondhand/projects/secondhand && no-mistakes init"
