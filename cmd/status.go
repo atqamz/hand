@@ -13,7 +13,7 @@ import (
 )
 
 func newStatusCmd() *cobra.Command {
-	var asJSON bool
+	var asJSON, full bool
 
 	cmd := &cobra.Command{
 		Use:   "status [id]",
@@ -27,14 +27,45 @@ func newStatusCmd() *cobra.Command {
 			client := herdr.NewClient()
 
 			if len(args) == 1 {
-				return runStatusSingle(cmd, home, client, args[0], asJSON)
+				return runStatusSingle(cmd, home, client, args[0], asJSON, full)
 			}
 			return runStatusFleet(cmd, home, client, asJSON)
 		},
 	}
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON")
+	cmd.Flags().BoolVar(&full, "full", false, "show the reported line and history untruncated, with no history dedup (single task only)")
 	return cmd
+}
+
+// reportSummaryBudget bounds the rendered length of one report line (state
+// prefix plus note) in the human-readable single-task view, in runes so a
+// multi-byte character never lands half-cut. A worker's status prose has run
+// 2.7-4.3 KB for a single task; this keeps a normal terse report (which is
+// what the vocabulary in CLAUDE.md/AGENTS.md asks for) untouched while
+// bounding the pathological case. --json and --full both bypass it, since a
+// machine consumer needs the whole field and --full is the explicit opt-out.
+const reportSummaryBudget = 200
+
+// truncateReportLine renders line the same way reportLineText does, then caps
+// it to budget runes. The state-vocabulary prefix ("done: ", "blocked: ", ...)
+// is never part of what gets cut - it is the highest-value part of the line -
+// and a cut line always carries a visible marker naming how much was dropped,
+// so a short report can never be mistaken for a truncated one.
+func truncateReportLine(line state.ReportLine, budget int) string {
+	full := reportLineText(line)
+	runes := []rune(full)
+	if len(runes) <= budget {
+		return full
+	}
+	prefixLen := 0
+	if !line.Malformed {
+		prefixLen = len(line.State) + len(": ")
+	}
+	if budget < prefixLen {
+		budget = prefixLen
+	}
+	return fmt.Sprintf("%s... [+%d chars]", string(runes[:budget]), len(runes)-budget)
 }
 
 // paneAgentStatus degrades gracefully to "unknown" when herdr is unreachable or the
@@ -170,7 +201,7 @@ func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
 	return &reportedJSON{State: last.State, Note: last.Note}
 }
 
-func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON bool) error {
+func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool) error {
 	t, err := state.Read(home, id)
 	if err != nil {
 		return asPrecondition(err)
@@ -211,27 +242,37 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	} else {
 		pr += mergeSuffix(t)
 	}
+	// One render choice drives both the Reported line and every history entry,
+	// so a change to the budget can never reach one of them and miss the other.
+	render := reportLineText
+	if !full {
+		render = func(line state.ReportLine) string { return truncateReportLine(line, reportSummaryBudget) }
+	}
+
 	reported := "(none)"
 	switch {
 	case readErr != nil:
 		reported = fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
 	case len(tail) > 0:
-		reported = reportLineText(last)
+		reported = render(last)
 	}
 
 	w := cmd.OutOrStdout()
 	lines := []string{
-		fmt.Sprintf("Task:       %s", t.ID),
-		fmt.Sprintf("Project:    %s", t.Project),
-		fmt.Sprintf("Kind:       %s", t.Kind),
-		fmt.Sprintf("Harness:    %s", t.Harness),
-		fmt.Sprintf("Model:      %s", t.Model),
-		fmt.Sprintf("State:      %s", agentState),
-		fmt.Sprintf("Worktree:   %s", t.Worktree),
-		fmt.Sprintf("Herdr:      %s / %s", t.Herdr.Session, t.Herdr.TabID),
-		fmt.Sprintf("Created:    %s", formatAge(t.CreatedAt)),
-		fmt.Sprintf("PR:         %s", pr),
-		fmt.Sprintf("Reported:   %s", reported),
+		fmt.Sprintf("Task:        %s", t.ID),
+		fmt.Sprintf("Project:     %s", t.Project),
+		fmt.Sprintf("Kind:        %s", t.Kind),
+		fmt.Sprintf("Harness:     %s", t.Harness),
+		fmt.Sprintf("Model:       %s", t.Model),
+		fmt.Sprintf("State:       %s", agentState),
+		fmt.Sprintf("Worktree:    %s", t.Worktree),
+		fmt.Sprintf("Herdr:       %s / %s", t.Herdr.Session, t.Herdr.TabID),
+		fmt.Sprintf("Created:     %s", formatAge(t.CreatedAt)),
+		fmt.Sprintf("PR:          %s", pr),
+		fmt.Sprintf("Reported:    %s", reported),
+	}
+	if !full && (len(tail) > 0 || readErr != nil) {
+		lines = append(lines, fmt.Sprintf("Report file: %s", state.ReportPath(home, id)))
 	}
 	for _, line := range lines {
 		if _, err := fmt.Fprintln(w, line); err != nil {
@@ -239,12 +280,21 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		}
 	}
 
-	if len(tail) > 0 {
+	// In the default view, the entry already shown on the Reported line above
+	// is dropped from the history block below it - repeating it there was the
+	// core of atqamz/secondhand#65, doubling the cost of every terminal report.
+	// --full restores the exact previous shape: the full tail, untruncated,
+	// duplicate entry included.
+	historyTail := tail
+	if !full && len(tail) > 0 {
+		historyTail = tail[:len(tail)-1]
+	}
+	if len(historyTail) > 0 {
 		if _, err := fmt.Fprintln(w, "\nReport history (reported by worker, not verified current truth):"); err != nil {
 			return err
 		}
-		for _, line := range tail {
-			if _, err := fmt.Fprintf(w, "  %s\n", reportLineText(line)); err != nil {
+		for _, line := range historyTail {
+			if _, err := fmt.Fprintf(w, "  %s\n", render(line)); err != nil {
 				return err
 			}
 		}
