@@ -28,6 +28,7 @@ func setupWatchHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(fakeHerdrWatchScript), 0o755); err != nil {

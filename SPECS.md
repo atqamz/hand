@@ -30,7 +30,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
 3. **herdr-native.** herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events. Use them instead of regex-scraping terminal output. herdr's own agent state carries no task-outcome signal (see "Agent state"); the report channel is what actually tells hand whether a task finished.
 4. **Text editing stays with the agent.** The backlog is a markdown file. The agent reads and edits it directly. No CLI wrapper for text operations.
 5. **No feature without friction.** Every feature in firstmate that doesn't have a proven use case is cut. Features get added when their absence causes real pain.
-6. **The repo is the working directory.** Clone secondhand, cd in, launch your agent. The repo contains tracked code; runtime state is gitignored.
+6. **A fleet home is any directory with `data/dashboard.md` and `state/`.** `hand init` creates one anywhere on disk; put `hand` on PATH and launch the agent there. The marker is the dashboard file rather than the `data/` directory because only `hand init` writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` cannot capture the walk up. Maintainers dogfood a fleet home inside the secondhand repo checkout itself, with runtime state gitignored alongside the tracked code, but the CLI has no opinion about the two: `HAND_HOME`, or an ancestor of the working directory, is all it looks for.
 7. **The dashboard is the memory.** `data/dashboard.md` is the living document the CLI maintains. The agent reads it for context. The user watches it for visibility. No session digests, no bootstrap scripts, no 187-line status dumps.
 8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic.
 
@@ -59,7 +59,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
        +-- scout: investigate -> report.md -> teardown
 ```
 
-The supervisory agent is any supported harness (claude, codex, pi, grok, opencode) launched inside the secondhand directory.
+The supervisory agent is any supported harness (claude, codex, pi, grok, opencode) launched inside a fleet home.
 It reads AGENTS.md, understands the `hand` CLI, and manages the fleet.
 
 Workers are autonomous agents launched by `hand spawn` into herdr tabs with treehouse worktrees.
@@ -67,8 +67,13 @@ They follow the brief, do the work, and report through herdr's agent state.
 
 ## Directory layout
 
+A standalone fleet home has no tracked section: `hand init` lays down only the gitignored
+runtime below, and `hand` runs against it from wherever it lives on disk. The tracked section
+exists because secondhand's own maintainers dogfood a fleet home inside the repo checkout,
+alongside the code that implements it.
+
 ```
-secondhand/                 # repo root = working directory
+secondhand/                 # maintainer's in-repo fleet home = repo checkout
   # tracked (committed)
   main.go                   # entry point
   cmd/                      # cobra command implementations
@@ -85,6 +90,8 @@ secondhand/                 # repo root = working directory
     promote.go
     notify.go
   internal/
+    home/                   # fleet home definition and resolution
+      home.go               # IsHome marker check, HAND_HOME/ancestor-walk Resolve
     herdr/                  # herdr client library
       client.go             # API calls: create tab, get state, send keys
       types.go              # herdr data types
@@ -154,6 +161,8 @@ Initialize secondhand runtime directories in the current working directory.
 Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
 Creates `data/backlog.md`, `data/projects.md`, and `data/dashboard.md` with skeleton content.
 Idempotent: safe to run multiple times.
+This is the one command that does not resolve its home: it creates the one its argument or the working directory names.
+When `HAND_HOME` is set and names some other directory it still initializes the requested target, and warns on stderr that every other command will use `HAND_HOME` instead.
 
 ```
 hand init
@@ -1594,6 +1603,7 @@ On restart (new supervisory agent session):
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`), an invalid argument or flag value (malformed project URL, unknown project mode or harness, unparsable `--poll` duration, a non-positive `--timeout`).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
 - `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task or project that does not exist, a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a repeat recording with no active dashboard row left to reconcile (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
+  Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
 
@@ -1688,12 +1698,12 @@ go build -o hand .
 # optionally: cp hand ~/.local/bin/
 ```
 
-The source repo is a development repo. End users install the binary and create workspaces anywhere.
+The source repo is a development repo. End users install the binary and create fleet homes anywhere.
 
-### Workspace creation
+### Fleet home creation
 
 ```sh
-# create a workspace anywhere
+# create a fleet home anywhere
 mkdir ~/fleet && cd ~/fleet
 hand init --setup
 
@@ -1719,7 +1729,7 @@ Behavior:
 1. Query GitHub Releases API for the latest version tag.
 2. Compare against the running binary's embedded version.
 3. If newer: download the binary for the current OS/arch, verify checksum, replace the running binary in place.
-4. After update, refresh the generated AGENTS.md template in the current workspace to the latest version, preserving user edits (see "AGENTS.md (target)"). Outside a workspace this is skipped silently; a refresh that fails is a warning on stderr, not a failed update, since the binary is already replaced.
+4. After update, refresh the generated AGENTS.md template in the resolved fleet home to the latest version, preserving user edits (see "AGENTS.md (target)"). Outside any fleet home this is skipped silently; a `HAND_HOME` that names no fleet home is a warning, not a silent skip, since that is a misconfiguration rather than an absence. A refresh that fails is likewise a warning on stderr, not a failed update, since the binary is already replaced.
 5. Print old version, new version, and what changed (from the installed release's notes). The AGENTS.md line appears only when the template actually changed, and the `changed:` block only when the release has notes.
 
 ```
@@ -1851,7 +1861,7 @@ Deliverable: ready for daily use.
 
 ## AGENTS.md (target)
 
-**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new workspace's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh.
+**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh.
 
-This repo's own `AGENTS.md` is not a `hand` workspace (no `data/dashboard.md`), so `agentsmd.Refresh` never touches it: its top section is a hand-kept copy of `generatedBody`, kept in sync manually rather than by the refresh mechanism.
+This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even once a maintainer runs `hand init` in the checkout and makes it a fleet home: its top section is a hand-kept copy of `generatedBody`, kept in sync manually rather than by the refresh mechanism.
 Drift between the two copies is caught by a unit test in `internal/agentsmd` asserting the repo copy's rules open with the generated ones verbatim, not by the mechanism that would remove the duplication.

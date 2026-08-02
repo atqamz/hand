@@ -12,6 +12,7 @@ import (
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/atqamz/secondhand/internal/worktree"
@@ -33,9 +34,9 @@ func newSpawnCmd() *cobra.Command {
 			id := args[0]
 			projectName := args[1]
 
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			proj, exists, err := project.Find(home, projectName)

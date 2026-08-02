@@ -3,7 +3,7 @@
 Talk to one agent. Ship with a crew.
 
 Secondhand is a single Go CLI binary, `hand`, that orchestrates a fleet of coding agents across projects.
-A supervisory agent runs in the secondhand directory, records tasks in a markdown backlog, and calls `hand` to spawn autonomous workers into isolated git worktrees.
+A supervisory agent runs in a fleet home - a standalone directory anywhere on disk, or the secondhand checkout itself - records tasks in a markdown backlog, and calls `hand` to spawn autonomous workers into isolated git worktrees.
 The CLI owns lifecycle correctness, state management, and process supervision.
 It was born from [firstmate](https://github.com/kunchenguid/firstmate), an agent fleet supervisor built as 34K lines of shell, and rebuilds that concept as a clean CLI.
 
@@ -18,6 +18,25 @@ make build
 ```
 
 The worker lifecycle commands are available, including `hand spawn`, `hand status`, `hand send`, and `hand teardown`.
+
+## Set up a fleet home
+
+The quick start above dogfoods a fleet home inside the secondhand repo checkout itself, which is how the maintainers run it.
+Most users instead want a standalone fleet home: a plain directory, anywhere on disk, unrelated to any project's own repo.
+
+```sh
+mkdir ~/fleet
+cd ~/fleet
+hand init --setup
+hand project add https://github.com/org/repo
+```
+
+`hand init` only writes runtime directories and skeleton files under the current directory; it never places a `hand` binary there.
+Install `hand` from one of the options under "Installation" below and make sure it is on `PATH` before running any command.
+
+Every `hand` command resolves its fleet home the same way: the `HAND_HOME` environment variable if set, otherwise the current directory or the nearest ancestor holding both `data/dashboard.md` and `state/`.
+`data/dashboard.md` is the marker because only `hand init` writes it, so a project clone under `projects/` never captures the walk up.
+Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a script or a different working directory; pointed at a directory that is not a fleet home it refuses rather than falling back.
 
 ## Core concepts
 
@@ -106,9 +125,9 @@ From releases: download the binary for your platform from the [releases page](ht
 
 To update an installed binary, run `hand update`.
 It downloads the release asset for the current OS and architecture, verifies its SHA256 checksum, and replaces the running binary in place.
-When run inside a workspace it then refreshes the generated part of that workspace's AGENTS.md, leaving your own additions untouched, and prints the new release's notes.
+When run inside a fleet home it then refreshes the generated part of that home's AGENTS.md, leaving your own additions untouched, and prints the new release's notes.
 `hand update --check` reports whether an update is available without installing it.
-Every other command run in a workspace prints a one-line notice to stderr when a newer release exists, checked at most once a day and cached in `state/.version-check`.
+Every other command run in a fleet home prints a one-line notice to stderr when a newer release exists, checked at most once a day and cached in `state/.version-check`.
 Builds without an embedded version never print the notice.
 
 ## Configuration

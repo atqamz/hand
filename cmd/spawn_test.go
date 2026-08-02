@@ -101,6 +101,7 @@ func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	writeFakeTreehouseGet(t, bin, worktreePath)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	return home
 }
 

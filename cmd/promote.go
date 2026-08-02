@@ -8,6 +8,7 @@ import (
 
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/atqamz/secondhand/internal/worktree"
@@ -26,9 +27,9 @@ func newPromoteCmd() *cobra.Command {
 		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			id := args[0]
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			release, err := state.Lock(home, "task:"+id)

@@ -151,6 +151,7 @@ printf '[{"bucket":"pass"},{"bucket":"fail"}]'
 func TestMergeRefusesWhenNoPRRecorded(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := state.Write(home, state.Task{ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -173,6 +174,7 @@ func TestMergeRefusesWhenNoPRRecorded(t *testing.T) {
 func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeGh(t, `#!/bin/sh
 case "$1 $2" in
 "pr view") printf '{"state":"MERGED"}' ;;
@@ -207,6 +209,7 @@ esac
 func TestMergePRRefusesRedCI(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeGh(t, fakeGhChecksRed)
 
 	if err := state.Write(home, state.Task{ID: "task-1", PR: "https://github.com/org/repo/pull/42"}); err != nil {
@@ -236,6 +239,7 @@ func TestMergePRRefusesRedCI(t *testing.T) {
 func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	writeFakeGh(t, fakeGhChecksGreenAndMerge)
 
 	if err := state.Write(home, state.Task{ID: "task-1", PR: "https://github.com/org/repo/pull/42"}); err != nil {
@@ -263,6 +267,7 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 func TestMergeLocalRefusesUncommittedChanges(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	worktreePath := filepath.Join(t.TempDir(), "wt")
 	initGitRepo(t, worktreePath)
 	if err := os.WriteFile(filepath.Join(worktreePath, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
@@ -285,6 +290,7 @@ func TestMergeLocalRefusesUncommittedChanges(t *testing.T) {
 func TestMergeLocalFastForwardSucceeds(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	clonePath := filepath.Join(home, "projects", "myproj")
 	initGitRepo(t, clonePath)
@@ -330,6 +336,7 @@ func TestMergeLocalFastForwardSucceeds(t *testing.T) {
 func TestMergeLocalRefusesWhenNotFastForwardable(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	clonePath := filepath.Join(home, "projects", "myproj")
 	initGitRepo(t, clonePath)

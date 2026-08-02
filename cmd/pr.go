@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
@@ -25,9 +25,9 @@ func newPRCmd() *cobra.Command {
 				return &ExitError{Err: fmt.Errorf("invalid PR URL %q: must match https://github.com/<owner>/<repo>/pull/<number>", url), Code: 2}
 			}
 
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			release, err := state.Lock(home, "task:"+id)

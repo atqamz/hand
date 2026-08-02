@@ -3,11 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"text/tabwriter"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -20,9 +20,9 @@ func newStatusCmd() *cobra.Command {
 		Short: "Show fleet overview or single-task detail",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 			client := herdr.NewClient()
 

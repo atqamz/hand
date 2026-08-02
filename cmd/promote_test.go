@@ -106,6 +106,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string
 	writeFakeTreehouseGet(t, bin, newWorktree)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	return home
 }
 
@@ -195,6 +196,7 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 func TestPromoteRefusesNonScout(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip}); err != nil {
 		t.Fatal(err)
 	}
@@ -211,6 +213,7 @@ func TestPromoteRefusesNonScout(t *testing.T) {
 func TestPromoteRefusesMissingReport(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout}); err != nil {
 		t.Fatal(err)
 	}
@@ -227,6 +230,7 @@ func TestPromoteRefusesMissingReport(t *testing.T) {
 func TestPromoteRefusesMissingBrief(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -249,6 +253,7 @@ func TestPromoteRefusesMissingBrief(t *testing.T) {
 func TestPromoteRefusesUnregisteredProject(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
 		t.Fatal(err)
 	}

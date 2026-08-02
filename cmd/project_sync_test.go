@@ -231,6 +231,7 @@ func TestPruneGoneBranchesDeletesLocalBranchWithGoneUpstream(t *testing.T) {
 func TestProjectSyncCommandUpdatesDashboardWhenAdvanced(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +275,7 @@ func TestProjectSyncCommandUpdatesDashboardWhenAdvanced(t *testing.T) {
 func TestProjectSyncCommandRejectsUnknownProjectName(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -21,9 +21,9 @@ func newSendCmd() *cobra.Command {
 			id := args[0]
 			message := args[1]
 
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			t, err := state.Read(home, id)

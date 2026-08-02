@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/atqamz/secondhand/internal/dashboard"
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
@@ -45,9 +46,9 @@ func newProjectAddCmd() *cobra.Command {
 			if err := validateProjectMode(mode); err != nil {
 				return err
 			}
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			if name == "" {
@@ -230,9 +231,9 @@ func newProjectListCmd() *cobra.Command {
 		Short: "List registered projects",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			projects, err := project.List(home)
@@ -299,9 +300,9 @@ func newProjectRemoveCmd() *cobra.Command {
 		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			if active, err := hasActiveTasksForProject(home, name); err != nil {
@@ -365,9 +366,9 @@ func newProjectSyncCmd() *cobra.Command {
 		Short: "Fast-forward project clones to their remote default branch",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			var targets []project.Project

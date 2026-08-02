@@ -11,6 +11,7 @@ import (
 func TestNotifyWithoutConfigPrintsToStdoutOnly(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 
 	var out bytes.Buffer
 	cmd := newNotifyCmd()
@@ -27,6 +28,7 @@ func TestNotifyWithoutConfigPrintsToStdoutOnly(t *testing.T) {
 func TestNotifySubstitutesMessageAndExecutesTemplate(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +61,7 @@ func TestNotifySubstitutesMessageAndExecutesTemplate(t *testing.T) {
 func TestNotifyFailureWarnsButDoesNotBlock(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
+	mkFleetDirs(t, home)
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}

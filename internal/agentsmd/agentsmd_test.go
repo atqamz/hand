@@ -13,45 +13,26 @@ func makeWorkspace(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "data", "dashboard.md"), []byte("# Dashboard\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
 }
 
-func TestIsWorkspaceTrueWhenDashboardExists(t *testing.T) {
-	dir := makeWorkspace(t)
-	got, err := isWorkspace(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got {
-		t.Fatal("got false, want true")
-	}
-}
-
-func TestIsWorkspaceFalseWhenNotInitialized(t *testing.T) {
-	dir := t.TempDir()
-	got, err := isWorkspace(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got {
-		t.Fatal("got true, want false")
-	}
-}
-
-func TestRefreshSkipsSilentlyWhenNotWorkspace(t *testing.T) {
+func TestRefreshSkipsSilentlyWhenNotAFleetHome(t *testing.T) {
 	dir := t.TempDir()
 	refreshed, err := Refresh(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if refreshed {
-		t.Fatal("got refreshed=true, want false outside a workspace")
+		t.Fatal("got refreshed=true, want false outside a fleet home")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(err) {
-		t.Fatalf("got AGENTS.md written outside a workspace, err=%v", err)
+		t.Fatalf("got AGENTS.md written outside a fleet home, err=%v", err)
 	}
 }
 
@@ -197,7 +178,7 @@ func TestGeneratedRulesMatchThisRepoAgentsMdCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	absolutePathRule := "- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. `hand` resolves the home from the current working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.\n"
+	absolutePathRule := "- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. `hand` resolves the home from `HAND_HOME` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.\n"
 	if !strings.Contains(generatedBody, absolutePathRule) {
 		t.Fatalf("got generated body %q, want the absolute-path rule verbatim", generatedBody)
 	}

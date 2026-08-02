@@ -1,5 +1,5 @@
 // Package agentsmd generates and refreshes the AGENTS.md workflow/rules
-// template that hand init writes into a workspace, described in SPECS.md's
+// template that hand init writes into a fleet home, described in SPECS.md's
 // "AGENTS.md (target)" section.
 package agentsmd
 
@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/atomicfile"
+	"github.com/atqamz/secondhand/internal/home"
 )
 
 const (
@@ -43,7 +44,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Never merge without explicit authorization.
 - Never force-teardown without explicit authorization.
 - Report outcomes plainly. If work failed, say so with evidence.
-- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. ` + "`hand`" + ` resolves the home from the current working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
+- Name a path in a brief, a status report, or an operator message: full and absolute, never relative. ` + "`hand`" + ` resolves the home from ` + "`HAND_HOME`" + ` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce ` + "`data/<id>/report.md`" + `.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
 - For no-mistakes projects, workers use ` + "`no-mistakes axi`" + ` directly in the worktree.
@@ -51,33 +52,19 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
 `
 
-// isWorkspace reports whether dir has been initialized by hand init: the
-// presence of data/dashboard.md is the concrete, unambiguous signal since
-// hand init is the only thing that writes it.
-func isWorkspace(dir string) (bool, error) {
-	_, err := os.Stat(filepath.Join(dir, "data", "dashboard.md"))
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, fmt.Errorf("check workspace: %w", err)
-}
-
 // Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md symlink,
 // reporting whether the template content actually changed (false, nil when dir
-// is not a workspace, which is not an error). An existing AGENTS.md keeps
+// is not a fleet home, which is not an error). An existing AGENTS.md keeps
 // everything outside the generated markers untouched, so user-added content and
 // extra rules survive; only the span between the markers is replaced, never the
 // whole file. A file whose markers are already current, and a marker-less file
 // mergeGenerated declines to touch, are both left on disk untouched.
 func Refresh(dir string) (bool, error) {
-	workspace, err := isWorkspace(dir)
+	isHome, err := home.IsHome(dir)
 	if err != nil {
 		return false, err
 	}
-	if !workspace {
+	if !isHome {
 		return false, nil
 	}
 

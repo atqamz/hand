@@ -1,11 +1,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -47,9 +48,12 @@ func newUpdateCmd(version string) *cobra.Command {
 			// exiting nonzero here reads as "the update failed" and invites a
 			// pointless re-run.
 			var refreshed bool
-			cwd, refreshErr := os.Getwd()
-			if refreshErr == nil {
-				refreshed, refreshErr = agentsmd.Refresh(cwd)
+			fleetHome, refreshErr := home.Resolve()
+			switch {
+			case refreshErr == nil:
+				refreshed, refreshErr = agentsmd.Refresh(fleetHome)
+			case errors.Is(refreshErr, home.ErrNotFound):
+				refreshErr = nil
 			}
 
 			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)

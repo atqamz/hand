@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atqamz/secondhand/internal/home"
 	"github.com/spf13/cobra"
 )
 
@@ -17,9 +18,9 @@ func newNotifyCmd() *cobra.Command {
 		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			message := args[0]
-			home, err := os.Getwd()
+			home, err := home.Resolve()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return asPrecondition(err)
 			}
 
 			template, err := os.ReadFile(filepath.Join(home, "config", "notify"))
