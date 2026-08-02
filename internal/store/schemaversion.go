@@ -15,12 +15,7 @@ var ErrSchemaNewer = errors.New("schema version newer than this build of hand su
 // that already exists. A database that predates this mechanism reads PRAGMA
 // user_version as 0 by sqlite's own default, and that has to mean "the schema
 // this commit ships", not "unknown, refuse to proceed" - otherwise the one
-// fleet home that exists stops opening the moment this merges. A future
-// column addition is two edits that stay in step: the column goes into
-// `schema`, so every new database is built with it, and the matching ALTER
-// TABLE is appended here, so every database that already exists gains it on
-// its next open. A brand-new database is built by `schema` alone and never
-// replays this list; see migrateSchema.
+// fleet home that exists stops opening the moment this merges.
 var migrations = []string{}
 
 func (db *DB) schemaVersion() (int, error) {
