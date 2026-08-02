@@ -18,6 +18,7 @@ import (
 var preconditionSentinels = []error{
 	state.ErrTaskNotFound,
 	state.ErrTaskActive,
+	state.ErrHoldNotFound,
 	project.ErrNotFound,
 	home.ErrNotFound,
 	home.ErrHandHomeInvalid,

@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/secondhand/internal/store"
 )
 
 // writeFakeHerdrPaneStatus fakes "pane get" as a query command per
@@ -118,10 +119,13 @@ func TestStatusFleetJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `"id": "task-1"`) || !strings.Contains(out.String(), `"agent_state": "working"`) {
-		t.Fatalf("got %q, want JSON array with task-1 and agent_state working", out.String())
+		t.Fatalf("got %q, want tasks array with task-1 and agent_state working", out.String())
 	}
-	if !strings.HasPrefix(strings.TrimSpace(out.String()), "[") {
-		t.Fatalf("got %q, want JSON array", out.String())
+	if !strings.Contains(out.String(), `"holds": []`) {
+		t.Fatalf("got %q, want an empty holds array", out.String())
+	}
+	if !strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
+		t.Fatalf("got %q, want a JSON object wrapping tasks and holds", out.String())
 	}
 }
 
@@ -948,5 +952,254 @@ func TestStatusSingleTaskJSONIncludesReportedAndHistory(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"report_history"`) {
 		t.Fatalf("got %q, want report_history in JSON", out.String())
+	}
+}
+
+func TestStatusFleetShowsHeldBlock(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	if err := state.SetHold(home, state.Hold{ID: "fix-login", Kind: state.HoldKindOperator,
+		Reason: "needs a call", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "held:") {
+		t.Fatalf("got %q, want a held block", got)
+	}
+	if !strings.Contains(got, "fix-login") || !strings.Contains(got, "operator") || !strings.Contains(got, "needs a call") {
+		t.Fatalf("got %q, want the hold's id, kind, and reason", got)
+	}
+}
+
+// A hold outliving its task is the case the standalone hold table exists for;
+// this pins that hand status still surfaces it once the task row is gone.
+func TestStatusFleetShowsHeldBlockWithNoTaskRowBehindIt(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	if err := state.SetHold(home, state.Hold{ID: "torn-down-task", Kind: state.HoldKindOperator,
+		Reason: "question never answered", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "torn-down-task") {
+		t.Fatalf("got %q, want the hold shown despite no task row", out.String())
+	}
+}
+
+func TestStatusFleetOmitsHeldBlockWithoutHolds(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "held:") {
+		t.Fatalf("got %q, want no held block when nothing is held", out.String())
+	}
+}
+
+func TestStatusFleetFlagsInconsistentHold(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetHold(store.Hold{ID: "weird", Kind: "not-a-real-kind", Reason: "who knows"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `inconsistent: unrecognized kind "not-a-real-kind"`) {
+		t.Fatalf("got %q, want the inconsistent hold flagged rather than silently rendered", out.String())
+	}
+}
+
+func TestStatusFleetJSONFlagsInconsistentHold(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetHold(store.Hold{ID: "weird", Kind: state.HoldKindBlocked, Reason: "who knows"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"inconsistent": "blocked hold has no blocked_on"`) {
+		t.Fatalf("got %q, want the inconsistency named in JSON", out.String())
+	}
+}
+
+// A store fault reading holds must fail the whole command rather than degrade
+// to an empty holds list, which would read as "nothing is waiting" - exactly
+// the false all-clear this feature exists to avoid.
+func TestStatusFleetPropagatesAnUnreadableHoldStore(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := os.MkdirAll(store.Path(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("got nil error, want the unreadable hold store to fail the command")
+	}
+}
+
+func TestStatusSingleTaskShowsHeldLine(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindBlocked,
+		Reason: "waiting on migration", BlockedOn: "task-2", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Held:        waiting on task-2: waiting on migration") {
+		t.Fatalf("got %q, want a Held line naming what it waits on", out.String())
+	}
+}
+
+func TestStatusSingleTaskOmitsHeldLineWithoutAHold(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Held:") {
+		t.Fatalf("got %q, want no Held line without a hold", out.String())
+	}
+}
+
+func TestStatusSingleTaskJSONIncludesHeld(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator,
+		Reason: "needs a call", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"held"`) || !strings.Contains(out.String(), `"needs a call"`) {
+		t.Fatalf("got %q, want the held hold in JSON", out.String())
+	}
+}
+
+// The same false-all-clear risk as the fleet view, one task at a time.
+func TestStatusSingleTaskPropagatesAnUnreadableHoldStore(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(store.Path(home)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.Path(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("got nil error, want the unreadable hold store to fail the command")
 	}
 }

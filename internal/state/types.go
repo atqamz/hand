@@ -10,9 +10,15 @@ const (
 	KindScout = store.KindScout
 )
 
+const (
+	HoldKindOperator = store.HoldKindOperator
+	HoldKindBlocked  = store.HoldKindBlocked
+)
+
 // Aliases rather than separate structs: the store owns the columns these map
 // to, and a second definition would be one more place to forget a field.
 type (
 	Herdr = store.Herdr
 	Task  = store.Task
+	Hold  = store.Hold
 )
