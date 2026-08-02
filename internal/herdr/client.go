@@ -162,7 +162,17 @@ func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, Tab, Pane, error
 		return Workspace{}, Tab{}, Pane{}, fmt.Errorf("parse workspace create: %w", err)
 	}
 	if body.Workspace.WorkspaceID == "" || body.Tab.TabID == "" || body.RootPane.PaneID == "" {
-		return Workspace{}, Tab{}, Pane{}, fmt.Errorf("parse workspace create: missing workspace, tab, or root pane")
+		parseErr := fmt.Errorf("parse workspace create: missing workspace, tab, or root pane")
+		// A workspace ID here means herdr already created the workspace before the response
+		// came back incomplete - reachable only against a herdr whose protocol predates the
+		// tab/root_pane fields - so it must be closed here, before the parse error leaves this
+		// function, or nothing else will ever learn the workspace exists to clean it up.
+		if body.Workspace.WorkspaceID != "" {
+			if closeErr := c.WorkspaceClose(body.Workspace.WorkspaceID); closeErr != nil {
+				return Workspace{}, Tab{}, Pane{}, fmt.Errorf("%w; cleanup failed: %w", parseErr, closeErr)
+			}
+		}
+		return Workspace{}, Tab{}, Pane{}, parseErr
 	}
 	return body.Workspace, body.Tab, body.RootPane, nil
 }

@@ -431,6 +431,55 @@ func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {
 	}
 }
 
+// fakeHerdrPartialWorkspaceCreateScript answers "workspace create" the way a herdr whose protocol
+// predates the tab/root_pane fields on workspace_created would: it reports the workspace but
+// omits both, the partial-response shape atqamz/secondhand#74 fixes. herdr has still created the
+// workspace by the time this responds, so a faithful fake must also accept "workspace close" and
+// log it, or a test using this script could pass with the leak fix reverted.
+const fakeHerdrPartialWorkspaceCreateScript = `#!/bin/sh
+echo "$@" >> "$HERDR_CALL_LOG"
+cmd="$1 $2"
+case "$cmd" in
+"workspace list")
+	printf '{"id":"cli:1","result":{"workspaces":[]}}'
+	;;
+"workspace create")
+	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"}}}'
+	;;
+"workspace close")
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`
+
+func TestSpawnPartialWorkspaceCreateLeavesNoWorkspaceBehind(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, fakeHerdrPartialWorkspaceCreateScript)
+	callLog := setupSpawnLeakEnv(t, false)
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "missing workspace, tab, or root pane") {
+		t.Fatalf("got err %v, want the partial workspace_created response rejected", err)
+	}
+
+	if exists, existsErr := state.Exists(home, "task-1"); existsErr != nil || exists {
+		t.Fatalf("state written for a partial workspace_created response: exists=%v err=%v", exists, existsErr)
+	}
+	calls, readErr := os.ReadFile(callLog)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(calls), "workspace close wA") {
+		t.Fatalf("calls = %q, want the workspace herdr created to be closed", calls)
+	}
+}
+
 func TestSpawnFailureKeepsPreexistingWorkspace(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	setupSpawnHome(t, wt, fakeHerdrLeakScript)
