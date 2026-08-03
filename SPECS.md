@@ -969,14 +969,17 @@ restart's own baseline tick still reaches the operator the same way a live one w
 
 #### Notifying a supervisory agent with no session watching
 
-`internal/watcher.NotifiableKinds` names the event kinds worth waking someone for with no session watching:
-`blocked`, `failed`, `report-failed`, `report-needs-decision`, and `report-done`. `idle-unreported`, `stale`,
-`parked`, `pr-merged` and the `pr-record-*` kinds are left out - each describes a transition the poll loop is already
-tracking toward one of the five above, or one that resolves on its own without a human, so notifying on it too would
-either double up the same fact or wake someone for nothing actionable.
+The notify hook is its own filtered consumer of the same classified event stream `--event` already filters for
+stdout, not a severity test hardcoded into `handleEvent`: `internal/watcher.NotifyFilter` builds an `EventFilter` -
+the identical `EventFilter`/`Matches` mechanism `--event` uses - with its own fixed membership, and `handleEvent`
+checks it the same way it checks `cfg.EventFilter`. Its membership names the event kinds worth waking someone for
+with no session watching: `blocked`, `failed`, `report-failed`, `report-needs-decision`, and `report-done`.
+`idle-unreported`, `stale`, `parked`, `pr-merged` and the `pr-record-*` kinds are left out - each describes a
+transition the poll loop is already tracking toward one of the five above, or one that resolves on its own without a
+human, so notifying on it too would either double up the same fact or wake someone for nothing actionable.
 
-`handleEvent` calls `internal/notify.Send` directly for every notifiable event, never by shelling out to the `hand
-notify` subcommand, so wiring reaches every caller of `hand watch` with no shell wrapper required. An unconfigured
+`handleEvent` calls `internal/notify.Send` directly for every event `NotifyFilter` matches, never by shelling out to
+the `hand notify` subcommand, so wiring reaches every caller of `hand watch` with no shell wrapper required. An unconfigured
 `config/notify` is expected on most fleets - the same silent fallback every other `config/` default gets - so it
 produces no diagnostic; a *configured* template that fails is written to the watcher's own stderr, the same channel
 every other watcher-internal failure (a stuck lock, an unreadable report) already uses, per "Error output" - never a

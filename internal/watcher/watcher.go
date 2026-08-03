@@ -623,15 +623,18 @@ func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	notifyEvent(cfg.Home, e, errOut)
 }
 
-// notifyEvent delivers a captain-relevant event through config/notify
-// in-process, never by shelling out to the hand notify subcommand - so no
-// caller has to wrap hand watch in a shell script to get notifications. An
-// unconfigured channel is expected on most fleets and stays silent here the
-// same way any other config/ default falls back quietly; only a configured
-// template that actually failed is loud, on the same errOut diagnostics
-// channel every other watcher failure uses.
+// notifyEvent is notify's own filtered consumer of the same classified event
+// stream handleEvent's stdout write already reads from - NotifyFilter applies
+// the same EventFilter/Matches mechanism --event uses, with its own fixed
+// membership, rather than a severity test bolted onto this function. A match
+// delivers through config/notify in-process, never by shelling out to the
+// hand notify subcommand, so no caller has to wrap hand watch in a shell
+// script to get notifications. An unconfigured channel is expected on most
+// fleets and stays silent here the same way any other config/ default falls
+// back quietly; only a configured template that actually failed is loud, on
+// the same errOut diagnostics channel every other watcher failure uses.
 func notifyEvent(home string, e *Event, errOut io.Writer) {
-	if !NotifiableKinds()[e.Kind] {
+	if !NotifyFilter().Matches(e.Kind) {
 		return
 	}
 	if err := notify.Send(home, e.Text); err != nil && !errors.Is(err, notify.ErrNotConfigured) {

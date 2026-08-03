@@ -59,21 +59,20 @@ func KnownKinds() []string {
 	}
 }
 
-// NotifiableKinds are the event kinds worth reaching an operator with no
-// session watching for - what SPECS.md's notify section calls
+// NotifyFilter is the EventFilter for the watcher's in-process notify hook: the
+// same EventFilter/Matches mechanism --event already applies to gate stdout,
+// reused here as a second, independently-curated consumer of the same
+// classified event stream rather than a bespoke severity check hardcoded into
+// handleEvent. Its membership is what SPECS.md's notify section calls
 // captain-relevant. idle-unreported, stale, parked, pr-merged and the
-// pr-record-* kinds describe transitions the poll loop already tracks toward
-// one of these outcomes or that resolve themselves without a human, so
-// notifying on them too would double up the same fact or wake someone for
-// nothing actionable.
-func NotifiableKinds() map[string]bool {
-	return map[string]bool{
-		KindBlocked:             true,
-		KindFailed:              true,
-		KindReportFailed:        true,
-		KindReportNeedsDecision: true,
-		KindReportDone:          true,
-	}
+// pr-record-* kinds are left out - each describes a transition the poll loop
+// already tracks toward one of these five, or one that resolves itself
+// without a human, so notifying on it too would double up the same fact or
+// wake someone for nothing actionable.
+func NotifyFilter() EventFilter {
+	return NewEventFilter([]string{
+		KindBlocked, KindFailed, KindReportFailed, KindReportNeedsDecision, KindReportDone,
+	})
 }
 
 // EventFilter restricts which event kinds count as a wake for RunUntilEvent. The
