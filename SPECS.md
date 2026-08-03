@@ -1183,6 +1183,8 @@ Every whitespace-separated token in the query is quoted before it reaches FTS5, 
 
 The index lives in its own database at `state/index.db`, separate from machine state, and is safe to delete at any time (see "Machine state and the prose corpus"). Neither the search nor the rebuild reads `state/hand.db`.
 
+`data/dashboard.md` stays excluded from the corpus even though nothing writes it any more (atqamz/secondhand#62): a home initialized before the dashboard was deleted keeps its last render on disk indefinitely, and no command refreshes it, so indexing it would answer a prose search out of a frozen snapshot of removed functionality.
+
 Errors:
 - Corpus unreadable (the rebuild names the file it could not read).
 - Index unusable, past what a refresh repairs - the condition `--rebuild` exists for.

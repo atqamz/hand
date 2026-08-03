@@ -236,6 +236,14 @@ func (ix *Index) Search(query string, limit int) ([]Hit, error) {
 	return hits, nil
 }
 
+// Nothing renders data/dashboard.md any more (atqamz/secondhand#62), but a
+// home initialized before its deletion keeps the last render on disk forever,
+// and indexing that would answer a prose search out of a frozen snapshot of
+// removed functionality.
+var generatedCorpusFiles = map[string]bool{
+	filepath.Join("data", "dashboard.md"): true,
+}
+
 func scanCorpus(homeDir string) (map[string]corpusFile, error) {
 	found := map[string]corpusFile{}
 	root := CorpusDir(homeDir)
@@ -249,6 +257,9 @@ func scanCorpus(homeDir string) (map[string]corpusFile, error) {
 		rel, err := filepath.Rel(homeDir, path)
 		if err != nil {
 			return err
+		}
+		if generatedCorpusFiles[rel] {
+			return nil
 		}
 		info, err := d.Info()
 		if err != nil {

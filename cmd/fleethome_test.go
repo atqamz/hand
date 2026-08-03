@@ -6,11 +6,16 @@ import (
 	"testing"
 )
 
-// mkFleetDirs lays down the state/hand.db marker home.Resolve requires to
-// recognize dir as a fleet home, for fixtures that chdir into a bare temp
-// directory without going through hand init. It also neutralizes an ambient
-// HAND_HOME, which would otherwise outrank the fixture and point the command
-// under test at the developer's real fleet.
+// mkFleetDirs lays down the markers home.Resolve requires to recognize dir as
+// a fleet home, for fixtures that chdir into a bare temp directory without
+// going through hand init. It also neutralizes an ambient HAND_HOME, which
+// would otherwise outrank the fixture and point the command under test at the
+// developer's real fleet.
+//
+// Both marker sets are written, not just state/hand.db: tests that fault the
+// store by turning state/hand.db into a directory would otherwise stop being
+// homes at all, and the command would fail on home resolution before ever
+// reaching the fault under test.
 func mkFleetDirs(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HAND_HOME", "")
@@ -18,6 +23,14 @@ func mkFleetDirs(t *testing.T, dir string) {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	projects := filepath.Join(dir, "data", "projects.md")
+	if _, err := os.Stat(projects); os.IsNotExist(err) {
+		if err := os.WriteFile(projects, []byte("# Projects\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	} else if err != nil {
+		t.Fatal(err)
 	}
 	marker := filepath.Join(dir, "state", "hand.db")
 	if _, err := os.Stat(marker); os.IsNotExist(err) {

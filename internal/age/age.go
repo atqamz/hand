@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// FormatAge renders the elapsed time since createdAt (RFC3339) the same way.
-// Returns "unknown" if createdAt doesn't parse.
+// FormatAge renders the elapsed time since createdAt (RFC3339). Returns
+// "unknown" if createdAt doesn't parse.
 func FormatAge(createdAt string) string {
 	t, err := time.Parse(time.RFC3339, createdAt)
 	if err != nil {
