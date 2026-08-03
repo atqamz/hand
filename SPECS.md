@@ -2072,9 +2072,9 @@ Automated via [release-please](https://github.com/googleapis/release-please) (sa
 
 **`.github/workflows/release.yaml`:** the tracked file is authoritative - runs on push to main; `workflow_dispatch` exists to re-run release-please after a conflicted release PR is rebased.
 
-**`.github/workflows/triage-label.yaml`:** the tracked file is authoritative - runs on `issues: opened`, labels the issue `needs-triage` unless its author (login, case-insensitive) is `atqamz`. Scoped to `issues: write` only, uses the built-in `GITHUB_TOKEN` via `gh issue edit`, no third-party action. Does not fire on reopen and does not distinguish bot authors from human ones - see the issue that introduced it for the reasoning.
-
 Same CI pattern as no-mistakes and treehouse: format, vet, lint, test across OS matrix, e2e against faked herdr and treehouse (no real ones installed, see "Integration tests"), plus a nix-build job guarding the flake package, then release-please for automated releases.
+
+**`.github/workflows/triage-label.yaml`:** the tracked file is authoritative - runs on `issues: opened`, labels the issue `needs-triage` unless its author (login, case-insensitive) is `atqamz`. Scoped to `issues: write` only, uses the built-in `GITHUB_TOKEN` via `gh issue edit`, no third-party action. Does not fire on reopen and does not distinguish bot authors from human ones (atqamz/secondhand#116).
 
 `.github/dependabot.yaml` - keep Go modules and GitHub Actions up to date:
 ```yaml
