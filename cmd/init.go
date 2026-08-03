@@ -223,10 +223,14 @@ func warnHandHomeMismatch(w io.Writer, home string) error {
 	if handHome == "" {
 		return nil
 	}
-	if abs, err := filepath.Abs(handHome); err == nil && abs == home {
-		return nil
+	display := handHome
+	if abs, err := filepath.Abs(handHome); err == nil {
+		if abs == home {
+			return nil
+		}
+		display = abs
 	}
-	_, err := fmt.Fprintf(w, "warning: HAND_HOME is set to %s, so every other hand command will use that home, not %s\n", handHome, home)
+	_, err := fmt.Fprintf(w, "warning: HAND_HOME is set to %s, so every other hand command will use that home, not %s\n", display, home)
 	return err
 }
 

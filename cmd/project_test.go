@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -385,6 +386,19 @@ func TestWarnHandHomeMismatch(t *testing.T) {
 	}
 	if !strings.Contains(warned.String(), elsewhere) || !strings.Contains(warned.String(), home) {
 		t.Fatalf("got %q, want a warning naming both %q and %q", warned.String(), elsewhere, home)
+	}
+
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	t.Setenv("HAND_HOME", "fleet")
+	absHandHome := filepath.Join(cwd, "fleet")
+	var relative strings.Builder
+	if err := warnHandHomeMismatch(&relative, home); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("warning: HAND_HOME is set to %s, so every other hand command will use that home, not %s\n", absHandHome, home)
+	if relative.String() != want {
+		t.Fatalf("got %q, want %q", relative.String(), want)
 	}
 }
 
