@@ -329,6 +329,56 @@ func TestWatchUntilEventWakesOnlyOnTheFilteredKind(t *testing.T) {
 	}
 }
 
+// The notify template writes $HAND_MESSAGE straight to a marker file with no
+// wrapper script of any kind, so a marker that ends up holding the exact event
+// text is only possible if hand watch invoked config/notify in-process itself -
+// the two hard requirements the wiring exists to satisfy.
+func TestWatchNotifiesInProcessForABlockedEvent(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+
+	marker := filepath.Join(home, "notify-marker.txt")
+	writeConfig(t, home, "notify", "printf '%s' \"$HAND_MESSAGE\" > "+marker)
+
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "working")
+	herdrLog := filepath.Join(t.TempDir(), "herdr-invocations.log")
+	writeFakeHerdrWatch(t, binDir(t), statusDir, herdrLog)
+
+	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
+	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
+
+	setPaneStatus(t, statusDir, "pane-1", "blocked")
+	watch.waitForStdout(t, "blocked task-1: agent needs help", 5*time.Second)
+
+	deadline := time.Now().Add(5 * time.Second)
+	var got []byte
+	for time.Now().Before(deadline) {
+		var err error
+		got, err = os.ReadFile(marker)
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if string(got) != "blocked task-1: agent needs help" {
+		t.Fatalf("notify marker = %q, want the event text delivered by config/notify in-process", got)
+	}
+
+	result := watch.stop(t, 3*time.Second)
+	if result.code != 0 {
+		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
+	}
+}
+
 // A task first sighted with its pane already unreachable - a re-scan picking up a
 // fresh spawn - has no probed-to-unprobed edge to fire `failed` on, and used to be
 // dropped from tracking entirely. The blink task is the other half of the contract:
