@@ -1477,11 +1477,16 @@ herdr workspace list
 # create workspace without focusing it - herdr cannot create an empty workspace, so this always
 # creates a root tab and pane too, at --cwd; hand points --cwd at the worktree (not the clone) and
 # reuses that root tab as the first task's tab (see "herdr tab rename" below) rather than
-# discarding it and creating a second tab, which would leave it behind as an orphan shell
-herdr workspace create --no-focus --cwd <worktree> --label hand:<project-name>
+# discarding it and creating a second tab, which would leave it behind as an orphan shell.
+# --env blanks any CLAUDE_CODE_CHILD_SESSION/CLAUDE_CODE_SESSION_ID/CLAUDECODE the herdr server
+# itself inherited, so a server started from inside a Claude Code session never hands its own
+# session identity, or a silently disabled transcript, to a pane it creates (atqamz/secondhand#109)
+herdr workspace create --no-focus --cwd <worktree> --label hand:<project-name> \
+  --env CLAUDE_CODE_CHILD_SESSION= --env CLAUDE_CODE_SESSION_ID= --env CLAUDECODE=
 
-# create tab in an already-existing workspace
-herdr tab create --workspace <ws-id> --no-focus --cwd <worktree> --label <task-id>
+# create tab in an already-existing workspace - same sanitized --env set as workspace create above
+herdr tab create --workspace <ws-id> --no-focus --cwd <worktree> --label <task-id> \
+  --env CLAUDE_CODE_CHILD_SESSION= --env CLAUDE_CODE_SESSION_ID= --env CLAUDECODE=
 
 # rename a tab - used to turn workspace create's own root tab into the first task's tab
 herdr tab rename <tab-id> <task-id>
