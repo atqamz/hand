@@ -30,6 +30,12 @@ type Config struct {
 	// Timeout bounds RunUntilEvent only. Zero blocks until an event arrives.
 	Timeout      time.Duration
 	ParkedBounds ParkedBounds
+	// EventFilter bounds which kinds reach out, whichever writer that is: handleEvent
+	// applies it to every event it writes there, on the Run path as much as the
+	// RunUntilEvent one. Keeping the streaming path unfiltered is cmd/watch.go's
+	// doing, not this package's - it rejects --event without --until-event, so Run
+	// never receives a filter from the CLI.
+	EventFilter EventFilter
 }
 
 var ErrNoEvent = errors.New("no event")
@@ -193,10 +199,17 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			tracked = false
 		}
 		if !tracked {
+			// herdr.StatusUnknown stands in for "no real status observed yet", so the
+			// eventual recovery reads as an ordinary transition rather than inventing a
+			// prior status. Probed=false starts ClassifyUnreachable's dwell clock
+			// immediately instead of waiting for a second failed probe to notice this
+			// task at all.
 			if probeErr != nil {
-				continue
+				status = herdr.StatusUnknown
 			}
-			states[t.ID] = resumeTaskState(t, status, now)
+			ts = resumeTaskState(t, status, now)
+			ts.Probed = probeErr == nil
+			states[t.ID] = ts
 			continue
 		}
 
@@ -205,6 +218,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {
+			handleEvent(cfg, e, out, errOut)
+		}
+		if e := ClassifyUnreachable(ts, t.ID, now, cfg.StaleThreshold); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
 		if e := ClassifyStale(ts, t.ID, now, cfg.StaleThreshold); e != nil {
@@ -294,12 +310,17 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	ts.Status = herdr.StatusUnknown
 	ts.Stale = false
 	ts.Blocked = false
-	// Unconditionally true, exactly as NewTaskState seeds a first sighting: it is the
-	// convention that lets a brand-new task's very first probe failure fire `failed`
-	// with no grace period. Carrying a false left by an unresolved probe error on the
-	// old pane would instead swallow the ship's own first failure as no edge, and keep
-	// ClassifyStale's early return gated off until some probe succeeded.
-	ts.Probed = true
+	// False, exactly as tick seeds a task first sighted with an unreachable pane: the
+	// ship's first probe of its new pane is a first sighting, so an unreachable one
+	// dwells under ClassifyUnreachable's threshold instead of firing `failed` on
+	// sight. Carrying the old pane's true would fire that no-dwell `failed` off a
+	// blink, on the strength of a probe that only ever described the scout's pane.
+	ts.Probed = false
+	// A latch claiming the old pane's outage has nothing to say about the new one;
+	// left true it would sit inert until the next probe failure resets Probed to
+	// false anyway, but a fresh pane deserves a fresh episode on purpose, not by
+	// accident of that ordering.
+	ts.UnreachableFired = false
 	ts.LastReportState = t.LastReportState
 	ts.LastReportNote = t.LastReportNote
 }
@@ -358,9 +379,10 @@ func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Tim
 
 // reportEvidenceTime floors the report file's mtime at the instant the task's
 // current pane started, because hand promote leaves the scout's report file - and
-// so its mtime - untouched while clearing the last-report state that used to exempt
-// the task from parked. Unfloored, a ship seconds old inherits the scout's whole
-// silence and fires parked immediately.
+// so its mtime - untouched while clearing the last-report state that had the scout's
+// silence under the long done/failed bound. Unfloored, a ship seconds old inherits
+// the scout's whole silence, now measured against the short bound, and fires parked
+// immediately.
 func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 	started, err := paneStartTime(t)
 	if err != nil {
@@ -381,7 +403,11 @@ func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 
 // paneStartTime is when the task's current pane began holding the status it holds:
 // promote restamps StatusChangedAt, and before any status has ever been observed
-// the pane is the one spawn created.
+// the pane is the one spawn created. It reads the stamp whatever status it was taken
+// for: an outage stamp overstates the floor and can delay a task's parked, but the
+// alternatives available without a durable pane-start field are worse - CreatedAt is
+// the scout's own creation after a promote, which hands a seconds-old ship pane the
+// scout's whole accumulated silence. See atqamz/secondhand#128.
 func paneStartTime(t state.Task) (time.Time, error) {
 	stamp, field := t.StatusChangedAt, "status_changed_at"
 	if stamp == "" {
@@ -577,8 +603,13 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedChangedFor = string(ts.Status)
 }
 
+// EventFilter gates only the out write: events.log records every event
+// regardless of filter, the same way a baseline tick's events already reach it
+// without reaching stdout.
 func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
-	_, _ = fmt.Fprintln(out, e.Text)
+	if cfg.EventFilter.Matches(e.Kind) {
+		_, _ = fmt.Fprintln(out, e.Text)
+	}
 
 	logPath := filepath.Join(state.Dir(cfg.Home), "events.log")
 	if err := appendEventLog(logPath, time.Now().UTC().Format(time.RFC3339)+" "+e.Text); err != nil {

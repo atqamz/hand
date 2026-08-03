@@ -47,6 +47,47 @@ const (
 	KindParked              = "parked"
 )
 
+// KnownKinds lists every Kind a caller can name in an EventFilter, so cmd/watch.go
+// can reject a typo'd --event value at flag-parsing time instead of it silently
+// matching nothing forever.
+func KnownKinds() []string {
+	return []string{
+		KindIdleUnreported, KindBlocked, KindFailed, KindStale, KindPRMerged,
+		KindPRNotRecorded, KindPRRecordUnknown, KindReportWorking, KindReportPaused,
+		KindReportBlocked, KindReportNeedsDecision, KindReportDone, KindReportFailed,
+		KindReportMalformed, KindParked,
+	}
+}
+
+// EventFilter restricts which event kinds count as a wake for RunUntilEvent. The
+// caller expresses it directly in terms of Kind rather than against a fixed
+// actionable/progress split: report-working is exactly what distinguishes a
+// wedged spawn from a slow one, so hardcoding it out would defeat the one case
+// that most needs watching. A nil/empty filter matches every kind - the only
+// behavior the streaming Run path ever has, and --until-event's default too.
+type EventFilter map[string]bool
+
+// NewEventFilter builds a filter from caller-supplied kind names. An empty list
+// returns nil so Matches falls through to "match everything" rather than
+// "match nothing".
+func NewEventFilter(kinds []string) EventFilter {
+	if len(kinds) == 0 {
+		return nil
+	}
+	f := make(EventFilter, len(kinds))
+	for _, k := range kinds {
+		f[k] = true
+	}
+	return f
+}
+
+func (f EventFilter) Matches(kind string) bool {
+	if len(f) == 0 {
+		return true
+	}
+	return f[kind]
+}
+
 // blockedReason is the only detail available: herdr reports agent_status without a
 // free-text cause, so this mirrors herdr's own "blocked" state description.
 const blockedReason = "agent needs help"
@@ -102,6 +143,12 @@ type TaskState struct {
 	// restart too.
 	DoneVerified   bool
 	ParkedFiredFor time.Time
+	// UnreachableFired claims an outage episode the same way Stale claims a
+	// silence episode: re-derived, never persisted. A restart mid-outage loses it
+	// and ClassifyUnreachable simply re-evaluates the dwell against durable
+	// evidence, so the safe failure mode is one duplicate announcement, never a
+	// suppressed one.
+	UnreachableFired bool
 }
 
 // NewTaskState seeds tracking for a task first observed at now, without emitting an
@@ -128,11 +175,13 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 		wasProbed := ts.Probed
 		ts.Probed = false
 		if wasProbed {
+			ts.UnreachableFired = true
 			return &Event{TaskID: id, Kind: KindFailed, Text: fmt.Sprintf("failed %s", id)}
 		}
 		return nil
 	}
 	ts.Probed = true
+	ts.UnreachableFired = false
 
 	if status == ts.Status {
 		return nil
@@ -172,16 +221,44 @@ func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Durat
 	return &Event{TaskID: id, Kind: KindStale, Text: fmt.Sprintf("stale %s", id)}
 }
 
+// ClassifyUnreachable covers the one outage ClassifyStatus's immediate branch
+// can't: a task whose very first sighting - or first sighting after a restart -
+// finds its pane unreachable, which leaves ts.Probed false with no prior "was
+// probed" edge to fire on. Gating on threshold rather than firing on sight is
+// what makes a blink produce nothing: a pane that answers again before the dwell
+// matures never reaches here, since ClassifyStatus's success path clears
+// ts.Probed back to true first. ts.ChangedAt is reused as the outage's dwell
+// clock rather than adding a new one, so it rides the same restart-safe seeding
+// every other dwell in this package already gets - see statusChangeSeed. Reusing
+// KindFailed rather than a new kind keeps this the same fact ClassifyStatus's
+// immediate branch already announces: the pane is unreachable, whichever tick
+// caught it first.
+func ClassifyUnreachable(ts *TaskState, id string, now time.Time, threshold time.Duration) *Event {
+	if ts.Probed || ts.UnreachableFired {
+		return nil
+	}
+	if now.Sub(ts.ChangedAt) < threshold {
+		return nil
+	}
+	ts.UnreachableFired = true
+	return &Event{TaskID: id, Kind: KindFailed, Text: fmt.Sprintf("failed %s", id)}
+}
+
 type ParkedBounds struct {
 	Paused time.Duration
+	Done   time.Duration
 	Other  time.Duration
 }
 
-// A non-positive bound means unconfigured rather than zero-tolerance.
+// A non-positive bound means unconfigured rather than zero-tolerance. done/failed
+// get their own tier rather than the blanket exemption this used to be: the
+// status file being torn down is what actually severs a task from steering, not
+// the worker's own last word on the matter, so a done/failed worker still
+// attached to a pane is silence like any other and gets bounded the same way.
 func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
 	switch lastState {
 	case state.ReportDone, state.ReportFailed:
-		return 0, true
+		bound = bounds.Done
 	case state.ReportPaused:
 		bound = bounds.Paused
 	default:

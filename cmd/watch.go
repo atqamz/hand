@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,12 +16,14 @@ import (
 
 const defaultStaleThreshold = 300 * time.Second
 const defaultParkedPausedBound = 3600 * time.Second
+const defaultParkedDoneBound = 5400 * time.Second
 const defaultParkedOtherBound = 1200 * time.Second
 
 func newWatchCmd() *cobra.Command {
 	var poll string
 	var untilEvent bool
 	var timeout time.Duration
+	var events []string
 
 	cmd := &cobra.Command{
 		Use:   "watch",
@@ -41,6 +44,21 @@ func newWatchCmd() *cobra.Command {
 				}
 			}
 
+			if cmd.Flags().Changed("event") {
+				if !untilEvent {
+					return &ExitError{Err: errors.New("--event requires --until-event: the streaming watcher has no wake to filter"), Code: 2}
+				}
+				known := make(map[string]bool, len(watcher.KnownKinds()))
+				for _, k := range watcher.KnownKinds() {
+					known[k] = true
+				}
+				for _, e := range events {
+					if !known[e] {
+						return &ExitError{Err: fmt.Errorf("unknown --event %q: want one of %s", e, strings.Join(watcher.KnownKinds(), ", ")), Code: 2}
+					}
+				}
+			}
+
 			pollFromFlag := poll != ""
 			if !pollFromFlag {
 				poll = configDefault(home, "watch-interval", "5s")
@@ -55,6 +73,10 @@ func newWatchCmd() *cobra.Command {
 				return err
 			}
 			parkedPausedBound, err := configSeconds(home, "parked-paused-bound", defaultParkedPausedBound)
+			if err != nil {
+				return err
+			}
+			parkedDoneBound, err := configSeconds(home, "parked-done-bound", defaultParkedDoneBound)
 			if err != nil {
 				return err
 			}
@@ -73,8 +95,10 @@ func newWatchCmd() *cobra.Command {
 				Timeout:        timeout,
 				ParkedBounds: watcher.ParkedBounds{
 					Paused: parkedPausedBound,
+					Done:   parkedDoneBound,
 					Other:  parkedOtherBound,
 				},
+				EventFilter: watcher.NewEventFilter(events),
 			}
 			if !untilEvent {
 				return watcher.Run(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr())
@@ -99,5 +123,6 @@ func newWatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&poll, "poll", "", "poll interval (default: config/watch-interval, or 5s)")
 	cmd.Flags().BoolVar(&untilEvent, "until-event", false, "block until the first event, print it, and exit 0")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "with --until-event, give up after this long and exit 4 (default: no timeout)")
+	cmd.Flags().StringSliceVar(&events, "event", nil, "with --until-event, wake only on these event kinds (default: any); repeatable or comma-separated")
 	return cmd
 }

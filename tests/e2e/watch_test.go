@@ -244,3 +244,146 @@ func TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent(t *testing.
 		t.Fatalf("stdout = %q, want the parked line carrying the worker's last report", got.stdout)
 	}
 }
+
+// A done worker still attached to its pane is silence like any other: what severs
+// a task from steering is the status file being torn down, not the worker's own
+// last word, so done/failed are bounded under their own tier rather than exempt.
+// The pane stays "working" throughout, so no herdr transition can produce this
+// line - only the done-tier bound can.
+func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	writeConfig(t, home, "parked-done-bound", "2")
+
+	if err := state.Write(home, state.Task{
+		ID: "shipped-task", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Written now so the bound is crossed while the poll loop runs, not before it.
+	if err := os.WriteFile(state.ReportPath(home, "shipped-task"), []byte("done: shipped the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "working")
+	writeFakeHerdrWatch(t, binDir(t), statusDir, filepath.Join(t.TempDir(), "herdr-invocations.log"))
+
+	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
+
+	// The report line landing first is what makes the parked line below a
+	// done-tier decision: the classifier has to have recorded "done" as the last
+	// report state before it can pick that tier.
+	watch.waitForStdout(t, "reported-done shipped-task: shipped the migration", 5*time.Second)
+	watch.waitForStdout(t, "parked shipped-task: done: shipped the migration (silent", 15*time.Second)
+
+	result := watch.stop(t, 3*time.Second)
+	if result.code != 0 {
+		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
+	}
+}
+
+// The report channel produces a wake (`report-done`) long before the parked bound
+// matures, so exiting on `parked` at all is the filter's doing: an unfiltered
+// --until-event would have delivered that earlier wake and exited on it. The
+// filter is stdout-only, so events.log still has to carry the wake it suppressed.
+func TestWatchUntilEventWakesOnlyOnTheFilteredKind(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	writeConfig(t, home, "parked-done-bound", "2")
+
+	if err := state.Write(home, state.Task{
+		ID: "shipped-task", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "shipped-task"), []byte("done: shipped the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "working")
+	writeFakeHerdrWatch(t, binDir(t), statusDir, filepath.Join(t.TempDir(), "herdr-invocations.log"))
+
+	got := runHand(t, home, "watch", "--until-event", "--event", "parked", "--poll", "30ms", "--timeout", "30s")
+	if got.code != 0 {
+		t.Fatalf("exit = %d, want 0 for a delivered parked event (stdout %q, stderr %q)", got.code, got.stdout, got.stderr)
+	}
+	if !strings.Contains(got.stdout, "parked shipped-task: done: shipped the migration (silent") {
+		t.Fatalf("stdout = %q, want the parked line the caller asked to wake on", got.stdout)
+	}
+	if strings.Contains(got.stdout, "reported-done") {
+		t.Fatalf("stdout = %q, want the report-done wake filtered out: the caller named parked only", got.stdout)
+	}
+
+	logData, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
+	if err != nil {
+		t.Fatalf("read events.log: %v", err)
+	}
+	if !strings.Contains(string(logData), "reported-done shipped-task: shipped the migration") {
+		t.Fatalf("events.log = %q, want the filtered wake still durably recorded: the filter is stdout-only", logData)
+	}
+}
+
+// A task first sighted with its pane already unreachable - a re-scan picking up a
+// fresh spawn - has no probed-to-unprobed edge to fire `failed` on, and used to be
+// dropped from tracking entirely. The blink task is the other half of the contract:
+// it answers again before the dwell matures and must produce nothing at all.
+func TestWatchTracksATaskFirstSightedUnreachable(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	writeConfig(t, home, "stale-threshold", "2")
+
+	statusDir := t.TempDir()
+	herdrLog := filepath.Join(t.TempDir(), "herdr-invocations.log")
+	writeFakeHerdrWatch(t, binDir(t), statusDir, herdrLog)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	setPaneStatus(t, statusDir, "pane-anchor", "working")
+	if err := state.Write(home, state.Task{
+		ID: "anchor-task", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-anchor"), Herdr: state.Herdr{PaneID: "pane-anchor"},
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
+	waitForInvocation(t, herdrLog, "herdr pane get pane-anchor", 5*time.Second)
+
+	// Published only once the poll loop is already running, so these are sightings
+	// no arm-time probe sweep could have made: this is the after-arming case.
+	setPaneStatus(t, statusDir, "pane-dark", "unreachable")
+	setPaneStatus(t, statusDir, "pane-blink", "unreachable")
+	sighted := time.Now().UTC().Format(time.RFC3339)
+	for _, task := range []state.Task{
+		{ID: "dark-task", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-dark"), Herdr: state.Herdr{PaneID: "pane-dark"}, CreatedAt: sighted},
+		{ID: "blink-task", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-blink"), Herdr: state.Herdr{PaneID: "pane-blink"}, CreatedAt: sighted},
+	} {
+		if err := state.Write(home, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Three failing probes at a 30ms poll is well inside the 2s dwell, so silence
+	// here is the dwell holding rather than a watcher that hasn't looked yet.
+	waitForInvocations(t, herdrLog, "herdr pane get pane-dark", 3, 5*time.Second)
+	if strings.Contains(watch.stdout.String(), "failed dark-task") {
+		t.Fatalf("failed fired on sight, before the dwell matured: stdout=%q", watch.stdout.String())
+	}
+	setPaneStatus(t, statusDir, "pane-blink", "working")
+
+	watch.waitForStdout(t, "failed dark-task", 15*time.Second)
+	if strings.Contains(watch.stdout.String(), "failed blink-task") {
+		t.Fatalf("a pane that blinked and came back raised failed: stdout=%q", watch.stdout.String())
+	}
+
+	result := watch.stop(t, 3*time.Second)
+	if result.code != 0 {
+		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
+	}
+}

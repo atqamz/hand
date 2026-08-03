@@ -154,6 +154,7 @@ func (s *syncBuffer) String() string {
 // waiting for it to exit on its own.
 type backgroundHand struct {
 	cmd     *exec.Cmd
+	args    []string
 	stdout  *syncBuffer
 	stderr  *syncBuffer
 	reaping bool
@@ -170,7 +171,7 @@ func startHandBackground(t *testing.T, home string, args ...string) *backgroundH
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start hand %v: %v", args, err)
 	}
-	b := &backgroundHand{cmd: cmd, stdout: stdout, stderr: stderr}
+	b := &backgroundHand{cmd: cmd, args: args, stdout: stdout, stderr: stderr}
 	t.Cleanup(func() {
 		if b.reaping {
 			return
@@ -222,7 +223,10 @@ func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, becaus
 			}
 			code = exitErr.ExitCode()
 		}
-		return invocation{code: code, stdout: b.stdout.String(), stderr: b.stderr.String()}
+		got := invocation{code: code, stdout: b.stdout.String(), stderr: b.stderr.String()}
+		t.Logf("$ hand %s\n  exit %d after %s\n  stdout: %s\n  stderr: %s",
+			strings.Join(b.args, " "), got.code, because, strings.TrimSpace(got.stdout), strings.TrimSpace(got.stderr))
+		return got
 	case <-time.After(timeout):
 		_ = b.cmd.Process.Kill()
 		t.Fatalf("hand watch did not exit within %s of %s; stdout=%q stderr=%q", timeout, because, b.stdout.String(), b.stderr.String())

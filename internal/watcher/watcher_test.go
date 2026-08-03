@@ -958,6 +958,43 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
+// The floor reads status_changed_at whatever status the stamp was taken for, so an
+// outage stamp only ever delays parked. Falling back to created_at for such a stamp
+// instead - as an outage-aware floor would have to - reopens the hazard the floor
+// exists to close, because after a promote created_at is the scout's own creation and
+// the ship inherits its whole accumulated silence. Separating the two needs a durable
+// pane-start fact; see atqamz/secondhand#128.
+func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
+	now := time.Now()
+	home := t.TempDir()
+	stamped := now.Add(-time.Minute)
+	task := state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt:        now.Add(-4 * time.Hour).UTC().Format(time.RFC3339),
+		StatusChangedAt:  stamped.UTC().Format(time.RFC3339),
+		StatusChangedFor: string(herdr.StatusUnknown),
+	}
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scoutSilence := now.Add(-2 * time.Hour)
+	if err := os.Chtimes(reportPath, scoutSilence, scoutSilence); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := reportEvidenceTime(home, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Before(stamped.Add(-time.Second)) {
+		t.Fatalf("evidence time = %s, want no earlier than the stamp %s: the floor must never collapse to the scout's created_at", got, stamped)
+	}
+}
+
 func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1268,7 +1305,7 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	scoutDwell := now.Add(-30 * time.Minute)
 	ts := &TaskState{
 		Status:                herdr.StatusWorking,
-		Probed:                false,
+		Probed:                true,
 		ChangedAt:             scoutDwell,
 		PersistedChangedAt:    scoutDwell,
 		PersistedChangedFor:   "working",
@@ -1306,8 +1343,34 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	if ts.Status != herdr.StatusUnknown {
 		t.Fatalf("Status = %q, want the scout's status forgotten so the ship's first probe is a baseline", ts.Status)
 	}
-	if !ts.Probed {
-		t.Fatal("Probed = false, want the scout's unresolved probe error forgotten so the ship's own first failure fires")
+	if ts.Probed {
+		t.Fatal("Probed = true, want the scout's probe forgotten so the ship's first probe is a first sighting")
+	}
+}
+
+// The ship's first probe of its new pane is a first sighting, so it earns the same
+// dwell a fresh spawn's does: a blink on the tick right after promote must announce
+// nothing, and the outage must still be announced once it outlives the threshold.
+func TestForgetPaneScopedCacheGivesTheShipsFirstProbeFailureADwell(t *testing.T) {
+	now := time.Now()
+	ts := &TaskState{
+		Status:          herdr.StatusWorking,
+		Probed:          true,
+		ChangedAt:       now.Add(-30 * time.Minute),
+		PersistedPaneID: "p1",
+	}
+
+	forgetPaneScopedCache(ts, promotedTask(now), now)
+
+	if e := ClassifyStatus(ts, "task-1", "", errors.New("pane not found"), now); e != nil {
+		t.Fatalf("event = %+v, want none: a blink on the ship's first probe is not a failure", e)
+	}
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Second), 5*time.Minute); e != nil {
+		t.Fatalf("event = %+v, want none: the ship's outage has not outlived the threshold", e)
+	}
+	e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), 5*time.Minute)
+	if e == nil || e.Kind != KindFailed {
+		t.Fatalf("event = %+v, want failed: the ship's pane stayed unreachable past the threshold", e)
 	}
 }
 
@@ -1322,7 +1385,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	before := TaskState{
 		CreatedAt:             "created-marker",
 		Status:                herdr.Status("scout-status"),
-		Probed:                false,
+		Probed:                true,
 		ChangedAt:             time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
 		Blocked:               true,
 		Stale:                 true,
@@ -1338,6 +1401,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		LastReportNote:        "scout-report-note",
 		DoneVerified:          true,
 		ParkedFiredFor:        time.Date(2003, 3, 3, 0, 0, 0, 0, time.UTC),
+		UnreachableFired:      true,
 	}
 	promoted := state.Task{
 		Herdr:            state.Herdr{PaneID: "ship-pane"},
@@ -1761,6 +1825,59 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	}
 }
 
+// TestRunUntilEventFiltersWakesToTheRequestedKinds covers #85: a caller that
+// only wants to wake on blocked must not be woken by a routine idle-unreported
+// transition, but the filtered-out event still has to reach events.log exactly
+// like a baseline tick's events already do - the filter gates the wake, not the
+// record.
+func TestRunUntilEventFiltersWakesToTheRequestedKinds(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	callLog := logPaneGets(t)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{
+		Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second,
+		EventFilter: NewEventFilter([]string{KindBlocked}),
+	}
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
+
+	waitForPaneGets(t, callLog, 3)
+	setStatus(t, statusFile, "idle")
+	waitForPaneGets(t, callLog, 6)
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want nothing yet: idle-unreported is not in the filter", out.String())
+	}
+	setStatus(t, statusFile, "blocked")
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunUntilEvent = %v, want nil so the exit code reads as a delivered event", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunUntilEvent did not return after the filtered-in transition")
+	}
+	if !strings.Contains(out.String(), "blocked task-1") {
+		t.Fatalf("out = %q, want blocked task-1", out.String())
+	}
+	if strings.Contains(out.String(), "idle-unreported task-1") {
+		t.Fatalf("out = %q, want idle-unreported excluded: it is not in the filter", out.String())
+	}
+
+	logData, err := os.ReadFile(filepath.Join(home, "state", "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "idle-unreported task-1") {
+		t.Fatalf("events.log = %q, want the filtered-out event still recorded", string(logData))
+	}
+}
+
 func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2116,6 +2233,107 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 // never changed. ClassifyStatus fires failed on any probe error, so a herdr daemon
 // restart would otherwise wipe every tracked task's last-reported state in one
 // tick - fleet-wide loss out of a transient blip.
+// TestTickStaysSilentOnABlinkAtFirstSighting covers #81's hard part: a task
+// whose very first sighting finds its pane unreachable must not be dropped
+// (the old !tracked branch's bare continue), but a probe failure that clears
+// before the dwell matures - a blink - must produce nothing at all.
+func TestTickStaysSilentOnABlinkAtFirstSighting(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, paneGoneStatus)
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if _, tracked := states["task-1"]; !tracked {
+		t.Fatal("task-1 was not tracked after a probe failure at first sighting")
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("output = %q, want nothing on the seeding tick", buf.String())
+	}
+
+	setStatus(t, statusFile, "working")
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if buf.Len() != 0 {
+		t.Fatalf("output = %q, want nothing: the pane recovered before the hour-long dwell matured", buf.String())
+	}
+}
+
+// TestTickAnnouncesATaskUnreachableAtFirstSightingOnceTheDwellMatures covers the
+// other half: a pane that stays dark must produce exactly one failed event,
+// not one per tick, and not never.
+func TestTickAnnouncesATaskUnreachableAtFirstSightingOnceTheDwellMatures(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, paneGoneStatus)
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if buf.Len() != 0 {
+		t.Fatalf("output = %q, want nothing on the seeding tick", buf.String())
+	}
+
+	ts := states["task-1"]
+	ts.ChangedAt = ts.ChangedAt.Add(-30 * time.Minute)
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "failed task-1") {
+		t.Fatalf("output = %q, want failed task-1 once the outage outlasts the stale threshold", buf.String())
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "failed task-1") {
+		t.Fatalf("output = %q, want no duplicate failed event for the same outage", buf.String())
+	}
+}
+
+// TestTickResumesAnUnreachableDwellAcrossARestart ties the outage clock to
+// durable evidence the same way stale and parked already do: a restart mid-
+// outage must not reset the dwell to zero, or a long-dark task would silently
+// buy itself a fresh grace period every time the watcher restarts.
+func TestTickResumesAnUnreachableDwellAcrossARestart(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, paneGoneStatus)
+	writeFakeHerdr(t, statusFile)
+
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	home := setupWatcherHome(t, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "unknown",
+	})
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "failed task-1") {
+		t.Fatal("failed fired on the seeding tick, before resume had even read durable state")
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "failed task-1") {
+		t.Fatalf("output = %q, want failed task-1 on the first classifying tick after resume: the outage predates this process and must not need to reaccumulate from resume time", buf.String())
+	}
+}
+
 func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")

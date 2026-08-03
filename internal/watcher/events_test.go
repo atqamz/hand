@@ -174,6 +174,67 @@ func TestClassifyStaleSkipsUnprobedTasks(t *testing.T) {
 	}
 }
 
+// TestClassifyUnreachableFiresOnceAfterTheDwellForATaskFirstSeenDown covers the
+// case ClassifyStatus's immediate branch cannot: a task whose very first
+// sighting has ts.Probed already false, so there is no "was probed" edge to
+// fire on. This is the shape resumeTaskState leaves an unreachable-at-first-
+// sighting task in.
+func TestClassifyUnreachableFiresOnceAfterTheDwellForATaskFirstSeenDown(t *testing.T) {
+	now := time.Now()
+	threshold := 5 * time.Minute
+	ts := NewTaskState(herdr.StatusUnknown, now)
+	ts.Probed = false
+
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Minute), threshold); e != nil {
+		t.Fatalf("got %+v, want no event before the dwell matures: this is what makes a blink silent", e)
+	}
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), threshold); e == nil || e.Kind != KindFailed {
+		t.Fatalf("got %+v, want a failed event once the outage outlasts the dwell", e)
+	}
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(10*time.Minute), threshold); e != nil {
+		t.Fatalf("failed event fired again for the same outage: %+v", e)
+	}
+}
+
+func TestClassifyUnreachableStaysSilentOnABlink(t *testing.T) {
+	now := time.Now()
+	threshold := 5 * time.Minute
+	ts := NewTaskState(herdr.StatusUnknown, now)
+	ts.Probed = false
+
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Minute), threshold); e != nil {
+		t.Fatalf("got %+v, want no event before the dwell matures", e)
+	}
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(2*time.Minute)); e != nil {
+		t.Fatalf("recovery from a first-sighting outage fired an event: %+v", e)
+	}
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(10*time.Minute), threshold); e != nil {
+		t.Fatalf("got %+v, want no failed event: the pane recovered before the dwell matured", e)
+	}
+}
+
+func TestClassifyUnreachableRefiresOnANewOutageAfterRecovery(t *testing.T) {
+	now := time.Now()
+	threshold := 5 * time.Minute
+	ts := NewTaskState(herdr.StatusUnknown, now)
+	ts.Probed = false
+
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), threshold); e == nil || e.Kind != KindFailed {
+		t.Fatalf("got %+v, want a failed event for the first outage", e)
+	}
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(7*time.Minute)); e != nil {
+		t.Fatalf("recovery fired an event: %+v", e)
+	}
+
+	probeErr := errors.New("pane not found")
+	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(8*time.Minute)); e == nil || e.Kind != KindFailed {
+		t.Fatalf("got %+v, want ClassifyStatus's immediate branch to fire for a known-good task going dark", e)
+	}
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(20*time.Minute), threshold); e != nil {
+		t.Fatalf("got %+v, want no duplicate: ClassifyStatus's immediate branch already claimed this outage", e)
+	}
+}
+
 func TestClassifyPRMergedFiresOnce(t *testing.T) {
 	ts := NewTaskState(herdr.StatusWorking, time.Now())
 
@@ -188,17 +249,39 @@ func TestClassifyPRMergedFiresOnce(t *testing.T) {
 	}
 }
 
-func TestClassifyParkedExemptsDoneAndFailed(t *testing.T) {
+func TestClassifyParkedBoundsDoneAndFailedInsteadOfExemptingThem(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Done: 90 * time.Minute, Other: 20 * time.Minute}
+
+	withinBound := now.Add(-time.Hour)
+	doneTs := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(doneTs, "task-1", state.ReportDone, "done: shipped", withinBound, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event while a done worker's silence is still under the done bound", e)
+	}
+	failedTs := NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(failedTs, "task-1", state.ReportFailed, "failed: build broke", withinBound, now, bounds); e != nil {
+		t.Fatalf("got %+v, want no parked event while a failed worker's silence is still under the done bound", e)
+	}
+
+	beyondBound := now.Add(-2 * time.Hour)
+	doneTs = NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(doneTs, "task-1", state.ReportDone, "done: shipped", beyondBound, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want a parked event once a done worker's silence exceeds the done bound: it may still be attached to a pane and steerable", e)
+	}
+	failedTs = NewTaskState(herdr.StatusIdle, now)
+	if e := ClassifyParked(failedTs, "task-1", state.ReportFailed, "failed: build broke", beyondBound, now, bounds); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want a parked event once a failed worker's silence exceeds the done bound", e)
+	}
+}
+
+func TestClassifyParkedExemptsDoneAndFailedWhenTheDoneBoundIsUnconfigured(t *testing.T) {
 	now := time.Now()
 	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
 	old := now.Add(-24 * time.Hour)
 
 	ts := NewTaskState(herdr.StatusIdle, now)
 	if e := ClassifyParked(ts, "task-1", state.ReportDone, "done: shipped", old, now, bounds); e != nil {
-		t.Fatalf("got %+v, want no parked event once the worker reported done", e)
-	}
-	if e := ClassifyParked(ts, "task-1", state.ReportFailed, "failed: build broke", old, now, bounds); e != nil {
-		t.Fatalf("got %+v, want no parked event once the worker reported failed", e)
+		t.Fatalf("got %+v, want no parked event: a non-positive bound means unconfigured, not zero-tolerance", e)
 	}
 }
 
