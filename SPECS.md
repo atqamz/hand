@@ -963,9 +963,9 @@ One invocation delivers one wake, and re-arming is the caller's own next step af
 
 This covers the awake path only: an exit reaches a session that exists and re-arms, and has no reach when no session
 is running. `hand notify` (see its own section) is the channel that reaches an unattended fleet, and every `hand
-watch` invocation - `Run` and `RunUntilEvent` alike - now calls it in-process for every event `handleEvent` classifies
-as captain-relevant, whether or not that event happened to also be printed to stdout, so a transition discovered on a
-restart's own baseline tick still reaches the operator the same way a live one would.
+watch` invocation - `Run` and `RunUntilEvent` alike - now calls it in-process for every event that matches
+`NotifyFilter` (see below), whether or not that event happened to also be printed to stdout, so a transition
+discovered on a restart's own baseline tick still reaches the operator the same way a live one would.
 
 #### Notifying a supervisory agent with no session watching
 

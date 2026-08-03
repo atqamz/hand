@@ -63,10 +63,10 @@ func KnownKinds() []string {
 // same EventFilter/Matches mechanism --event already applies to gate stdout,
 // reused here as a second, independently-curated consumer of the same
 // classified event stream rather than a bespoke severity check hardcoded into
-// handleEvent. Its membership is what SPECS.md's notify section calls
-// captain-relevant. idle-unreported, stale, parked, pr-merged and the
-// pr-record-* kinds are left out - each describes a transition the poll loop
-// already tracks toward one of these five, or one that resolves itself
+// handleEvent. Its membership is the event kinds worth reaching an operator
+// who has no session watching. idle-unreported, stale, parked, pr-merged and
+// the pr-record-* kinds are left out - each describes a transition the poll
+// loop already tracks toward one of these five, or one that resolves itself
 // without a human, so notifying on it too would double up the same fact or
 // wake someone for nothing actionable.
 func NotifyFilter() EventFilter {
