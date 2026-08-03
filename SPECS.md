@@ -349,7 +349,8 @@ Flags:
 - `--harness <name>`: agent harness to launch. Default: value from `config/harness`, or `claude`.
 - `--model <name>`: model override for harnesses that support it. Default: the brief's declared `model`, else `config/model`.
 - `--effort <level>`: effort level for harnesses that support it. Default: the brief's declared `effort`, else `config/effort`.
-- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized (see "Gate preflight").
+- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized, its
+  clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
 Model and effort resolve most-specific-first: the flag, then the brief's `---` declaration (see
 "Brief format"), then the config default, then unset. A resolved effort under a harness with no
@@ -1045,7 +1046,8 @@ Flags:
 - `--harness <name>`: harness for the new ship worker. Default: value from `config/harness`.
 - `--model <name>`: model override. Default: the brief's declared `model`, else `config/model`.
 - `--effort <level>`: effort override. Default: the brief's declared `effort`, else `config/effort`.
-- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized (see "Gate preflight").
+- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized, its
+  clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
 Promote resolves model and effort exactly as `hand spawn` does, against the brief the agent
 updated for the ship phase, so a scout brief that declared a tier keeps it through promotion
