@@ -166,17 +166,26 @@ func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs)
 // `hand watch` polls in the background just by rewriting one file per task.
 // Both are query commands per internal/herdr/client.go's call() doc comment:
 // real success is a non-null result object on exit 0, real failure a non-zero
-// exit or an error envelope. This fake always succeeds for both, mirroring
-// the real success shape; the failure path is exercised for real elsewhere
-// (see cmd/status_test.go's writeFakeHerdrPaneStatus for the full contract).
+// exit or an error envelope. "workspace list" always succeeds, mirroring the
+// real success shape. "pane get" mirrors the real failure shape too - a
+// diagnostic on stderr and a non-zero exit, the same contract
+// cmd/status_test.go's writeFakeHerdrPaneStatus documents - whenever the
+// published status is the sentinel "unreachable", so a test can take a pane
+// dark and bring it back while the watcher polls.
 // Each "pane get" is logged after the status read, never before: a test waiting on
 // the Nth poll before publishing would otherwise still be racing that poll's read.
+// The failing branch logs too, so waiting on the Nth probe works for a dark pane
+// exactly as it does for a healthy one.
 func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	t.Helper()
 	body := fmt.Sprintf(`  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "pane get")
     status=$(cat %s/"$3" 2>/dev/null || echo idle)
     echo "herdr pane get $3" >> %s
+    if [ "$status" = unreachable ]; then
+      echo "herdr: pane $3 not found" >&2
+      exit 1
+    fi
     printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent_status":"%%s"}}}\n' "$3" "$status"
     ;;`, shellSingleQuote(statusDir), shellSingleQuote(logPath))
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)

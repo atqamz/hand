@@ -893,6 +893,7 @@ Also logs events to `state/events.log` for crash recovery.
 hand watch
 hand watch --poll 10s
 hand watch --until-event --timeout 30m
+hand watch --until-event --event parked,failed
 ```
 
 Flags:
@@ -1013,7 +1014,7 @@ Genuinely pane-independent, and carried:
 | `pr`, `merged`, `pr_merged_observed` | Facts about the branch and its PR, not about any pane. |
 | `created_at` | The task's identity, which promote deliberately preserves - this is one task's lifecycle, not two. |
 | The `parked` fired latch | Keyed to the report mtime it fired for, not to a pane, and the report channel is itself carried. The ship's own silence is a new episode against a new mtime, so the latch cannot suppress it. |
-| The report mtime `parked` measures silence from | Carried with the report channel, but *floored* at the pane-start instant: `status_changed_at`, or `created_at` before any status has ever been recorded. Promote leaves the scout's last append - and so its mtime - untouched while clearing the `last_report_state` that used to exempt the task from `parked` entirely, so an unfloored mtime would hand a pane seconds old the scout's whole accumulated silence and fire `parked` on it immediately. |
+| The report mtime `parked` measures silence from | Carried with the report channel, but *floored* at the pane-start instant: `status_changed_at`, or `created_at` before any status has ever been recorded. Promote leaves the scout's last append - and so its mtime - untouched while clearing the `last_report_state` that had the scout's silence bounded by the long done/failed tier, so an unfloored mtime would hand a pane seconds old the scout's whole accumulated silence, now measured against the short bound, and fire `parked` on it immediately. |
 
 **Known limitation, not fixed here: the floor reads `status_changed_at` whatever status it was stamped for.**
 A watcher tracking an unreachable pane persists `status_changed_for = unknown` with the stamp restamped to the outage-detection time, so an outage - or a blink that raises no event at all - slides the floor forward and can forget up to a full bound of real report silence before `parked` fires.
@@ -1887,7 +1888,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 
 - `0`: success.
 - `1`: general error.
-- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, a required flag left out (`hand hold set --reason`), mutually exclusive or mutually dependent flags (`hand watch --timeout` without `--until-event`, `hand hold set --blocked-on` on any kind but `blocked` and its absence on a `blocked` one), an invalid argument or flag value (malformed project URL, unknown project mode, harness or hold kind, unparsable `--poll` duration, a non-positive `--timeout`).
+- `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, a required flag left out (`hand hold set --reason`), mutually exclusive or mutually dependent flags (`hand watch --timeout` or `--event` without `--until-event`, `hand hold set --blocked-on` on any kind but `blocked` and its absence on a `blocked` one), an invalid argument or flag value (malformed project URL, unknown project mode, harness or hold kind, unparsable `--poll` duration, a non-positive `--timeout`, an unrecognized `--event` kind).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
 - `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.

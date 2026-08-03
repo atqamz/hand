@@ -379,9 +379,10 @@ func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Tim
 
 // reportEvidenceTime floors the report file's mtime at the instant the task's
 // current pane started, because hand promote leaves the scout's report file - and
-// so its mtime - untouched while clearing the last-report state that used to exempt
-// the task from parked. Unfloored, a ship seconds old inherits the scout's whole
-// silence and fires parked immediately.
+// so its mtime - untouched while clearing the last-report state that had the scout's
+// silence under the long done/failed bound. Unfloored, a ship seconds old inherits
+// the scout's whole silence, now measured against the short bound, and fires parked
+// immediately.
 func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 	started, err := paneStartTime(t)
 	if err != nil {
