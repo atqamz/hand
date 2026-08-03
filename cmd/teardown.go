@@ -113,6 +113,16 @@ func completionFor(t state.Task, forced bool) completion.Record {
 	case forced:
 		c.Outcome = "torn-down"
 		c.Detail = "forced (landed-work checks skipped)"
+	// Ahead of every case below, all of which assert the work landed. A task
+	// whose landing was never ours to decide has to stay distinguishable from a
+	// merged one in the permanent record, or the fleet's history claims upstream
+	// merges that never happened (atqamz/secondhand#78).
+	case t.DeliveredAt != "":
+		c.Outcome = "delivered"
+		c.Detail = t.DeliveredReason
+		if t.PR != "" {
+			c.Detail = "PR " + t.PR + ": " + t.DeliveredReason
+		}
 	case t.Kind == state.KindScout:
 		c.Outcome = "done"
 		c.Detail = "report " + filepath.Join("data", t.ID, "report.md")
@@ -149,6 +159,21 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			return t, false, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s:\n%s", t.Worktree, capStatusLines(status)), Code: 3}
 		}
 		dirtWasSafe = true
+	}
+
+	// Every check below asks "did this land", which for a contribution offered to
+	// someone else's repo is a question hand cannot answer and the fleet does not
+	// decide. A recorded delivery answers the question teardown actually needs
+	// answered - is the work out of this worktree and accounted for - so it is
+	// terminal here without --force, and the completion record says delivered
+	// rather than merged (atqamz/secondhand#78).
+	//
+	// Deliberately after the dirt check, and after the scout report check above:
+	// --force keeps its one meaning of discarding work nobody delivered, so
+	// uncommitted changes still refuse, and a scout with no report on disk has
+	// delivered nothing whatever its row says.
+	if t.DeliveredAt != "" {
+		return t, dirtWasSafe, nil
 	}
 
 	if t.PR == "" {

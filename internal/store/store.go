@@ -91,6 +91,15 @@ type Task struct {
 	// holds and no other. Empty on a row written before the column existed, or by
 	// a treehouse that predates lease identities; see worktree.CheckCollision.
 	LeaseID string `json:"lease_id"`
+	// Set when the work is handed off and the decision to land it belongs to
+	// someone outside the fleet - an upstream maintainer, or a deliverable that
+	// is a report rather than a commit. Distinct from MergeExecuted and
+	// MergeAnnounced, which both assert the work landed: a delivered task is
+	// terminal without that claim, and stays distinguishable from a merged one
+	// afterwards (atqamz/secondhand#78). DeliveredReason is required, so the record
+	// says what was delivered and to whom rather than only that something was.
+	DeliveredAt     string `json:"delivered_at"`
+	DeliveredReason string `json:"delivered_reason"`
 }
 
 // Upstream is the "owner/repo" a fork project opens its PRs against, empty for
@@ -162,7 +171,9 @@ CREATE TABLE IF NOT EXISTS task (
 	last_report_note   TEXT NOT NULL DEFAULT '',
 	send_undelivered_message TEXT NOT NULL DEFAULT '',
 	send_undelivered_at      TEXT NOT NULL DEFAULT '',
-	lease_id                 TEXT NOT NULL DEFAULT ''
+	lease_id                 TEXT NOT NULL DEFAULT '',
+	delivered_at             TEXT NOT NULL DEFAULT '',
+	delivered_reason         TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
@@ -258,6 +269,7 @@ var taskColumnNames = []string{
 	"merge_executed", "merge_executed_at", "report_offset", "merge_announced", "done_verified",
 	"created_at", "status_changed_at", "status_changed_for", "last_report_state", "last_report_note",
 	"send_undelivered_message", "send_undelivered_at", "lease_id",
+	"delivered_at", "delivered_reason",
 }
 
 var (
@@ -284,6 +296,7 @@ func taskValues(t Task) []any {
 		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
 		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
 		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID,
+		t.DeliveredAt, t.DeliveredReason,
 	}
 }
 
@@ -293,7 +306,8 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.Herdr.Session, &t.Herdr.WorkspaceID, &t.Herdr.TabID, &t.Herdr.PaneID, &t.PR,
 		&t.MergeExecuted, &t.MergeExecutedAt, &t.ReportOffset, &t.MergeAnnounced, &t.DoneVerified,
 		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
-		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID)
+		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID,
+		&t.DeliveredAt, &t.DeliveredReason)
 	return t, err
 }
 

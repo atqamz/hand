@@ -1100,6 +1100,61 @@ func TestStatusSingleTaskOmitsHeldLineWithoutAHold(t *testing.T) {
 	}
 }
 
+// Delivered work is terminal but not merged, so both views have to name that
+// state: an operator who cannot see it would go looking for a merge that is
+// never coming.
+func TestStatusShowsDeliveredWorkWithoutClaimingAMerge(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+		PR:          "https://github.com/kunchenguid/no-mistakes/pull/597",
+		DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream, maintainer decides"}); err != nil {
+		t.Fatal(err)
+	}
+
+	single := newStatusCmd()
+	var out bytes.Buffer
+	single.SetOut(&out)
+	single.SetArgs([]string{"task-1"})
+	if err := single.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Delivered:   offered upstream, maintainer decides (2026-08-03T00:00:00Z)") {
+		t.Fatalf("got %q, want a Delivered line carrying the reason", out.String())
+	}
+	if strings.Contains(out.String(), "(merged)") {
+		t.Fatalf("got %q, want no merge claim on delivered work", out.String())
+	}
+
+	fleet := newStatusCmd()
+	var fleetOut bytes.Buffer
+	fleet.SetOut(&fleetOut)
+	if err := fleet.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(fleetOut.String(), "(delivered)") {
+		t.Fatalf("got %q, want a delivered marker in the fleet view", fleetOut.String())
+	}
+
+	asJSON := newStatusCmd()
+	var jsonOut bytes.Buffer
+	asJSON.SetOut(&jsonOut)
+	asJSON.SetArgs([]string{"task-1", "--json"})
+	if err := asJSON.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jsonOut.String(), `"delivered_reason": "offered upstream, maintainer decides"`) {
+		t.Fatalf("got %q, want the delivered fields in JSON", jsonOut.String())
+	}
+	if !strings.Contains(jsonOut.String(), `"merged": false`) {
+		t.Fatalf("got %q, want merged still false", jsonOut.String())
+	}
+}
+
 func TestStatusSingleTaskJSONIncludesHeld(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

@@ -503,7 +503,9 @@ Task row written to the `task` table in `state/hand.db`, one column per field be
   "last_report_note": "",
   "send_undelivered_message": "",
   "send_undelivered_at": "",
-  "lease_id": "5fe5412a4aabdeb85a148d6d73eb42d8"
+  "lease_id": "5fe5412a4aabdeb85a148d6d73eb42d8",
+  "delivered_at": "",
+  "delivered_reason": ""
 }
 ```
 
@@ -779,6 +781,38 @@ Errors:
 
 ---
 
+### `hand deliver <id> --reason <text>`
+
+Record that a task's work is handed off and the decision to land it belongs to someone outside the fleet.
+
+```
+hand deliver no-mistakes-flake --reason "PR https://github.com/kunchenguid/no-mistakes/pull/597 offered upstream, maintainer decides"
+hand deliver event-delivery-scout --reason "report at /home/atqa/secondhand/data/event-delivery-scout/report.md, no code to land"
+```
+
+`hand teardown`'s landed-work guard asks "is this landed", and for a contribution offered to a repo the fleet does not control - a fork PR on an upstream, a deliverable that is a report rather than a commit - landing is someone else's decision, possibly never taken. That is a real terminal state the guard could not express, and `--force` is the wrong way to express it: it records the task as `torn-down`, indistinguishable from work abandoned unlanded. This command is that state, on the same pattern as the gate-opened-PR case (atqamz/secondhand#69): name the state the guard was missing rather than widen the guard.
+
+Behavior:
+1. Refuse without `--reason`: the record has to say what was delivered and who decides whether it lands, not merely that something was.
+2. Write `delivered_at` (now, UTC) and `delivered_reason` onto the task's row, under the task lock.
+
+Re-running with a new reason is a correction rather than a conflict, unlike `hand pr`'s one-task-one-PR rule: nothing consumes the mark until teardown reads it, so the last word on what was delivered is the one worth keeping.
+
+The state is keyed off the recorded delivery, never off `kind`, so a task filed as a ship whose deliverable turned out to be a report tears down cleanly without anyone correcting the kind first (atqamz/secondhand#129).
+
+`hand status` shows it: a `(delivered)` marker in the fleet view's suffix column, a `Delivered:` line carrying the reason in the single-task view, and `delivered_at`/`delivered_reason` in `--json`. It never sets `merged` or `pr_merged_observed`, which both assert the work landed.
+
+Output:
+```
+marked no-mistakes-flake delivered: PR https://github.com/kunchenguid/no-mistakes/pull/597 offered upstream, maintainer decides
+```
+
+Errors:
+- `--reason` missing (usage error, code `2`).
+- Task not found.
+
+---
+
 ### `hand teardown <id> [flags]`
 
 Clean up a completed task. Fail-closed: refuses if work isn't properly landed.
@@ -793,15 +827,16 @@ Flags:
 
 Behavior (ship task):
 1. Check the worktree for uncommitted changes. A dirty worktree is not an automatic refusal: if every uncommitted change is a tracked modification whose current content already matches the local default branch's tip byte-for-byte, the dirt is redundant with what already landed and teardown proceeds past it (atqamz/secondhand#79 - the no-mistakes gate's own review-fix round can leave a file edited but uncommitted in the worktree, and that edit sometimes reproduces content the gate's own merged fix already carries). The comparison is content-identical, not path-identical: a same-named file with different content, or a path that merely exists in the base, both still refuse. Both layers a `git status --porcelain` line reports are compared, index and working tree, each where it reports a change: an `MM` path whose working copy matches the base still holds a third, differing version staged in the index, and that staged content is uncommitted work too. Untracked files are never safe - there is nothing in the base to compare them against - so their mere presence refuses regardless of what else is safe. Every failure to resolve, read, or parse fails closed into the refusal, so no dirt is ever discarded unverified. Resolution is local-only, no fetch: a stale local ref just means a real safe case is missed and falls through to the refusal below, never the reverse. When it does refuse, the error carries the worktree's `git status --porcelain` output so the operator can see what is dirty rather than deciding blind, capped at the first 20 entries plus a count of the rest (atqamz/secondhand#65 is the same lesson for report rendering).
-2. Check work is landed:
+2. If the task is recorded as delivered (`hand deliver`), stop here and treat the work as terminal: every remaining check below asks "did this land", which for a contribution offered to a repo the fleet does not control is not the fleet's question to answer. Deliberately after step 1 and after the scout report check, so `--force` keeps its one meaning of discarding work nobody delivered: uncommitted changes still refuse, and a scout row claiming delivery with no report on disk has delivered nothing.
+3. Check work is landed:
    - If mode is `local-only`: verify the branch is merged into the default branch.
    - Otherwise, if `pr` is not yet set in state and the project is registered: look for a PR on the project's repo whose head ref is the task's current branch, and record it under the task if found (same gate-opened-PR detection `hand status` performs, including the preference-tier rule for a branch with several PRs; see that command's spec). Detection failing because there is nothing to find (no clone on disk, `gh` unreachable) is not itself an error - it falls through to the same refusal below as if no PR existed. An ambiguous branch is different: teardown refuses outright rather than falling through to "no PR recorded" - that message means unlanded, and guessing which of an ambiguous set to trust is the failure this rule exists to remove. The refusal names every PR on the head ref and its state, including one in a losing tier that did not itself trigger the refusal, since the operator has to resolve the whole branch, not just the pair that tripped the rule. A branch carrying both a merged PR and an open one is one such ambiguous case: the open PR is live evidence of unlanded work, so it is never silently resolved to the merged PR.
    - If `pr` is set in state (recorded by `hand pr`, or just detected above): verify the PR is merged via `gh pr view`. A detected PR that is closed without merging is refused exactly like one `hand pr` recorded.
-3. Close the herdr tab.
-4. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
-5. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
-6. Remove the task's row and the task's report channel `state/<id>.status`.
-7. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
+4. Close the herdr tab.
+5. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
+6. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
+7. Remove the task's row and the task's report channel `state/<id>.status`.
+8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
 
 The report channel goes because it is the volatile wake log, not a deliverable: a task respawned under a used ID starts at `report_offset` 0, so a surviving log would be replayed as this run's - re-raising decisions already resolved, absorbing a genuine unexplained stop as one already seen, and auto-recording a PR URL out of the previous run's `done` line onto a task nobody recorded it for. The durable deliverables under `data/<id>/` survive teardown, as before; keeping a torn-down task's wake history would be its own feature with its own reason, not a side effect of cleanup.
 A hold on the id is not removed either, deliberately - it is not task-scoped, so it outlives the row and keeps an unanswered question visible, which is also why `hand spawn` then refuses the id until `hand hold clear` (see "Holds" under "State management").
@@ -814,8 +849,9 @@ Behavior (scout task):
 5. Remove the task's row and `state/<id>.status`.
 
 Behavior with `--force`:
-- Skip steps 1-2 for ship tasks, skip step 1 for scout tasks.
+- Skip steps 1-3 for ship tasks, skip step 1 for scout tasks.
 - Still closes herdr tab and returns worktree.
+- Stays the escape hatch for genuinely unlanded work only. Work that is delivered and not landed has its own state (`hand deliver`), so reaching for `--force` on it - and recording it as `torn-down`, indistinguishable from an abandoned task - is never the answer.
 
 Teardown removes several resources in sequence, and any step can fault, so the command has to be runnable a second time: a resource already released is that step's goal already reached, not an error, and never something `--force` should be needed for.
 A tab herdr no longer lists counts as closed.
@@ -833,6 +869,12 @@ The completion record is appended before the task's row is removed, not after, b
 
 The store is deliberately uncapped: it is the only durable record of a task's completion once `hand teardown` removes the row, and `hand status` only ever shows the live fleet, never history - so keeping just the last N entries would throw away the answer to "what happened to a task that's gone" with nothing left to reconstruct it from. Each line is a complete JSON object (`id`, `project`, `kind`, `outcome`, `detail`, `torndown_at`), readable without parsing markdown.
 
+`outcome` is one of:
+- `merged`: the work landed. `detail` names the PR, or `branch merged` for a local-only branch.
+- `done`: a scout task's report is the deliverable. `detail` names the report path.
+- `delivered`: the work is handed off and its landing was never the fleet's to decide. `detail` is the reason `hand deliver` recorded, prefixed with the PR when one is on the task. Ranked ahead of every outcome above, all of which assert the work landed: a delivered task has to stay distinguishable from a merged one in the permanent record, or the fleet's history claims upstream merges that never happened (atqamz/secondhand#78).
+- `torn-down`: `--force` skipped the checks, so nothing about landing is claimed at all.
+
 Output:
 ```
 teardown fix-login complete
@@ -840,6 +882,7 @@ teardown fix-login complete
 
 Errors:
 - Task not found.
+- No PR recorded and the project is not local-only (without `--force`, and unless the task is recorded as delivered).
 - Uncommitted changes in worktree, unless every change is content-identical to the local default branch's tip in both the index and the working tree (without `--force`); the error carries a capped `git status --porcelain` of the worktree.
 - PR not merged (without `--force`).
 - Ambiguous PR head ref: the task's branch carries several PRs that do not resolve to a single usable winner - no preference tier holds exactly one match, or a merged PR coexists with an open one (without `--force`).

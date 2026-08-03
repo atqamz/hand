@@ -281,6 +281,65 @@ func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
+// Exercises the real delivered_at/delivered_reason entry against a database
+// holding a task row written before those columns existed - the live fleet
+// home's shape - so a task spawned before this commit stays readable and reads
+// as not delivered rather than making the whole database unopenable.
+func TestDeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+
+	restore := migrations
+	own := migrationsContaining("delivered_reason")
+	t.Cleanup(func() { migrations = restore })
+
+	migrations = []string{}
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN delivered_at`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN delivered_reason`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`INSERT INTO task (id, project, pr) VALUES ('t1', 'no-mistakes', 'https://github.com/kunchenguid/no-mistakes/pull/597')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrations = own
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen replaying the real delivered migration: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	got, found, err := reopened.ReadTask("t1")
+	if err != nil || !found {
+		t.Fatalf("ReadTask = %v, %v", found, err)
+	}
+	if got.DeliveredAt != "" || got.DeliveredReason != "" {
+		t.Fatalf("migrated columns not empty-defaulted: %+v", got)
+	}
+
+	got.DeliveredAt = "2026-08-03T00:00:00Z"
+	got.DeliveredReason = "PR offered upstream, maintainer decides"
+	if err := reopened.WriteTask(got); err != nil {
+		t.Fatal(err)
+	}
+	reread, _, err := reopened.ReadTask("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.DeliveredAt != got.DeliveredAt || reread.DeliveredReason != got.DeliveredReason {
+		t.Fatalf("delivered mark did not survive a write to the migrated row: %+v", reread)
+	}
+}
+
 // Exercises the real project.upstream entry against a database holding a
 // project row written before that column existed - the live fleet home's
 // shape - so a project registered long ago stays readable and gains the

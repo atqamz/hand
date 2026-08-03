@@ -50,13 +50,13 @@ Run ` + "`hand --help`" + ` for the full command reference.
 7. ` + "`hand watch --until-event`" + ` as a background task to monitor the fleet. It exits on the first fleet event and that exit is what reaches you, so re-arm it every time you act on one. Bound the wait with ` + "`--timeout <duration>`" + `; exit 4 means the window passed with nothing happening, exit 5 means a worker named on stderr couldn't be reached before it even started waiting.
 8. Act on watch output: steer blocked workers with ` + "`hand send`" + `, relay results.
 9. When told to merge: ` + "`hand merge <id>`" + `.
-10. ` + "`hand teardown <id>`" + ` after work is landed.
+10. ` + "`hand teardown <id>`" + ` after work is landed. Work that is handed off but whose landing is someone else's call - a PR offered to an upstream repo, a deliverable that is a report - is recorded with ` + "`hand deliver <id> --reason <text>`" + ` first; teardown then accepts it without ` + "`--force`" + `, and the completion record says delivered rather than merged.
 
 ## Rules
 
 - Never edit files under ` + "`projects/`" + `. Workers do that in worktrees.
 - Never merge without explicit authorization.
-- Never force-teardown without explicit authorization.
+- Never force-teardown without explicit authorization. ` + "`--force`" + ` is for work nobody delivered; ` + "`hand deliver`" + ` is the answer for work that is delivered and not landed.
 - Report outcomes plainly. If work failed, say so with evidence.
 - ` + OperatorDecisionRule + `
 - Waiting on the operator or on another task: ` + "`hand hold set <id> --kind operator --reason <text>`" + ` or ` + "`--kind blocked --reason <text> --blocked-on <id>`" + `, and ` + "`hand hold clear <id>`" + ` once resolved.

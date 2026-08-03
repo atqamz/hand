@@ -94,22 +94,24 @@ type reportedJSON struct {
 }
 
 type statusJSON struct {
-	ID             string        `json:"id"`
-	Project        string        `json:"project"`
-	Kind           string        `json:"kind"`
-	Harness        string        `json:"harness,omitempty"`
-	AgentState     string        `json:"agent_state"`
-	Worktree       string        `json:"worktree"`
-	Herdr          state.Herdr   `json:"herdr"`
-	PR             string        `json:"pr"`
-	MergeExecuted  bool          `json:"merged"`
-	MergeAnnounced bool          `json:"pr_merged_observed"`
-	CreatedAt      string        `json:"created_at"`
-	LastReportAt   string        `json:"last_report_at,omitempty"`
-	Reported       *reportedJSON `json:"reported,omitempty"`
-	ReportHistory  []string      `json:"report_history,omitempty"`
-	Held           *holdJSON     `json:"held,omitempty"`
-	GateRunIssue   string        `json:"gate_run_issue,omitempty"`
+	ID              string        `json:"id"`
+	Project         string        `json:"project"`
+	Kind            string        `json:"kind"`
+	Harness         string        `json:"harness,omitempty"`
+	AgentState      string        `json:"agent_state"`
+	Worktree        string        `json:"worktree"`
+	Herdr           state.Herdr   `json:"herdr"`
+	PR              string        `json:"pr"`
+	MergeExecuted   bool          `json:"merged"`
+	MergeAnnounced  bool          `json:"pr_merged_observed"`
+	DeliveredAt     string        `json:"delivered_at,omitempty"`
+	DeliveredReason string        `json:"delivered_reason,omitempty"`
+	CreatedAt       string        `json:"created_at"`
+	LastReportAt    string        `json:"last_report_at,omitempty"`
+	Reported        *reportedJSON `json:"reported,omitempty"`
+	ReportHistory   []string      `json:"report_history,omitempty"`
+	Held            *holdJSON     `json:"held,omitempty"`
+	GateRunIssue    string        `json:"gate_run_issue,omitempty"`
 }
 
 // fleetJSON wraps the task rows with the fleet's holds, which name any id -
@@ -177,6 +179,16 @@ func holdDetail(h state.Hold) string {
 		return fmt.Sprintf("waiting on %s: %s", h.BlockedOn, h.Reason)
 	}
 	return h.Reason
+}
+
+// deliveredSuffix marks work that is handed off with its landing left to
+// someone outside the fleet. Unlike mergeSuffix it does not hang off a recorded
+// PR: a delivered task's deliverable can be a report rather than a PR at all.
+func deliveredSuffix(t state.Task) string {
+	if t.DeliveredAt == "" {
+		return ""
+	}
+	return " (delivered)"
 }
 
 func mergeSuffix(t state.Task) string {
@@ -300,12 +312,13 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState,
 			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR,
-			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
+			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced,
+			DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, t.ID),
 			Reported:     reportedFrom(last, len(lines) > 0, readErr),
 			GateRunIssue: runIssue,
 		})
-		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr)+mergeSuffix(t)+gateRunSuffix(runIssue))
+		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr)+deliveredSuffix(t)+mergeSuffix(t)+gateRunSuffix(runIssue))
 	}
 
 	if asJSON {
@@ -459,7 +472,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		out := statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR,
-			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced, CreatedAt: t.CreatedAt,
+			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced,
+			DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, id),
 			Reported:     reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
 			Held: heldJSON, GateRunIssue: runIssue,
@@ -504,6 +518,9 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		fmt.Sprintf("Last report: %s", formatReportAge(lastReportAt(home, id))),
 		fmt.Sprintf("PR:          %s", pr),
 		fmt.Sprintf("Reported:    %s", reported),
+	}
+	if t.DeliveredAt != "" {
+		lines = append(lines, fmt.Sprintf("Delivered:   %s (%s)", t.DeliveredReason, t.DeliveredAt))
 	}
 	if held {
 		lines = append(lines, fmt.Sprintf("Held:        %s", holdDetail(hold)))

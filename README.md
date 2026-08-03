@@ -59,6 +59,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 | `hand project list` | List registered projects | Available |
 | `hand project remove` | Unregister a project, keeping its clone | Available |
 | `hand project sync` | Fast-forward project clones to their remote default branch | Available |
+| `hand project upstream` | Declare the repo a fork project opens its PRs against, so `hand pr` accepts a PR living there | Available |
 | `hand spawn` | Spawn a worker agent in an isolated worktree | Available |
 | `hand status` | Show fleet overview or single-task detail | Available |
 | `hand send` | Send a message to a running worker, from an argument or `--file`; waits out a busy composer up to `--wait` instead of failing, and records the message as undelivered when it never reaches the pane | Available |
@@ -69,6 +70,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 | `hand pr` | Record a task's pull request URL | Available |
 | `hand search` | Full-text search the prose corpus under `data/` | Available |
 | `hand doctor` | Report perishable content and generated-block drift in the fleet home's `AGENTS.md`; fixes nothing | Available |
+| `hand deliver` | Record that a task's work is handed off and landing it is someone else's decision, so `hand teardown` accepts it without `--force` and the completion says delivered, not merged | Available |
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work, recording it in `state/completions.jsonl` first | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Available |
 | `hand notify` | Send an out-of-band notification via a configured command; `hand watch` also calls it in-process for events worth reaching the operator | Available |
