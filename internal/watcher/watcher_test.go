@@ -958,6 +958,39 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
+// An outage stamp is written for herdr's unknown status, so honoring it as a pane
+// start would let a two-tick blink slide parked's floor forward and forget the real
+// report silence that accumulated before it.
+func TestReportEvidenceTimeIgnoresAnOutageStamp(t *testing.T) {
+	now := time.Now()
+	home := t.TempDir()
+	task := state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt:        now.Add(-time.Hour).UTC().Format(time.RFC3339),
+		StatusChangedAt:  now.UTC().Format(time.RFC3339),
+		StatusChangedFor: string(herdr.StatusUnknown),
+	}
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := now.Add(-10 * time.Minute)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := reportEvidenceTime(home, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.After(silentSince.Add(time.Second)) {
+		t.Fatalf("evidence time = %s, want the report mtime %s: the outage stamp is not a pane start", got, silentSince)
+	}
+}
+
 func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1268,7 +1301,7 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	scoutDwell := now.Add(-30 * time.Minute)
 	ts := &TaskState{
 		Status:                herdr.StatusWorking,
-		Probed:                false,
+		Probed:                true,
 		ChangedAt:             scoutDwell,
 		PersistedChangedAt:    scoutDwell,
 		PersistedChangedFor:   "working",
@@ -1306,8 +1339,34 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 	if ts.Status != herdr.StatusUnknown {
 		t.Fatalf("Status = %q, want the scout's status forgotten so the ship's first probe is a baseline", ts.Status)
 	}
-	if !ts.Probed {
-		t.Fatal("Probed = false, want the scout's unresolved probe error forgotten so the ship's own first failure fires")
+	if ts.Probed {
+		t.Fatal("Probed = true, want the scout's probe forgotten so the ship's first probe is a first sighting")
+	}
+}
+
+// The ship's first probe of its new pane is a first sighting, so it earns the same
+// dwell a fresh spawn's does: a blink on the tick right after promote must announce
+// nothing, and the outage must still be announced once it outlives the threshold.
+func TestForgetPaneScopedCacheGivesTheShipsFirstProbeFailureADwell(t *testing.T) {
+	now := time.Now()
+	ts := &TaskState{
+		Status:          herdr.StatusWorking,
+		Probed:          true,
+		ChangedAt:       now.Add(-30 * time.Minute),
+		PersistedPaneID: "p1",
+	}
+
+	forgetPaneScopedCache(ts, promotedTask(now), now)
+
+	if e := ClassifyStatus(ts, "task-1", "", errors.New("pane not found"), now); e != nil {
+		t.Fatalf("event = %+v, want none: a blink on the ship's first probe is not a failure", e)
+	}
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Second), 5*time.Minute); e != nil {
+		t.Fatalf("event = %+v, want none: the ship's outage has not outlived the threshold", e)
+	}
+	e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), 5*time.Minute)
+	if e == nil || e.Kind != KindFailed {
+		t.Fatalf("event = %+v, want failed: the ship's pane stayed unreachable past the threshold", e)
 	}
 }
 
@@ -1322,7 +1381,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	before := TaskState{
 		CreatedAt:             "created-marker",
 		Status:                herdr.Status("scout-status"),
-		Probed:                false,
+		Probed:                true,
 		ChangedAt:             time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
 		Blocked:               true,
 		Stale:                 true,
