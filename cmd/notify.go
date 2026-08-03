@@ -21,11 +21,9 @@ func newNotifyCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			// Not configured and delivery failure both mean nothing reached the
-			// channel, so both are the same general error (exit 1) rather than the
-			// historical exit-0 "notified" line: a notifier that can't tell "not
-			// configured" from "delivered" converts an unreachable operator into an
-			// apparently-reached one.
+			// config/notify absent/empty and a failed send are both exit 1, never
+			// the old exit-0 "notified" line - see SPECS.md's hand notify "Errors"
+			// for why.
 			if err := notify.Send(home, message); err != nil {
 				if errors.Is(err, notify.ErrNotConfigured) {
 					return fmt.Errorf("config/notify not set up, nothing delivered: %s", message)

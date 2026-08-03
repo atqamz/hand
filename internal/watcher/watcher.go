@@ -604,12 +604,9 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedChangedFor = string(ts.Status)
 }
 
-// EventFilter gates only the out write: events.log records every event
-// regardless of filter, the same way a baseline tick's events already reach it
-// without reaching stdout. The notify hook runs unconditionally too, since its
-// whole purpose is reaching an operator who left before the transition
-// happened - including one discovered on a restart's baseline tick, which is
-// exactly the case a session watching stdout would otherwise never surface.
+// EventFilter gates only the out write - events.log and the notify hook both
+// run unconditionally, so narrowing --event never narrows what reaches
+// config/notify.
 func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	if cfg.EventFilter.Matches(e.Kind) {
 		_, _ = fmt.Fprintln(out, e.Text)
@@ -623,16 +620,9 @@ func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	notifyEvent(cfg.Home, e, errOut)
 }
 
-// notifyEvent is notify's own filtered consumer of the same classified event
-// stream handleEvent's stdout write already reads from - NotifyFilter applies
-// the same EventFilter/Matches mechanism --event uses, with its own fixed
-// membership, rather than a severity test bolted onto this function. A match
-// delivers through config/notify in-process, never by shelling out to the
-// hand notify subcommand, so no caller has to wrap hand watch in a shell
-// script to get notifications. An unconfigured channel is expected on most
-// fleets and stays silent here the same way any other config/ default falls
-// back quietly; only a configured template that actually failed is loud, on
-// the same errOut diagnostics channel every other watcher failure uses.
+// notifyEvent is NotifyFilter's own consumer of the classified event stream -
+// see SPECS.md's "Notifying a supervisory agent with no session watching" for
+// why an unconfigured config/notify stays silent while a failed send is loud.
 func notifyEvent(home string, e *Event, errOut io.Writer) {
 	if !NotifyFilter().Matches(e.Kind) {
 		return
