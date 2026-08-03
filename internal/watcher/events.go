@@ -59,6 +59,23 @@ func KnownKinds() []string {
 	}
 }
 
+// NotifiableKinds are the event kinds worth reaching an operator with no
+// session watching for - what SPECS.md's notify section calls
+// captain-relevant. idle-unreported, stale, parked, pr-merged and the
+// pr-record-* kinds describe transitions the poll loop already tracks toward
+// one of these outcomes or that resolve themselves without a human, so
+// notifying on them too would double up the same fact or wake someone for
+// nothing actionable.
+func NotifiableKinds() map[string]bool {
+	return map[string]bool{
+		KindBlocked:             true,
+		KindFailed:              true,
+		KindReportFailed:        true,
+		KindReportNeedsDecision: true,
+		KindReportDone:          true,
+	}
+}
+
 // EventFilter restricts which event kinds count as a wake for RunUntilEvent. The
 // caller expresses it directly in terms of Kind rather than against a fixed
 // actionable/progress split: report-working is exactly what distinguishes a
