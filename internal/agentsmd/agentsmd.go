@@ -41,15 +41,16 @@ Run ` + "`hand --help`" + ` for the full command reference.
 
 ## Workflow
 
-1. Run ` + "`hand status`" + ` for current fleet state.
-2. Match the request to a project in ` + "`data/projects.md`" + `.
-3. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
-4. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it. The brief may open with a ` + "`---`" + ` fenced block declaring ` + "`model`" + ` and ` + "`effort`" + ` for the task, which spawn and promote apply unless a flag overrides them.
-5. ` + "`hand spawn <id> <project>`" + ` to start a worker.
-6. ` + "`hand watch --until-event`" + ` as a background task to monitor the fleet. It exits on the first fleet event and that exit is what reaches you, so re-arm it every time you act on one. Bound the wait with ` + "`--timeout <duration>`" + `; exit 4 means the window passed with nothing happening, exit 5 means a worker named on stderr couldn't be reached before it even started waiting.
-7. Act on watch output: steer blocked workers with ` + "`hand send`" + `, relay results.
-8. When told to merge: ` + "`hand merge <id>`" + `.
-9. ` + "`hand teardown <id>`" + ` after work is landed.
+1. Read ` + "`data/operator.md`" + ` before anything else. Its constraints outrank your own judgment.
+2. Run ` + "`hand status`" + ` for current fleet state.
+3. Match the request to a project in ` + "`data/projects.md`" + `.
+4. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
+5. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it. The brief may open with a ` + "`---`" + ` fenced block declaring ` + "`model`" + ` and ` + "`effort`" + ` for the task, which spawn and promote apply unless a flag overrides them.
+6. ` + "`hand spawn <id> <project>`" + ` to start a worker.
+7. ` + "`hand watch --until-event`" + ` as a background task to monitor the fleet. It exits on the first fleet event and that exit is what reaches you, so re-arm it every time you act on one. Bound the wait with ` + "`--timeout <duration>`" + `; exit 4 means the window passed with nothing happening, exit 5 means a worker named on stderr couldn't be reached before it even started waiting.
+8. Act on watch output: steer blocked workers with ` + "`hand send`" + `, relay results.
+9. When told to merge: ` + "`hand merge <id>`" + `.
+10. ` + "`hand teardown <id>`" + ` after work is landed.
 
 ## Rules
 
@@ -62,6 +63,8 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Name a path in a brief, a status report, or an operator message: full and absolute, never relative. ` + "`hand`" + ` resolves the home from ` + "`HAND_HOME`" + ` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce ` + "`data/<id>/report.md`" + `.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
+- Roll finished backlog entries into ` + "`data/done-archive.md`" + `, and dropped or superseded ones into ` + "`data/note-archive.md`" + ` with the reason they were dropped. Roll off rather than delete: the queue you read at session start stays short and the record survives.
+- ` + "`data/learnings.md`" + ` holds dated, evidence-backed operational facts. Read it when a task touches something it covers, add to it when a discovery cost real time, and curate it - rewrite and prune rather than append forever.
 - For no-mistakes projects, workers use ` + "`no-mistakes axi`" + ` directly in the worktree.
 - Use ` + "`hand search <query>`" + ` to find historical context in data/. ` + "`qmd search`" + ` adds semantic matching when installed.
 - ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).

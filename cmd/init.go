@@ -30,6 +30,25 @@ const projectsSkeleton = `# Projects
 
 `
 
+const operatorSkeleton = `# Operator
+
+Standing constraints and preferences. They outrank the agent's own judgment.
+
+## Identity
+
+## Authority
+
+## Hard constraints
+
+## Preferences
+`
+
+const learningsSkeleton = "# Learnings\n"
+
+const doneArchiveSkeleton = "# Done archive\n"
+
+const noteArchiveSkeleton = "# Note archive\n"
+
 func newInitCmd() *cobra.Command {
 	var setup bool
 
@@ -92,8 +111,12 @@ func initDirs(home string) error {
 
 func initSkeletonFiles(home string) error {
 	files := map[string]string{
-		"data/backlog.md":  backlogSkeleton,
-		"data/projects.md": projectsSkeleton,
+		"data/backlog.md":      backlogSkeleton,
+		"data/projects.md":     projectsSkeleton,
+		"data/operator.md":     operatorSkeleton,
+		"data/learnings.md":    learningsSkeleton,
+		"data/done-archive.md": doneArchiveSkeleton,
+		"data/note-archive.md": noteArchiveSkeleton,
 	}
 	for rel, content := range files {
 		path := filepath.Join(home, rel)

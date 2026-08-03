@@ -188,8 +188,12 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     events.log              # recent watcher events, bounded rotating log
     completions.jsonl       # durable teardown completion records, one JSON object per line, uncapped
   data/
+    operator.md             # standing operator constraints and preferences, read at session start
     backlog.md              # plain markdown task queue, agent-edited
     projects.md             # project registry projection (see "Project registry format")
+    learnings.md            # dated, evidence-backed operational facts, curated not appended
+    done-archive.md         # finished entries rolled off backlog.md (see "Backlog format")
+    note-archive.md         # dropped or superseded backlog entries, kept with the reason
     <id>/                   # per-task data directory
       brief.md              # task instructions written by the supervisory agent
       report.md             # scout task deliverable, written by the worker
@@ -207,13 +211,20 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     parked-other-bound      # seconds a silent task in any other state may sit before it's parked (default: 1200)
 ```
 
+Who writes a file for whom is what decides whether it belongs under `data/` at all.
+`operator.md` is the operator writing for the agent - identity, authority, and hard constraints that outrank the agent's judgment.
+`backlog.md`, `learnings.md` and the two archives are the agent writing for itself, and `projects.md` is the one file here that is a projection of machine state rather than prose either of them authored (see "Project registry format").
+`hand init` seeds `operator.md`, `learnings.md`, `done-archive.md` and `note-archive.md` once and no command writes them again (atqamz/secondhand#47).
+All four are plain agent-edited markdown with no schema, no subcommand and no validation, the same treatment `backlog.md` already gets.
+
 ## CLI specification
 
 ### `hand init [path] [flags]`
 
 Initialize secondhand runtime directories in the current working directory.
 Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
-Creates `data/backlog.md` and `data/projects.md` with skeleton content, and creates `state/hand.db` if it does not already exist - the fleet-home marker `IsHome` checks for (see "Core principles").
+Creates `data/backlog.md`, `data/projects.md`, `data/operator.md`, `data/learnings.md`, `data/done-archive.md` and `data/note-archive.md` with skeleton content, and creates `state/hand.db` if it does not already exist - the fleet-home marker `IsHome` checks for (see "Core principles").
+A skeleton is written only when the file is absent, so re-running `hand init` in an existing home is how it picks up a file the layout gained since it was initialized, and never how it loses what is in one.
 Idempotent: safe to run multiple times.
 This is the one command that does not resolve its home: it creates the one its argument or the working directory names.
 When `HAND_HOME` is set and names some other directory it still initializes the requested target, and warns on stderr that every other command will use `HAND_HOME` instead, naming it as the absolute path those commands resolve it to so a relative `HAND_HOME` is not mistaken for a second home.
@@ -1780,6 +1791,7 @@ Conventions:
 - Date gates: `(after: <date>)` in the description.
 - Artifacts: `| PR <url>` or `| report <path>` or `| scout` suffix.
 - The agent moves items between sections as work progresses.
+- Finished items roll off `## Done` into `data/done-archive.md`, and dropped or superseded ones into `data/note-archive.md` with the reason they were dropped. Rolling off rather than deleting keeps the file the agent reads at session start short without discarding the record; a live firstmate home carried a 13 KB backlog against a 50 KB done-archive (atqamz/secondhand#47).
 
 `hand` reads this file for:
 - `hand spawn` can optionally warn if the task ID isn't in the backlog (non-blocking).
@@ -2034,7 +2046,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 | Vocabulary translation | AGENTS.md section 9 (~40 lines of translation rules) | No internal jargon to translate if AGENTS.md is 25 lines. |
 | Wake queues | `fm-wake-lib.sh`, `state/.wake-queue` (596 lines) | Watcher prints to stdout + `state/events.log`. No durable queue. |
 | Turn-end guards | `fm-turnend-guard.sh`, `docs/turnend-guard.md` | The supervisory agent's harness handles its own session lifecycle. |
-| Persona / role-play | "captain", "ahoy", nautical theming | Pure functionality. Users add personality if they want. |
+| Persona / role-play | "captain", "ahoy", nautical theming | Pure functionality. Users add personality if they want. Operator context is not persona and is not cut by this row: `data/operator.md` carries identity, authority and hard constraints, which is configuration the agent must not have to guess at (see "Directory layout"). |
 | Session lock | `fm-lock.sh`, `fm-lock-lib.sh` | No session lock. Atomic file writes prevent corruption. Agent avoids duplicate work. |
 | Bootstrap / session-start | `fm-session-start.sh`, `fm-bootstrap.sh` (56K lines combined) | Agent runs `hand status`. No 187-line digest. |
 
@@ -2076,7 +2088,7 @@ hand init --setup
 hand init ~/fleet --setup
 ```
 
-`hand init` writes the runtime dirs (`data/`, `state/`, `config/`, `projects/`), creates missing `data/backlog.md` and `data/projects.md` skeletons, and creates `state/hand.db` if it is not already there.
+`hand init` writes the runtime dirs (`data/`, `state/`, `config/`, `projects/`), creates whichever of the `data/` skeleton files are missing (see "Directory layout"), and creates `state/hand.db` if it is not already there.
 It also writes the generated AGENTS.md template and its CLAUDE.md symlink (see "AGENTS.md (target)").
 Other existing files are left unchanged, and an optional target path is accepted.
 

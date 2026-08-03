@@ -207,6 +207,21 @@ func TestGeneratedRulesCoverHolds(t *testing.T) {
 	}
 }
 
+// atqamz/secondhand#47: the four files hand init seeds are inert unless the
+// template says who reads each one and when.
+func TestGeneratedRulesCoverOperatorContextLearningsAndArchives(t *testing.T) {
+	for _, want := range []string{
+		"data/operator.md",
+		"data/learnings.md",
+		"data/done-archive.md",
+		"data/note-archive.md",
+	} {
+		if !strings.Contains(generatedBody, want) {
+			t.Fatalf("got generated body %q, want it to name %q", generatedBody, want)
+		}
+	}
+}
+
 func TestRefreshDoesNotOverwriteExistingClaudeSymlink(t *testing.T) {
 	dir := makeWorkspace(t)
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("placeholder\n"), 0o644); err != nil {
