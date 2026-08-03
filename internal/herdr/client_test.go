@@ -87,6 +87,35 @@ func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
 	}
 }
 
+// TestWorkspaceCreateSanitizesInheritedHarnessMarkers pins the fix for atqamz/secondhand#109: a
+// pane is a child of the herdr server, so it otherwise inherits any CLAUDE_CODE_CHILD_SESSION,
+// CLAUDE_CODE_SESSION_ID, or CLAUDECODE the server itself was started under, silently disabling
+// the worker's transcript. WorkspaceCreate must blank all three on every pane it creates,
+// regardless of whether the server actually carries them.
+func TestWorkspaceCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
+	writeFakeHerdr(t, `
+echo "$@" >> "$HERDR_CALL_LOG"
+printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"},"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB"}}}'
+`)
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+
+	c := NewClient()
+	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err != nil {
+		t.Fatal(err)
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--env CLAUDE_CODE_CHILD_SESSION=", "--env CLAUDE_CODE_SESSION_ID=", "--env CLAUDECODE="} {
+		if !strings.Contains(string(calls), want) {
+			t.Fatalf("calls = %q, want %q", calls, want)
+		}
+	}
+}
+
 func TestWorkspaceCreateRejectsMissingRootTabOrPane(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"}}}'`)
 	c := NewClient()
@@ -285,6 +314,33 @@ func TestTabCreateParsesTabAndRootPane(t *testing.T) {
 	}
 	if tab.TabID != "wA:tB" || pane.PaneID != "wA:pC" || pane.AgentStatus != StatusIdle {
 		t.Fatalf("got tab=%+v pane=%+v", tab, pane)
+	}
+}
+
+// TestTabCreateSanitizesInheritedHarnessMarkers is TabCreate's half of
+// TestWorkspaceCreateSanitizesInheritedHarnessMarkers: a task landing in an already-existing
+// workspace creates its own tab via TabCreate instead, and that path must be sanitized too.
+func TestTabCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
+	writeFakeHerdr(t, `
+echo "$@" >> "$HERDR_CALL_LOG"
+printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB"}}}'
+`)
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+
+	c := NewClient()
+	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err != nil {
+		t.Fatal(err)
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--env CLAUDE_CODE_CHILD_SESSION=", "--env CLAUDE_CODE_SESSION_ID=", "--env CLAUDECODE="} {
+		if !strings.Contains(string(calls), want) {
+			t.Fatalf("calls = %q, want %q", calls, want)
+		}
 	}
 }
 

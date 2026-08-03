@@ -198,6 +198,15 @@ func TestGeneratedRulesCoverSelfDecidedCallsInFirstPerson(t *testing.T) {
 	}
 }
 
+// atqamz/secondhand#114: a fleet agent following the template had no reason
+// to reach for hand hold, since every "waiting on" case routed through
+// data/backlog.md and hand send.
+func TestGeneratedRulesCoverHolds(t *testing.T) {
+	if !strings.Contains(generatedBody, "hand hold set") || !strings.Contains(generatedBody, "hand hold clear") {
+		t.Fatalf("got generated body %q, want hand hold set and hand hold clear", generatedBody)
+	}
+}
+
 func TestRefreshDoesNotOverwriteExistingClaudeSymlink(t *testing.T) {
 	dir := makeWorkspace(t)
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("placeholder\n"), 0o644); err != nil {

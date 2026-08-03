@@ -23,6 +23,22 @@ func NewClient() *Client {
 	return &Client{}
 }
 
+// sanitizedEnvKeys are the harness-identity variables a pane must never inherit from the herdr
+// server it's a child of. A server started from inside a Claude Code session carries these in its
+// own environment, so every pane it spawns afterwards inherits its parent's session identity and,
+// via CLAUDE_CODE_CHILD_SESSION, silently disables its own transcript - the only independent record
+// of what a worker did (atqamz/secondhand#109). Blanking them at creation removes the failure for
+// every pane hand creates rather than depending on the server's environment being clean.
+var sanitizedEnvKeys = []string{"CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE"}
+
+func sanitizedEnvArgs() []string {
+	args := make([]string, 0, len(sanitizedEnvKeys)*2)
+	for _, key := range sanitizedEnvKeys {
+		args = append(args, "--env", key+"=")
+	}
+	return args
+}
+
 type errorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -156,6 +172,7 @@ func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, Tab, Pane, error
 	if label != "" {
 		args = append(args, "--label", label)
 	}
+	args = append(args, sanitizedEnvArgs()...)
 	res, err := c.call(args...)
 	if err != nil {
 		return Workspace{}, Tab{}, Pane{}, err
@@ -217,6 +234,7 @@ func (c *Client) TabCreate(workspaceID, cwd, label string) (Tab, Pane, error) {
 	if label != "" {
 		args = append(args, "--label", label)
 	}
+	args = append(args, sanitizedEnvArgs()...)
 	res, err := c.call(args...)
 	if err != nil {
 		return Tab{}, Pane{}, err
