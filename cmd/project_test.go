@@ -183,6 +183,140 @@ func TestProjectRemoveRefusesUnregistered(t *testing.T) {
 	}
 }
 
+func TestProjectUpstreamDeclaresAndClears(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := project.Add(home, project.Project{Name: "fork", URL: "https://github.com/atqamz/no-mistakes.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectUpstreamCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"fork", "https://github.com/kunchenguid/no-mistakes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "fork opens PRs against kunchenguid/no-mistakes") {
+		t.Fatalf("out = %q, want the declared upstream confirmed", out.String())
+	}
+
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Upstream != "kunchenguid/no-mistakes" {
+		t.Fatalf("got %+v, want the upstream normalized and stored", projects)
+	}
+
+	clear := newProjectUpstreamCmd()
+	var cleared strings.Builder
+	clear.SetOut(&cleared)
+	clear.SetArgs([]string{"fork", ""})
+	if err := clear.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cleared.String(), "cleared upstream for project fork") {
+		t.Fatalf("out = %q, want the clear confirmed", cleared.String())
+	}
+	projects, err = project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projects[0].Upstream != "" {
+		t.Fatalf("upstream = %q, want it cleared", projects[0].Upstream)
+	}
+}
+
+func TestProjectUpstreamRejectsUnresolvableRepo(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := project.Add(home, project.Project{Name: "fork", URL: "https://github.com/atqamz/no-mistakes.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectUpstreamCmd()
+	cmd.SetArgs([]string{"fork", "no-mistakes"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("got %v, want ExitError code 2", err)
+	}
+
+	projects, listErr := project.List(home)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if projects[0].Upstream != "" {
+		t.Fatalf("upstream = %q, want nothing recorded from a refused ref", projects[0].Upstream)
+	}
+}
+
+func TestProjectUpstreamRefusesUnregistered(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	cmd := newProjectUpstreamCmd()
+	cmd.SetArgs([]string{"missing-proj", "owner/repo"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+}
+
+func TestProjectListShowsUpstreamAlongsideAGateMarker(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://github.com/atqamz/no-mistakes.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.SetUpstream(home, "gated", "kunchenguid/no-mistakes"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)"))
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	cmd := newProjectListCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "(upstream: kunchenguid/no-mistakes, gate: not initialized)") {
+		t.Fatalf("project list output = %q, want both annotations in one column", out.String())
+	}
+
+	jsonCmd := newProjectListCmd()
+	jsonCmd.SetArgs([]string{"--json"})
+	var jsonOut strings.Builder
+	jsonCmd.SetOut(&jsonOut)
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jsonOut.String(), `"upstream": "kunchenguid/no-mistakes"`) {
+		t.Fatalf("project list --json output = %q, want the upstream field", jsonOut.String())
+	}
+}
+
 func TestProjectListColumnsDoNotMergeAtFieldWidth(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {

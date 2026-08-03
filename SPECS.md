@@ -309,17 +309,24 @@ hand project list --json
 
 Output (human):
 ```
-nsr         https://github.com/yes2games/nsr          direct-pr
-yes2infra   https://github.com/yes2games/yes2infra    no-mistakes  (gate: not initialized)
+nsr           https://github.com/yes2games/nsr          direct-pr
+yes2infra     https://github.com/yes2games/yes2infra    no-mistakes  (gate: not initialized)
+no-mistakes   https://github.com/atqamz/no-mistakes     direct-pr    (upstream: kunchenguid/no-mistakes)
 ```
 
 Output (JSON):
 ```json
 [
   {"name": "nsr", "url": "https://github.com/yes2games/nsr", "mode": "direct-pr"},
-  {"name": "yes2infra", "url": "https://github.com/yes2games/yes2infra", "mode": "no-mistakes", "gate_issue": "not initialized"}
+  {"name": "yes2infra", "url": "https://github.com/yes2games/yes2infra", "mode": "no-mistakes", "gate_issue": "not initialized"},
+  {"name": "no-mistakes", "url": "https://github.com/atqamz/no-mistakes", "mode": "direct-pr", "upstream": "kunchenguid/no-mistakes"}
 ]
 ```
+
+A project with a declared upstream gets an `upstream: <owner/repo>` annotation in human output and an
+`upstream` field in JSON output (omitted when there is none). Annotations share one trailing column
+rather than taking one each, so a project carrying an upstream and no gate issue does not print its
+upstream under the gate issue of the row above it.
 
 A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or
 `unreachable` - the binary itself missing, the clone path missing on disk, or the clone path
@@ -327,6 +334,45 @@ existing but not a git repository; see "Gate preflight") gets a `(gate: <issue>)
 output and a `gate_issue` field in JSON output (omitted when there is no issue). Every
 `no-mistakes`-mode project pays one `no-mistakes status` call per `hand project list` invocation;
 other modes pay nothing.
+
+---
+
+### `hand project upstream <name> <repo>`
+
+Declare which repo a fork project opens its PRs against, so `hand pr` accepts a PR living there
+instead of on the fork hand pushes to (see "Project registry format"). Pass an empty `<repo>` to clear
+the declaration.
+
+```
+hand project upstream no-mistakes kunchenguid/no-mistakes
+hand project upstream no-mistakes https://github.com/kunchenguid/no-mistakes
+hand project upstream no-mistakes ""
+```
+
+Behavior:
+1. Normalize `<repo>` to an `owner/repo` slug, accepting a bare slug or any remote URL form. Refuse
+   anything that cannot be resolved to one: an unresolvable upstream would widen the PR guard to
+   whatever the comparison happened to fall through to.
+2. Write it onto the project's row and rewrite the `data/projects.md` projection, under the project
+   lock.
+
+This is a separate command rather than a `hand project add --upstream` flag because a fork project is
+usually already registered by the time the first upstream contribution comes up, and `hand project
+add` cannot be re-run against an existing clone.
+
+Output:
+```
+project no-mistakes opens PRs against kunchenguid/no-mistakes
+```
+
+Output (cleared):
+```
+cleared upstream for project no-mistakes
+```
+
+Errors:
+- `<repo>` cannot be resolved to `owner/repo` (usage error, code `2`).
+- Project not found in registry.
 
 ---
 
@@ -874,7 +920,7 @@ Behavior:
 3. If the task already has this exact PR recorded, skip steps 5-7 and report success without writing anything again (the URL is already on record, so there is nothing left to validate or write). This reconciling repeat is why `hand pr <id> <url>` is a sound remedy for a `pr-record-unknown` event: the lock holder that event leaves unnamed may have been recording this very URL, and a plain confirmation here lets the operator resolve the ambiguity instead of erroring on a URL that was already fine.
 4. If the task already has a *different* PR recorded, refuse - one task, one PR; correcting a wrong record is a deliberate `hand teardown`/`hand spawn` decision, not something `hand pr` overwrites silently.
 5. Resolve the task's project and derive `owner/repo` from the project clone's own `origin` remote (`git config --get remote.origin.url`, not `git remote get-url`, so a local `url.<base>.insteadOf` rewrite never turns a genuine mismatch into a false match).
-6. Refuse if the URL's `owner/repo` doesn't match the derived repo slug.
+6. Refuse if the URL's `owner/repo` matches neither the derived repo slug nor the project's declared `upstream` (see "Project registry format"). A fork contribution's PR lives on the upstream, not on the fork hand pushes to, so the upstream passes - but only because an operator declared it with `hand project upstream`, never because the URL's repo looks related to the project's own. The refusal names the declared upstream, or says none is declared, so an operator can tell "wrong upstream" from "no upstream declared".
 7. Confirm the PR exists via `gh pr view` (network check, 30s timeout) - shape validation in step 1 only proves the URL looks right, not that the PR is real.
 8. Write `pr` into the task's row.
 
@@ -896,7 +942,7 @@ Errors:
 - Task already has a different PR recorded.
 - Project not registered.
 - Cannot derive `owner/repo` from the project clone's origin remote.
-- URL's repo doesn't match the project's repo.
+- URL's repo matches neither the project's repo nor its declared upstream.
 - PR not found via `gh pr view` (network error or nonexistent PR).
 
 ---
@@ -1814,12 +1860,16 @@ Hand-editing it is not the way to register a project - the next write rewrites t
 - nsr: https://github.com/yes2games/nsr mode=direct-pr
 - yes2infra: https://github.com/yes2games/yes2infra mode=no-mistakes
 - secondhand: local mode=local-only
+- no-mistakes: https://github.com/atqamz/no-mistakes mode=direct-pr upstream=kunchenguid/no-mistakes
 ```
 
 Fields:
 - `<name>`: project identifier, used in all `hand` commands.
 - URL or `local`: git remote URL or `local` for repos without a remote.
 - `mode=<mode>`: delivery mode.
+- `upstream=<owner/repo>`: optional. The repo this project's PRs are opened against when it is a fork.
+  Absent for the ordinary case, where a project contributes to its own repo.
+  A URL form is accepted and normalized to the slug; an `upstream=` that cannot be resolved to one refuses the line rather than importing a project whose upstream could never match.
 
 Delivery modes:
 - `no-mistakes`: worker runs no-mistakes pipeline, ships via PR with validation evidence. `hand

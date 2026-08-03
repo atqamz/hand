@@ -158,6 +158,54 @@ func TestPRRefusesWhenRepoMismatch(t *testing.T) {
 	assertExitCode3(t, err)
 }
 
+// A fork contribution's PR lives on the upstream repo, never on the fork hand
+// pushed to, so the guard has to accept the declared upstream - and only that
+// one. The pair is kept in one test so the accepting and the refusing case share
+// an identical project, leaving the declaration as the only difference between
+// them.
+func TestPRAcceptsTheDeclaredUpstreamAndStillRefusesAnyOtherRepo(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/atqamz/no-mistakes.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/atqamz/no-mistakes.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.SetUpstream(home, "demo", "kunchenguid/no-mistakes"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-2", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGhPRView(t, 0)
+
+	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", upstreamPR})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("recording a PR on the declared upstream: %v", err)
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != upstreamPR {
+		t.Fatalf("task.PR = %q, want %q", task.PR, upstreamPR)
+	}
+
+	unrelated := newPRCmd()
+	unrelated.SetArgs([]string{"task-2", "https://github.com/someone/else/pull/1"})
+	assertExitCode3(t, unrelated.Execute())
+	other, err := state.Read(home, "task-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.PR != "" {
+		t.Fatalf("task.PR = %q, want a repo that is neither the project's nor its upstream refused", other.PR)
+	}
+}
+
 func TestPRRefusesWhenGhReportsNotFound(t *testing.T) {
 	home, clonePath := setupPRHome(t)
 	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")

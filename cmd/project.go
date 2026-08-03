@@ -26,6 +26,46 @@ func newProjectCmd() *cobra.Command {
 	cmd.AddCommand(newProjectListCmd())
 	cmd.AddCommand(newProjectRemoveCmd())
 	cmd.AddCommand(newProjectSyncCmd())
+	cmd.AddCommand(newProjectUpstreamCmd())
+	return cmd
+}
+
+func newProjectUpstreamCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "upstream <name> <repo>",
+		Short: "Declare the upstream repo a fork project opens its PRs against",
+		Long: "Declare the upstream repo a fork project opens its PRs against, as owner/repo or a\n" +
+			"remote URL. hand pr then accepts a PR on either the project's own repo or that\n" +
+			"upstream. An empty repo clears the declaration.",
+		Args: usageArgs(cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name, repo := args[0], args[1]
+			home, err := home.Resolve()
+			if err != nil {
+				return asPrecondition(err)
+			}
+
+			upstream := ""
+			if repo != "" {
+				slug, ok := project.ParseRepoRef(repo)
+				if !ok {
+					return &ExitError{Err: fmt.Errorf("invalid upstream repo %q: must be owner/repo or a GitHub remote URL", repo), Code: 2}
+				}
+				upstream = slug
+			}
+
+			if err := project.SetUpstream(home, name, upstream); err != nil {
+				return asPrecondition(err)
+			}
+
+			if upstream == "" {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "cleared upstream for project %s\n", name)
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "project %s opens PRs against %s\n", name, upstream)
+			return err
+		},
+	}
 	return cmd
 }
 
@@ -215,11 +255,12 @@ func newProjectListCmd() *cobra.Command {
 					Name      string `json:"name"`
 					URL       string `json:"url"`
 					Mode      string `json:"mode"`
+					Upstream  string `json:"upstream,omitempty"`
 					GateIssue string `json:"gate_issue,omitempty"`
 				}
 				out := make([]projectJSON, 0, len(projects))
 				for _, p := range projects {
-					out = append(out, projectJSON{Name: p.Name, URL: p.URL, Mode: p.Mode, GateIssue: gateIssue(home, p)})
+					out = append(out, projectJSON{Name: p.Name, URL: p.URL, Mode: p.Mode, Upstream: p.Upstream, GateIssue: gateIssue(home, p)})
 				}
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -229,8 +270,18 @@ func newProjectListCmd() *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			for _, p := range projects {
 				line := fmt.Sprintf("%s\t%s\t%s", p.Name, p.URL, p.Mode)
+				// One annotation column, not one per annotation: a project with an
+				// upstream and no gate issue would otherwise print its upstream in
+				// the column a gate issue occupies on the row above it.
+				var notes []string
+				if p.Upstream != "" {
+					notes = append(notes, "upstream: "+p.Upstream)
+				}
 				if issue := gateIssue(home, p); issue != "" {
-					line += "\t(gate: " + issue + ")"
+					notes = append(notes, "gate: "+issue)
+				}
+				if len(notes) > 0 {
+					line += "\t(" + strings.Join(notes, ", ") + ")"
 				}
 				if _, err := fmt.Fprintln(w, line); err != nil {
 					return err

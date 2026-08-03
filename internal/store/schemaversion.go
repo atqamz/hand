@@ -20,6 +20,7 @@ var migrations = []string{
 	`ALTER TABLE task ADD COLUMN send_undelivered_message TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN send_undelivered_at TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE task ADD COLUMN lease_id TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE project ADD COLUMN upstream TEXT NOT NULL DEFAULT '';`,
 }
 
 func (db *DB) schemaVersion() (int, error) {

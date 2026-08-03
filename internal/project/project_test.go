@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,103 @@ func TestDeriveName(t *testing.T) {
 		if got := DeriveName(url); got != want {
 			t.Errorf("DeriveName(%q) = %q, want %q", url, got, want)
 		}
+	}
+}
+
+func TestParseRepoRef(t *testing.T) {
+	cases := map[string]string{
+		"kunchenguid/no-mistakes":                        "kunchenguid/no-mistakes",
+		"kunchenguid/no-mistakes.git":                    "kunchenguid/no-mistakes",
+		"https://github.com/kunchenguid/no-mistakes":     "kunchenguid/no-mistakes",
+		"https://github.com/kunchenguid/no-mistakes.git": "kunchenguid/no-mistakes",
+		"git@github.com:kunchenguid/no-mistakes.git":     "kunchenguid/no-mistakes",
+	}
+	for ref, want := range cases {
+		got, ok := ParseRepoRef(ref)
+		if !ok || got != want {
+			t.Errorf("ParseRepoRef(%q) = %q, %v, want %q, true", ref, got, ok, want)
+		}
+	}
+	for _, ref := range []string{"", "no-mistakes", "/no-mistakes", "kunchenguid/", "kunchenguid/no-mistakes/pull", "https://gitlab.com/a/b"} {
+		if got, ok := ParseRepoRef(ref); ok {
+			t.Errorf("ParseRepoRef(%q) = %q, true, want it refused", ref, got)
+		}
+	}
+}
+
+func TestSetUpstreamRoundTripsThroughTheProjection(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n- no-mistakes: https://github.com/atqamz/no-mistakes mode=no-mistakes\n")
+
+	if err := SetUpstream(dir, "no-mistakes", "kunchenguid/no-mistakes"); err != nil {
+		t.Fatal(err)
+	}
+
+	rendered, err := os.ReadFile(RegistryPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered), "upstream=kunchenguid/no-mistakes") {
+		t.Fatalf("registry = %q, want the upstream rendered into the projection", rendered)
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Upstream != "kunchenguid/no-mistakes" {
+		t.Fatalf("got %+v, want the upstream on record", projects)
+	}
+
+	if err := SetUpstream(dir, "no-mistakes", ""); err != nil {
+		t.Fatal(err)
+	}
+	projects, err = List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Upstream != "" {
+		t.Fatalf("got %+v, want the upstream cleared", projects)
+	}
+	cleared, err := os.ReadFile(RegistryPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(cleared), "upstream=") {
+		t.Fatalf("registry = %q, want no upstream field once cleared", cleared)
+	}
+}
+
+func TestSetUpstreamNotFound(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n")
+
+	err := SetUpstream(dir, "missing", "owner/repo")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SetUpstream = %v, want ErrNotFound", err)
+	}
+}
+
+// A hand-written registry line is imported before the database exists, so an
+// upstream typed as a URL has to normalize on the way in, and one that cannot
+// be resolved to a slug has to refuse the whole line rather than import a
+// project whose upstream would silently never match.
+func TestListNormalizesUpstreamFromTheRegistry(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "- fork: https://github.com/atqamz/fork mode=direct-pr upstream=https://github.com/upstream/fork.git\n")
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Upstream != "upstream/fork" {
+		t.Fatalf("got %+v, want upstream normalized to upstream/fork", projects)
+	}
+
+	other := t.TempDir()
+	writeRegistry(t, other, "- fork: https://github.com/atqamz/fork mode=direct-pr upstream=nonsense\n")
+	if _, err := List(other); err == nil {
+		t.Fatal("List = nil error, want an unresolvable upstream to refuse the line")
 	}
 }
 

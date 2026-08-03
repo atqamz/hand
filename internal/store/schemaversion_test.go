@@ -2,8 +2,24 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
+
+// migrationsContaining narrows the registered list to the entries naming
+// substr. A test that exercises one real entry has to replay only that entry:
+// replaying the whole list would hit "duplicate column name" on every column
+// `schema` builds that the test did not drop, and naming the entry by index
+// instead would silently shift the moment another commit appends one.
+func migrationsContaining(substr string) []string {
+	var matched []string
+	for _, m := range migrations {
+		if strings.Contains(m, substr) {
+			matched = append(matched, m)
+		}
+	}
+	return matched
+}
 
 // A fresh database is built by `schema`, which already carries every
 // registered migration, so it is stamped straight to the latest version
@@ -171,6 +187,7 @@ func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 
 	restore := migrations
+	own := migrationsContaining("send_undelivered_message")
 	t.Cleanup(func() { migrations = restore })
 
 	// Empty migrations for this first open, so the fresh database it builds
@@ -198,9 +215,7 @@ func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Only through this step: a later migration's column is still present from
-	// `schema`, so replaying it here would fail on "duplicate column name".
-	migrations = restore[:1]
+	migrations = own
 
 	reopened, err := Open(home)
 	if err != nil {
@@ -225,14 +240,10 @@ func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 
 	restore := migrations
+	own := migrationsContaining("lease_id")
 	t.Cleanup(func() { migrations = restore })
 
-	// Only the migrations before the lease_id step, so the database this first
-	// open builds sits exactly one step behind it - the shape a fleet home
-	// upgraded to this commit is in - however many migrations land later.
-	// `schema` still creates lease_id (it cannot be swapped the way `migrations`
-	// can), so the column is dropped by hand to complete that shape.
-	migrations = restore[:1]
+	migrations = []string{}
 	existing, err := Open(home)
 	if err != nil {
 		t.Fatal(err)
@@ -250,9 +261,7 @@ func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Only through the lease_id step: a later migration's column is still present
-	// from `schema`, so replaying it here would fail on "duplicate column name".
-	migrations = restore[:2]
+	migrations = own
 
 	reopened, err := Open(home)
 	if err != nil {
@@ -269,5 +278,60 @@ func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	}
 	if got.Worktree != "/w/nsr" {
 		t.Fatalf("migration lost the pre-existing row's worktree: %+v", got)
+	}
+}
+
+// Exercises the real project.upstream entry against a database holding a
+// project row written before that column existed - the live fleet home's
+// shape - so a project registered long ago stays readable and gains the
+// column empty rather than the whole registry failing to open.
+func TestProjectUpstreamColumnMigratesOntoAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+
+	restore := migrations
+	own := migrationsContaining("project ADD COLUMN upstream")
+	t.Cleanup(func() { migrations = restore })
+
+	migrations = []string{}
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE project DROP COLUMN upstream`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`INSERT INTO project (name, url, mode, position) VALUES ('no-mistakes', 'https://github.com/atqamz/no-mistakes.git', 'no-mistakes', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrations = own
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen replaying the real project.upstream migration: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	projects, err := reopened.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "no-mistakes" || projects[0].Upstream != "" {
+		t.Fatalf("ListProjects = %+v, want the pre-migration row with an empty upstream", projects)
+	}
+
+	updated, err := reopened.SetProjectUpstream("no-mistakes", "kunchenguid/no-mistakes")
+	if err != nil || !updated {
+		t.Fatalf("SetProjectUpstream = %v, %v", updated, err)
+	}
+	projects, err = reopened.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projects[0].Upstream != "kunchenguid/no-mistakes" {
+		t.Fatalf("upstream = %q, wanted it declared on the migrated row", projects[0].Upstream)
 	}
 }

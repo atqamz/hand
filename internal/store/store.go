@@ -93,10 +93,16 @@ type Task struct {
 	LeaseID string `json:"lease_id"`
 }
 
+// Upstream is the "owner/repo" a fork project opens its PRs against, empty for
+// a project that contributes to its own repo. A fork contribution has two
+// repos - the fork hand pushes to, which URL names, and the upstream the PR
+// lives on - and only a declared upstream lets hand tell that pair apart from
+// a PR URL naming a repo nobody authorized (atqamz/secondhand#78).
 type Project struct {
-	Name string
-	URL  string
-	Mode string
+	Name     string
+	URL      string
+	Mode     string
+	Upstream string
 }
 
 // Hold is its own row keyed by an arbitrary id, not a foreign key into task:
@@ -162,7 +168,8 @@ CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
 	url      TEXT NOT NULL,
 	mode     TEXT NOT NULL,
-	position INTEGER NOT NULL
+	position INTEGER NOT NULL,
+	upstream TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
@@ -345,7 +352,7 @@ func (db *DB) DeleteTask(id string) error {
 }
 
 func (db *DB) ListProjects() ([]Project, error) {
-	rows, err := db.sql.Query(`SELECT name, url, mode FROM project ORDER BY position, name`)
+	rows, err := db.sql.Query(`SELECT name, url, mode, upstream FROM project ORDER BY position, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -354,7 +361,7 @@ func (db *DB) ListProjects() ([]Project, error) {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.Name, &p.URL, &p.Mode); err != nil {
+		if err := rows.Scan(&p.Name, &p.URL, &p.Mode, &p.Upstream); err != nil {
 			return nil, fmt.Errorf("list projects: %w", err)
 		}
 		projects = append(projects, p)
@@ -366,8 +373,8 @@ func (db *DB) ListProjects() ([]Project, error) {
 }
 
 func (db *DB) AddProject(p Project) error {
-	_, err := db.sql.Exec(`INSERT INTO project (name, url, mode, position)
-		VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM project))`, p.Name, p.URL, p.Mode)
+	_, err := db.sql.Exec(`INSERT INTO project (name, url, mode, position, upstream)
+		VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM project), ?)`, p.Name, p.URL, p.Mode, p.Upstream)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("project %q %w", p.Name, ErrProjectExists)
@@ -375,6 +382,20 @@ func (db *DB) AddProject(p Project) error {
 		return fmt.Errorf("add project %q: %w", p.Name, err)
 	}
 	return nil
+}
+
+// SetProjectUpstream reports whether a row was actually updated, the same way
+// RemoveProject reports a removal.
+func (db *DB) SetProjectUpstream(name, upstream string) (bool, error) {
+	res, err := db.sql.Exec(`UPDATE project SET upstream = ? WHERE name = ?`, upstream, name)
+	if err != nil {
+		return false, fmt.Errorf("set upstream for project %q: %w", name, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("set upstream for project %q: %w", name, err)
+	}
+	return affected > 0, nil
 }
 
 // RemoveProject reports whether a row was actually removed, leaving the
