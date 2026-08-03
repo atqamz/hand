@@ -1178,10 +1178,14 @@ Behavior:
    - self-expiring phrasing outside the generated span - `until #N lands`, `once #N lands`, `awaiting #N` - the same shape of problem as a bare date. Each shape needs an issue to expire against, so a bare "awaiting" with nothing to anchor it is durable prose and is not flagged,
    - an em dash or emoji anywhere in the file, generated span included,
    - a code fence that is never closed, since it silences the date and self-expiring checks for every line after it,
-   - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`, or the `hand:generated` markers being absent altogether, which is the case `hand init` and `hand update` both decline to touch and so can never refresh itself.
+   - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`, or the `hand:generated` markers being absent altogether. Both come from `generatedBlockSpan`, the same pure content match `agentsmd.mergeGenerated` uses to decide whether to touch a file, so the absent-markers finding states exactly the fact a refresh already acts on: nothing in `hand` will ever update this file's template.
 3. Print one line per hit to stdout, prefixed with the resolved fleet home's absolute path to `AGENTS.md` (`generatedBody`'s absolute-path rule applies to the checker's own output too - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope) - `<path>:<line>: <finding>` for a line-anchored finding, `<path>: <finding>` for the whole-file block checks - and exit `1` if anything was found, `0` if the file is clean.
 
 A remedy naming a command that takes a path spells that path out: `hand init` with no argument targets the working directory, which is a new nested fleet home whenever the operator ran `hand doctor` from anywhere but the home itself.
+
+A marker-less `AGENTS.md` can be an accident or a deliberate choice, and nothing in the file distinguishes the two, so `hand doctor` reports both and a human judges which one it is.
+A maintainer who has deliberately kept a file marker-less - this repo's own checkout being the example, see "AGENTS.md (target)" - sees that finding on every `hand doctor` run in that home, permanently.
+That is the checker working: an accurate report of a known and accepted state, not a bug to fix and not something to suppress.
 
 A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting #12" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
 
@@ -2179,8 +2183,9 @@ Deliverable: ready for daily use.
 
 ## AGENTS.md (target)
 
-**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh. `hand doctor` (see the CLI specification) reports perishable content and generated-block drift in a real fleet home's `AGENTS.md` without fixing either.
+**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh. `hand doctor` (see the CLI specification) reports perishable content, generated-block drift, and absent generated markers in a real fleet home's `AGENTS.md` without fixing any of them.
 
 One rule in that template, `agentsmd.OperatorDecisionRule`, is also an exported constant, because a worker runs in a worktree that is never under the fleet home and so never loads the home's `AGENTS.md`. `internal/harness` appends that same constant to the launch prompt (see "Harness launch templates"), which is the only channel the rule has to a worker. It stays one string in one place rather than two copies that drift.
 
 This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even if a maintainer runs `hand init` in the checkout and `state/hand.db` makes `internal/home.IsHome` report true for it. Rather than hand-keep a second copy of `generatedBody` in sync (the drift #44 was filed against), this file's own Rules section points at `generatedBody` and SPECS.md by name instead of restating it: one prose template, one place it can go stale.
+`hand doctor` run in that checkout therefore reports the absent markers every time, which is correct and expected rather than a contradiction: the report says the template will never refresh here, and here that is the intent.

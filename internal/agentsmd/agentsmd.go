@@ -170,7 +170,8 @@ type Violation struct {
 	Text string
 }
 
-// Check reports perishable content and generated-block drift in dir's
+// Check reports perishable content, an unterminated code fence, and either
+// generated-block drift or generated markers absent altogether in dir's
 // AGENTS.md, described in SPECS.md's "AGENTS.md (target)" section
 // (atqamz/secondhand#90). It never writes: the point is to make a human look
 // at prose judgment a machine cannot make, not to rewrite it. A nil result
