@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestNotifyWithoutConfigPrintsToStdoutOnly(t *testing.T) {
+func TestNotifyWithoutConfigFailsRatherThanClaimingDelivery(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -17,11 +18,12 @@ func TestNotifyWithoutConfigPrintsToStdoutOnly(t *testing.T) {
 	cmd := newNotifyCmd()
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"hello world"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want a failure since nothing was delivered")
 	}
-	if out.String() != "notified: hello world\n" {
-		t.Fatalf("stdout = %q", out.String())
+	if !strings.Contains(err.Error(), "hello world") {
+		t.Fatalf("error = %v, want it to name the undelivered message", err)
 	}
 }
 
@@ -58,7 +60,7 @@ func TestNotifySubstitutesMessageAndExecutesTemplate(t *testing.T) {
 	}
 }
 
-func TestNotifyFailureWarnsButDoesNotBlock(t *testing.T) {
+func TestNotifyFailureIsVisibleRatherThanAWarningBehindExitZero(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -69,18 +71,10 @@ func TestNotifyFailureWarnsButDoesNotBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var out, errOut bytes.Buffer
 	cmd := newNotifyCmd()
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
+	cmd.SetOut(io.Discard)
 	cmd.SetArgs([]string{"hello world"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(errOut.String(), "warning") {
-		t.Fatalf("stderr = %q, want warning", errOut.String())
-	}
-	if out.String() != "notified: hello world\n" {
-		t.Fatalf("stdout = %q", out.String())
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want the template's failure surfaced")
 	}
 }

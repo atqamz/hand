@@ -70,7 +70,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 | `hand doctor` | Report perishable content and generated-block drift in the fleet home's `AGENTS.md`; fixes nothing | Available |
 | `hand teardown` | Clean up a completed task, fail-closed on unlanded work, recording it in `state/completions.jsonl` first | Available |
 | `hand promote` | Promote a completed scout task into a ship task | Available |
-| `hand notify` | Send an out-of-band notification via a configured command; operator-invoked, nothing in the fleet calls it yet | Available |
+| `hand notify` | Send an out-of-band notification via a configured command; `hand watch` also calls it in-process for events worth reaching the operator | Available |
 | `hand update` | Update the installed binary from the latest GitHub Release; `--check` reports availability without installing | Available |
 
 Run `hand --help` for details on currently available commands.

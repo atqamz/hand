@@ -1,13 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"github.com/atqamz/secondhand/internal/home"
+	"github.com/atqamz/secondhand/internal/notify"
 	"github.com/spf13/cobra"
 )
 
@@ -23,18 +21,14 @@ func newNotifyCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			template, err := os.ReadFile(filepath.Join(home, "config", "notify"))
-			if err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("read notify config: %w", err)
-			}
-			if err == nil {
-				run := exec.Command("sh", "-c", strings.TrimSpace(string(template)))
-				run.Env = append(os.Environ(), "HAND_MESSAGE="+message)
-				if out, runErr := run.CombinedOutput(); runErr != nil {
-					if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: notify command failed: %v: %s\n", runErr, strings.TrimSpace(string(out))); printErr != nil {
-						return printErr
-					}
+			// config/notify absent/empty and a failed send are both exit 1, never
+			// the old exit-0 "notified" line - see SPECS.md's hand notify "Errors"
+			// for why.
+			if err := notify.Send(home, message); err != nil {
+				if errors.Is(err, notify.ErrNotConfigured) {
+					return fmt.Errorf("config/notify not set up, nothing delivered: %s", message)
 				}
+				return err
 			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "notified: %s\n", message); err != nil {

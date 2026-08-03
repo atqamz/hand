@@ -14,11 +14,12 @@ import (
 
 // realBinsOnPath are the only real executables this suite needs to resolve:
 // git, which both hand and the test helpers shell out to for real; sh, which
-// cmd/notify.go execs to run a notify template; and cat, which the fake herdr
-// scripts below use to read a pane's status file. Everything hand execs that is
-// not listed here is faked per test (backendsThisSuiteFakes, e2e_test.go), so
-// leaving those unreachable turns a missing fake into a loud failure instead of
-// a call against the developer's real tools.
+// internal/notify execs to run a notify template (from both cmd/notify.go and
+// the watcher's in-process hook); and cat, which the fake herdr scripts below
+// use to read a pane's status file. Everything hand execs that is not listed
+// here is faked per test (backendsThisSuiteFakes, e2e_test.go), so leaving
+// those unreachable turns a missing fake into a loud failure instead of a call
+// against the developer's real tools.
 var realBinsOnPath = []string{"git", "sh", "cat"}
 
 // hermeticPath is the PATH every test runs under, built once by TestMain from

@@ -59,6 +59,19 @@ func KnownKinds() []string {
 	}
 }
 
+// NotifyFilter is the EventFilter for the watcher's in-process notify hook -
+// see SPECS.md's "Notifying a supervisory agent with no session watching" for
+// why its membership differs from --event's. report-blocked has to be listed
+// even though blocked already is: it is the worker's own report-channel
+// declaration that it is stuck, not the herdr transition, and ClassifyStatus
+// suppresses idle-unreported once LastReportState is set - so a worker that
+// reports blocked and then goes idle would otherwise notify no one.
+func NotifyFilter() EventFilter {
+	return NewEventFilter([]string{
+		KindBlocked, KindReportBlocked, KindFailed, KindReportFailed, KindReportNeedsDecision, KindReportDone,
+	})
+}
+
 // EventFilter restricts which event kinds count as a wake for RunUntilEvent. The
 // caller expresses it directly in terms of Kind rather than against a fixed
 // actionable/progress split: report-working is exactly what distinguishes a

@@ -156,6 +156,8 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     watcher/                # fleet supervision
       watcher.go            # poll/push event loop
       events.go             # event classification
+    notify/                 # out-of-band delivery
+      notify.go             # config/notify template execution, shared by hand notify and the watcher's in-process hook
     project/                # project registry
       project.go            # add, list, remove, resolve
       pr.go                 # shared PR validation: repo-slug match, gh existence check
@@ -959,10 +961,46 @@ Anything that lands between one exit and the next arming is in those same two pl
 
 One invocation delivers one wake, and re-arming is the caller's own next step after acting on the exit, which it takes anyway with no human in it.
 
-This covers the awake path only: an exit reaches a session that exists and re-arms.
-It has no reach when no session is running, and `hand notify` - the channel that would - is not wired to
-anything (see `hand notify` and atqamz/secondhand#80).
-So a fleet left entirely unattended still goes unread; the difference is that an attended one no longer does.
+This covers the awake path only: an exit reaches a session that exists and re-arms, and has no reach when no session
+is running. `hand notify` (see its own section) is the channel that reaches an unattended fleet, and every `hand
+watch` invocation - `Run` and `RunUntilEvent` alike - now calls it in-process for every event that matches
+`NotifyFilter` (see below), whether or not that event happened to also be printed to stdout, so a transition
+discovered on a restart's own baseline tick still reaches the operator the same way a live one would.
+
+#### Notifying a supervisory agent with no session watching
+
+The notify hook is its own filtered consumer of the same classified event stream `--event` already filters for
+stdout, not a severity test hardcoded into `handleEvent`: `internal/watcher.NotifyFilter` builds an `EventFilter` -
+the identical `EventFilter`/`Matches` mechanism `--event` uses - with its own fixed membership, and `handleEvent`
+checks it the same way it checks `cfg.EventFilter`. Its membership names the event kinds worth waking someone for
+with no session watching: `blocked`, `report-blocked`, `failed`, `report-failed`, `report-needs-decision`, and
+`report-done`. `report-blocked` - the worker's own `blocked: <reason>` report line, per "Report channel" - is in the
+set alongside the herdr-transition `blocked` because the two are independent signals, and a worker that reports
+blocked and then goes idle fires no other notifiable kind: `ClassifyStatus` suppresses `idle-unreported` precisely
+because `LastReportState` is set.
+`idle-unreported`, `stale`, `parked`, `pr-merged` and the `pr-record-*` kinds are left out - each describes a
+transition the poll loop is already tracking toward one of the six above, or one that resolves on its own without a
+human, so notifying on it too would either double up the same fact or wake someone for nothing actionable.
+
+`handleEvent` calls `internal/notify.Send` directly for every event `NotifyFilter` matches, never by shelling out to
+the `hand notify` subcommand, so wiring reaches every caller of `hand watch` with no shell wrapper required. An unconfigured
+`config/notify` is expected on most fleets - the same silent fallback every other `config/` default gets - so it
+produces no diagnostic; a *configured* template that fails is written to the watcher's own stderr, the same channel
+every other watcher-internal failure (a stuck lock, an unreadable report) already uses, per "Error output".
+That rule is the whole consequence of a failed send: a diagnostic is written and the poll loop carries on, so the send
+never ends the run nor suppresses the event's own stdout line.
+A template that *hangs* is bounded the same way, by a timeout inside `internal/notify.Send` that surfaces as one more
+such diagnostic - the send runs inline in the poll loop, so an unbounded one would wedge polling, `--until-event`'s
+`--timeout` and shutdown alike.
+
+One notifiable kind, `failed` fired from an already-unreachable pane (`ClassifyUnreachable`), can re-fire once per
+`hand watch` restart for a condition that was already true before the restart, because its firing latch
+(`UnreachableFired`) is deliberately non-persisted (see "What survives a `hand watch` restart" below). This is the
+same "duplicate over silence" tradeoff the poll loop already accepts for that latch - a caller re-arming
+`--until-event` gets a repeat notification for a condition that has not changed, rather than one that silently stops
+notifying because the process restarted - so no additional rate limiting is added on top of it. `parked`, where the
+equivalent non-persisted latch (`ParkedFiredFor`) causes the sharper problem of duplicate `state/events.log` lines
+(atqamz/secondhand#127), is not a notifiable kind at all, so that issue's duplicates never reach this channel.
 
 #### What survives a `hand watch` restart
 
@@ -1133,16 +1171,21 @@ Errors:
 ### `hand notify <message>`
 
 Send an out-of-band notification. Uses the command template in `config/notify`.
+The same `internal/notify.Send` this command calls is also the watcher's in-process notify hook - see "Delivering an
+event to a supervisory agent" for that half.
 
 ```
 hand notify "fix-login PR is ready for review"
 ```
 
 Behavior:
-1. Read `config/notify`. If absent, print to stdout only and return.
+1. Read `config/notify`. If absent, or empty once trimmed, nothing is delivered - see "Errors" below.
 2. The notify config contains a shell command template. The message is available as the `$HAND_MESSAGE` environment variable.
-3. Execute the command with `HAND_MESSAGE` set in the environment.
-4. Print the message to stdout regardless.
+3. Execute the command with `HAND_MESSAGE` set in the environment, under a 10s timeout: a template that hangs must not
+   hang its caller, which for the watcher's hook is the poll loop itself.
+4. Print `notified: <message>` to stdout only once the command above has actually succeeded. A template that
+   backgrounds its work (`... &`) counts as succeeded once its own process exits `0`: the send is not held open for a
+   grandchild that outlives it, and its eventual outcome is not observable here either way.
 
 Example `config/notify`:
 ```
@@ -1154,12 +1197,10 @@ Or for macOS:
 osascript -e "display notification \"$HAND_MESSAGE\" with title \"secondhand\""
 ```
 
-Nothing calls `hand notify` yet: it is operator-invoked only, and no watcher code path reaches it.
-Nothing writes `config/notify` either - `hand init --setup` covers `harness`, `model`, and `effort` - so an unconfigured
-notify prints its message and exits 0 having sent nothing.
-The channel is therefore implemented and dark, and it is the only path that would reach the user when no supervisory
-session is awake, since `hand watch --until-event` delivers by exiting into a session that must be there to be woken.
-Wiring it is atqamz/secondhand#80.
+`hand init --setup` still does not write `config/notify` - it covers `harness`, `model`, and `effort` only - so a fresh
+fleet home leaves the channel unconfigured until an operator adds the file by hand. That absence is expected and quiet
+in the watcher's hook (see "Notifying a supervisory agent with no session watching"); `hand notify` itself is the one
+place it is loud, per the exit code below.
 
 Output:
 ```
@@ -1167,7 +1208,13 @@ notified: fix-login PR is ready for review
 ```
 
 Errors:
-- Notify command failed (warn and continue - notification failure never blocks work).
+- `config/notify` absent or empty, or its command failed or timed out - all exit `1`. Earlier, an absent config printed
+  the `notified:` line and exited `0` regardless, so "not configured" and "delivered" were the same observable outcome:
+  the one path meant to reach an operator with no session watching could report a delivery it never made. An empty file
+  is the same case wearing a different shape - `touch config/notify` or a truncated one would otherwise run `sh -c ""`,
+  succeed, and claim a delivery just as wrongly - so it is treated as unconfigured, not as a template. All of these mean
+  the same thing to a caller - nothing reached the channel - so all are the same general error rather than a warning
+  behind exit `0`.
 
 ---
 
@@ -1955,7 +2002,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 |---|---|---|
 | Secondmates / federation | `fm-home-seed.sh`, `fm-pending-reply-lib.sh`, `fm-config-inherit-lib.sh`, `fm-backlog-handoff.sh` (3,500 lines) | Solves a scaling problem at 10+ projects. Start with one home. |
 | X-mode / Twitter | `fm-x-*.sh`, `fmx-respond` skill (3,250 lines) | Separate product concern. Build as a separate tool if ever needed. |
-| AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch --until-event` as the agent's own background task covers the awake path; `hand notify` is meant to cover the AFK half but is not wired to anything yet (atqamz/secondhand#80). |
+| AFK daemon | `fm-supervise-daemon.sh`, `fm-afk-launch.sh` (2,150 lines) | `hand watch --until-event` as the agent's own background task covers the awake path; `hand watch`'s in-process notify hook (see "Notifying a supervisory agent with no session watching") covers the AFK half through `config/notify`. |
 | Multiple backends | `backends/herdr.sh`, `backends/cmux.sh`, `backends/zellij.sh`, `backends/orca.sh`, `fm-backend.sh` (5,500 lines) | herdr only. Add tmux fallback later if herdr proves insufficient. |
 | Dispatch profiles | `fm-dispatch-select.sh`, `config/crew-dispatch.json` (340 lines + skill) | Pass `--harness`/`--model`/`--effort` explicitly, declare `model`/`effort` in the brief, or set defaults in `config/`. |
 | Decision holds | `fm-decision-hold.sh`, decision-hold-lifecycle skill (500 lines) | No longer cut: `hand hold set`/`hand hold clear` record a hold in the store and `hand status` renders it (see "Holds" under "State management"). Only the lifecycle skill wrapped around it stays out. |

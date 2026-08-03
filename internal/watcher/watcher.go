@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/secondhand/internal/atomicfile"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/secondhand/internal/notify"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
@@ -603,9 +604,9 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedChangedFor = string(ts.Status)
 }
 
-// EventFilter gates only the out write: events.log records every event
-// regardless of filter, the same way a baseline tick's events already reach it
-// without reaching stdout.
+// EventFilter gates only the out write - events.log and the notify hook both
+// run unconditionally, so narrowing --event never narrows what reaches
+// config/notify.
 func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	if cfg.EventFilter.Matches(e.Kind) {
 		_, _ = fmt.Fprintln(out, e.Text)
@@ -614,6 +615,20 @@ func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	logPath := filepath.Join(state.Dir(cfg.Home), "events.log")
 	if err := appendEventLog(logPath, time.Now().UTC().Format(time.RFC3339)+" "+e.Text); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: append events.log failed: %v\n", err)
+	}
+
+	notifyEvent(cfg.Home, e, errOut)
+}
+
+// notifyEvent is NotifyFilter's own consumer of the classified event stream -
+// see SPECS.md's "Notifying a supervisory agent with no session watching" for
+// why an unconfigured config/notify stays silent while a failed send is loud.
+func notifyEvent(home string, e *Event, errOut io.Writer) {
+	if !NotifyFilter().Matches(e.Kind) {
+		return
+	}
+	if err := notify.Send(home, e.Text); err != nil && !errors.Is(err, notify.ErrNotConfigured) {
+		_, _ = fmt.Fprintf(errOut, "watch: notify failed: %v\n", err)
 	}
 }
 
