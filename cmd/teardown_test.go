@@ -435,7 +435,7 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 
 // TestTeardownRetriesAfterReportRemovalFails proves teardown survives a fault in
 // its last step, which takes both halves of "retryable". state.Delete's removal
-// order (report channel before task JSON) leaves the task JSON untouched, so
+// order (report channel before the task row) leaves the task row untouched, so
 // there is something left to retry; and the retry then re-runs the cleanup steps
 // the first call already completed, which have to treat an already-closed tab and
 // an already-returned worktree as success. Reverting either half fails this test:
