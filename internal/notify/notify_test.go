@@ -79,6 +79,34 @@ func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 	}
 }
 
+func TestSendCountsADeliveryWhoseTemplateBackgroundsAChildAsDelivered(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(home, "marker.txt")
+	template := "printf '%s' \"$HAND_MESSAGE\" > " + marker + "; sleep 3 &"
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	if err := Send(home, "hello world"); err != nil {
+		t.Fatalf("Send() error = %v, want nil: the template's own process exited 0, only an orphaned pipe holder lingered", err)
+	}
+	if elapsed := time.Since(start); elapsed >= sendTimeout {
+		t.Fatalf("Send() took %s, want it to stop waiting on the orphaned pipe well before sendTimeout", elapsed)
+	}
+
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello world" {
+		t.Fatalf("marker content = %q, want %q", got, "hello world")
+	}
+}
+
 func TestSendGivesUpOnAHangingTemplateRatherThanBlocking(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {

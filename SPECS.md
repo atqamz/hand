@@ -973,9 +973,13 @@ The notify hook is its own filtered consumer of the same classified event stream
 stdout, not a severity test hardcoded into `handleEvent`: `internal/watcher.NotifyFilter` builds an `EventFilter` -
 the identical `EventFilter`/`Matches` mechanism `--event` uses - with its own fixed membership, and `handleEvent`
 checks it the same way it checks `cfg.EventFilter`. Its membership names the event kinds worth waking someone for
-with no session watching: `blocked`, `failed`, `report-failed`, `report-needs-decision`, and `report-done`.
+with no session watching: `blocked`, `report-blocked`, `failed`, `report-failed`, `report-needs-decision`, and
+`report-done`. `report-blocked` - the worker's own `blocked: <reason>` report line, per "Report channel" - is in the
+set alongside the herdr-transition `blocked` because the two are independent signals, and a worker that reports
+blocked and then goes idle fires no other notifiable kind: `ClassifyStatus` suppresses `idle-unreported` precisely
+because `LastReportState` is set.
 `idle-unreported`, `stale`, `parked`, `pr-merged` and the `pr-record-*` kinds are left out - each describes a
-transition the poll loop is already tracking toward one of the five above, or one that resolves on its own without a
+transition the poll loop is already tracking toward one of the six above, or one that resolves on its own without a
 human, so notifying on it too would either double up the same fact or wake someone for nothing actionable.
 
 `handleEvent` calls `internal/notify.Send` directly for every event `NotifyFilter` matches, never by shelling out to
@@ -1179,7 +1183,9 @@ Behavior:
 2. The notify config contains a shell command template. The message is available as the `$HAND_MESSAGE` environment variable.
 3. Execute the command with `HAND_MESSAGE` set in the environment, under a 10s timeout: a template that hangs must not
    hang its caller, which for the watcher's hook is the poll loop itself.
-4. Print `notified: <message>` to stdout only once the command above has actually succeeded.
+4. Print `notified: <message>` to stdout only once the command above has actually succeeded. A template that
+   backgrounds its work (`... &`) counts as succeeded once its own process exits `0`: the send is not held open for a
+   grandchild that outlives it, and its eventual outcome is not observable here either way.
 
 Example `config/notify`:
 ```

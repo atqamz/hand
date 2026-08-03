@@ -1713,29 +1713,40 @@ func TestHandleEventSendsLogFailureToErrOut(t *testing.T) {
 	}
 }
 
-func TestHandleEventRunsConfigNotifyInProcessForANotifiableKind(t *testing.T) {
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"$HAND_MESSAGE\" > " + marker
-	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestHandleEventRunsConfigNotifyInProcessForEveryNotifiableKind(t *testing.T) {
+	for _, e := range []Event{
+		{Kind: KindBlocked, TaskID: "task-1", Text: "blocked task-1: agent needs help"},
+		{Kind: KindReportBlocked, TaskID: "task-1", Text: "report-blocked task-1: waiting on credentials"},
+		{Kind: KindFailed, TaskID: "task-1", Text: "failed task-1"},
+		{Kind: KindReportFailed, TaskID: "task-1", Text: "report-failed task-1: build broke"},
+		{Kind: KindReportNeedsDecision, TaskID: "task-1", Text: "needs-decision task-1: which API?"},
+		{Kind: KindReportDone, TaskID: "task-1", Text: "done task-1"},
+	} {
+		t.Run(e.Kind, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			marker := filepath.Join(home, "marker.txt")
+			template := "printf '%s' \"$HAND_MESSAGE\" > " + marker
+			if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
+				t.Fatal(err)
+			}
 
-	var buf, errBuf bytes.Buffer
-	handleEvent(Config{Home: home}, &Event{Kind: KindBlocked, TaskID: "task-1", Text: "blocked task-1: agent needs help"}, &buf, &errBuf)
+			var buf, errBuf bytes.Buffer
+			handleEvent(Config{Home: home}, &e, &buf, &errBuf)
 
-	got, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatalf("config/notify was not run in-process for a blocked event: %v", err)
-	}
-	if string(got) != "blocked task-1: agent needs help" {
-		t.Fatalf("marker content = %q, want the event text", got)
-	}
-	if errBuf.Len() != 0 {
-		t.Fatalf("errOut = %q, want no diagnostics for a successful notify", errBuf.String())
+			got, err := os.ReadFile(marker)
+			if err != nil {
+				t.Fatalf("config/notify was not run in-process for a %s event: %v", e.Kind, err)
+			}
+			if string(got) != e.Text {
+				t.Fatalf("marker content = %q, want the event text %q", got, e.Text)
+			}
+			if errBuf.Len() != 0 {
+				t.Fatalf("errOut = %q, want no diagnostics for a successful notify", errBuf.String())
+			}
+		})
 	}
 }
 

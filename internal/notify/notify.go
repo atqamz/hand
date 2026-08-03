@@ -52,6 +52,13 @@ func Send(home, message string) error {
 	run.WaitDelay = time.Second
 	out, err := run.CombinedOutput()
 	if err != nil {
+		// WaitDelay only bounds how long Send waits on a pipe an orphaned
+		// grandchild still holds ("... &" templates); the template's own process
+		// already exited 0, so the send happened. A real failure is a non-zero
+		// exit code, reported ahead of ErrWaitDelay.
+		if errors.Is(err, exec.ErrWaitDelay) && run.ProcessState != nil && run.ProcessState.Success() {
+			return nil
+		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("notify command timed out after %s: %w: %s", sendTimeout, ctxErr, strings.TrimSpace(string(out)))
 		}

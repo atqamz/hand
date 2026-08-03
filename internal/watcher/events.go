@@ -64,14 +64,19 @@ func KnownKinds() []string {
 // reused here as a second, independently-curated consumer of the same
 // classified event stream rather than a bespoke severity check hardcoded into
 // handleEvent. Its membership is the event kinds worth reaching an operator
-// who has no session watching. idle-unreported, stale, parked, pr-merged and
-// the pr-record-* kinds are left out - each describes a transition the poll
-// loop already tracks toward one of these five, or one that resolves itself
-// without a human, so notifying on it too would double up the same fact or
-// wake someone for nothing actionable.
+// who has no session watching: blocked, report-blocked, failed, report-failed,
+// report-needs-decision and report-done. report-blocked is the worker's own
+// declaration that it is stuck, independent of the herdr transition blocked
+// reports - a worker that reports blocked and then goes idle fires no other
+// notifiable kind, since ClassifyStatus suppresses idle-unreported once
+// LastReportState is set. idle-unreported, stale, parked, pr-merged and the
+// pr-record-* kinds are left out - each describes a transition the poll loop
+// already tracks toward one of these six, or one that resolves itself without a
+// human, so notifying on it too would double up the same fact or wake someone
+// for nothing actionable.
 func NotifyFilter() EventFilter {
 	return NewEventFilter([]string{
-		KindBlocked, KindFailed, KindReportFailed, KindReportNeedsDecision, KindReportDone,
+		KindBlocked, KindReportBlocked, KindFailed, KindReportFailed, KindReportNeedsDecision, KindReportDone,
 	})
 }
 
