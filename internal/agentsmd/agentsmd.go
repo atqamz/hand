@@ -1,6 +1,7 @@
 // Package agentsmd generates and refreshes the AGENTS.md workflow/rules
-// template that hand init writes into a fleet home, described in SPECS.md's
-// "AGENTS.md (target)" section.
+// template that hand init writes into a fleet home, and checks an existing
+// one for perishable content and generated-block drift (hand doctor), both
+// described in SPECS.md's "AGENTS.md (target)" section.
 package agentsmd
 
 import (

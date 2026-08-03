@@ -166,7 +166,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     completion/             # durable teardown completion record
       completion.go         # append/list state/completions.jsonl
     agentsmd/               # generated AGENTS.md template
-      agentsmd.go           # write and refresh the generated span
+      agentsmd.go           # write and refresh the generated span, check a home's file (see "`hand doctor`")
     atomicfile/             # shared write-to-temp-then-rename helper
       atomicfile.go         # atomic file replacement
   go.mod
@@ -1447,6 +1447,9 @@ The Claude and OpenCode forms above were verified against the installed CLI vers
 Codex, Grok, and Pi retain unverified templates until those binaries are installable; whoever
 verifies them must confirm interactive (not headless) launch, not just flag names.
 The harness module is the single place that constructs these commands.
+A template that hands the brief over as a file rather than as prompt text (Codex, Grok, Pi) has no
+prompt to append to, so `agentsmd.OperatorDecisionRule` never reaches those workers: the brief is
+all they read.
 
 ## Herdr integration detail
 
@@ -2185,7 +2188,7 @@ Deliverable: ready for daily use.
 
 **`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh. `hand doctor` (see the CLI specification) reports perishable content, generated-block drift, and absent generated markers in a real fleet home's `AGENTS.md` without fixing any of them.
 
-One rule in that template, `agentsmd.OperatorDecisionRule`, is also an exported constant, because a worker runs in a worktree that is never under the fleet home and so never loads the home's `AGENTS.md`. `internal/harness` appends that same constant to the launch prompt (see "Harness launch templates"), which is the only channel the rule has to a worker. It stays one string in one place rather than two copies that drift.
+One rule in that template, `agentsmd.OperatorDecisionRule`, is also an exported constant, because a worker runs in a worktree that is never under the fleet home and so never loads the home's `AGENTS.md`. `internal/harness` appends that same constant to every prompt-carrying launch template (see "Harness launch templates"), the only channel the rule has to a worker. It stays one string in one place rather than two copies that drift.
 
 This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even if a maintainer runs `hand init` in the checkout and `state/hand.db` makes `internal/home.IsHome` report true for it. Rather than hand-keep a second copy of `generatedBody` in sync (the drift #44 was filed against), this file's own Rules section points at `generatedBody` and SPECS.md by name instead of restating it: one prose template, one place it can go stale.
 `hand doctor` run in that checkout therefore reports the absent markers every time, which is correct and expected rather than a contradiction: the report says the template will never refresh here, and here that is the intent.
