@@ -309,17 +309,24 @@ hand project list --json
 
 Output (human):
 ```
-nsr         https://github.com/yes2games/nsr          direct-pr
-yes2infra   https://github.com/yes2games/yes2infra    no-mistakes  (gate: not initialized)
+nsr           https://github.com/yes2games/nsr          direct-pr
+yes2infra     https://github.com/yes2games/yes2infra    no-mistakes  (gate: not initialized)
+no-mistakes   https://github.com/atqamz/no-mistakes     direct-pr    (upstream: kunchenguid/no-mistakes)
 ```
 
 Output (JSON):
 ```json
 [
   {"name": "nsr", "url": "https://github.com/yes2games/nsr", "mode": "direct-pr"},
-  {"name": "yes2infra", "url": "https://github.com/yes2games/yes2infra", "mode": "no-mistakes", "gate_issue": "not initialized"}
+  {"name": "yes2infra", "url": "https://github.com/yes2games/yes2infra", "mode": "no-mistakes", "gate_issue": "not initialized"},
+  {"name": "no-mistakes", "url": "https://github.com/atqamz/no-mistakes", "mode": "direct-pr", "upstream": "kunchenguid/no-mistakes"}
 ]
 ```
+
+A project with a declared upstream gets an `upstream: <owner/repo>` annotation in human output and an
+`upstream` field in JSON output (omitted when there is none). Annotations share one trailing column
+rather than taking one each, so a project carrying an upstream and no gate issue does not print its
+upstream under the gate issue of the row above it.
 
 A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or
 `unreachable` - the binary itself missing, the clone path missing on disk, or the clone path
@@ -327,6 +334,47 @@ existing but not a git repository; see "Gate preflight") gets a `(gate: <issue>)
 output and a `gate_issue` field in JSON output (omitted when there is no issue). Every
 `no-mistakes`-mode project pays one `no-mistakes status` call per `hand project list` invocation;
 other modes pay nothing.
+
+---
+
+### `hand project upstream <name> <repo>`
+
+Declare which repo a fork project opens its PRs against, so `hand pr` accepts a PR living there
+instead of on the fork hand pushes to (see "Project registry format"). Pass an empty `<repo>` to clear
+the declaration.
+
+```
+hand project upstream no-mistakes kunchenguid/no-mistakes
+hand project upstream no-mistakes https://github.com/kunchenguid/no-mistakes
+hand project upstream no-mistakes ""
+```
+
+Behavior:
+1. Normalize `<repo>` to an `owner/repo` slug, accepting a bare slug or any remote URL form. Refuse
+   anything that cannot be resolved to one: an unresolvable upstream would widen the PR guard to
+   whatever the comparison happened to fall through to. A slug containing whitespace is refused for a
+   second reason: the `data/projects.md` projection separates fields by whitespace, so a stored one
+   reads back truncated and rejects the whole registry line for every later project command.
+2. Write it onto the project's row and rewrite the `data/projects.md` projection, under the project
+   lock.
+
+This is a separate command rather than a `hand project add --upstream` flag because a fork project is
+usually already registered by the time the first upstream contribution comes up, and `hand project
+add` cannot be re-run against an existing clone.
+
+Output:
+```
+project no-mistakes opens PRs against kunchenguid/no-mistakes
+```
+
+Output (cleared):
+```
+cleared upstream for project no-mistakes
+```
+
+Errors:
+- `<repo>` cannot be resolved to `owner/repo` (usage error, code `2`).
+- Project not found in registry.
 
 ---
 
@@ -457,7 +505,9 @@ Task row written to the `task` table in `state/hand.db`, one column per field be
   "last_report_note": "",
   "send_undelivered_message": "",
   "send_undelivered_at": "",
-  "lease_id": "5fe5412a4aabdeb85a148d6d73eb42d8"
+  "lease_id": "5fe5412a4aabdeb85a148d6d73eb42d8",
+  "delivered_at": "",
+  "delivered_reason": ""
 }
 ```
 
@@ -733,6 +783,38 @@ Errors:
 
 ---
 
+### `hand deliver <id> --reason <text>`
+
+Record that a task's work is handed off and the decision to land it belongs to someone outside the fleet.
+
+```
+hand deliver no-mistakes-flake --reason "PR https://github.com/kunchenguid/no-mistakes/pull/597 offered upstream, maintainer decides"
+hand deliver event-delivery-scout --reason "report at /home/atqa/secondhand/data/event-delivery-scout/report.md, no code to land"
+```
+
+`hand teardown`'s landed-work guard asks "is this landed", and for a contribution offered to a repo the fleet does not control - a fork PR on an upstream, a deliverable that is a report rather than a commit - landing is someone else's decision, possibly never taken. That is a real terminal state the guard could not express, and `--force` is the wrong way to express it: it records the task as `torn-down`, indistinguishable from work abandoned unlanded. This command is that state, on the same pattern as the gate-opened-PR case (atqamz/secondhand#69): name the state the guard was missing rather than widen the guard.
+
+Behavior:
+1. Refuse without `--reason`: the record has to say what was delivered and who decides whether it lands, not merely that something was.
+2. Write `delivered_at` (now, UTC) and `delivered_reason` onto the task's row, under the task lock.
+
+Re-running with a new reason is a correction rather than a conflict, unlike `hand pr`'s one-task-one-PR rule: nothing consumes the mark until teardown reads it, so the last word on what was delivered is the one worth keeping.
+
+The state is keyed off the recorded delivery, never off `kind`, so a task filed as a ship whose deliverable turned out to be a report tears down cleanly without anyone correcting the kind first (atqamz/secondhand#129).
+
+`hand status` shows it: a `(delivered)` marker in the fleet view's suffix column, a `Delivered:` line carrying the reason in the single-task view, and `delivered_at`/`delivered_reason` in `--json`. It never sets `merged` or `pr_merged_observed`, which both assert the work landed.
+
+Output:
+```
+marked no-mistakes-flake delivered: PR https://github.com/kunchenguid/no-mistakes/pull/597 offered upstream, maintainer decides
+```
+
+Errors:
+- `--reason` missing (usage error, code `2`).
+- Task not found.
+
+---
+
 ### `hand teardown <id> [flags]`
 
 Clean up a completed task. Fail-closed: refuses if work isn't properly landed.
@@ -747,15 +829,16 @@ Flags:
 
 Behavior (ship task):
 1. Check the worktree for uncommitted changes. A dirty worktree is not an automatic refusal: if every uncommitted change is a tracked modification whose current content already matches the local default branch's tip byte-for-byte, the dirt is redundant with what already landed and teardown proceeds past it (atqamz/secondhand#79 - the no-mistakes gate's own review-fix round can leave a file edited but uncommitted in the worktree, and that edit sometimes reproduces content the gate's own merged fix already carries). The comparison is content-identical, not path-identical: a same-named file with different content, or a path that merely exists in the base, both still refuse. Both layers a `git status --porcelain` line reports are compared, index and working tree, each where it reports a change: an `MM` path whose working copy matches the base still holds a third, differing version staged in the index, and that staged content is uncommitted work too. Untracked files are never safe - there is nothing in the base to compare them against - so their mere presence refuses regardless of what else is safe. Every failure to resolve, read, or parse fails closed into the refusal, so no dirt is ever discarded unverified. Resolution is local-only, no fetch: a stale local ref just means a real safe case is missed and falls through to the refusal below, never the reverse. When it does refuse, the error carries the worktree's `git status --porcelain` output so the operator can see what is dirty rather than deciding blind, capped at the first 20 entries plus a count of the rest (atqamz/secondhand#65 is the same lesson for report rendering).
-2. Check work is landed:
+2. If the task is recorded as delivered (`hand deliver`), stop here and treat the work as terminal: every remaining check below asks "did this land", which for a contribution offered to a repo the fleet does not control is not the fleet's question to answer. Deliberately after step 1 and after the scout report check, so `--force` keeps its one meaning of discarding work nobody delivered: uncommitted changes still refuse, and a scout row claiming delivery with no report on disk has delivered nothing.
+3. Check work is landed:
    - If mode is `local-only`: verify the branch is merged into the default branch.
    - Otherwise, if `pr` is not yet set in state and the project is registered: look for a PR on the project's repo whose head ref is the task's current branch, and record it under the task if found (same gate-opened-PR detection `hand status` performs, including the preference-tier rule for a branch with several PRs; see that command's spec). Detection failing because there is nothing to find (no clone on disk, `gh` unreachable) is not itself an error - it falls through to the same refusal below as if no PR existed. An ambiguous branch is different: teardown refuses outright rather than falling through to "no PR recorded" - that message means unlanded, and guessing which of an ambiguous set to trust is the failure this rule exists to remove. The refusal names every PR on the head ref and its state, including one in a losing tier that did not itself trigger the refusal, since the operator has to resolve the whole branch, not just the pair that tripped the rule. A branch carrying both a merged PR and an open one is one such ambiguous case: the open PR is live evidence of unlanded work, so it is never silently resolved to the merged PR.
    - If `pr` is set in state (recorded by `hand pr`, or just detected above): verify the PR is merged via `gh pr view`. A detected PR that is closed without merging is refused exactly like one `hand pr` recorded.
-3. Close the herdr tab.
-4. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
-5. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
-6. Remove the task's row and the task's report channel `state/<id>.status`.
-7. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
+4. Close the herdr tab.
+5. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
+6. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
+7. Remove the task's row and the task's report channel `state/<id>.status`.
+8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
 
 The report channel goes because it is the volatile wake log, not a deliverable: a task respawned under a used ID starts at `report_offset` 0, so a surviving log would be replayed as this run's - re-raising decisions already resolved, absorbing a genuine unexplained stop as one already seen, and auto-recording a PR URL out of the previous run's `done` line onto a task nobody recorded it for. The durable deliverables under `data/<id>/` survive teardown, as before; keeping a torn-down task's wake history would be its own feature with its own reason, not a side effect of cleanup.
 A hold on the id is not removed either, deliberately - it is not task-scoped, so it outlives the row and keeps an unanswered question visible, which is also why `hand spawn` then refuses the id until `hand hold clear` (see "Holds" under "State management").
@@ -768,8 +851,9 @@ Behavior (scout task):
 5. Remove the task's row and `state/<id>.status`.
 
 Behavior with `--force`:
-- Skip steps 1-2 for ship tasks, skip step 1 for scout tasks.
+- Skip steps 1-3 for ship tasks, skip step 1 for scout tasks.
 - Still closes herdr tab and returns worktree.
+- Stays the escape hatch for genuinely unlanded work only. Work that is delivered and not landed has its own state (`hand deliver`), so reaching for `--force` on it - and recording it as `torn-down`, indistinguishable from an abandoned task - is never the answer.
 
 Teardown removes several resources in sequence, and any step can fault, so the command has to be runnable a second time: a resource already released is that step's goal already reached, not an error, and never something `--force` should be needed for.
 A tab herdr no longer lists counts as closed.
@@ -787,6 +871,12 @@ The completion record is appended before the task's row is removed, not after, b
 
 The store is deliberately uncapped: it is the only durable record of a task's completion once `hand teardown` removes the row, and `hand status` only ever shows the live fleet, never history - so keeping just the last N entries would throw away the answer to "what happened to a task that's gone" with nothing left to reconstruct it from. Each line is a complete JSON object (`id`, `project`, `kind`, `outcome`, `detail`, `torndown_at`), readable without parsing markdown.
 
+`outcome` is one of:
+- `merged`: the work landed. `detail` names the PR, or `branch merged` for a local-only branch.
+- `done`: a scout task's report is the deliverable. `detail` names the report path.
+- `delivered`: the work is handed off and its landing was never the fleet's to decide. `detail` is the reason `hand deliver` recorded, prefixed with the PR when one is on the task. Ranked ahead of every outcome above, all of which assert the work landed - but only while the task's row carries no merge: a delivered task has to stay distinguishable from a merged one in the permanent record, or the fleet's history claims upstream merges that never happened (atqamz/secondhand#78). A delivery the upstream maintainer then actually merged (`merged` or `pr_merged_observed` on the row) records `merged` instead, because that is the stronger of the two facts and the requirement is only that the record never claim a merge that did not happen.
+- `torn-down`: `--force` skipped the checks, so nothing about landing is claimed at all.
+
 Output:
 ```
 teardown fix-login complete
@@ -794,6 +884,7 @@ teardown fix-login complete
 
 Errors:
 - Task not found.
+- No PR recorded and the project is not local-only (without `--force`, and unless the task is recorded as delivered).
 - Uncommitted changes in worktree, unless every change is content-identical to the local default branch's tip in both the index and the working tree (without `--force`); the error carries a capped `git status --porcelain` of the worktree.
 - PR not merged (without `--force`).
 - Ambiguous PR head ref: the task's branch carries several PRs that do not resolve to a single usable winner - no preference tier holds exactly one match, or a merged PR coexists with an open one (without `--force`).
@@ -874,8 +965,8 @@ Behavior:
 3. If the task already has this exact PR recorded, skip steps 5-7 and report success without writing anything again (the URL is already on record, so there is nothing left to validate or write). This reconciling repeat is why `hand pr <id> <url>` is a sound remedy for a `pr-record-unknown` event: the lock holder that event leaves unnamed may have been recording this very URL, and a plain confirmation here lets the operator resolve the ambiguity instead of erroring on a URL that was already fine.
 4. If the task already has a *different* PR recorded, refuse - one task, one PR; correcting a wrong record is a deliberate `hand teardown`/`hand spawn` decision, not something `hand pr` overwrites silently.
 5. Resolve the task's project and derive `owner/repo` from the project clone's own `origin` remote (`git config --get remote.origin.url`, not `git remote get-url`, so a local `url.<base>.insteadOf` rewrite never turns a genuine mismatch into a false match).
-6. Refuse if the URL's `owner/repo` doesn't match the derived repo slug.
-7. Confirm the PR exists via `gh pr view` (network check, 30s timeout) - shape validation in step 1 only proves the URL looks right, not that the PR is real.
+6. Refuse if the URL's `owner/repo` matches neither the derived repo slug nor the project's declared `upstream` (see "Project registry format"). A fork contribution's PR lives on the upstream, not on the fork hand pushes to, so the upstream passes - but only because an operator declared it with `hand project upstream`, never because the URL's repo looks related to the project's own. The refusal names the declared upstream, or says none is declared, so an operator can tell "wrong upstream" from "no upstream declared".
+7. Confirm the PR exists via `gh pr view` (network check, 30s timeout) - shape validation in step 1 only proves the URL looks right, not that the PR is real. The refusal names the repo the *URL* belongs to, not the project's own: step 6 accepts a PR on the declared upstream too, so naming the project repo here would send an operator whose upstream PR number is wrong to check a repository the URL was never on.
 8. Write `pr` into the task's row.
 
 Steps 5-7 live in `project.ValidatePR` and are the *only* validation path: `hand watch`'s auto-record calls the same function, so a worker-supplied URL can never reach task state on weaker terms than an explicit `hand pr`.
@@ -896,7 +987,7 @@ Errors:
 - Task already has a different PR recorded.
 - Project not registered.
 - Cannot derive `owner/repo` from the project clone's origin remote.
-- URL's repo doesn't match the project's repo.
+- URL's repo matches neither the project's repo nor its declared upstream.
 - PR not found via `gh pr view` (network error or nonexistent PR).
 
 ---
@@ -1054,6 +1145,7 @@ Pane-anchored, and reset:
 | `done_verified` | The marker belongs to the scout's own verified `done`. The ship has not earned one, and carrying it would leave the ship run unable to ever announce its own, since the write-back only ORs the marker to true. |
 | `status_changed_at` / `status_changed_for` | The scout's last observed transition happened in a pane the task no longer has. Carrying it would hand the ship a dwell already grown past `stale`'s threshold before its worker had run for a second. Promote restamps the timestamp to the promotion time and clears the status it was stamped for, which is what makes the ship's first observed status a fresh dwell rather than a resumed one. |
 | `last_report_state` / `last_report_note` | The scout's last report describes work in that pane. It selects `parked`'s bound and feeds the scout's deferred-`done` bookkeeping, so an inherited one both mis-bounds the ship's silence and can hand it a `done` it never reported. |
+| `delivered_at` / `delivered_reason` | The delivery described the scout's deliverable, a report, and not a line of the ship's code. Carried, it would let `hand teardown` accept the ship task as terminal with no PR recorded and no merge check run at all - the landed-work guard bypassed without `--force` for work nobody delivered, which is the one meaning `--force` keeps. |
 | The `stale` and `blocked` fired latches | Each is what makes its announcement fire only once. A latch surviving the promote silences that announcement for the ship's own pane - the `stale` one until the ship transitions at least once, which a genuinely stuck ship never does. |
 | Whether the last probe of the pane succeeded | It gates the once-only `failed` latch and gates `stale` detection off entirely until some probe succeeds, and either value inherited from the scout's pane is a claim about a pane the task no longer has. It is reset to false, matching the seed a fresh spawn gets before its own first probe has succeeded: the ship's first probe of its new pane is a first sighting, so an unreachable one is announced through that sighting's dwell rather than firing `failed` on sight. Resetting it to true instead - the previous behavior - fired a no-dwell `failed` off a single blink, on the strength of a probe that only ever described the scout's pane. |
 | The first-sighting outage's fired latch | A latch claiming the scout's outage has nothing to say about the ship's new pane. Left true it would sit inert until the next probe failure reset it anyway, but a fresh pane deserves a fresh episode on purpose, not by accident of that ordering, so it is reset to unfired alongside the probe-succeeded flag above. |
@@ -1160,7 +1252,7 @@ Behavior:
 4. Acquire a fresh treehouse worktree (with collision guard).
 5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 8, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
-7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
+7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` and `delivered_at` / `delivered_reason` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
@@ -1814,12 +1906,16 @@ Hand-editing it is not the way to register a project - the next write rewrites t
 - nsr: https://github.com/yes2games/nsr mode=direct-pr
 - yes2infra: https://github.com/yes2games/yes2infra mode=no-mistakes
 - secondhand: local mode=local-only
+- no-mistakes: https://github.com/atqamz/no-mistakes mode=direct-pr upstream=kunchenguid/no-mistakes
 ```
 
 Fields:
 - `<name>`: project identifier, used in all `hand` commands.
 - URL or `local`: git remote URL or `local` for repos without a remote.
 - `mode=<mode>`: delivery mode.
+- `upstream=<owner/repo>`: optional. The repo this project's PRs are opened against when it is a fork.
+  Absent for the ordinary case, where a project contributes to its own repo.
+  A URL form is accepted and normalized to the slug; an `upstream=` that cannot be resolved to one refuses the line rather than importing a project whose upstream could never match. A slug can never contain whitespace, which is what keeps this projection round-trippable.
 
 Delivery modes:
 - `no-mistakes`: worker runs no-mistakes pipeline, ships via PR with validation evidence. `hand
@@ -1956,7 +2052,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 `Open` gates every other statement on `PRAGMA user_version`, sqlite's own built-in counter for exactly this: no extra table, free to read, and part of the database file itself rather than a `meta` row a stray write could get out of sync with the tables it describes.
 
 - **Version 0 is the schema the `schema` constant in store.go builds** - the one every existing `state/hand.db` already carries, since sqlite defaults an unset `user_version` to 0 and the one real fleet home predates this mechanism entirely. 0 means "the baseline schema this commit ships", not "unknown, refuse to proceed"; the latter reading would stop the one home that exists from opening the moment this merged.
-- `migrations` in schemaversion.go is an ordered list of SQL statements, one per schema change since that baseline, each moving `user_version` from its index to index+1. An ordinary column addition - atqamz/secondhand#48's `lease_id`, or a future `project` column for atqamz/secondhand#78 - is two edits that stay in step: the column goes into the `schema` constant, so every database created from then on is built with it, and the matching `ALTER TABLE` is appended to `migrations`, so every database that already exists gains it on its next open. Nothing else in the package needs hand-written detection logic for it.
+- `migrations` in schemaversion.go is an ordered list of SQL statements, one per schema change since that baseline, each moving `user_version` from its index to index+1. An ordinary column addition - atqamz/secondhand#48's `lease_id`, or atqamz/secondhand#78's `project.upstream` and `task.delivered_at`/`delivered_reason` - is two edits that stay in step: the column goes into the `schema` constant, so every database created from then on is built with it, and the matching `ALTER TABLE` is appended to `migrations`, so every database that already exists gains it on its next open. Nothing else in the package needs hand-written detection logic for it.
 - **A brand-new database never replays migrations.** `migrateSchema` checks for the `task` table before running `schema` - absent means the file has never had a schema at all - and on that path creates the tables and stamps `user_version` straight to `len(migrations)`, both in one transaction so a crash cannot leave a home carrying the migrated columns while still reading as version 0, which every later open would answer by replaying those migrations against columns that are already there. Without that check, keeping `schema` and `migrations` in step would break every fresh `hand init` with "duplicate column name" while the already-migrated homes kept working: the tests-pass, production-fails asymmetry inverted, which is the exact failure mode atqamz/secondhand#111 exists to remove. The alternative - freezing `schema` at the baseline forever and reading every column addition out of `migrations` - would leave the constant lying about the current layout, and nothing but prose to stop the next reader from adding a column to it.
 - **A database newer than the binary is refused, not guessed at.** If `user_version` exceeds `len(migrations)`, `Open` fails wrapping `ErrSchemaNewer` before running a single statement against the tables - an old `hand` opening a new database and writing malformed rows into it would be worse than refusing to run.
 - **Applying pending migrations takes a lock**, `SchemaLock` in lock.go, because sqlite's per-statement locking cannot make "add this column, then bump `user_version`" atomic across a whole `Open`. Two `hand` processes opening the same freshly-upgraded home both re-check the version after acquiring the lock, so whichever loses the race finds the version already caught up and applies nothing, rather than re-running `ALTER TABLE ADD COLUMN` against a column the winner already added.
@@ -1978,7 +2074,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 - `1`: general error.
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, a required flag left out (`hand hold set --reason`), mutually exclusive or mutually dependent flags (`hand watch --timeout` or `--event` without `--until-event`, `hand hold set --blocked-on` on any kind but `blocked` and its absence on a `blocked` one), an invalid argument or flag value (malformed project URL, unknown project mode, harness or hold kind, unparsable `--poll` duration, a non-positive `--timeout`, an unrecognized `--event` kind).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or doesn't belong to the task's project's repo (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or belongs to neither the task's project's repo nor its declared upstream (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").

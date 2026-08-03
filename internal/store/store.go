@@ -91,12 +91,27 @@ type Task struct {
 	// holds and no other. Empty on a row written before the column existed, or by
 	// a treehouse that predates lease identities; see worktree.CheckCollision.
 	LeaseID string `json:"lease_id"`
+	// Set when the work is handed off and the decision to land it belongs to
+	// someone outside the fleet - an upstream maintainer, or a deliverable that
+	// is a report rather than a commit. Distinct from MergeExecuted and
+	// MergeAnnounced, which both assert the work landed: a delivered task is
+	// terminal without that claim, and stays distinguishable from a merged one
+	// afterwards (atqamz/secondhand#78). DeliveredReason is required, so the record
+	// says what was delivered and to whom rather than only that something was.
+	DeliveredAt     string `json:"delivered_at"`
+	DeliveredReason string `json:"delivered_reason"`
 }
 
+// Upstream is the "owner/repo" a fork project opens its PRs against, empty for
+// a project that contributes to its own repo. A fork contribution has two
+// repos - the fork hand pushes to, which URL names, and the upstream the PR
+// lives on - and only a declared upstream lets hand tell that pair apart from
+// a PR URL naming a repo nobody authorized (atqamz/secondhand#78).
 type Project struct {
-	Name string
-	URL  string
-	Mode string
+	Name     string
+	URL      string
+	Mode     string
+	Upstream string
 }
 
 // Hold is its own row keyed by an arbitrary id, not a foreign key into task:
@@ -156,13 +171,16 @@ CREATE TABLE IF NOT EXISTS task (
 	last_report_note   TEXT NOT NULL DEFAULT '',
 	send_undelivered_message TEXT NOT NULL DEFAULT '',
 	send_undelivered_at      TEXT NOT NULL DEFAULT '',
-	lease_id                 TEXT NOT NULL DEFAULT ''
+	lease_id                 TEXT NOT NULL DEFAULT '',
+	delivered_at             TEXT NOT NULL DEFAULT '',
+	delivered_reason         TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
 	url      TEXT NOT NULL,
 	mode     TEXT NOT NULL,
-	position INTEGER NOT NULL
+	position INTEGER NOT NULL,
+	upstream TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
@@ -241,11 +259,46 @@ func (db *DB) setMeta(key, value string) error {
 	return nil
 }
 
-const taskColumns = `id, project, kind, harness, model, effort, worktree, brief,
-	herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id, pr,
-	merge_executed, merge_executed_at, report_offset, merge_announced, done_verified,
-	created_at, status_changed_at, status_changed_for, last_report_state, last_report_note,
-	send_undelivered_message, send_undelivered_at, lease_id`
+// taskColumnNames is the one list of the task table's columns. Everything a
+// write needs is derived from it - the column list, the placeholders, the
+// upsert's SET clause - so adding a column to `schema` and to taskValues below
+// cannot reach one writer and silently miss another.
+var taskColumnNames = []string{
+	"id", "project", "kind", "harness", "model", "effort", "worktree", "brief",
+	"herdr_session", "herdr_workspace_id", "herdr_tab_id", "herdr_pane_id", "pr",
+	"merge_executed", "merge_executed_at", "report_offset", "merge_announced", "done_verified",
+	"created_at", "status_changed_at", "status_changed_for", "last_report_state", "last_report_note",
+	"send_undelivered_message", "send_undelivered_at", "lease_id",
+	"delivered_at", "delivered_reason",
+}
+
+var (
+	taskColumns      = strings.Join(taskColumnNames, ", ")
+	taskPlaceholders = strings.TrimSuffix(strings.Repeat("?, ", len(taskColumnNames)), ", ")
+	taskUpsertSet    = taskExcludedAssignments()
+)
+
+// taskExcludedAssignments builds the upsert's SET clause for every column but
+// the primary key, which is what the conflict matched on.
+func taskExcludedAssignments() string {
+	assignments := make([]string, 0, len(taskColumnNames)-1)
+	for _, name := range taskColumnNames[1:] {
+		assignments = append(assignments, name+" = excluded."+name)
+	}
+	return strings.Join(assignments, ", ")
+}
+
+// taskValues is one task's columns in taskColumnNames order.
+func taskValues(t Task) []any {
+	return []any{
+		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
+		t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
+		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
+		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
+		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID,
+		t.DeliveredAt, t.DeliveredReason,
+	}
+}
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
@@ -253,7 +306,8 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.Herdr.Session, &t.Herdr.WorkspaceID, &t.Herdr.TabID, &t.Herdr.PaneID, &t.PR,
 		&t.MergeExecuted, &t.MergeExecutedAt, &t.ReportOffset, &t.MergeAnnounced, &t.DoneVerified,
 		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
-		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID)
+		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID,
+		&t.DeliveredAt, &t.DeliveredReason)
 	return t, err
 }
 
@@ -271,25 +325,9 @@ func (db *DB) ReadTask(id string) (Task, bool, error) {
 
 func (db *DB) WriteTask(t Task) error {
 	_, err := db.sql.Exec(`INSERT INTO task (`+taskColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			project = excluded.project, kind = excluded.kind, harness = excluded.harness,
-			model = excluded.model, effort = excluded.effort, worktree = excluded.worktree,
-			brief = excluded.brief, herdr_session = excluded.herdr_session,
-			herdr_workspace_id = excluded.herdr_workspace_id, herdr_tab_id = excluded.herdr_tab_id,
-			herdr_pane_id = excluded.herdr_pane_id, pr = excluded.pr,
-			merge_executed = excluded.merge_executed, merge_executed_at = excluded.merge_executed_at,
-			report_offset = excluded.report_offset, merge_announced = excluded.merge_announced,
-			done_verified = excluded.done_verified, created_at = excluded.created_at,
-			status_changed_at = excluded.status_changed_at, status_changed_for = excluded.status_changed_for,
-			last_report_state = excluded.last_report_state, last_report_note = excluded.last_report_note,
-			send_undelivered_message = excluded.send_undelivered_message,
-			send_undelivered_at = excluded.send_undelivered_at, lease_id = excluded.lease_id`,
-		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
-		t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
-		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
-		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
-		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID)
+		VALUES (`+taskPlaceholders+`)
+		ON CONFLICT(id) DO UPDATE SET `+taskUpsertSet,
+		taskValues(t)...)
 	if err != nil {
 		return fmt.Errorf("write task %q: %w", t.ID, err)
 	}
@@ -345,7 +383,7 @@ func (db *DB) DeleteTask(id string) error {
 }
 
 func (db *DB) ListProjects() ([]Project, error) {
-	rows, err := db.sql.Query(`SELECT name, url, mode FROM project ORDER BY position, name`)
+	rows, err := db.sql.Query(`SELECT name, url, mode, upstream FROM project ORDER BY position, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -354,7 +392,7 @@ func (db *DB) ListProjects() ([]Project, error) {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.Name, &p.URL, &p.Mode); err != nil {
+		if err := rows.Scan(&p.Name, &p.URL, &p.Mode, &p.Upstream); err != nil {
 			return nil, fmt.Errorf("list projects: %w", err)
 		}
 		projects = append(projects, p)
@@ -366,8 +404,8 @@ func (db *DB) ListProjects() ([]Project, error) {
 }
 
 func (db *DB) AddProject(p Project) error {
-	_, err := db.sql.Exec(`INSERT INTO project (name, url, mode, position)
-		VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM project))`, p.Name, p.URL, p.Mode)
+	_, err := db.sql.Exec(`INSERT INTO project (name, url, mode, position, upstream)
+		VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM project), ?)`, p.Name, p.URL, p.Mode, p.Upstream)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("project %q %w", p.Name, ErrProjectExists)
@@ -375,6 +413,20 @@ func (db *DB) AddProject(p Project) error {
 		return fmt.Errorf("add project %q: %w", p.Name, err)
 	}
 	return nil
+}
+
+// SetProjectUpstream reports whether a row was actually updated, the same way
+// RemoveProject reports a removal.
+func (db *DB) SetProjectUpstream(name, upstream string) (bool, error) {
+	res, err := db.sql.Exec(`UPDATE project SET upstream = ? WHERE name = ?`, upstream, name)
+	if err != nil {
+		return false, fmt.Errorf("set upstream for project %q: %w", name, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("set upstream for project %q: %w", name, err)
+	}
+	return affected > 0, nil
 }
 
 // RemoveProject reports whether a row was actually removed, leaving the

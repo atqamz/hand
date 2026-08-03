@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/atqamz/secondhand/internal/atomicfile"
+	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/store"
 )
 
@@ -151,9 +152,13 @@ func parseLine(line string) (Project, bool) {
 	}
 	url := fields[0]
 	mode := ""
+	upstream := ""
 	for _, f := range fields[1:] {
 		if strings.HasPrefix(f, "mode=") {
 			mode = strings.TrimPrefix(f, "mode=")
+		}
+		if strings.HasPrefix(f, "upstream=") {
+			upstream = strings.TrimPrefix(f, "upstream=")
 		}
 	}
 	if name == "" || url == "" || mode == "" {
@@ -162,7 +167,62 @@ func parseLine(line string) (Project, bool) {
 	if !validMode(mode) {
 		return Project{}, false
 	}
-	return Project{Name: name, URL: url, Mode: mode}, true
+	if upstream != "" {
+		slug, ok := ParseRepoRef(upstream)
+		if !ok {
+			return Project{}, false
+		}
+		upstream = slug
+	}
+	return Project{Name: name, URL: url, Mode: mode, Upstream: upstream}, true
+}
+
+// ParseRepoRef normalizes a repo reference an operator types - a bare
+// "owner/repo" or any remote URL form ghutil understands - into the
+// "owner/repo" slug the PR guard compares against. It refuses rather than
+// guessing: an upstream nobody can resolve to a slug would widen the guard to
+// whatever the comparison happened to fall through to.
+// A slug containing whitespace is refused outright rather than stored: the
+// registry projection writes it as a whitespace-separated upstream=<slug> field,
+// which parseLine would read back truncated and then reject as an invalid
+// registry line, breaking every project command against a rebuilt db.
+func ParseRepoRef(ref string) (string, bool) {
+	if strings.ContainsAny(ref, " \t\r\n") {
+		return "", false
+	}
+	if slug, ok := ghutil.RepoSlugFromRemote(ref); ok {
+		return slug, true
+	}
+	owner, repo, ok := strings.Cut(strings.TrimSuffix(ref, ".git"), "/")
+	if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") {
+		return "", false
+	}
+	return owner + "/" + repo, true
+}
+
+// SetUpstream declares which repo a fork project opens its PRs against, or
+// clears the declaration when upstream is empty.
+func SetUpstream(homeDir, name, upstream string) error {
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	db, err := openRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	updated, err := db.SetProjectUpstream(name, upstream)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("project %q %w", name, ErrNotFound)
+	}
+	return writeProjection(db, homeDir)
 }
 
 // Find returns the project with the given name, or false if not registered.
@@ -344,7 +404,11 @@ func writeProjection(db *store.DB, homeDir string) error {
 }
 
 func renderProjectLine(p Project) string {
-	return fmt.Sprintf("- %s: %s mode=%s", p.Name, p.URL, p.Mode)
+	line := fmt.Sprintf("- %s: %s mode=%s", p.Name, p.URL, p.Mode)
+	if p.Upstream != "" {
+		line += " upstream=" + p.Upstream
+	}
+	return line
 }
 
 func trimTrailingBlanks(lines []string) []string {
