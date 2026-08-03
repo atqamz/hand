@@ -214,6 +214,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
 Who writes a file for whom is what decides whether it belongs under `data/` at all.
 `operator.md` is the operator writing for the agent - identity, authority, and hard constraints that outrank the agent's judgment.
 `backlog.md`, `learnings.md` and the two archives are the agent writing for itself, and `projects.md` is the one file here that is a projection of machine state rather than prose either of them authored (see "Project registry format").
+The direction `data/` does not carry is a file maintained by hand for the operator to read: `hand status` and the issue tracker already answer what the fleet is doing and what is waiting on a human, which is why `data/inbox.md` was proposed as that channel and cut (atqamz/secondhand#64), and why a decision taken under a standing autonomy grant goes on the PR or issue it concerns rather than into a fleet file.
 `hand init` seeds `operator.md`, `learnings.md`, `done-archive.md` and `note-archive.md` once and no command writes them again (atqamz/secondhand#47).
 All four are plain agent-edited markdown with no schema, no subcommand and no validation, the same treatment `backlog.md` already gets.
 

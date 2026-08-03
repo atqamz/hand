@@ -208,17 +208,23 @@ func TestGeneratedRulesCoverHolds(t *testing.T) {
 }
 
 // atqamz/secondhand#47: the four files hand init seeds are inert unless the
-// template says who reads each one and when.
+// template says who reads each one and when, and atqamz/secondhand#64: the one
+// direction data/ does not carry has to be stated, or the agent invents a
+// hand-written operator channel again.
 func TestGeneratedRulesCoverOperatorContextLearningsAndArchives(t *testing.T) {
 	for _, want := range []string{
 		"data/operator.md",
 		"data/learnings.md",
 		"data/done-archive.md",
 		"data/note-archive.md",
+		"written for the operator to read",
 	} {
 		if !strings.Contains(generatedBody, want) {
 			t.Fatalf("got generated body %q, want it to name %q", generatedBody, want)
 		}
+	}
+	if strings.Contains(generatedBody, "data/inbox.md") {
+		t.Fatalf("got generated body %q, want no hand-written operator channel", generatedBody)
 	}
 }
 

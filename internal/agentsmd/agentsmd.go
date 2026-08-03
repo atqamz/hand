@@ -65,6 +65,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
 - Roll finished backlog entries into ` + "`data/done-archive.md`" + `, and dropped or superseded ones into ` + "`data/note-archive.md`" + ` with the reason they were dropped. Roll off rather than delete: the queue you read at session start stays short and the record survives.
 - ` + "`data/learnings.md`" + ` holds dated, evidence-backed operational facts. Read it when a task touches something it covers, add to it when a discovery cost real time, and curate it - rewrite and prune rather than append forever.
+- Nothing under ` + "`data/`" + ` is written for the operator to read. Report to them in the session; ` + "`hand status`" + ` and the issue tracker are their view of the fleet, so a decision taken under a standing grant belongs on the PR or issue it concerns, not in a fleet file.
 - For no-mistakes projects, workers use ` + "`no-mistakes axi`" + ` directly in the worktree.
 - Use ` + "`hand search <query>`" + ` to find historical context in data/. ` + "`qmd search`" + ` adds semantic matching when installed.
 - ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
