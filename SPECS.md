@@ -150,7 +150,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       report.go             # read/classify state/<id>.status (see "Report channel")
       pr.go                 # PR URL validation and extraction
     worktree/               # treehouse integration
-      worktree.go           # get, return, status, collision check
+      worktree.go           # get, return, collision check
     brief/                  # brief parsing
       brief.go              # read the brief's declared model/effort (see "Brief format")
     watcher/                # fleet supervision
@@ -407,7 +407,7 @@ Errors:
 - Task ID has an open hold (names `hand hold clear <id>` as the remedy).
 - Brief not found at `data/<id>/brief.md`.
 - Treehouse worktree acquisition failed (pool exhausted, git error).
-- Worktree collision with another active task (names the conflicting task).
+- Worktree collision with another task row (names the conflicting task; see "Collision guard").
 - Herdr tab creation failed (herdr not running, session error).
 - Harness not recognized.
 - Worker never confirmed started within the poll window, or is waiting on a first-run prompt hand
@@ -1886,7 +1886,7 @@ Set with `hand hold set`, which upserts - a second call on the same id replaces 
 - File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.
 - Multiple `hand` invocations against the same task should be avoided (agent discipline, not locking).
-- **Concurrent tasks on same project:** allowed. Each gets its own treehouse worktree. The collision guard in `hand spawn` prevents worktree overlap. File-level conflicts are resolved at merge time (rebase or conflict resolution), not at spawn time. The agent should avoid spawning tasks that touch the same files when possible, but this is a judgment call, not an enforced constraint.
+- **Concurrent tasks on same project:** allowed. Each gets its own treehouse worktree, kept off every other task's by treehouse's own pool lock; the collision guard in `hand spawn` and `hand promote` is defense-in-depth over `hand`'s bookkeeping on top of that (see "Collision guard"). File-level conflicts are resolved at merge time (rebase or conflict resolution), not at spawn time. The agent should avoid spawning tasks that touch the same files when possible, but this is a judgment call, not an enforced constraint.
 - **No session lock.** Multiple supervisory sessions can run `hand` commands. The agent is responsible for not conflicting with itself. sqlite's own locking prevents corruption; duplicate work is an agent-level problem, not a CLI-level problem.
 - **No daemon and no connection pool.** Every command opens the database, does its work and closes it, on a single connection (see "Not Postgres, and no daemon").
 

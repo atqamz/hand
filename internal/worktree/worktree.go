@@ -73,23 +73,13 @@ func Return(worktreePath string, force bool) error {
 // recorded one, returning the ID of the conflicting task or "" for no collision.
 //
 // Keyed on the lease identity rather than the worktree path, because a pool slot
-// path is recycled across leases while an identity never is. The guard's older doc
-// comment claimed the stale-lease-after-crash bug (firstmate #947) as its origin;
-// that bug is not reachable here, since Get always passes --lease and treehouse's
-// pool lock will not hand out a currently-leased slot. What path comparison did
-// produce is a false positive: teardown returns the worktree before state.Delete
-// (deliberately, so a fault stays retryable - see state.Delete), so a failed Delete
-// leaves a row still naming path P after treehouse has freed it, and the next spawn
-// or promote to legitimately acquire P was refused over a collision that never
-// existed concurrently.
-//
-// Path comparison stays the fallback whenever either side has no identity: rows
-// written before the lease_id column existed, and any treehouse older than v2.1.0,
-// still have to be checked against something.
-//
+// path is recycled across leases while an identity never is: a row a failed
+// teardown left behind still names a path treehouse has already freed, and path
+// equality refused the next spawn over that instead of over a real holder.
+// Path comparison stays the fallback whenever either side has no identity - rows
+// written before the lease_id column existed, and any treehouse older than v2.1.0.
 // Every task row is compared, done and failed ones included, because a task keeps
-// its lease until teardown returns it - status says nothing about whether the
-// worktree is still held.
+// its lease until teardown returns it. SPECS.md's "Collision guard" owns the rest.
 func CheckCollision(homeDir string, lease Lease, excludeID string) (string, error) {
 	tasks, err := state.List(homeDir)
 	if err != nil {
