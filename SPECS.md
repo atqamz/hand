@@ -1175,12 +1175,15 @@ Behavior:
 1. Resolve the fleet home (same resolution as every other command; a `hand doctor` outside one is the same precondition failure as elsewhere).
 2. Scan `AGENTS.md` line by line, tracking fenced code blocks and the `hand:generated` span (see "AGENTS.md (target)"), and flag:
    - a date (`YYYY-MM-DD`) outside the generated span, since a date only stays true as long as the day it names,
-   - self-expiring phrasing outside the generated span - `until #N lands`, `once #N lands`, `awaiting` - the same shape of problem as a bare date,
+   - self-expiring phrasing outside the generated span - `until #N lands`, `once #N lands`, `awaiting #N` - the same shape of problem as a bare date. Each shape needs an issue to expire against, so a bare "awaiting" with nothing to anchor it is durable prose and is not flagged,
    - an em dash or emoji anywhere in the file, generated span included,
-   - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`.
-3. Print one line per hit to stdout, prefixed with the resolved fleet home's absolute path to `AGENTS.md` (the same absolute-path rule this PR adds to `generatedBody` - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope) - `<path>:<line>: <finding>` for a line-anchored finding, `<path>: <finding>` for the whole-file drift check - and exit `1` if anything was found, `0` if the file is clean.
+   - a code fence that is never closed, since it silences the date and self-expiring checks for every line after it,
+   - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`, or the `hand:generated` markers being absent altogether, which is the case `hand init` and `hand update` both decline to touch and so can never refresh itself.
+3. Print one line per hit to stdout, prefixed with the resolved fleet home's absolute path to `AGENTS.md` (`generatedBody`'s absolute-path rule applies to the checker's own output too - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope) - `<path>:<line>: <finding>` for a line-anchored finding, `<path>: <finding>` for the whole-file block checks - and exit `1` if anything was found, `0` if the file is clean.
 
-A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
+A remedy naming a command that takes a path spells that path out: `hand init` with no argument targets the working directory, which is a new nested fleet home whenever the operator ran `hand doctor` from anywhere but the home itself.
+
+A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting #12" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
 
 A missing `AGENTS.md` is not an error: same as a directory that is not a fleet home at all, `hand doctor` finds nothing to flag and exits `0` silently, leaving `hand init` to be the one place that complains about an incomplete fleet home.
 
@@ -1319,10 +1322,11 @@ autonomy/permission flag set so an unattended worker does not stall on a permiss
 ### Claude Code
 
 ```sh
-cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "Read the brief at <brief-path> and carry out the task it describes."
+cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "Read the brief at <brief-path> and carry out the task it describes. <operator-decision-rule>"
 ```
 
 The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
+`<operator-decision-rule>` is `agentsmd.OperatorDecisionRule` verbatim (see "AGENTS.md (target)"), appended to every prompt-carrying template because the worktree is outside the fleet home and the worker never reads the home's `AGENTS.md`.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
 Claude is the only harness with an effort flag: `opencode` takes `--model` but no effort, and
 `codex`, `grok` and `pi` take neither (`harness.SupportsEffort`).
@@ -1423,7 +1427,7 @@ Unverified, same caveat as Codex above.
 ### OpenCode
 
 ```sh
-cd <worktree> && OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode --prompt "Read the brief at <brief-path> and carry out the task it describes."
+cd <worktree> && OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode --prompt "Read the brief at <brief-path> and carry out the task it describes. <operator-decision-rule>"
 ```
 
 The bare `opencode` command opens its interactive TUI, unlike `opencode run`, which is
@@ -2176,5 +2180,7 @@ Deliverable: ready for daily use.
 ## AGENTS.md (target)
 
 **`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh. `hand doctor` (see the CLI specification) reports perishable content and generated-block drift in a real fleet home's `AGENTS.md` without fixing either.
+
+One rule in that template, `agentsmd.OperatorDecisionRule`, is also an exported constant, because a worker runs in a worktree that is never under the fleet home and so never loads the home's `AGENTS.md`. `internal/harness` appends that same constant to the launch prompt (see "Harness launch templates"), which is the only channel the rule has to a worker. It stays one string in one place rather than two copies that drift.
 
 This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even if a maintainer runs `hand init` in the checkout and `state/hand.db` makes `internal/home.IsHome` report true for it. Rather than hand-keep a second copy of `generatedBody` in sync (the drift #44 was filed against), this file's own Rules section points at `generatedBody` and SPECS.md by name instead of restating it: one prose template, one place it can go stale.

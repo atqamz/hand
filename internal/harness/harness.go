@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/atqamz/secondhand/internal/agentsmd"
 )
 
 const (
@@ -208,13 +210,16 @@ func buildOpenCode(o Options) string {
 	return strings.Join(args, " ")
 }
 
-// briefPrompt is shared so the wording cannot drift between harnesses.
+// briefPrompt is shared so the wording cannot drift between harnesses. It ends
+// with agentsmd.OperatorDecisionRule because a worker runs in a worktree that
+// is never under the fleet home, so the home's AGENTS.md never reaches it and
+// the launch prompt is the only channel that rule has.
 func briefPrompt(o Options) string {
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
 	if o.BriefHasFrontMatter {
 		prompt += " Any model or effort keys in its leading '---' block are dispatch metadata, not task content."
 	}
-	return prompt
+	return prompt + " " + agentsmd.OperatorDecisionRule
 }
 
 func shellQuote(s string) string {

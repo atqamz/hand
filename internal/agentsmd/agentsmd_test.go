@@ -383,6 +383,73 @@ func TestCheckFlagsGeneratedBlockDrift(t *testing.T) {
 	if !hasViolation(violations, "generated block has drifted") {
 		t.Fatalf("got %v, want a generated-block-drift violation", violations)
 	}
+	// A bare "run hand init" would target the operator's working directory,
+	// which is a new nested fleet home whenever that is not the home itself.
+	if !hasViolation(violations, "run hand init "+dir+" to refresh") {
+		t.Fatalf("got %v, want the remedy to name the resolved home %q", violations, dir)
+	}
+}
+
+func TestCheckFlagsMissingGeneratedMarkers(t *testing.T) {
+	dir := makeWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte("# Hand-written, no markers\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	violations, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasViolation(violations, "no hand:generated markers") {
+		t.Fatalf("got %v, want a missing-markers violation: Refresh declines to touch this file, so nothing else reports it", violations)
+	}
+	if hasViolation(violations, "generated block has drifted") {
+		t.Fatalf("got %v, want no drift violation when there is no block to drift", violations)
+	}
+}
+
+func TestCheckFlagsUnterminatedFence(t *testing.T) {
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, filename)
+	appendLine(t, path, "```")
+	appendLine(t, path, "Fixed the race condition on 2026-07-29.")
+
+	violations, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasViolation(violations, "unterminated code fence") {
+		t.Fatalf("got %v, want an unterminated-fence violation instead of a silently truncated scan", violations)
+	}
+}
+
+func TestCheckIgnoresAwaitingWithNoIssueReference(t *testing.T) {
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, filename)
+	appendLine(t, path, "Never merge a PR awaiting review.")
+
+	violations, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasViolation(violations, "self-expiring phrasing") {
+		t.Fatalf("got %v, want no violation: a bare awaiting with no issue to expire against is durable prose", violations)
+	}
+
+	appendLine(t, path, "Skip the mtime check, awaiting #84.")
+	violations, err = Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasViolation(violations, "self-expiring phrasing") {
+		t.Fatalf("got %v, want an awaiting-#N violation", violations)
+	}
 }
 
 func appendLine(t *testing.T, path, line string) {

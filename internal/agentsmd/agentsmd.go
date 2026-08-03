@@ -22,6 +22,17 @@ const (
 	endMarker   = "<!-- hand:generated:end -->"
 )
 
+// OperatorDecisionRule is the one AGENTS.md rule a worker needs wherever it
+// runs. A worker's worktree is never under the fleet home, so it never loads
+// the home's AGENTS.md; internal/harness puts this same string in the launch
+// prompt, and generatedBody embeds it, so the two copies cannot drift.
+const OperatorDecisionRule = "Only a `hand send` message carries an operator decision. " +
+	"Answering your own harness's question dialog is you deciding, not the operator - " +
+	"never record that answer as \"operator said\" or \"operator chose\". " +
+	"You may decide anything reversible yourself and proceed; say so in first person - " +
+	"`working: deciding myself: <the call> because <reason>` - " +
+	"and reserve `needs-decision:` for what you cannot take back."
+
 const generatedBody = `# Secondhand
 
 You manage a fleet of coding agents using the ` + "`hand`" + ` CLI.
@@ -45,7 +56,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Never merge without explicit authorization.
 - Never force-teardown without explicit authorization.
 - Report outcomes plainly. If work failed, say so with evidence.
-- Only a ` + "`hand send`" + ` message carries an operator decision. Answering your own harness's question dialog is you deciding, not the operator - never record that answer as "operator said" or "operator chose". You may decide anything reversible yourself and proceed; say so in first person - ` + "`working: deciding myself: <the call> because <reason>`" + ` - and reserve ` + "`needs-decision:`" + ` for what you cannot take back.
+- ` + OperatorDecisionRule + `
 - Name a path in a brief, a status report, or an operator message: full and absolute, never relative. ` + "`hand`" + ` resolves the home from ` + "`HAND_HOME`" + ` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce ` + "`data/<id>/report.md`" + `.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
@@ -141,7 +152,7 @@ var (
 	// invariant. hand does not create or own that notes convention, so
 	// neither the violation text nor SPECS.md names a specific path for it.
 	dateRe         = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
-	selfExpiringRe = regexp.MustCompile(`(?i)\b(?:until|once)\s+#\d+\s+lands\b|\bawaiting\b`)
+	selfExpiringRe = regexp.MustCompile(`(?i)\b(?:until|once)\s+#\d+\s+lands\b|\bawaiting\s+#\d+\b`)
 
 	// inlineCodeRe and urlRe are stripped from a line before it's tested against
 	// dateRe/selfExpiringRe: a date in a quoted example or a URL is not an
@@ -151,9 +162,9 @@ var (
 	urlRe        = regexp.MustCompile(`https?://\S+`)
 )
 
-// Violation is one perishable-content or generated-block-drift hit Check
-// found. Line is 1-based, or 0 for a violation that isn't about a single line
-// (generated-block drift).
+// Violation is one perishable-content, malformed-file, or generated-block hit
+// Check found. Line is 1-based, or 0 for a violation that isn't about a single
+// line (a drifted or absent generated block).
 type Violation struct {
 	Line int
 	Text string
@@ -186,6 +197,7 @@ func Check(dir string) ([]Violation, error) {
 
 	var violations []Violation
 	inFence := false
+	fenceOpenedAt := 0
 	offset := 0
 	for i, line := range strings.Split(content, "\n") {
 		lineNo := i + 1
@@ -199,6 +211,9 @@ func Check(dir string) ([]Violation, error) {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inFence = !inFence
+			if inFence {
+				fenceOpenedAt = lineNo
+			}
 			continue
 		}
 		if inFence || insideBlock {
@@ -214,8 +229,17 @@ func Check(dir string) ([]Violation, error) {
 		}
 	}
 
-	if hasBlock && content[blockStart:blockEnd] != strings.TrimSuffix(generatedBlock(), "\n") {
-		violations = append(violations, Violation{Text: "generated block has drifted from generatedBody: run hand init to refresh"})
+	// An unterminated fence silences every date and self-expiring check after
+	// it, so it has to be reported rather than left to read as a clean file.
+	if inFence {
+		violations = append(violations, Violation{Line: fenceOpenedAt, Text: "unterminated code fence: every date and self-expiring check after this line was skipped"})
+	}
+
+	switch {
+	case !hasBlock:
+		violations = append(violations, Violation{Text: fmt.Sprintf("no hand:generated markers: hand init and hand update leave a marker-less file alone, so this template can never refresh itself; paste the current generated block back in, or move this file aside and run hand init %s", dir)})
+	case content[blockStart:blockEnd] != strings.TrimSuffix(generatedBlock(), "\n"):
+		violations = append(violations, Violation{Text: fmt.Sprintf("generated block has drifted from generatedBody: run hand init %s to refresh", dir)})
 	}
 
 	return violations, nil
