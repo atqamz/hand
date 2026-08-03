@@ -150,7 +150,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       report.go             # read/classify state/<id>.status (see "Report channel")
       pr.go                 # PR URL validation and extraction
     worktree/               # treehouse integration
-      worktree.go           # get, return, status, collision check
+      worktree.go           # get, return, collision check
     brief/                  # brief parsing
       brief.go              # read the brief's declared model/effort (see "Brief format")
     watcher/                # fleet supervision
@@ -367,8 +367,8 @@ Behavior:
 3. Validate no active task with this ID exists.
 4. Validate no hold is set on this ID (see "Holds" under "State management"). A hold survives the teardown of the task it was set on, so reusing the id for new work would reattach the previous incarnation's open question to an unrelated task; the error names `hand hold clear <id>` as the remedy.
 5. Validate `data/<id>/brief.md` exists (the agent must write it before spawning).
-6. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
-7. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
+6. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd). Both the slot path and the lease identity treehouse returns are kept, and both are recorded on the task row.
+7. **Collision guard:** cross-check the acquired lease against every other task row in the store. If one matches, return the worktree to treehouse and fail with an error naming the conflicting task. See "Collision guard" under "State management" for what counts as a match, and why it is the lease identity rather than the worktree path.
 8. Acquire the task's herdr tab in the project's workspace.
    - Workspace and tab labels: one workspace per project, one tab per task - see "Workspace and
      tab model" under "Herdr integration detail" for the labels themselves.
@@ -407,7 +407,7 @@ Errors:
 - Task ID has an open hold (names `hand hold clear <id>` as the remedy).
 - Brief not found at `data/<id>/brief.md`.
 - Treehouse worktree acquisition failed (pool exhausted, git error).
-- Worktree collision with another active task (names the conflicting task).
+- Worktree collision with another task row (names the conflicting task; see "Collision guard").
 - Herdr tab creation failed (herdr not running, session error).
 - Harness not recognized.
 - Worker never confirmed started within the poll window, or is waiting on a first-run prompt hand
@@ -442,7 +442,8 @@ Task row written to the `task` table in `state/hand.db`, one column per field be
   "last_report_state": "",
   "last_report_note": "",
   "send_undelivered_message": "",
-  "send_undelivered_at": ""
+  "send_undelivered_at": "",
+  "lease_id": "5fe5412a4aabdeb85a148d6d73eb42d8"
 }
 ```
 
@@ -1145,7 +1146,7 @@ Behavior:
 4. Acquire a fresh treehouse worktree (with collision guard).
 5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 8, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
-7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
+7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
@@ -1885,9 +1886,29 @@ Set with `hand hold set`, which upserts - a second call on the same id replaces 
 - File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.
 - Multiple `hand` invocations against the same task should be avoided (agent discipline, not locking).
-- **Concurrent tasks on same project:** allowed. Each gets its own treehouse worktree. The collision guard in `hand spawn` prevents worktree overlap. File-level conflicts are resolved at merge time (rebase or conflict resolution), not at spawn time. The agent should avoid spawning tasks that touch the same files when possible, but this is a judgment call, not an enforced constraint.
+- **Concurrent tasks on same project:** allowed. Each gets its own treehouse worktree, kept off every other task's by treehouse's own pool lock; the collision guard in `hand spawn` and `hand promote` is defense-in-depth over `hand`'s bookkeeping on top of that (see "Collision guard"). File-level conflicts are resolved at merge time (rebase or conflict resolution), not at spawn time. The agent should avoid spawning tasks that touch the same files when possible, but this is a judgment call, not an enforced constraint.
 - **No session lock.** Multiple supervisory sessions can run `hand` commands. The agent is responsible for not conflicting with itself. sqlite's own locking prevents corruption; duplicate work is an agent-level problem, not a CLI-level problem.
 - **No daemon and no connection pool.** Every command opens the database, does its work and closes it, on a single connection (see "Not Postgres, and no daemon").
+
+### Collision guard
+
+`hand spawn` and `hand promote` both acquire a worktree and then cross-check it against every other task row before committing to it.
+What they compare is the lease identity treehouse mints per acquisition (`lease_id` in `treehouse get --lease --json`, recorded on the task row), not the worktree path.
+
+The path is the wrong key because treehouse recycles it.
+A pool slot returned to its pool keeps its directory and is handed straight back out to the next task under a brand-new identity: treehouse regenerates `lease_id` on every acquisition, including a same-holder reacquisition of the same slot, so the identity is the only part of a lease that is never reused.
+
+Keying on the path produced a false positive, not a missed collision.
+`hand teardown` returns the worktree before it removes the task's row, deliberately, so a fault in the later step leaves the whole command retryable (see `hand teardown`).
+If that removal does fail, the row survives naming a path treehouse has already freed; the next spawn or promote legitimately acquires that path, matches the stale row on path equality, force-returns its own exclusive lease and fails over a collision that never existed concurrently.
+The guard cannot miss a real one: `worktree.Get` always passes `--lease`, and treehouse's pool lock refuses to hand out a currently-leased slot, so two tasks cannot concurrently hold one path in the first place.
+It is defense-in-depth against `hand`'s own bookkeeping going stale, and the older claim that it prevented the stale-lease-after-crash bug (firstmate #947) was wrong: that bug was pid-based ownership, which `hand` has never used.
+
+Path comparison remains the fallback whenever either side has no identity - a task row written before the `lease_id` column existed, or a treehouse older than v2.1.0, which is the version floor for the field.
+Existing rows therefore keep being guarded through the migration and gain a real identity as each task is torn down and respawned; nothing has to be rewritten in place.
+
+Every task row is compared, done and failed ones included.
+Status says nothing about whether a worktree is still held - a task keeps its lease until teardown returns it - so a status filter here would drop rows that genuinely still hold the slot.
 
 ### Recovery
 

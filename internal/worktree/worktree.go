@@ -11,11 +11,18 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
+// Lease is one acquisition of a treehouse pool slot. ID is empty when treehouse
+// reported no identity, which a version older than v2.1.0 does.
+type Lease struct {
+	Path string
+	ID   string
+}
+
 // Get acquires a worktree from the project clone's treehouse pool.
 // clonePath must be the project clone directory (treehouse resolves the pool from cwd).
 // treehouse writes banners to stderr ahead of the JSON, so the payload must be read
 // from stdout alone; CombinedOutput here corrupts every parse (issue #21).
-func Get(clonePath, leaseHolder string) (string, error) {
+func Get(clonePath, leaseHolder string) (Lease, error) {
 	args := []string{"get", "--lease", "--json"}
 	if leaseHolder != "" {
 		args = append(args, "--lease-holder", leaseHolder)
@@ -26,19 +33,20 @@ func Get(clonePath, leaseHolder string) (string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return Lease{}, fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
-	var lease struct {
-		Path string `json:"path"`
+	var payload struct {
+		Path    string `json:"path"`
+		LeaseID string `json:"lease_id"`
 	}
-	if err := json.Unmarshal(out, &lease); err != nil {
-		return "", fmt.Errorf("parse treehouse get output: %w", err)
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return Lease{}, fmt.Errorf("parse treehouse get output: %w", err)
 	}
-	if lease.Path == "" {
-		return "", fmt.Errorf("treehouse get returned no worktree path")
+	if payload.Path == "" {
+		return Lease{}, fmt.Errorf("treehouse get returned no worktree path")
 	}
-	return lease.Path, nil
+	return Lease{Path: payload.Path, ID: payload.LeaseID}, nil
 }
 
 // Return releases a worktree back to its treehouse pool. Returning a worktree
@@ -61,10 +69,18 @@ func Return(worktreePath string, force bool) error {
 	return nil
 }
 
-// CheckCollision cross-checks worktreePath against every other active task's recorded
-// worktree path, guarding against the stale-lease-after-crash bug (firstmate #947).
-// It returns the ID of the conflicting task, or "" if there is no collision.
-func CheckCollision(homeDir, worktreePath, excludeID string) (string, error) {
+// CheckCollision cross-checks a freshly acquired lease against every other task's
+// recorded one, returning the ID of the conflicting task or "" for no collision.
+//
+// Keyed on the lease identity rather than the worktree path, because a pool slot
+// path is recycled across leases while an identity never is: a row a failed
+// teardown left behind still names a path treehouse has already freed, and path
+// equality refused the next spawn over that instead of over a real holder.
+// Path comparison stays the fallback whenever either side has no identity - rows
+// written before the lease_id column existed, and any treehouse older than v2.1.0.
+// Every task row is compared, done and failed ones included, because a task keeps
+// its lease until teardown returns it. SPECS.md's "Collision guard" owns the rest.
+func CheckCollision(homeDir string, lease Lease, excludeID string) (string, error) {
 	tasks, err := state.List(homeDir)
 	if err != nil {
 		return "", err
@@ -73,7 +89,13 @@ func CheckCollision(homeDir, worktreePath, excludeID string) (string, error) {
 		if t.ID == excludeID {
 			continue
 		}
-		if t.Worktree == worktreePath {
+		if lease.ID != "" && t.LeaseID != "" {
+			if t.LeaseID == lease.ID {
+				return t.ID, nil
+			}
+			continue
+		}
+		if t.Worktree == lease.Path {
 			return t.ID, nil
 		}
 	}

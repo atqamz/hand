@@ -98,17 +98,18 @@ func newPromoteCmd() *cobra.Command {
 			oldWorkspaceID := t.Herdr.WorkspaceID
 			oldTabID := t.Herdr.TabID
 
-			wt, err := worktree.Get(clonePath, "hand:"+id)
+			lease, err := worktree.Get(clonePath, "hand:"+id)
 			if err != nil {
 				return fmt.Errorf("acquire treehouse worktree: %w", err)
 			}
+			wt := lease.Path
 			releaseWorktree, err := state.Lock(home, "worktree:"+wt)
 			if err != nil {
 				return reportSpawnCleanup(fmt.Errorf("lock worktree %q: %w", wt, err), worktree.Return(wt, true))
 			}
 			defer releaseWorktree()
 
-			if conflict, err := worktree.CheckCollision(home, wt, id); err != nil {
+			if conflict, err := worktree.CheckCollision(home, lease, id); err != nil {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			} else if conflict != "" {
 				return reportSpawnCleanup(&ExitError{Err: fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), Code: 3}, worktree.Return(wt, true))
@@ -156,6 +157,7 @@ func newPromoteCmd() *cobra.Command {
 			t.Model = model
 			t.Effort = effort
 			t.Worktree = wt
+			t.LeaseID = lease.ID
 			t.Herdr = state.Herdr{
 				Session:     "default",
 				WorkspaceID: ws.WorkspaceID,
