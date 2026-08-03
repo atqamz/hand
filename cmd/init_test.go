@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/atqamz/secondhand/internal/home"
@@ -28,6 +29,69 @@ func TestInitCreatesTheHandDbMarker(t *testing.T) {
 	}
 	if !ok {
 		t.Fatal("got IsHome false right after init, want true")
+	}
+}
+
+func TestInitSeedsEveryDataSkeletonFile(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"data/backlog.md":      "# Backlog",
+		"data/projects.md":     "# Projects",
+		"data/operator.md":     "## Hard constraints",
+		"data/learnings.md":    "# Learnings",
+		"data/done-archive.md": "# Done archive",
+		"data/note-archive.md": "# Note archive",
+	}
+	for rel, header := range want {
+		got, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatalf("%s missing after init: %v", rel, err)
+		}
+		if !strings.Contains(string(got), header) {
+			t.Fatalf("%s = %q, want it to contain %q", rel, got, header)
+		}
+	}
+}
+
+// A home initialized before the layout gained a file picks the file up by
+// re-running init, which must never cost it the content of one it already has.
+func TestInitLeavesExistingDataFilesAlone(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := "# Operator\n\n## Authority\n\nMerge without asking.\n"
+	if err := os.WriteFile(filepath.Join(dir, "data", "operator.md"), []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "data", "operator.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Fatalf("data/operator.md = %q, want unchanged %q", got, existing)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data", "learnings.md")); err != nil {
+		t.Fatalf("data/learnings.md missing: %v", err)
 	}
 }
 
