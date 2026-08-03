@@ -58,6 +58,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Never force-teardown without explicit authorization.
 - Report outcomes plainly. If work failed, say so with evidence.
 - ` + OperatorDecisionRule + `
+- Waiting on the operator or on another task: ` + "`hand hold set <id> --kind operator --reason <text>`" + ` or ` + "`--kind blocked --reason <text> --blocked-on <id>`" + `, and ` + "`hand hold clear <id>`" + ` once resolved.
 - Name a path in a brief, a status report, or an operator message: full and absolute, never relative. ` + "`hand`" + ` resolves the home from ` + "`HAND_HOME`" + ` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce ` + "`data/<id>/report.md`" + `.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
