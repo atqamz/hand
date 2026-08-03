@@ -1486,3 +1486,166 @@ func TestStatusSingleTaskNoGateLineWhenRunFound(t *testing.T) {
 		t.Fatalf("got %q, want no Gate run line once a completed run recorded this PR", out.String())
 	}
 }
+
+// countingNoMistakesPath is fakeNoMistakesPath plus an append to countFile per invocation, so a test
+// can assert how many no-mistakes processes one render actually spawned.
+func countingNoMistakesPath(t *testing.T, stdout, countFile string) string {
+	t.Helper()
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho x >> " + countFile + "\ncat <<'EOF'\n" + stdout + "\nEOF\n"
+	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
+// TestStatusFleetAsksNoMistakesOncePerProject pins the per-clone caching: without it every done ship
+// task on one project spawns its own `no-mistakes runs` and re-parses identical output, on the
+// command CLAUDE.md makes the first step of every session.
+func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	countFile := filepath.Join(t.TempDir(), "calls")
+	t.Setenv("PATH", countingNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n", countFile))
+
+	for _, id := range []string{"task-1", "task-2", "task-3"} {
+		if err := state.Write(home, state.Task{ID: id, Project: "gated", Kind: state.KindShip,
+			PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+			t.Fatal(err)
+		}
+		writeDoneReport(t, home, id, "PR "+gateRunTestPR+" checks green")
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out.String(), "(gate: no run found)") != 3 {
+		t.Fatalf("got %q, want all three ungated tasks marked", out.String())
+	}
+	calls, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(calls))); got != 1 {
+		t.Fatalf("no-mistakes ran %d times for one project, want 1", got)
+	}
+}
+
+// writeBrokenRegistry writes a data/projects.md line the registry parser rejects, so project.List
+// and project.Find both fail on this home.
+func writeBrokenRegistry(t *testing.T, home string) {
+	t.Helper()
+	if err := os.WriteFile(project.RegistryPath(home), []byte("- broken line with no url or mode\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An unreadable registry silently drops every (gate: ...) marker fleet-wide, which renders an
+// ungated PR as clean - so the overview still prints, but says on stderr that it did.
+func TestStatusFleetNamesAnUnreadableRegistryOnStderr(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeBrokenRegistry(t, home)
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want a registry fault to degrade the gate check rather than fail the overview", err)
+	}
+	if !strings.Contains(out.String(), "task-1") {
+		t.Fatalf("got %q, want the task table to still print", out.String())
+	}
+	if !strings.Contains(errOut.String(), "warning:") || !strings.Contains(errOut.String(), "registry") {
+		t.Fatalf("got stderr %q, want a warning naming the unreadable project registry", errOut.String())
+	}
+}
+
+// TestStatusSingleTaskReadsRegistryOnlyWhenTheGateCheckApplies covers a scout task on a home whose
+// registry does not parse: the gate-run check has nothing to say about it, so the detail view must
+// not fail over a lookup it never needed.
+func TestStatusSingleTaskReadsRegistryOnlyWhenTheGateCheckApplies(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeBrokenRegistry(t, home)
+	if err := state.Write(home, state.Task{ID: "scout-1", Project: "gated", Kind: state.KindScout,
+		CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"scout-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want the detail view to print without reading the registry", err)
+	}
+	if !strings.Contains(out.String(), "Task:        scout-1") {
+		t.Fatalf("got %q, want the detail view rendered", out.String())
+	}
+}
+
+// The counterpart: when the check does apply, the same unreadable registry fails the command rather
+// than silently degrading to no marker - this id's own project is the one fact the check is about.
+func TestStatusSingleTaskPropagatesAnUnreadableRegistryWhenTheGateCheckApplies(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeBrokenRegistry(t, home)
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("got nil error, want the unreadable registry to fail the check it is needed for")
+	}
+}
+
+// TestStatusGateRunUnreachableWhenGateNotInitialized is the uninitialized-gate half of the
+// unreachable bucket: no-mistakes still holds that repo's completed runs, so reading its refusal as
+// an empty run list would report a genuinely gated PR as never gated.
+func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	t.Setenv("PATH", fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)"))
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "(gate: unreachable)") {
+		t.Fatalf("got %q, want an uninitialized gate read as unreachable, never as no run found", out.String())
+	}
+}

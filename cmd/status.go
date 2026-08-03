@@ -192,27 +192,57 @@ func mergeSuffix(t state.Task) string {
 	}
 }
 
+// gateRunApplies is the single predicate for whether the gate-run check has anything to say about a
+// task: only a done ship task with a recorded PR does. Everything the check needs - the project
+// lookup above all, whose failure the single-task view propagates - hangs off this, so a task the
+// check would stay silent on never pays that cost nor fails over it.
+func gateRunApplies(t state.Task, reportedDone bool) bool {
+	return t.Kind == state.KindShip && t.PR != "" && reportedDone
+}
+
+// gateRunReader answers "which PRs did completed no-mistakes runs record" for one clone path.
+type gateRunReader func(clonePath string) (map[string]bool, error)
+
+// newGateRunReader caches each clone path's answer for the life of one render, so a fleet with
+// several done ship tasks on the same project spawns one no-mistakes process for it, not one per
+// task. Failures are cached too: a clone that could not be asked once is not worth re-asking within
+// the same render.
+func newGateRunReader() gateRunReader {
+	type answer struct {
+		prs map[string]bool
+		err error
+	}
+	cache := map[string]answer{}
+	return func(clonePath string) (map[string]bool, error) {
+		a, ok := cache[clonePath]
+		if !ok {
+			a.prs, a.err = project.GateRunPRs(clonePath)
+			cache[clonePath] = a
+		}
+		return a.prs, a.err
+	}
+}
+
 // gateRunIssue reports why a done ship task's recorded PR cannot be confirmed to have gone through a
 // no-mistakes gate run, using the same "unreachable" bucket gateIssue (cmd/project.go) uses for any
-// failure to ask no-mistakes at all - a missing clone, an unrunnable binary - so a question this check
-// cannot answer never renders as the stronger claim "no run found".
+// failure to ask no-mistakes at all - a missing clone, an unrunnable binary, a gate never
+// initialized - so a question this check cannot answer never renders as the stronger claim "no run
+// found".
 //
-// Only a done ship task with a recorded PR on a registered no-mistakes project has anything for this
-// check to say; an in-progress or scout task, a PR-less task, or a project not registered or not run
-// through no-mistakes stays silent, since the check does not apply to it.
-func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Project, registered bool) string {
-	if t.Kind != state.KindShip || t.PR == "" || !reportedDone {
+// A project not registered or not run through no-mistakes stays silent alongside every task
+// gateRunApplies rejects, since the check does not apply to it either.
+func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Project, registered bool, runPRs gateRunReader) string {
+	if !gateRunApplies(t, reportedDone) {
 		return ""
 	}
 	if !registered || p.Mode != project.ModeNoMistakes {
 		return ""
 	}
-	clonePath := filepath.Join(home, "projects", p.Name)
-	ran, err := project.GateRanForPR(clonePath, t.PR)
+	prs, err := runPRs(filepath.Join(home, "projects", p.Name))
 	if err != nil {
 		return "unreachable"
 	}
-	if !ran {
+	if !prs[t.PR] {
 		return "no run found"
 	}
 	return ""
@@ -239,12 +269,20 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 
 	// Best-effort, like project.List elsewhere in this fleet view: a registry
 	// read fault degrades every task's gate-run check to silent rather than
-	// failing the whole fleet overview over it.
-	projects, _ := project.List(home)
+	// failing the whole fleet overview over it. Named on stderr all the same -
+	// silently dropping every (gate: ...) marker fleet-wide would render an
+	// ungated PR as clean, the false all-clear this feature exists to avoid.
+	projects, projectsErr := project.List(home)
+	if projectsErr != nil {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project registry unreadable, gate-run checks skipped: %v\n", projectsErr); err != nil {
+			return err
+		}
+	}
 	projectByName := make(map[string]project.Project, len(projects))
 	for _, p := range projects {
 		projectByName[p.Name] = p
 	}
+	runPRs := newGateRunReader()
 
 	rows := make([]statusJSON, 0, len(tasks))
 	suffixes := make([]string, 0, len(tasks))
@@ -257,7 +295,7 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		}
 		reported, reportedOK := state.LastReportedState(lines)
 		p, registered := projectByName[t.Project]
-		runIssue := gateRunIssue(home, t, reportedOK && reported.State == state.ReportDone, p, registered)
+		runIssue := gateRunIssue(home, t, reportedOK && reported.State == state.ReportDone, p, registered, runPRs)
 		rows = append(rows, statusJSON{
 			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
 			AgentState: agentState,
@@ -402,14 +440,20 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		heldJSON = &j
 	}
 
-	// Propagated, not degraded: a single task's own project is the one fact
-	// this check is about, unlike the fleet view's best-effort lookup across
-	// every task's project at once.
-	p, registered, err := project.Find(home, t.Project)
-	if err != nil {
-		return err
+	// Looked up only when the check applies, so a registry this id's detail view
+	// does not need can never fail the command. When it does apply the failure is
+	// propagated, not degraded: a single task's own project is the one fact this
+	// check is about, unlike the fleet view's best-effort lookup across every
+	// task's project at once.
+	reportedDone := lastReportedOK && lastReported.State == state.ReportDone
+	var runIssue string
+	if gateRunApplies(t, reportedDone) {
+		p, registered, err := project.Find(home, t.Project)
+		if err != nil {
+			return err
+		}
+		runIssue = gateRunIssue(home, t, reportedDone, p, registered, newGateRunReader())
 	}
-	runIssue := gateRunIssue(home, t, lastReportedOK && lastReported.State == state.ReportDone, p, registered)
 
 	if asJSON {
 		out := statusJSON{

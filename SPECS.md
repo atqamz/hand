@@ -466,7 +466,7 @@ Behavior (fleet overview):
 4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
 5. Print one line per task, with a header row - or, if there are no tasks at all, `no tasks (0)` in place of the table, so an empty fleet reads as a positive statement with a count rather than the same bare output a broken command could also produce.
 6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held - printed even when there are no tasks, so a torn-down task's still-open hold is never hidden behind the `no tasks (0)` line above it. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
-7. For a `ship` task reported `done` with a recorded PR, on a registered `no-mistakes` project: check whether that PR ever went through a gate run (see "Gate-run visibility" below), and append ` (gate: <issue>)` to the same column when it did not. The project registry read this step needs is best-effort - a registry fault leaves the check silent for every task rather than failing the whole overview over it.
+7. For a `ship` task reported `done` with a recorded PR, on a registered `no-mistakes` project: check whether that PR ever went through a gate run (see "Gate-run visibility" below), and append ` (gate: <issue>)` to the same column when it did not. The project registry read this step needs is best-effort - a registry fault leaves the check silent for every task rather than failing the whole overview over it, but prints a one-line `warning:` to stderr naming the read failure, so dropping every `(gate: ...)` marker fleet-wide is never silent.
 
 The `last report` column is the mtime of `state/<id>.status`, and `(none)` when the worker has never written one.
 It is deliberately not the task's age: the two used to be conflated, so a task spawned hours ago read as hours stale next to a status file its worker had touched minutes earlier - a reporting worker that looked abandoned.
@@ -1601,10 +1601,12 @@ registered after the fact, the PR was opened by hand outside the `pr` step, or t
 bypassed with `--skip-gate-check`. atqamz/secondhand#92 is that gap: `hand status` had no way to
 surface a `done` `ship` task with a recorded PR that never went through a gate run at all.
 
-`hand status` answers this with `project.GateRanForPR(clonePath, prURL)`: run `no-mistakes runs
---limit 10000` in the project's clone and look for a `completed` row whose own recorded PR is
-exactly `prURL`, the same read-only, text-scraping approach `GateStatus` already uses for gate
-preflight, never `~/.no-mistakes/state.sqlite` directly.
+`hand status` answers this with `project.GateRunPRs(clonePath)`: run `no-mistakes runs --limit
+10000` in the project's clone and collect the PR URL each `completed` row recorded for itself, the
+same read-only, text-scraping approach `GateStatus` already uses for gate preflight, never
+`~/.no-mistakes/state.sqlite` directly. A PR is gated when it is exactly one of those URLs. The
+answer is per clone, not per PR, and cached for the length of one render, so a fleet with several
+`done` `ship` tasks on one project pays one `no-mistakes` process rather than one per task.
 
 This establishes only that the no-mistakes `pr` step opened this exact PR from a run that reached
 `completed` - nothing more, and the wording is deliberately no stronger than that:
@@ -1615,9 +1617,14 @@ This establishes only that the no-mistakes `pr` step opened this exact PR from a
 - A PR opened by hand outside the no-mistakes `pr` step reads as `no run found` even sitting behind
   a run that did complete: nothing ties that URL to that run's own bookkeeping.
 - A PR with no completed run recording that exact URL reads as `no run found`. A failure to ask
-  no-mistakes at all - a missing clone, an unrunnable binary - reads as `unreachable`, the same
-  bucket `gateIssue` uses for the identical failure in `hand project list`, so a question the check
-  could not answer never renders as the stronger claim `no run found`.
+  no-mistakes at all reads as `unreachable`, the same bucket `gateIssue` uses for the identical
+  failure in `hand project list`, so a question the check could not answer never renders as the
+  stronger claim `no run found`. That bucket covers a missing clone, an unrunnable binary, and -
+  read from `no-mistakes runs`'s own output text rather than its exit code, exactly as gate
+  preflight reads them - a gate that was never initialized or whose `working_path` went stale, and
+  a clone path that is not a git repository. The uninitialized case matters most: no-mistakes still
+  holds that repo's completed runs, so reading its refusal as an empty run list would report a
+  genuinely gated PR as never gated.
 
 A marker that claims more certainty than this data supports would be worse than no marker at all,
 so `hand status` only ever says what the two outcomes above actually establish - never "this PR is
