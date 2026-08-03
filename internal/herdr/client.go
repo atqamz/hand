@@ -3,12 +3,19 @@ package herdr
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// ErrComposerBusyTimeout marks WaitComposerEmpty's own deadline expiry. A
+// caller has to tell it apart from the PaneGet failures the same function
+// returns: a composer that stayed busy is transient and worth retrying, a pane
+// that stopped answering means no retry can ever succeed.
+var ErrComposerBusyTimeout = errors.New("composer still busy")
 
 type Client struct{}
 
@@ -322,7 +329,7 @@ func (c *Client) WaitComposerEmpty(paneID string, timeout time.Duration) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("composer not empty after %s", timeout)
+			return fmt.Errorf("%w after %s", ErrComposerBusyTimeout, timeout)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}

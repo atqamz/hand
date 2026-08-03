@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -393,8 +394,20 @@ func TestWaitComposerEmptyTimesOutWhileWorking(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'`)
 	c := NewClient()
 	err := c.WaitComposerEmpty("wA:pB", 10*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "composer not empty") {
-		t.Fatalf("got err %v, want composer not empty timeout", err)
+	if !errors.Is(err, ErrComposerBusyTimeout) {
+		t.Fatalf("got err %v, want ErrComposerBusyTimeout", err)
+	}
+}
+
+func TestWaitComposerEmptyPaneFailureIsNotABusyTimeout(t *testing.T) {
+	// A pane that stops answering can never free, so the caller must be able to
+	// tell this apart from the retryable timeout above.
+	writeFakeHerdr(t, `printf '{"id":"cli:1","error":{"code":"pane_not_found","message":"no such pane"}}'
+exit 1`)
+	c := NewClient()
+	err := c.WaitComposerEmpty("wA:pB", time.Second)
+	if err == nil || errors.Is(err, ErrComposerBusyTimeout) {
+		t.Fatalf("got err %v, want a non-timeout pane failure", err)
 	}
 }
 

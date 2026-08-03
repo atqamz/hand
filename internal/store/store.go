@@ -78,11 +78,12 @@ type Task struct {
 	// re-reading report history it has already consumed past ReportOffset.
 	LastReportState string `json:"last_report_state"`
 	LastReportNote  string `json:"last_report_note"`
-	// Durable so a composer that stayed busy past hand send's --wait bound
-	// leaves a trace instead of vanishing with the process that attempted it -
-	// the operator who ran that send is the only one who would otherwise know
-	// it was ever tried. Cleared on the next send that actually reaches the
-	// pane, whatever message that send carries.
+	// Durable so a hand send message with no evidence it reached the pane -
+	// a composer still busy past the --wait bound, a failed send, a failed
+	// submit - leaves a trace instead of vanishing with the process that
+	// attempted it; the operator who ran that send is the only one who would
+	// otherwise know it was ever tried. Cleared on the next send that actually
+	// reaches the pane, whatever message that send carries.
 	SendUndeliveredMessage string `json:"send_undelivered_message"`
 	SendUndeliveredAt      string `json:"send_undelivered_at"`
 }

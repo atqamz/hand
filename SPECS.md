@@ -629,15 +629,19 @@ Behavior:
    time - two unsynchronized retry loops racing the same busy composer is the exact hazard
    atqamz/secondhand#102 traced a lost steer to.
 4. If the composer is busy, poll until it frees or `--wait` elapses.
-5. If `--wait` elapses first: durably record the message and a timestamp on the task row
-   (`send_undelivered_message`, `send_undelivered_at`) under a separate, short-lived task-row lock,
-   so a steer that never arrives leaves a trace instead of vanishing with the process that
-   attempted it - and exit distinctly (see "Exit codes"). This lock is not held for the wait
-   itself: a `hand send` waiting out its bound must not stall `hand watch`'s polling or a `hand
-   status` read on the same task.
+5. Whenever the message does not demonstrably land in the pane - `--wait` elapses first, the text
+   fails to send, or the submit keystroke fails after the text went in - durably record the message
+   and a timestamp on the task row (`send_undelivered_message`, `send_undelivered_at`) under a
+   separate, short-lived task-row lock, so a steer that never arrives leaves a trace instead of
+   vanishing with the process that attempted it. Only the elapsed-`--wait` case exits distinctly
+   (see "Exit codes"); the two delivery failures are ordinary exit-1 errors. This lock is not held
+   for the wait itself: a `hand send` waiting out its bound must not stall `hand watch`'s polling
+   or a `hand status` read on the same task.
 6. Otherwise, submit the message text and clear any previously recorded undelivered-send trace on
    the task row (whatever message that trace carries) - a send that reaches the pane moots it,
-   whether or not it is a retry of the exact message that was previously abandoned.
+   whether or not it is a retry of the exact message that was previously abandoned. A failure to
+   clear the trace warns on stderr and still succeeds: the message is already in the pane, so
+   failing here would invite a retry that double-sends the steer.
 
 Output:
 ```
@@ -649,7 +653,11 @@ Errors:
 - Neither or both of the positional `message` and `--file` given (exit 2).
 - Invalid `--wait` value (exit 2 from the flag, exit 1 from a bad `config/send-wait`).
 - Herdr pane doesn't exist (agent died, tab closed) - exit 1, distinct from a busy composer because
-  this send can never succeed, no matter how long it waits.
+  this send can never succeed, no matter how long it waits. This covers a pane that stops answering
+  partway through the wait too, not only one already gone when the wait starts.
+- Sending or submitting the message text failed - exit 1. The message is recorded as undelivered
+  (step 5): text that never left, and text left unsubmitted in the composer, are both a steer with
+  no evidence it landed.
 - Composer still busy after `--wait` elapses - exit 6, distinct from the pane-not-found case above:
   this is a transient state a caller can retry (e.g. with a longer `--wait`), not a terminal
   failure. The message is durably recorded as undelivered rather than lost; see step 5 above.

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -19,16 +20,16 @@ func newSendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send <id> [message]",
 		Short: "Send a text message to a running worker's herdr pane",
-		Args: func(c *cobra.Command, args []string) error {
+		// filePath, not Flags().Changed("file"): --file "" is no message source at
+		// all, and keying off Changed would accept one positional argument while
+		// RunE still reads args[1].
+		Args: usageArgs(func(c *cobra.Command, args []string) error {
 			want := 2
-			if c.Flags().Changed("file") {
+			if filePath != "" {
 				want = 1
 			}
-			if len(args) != want {
-				return &ExitError{Err: fmt.Errorf("accepts %d arg(s), received %d", want, len(args)), Code: 2}
-			}
-			return nil
-		},
+			return cobra.ExactArgs(want)(c, args)
+		}),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 
@@ -81,6 +82,12 @@ func newSendCmd() *cobra.Command {
 
 			if pane.AgentStatus == herdr.StatusWorking {
 				if waitErr := client.WaitComposerEmpty(t.Herdr.PaneID, waitDuration); waitErr != nil {
+					// The pane stopped answering mid-wait (agent died, tab closed):
+					// no retry can succeed, so this is the same exit-1 outcome as the
+					// PaneGet above, not the retryable busy-composer one below.
+					if !errors.Is(waitErr, herdr.ErrComposerBusyTimeout) {
+						return fmt.Errorf("herdr pane %s not found: %w", t.Herdr.PaneID, waitErr)
+					}
 					if err := recordUndeliveredSend(home, id, message); err != nil {
 						return fmt.Errorf("%w; record undelivered send: %w", waitErr, err)
 					}
@@ -89,19 +96,26 @@ func newSendCmd() *cobra.Command {
 					// can retry, distinct from the exit-1 paths above and below that
 					// mean the send can never succeed (no such pane, herdr itself
 					// erroring). 4 and 5 are reserved to hand watch --until-event.
-					return &ExitError{Err: fmt.Errorf("composer still busy after %s, message recorded as undelivered: %w", waitDuration, waitErr), Code: 6}
+					return &ExitError{Err: fmt.Errorf("%w, message recorded as undelivered", waitErr), Code: 6}
 				}
 			}
 
+			// Both delivery failures leave the steer undemonstrated in the pane -
+			// text that never left, and text sitting unsubmitted in the composer -
+			// so both owe the operator the same durable trace the wait bound does.
 			if err := client.PaneSendText(t.Herdr.PaneID, message); err != nil {
-				return fmt.Errorf("send message failed: %w", err)
+				return withUndeliveredSend(home, id, message, fmt.Errorf("send message failed: %w", err))
 			}
 			if err := client.PaneSendKeys(t.Herdr.PaneID, "Enter"); err != nil {
-				return fmt.Errorf("submit message failed: %w", err)
+				return withUndeliveredSend(home, id, message, fmt.Errorf("submit message failed: %w", err))
 			}
 
 			if err := clearUndeliveredSend(home, id); err != nil {
-				return fmt.Errorf("clear undelivered send trace: %w", err)
+				// The message is already in the pane, so failing here would invite a
+				// retry that double-sends the steer; a stale trace is the lesser harm.
+				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear undelivered send trace: %v\n", err); printErr != nil {
+					return printErr
+				}
 			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "sent to %s\n", id); err != nil {
@@ -116,31 +130,34 @@ func newSendCmd() *cobra.Command {
 	return cmd
 }
 
-// recordUndeliveredSend durably records the message hand send gave up on, so
-// an operator or worker learns the steer never arrived instead of it
-// vanishing with the process that attempted it. A short-lived task-row lock,
-// separate from the send lock held for the whole wait above, so a long busy
-// wait never blocks an unrelated reader like hand watch or hand status.
-func recordUndeliveredSend(home, id, message string) error {
-	release, err := state.Lock(home, "task:"+id)
-	if err != nil {
-		return fmt.Errorf("lock task %q: %w", id, err)
+// withUndeliveredSend records the trace alongside a delivery failure, keeping
+// the cause as the returned error so the exit code of the failing path is
+// unchanged.
+func withUndeliveredSend(home, id, message string, cause error) error {
+	if err := recordUndeliveredSend(home, id, message); err != nil {
+		return fmt.Errorf("%w; record undelivered send: %w", cause, err)
 	}
-	defer release()
+	return cause
+}
 
-	t, err := state.Read(home, id)
-	if err != nil {
-		return err
-	}
-	t.SendUndeliveredMessage = message
-	t.SendUndeliveredAt = time.Now().UTC().Format(time.RFC3339)
-	return state.Write(home, t)
+// recordUndeliveredSend durably records the message hand send could not
+// demonstrably deliver, so an operator or worker learns the steer never
+// arrived instead of it vanishing with the process that attempted it. A
+// short-lived task-row lock, separate from the send lock held for the whole
+// wait above, so a long busy wait never blocks an unrelated reader like hand
+// watch or hand status.
+func recordUndeliveredSend(home, id, message string) error {
+	return setUndeliveredSend(home, id, message, time.Now().UTC().Format(time.RFC3339))
 }
 
 // clearUndeliveredSend runs after every send that actually reaches the pane,
 // whatever message that send carries: the trace's job is telling the operator
 // their last attempt did not land, and any successful send moots it.
 func clearUndeliveredSend(home, id string) error {
+	return setUndeliveredSend(home, id, "", "")
+}
+
+func setUndeliveredSend(home, id, message, at string) error {
 	release, err := state.Lock(home, "task:"+id)
 	if err != nil {
 		return fmt.Errorf("lock task %q: %w", id, err)
@@ -151,10 +168,10 @@ func clearUndeliveredSend(home, id string) error {
 	if err != nil {
 		return err
 	}
-	if t.SendUndeliveredMessage == "" && t.SendUndeliveredAt == "" {
+	if t.SendUndeliveredMessage == message && t.SendUndeliveredAt == at {
 		return nil
 	}
-	t.SendUndeliveredMessage = ""
-	t.SendUndeliveredAt = ""
+	t.SendUndeliveredMessage = message
+	t.SendUndeliveredAt = at
 	return state.Write(home, t)
 }
