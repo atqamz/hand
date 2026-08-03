@@ -172,6 +172,31 @@ func LastReportedState(lines []ReportLine) (ReportLine, bool) {
 	return ReportLine{}, false
 }
 
+// UnacknowledgedTerminalReport reports a terminal state no hand watch has ever
+// consumed, from the task's durable report_offset. That offset is the marker: the
+// poll loop advances it only after the tick's events are announced, and every
+// announcement reaches state/events.log and the notify hook, so a terminal line
+// still past it has reached nobody (atqamz/secondhand#70).
+//
+// Only the last classified line of that unconsumed tail counts. A terminal
+// report a worker has since superseded with more work needs no acknowledging,
+// and a done report is routinely followed by more work on the same worker.
+//
+// A watcher denied the task lock announces a line and persists the offset a tick
+// later, so the transient error here is reporting an acknowledged terminal state,
+// never hiding an unacknowledged one.
+func UnacknowledgedTerminalReport(homeDir, id string, offset int64) (bool, error) {
+	lines, _, err := TailReport(ReportPath(homeDir, id), offset)
+	if err != nil {
+		return false, err
+	}
+	last, ok := LastReportedState(lines)
+	if !ok {
+		return false, nil
+	}
+	return last.State == ReportDone || last.State == ReportFailed, nil
+}
+
 func ReportTail(homeDir, id string, n int) ([]ReportLine, error) {
 	lines, err := ReadReportLines(homeDir, id)
 	if err != nil {

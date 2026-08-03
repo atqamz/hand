@@ -1650,3 +1650,137 @@ func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
 		t.Fatalf("got %q, want an uninitialized gate read as unreachable, never as no run found", out.String())
 	}
 }
+
+// The whole point of atqamz/secondhand#70: a worker that finished while nobody was
+// attached has to be visible in the next hand status, not only in the stream of the
+// watcher that was not running.
+func TestStatusFleetFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR up")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "idle (reported: done, unacknowledged)") {
+		t.Fatalf("got %q, want the done report flagged unacknowledged", out.String())
+	}
+}
+
+func TestStatusFleetDoesNotFlagATerminalReportAWatcherConsumed(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	report := "done: PR up\n"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+		ReportOffset: int64(len(report))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "idle (reported: done)") {
+		t.Fatalf("got %q, want the reported state still shown", out.String())
+	}
+	if strings.Contains(out.String(), "unacknowledged") {
+		t.Fatalf("got %q, want no flag on a report a watcher already announced", out.String())
+	}
+}
+
+func TestStatusFleetJSONFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR up")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"unacknowledged": true`) {
+		t.Fatalf("got %q, want unacknowledged true", out.String())
+	}
+}
+
+func TestStatusSingleTaskFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR up")
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "done: PR up (unacknowledged)") {
+		t.Fatalf("got %q, want the detail view to flag the unread completion too", out.String())
+	}
+}
+
+func TestStatusSingleTaskJSONOmitsUnacknowledgedWhenAcknowledged(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	report := "done: PR up\n"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+		ReportOffset: int64(len(report))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "unacknowledged") {
+		t.Fatalf("got %q, want the field absent for a consumer that predates it", out.String())
+	}
+}

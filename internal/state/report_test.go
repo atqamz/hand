@@ -226,3 +226,73 @@ func TestLastReportedStateWithOnlyMalformedLines(t *testing.T) {
 		t.Fatalf("got ok=%v, want no reported state at all", ok)
 	}
 }
+
+func TestUnacknowledgedTerminalReport(t *testing.T) {
+	cases := []struct {
+		name     string
+		content  string
+		consumed string // the prefix a watcher has already announced
+		want     bool
+	}{
+		{
+			name:    "terminal report nobody has read",
+			content: "working: on it\ndone: PR up\n",
+			want:    true,
+		},
+		{
+			name:     "terminal report a watcher already announced",
+			content:  "working: on it\ndone: PR up\n",
+			consumed: "working: on it\ndone: PR up\n",
+		},
+		{
+			name:     "unread terminal report the worker has since superseded",
+			content:  "done: PR up\nworking: addressing review\n",
+			consumed: "",
+		},
+		{
+			name:     "second done after a resume, the first one already announced",
+			content:  "done: PR up\nworking: addressing review\ndone: review addressed\n",
+			consumed: "done: PR up\nworking: addressing review\n",
+			want:     true,
+		},
+		{
+			name:    "failed counts the same as done",
+			content: "failed: gate red twice\n",
+			want:    true,
+		},
+		{
+			name:    "a stop that is not terminal",
+			content: "needs-decision: which base branch?\n",
+		},
+		{
+			name:    "free text after an unread terminal report",
+			content: "done: PR up\nstill tidying\n",
+			want:    true,
+		},
+		{
+			name: "no report file at all",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if c.content != "" {
+				if err := os.WriteFile(ReportPath(home, "task-1"), []byte(c.content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			got, err := UnacknowledgedTerminalReport(home, "task-1", int64(len(c.consumed)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.want {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}

@@ -42,7 +42,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 ## Workflow
 
 1. Read ` + "`data/operator.md`" + ` before anything else. Its constraints outrank your own judgment.
-2. Run ` + "`hand status`" + ` for current fleet state.
+2. Run ` + "`hand status`" + ` for current fleet state. A row marked ` + "`unacknowledged`" + ` is a worker that reached done or failed while nothing was watching; treat it as news that just arrived.
 3. Match the request to a project in ` + "`data/projects.md`" + `.
 4. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
 5. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it. The brief may open with a ` + "`---`" + ` fenced block declaring ` + "`model`" + ` and ` + "`effort`" + ` for the task, which spawn and promote apply unless a flag overrides them.
