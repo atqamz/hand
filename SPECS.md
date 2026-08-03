@@ -305,11 +305,12 @@ Output (JSON):
 ]
 ```
 
-A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or the
-`no-mistakes` binary itself unreachable) gets a `(gate: <issue>)` suffix in human output and a
-`gate_issue` field in JSON output (omitted when there is no issue). See "Gate preflight" for what
-this checks and why. Every `no-mistakes`-mode project pays one `no-mistakes status` call per
-`hand project list` invocation; other modes pay nothing.
+A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or
+`unreachable` - the binary itself missing, the clone path missing on disk, or the clone path
+existing but not a git repository; see "Gate preflight") gets a `(gate: <issue>)` suffix in human
+output and a `gate_issue` field in JSON output (omitted when there is no issue). Every
+`no-mistakes`-mode project pays one `no-mistakes status` call per `hand project list` invocation;
+other modes pay nothing.
 
 ---
 
@@ -348,7 +349,8 @@ Flags:
 - `--harness <name>`: agent harness to launch. Default: value from `config/harness`, or `claude`.
 - `--model <name>`: model override for harnesses that support it. Default: the brief's declared `model`, else `config/model`.
 - `--effort <level>`: effort level for harnesses that support it. Default: the brief's declared `effort`, else `config/effort`.
-- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized (see "Gate preflight").
+- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized, its
+  clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
 Model and effort resolve most-specific-first: the flag, then the brief's `---` declaration (see
 "Brief format"), then the config default, then unset. A resolved effort under a harness with no
@@ -463,8 +465,9 @@ Behavior (fleet overview):
 2. For each, query herdr for current agent state.
 3. Append the worker's own last classified report to the same column as ` (reported: <state>)`, whatever the pane is doing. A pane state and a report answer different questions, so both print: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. `working` is the one report that stays unadorned, because it is what the column already says. ` (unreported)` still requires a not-busy pane (herdr's `idle` or `done` - see "Agent state" below), since a busy pane that has not reported yet is not a stop anyone has to explain. A report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported.
 4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
-5. Print one line per task, with a header row.
-6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
+5. Print one line per task, with a header row - or, if there are no tasks at all, `no tasks (0)` in place of the table, so an empty fleet reads as a positive statement with a count rather than the same bare output a broken command could also produce.
+6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held - printed even when there are no tasks, so a torn-down task's still-open hold is never hidden behind the `no tasks (0)` line above it. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
+7. For a `ship` task reported `done` with a recorded PR, on a registered `no-mistakes` project: check whether that PR ever went through a gate run (see "Gate-run visibility" below), and append ` (gate: <issue>)` to the same column when it did not. The project registry read this step needs is best-effort - a registry fault leaves the check silent for every task rather than failing the whole overview over it, but prints a one-line `warning:` to stderr naming the read failure, so dropping every `(gate: ...)` marker fleet-wide is never silent.
 
 The `last report` column is the mtime of `state/<id>.status`, and `(none)` when the worker has never written one.
 It is deliberately not the task's age: the two used to be conflated, so a task spawned hours ago read as hours stale next to a status file its worker had touched minutes earlier - a reporting worker that looked abandoned.
@@ -472,14 +475,15 @@ It is deliberately not the task's age: the two used to be conflated, so a task s
 
 Output (fleet overview):
 ```
-id           project  kind   state                                     age     last report
-fix-login    nsr      ship   working                                   2h ago  3m ago
-dark-mode    nsr      ship   blocked                                   45m ago 40m ago
-build-wait   nsr      ship   working (reported: paused)                20m ago 5m ago
-stuck-task   nsr      ship   idle (unreported)                         1h ago  (none)
-paused-task  nsr      ship   idle (reported: needs-decision)           30m ago 12m ago
-investigate  nsr      scout  done (reported: done)                     10m ago 9m ago
-shipped-fix  nsr      ship   done (reported: done) (merged, external)  5m ago  4m ago
+id           project  kind   state                                       age     last report
+fix-login    nsr      ship   working                                     2h ago  3m ago
+dark-mode    nsr      ship   blocked                                     45m ago 40m ago
+build-wait   nsr      ship   working (reported: paused)                  20m ago 5m ago
+stuck-task   nsr      ship   idle (unreported)                           1h ago  (none)
+paused-task  nsr      ship   idle (reported: needs-decision)             30m ago 12m ago
+investigate  nsr      scout  done (reported: done)                       10m ago 9m ago
+shipped-fix  nsr      ship   done (reported: done) (merged, external)    5m ago  4m ago
+no-gate-fix  nsr      ship   done (reported: done) (gate: no run found)  3m ago  2m ago
 
 held:
   fix-login         operator  two ways to fix this, needs a call          2h ago
@@ -488,13 +492,20 @@ held:
 
 A hold row that can't be trusted at face value - an unrecognized kind, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one - is still printed, never dropped, with `inconsistent: <why>` in place of its detail: an external write to `state/hand.db` is the only way such a row exists, since `hand hold set` validates before writing, and filtering it out here would silently drop the row most worth seeing.
 
+Output (fleet overview, empty):
+```
+no tasks (0)
+```
+Still followed by a `held:` block if any hold is open (step 6 above).
+
 Behavior (single task):
 1. Read the task from the store.
 2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task and in the Active Tasks PR column if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A branch carrying several PRs resolves by preference tier - merged, then open, then closed-unmerged - and only when the winning tier holds exactly one PR: a tier with more than one match is ambiguous, and so is a merged PR coexisting with an open one on the same head ref - an open PR is live evidence the branch may carry unlanded work, so that mix refuses rather than resolving to the merged PR. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, an ambiguous branch, or a task with no branch all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
 3. Query herdr for current agent state and recent output.
 4. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
 5. Read the hold on this id, if any (see "Holds" under "State management"). Unlike the report channel, a failure to read it fails the command - the same reasoning as the fleet overview's `held:` block.
-6. Print detailed view, including the most recent reported line and a labeled history block.
+6. If the task is a `ship` task reported `done` with a recorded PR: look up its project (unlike the fleet overview's best-effort registry read, a failure here fails the command - this id's own project is the one fact the check is about) and, if it is a registered `no-mistakes` project, check whether that PR ever went through a gate run (see "Gate-run visibility" below).
+7. Print detailed view, including the most recent reported line and a labeled history block.
 
 Output (single task):
 ```
@@ -520,6 +531,8 @@ Report history (reported by worker, not verified current truth):
 The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:          https://github.com/org/repo/pull/42 (merged, external)`.
 
 The `Held:` line is present only when this id has a hold, and reads the reason alone for an `operator` hold or `waiting on <blocked_on>: <reason>` for a `blocked` one; an inconsistent row (see the fleet overview above) prints `inconsistent: <why>` instead.
+
+A `Gate run:` line (`Gate run:    no run found`, printed below the `Held:` line) is present only for a `done` `ship` task with a recorded PR on a registered `no-mistakes` project whose gate-run check (see "Gate-run visibility" below) did not come back clean - `no run found` or `unreachable`. It is absent for every other task, including one where the check came back clean, so the example above - which has no PR recorded - never carries it.
 
 atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `Reported:`, again as the last line of `Report history`. Without `--full`:
 - The `Reported` line and every history line are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut line always carries a trailing `... [+N chars]` marker naming how much was dropped, so a short report is never mistaken for a truncated one. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").
@@ -553,21 +566,28 @@ Output (JSON, single task):
 }
 ```
 
-`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted.
+`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted. `gate_run_issue` carries the same `no run found` / `unreachable` text as the `Gate run:` line above and is omitted whenever that line would be - not a `done` `ship` task with a recorded PR on a registered `no-mistakes` project, or the check came back clean - which is why the example above, with no PR recorded, does not carry it.
 
-Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it:
+Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it, and `task_count` alongside that, always present (never omitted, zero included) so an empty fleet is a positive statement rather than the same absence of output a broken command could also produce:
 
 ```json
 {
+  "task_count": 1,
   "tasks": [{"id": "fix-login", "...": "one row per task, reported only, no history"}],
   "holds": [{"id": "fix-login", "kind": "blocked", "reason": "needs the new column before this can proceed", "blocked_on": "migrate-schema", "set_at": "2026-07-24T09:00:00Z"}]
 }
 ```
 
+An empty fleet returns `{"task_count": 0, "tasks": [], "holds": [...]}` - `holds` still carries any
+open hold, never suppressed by there being no tasks.
+
+Each row in `tasks` carries `gate_run_issue` under the same omission rule as the single-task JSON above.
+
 Errors:
 - Task ID not found.
 - Herdr unreachable (graceful degradation: show state as "unknown").
 - The hold store can't be read (fails the command; never degrades to an empty `holds`/no `held` - see "Holds" under "State management").
+- The single-task view's own project can't be read while checking gate-run visibility (fails the command; the fleet overview's equivalent lookup is best-effort instead - see behavior step 7 above).
 
 ---
 
@@ -1026,7 +1046,8 @@ Flags:
 - `--harness <name>`: harness for the new ship worker. Default: value from `config/harness`.
 - `--model <name>`: model override. Default: the brief's declared `model`, else `config/model`.
 - `--effort <level>`: effort override. Default: the brief's declared `effort`, else `config/effort`.
-- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized (see "Gate preflight").
+- `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized, its
+  clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
 Promote resolves model and effort exactly as `hand spawn` does, against the brief the agent
 updated for the ship phase, so a scout brief that declared a tier keeps it through promotion
@@ -1540,7 +1561,7 @@ never-initialized repo from a stale renamed one from the outside, so the preflig
 The outcome is read from that text, never from `~/.no-mistakes/state.sqlite` directly,
 which is another tool's private schema.
 
-Three outcomes:
+Five outcomes:
 - **Initialized:** proceed.
 - **Not initialized** (either history): refuse with exit code 3, naming the exact remedy verbatim -
   `no-mistakes init` is idempotent and repairs a stale `working_path` in place, so the message reads
@@ -1549,6 +1570,19 @@ Three outcomes:
   binary not found or not runnable: <error>`), never collapsed into "not initialized" - the remedy
   for a missing binary is not `no-mistakes init`. This is a general error (exit code `1`), not a
   precondition: the world is not in a state the operator can fix by initializing anything.
+- **Clone path does not exist on disk:** refuse with `no-mistakes clone path: <stat error>`, naming
+  the real cause instead of the misleading "binary not found or not runnable" a chdir failure used
+  to produce. Also a general error (exit code `1`).
+- **Clone path exists but is not a git repository:** `no-mistakes status` itself exits 0 and prints
+  `not in a git repository` in this case - a plain-looking success that used to read as a ready
+  gate. Refuse instead with `no-mistakes clone path is not a git repository: <path>`, also a general
+  error (exit code `1`), never `GateReady`: a caller must never be told to dispatch into a project
+  the gate cannot cover.
+
+The last two are atqamz/secondhand#97, and neither reads `~/.no-mistakes/state.sqlite` either. The
+non-git one is read from `no-mistakes status`'s own text, the same way every other outcome here is.
+The missing clone path is caught by stat-ing that path before the binary is run at all, because
+otherwise the failed chdir is what surfaces, as the misleading "binary not found or not runnable".
 
 Escape hatch: `--skip-gate-check` on both `hand spawn` and `hand promote` bypasses the preflight
 and prints a warning to stderr naming the project, so bypassing it is visible in the transcript
@@ -1558,6 +1592,48 @@ rather than a silent env var.
 not initialized)` or `(gate: unreachable)` to its output line (and `"gate_issue"` in `--json`
 output) when the check doesn't come back clean, so a stale or never-initialized gate is visible
 without waiting for a spawn or promote to refuse.
+
+### Gate-run visibility
+
+Gate preflight answers whether a project's gate is initialized. It says nothing about whether any
+given shipped PR actually went through it: a `no-mistakes`-mode project's gate can be ready and
+still never have run against the branch a particular task's PR came from - the project was
+registered after the fact, the PR was opened by hand outside the `pr` step, or the gate was
+bypassed with `--skip-gate-check`. atqamz/secondhand#92 is that gap: `hand status` had no way to
+surface a `done` `ship` task with a recorded PR that never went through a gate run at all.
+
+`hand status` answers this with `project.GateRunPRs(clonePath)`: run `no-mistakes runs --limit
+10000` in the project's clone and collect the PR URL each `completed` row recorded for itself, the
+same read-only, text-scraping approach `GateStatus` already uses for gate preflight, never
+`~/.no-mistakes/state.sqlite` directly. A PR is gated when it is exactly one of those URLs. The
+answer is per clone, not per PR, and cached for the length of one render, so a fleet with several
+`done` `ship` tasks on one project pays one `no-mistakes` process rather than one per task.
+
+This establishes only that the no-mistakes `pr` step opened this exact PR from a run that reached
+`completed` - nothing more, and the wording is deliberately no stronger than that:
+- It is not a per-commit answer. `no-mistakes`'s own state is keyed on `working_path`, not per-PR
+  (see "Gate preflight" above), and `hand` records no head commit for a task's PR to compare
+  against. A push to the same branch after the matched run completed - amending the PR without a
+  new run - still reads as gated, exactly as it did before that push.
+- A PR opened by hand outside the no-mistakes `pr` step reads as `no run found` even sitting behind
+  a run that did complete: nothing ties that URL to that run's own bookkeeping.
+- A PR with no completed run recording that exact URL reads as `no run found`. A failure to ask
+  no-mistakes at all reads as `unreachable`, the same bucket `gateIssue` uses for the identical
+  failure in `hand project list`, so a question the check could not answer never renders as the
+  stronger claim `no run found`. That bucket covers a missing clone, an unrunnable binary, and -
+  read from `no-mistakes runs`'s own output text rather than its exit code, exactly as gate
+  preflight reads them - a gate that was never initialized or whose `working_path` went stale, and
+  a clone path that is not a git repository. The uninitialized case matters most: no-mistakes still
+  holds that repo's completed runs, so reading its refusal as an empty run list would report a
+  genuinely gated PR as never gated.
+
+A marker that claims more certainty than this data supports would be worse than no marker at all,
+so `hand status` only ever says what the two outcomes above actually establish - never "this PR is
+safe" or "this PR is gated", only whether a matching completed run was found.
+
+The check applies to a `done` `ship` task with a recorded PR on a registered `no-mistakes`
+project only; every other task - in progress, `scout`, no PR yet, project not registered or not
+`no-mistakes` - has nothing this check can say, so it stays silent.
 
 ## Brief format
 

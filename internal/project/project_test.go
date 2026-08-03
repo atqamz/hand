@@ -218,14 +218,23 @@ func TestRemoveNotFound(t *testing.T) {
 	}
 }
 
-// fakeNoMistakes puts a fake no-mistakes binary at the front of PATH. It only ever needs to
-// answer `status`, so it ignores its arguments and always exits 0, matching the real binary's
-// observed behavior: no-mistakes status exits 0 whether the repo is initialized or not, so
-// GateStatus reads the outcome from stdout text rather than the exit code.
+// fakeNoMistakes puts a fake no-mistakes binary at the front of PATH. It ignores its arguments and
+// always exits 0, matching the real binary's observed behavior for `status`: it exits 0 whether the
+// repo is initialized or not, so GateStatus reads the outcome from stdout text rather than the exit
+// code. Fakes for `runs` refusals need fakeNoMistakesExit instead.
 func fakeNoMistakes(t *testing.T, stdout string) {
+	fakeNoMistakesExit(t, stdout, 0)
+}
+
+// fakeNoMistakesExit is fakeNoMistakes with an explicit exit code, for the invocations the real
+// binary refuses non-zero: `no-mistakes runs` exits 1 on both "repo not initialized" and "not in a
+// git repository", where `no-mistakes status` exits 0 printing the same text. A caller must read
+// the refusal from the text either way, so the fake reproduces the exit code rather than flattening
+// every refusal to 0 and letting a text-check-after-exit-check regression pass here.
+func fakeNoMistakesExit(t *testing.T, stdout string, code int) {
 	t.Helper()
 	bin := t.TempDir()
-	script := "#!/bin/sh\ncat <<'EOF'\n" + stdout + "\nEOF\n"
+	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", stdout, code)
 	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -273,6 +282,49 @@ func TestGateStatusMissingBinaryIsDistinctFromNotInitialized(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), gateNotInitializedMarker) {
 		t.Fatalf("err = %v, must not read as the not-initialized case", err)
+	}
+}
+
+// TestGateStatusNotGitRepo covers atqamz/secondhand#97's first clone-path outcome: clonePath exists
+// but isn't a git repository at all. no-mistakes status still exits 0 and prints this text verbatim,
+// so without this branch GateStatus would fall through to GateReady and let a caller dispatch into a
+// project the gate cannot cover.
+func TestGateStatusNotGitRepo(t *testing.T) {
+	fakeNoMistakes(t, "not in a git repository")
+
+	dir := t.TempDir()
+	gotState, err := GateStatus(dir)
+	if err == nil {
+		t.Fatal("expected error when clone path is not a git repository")
+	}
+	if gotState == GateNotInitialized {
+		t.Fatal("not-a-git-repo must not report GateNotInitialized, it has a different (unrepairable) remedy")
+	}
+	if !strings.Contains(err.Error(), dir) {
+		t.Fatalf("err = %v, want it to name the clone path", err)
+	}
+}
+
+// TestGateStatusMissingClonePath covers atqamz/secondhand#97's second clone-path outcome: clonePath
+// does not exist on disk at all, so exec.Command's chdir fails before the binary ever runs. Without
+// the os.Stat check, this used to read as "no-mistakes binary not found or not runnable", which is
+// true in the letter and misleading in substance - the binary is fine, the clone directory is missing.
+// No fake binary is installed for this test: os.Stat must fail before GateStatus ever tries to exec.
+func TestGateStatusMissingClonePath(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	gotState, err := GateStatus(missing)
+	if err == nil {
+		t.Fatal("expected error for a clone path that does not exist")
+	}
+	if gotState == GateNotInitialized {
+		t.Fatal("missing clone path must not report GateNotInitialized, it has a different remedy")
+	}
+	if strings.Contains(err.Error(), "no-mistakes binary not found or not runnable") {
+		t.Fatalf("err = %v, must not read as a binary problem", err)
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("err = %v, want it to name the missing clone path", err)
 	}
 }
 

@@ -189,6 +189,11 @@ const (
 
 const gateNotInitializedMarker = "repo not initialized"
 
+// notGitRepoMarker is what `no-mistakes status` prints, exiting 0, when clonePath exists but isn't
+// a git repository at all - a different, unrepairable outcome from GateNotInitialized: `no-mistakes
+// init` fixes a repo that was never initialized, not a directory that isn't a git repo.
+const notGitRepoMarker = "not in a git repository"
+
 // GateInitCommand is the exact remedy for GateNotInitialized. no-mistakes init is idempotent and
 // repairs a stale working_path in place, so callers should print this verbatim rather than describe it.
 func GateInitCommand(clonePath string) string {
@@ -200,16 +205,25 @@ func GateInitCommand(clonePath string) string {
 // no-mistakes status exits 0 whether or not the repo is initialized, so the outcome is read from
 // its output text, not its exit code. Any failure to run the binary at all (missing, unexecutable,
 // unexpected nonzero exit) is returned as an error distinct from GateNotInitialized: the remedy for
-// a missing binary is not `no-mistakes init`.
+// a missing binary is not `no-mistakes init`. clonePath not existing on disk, and clonePath existing
+// but not being a git repository, are both returned as plain errors naming the real cause too - not
+// GateReady, which would let a caller dispatch into a project the gate cannot cover.
 func GateStatus(clonePath string) (GateState, error) {
+	if _, err := os.Stat(clonePath); err != nil {
+		return GateReady, fmt.Errorf("no-mistakes clone path: %w", err)
+	}
 	cmd := exec.Command("no-mistakes", "status")
 	cmd.Dir = clonePath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return GateReady, fmt.Errorf("no-mistakes binary not found or not runnable: %w", err)
 	}
-	if strings.Contains(string(out), gateNotInitializedMarker) {
+	text := string(out)
+	if strings.Contains(text, gateNotInitializedMarker) {
 		return GateNotInitialized, nil
+	}
+	if strings.Contains(text, notGitRepoMarker) {
+		return GateReady, fmt.Errorf("no-mistakes clone path is not a git repository: %s", clonePath)
 	}
 	return GateReady, nil
 }
