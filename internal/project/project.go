@@ -182,7 +182,14 @@ func parseLine(line string) (Project, bool) {
 // "owner/repo" slug the PR guard compares against. It refuses rather than
 // guessing: an upstream nobody can resolve to a slug would widen the guard to
 // whatever the comparison happened to fall through to.
+// A slug containing whitespace is refused outright rather than stored: the
+// registry projection writes it as a whitespace-separated upstream=<slug> field,
+// which parseLine would read back truncated and then reject as an invalid
+// registry line, breaking every project command against a rebuilt db.
 func ParseRepoRef(ref string) (string, bool) {
+	if strings.ContainsAny(ref, " \t\r\n") {
+		return "", false
+	}
 	if slug, ok := ghutil.RepoSlugFromRemote(ref); ok {
 		return slug, true
 	}

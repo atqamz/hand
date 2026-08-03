@@ -352,7 +352,9 @@ hand project upstream no-mistakes ""
 Behavior:
 1. Normalize `<repo>` to an `owner/repo` slug, accepting a bare slug or any remote URL form. Refuse
    anything that cannot be resolved to one: an unresolvable upstream would widen the PR guard to
-   whatever the comparison happened to fall through to.
+   whatever the comparison happened to fall through to. A slug containing whitespace is refused for a
+   second reason: the `data/projects.md` projection separates fields by whitespace, so a stored one
+   reads back truncated and rejects the whole registry line for every later project command.
 2. Write it onto the project's row and rewrite the `data/projects.md` projection, under the project
    lock.
 
@@ -872,7 +874,7 @@ The store is deliberately uncapped: it is the only durable record of a task's co
 `outcome` is one of:
 - `merged`: the work landed. `detail` names the PR, or `branch merged` for a local-only branch.
 - `done`: a scout task's report is the deliverable. `detail` names the report path.
-- `delivered`: the work is handed off and its landing was never the fleet's to decide. `detail` is the reason `hand deliver` recorded, prefixed with the PR when one is on the task. Ranked ahead of every outcome above, all of which assert the work landed: a delivered task has to stay distinguishable from a merged one in the permanent record, or the fleet's history claims upstream merges that never happened (atqamz/secondhand#78).
+- `delivered`: the work is handed off and its landing was never the fleet's to decide. `detail` is the reason `hand deliver` recorded, prefixed with the PR when one is on the task. Ranked ahead of every outcome above, all of which assert the work landed - but only while the task's row carries no merge: a delivered task has to stay distinguishable from a merged one in the permanent record, or the fleet's history claims upstream merges that never happened (atqamz/secondhand#78). A delivery the upstream maintainer then actually merged (`merged` or `pr_merged_observed` on the row) records `merged` instead, because that is the stronger of the two facts and the requirement is only that the record never claim a merge that did not happen.
 - `torn-down`: `--force` skipped the checks, so nothing about landing is claimed at all.
 
 Output:
@@ -964,7 +966,7 @@ Behavior:
 4. If the task already has a *different* PR recorded, refuse - one task, one PR; correcting a wrong record is a deliberate `hand teardown`/`hand spawn` decision, not something `hand pr` overwrites silently.
 5. Resolve the task's project and derive `owner/repo` from the project clone's own `origin` remote (`git config --get remote.origin.url`, not `git remote get-url`, so a local `url.<base>.insteadOf` rewrite never turns a genuine mismatch into a false match).
 6. Refuse if the URL's `owner/repo` matches neither the derived repo slug nor the project's declared `upstream` (see "Project registry format"). A fork contribution's PR lives on the upstream, not on the fork hand pushes to, so the upstream passes - but only because an operator declared it with `hand project upstream`, never because the URL's repo looks related to the project's own. The refusal names the declared upstream, or says none is declared, so an operator can tell "wrong upstream" from "no upstream declared".
-7. Confirm the PR exists via `gh pr view` (network check, 30s timeout) - shape validation in step 1 only proves the URL looks right, not that the PR is real.
+7. Confirm the PR exists via `gh pr view` (network check, 30s timeout) - shape validation in step 1 only proves the URL looks right, not that the PR is real. The refusal names the repo the *URL* belongs to, not the project's own: step 6 accepts a PR on the declared upstream too, so naming the project repo here would send an operator whose upstream PR number is wrong to check a repository the URL was never on.
 8. Write `pr` into the task's row.
 
 Steps 5-7 live in `project.ValidatePR` and are the *only* validation path: `hand watch`'s auto-record calls the same function, so a worker-supplied URL can never reach task state on weaker terms than an explicit `hand pr`.
@@ -1143,6 +1145,7 @@ Pane-anchored, and reset:
 | `done_verified` | The marker belongs to the scout's own verified `done`. The ship has not earned one, and carrying it would leave the ship run unable to ever announce its own, since the write-back only ORs the marker to true. |
 | `status_changed_at` / `status_changed_for` | The scout's last observed transition happened in a pane the task no longer has. Carrying it would hand the ship a dwell already grown past `stale`'s threshold before its worker had run for a second. Promote restamps the timestamp to the promotion time and clears the status it was stamped for, which is what makes the ship's first observed status a fresh dwell rather than a resumed one. |
 | `last_report_state` / `last_report_note` | The scout's last report describes work in that pane. It selects `parked`'s bound and feeds the scout's deferred-`done` bookkeeping, so an inherited one both mis-bounds the ship's silence and can hand it a `done` it never reported. |
+| `delivered_at` / `delivered_reason` | The delivery described the scout's deliverable, a report, and not a line of the ship's code. Carried, it would let `hand teardown` accept the ship task as terminal with no PR recorded and no merge check run at all - the landed-work guard bypassed without `--force` for work nobody delivered, which is the one meaning `--force` keeps. |
 | The `stale` and `blocked` fired latches | Each is what makes its announcement fire only once. A latch surviving the promote silences that announcement for the ship's own pane - the `stale` one until the ship transitions at least once, which a genuinely stuck ship never does. |
 | Whether the last probe of the pane succeeded | It gates the once-only `failed` latch and gates `stale` detection off entirely until some probe succeeds, and either value inherited from the scout's pane is a claim about a pane the task no longer has. It is reset to false, matching the seed a fresh spawn gets before its own first probe has succeeded: the ship's first probe of its new pane is a first sighting, so an unreachable one is announced through that sighting's dwell rather than firing `failed` on sight. Resetting it to true instead - the previous behavior - fired a no-dwell `failed` off a single blink, on the strength of a probe that only ever described the scout's pane. |
 | The first-sighting outage's fired latch | A latch claiming the scout's outage has nothing to say about the ship's new pane. Left true it would sit inert until the next probe failure reset it anyway, but a fresh pane deserves a fresh episode on purpose, not by accident of that ordering, so it is reset to unfired alongside the probe-succeeded flag above. |
@@ -1249,7 +1252,7 @@ Behavior:
 4. Acquire a fresh treehouse worktree (with collision guard).
 5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 8, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
-7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
+7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` and `delivered_at` / `delivered_reason` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
@@ -1912,7 +1915,7 @@ Fields:
 - `mode=<mode>`: delivery mode.
 - `upstream=<owner/repo>`: optional. The repo this project's PRs are opened against when it is a fork.
   Absent for the ordinary case, where a project contributes to its own repo.
-  A URL form is accepted and normalized to the slug; an `upstream=` that cannot be resolved to one refuses the line rather than importing a project whose upstream could never match.
+  A URL form is accepted and normalized to the slug; an `upstream=` that cannot be resolved to one refuses the line rather than importing a project whose upstream could never match. A slug can never contain whitespace, which is what keeps this projection round-trippable.
 
 Delivery modes:
 - `no-mistakes`: worker runs no-mistakes pipeline, ships via PR with validation evidence. `hand

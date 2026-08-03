@@ -169,6 +169,11 @@ func newPromoteCmd() *cobra.Command {
 			// promote never touches state/<id>.status, so the report stream is continuous.
 			// Cleared here rather than left for hand watch, which may not be running.
 			t.DoneVerified = false
+			// The delivery described the scout's report, not the ship run starting
+			// here: left set, teardown would accept the ship task as terminal on a
+			// delivery nobody made for its code.
+			t.DeliveredAt = ""
+			t.DeliveredReason = ""
 			t.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
 			t.StatusChangedFor = ""
 			t.LastReportState = ""

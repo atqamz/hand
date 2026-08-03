@@ -828,6 +828,68 @@ func TestTeardownStillRefusesUncommittedChangesOnDeliveredWork(t *testing.T) {
 	}
 }
 
+// Delivered and then genuinely landed: the record has to say merged, because the
+// merge is the stronger fact and the delivered mark exists only to stop the record
+// claiming a merge that never happened, not to hide one that did.
+func TestTeardownRecordsMergedWhenDeliveredWorkActuallyLanded(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	pr := "https://github.com/kunchenguid/no-mistakes/pull/597"
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: pr, DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream, maintainer decides",
+		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("teardown of delivered work that landed: %v", err)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome != "merged" {
+		t.Fatalf("completions = %+v, want one merged record once the work actually landed", records)
+	}
+	if records[0].Detail != "PR "+pr {
+		t.Fatalf("detail = %q, want the merged PR", records[0].Detail)
+	}
+}
+
+// The watcher's observed merge counts the same as one hand executed: either way
+// the work landed, so the record must not stop at delivered.
+func TestTeardownRecordsMergedWhenAnObservedMergeFollowedDelivery(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+
+	pr := "https://github.com/kunchenguid/no-mistakes/pull/597"
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		PR: pr, DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream",
+		MergeAnnounced: true,
+		Herdr:          state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("teardown of delivered work with an observed merge: %v", err)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome != "merged" {
+		t.Fatalf("completions = %+v, want one merged record for an observed merge", records)
+	}
+}
+
 // A scout row claiming delivery with nothing on disk has delivered nothing, so
 // the report check ahead of the delivered short-circuit still refuses it.
 func TestTeardownStillRefusesDeliveredScoutWithNoReport(t *testing.T) {

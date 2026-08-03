@@ -155,6 +155,8 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	scout.StatusChangedFor = "working"
 	scout.LastReportState = state.ReportDone
 	scout.LastReportNote = "scout findings"
+	scout.DeliveredAt = "2026-08-03T00:00:00Z"
+	scout.DeliveredReason = "report at data/task-1/report.md, no code to land"
 	if err := state.Write(home, scout); err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +192,11 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	}
 	if got.LastReportState != "" || got.LastReportNote != "" {
 		t.Fatalf("LastReportState/Note = %q/%q, want the scout's report evidence cleared for the ship run", got.LastReportState, got.LastReportNote)
+	}
+	// Carried forward, the mark would let teardown accept the ship task as terminal
+	// on a delivery that only ever described the scout's report.
+	if got.DeliveredAt != "" || got.DeliveredReason != "" {
+		t.Fatalf("DeliveredAt/Reason = %q/%q, want the scout's delivery cleared for the ship run", got.DeliveredAt, got.DeliveredReason)
 	}
 }
 

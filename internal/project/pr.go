@@ -34,7 +34,7 @@ func ValidatePR(ctx context.Context, homeDir string, p Project, url string) erro
 		return fmt.Errorf("PR %s belongs to %s, not project %s's repo (%s)%s", url, urlSlug, p.Name, repoSlug, upstreamNote(p))
 	}
 	if _, err := ghutil.PRIsMerged(ctx, url); err != nil {
-		return fmt.Errorf("PR %s not found in %s: %w", url, repoSlug, err)
+		return fmt.Errorf("PR %s not found in %s: %w", url, urlSlug, err)
 	}
 	return nil
 }

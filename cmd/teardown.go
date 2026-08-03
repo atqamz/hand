@@ -113,11 +113,13 @@ func completionFor(t state.Task, forced bool) completion.Record {
 	case forced:
 		c.Outcome = "torn-down"
 		c.Detail = "forced (landed-work checks skipped)"
-	// Ahead of every case below, all of which assert the work landed. A task
+	// Ahead of the merge cases below only while no merge is on the row. A task
 	// whose landing was never ours to decide has to stay distinguishable from a
 	// merged one in the permanent record, or the fleet's history claims upstream
-	// merges that never happened (atqamz/secondhand#78).
-	case t.DeliveredAt != "":
+	// merges that never happened (atqamz/secondhand#78) - but a delivery that then
+	// genuinely landed has the stronger fact to record, so an observed or executed
+	// merge outranks the mark.
+	case t.DeliveredAt != "" && !t.MergeExecuted && !t.MergeAnnounced:
 		c.Outcome = "delivered"
 		c.Detail = t.DeliveredReason
 		if t.PR != "" {

@@ -38,7 +38,12 @@ func TestParseRepoRef(t *testing.T) {
 			t.Errorf("ParseRepoRef(%q) = %q, %v, want %q, true", ref, got, ok, want)
 		}
 	}
-	for _, ref := range []string{"", "no-mistakes", "/no-mistakes", "kunchenguid/", "kunchenguid/no-mistakes/pull", "https://gitlab.com/a/b"} {
+	// A slug with whitespace in it survives neither the projection nor reading it
+	// back, so it must never reach a project row: the registry writes upstream as
+	// a whitespace-separated field, and a truncated one rejects the whole line.
+	for _, ref := range []string{"", "no-mistakes", "/no-mistakes", "kunchenguid/", "kunchenguid/no-mistakes/pull", "https://gitlab.com/a/b",
+		"kunchen guid/no-mistakes", "kunchenguid/no mistakes", "kunchenguid/no-mistakes ", "https://github.com/kunchen guid/no-mistakes",
+		"kunchenguid/no\tmistakes", "kunchenguid/no-mistakes\n"} {
 		if got, ok := ParseRepoRef(ref); ok {
 			t.Errorf("ParseRepoRef(%q) = %q, true, want it refused", ref, got)
 		}

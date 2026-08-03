@@ -231,6 +231,35 @@ func TestPRRefusesWhenGhReportsNotFound(t *testing.T) {
 	}
 }
 
+// A PR number that does not exist on the declared upstream has to send the
+// operator to the upstream, not to the project's own repo: naming the repo the
+// URL does not belong to points the fix at the wrong place.
+func TestPRNotFoundOnUpstreamNamesTheUpstreamRepo(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/atqamz/no-mistakes.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/atqamz/no-mistakes.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.SetUpstream(home, "demo", "kunchenguid/no-mistakes"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGhPRView(t, 1)
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "https://github.com/kunchenguid/no-mistakes/pull/597"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "not found in kunchenguid/no-mistakes") {
+		t.Fatalf("got err %v, want the refusal to name the upstream the URL belongs to", err)
+	}
+	if strings.Contains(err.Error(), "not found in atqamz/no-mistakes") {
+		t.Fatalf("got err %v, want the project's own repo not named as the missing PR's repo", err)
+	}
+}
+
 func TestPRRecordsSuccessfully(t *testing.T) {
 	home, clonePath := setupPRHome(t)
 	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")

@@ -243,20 +243,25 @@ func TestProjectUpstreamRejectsUnresolvableRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := newProjectUpstreamCmd()
-	cmd.SetArgs([]string{"fork", "no-mistakes"})
-	err := cmd.Execute()
-	var exitErr *ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
-		t.Fatalf("got %v, want ExitError code 2", err)
-	}
+	// "kunchen guid/no-mistakes" parses as a slug but cannot survive the registry
+	// projection, which separates fields by whitespace: stored, it would come back
+	// truncated and reject the whole line for every later project command.
+	for _, repo := range []string{"no-mistakes", "kunchen guid/no-mistakes"} {
+		cmd := newProjectUpstreamCmd()
+		cmd.SetArgs([]string{"fork", repo})
+		err := cmd.Execute()
+		var exitErr *ExitError
+		if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+			t.Fatalf("upstream %q: got %v, want ExitError code 2", repo, err)
+		}
 
-	projects, listErr := project.List(home)
-	if listErr != nil {
-		t.Fatal(listErr)
-	}
-	if projects[0].Upstream != "" {
-		t.Fatalf("upstream = %q, want nothing recorded from a refused ref", projects[0].Upstream)
+		projects, listErr := project.List(home)
+		if listErr != nil {
+			t.Fatalf("upstream %q: %v", repo, listErr)
+		}
+		if projects[0].Upstream != "" {
+			t.Fatalf("upstream = %q, want nothing recorded from a refused ref %q", projects[0].Upstream, repo)
+		}
 	}
 }
 
