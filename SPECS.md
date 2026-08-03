@@ -103,7 +103,7 @@ The file is authoritative for what the worker said.
 
 sqlite in rollback journal mode, one short-lived process per command, one writer at a time.
 No server, no connection pool, no background process holding the database open.
-`hand watch` is still the only long-running process, and it holds no lock between ticks.
+`hand watch` is still the only long-running process, and it holds no database lock between ticks - only the `flock` that makes it the fleet home's single watcher (see "One watcher per fleet home").
 This keeps a fleet home a directory that can be copied, backed up and inspected with ordinary tools, which the whole design depends on.
 
 ## Directory layout
@@ -996,12 +996,14 @@ Errors:
 
 Blocking watcher. Polls herdr agent states and prints actionable events to stdout.
 Also logs events to `state/events.log` for crash recovery.
+One fleet home has at most one watcher at a time (see "One watcher per fleet home").
 
 ```
 hand watch
 hand watch --poll 10s
 hand watch --until-event --timeout 30m
 hand watch --until-event --event parked,failed
+hand watch --takeover
 ```
 
 Flags:
@@ -1009,6 +1011,7 @@ Flags:
 - `--until-event`: block until the first events, print them, exit `0`. See "Delivering an event to a supervisory agent" below.
 - `--timeout <duration>`: with `--until-event`, give up after this long and exit `4`. Default: no timeout. Without `--until-event` it is a usage error (exit `2`), since a streaming watcher has no completion to bound.
 - `--event <kind>`: with `--until-event`, wake only on the given event kinds; repeatable or comma-separated. Default: any. Without `--until-event` it is a usage error (exit `2`), since the streaming path has no wake to filter - it prints every actionable event regardless. An unrecognized kind is also a usage error, naming the full known set. This is a stdout-only filter: `state/events.log` still receives every actionable event, filtered or not, since it is the fleet's durable record and a caller narrowing its own wake has no bearing on what happened. Kinds are internal identifiers, not the printed line's leading word - most agree (`stale`, `parked`, `blocked`, `failed`), but the report-derived ones don't: a `working <id>: <note>` line filters on `report-working`, a `reported-done`/`done <id>: <note>` line on `report-done`, and so on for every entry in "Report channel" below. A caller filtering on the classification a line came from, not its printed spelling, is why the filter is caller-expressible at all rather than hardcoded to one split: `working` is exactly what distinguishes a wedged spawn from a slow one, so no fixed actionable/progress grouping could serve every caller.
+- `--takeover`: replace the watcher already attached to this fleet home instead of refusing, signaling it to stop first. A no-op when nothing is attached, so it is safe to pass unconditionally. See "One watcher per fleet home".
 
 Behavior:
 1. List all active tasks from the store.
@@ -1035,6 +1038,21 @@ Behavior:
 9. While tailing a task's report channel, a line carrying exactly one PR URL auto-records it if the task doesn't already have one, subject to the same validation `hand pr` enforces; a URL whose recording was attempted and did not complete is surfaced as `pr-not-recorded`, and one the watcher never got to attempt as `pr-record-unknown` (see "Report channel").
 10. Every task-state write the poll loop makes - the bookkeeping it owns (`report_offset`, `pr_merged_observed`) and an auto-recorded PR - takes the task lock non-blocking, and is skipped when another command holds it. The poll loop never waits on the **task** lock, because that lock is held across unbounded network and git work (`hand merge` across `gh pr checks`/`gh pr merge`, `hand promote` across a `git push`): waiting on it can stall every other task indefinitely, and `flock` cannot honor a SIGINT/SIGTERM in the meantime. Bookkeeping is re-derivable and simply retries next tick. A skipped auto-record is announced as `pr-record-unknown` - never as `pr-not-recorded`, which covers every attempt that was made and did not complete - except when the lock holder turns out to have recorded that same URL, which is silent.
 11. Per-task bookkeeping is written back only after the tick's events are announced, never before. A marker persisted ahead of its line would, if the process died in between, suppress an announcement nothing can re-derive; a duplicate line is the cheaper failure.
+
+#### One watcher per fleet home
+
+`hand watch` acquires ownership of the fleet home before it polls anything, and refuses with exit `3` when another watcher already holds it, naming the incumbent's pid and `--takeover` as the remedy.
+Two watchers on one home are not a redundant pair: each polls herdr independently, each classifies the same transition, and each fires `hand notify`, so the fleet's news arrives twice and the notify hook - whose whole purpose is to reach an operator with no session watching (see "Notifying a supervisory agent with no session watching") - becomes the loudest duplicate of all.
+Ownership is validated at the point of acquisition, in the tool, because the way a second watcher actually gets started is a session that lost the memory of having started the first one; a convention written down anywhere is a convention that compaction can drop.
+
+**Ownership is an `flock` on `state/watch.pid`, never the pid the file contains.**
+The kernel releases an `flock` when its holder dies, however it died, so a crashed watcher leaves nothing stale behind to clear and no liveness heuristic can decide wrongly.
+This is the whole reason the mechanism is safe to have at all: a lock that a crash can leave held would lock a fleet home out of watching itself, which is worse than having no lock.
+The pid recorded inside the lock is advisory only - it lets a refusal name the incumbent and lets `--takeover` signal it - and a read that races the incumbent's own write degrades to `unknown` rather than to some other process's pid, since the value is only trusted when it arrives newline-terminated.
+
+`--takeover` sends the incumbent SIGTERM, which `hand watch` already handles as a clean shutdown, and then waits up to 5s for the lock to come free.
+If it does not, the takeover fails rather than proceeding: two watchers is the condition being prevented, so a takeover that cannot confirm the incumbent is gone must not become one.
+Ownership is per fleet home and shared by both modes, so a streaming `hand watch` also blocks a `hand watch --until-event` arming against the same home - correctly, since the arming watcher would consume report lines out from under the streaming one - and `--takeover` is how a caller that wants the window says so.
 
 #### Delivering an event to a supervisory agent
 
@@ -1993,7 +2011,7 @@ Set with `hand hold set`, which upserts - a second call on the same id replaces 
 ### Concurrency
 
 - Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, send) sit above that and guard whole command sequences, which a per-statement database lock cannot. The send lock is its own name rather than the task lock because it is held for the whole of a `hand send`'s composer wait, which the task lock must not be (see `hand send`). The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
-- `hand watch` is the only long-running process; all other commands are short-lived.
+- `hand watch` is the only long-running process; all other commands are short-lived. It is also the only singleton: at most one watcher per fleet home, enforced by an `flock` held for its whole lifetime (see "One watcher per fleet home").
 - File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.
 - Multiple `hand` invocations against the same task should be avoided (agent discipline, not locking).
@@ -2074,7 +2092,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 - `1`: general error.
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, a required flag left out (`hand hold set --reason`), mutually exclusive or mutually dependent flags (`hand watch --timeout` or `--event` without `--until-event`, `hand hold set --blocked-on` on any kind but `blocked` and its absence on a `blocked` one), an invalid argument or flag value (malformed project URL, unknown project mode, harness or hold kind, unparsable `--poll` duration, a non-positive `--timeout`, an unrecognized `--event` kind).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or belongs to neither the task's project's repo nor its declared upstream (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or belongs to neither the task's project's repo nor its declared upstream (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight"), a fleet home that already has a watcher attached (`hand watch`, remedied by `--takeover` - see "One watcher per fleet home").
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/secondhand/internal/watcher"
 )
 
 // fakeHerdrWatchScript fakes "workspace list" as a query command per
@@ -181,5 +183,49 @@ func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("watch did not exit after context cancellation")
+	}
+}
+
+func TestWatchRefusesWhenAWatcherIsAlreadyAttached(t *testing.T) {
+	home := setupWatchHome(t)
+
+	// Two flocks from one process genuinely conflict on Linux, so this holds
+	// ownership exactly as a separate watcher process would.
+	release, err := watcher.Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--poll", "1h"})
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "already attached") {
+		t.Fatalf("got err %v, want a refusal naming the attached watcher", err)
+	}
+	if code := exitCodeFor(t, err); code != 3 {
+		t.Fatalf("code = %d, want 3 (err = %v)", code, err)
+	}
+}
+
+// A usage error has to be rejected before ownership is touched, or a mistyped
+// flag would take the running watcher's lock away and exit anyway.
+func TestWatchRejectsAUsageErrorWithoutContendingForOwnership(t *testing.T) {
+	home := setupWatchHome(t)
+
+	release, err := watcher.Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	cmd := newWatchCmd()
+	cmd.SetArgs([]string{"--event", "report-done", "--takeover"})
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--event requires --until-event") {
+		t.Fatalf("got err %v, want the usage error, not an ownership refusal", err)
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
 	}
 }
