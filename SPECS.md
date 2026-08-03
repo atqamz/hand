@@ -982,8 +982,12 @@ human, so notifying on it too would either double up the same fact or wake someo
 the `hand notify` subcommand, so wiring reaches every caller of `hand watch` with no shell wrapper required. An unconfigured
 `config/notify` is expected on most fleets - the same silent fallback every other `config/` default gets - so it
 produces no diagnostic; a *configured* template that fails is written to the watcher's own stderr, the same channel
-every other watcher-internal failure (a stuck lock, an unreadable report) already uses, per "Error output" - never a
-blocking condition, matching `hand notify`'s own "notification failure never blocks work" contract.
+every other watcher-internal failure (a stuck lock, an unreadable report) already uses, per "Error output".
+That rule is the whole consequence of a failed send: a diagnostic is written and the poll loop carries on, so the send
+never ends the run nor suppresses the event's own stdout line.
+A template that *hangs* is bounded the same way, by a timeout inside `internal/notify.Send` that surfaces as one more
+such diagnostic - the send runs inline in the poll loop, so an unbounded one would wedge polling, `--until-event`'s
+`--timeout` and shutdown alike.
 
 One notifiable kind, `failed` fired from an already-unreachable pane (`ClassifyUnreachable`), can re-fire once per
 `hand watch` restart for a condition that was already true before the restart, because its firing latch
@@ -1171,9 +1175,10 @@ hand notify "fix-login PR is ready for review"
 ```
 
 Behavior:
-1. Read `config/notify`. If absent, nothing is delivered - see "Errors" below.
+1. Read `config/notify`. If absent, or empty once trimmed, nothing is delivered - see "Errors" below.
 2. The notify config contains a shell command template. The message is available as the `$HAND_MESSAGE` environment variable.
-3. Execute the command with `HAND_MESSAGE` set in the environment.
+3. Execute the command with `HAND_MESSAGE` set in the environment, under a 10s timeout: a template that hangs must not
+   hang its caller, which for the watcher's hook is the poll loop itself.
 4. Print `notified: <message>` to stdout only once the command above has actually succeeded.
 
 Example `config/notify`:
@@ -1196,10 +1201,12 @@ notified: fix-login PR is ready for review
 ```
 
 Errors:
-- `config/notify` absent, or its command failed - both exit `1`. Earlier, an absent config printed the `notified:`
-  line and exited `0` regardless, so "not configured" and "delivered" were the same observable outcome: the one path
-  meant to reach an operator with no session watching could report a delivery it never made. Both failure shapes mean
-  the same thing to a caller - nothing reached the channel - so both are the same general error rather than a warning
+- `config/notify` absent or empty, or its command failed or timed out - all exit `1`. Earlier, an absent config printed
+  the `notified:` line and exited `0` regardless, so "not configured" and "delivered" were the same observable outcome:
+  the one path meant to reach an operator with no session watching could report a delivery it never made. An empty file
+  is the same case wearing a different shape - `touch config/notify` or a truncated one would otherwise run `sh -c ""`,
+  succeed, and claim a delivery just as wrongly - so it is treated as unconfigured, not as a template. All of these mean
+  the same thing to a caller - nothing reached the channel - so all are the same general error rather than a warning
   behind exit `0`.
 
 ---

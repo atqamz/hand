@@ -4,19 +4,27 @@
 package notify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-// ErrNotConfigured means home has no config/notify template, so Send has
-// nothing to run and delivers nothing. Callers must not treat this as
-// success: the one property this package exists to protect is that "not
+// ErrNotConfigured means home has no config/notify template, or has an empty
+// one, so Send has nothing to run and delivers nothing. Callers must not treat
+// this as success: the one property this package exists to protect is that "not
 // configured" and "delivered" are never the same observable outcome.
 var ErrNotConfigured = errors.New("no config/notify")
+
+// sendTimeout bounds the template's own run. The watcher calls Send inline in
+// its poll loop, so an unbounded template - the documented example is a bare
+// curl with no --max-time - would wedge polling, --until-event's timeout and
+// shutdown alike. A var so tests can shorten it.
+var sendTimeout = 10 * time.Second
 
 // Send runs config/notify's shell command template with message available as
 // $HAND_MESSAGE, in-process rather than through the hand notify subcommand,
@@ -30,9 +38,23 @@ func Send(home, message string) error {
 		return fmt.Errorf("read config/notify: %w", err)
 	}
 
-	run := exec.Command("sh", "-c", strings.TrimSpace(string(template)))
+	command := strings.TrimSpace(string(template))
+	if command == "" {
+		return ErrNotConfigured
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	defer cancel()
+	run := exec.CommandContext(ctx, "sh", "-c", command)
 	run.Env = append(os.Environ(), "HAND_MESSAGE="+message)
-	if out, err := run.CombinedOutput(); err != nil {
+	// Without WaitDelay, a template that backgrounds a child holding the output
+	// pipe keeps CombinedOutput waiting past the kill, defeating the timeout.
+	run.WaitDelay = time.Second
+	out, err := run.CombinedOutput()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("notify command timed out after %s: %w: %s", sendTimeout, ctxErr, strings.TrimSpace(string(out)))
+		}
 		return fmt.Errorf("notify command failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil

@@ -1,15 +1,32 @@
 package notify
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSendReturnsErrNotConfiguredWithNoTemplate(t *testing.T) {
 	home := t.TempDir()
+
+	err := Send(home, "hello")
+	if !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("Send() error = %v, want ErrNotConfigured", err)
+	}
+}
+
+func TestSendReturnsErrNotConfiguredWithAnEmptyTemplate(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte("  \n\t\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	err := Send(home, "hello")
 	if !errors.Is(err, ErrNotConfigured) {
@@ -59,5 +76,33 @@ func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("Send() error = %v, want it to carry the command's output", err)
+	}
+}
+
+func TestSendGivesUpOnAHangingTemplateRatherThanBlocking(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte("sleep 60"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	restore := sendTimeout
+	sendTimeout = 100 * time.Millisecond
+	defer func() { sendTimeout = restore }()
+
+	start := time.Now()
+	err := Send(home, "hello world")
+	if err == nil {
+		t.Fatal("Send() error = nil, want the timeout")
+	}
+	if errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("Send() error = %v, want a timeout distinct from ErrNotConfigured", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Send() error = %v, want it to wrap context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("Send() took %s, want it bounded by sendTimeout", elapsed)
 	}
 }
