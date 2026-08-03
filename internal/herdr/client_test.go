@@ -287,6 +287,88 @@ func TestTabCreateParsesTabAndRootPane(t *testing.T) {
 	}
 }
 
+// TestTabCreateClosesTabOnPartialResponse pins the fix for atqamz/secondhand#119: a tab-create
+// result missing root_pane still means herdr already created the tab (reachable against a herdr
+// whose protocol predates that field, same as atqamz/secondhand#74's WorkspaceCreate case), so
+// TabCreate must close it itself before the parse error reaches the caller - nothing downstream
+// ever learns the tab ID otherwise.
+func TestTabCreateClosesTabOnPartialResponse(t *testing.T) {
+	writeFakeHerdr(t, `
+echo "$@" >> "$HERDR_CALL_LOG"
+case "$1 $2" in
+"tab create")
+	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"}}}'
+	;;
+"tab close")
+	if [ "$3" != "wA:tB" ]; then
+		echo "unexpected close target: $@" >&2
+		exit 1
+	fi
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`)
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+
+	c := NewClient()
+	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err == nil {
+		t.Fatal("expected an error when the response omits the root pane")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "tab close wA:tB") {
+		t.Fatalf("calls = %q, want the tab herdr created to be closed", calls)
+	}
+}
+
+// TestTabCreateClosesTabOnMalformedResponse covers the sibling of the partial-response path:
+// encoding/json keeps decoding past its first type error, so a response that types a field wrongly
+// still yields a tab ID herdr has already created and this call must still close it.
+func TestTabCreateClosesTabOnMalformedResponse(t *testing.T) {
+	writeFakeHerdr(t, `
+echo "$@" >> "$HERDR_CALL_LOG"
+case "$1 $2" in
+"tab create")
+	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"root_pane":"none"}}'
+	;;
+"tab close")
+	if [ "$3" != "wA:tB" ]; then
+		echo "unexpected close target: $@" >&2
+		exit 1
+	fi
+	printf '{"id":"cli:1","result":{"type":"ok"}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`)
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+
+	c := NewClient()
+	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err == nil {
+		t.Fatal("expected an error when the response mistypes the root pane field")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "tab close wA:tB") {
+		t.Fatalf("calls = %q, want the tab herdr created to be closed", calls)
+	}
+}
+
 func TestPaneGetParsesAgentStatus(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'`)
 	c := NewClient()

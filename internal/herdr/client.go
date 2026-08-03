@@ -218,11 +218,22 @@ func (c *Client) TabCreate(workspaceID, cwd, label string) (Tab, Pane, error) {
 		Tab      Tab  `json:"tab"`
 		RootPane Pane `json:"root_pane"`
 	}
+	// Same shape as WorkspaceCreate's failed() above: a tab ID on any failure path below means
+	// herdr already created the tab before the response came back unusable, so it must be closed
+	// here or nothing else ever learns the tab exists to clean it up.
+	failed := func(parseErr error) (Tab, Pane, error) {
+		if body.Tab.TabID != "" {
+			if closeErr := c.TabClose(body.Tab.TabID); closeErr != nil {
+				return Tab{}, Pane{}, fmt.Errorf("%w; cleanup failed: %w", parseErr, closeErr)
+			}
+		}
+		return Tab{}, Pane{}, parseErr
+	}
 	if err := json.Unmarshal(res, &body); err != nil {
-		return Tab{}, Pane{}, fmt.Errorf("parse tab create: %w", err)
+		return failed(fmt.Errorf("parse tab create: %w", err))
 	}
 	if body.Tab.TabID == "" || body.RootPane.PaneID == "" {
-		return Tab{}, Pane{}, fmt.Errorf("parse tab create: missing tab or root pane")
+		return failed(fmt.Errorf("parse tab create: missing tab or root pane"))
 	}
 	return body.Tab, body.RootPane, nil
 }
