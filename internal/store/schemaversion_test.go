@@ -227,11 +227,12 @@ func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	restore := migrations
 	t.Cleanup(func() { migrations = restore })
 
-	// Every migration but the last, so the database this first open builds sits
-	// one step behind - the shape a fleet home upgraded to this commit is in.
+	// Only the migrations before the lease_id step, so the database this first
+	// open builds sits exactly one step behind it - the shape a fleet home
+	// upgraded to this commit is in - however many migrations land later.
 	// `schema` still creates lease_id (it cannot be swapped the way `migrations`
 	// can), so the column is dropped by hand to complete that shape.
-	migrations = restore[:len(restore)-1]
+	migrations = restore[:1]
 	existing, err := Open(home)
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +250,9 @@ func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	migrations = restore
+	// Only through the lease_id step: a later migration's column is still present
+	// from `schema`, so replaying it here would fail on "duplicate column name".
+	migrations = restore[:2]
 
 	reopened, err := Open(home)
 	if err != nil {

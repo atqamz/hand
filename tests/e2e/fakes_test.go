@@ -235,32 +235,85 @@ func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
 	}
 }
 
-// writeFakeTreehouse writes a treehouse fake that always leases worktreePath
-// and no-ops on return/init, matching worktree.Get/Return and
+// writeFakeTreehouse writes a treehouse fake managing a one-slot pool at
+// worktreePath and no-oping on init, matching worktree.Get/Return and
 // treehouseInitIfNeeded's invocation shapes ("get"/"return"/"init" as $1).
 // "get" writes a banner line to stderr before its JSON, mirroring real
 // treehouse's documented "all banners go to stderr" behavior, so a
 // CombinedOutput regression at the call site fails the suite.
+//
+// The slot is leased exclusively, the way real treehouse's pool lock holds it: a
+// "get" while it is still out fails instead of handing one path to two holders,
+// and only a "return" of that path frees it again. Without that a test could
+// build the one fixture the real backend cannot produce - two live tasks on one
+// slot - and prove the collision guard against a state that never occurs.
+// Returning any other path stays a no-op success, which is what lets promote
+// hand back a scout worktree this pool never owned.
 //
 // Every "get" mints a fresh lease_id off a counter file, because that is the
 // one thing real treehouse (v2.1.0 and up) guarantees is never reused: a pool
 // slot handed back out keeps its path and gets a new identity, which is exactly
 // what worktree.CheckCollision keys on. A fake reusing one identity across
 // acquisitions could not tell the collision guard's two branches apart. The
-// counter lives beside the fake rather than in a fresh temp dir so that a test
-// reinstalling this fake - a subtest pointing it at its own worktree - keeps
-// counting up instead of reissuing an identity it already handed out.
+// counter and the held marker live beside the fake rather than in a fresh temp
+// dir so that a test reinstalling this fake - a subtest pointing it at its own
+// worktree - keeps counting up instead of reissuing an identity it already
+// handed out, and keeps each slot's held state separate.
 func writeFakeTreehouse(t *testing.T, dir, worktreePath string) {
 	t.Helper()
-	counter := filepath.Join(dir, ".treehouse-leases")
+	writeFakeTreehousePool(t, dir, worktreePath, "treehouse 2.1.0", true)
+}
+
+// writeFakeTreehouseWithoutLeaseIdentity is the same one-slot pool as a
+// treehouse older than v2.1.0: it leases and frees the slot identically but
+// reports no lease_id at all, which is what drives worktree.CheckCollision down
+// its path-comparison fallback - the same branch a task row written before the
+// lease_id column existed takes.
+func writeFakeTreehouseWithoutLeaseIdentity(t *testing.T, dir, worktreePath string) {
+	t.Helper()
+	writeFakeTreehousePool(t, dir, worktreePath, "treehouse 0.7.4", false)
+}
+
+func writeFakeTreehousePool(t *testing.T, dir, worktreePath, banner string, leaseIdentity bool) {
+	t.Helper()
+	counter := shellSingleQuote(filepath.Join(dir, ".treehouse-leases"))
+	held := shellSingleQuote(filepath.Join(dir, ".treehouse-held-"+strings.ReplaceAll(strings.Trim(worktreePath, "/"), "/", "_")))
+	path := shellSingleQuote(worktreePath)
+	payload := `'{"path":"%s","lease_id":"lease-%s"}\n' ` + path + ` "$n"`
+	if !leaseIdentity {
+		payload = `'{"path":"%s"}\n' ` + path
+	}
+	// Truncated rather than removed to free the slot, and tested with -s rather
+	// than -e: rm is not on this suite's hermetic PATH, and redirection is a shell
+	// builtin.
 	body := fmt.Sprintf(`  get)
-    echo 'treehouse 0.7.4' >&2
-    n=$(cat %[1]s 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > %[1]s
-    printf '{"path":"%%s","lease_id":"lease-%%s"}\n' %[2]s "$n"
+    echo %[1]s >&2
+    if [ -s %[2]s ]; then
+      printf 'treehouse: pool slot %%s is already leased\n' %[3]s >&2
+      exit 1
+    fi
+    n=$(cat %[4]s 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > %[4]s
+    echo "$n" > %[2]s
+    printf %[5]s
     ;;
-  return) echo ok ;;
-  init) echo ok ;;`, shellSingleQuote(counter), shellSingleQuote(worktreePath))
+  return)
+    if [ "$2" = %[3]s ]; then : > %[2]s; fi
+    echo ok
+    ;;
+  init) echo ok ;;`, shellSingleQuote(banner), held, path, counter, payload)
 	writeFakeDispatch(t, dir, "treehouse", "", "$1", body)
+}
+
+// returnFakeWorktree frees a leased pool slot through the fake treehouse's own
+// return arm. It stands in for the return `hand teardown` runs before it deletes
+// the task's row: when that deletion fails, this is exactly the state left
+// behind - the slot back in the pool, a row still naming it.
+func returnFakeWorktree(t *testing.T, worktreePath string) {
+	t.Helper()
+	out, err := exec.Command("treehouse", "return", worktreePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("fake treehouse return %s: %v: %s", worktreePath, err, out)
+	}
 }
 
 // redirectGitRemote makes `git clone <matchURL> <dest>` resolve to a local
