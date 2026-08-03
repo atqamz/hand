@@ -38,6 +38,9 @@ func sampleTask() Task {
 
 		StatusChangedAt: "2026-07-24T11:00:00Z", StatusChangedFor: "working",
 		LastReportState: "working", LastReportNote: "on it",
+
+		SendUndeliveredMessage: "stop and wait for review",
+		SendUndeliveredAt:      "2026-07-24T13:00:00Z",
 	}
 }
 

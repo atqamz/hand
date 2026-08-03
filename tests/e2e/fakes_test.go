@@ -182,6 +182,28 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 
+// writeFakeHerdrSend writes a herdr fake for the send scenario: "pane get"
+// reports whatever status currently sits in statusDir/<pane-id>, so a test can
+// free a busy composer while `hand send` is waiting on it, and
+// "pane send-text"/"pane send-keys" answer with the empty stdout real herdr
+// gives a void command (client.go's callVoid doc comment). Every invocation is
+// logged with the pid of the hand process that made it, which is what lets a
+// test tell two concurrent senders apart; each pane status read is logged after
+// the read for the same reason writeFakeHerdrWatch does it.
+func writeFakeHerdrSend(t *testing.T, dir, statusDir, logPath string) {
+	t.Helper()
+	quotedLog := shellSingleQuote(logPath)
+	body := fmt.Sprintf(`  "pane get")
+    status=$(cat %s/"$3" 2>/dev/null || echo idle)
+    echo "sender=$PPID pane get $3" >> %s
+    printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent":"claude","agent_status":"%%s"}}}\n' "$3" "$status"
+    ;;
+  "pane send-text") echo "sender=$PPID pane send-text $4" >> %s ;;
+  "pane send-keys") echo "sender=$PPID pane send-keys $4" >> %s ;;`,
+		shellSingleQuote(statusDir), quotedLog, quotedLog, quotedLog)
+	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
+}
+
 func writeFakeHerdrUnprobeablePanes(t *testing.T, dir string) {
 	t.Helper()
 	body := `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;

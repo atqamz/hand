@@ -62,7 +62,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 | `hand project sync` | Fast-forward project clones to their remote default branch | Available |
 | `hand spawn` | Spawn a worker agent in an isolated worktree | Available |
 | `hand status` | Show fleet overview or single-task detail | Available |
-| `hand send` | Send a message to a running worker | Available |
+| `hand send` | Send a message to a running worker, from an argument or `--file`; waits out a busy composer up to `--wait` instead of failing, and records the message as undelivered when it never reaches the pane | Available |
 | `hand hold set` | Record that an id is waiting on a human or on another id; survives the task's teardown, so `hand spawn` refuses to reuse a held id | Available |
 | `hand hold clear` | Clear the hold on an id | Available |
 | `hand watch` | Blocking watcher that prints actionable fleet events, including a worker gone silent with no herdr transition at all (`parked`); `--until-event` exits on the first one so the exit itself wakes the supervisory agent, and exits `5` naming any worker it can't reach before arming | Available |
@@ -138,7 +138,7 @@ Builds without an embedded version never print the notice.
 
 ## Configuration
 
-Currently supported preferences live as plain files under `config/`: default worker harness, model, and effort.
+Preferences live as plain files under `config/`, one value per file - default worker harness, model, and effort among them; SPECS.md's "Directory layout" section lists every key `hand` reads.
 Run `hand init --setup` to discover installed harnesses and tools and write the defaults interactively.
 A brief can declare its own `model` and `effort` for one task, which win over these defaults and lose only to a `hand spawn`/`hand promote` flag - see SPECS.md's "Brief format" section.
 

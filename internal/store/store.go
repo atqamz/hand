@@ -78,6 +78,14 @@ type Task struct {
 	// re-reading report history it has already consumed past ReportOffset.
 	LastReportState string `json:"last_report_state"`
 	LastReportNote  string `json:"last_report_note"`
+	// Durable so a hand send message with no evidence it reached the pane -
+	// a composer still busy past the --wait bound, a failed send, a failed
+	// submit - leaves a trace instead of vanishing with the process that
+	// attempted it; the operator who ran that send is the only one who would
+	// otherwise know it was ever tried. Cleared on the next send that actually
+	// reaches the pane, whatever message that send carries.
+	SendUndeliveredMessage string `json:"send_undelivered_message"`
+	SendUndeliveredAt      string `json:"send_undelivered_at"`
 }
 
 type Project struct {
@@ -140,7 +148,9 @@ CREATE TABLE IF NOT EXISTS task (
 	status_changed_at  TEXT NOT NULL DEFAULT '',
 	status_changed_for TEXT NOT NULL DEFAULT '',
 	last_report_state  TEXT NOT NULL DEFAULT '',
-	last_report_note   TEXT NOT NULL DEFAULT ''
+	last_report_note   TEXT NOT NULL DEFAULT '',
+	send_undelivered_message TEXT NOT NULL DEFAULT '',
+	send_undelivered_at      TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
@@ -228,14 +238,16 @@ func (db *DB) setMeta(key, value string) error {
 const taskColumns = `id, project, kind, harness, model, effort, worktree, brief,
 	herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id, pr,
 	merge_executed, merge_executed_at, report_offset, merge_announced, done_verified,
-	created_at, status_changed_at, status_changed_for, last_report_state, last_report_note`
+	created_at, status_changed_at, status_changed_for, last_report_state, last_report_note,
+	send_undelivered_message, send_undelivered_at`
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Harness, &t.Model, &t.Effort, &t.Worktree, &t.Brief,
 		&t.Herdr.Session, &t.Herdr.WorkspaceID, &t.Herdr.TabID, &t.Herdr.PaneID, &t.PR,
 		&t.MergeExecuted, &t.MergeExecutedAt, &t.ReportOffset, &t.MergeAnnounced, &t.DoneVerified,
-		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote)
+		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
+		&t.SendUndeliveredMessage, &t.SendUndeliveredAt)
 	return t, err
 }
 
@@ -253,7 +265,7 @@ func (db *DB) ReadTask(id string) (Task, bool, error) {
 
 func (db *DB) WriteTask(t Task) error {
 	_, err := db.sql.Exec(`INSERT INTO task (`+taskColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project = excluded.project, kind = excluded.kind, harness = excluded.harness,
 			model = excluded.model, effort = excluded.effort, worktree = excluded.worktree,
@@ -264,11 +276,14 @@ func (db *DB) WriteTask(t Task) error {
 			report_offset = excluded.report_offset, merge_announced = excluded.merge_announced,
 			done_verified = excluded.done_verified, created_at = excluded.created_at,
 			status_changed_at = excluded.status_changed_at, status_changed_for = excluded.status_changed_for,
-			last_report_state = excluded.last_report_state, last_report_note = excluded.last_report_note`,
+			last_report_state = excluded.last_report_state, last_report_note = excluded.last_report_note,
+			send_undelivered_message = excluded.send_undelivered_message,
+			send_undelivered_at = excluded.send_undelivered_at`,
 		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
 		t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
-		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote)
+		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
+		t.SendUndeliveredMessage, t.SendUndeliveredAt)
 	if err != nil {
 		return fmt.Errorf("write task %q: %w", t.ID, err)
 	}

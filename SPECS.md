@@ -200,6 +200,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     notify                  # notification command template (optional)
     stale-threshold         # seconds before a task is considered stale (default: 300)
     watch-interval          # poll interval for `hand watch` (default: 5s)
+    send-wait               # how long `hand send` waits for a busy composer (default: 2m)
     parked-paused-bound     # seconds a paused-and-silent task may sit before it's parked (default: 3600)
     parked-other-bound      # seconds a silent task in any other state may sit before it's parked (default: 1200)
 ```
@@ -368,8 +369,8 @@ Behavior:
 6. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
 7. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
 8. Acquire the task's herdr tab in the project's workspace.
-   - Workspace naming: one workspace per project, named after the project.
-   - Tab naming: task ID.
+   - Workspace and tab labels: one workspace per project, one tab per task - see "Workspace and
+     tab model" under "Herdr integration detail" for the labels themselves.
    - If the project's workspace does not exist yet, create it at the worktree's cwd. herdr has no
      way to create an empty workspace - it always creates a root tab and pane alongside it - so
      this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
@@ -439,7 +440,9 @@ Task row written to the `task` table in `state/hand.db`, one column per field be
   "status_changed_at": "",
   "status_changed_for": "",
   "last_report_state": "",
-  "last_report_note": ""
+  "last_report_note": "",
+  "send_undelivered_message": "",
+  "send_undelivered_at": ""
 }
 ```
 
@@ -591,19 +594,55 @@ Errors:
 
 ---
 
-### `hand send <id> <message>`
+### `hand send <id> [message]`
 
 Send a text message to a running worker's herdr pane.
 
 ```
 hand send fix-login "focus on the auth middleware, not the test framework"
+hand send fix-login --file data/fix-login/steer.md
 ```
+
+A busy composer (agent mid-response) is the normal state a steer arrives into, not an error
+condition (atqamz/secondhand#102): `hand send` waits for it to free rather than failing
+immediately, so a caller does not have to reimplement that retry in shell. The wait is bounded,
+not indefinite - a composer that stays busy for the whole bound means the message never reached
+the pane, and that has to surface as a distinct, terminal-for-this-invocation outcome rather than
+a hang.
+
+Flags:
+- `--file <path>`: read the message from this file instead of the positional argument, trailing
+  newlines trimmed. A multi-paragraph steer going through the shell as a positional argument has
+  to survive quoting, embedded newlines, and backticks intact; `--file` is the way to send one
+  without gambling on that. Mutually exclusive with the positional `message` - exactly one of the
+  two is required.
+- `--wait <duration>`: how long to wait for a busy composer to free before giving up. Default
+  `config/send-wait`, or `2m` if that is unset too. Long enough that an ordinary agent turn does
+  not need the caller to retry at all, short enough that an invocation still returns in bounded
+  time; a steer into an unusually long-running turn is a `--wait` argument, not a bigger polling
+  loop.
 
 Behavior:
 1. Read the task's row for herdr pane coordinates.
 2. Check herdr pane exists and agent is present.
-3. Wait for composer to be empty (agent not mid-response).
-4. Submit the message text.
+3. Acquire a per-task send lock (`send:<id>`), held for the rest of this list. A second `hand send`
+   against the same task waits behind the first rather than polling the same pane at the same
+   time - two unsynchronized retry loops racing the same busy composer is the exact hazard
+   atqamz/secondhand#102 traced a lost steer to.
+4. If the composer is busy, poll until it frees or `--wait` elapses.
+5. Whenever the message does not demonstrably land in the pane - `--wait` elapses first, the text
+   fails to send, or the submit keystroke fails after the text went in - durably record the message
+   and a timestamp on the task row (`send_undelivered_message`, `send_undelivered_at`) under a
+   separate, short-lived task-row lock, so a steer that never arrives leaves a trace instead of
+   vanishing with the process that attempted it. Only the elapsed-`--wait` case exits distinctly
+   (see "Exit codes"); the two delivery failures are ordinary exit-1 errors. This lock is not held
+   for the wait itself: a `hand send` waiting out its bound must not stall `hand watch`'s polling
+   or a `hand status` read on the same task.
+6. Otherwise, submit the message text and clear any previously recorded undelivered-send trace on
+   the task row (whatever message that trace carries) - a send that reaches the pane moots it,
+   whether or not it is a retry of the exact message that was previously abandoned. A failure to
+   clear the trace warns on stderr and still succeeds: the message is already in the pane, so
+   failing here would invite a retry that double-sends the steer.
 
 Output:
 ```
@@ -611,9 +650,18 @@ sent to fix-login
 ```
 
 Errors:
-- Task not found.
-- Herdr pane doesn't exist (agent died, tab closed).
-- Composer not empty after timeout (agent busy, message queued or refused).
+- Task not found (exit 3).
+- Neither or both of the positional `message` and `--file` given (exit 2).
+- Invalid `--wait` value (exit 2 from the flag, exit 1 from a bad `config/send-wait`).
+- Herdr pane doesn't exist (agent died, tab closed) - exit 1, distinct from a busy composer because
+  this send can never succeed, no matter how long it waits. This covers a pane that stops answering
+  partway through the wait too, not only one already gone when the wait starts.
+- Sending or submitting the message text failed - exit 1. The message is recorded as undelivered
+  (step 5): text that never left, and text left unsubmitted in the composer, are both a steer with
+  no evidence it landed.
+- Composer still busy after `--wait` elapses - exit 6, distinct from the pane-not-found case above:
+  this is a transient state a caller can retry (e.g. with a longer `--wait`), not a terminal
+  failure. The message is durably recorded as undelivered rather than lost; see step 5 above.
 
 ---
 
@@ -1249,7 +1297,7 @@ Only the append-only sections have per-command rules, because only they carry an
 
 A mutating command re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
 It re-renders unconditionally, never after testing whether its own effect reached a section: `hand promote` changes the `kind` the Active Tasks row derives, while `hand project sync` and `hand merge`'s PR path may leave every derived value identical, and a command that had to know which case it was in would be deciding from outside the render what the render already answers.
-Five commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, `hand hold set` and `hand hold clear` mutate only the `hold` table, which no section of this file derives from (see "Holds" under "State management"), and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
+Five commands still leave this file untouched: `hand notify` reaches a worker without touching the store at all, and what the other four do write is nothing any section of this file derives from - `hand send`'s undelivered-send trace on the task row (see `hand send` step 5), `hand hold set`'s and `hand hold clear`'s rows in the `hold` table (see "Holds" under "State management"), and `hand merge --local`'s merge flag, which also runs no project sync.
 
 Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 
@@ -1459,7 +1507,18 @@ The herdr server must be running before any `hand` operation that touches tabs/p
 
 ### Workspace and tab model
 
-- One workspace per project. Workspace label = project name.
+- One workspace per project. Workspace label = `hand:<project-name>`, not the bare project name
+  (atqamz/secondhand#118): herdr derives a label from a workspace root directory's basename, so it
+  is neither unique nor owned by `hand` - a project cloned to a directory sharing that basename
+  with something else on the machine (the fleet home itself, another tool's workspace) produces a
+  second workspace with the identical bare label, and `FindWorkspaceByLabel` returning whichever one
+  `herdr workspace list` happens to return first is a silent dispatch into a workspace `hand` never
+  created. The `hand:` prefix is `hand`'s own namespace, mirroring the existing `hand:<task-id>`
+  convention for treehouse worktree ownership - it does not make the label unique on its own, but it
+  does mean a collision now requires another `hand`-managed project to coincidentally share the same
+  name, not any directory on the system. A workspace already created under the bare label from
+  before this change is not adopted; `hand spawn` creates a new `hand:<project-name>` workspace
+  alongside it, and the old one is orphaned (still functional, just no longer found by lookup).
 - One tab per task within the project workspace. Tab label = task ID.
 - The supervisory agent's own session is a separate herdr workspace (or the user's own terminal).
 
@@ -1494,7 +1553,7 @@ either one alone.
 |---|---|
 | `hand spawn` | create workspace (if needed, at the worktree's cwd, reusing its own root tab as the task tab) or create tab in an existing workspace + send launch command + poll pane state and read pane text until the worker is confirmed started, sending keys to answer first-run dialogs |
 | `hand status` | get agent state for pane |
-| `hand send` | check composer empty + send keys to pane |
+| `hand send` | poll pane until the composer is empty, bounded by `--wait` + send keys to pane |
 | `hand teardown` | close tab (+ close workspace if empty) |
 | `hand watch` | subscribe to agent_status_changed events, or poll pane states |
 
@@ -1508,7 +1567,7 @@ herdr workspace list
 # creates a root tab and pane too, at --cwd; hand points --cwd at the worktree (not the clone) and
 # reuses that root tab as the first task's tab (see "herdr tab rename" below) rather than
 # discarding it and creating a second tab, which would leave it behind as an orphan shell
-herdr workspace create --no-focus --cwd <worktree> --label <project-name>
+herdr workspace create --no-focus --cwd <worktree> --label hand:<project-name>
 
 # create tab in an already-existing workspace
 herdr tab create --workspace <ws-id> --no-focus --cwd <worktree> --label <task-id>
@@ -1858,7 +1917,7 @@ Set with `hand hold set`, which upserts - a second call on the same id replaces 
 
 ### Concurrency
 
-- Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, dashboard) sit above that and guard whole command sequences, which a per-statement database lock cannot. The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
+- Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, dashboard, send) sit above that and guard whole command sequences, which a per-statement database lock cannot. The send lock is its own name rather than the task lock because it is held for the whole of a `hand send`'s composer wait, which the task lock must not be (see `hand send`). The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
 - `hand watch` is the only long-running process; all other commands are short-lived.
 - File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.
@@ -1925,6 +1984,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
+- `6`: send undelivered, only from `hand send`: the composer stayed busy for the whole `--wait` bound, so the message never reached the pane. Distinct from `1`, which for `hand send` means the send can never succeed (no such herdr pane, herdr itself erroring) - `6` means the opposite, a transient state a caller can retry, most simply with a longer `--wait`. Not `4` or `5`: those are reserved to `hand watch --until-event`.
 
 ### Error output
 

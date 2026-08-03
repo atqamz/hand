@@ -62,11 +62,12 @@ func (db *DB) migrateLegacy() error {
 		// An id already in the database wins: it is what hand has been writing
 		// since the import, and the JSON file is a snapshot from before it.
 		if _, err := db.sql.Exec(`INSERT OR IGNORE INTO task (`+taskColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
 			t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
 			t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
-			t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote); err != nil {
+			t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
+			t.SendUndeliveredMessage, t.SendUndeliveredAt); err != nil {
 			return fmt.Errorf("import task %q: %w", t.ID, err)
 		}
 	}

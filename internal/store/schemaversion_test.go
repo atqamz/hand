@@ -5,14 +5,18 @@ import (
 	"testing"
 )
 
-func TestFreshOpenRecordsSchemaVersionZero(t *testing.T) {
+// A fresh database is built by `schema`, which already carries every
+// registered migration, so it is stamped straight to the latest version
+// rather than 0 - only a database that predates the mechanism entirely reads
+// as 0 (TestExistingBaselineDatabaseOpensCleanly below).
+func TestFreshOpenRecordsSchemaVersionAtLatest(t *testing.T) {
 	db, _ := openTemp(t)
 	version, err := db.schemaVersion()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 0 {
-		t.Fatalf("schemaVersion = %d, want 0", version)
+	if version != len(migrations) {
+		t.Fatalf("schemaVersion = %d, want %d", version, len(migrations))
 	}
 }
 
@@ -74,6 +78,15 @@ func TestOpenRefusesADatabaseNewerThanThisBuild(t *testing.T) {
 // operator running anything, and cheap to run again on the next open.
 func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	home := t.TempDir()
+
+	restore := migrations
+	t.Cleanup(func() { migrations = restore })
+
+	// Empty migrations for this first open, so the fresh database it stamps
+	// reads as version 0 - the pre-mechanism baseline this test needs -
+	// rather than picking up whatever this build's real migrations already
+	// registered.
+	migrations = []string{}
 	existing, err := Open(home)
 	if err != nil {
 		t.Fatal(err)
@@ -85,9 +98,7 @@ func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restore := migrations
 	migrations = []string{`ALTER TABLE project ADD COLUMN note TEXT NOT NULL DEFAULT ''`}
-	t.Cleanup(func() { migrations = restore })
 
 	db, err := Open(home)
 	if err != nil {
@@ -151,4 +162,55 @@ func TestFreshDatabaseSkipsAMigrationTheSchemaAlreadyBuilds(t *testing.T) {
 		t.Fatalf("reopening a stamped fresh database: %v", err)
 	}
 	defer func() { _ = second.Close() }()
+}
+
+// Exercises the real migrations entry this commit registers, rather than a
+// swapped-in stand-in like the tests above, so a syntax error in the actual
+// ALTER TABLE statements would fail here instead of only in a synthetic one.
+func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+
+	restore := migrations
+	t.Cleanup(func() { migrations = restore })
+
+	// Empty migrations for this first open, so the fresh database it builds
+	// reads as version 0; `schema` still creates the two new columns (it can't
+	// be swapped the way `migrations` can), so they are dropped by hand to put
+	// the database back into the pre-migration shape this test needs.
+	migrations = []string{}
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN send_undelivered_message`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN send_undelivered_at`); err != nil {
+		t.Fatal(err)
+	}
+	// WriteTask always targets the full, current taskColumns, which still
+	// names the two dropped columns - so this row goes in with a raw insert
+	// against the pre-migration column set instead.
+	if _, err := existing.sql.Exec(`INSERT INTO task (id) VALUES ('t1')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrations = restore
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen replaying the real send_undelivered migration: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	got, found, err := reopened.ReadTask("t1")
+	if err != nil || !found {
+		t.Fatalf("ReadTask = %v, %v", found, err)
+	}
+	if got.SendUndeliveredMessage != "" || got.SendUndeliveredAt != "" {
+		t.Fatalf("migrated columns not empty-defaulted: %+v", got)
+	}
 }

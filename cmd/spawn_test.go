@@ -39,7 +39,7 @@ const fakeHerdrSpawnScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
 "workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"myproj","tab_count":1}]}}'
+	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":1}]}}'
 	;;
 "tab create")
 	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
@@ -127,6 +127,56 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 	if got.Herdr.WorkspaceID != "wA" || got.Herdr.TabID != "wA:tB" || got.Herdr.PaneID != "wA:pC" {
 		t.Fatalf("got herdr %+v", got.Herdr)
+	}
+}
+
+// TestSpawnIgnoresSameLabelledWorkspaceHandDidNotCreate pins the fix for atqamz/secondhand#118:
+// herdr derives a workspace's label from its root directory's basename, so a human who opens a
+// directory named after the project gets a workspace sharing hand's own bare-label search key.
+// The plain-labelled "myproj" workspace here sorts first in "workspace list" and would have won
+// under the old bare-label lookup; hand must still resolve to its own "hand:myproj" workspace
+// regardless of list order, never the one it did not create.
+const fakeHerdrTwoWorkspacesOneLabelScript = `#!/bin/sh
+cmd="$1 $2"
+case "$cmd" in
+"workspace list")
+	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wHuman","label":"myproj","tab_count":1},{"workspace_id":"wA","label":"hand:myproj","tab_count":1}]}}'
+	;;
+"tab create")
+	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
+	;;
+"pane run")
+	printf '{"id":"cli:1","result":{}}'
+	;;
+"pane get")
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"claude","agent_status":"idle"}}}' "$3"
+	;;
+"pane read")
+	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`
+
+func TestSpawnIgnoresSameLabelledWorkspaceHandDidNotCreate(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, fakeHerdrTwoWorkspacesOneLabelScript)
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Herdr.WorkspaceID != "wA" {
+		t.Fatalf("got workspace %q, want hand's own hand:myproj workspace wA, not the same-labelled one it did not create", got.Herdr.WorkspaceID)
 	}
 }
 
@@ -304,7 +354,7 @@ cmd="$1 $2"
 case "$cmd" in
 "workspace list")
 	if [ -e "$HERDR_WS_EXISTS_FLAG" ]; then
-		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"myproj","tab_count":2}]}}'
+		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":2}]}}'
 	else
 		printf '{"id":"cli:1","result":{"workspaces":[]}}'
 	fi

@@ -30,7 +30,7 @@ case "$cmd" in
 	printf '{"id":"cli:1","result":{}}'
 	;;
 "workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"myproj","tab_count":2}]}}'
+	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":2}]}}'
 	;;
 "tab create")
 	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tNew","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pNew","tab_id":"wA:tNew","agent_status":"idle"}}}'
@@ -311,7 +311,7 @@ case "$cmd" in
 	;;
 "workspace list")
 	if [ -e "$HERDR_WS_EXISTS_FLAG" ]; then
-		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"myproj","tab_count":2}]}}'
+		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":2}]}}'
 	else
 		printf '{"id":"cli:1","result":{"workspaces":[]}}'
 	fi

@@ -16,7 +16,10 @@ var ErrSchemaNewer = errors.New("schema version newer than this build of hand su
 // user_version as 0 by sqlite's own default, and that has to mean "the schema
 // this commit ships", not "unknown, refuse to proceed" - otherwise the one
 // fleet home that exists stops opening the moment this merges.
-var migrations = []string{}
+var migrations = []string{
+	`ALTER TABLE task ADD COLUMN send_undelivered_message TEXT NOT NULL DEFAULT '';
+	ALTER TABLE task ADD COLUMN send_undelivered_at TEXT NOT NULL DEFAULT '';`,
+}
 
 func (db *DB) schemaVersion() (int, error) {
 	var version int
