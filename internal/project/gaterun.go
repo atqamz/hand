@@ -29,7 +29,8 @@ const gateRunLimit = "10000"
 // Every way of failing to ask no-mistakes at all is an error, never an empty set, so a caller can
 // keep "the gate recorded no such run" separate from "the question could not be asked": a missing
 // clone path, an unrunnable binary, and - read from the output text rather than the exit code, the
-// same way GateStatus reads them, since no-mistakes can print either while exiting 0 - an
+// same way GateStatus reads them, because `no-mistakes runs` exits 1 for both an uninitialized gate
+// and a non-git clone path, leaving the exit code with nothing to tell the two apart - an
 // uninitialized gate or a clone path that is not a git repository at all.
 func GateRunPRs(clonePath string) (map[string]bool, error) {
 	if _, err := os.Stat(clonePath); err != nil {
