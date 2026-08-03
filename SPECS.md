@@ -1199,7 +1199,8 @@ osascript -e "display notification \"$HAND_MESSAGE\" with title \"secondhand\""
 
 `hand init --setup` still does not write `config/notify` - it covers `harness`, `model`, and `effort` only - so a fresh
 fleet home leaves the channel unconfigured until an operator adds the file by hand. That absence is expected and quiet
-in the watcher's hook (see below); `hand notify` itself is the one place it is loud, per the exit code below.
+in the watcher's hook (see "Notifying a supervisory agent with no session watching"); `hand notify` itself is the one
+place it is loud, per the exit code below.
 
 Output:
 ```
