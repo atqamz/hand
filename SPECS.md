@@ -200,6 +200,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     notify                  # notification command template (optional)
     stale-threshold         # seconds before a task is considered stale (default: 300)
     watch-interval          # poll interval for `hand watch` (default: 5s)
+    send-wait               # how long `hand send` waits for a busy composer (default: 2m)
     parked-paused-bound     # seconds a paused-and-silent task may sit before it's parked (default: 3600)
     parked-other-bound      # seconds a silent task in any other state may sit before it's parked (default: 1200)
 ```
@@ -368,8 +369,8 @@ Behavior:
 6. Acquire a treehouse worktree: `treehouse get --lease --json --lease-holder hand:<id>`, run inside the project clone (treehouse resolves the pool from cwd).
 7. **Collision guard:** cross-check the acquired worktree path against all active tasks' recorded worktree paths in the store. If the path matches another active task, return the worktree to treehouse and fail with an error naming the conflicting task. This prevents the stale-lease-after-crash bug (firstmate #947).
 8. Acquire the task's herdr tab in the project's workspace.
-   - Workspace naming: one workspace per project, named after the project.
-   - Tab naming: task ID.
+   - Workspace and tab labels: one workspace per project, one tab per task - see "Workspace and
+     tab model" under "Herdr integration detail" for the labels themselves.
    - If the project's workspace does not exist yet, create it at the worktree's cwd. herdr has no
      way to create an empty workspace - it always creates a root tab and pane alongside it - so
      this reuses that root tab as the task's tab (renamed to the task ID) instead of creating a
@@ -1296,7 +1297,7 @@ Only the append-only sections have per-command rules, because only they carry an
 
 A mutating command re-renders the whole file, and the derived sections follow from the store and the report channel wherever the write came from.
 It re-renders unconditionally, never after testing whether its own effect reached a section: `hand promote` changes the `kind` the Active Tasks row derives, while `hand project sync` and `hand merge`'s PR path may leave every derived value identical, and a command that had to know which case it was in would be deciding from outside the render what the render already answers.
-Five commands still write nothing at all: `hand send` and `hand notify` reach a worker without touching the store, `hand hold set` and `hand hold clear` mutate only the `hold` table, which no section of this file derives from (see "Holds" under "State management"), and `hand merge --local` writes only a merge flag no section reads and runs no project sync.
+Five commands still leave this file untouched: `hand notify` reaches a worker without touching the store at all, and what the other four do write is nothing any section of this file derives from - `hand send`'s undelivered-send trace on the task row (see `hand send` step 5), `hand hold set`'s and `hand hold clear`'s rows in the `hold` table (see "Holds" under "State management"), and `hand merge --local`'s merge flag, which also runs no project sync.
 
 Recent Completions is a capped view, not the record of truth: every entry `hand teardown` moves here also lands, uncapped, in `state/completions.jsonl` first (see "Completion store" under `hand teardown`), so the 10-entry cap loses nothing that store still has.
 
@@ -1552,7 +1553,7 @@ either one alone.
 |---|---|
 | `hand spawn` | create workspace (if needed, at the worktree's cwd, reusing its own root tab as the task tab) or create tab in an existing workspace + send launch command + poll pane state and read pane text until the worker is confirmed started, sending keys to answer first-run dialogs |
 | `hand status` | get agent state for pane |
-| `hand send` | check composer empty + send keys to pane |
+| `hand send` | poll pane until the composer is empty, bounded by `--wait` + send keys to pane |
 | `hand teardown` | close tab (+ close workspace if empty) |
 | `hand watch` | subscribe to agent_status_changed events, or poll pane states |
 
@@ -1916,7 +1917,7 @@ Set with `hand hold set`, which upserts - a second call on the same id replaces 
 
 ### Concurrency
 
-- Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, dashboard) sit above that and guard whole command sequences, which a per-statement database lock cannot. The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
+- Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, dashboard, send) sit above that and guard whole command sequences, which a per-statement database lock cannot. The send lock is its own name rather than the task lock because it is held for the whole of a `hand send`'s composer wait, which the task lock must not be (see `hand send`). The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
 - `hand watch` is the only long-running process; all other commands are short-lived.
 - File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.
