@@ -62,6 +62,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - Waiting on the operator or on another task: ` + "`hand hold set <id> --kind operator --reason <text>`" + ` or ` + "`--kind blocked --reason <text> --blocked-on <id>`" + `, and ` + "`hand hold clear <id>`" + ` once resolved.
 - Name a path in a brief, a status report, or an operator message: full and absolute, never relative. ` + "`hand`" + ` resolves the home from ` + "`HAND_HOME`" + ` or the nearest fleet home at or above the working directory, and a project clone can share its name with the home itself, so a relative path resolves against whichever directory happens to be current.
 - Ship tasks produce PRs or local branches. Scout tasks produce ` + "`data/<id>/report.md`" + `.
+- ` + "`data/operator.md`" + ` is the operator's file, not yours. Read it, never rewrite it: one-way ownership is what lets its constraints outrank your judgment.
 - ` + "`data/backlog.md`" + ` is your task queue. Edit it directly.
 - Roll finished backlog entries into ` + "`data/done-archive.md`" + `, and dropped or superseded ones into ` + "`data/note-archive.md`" + ` with the reason they were dropped. Roll off rather than delete: the queue you read at session start stays short and the record survives.
 - ` + "`data/learnings.md`" + ` holds dated, evidence-backed operational facts. Read it when a task touches something it covers, add to it when a discovery cost real time, and curate it - rewrite and prune rather than append forever.

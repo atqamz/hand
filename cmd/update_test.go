@@ -148,6 +148,84 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	}
 }
 
+// The refreshed template directs the agent at data files a home initialized
+// before them never had, so update seeds whichever are missing.
+func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"data/backlog.md":      "# Backlog",
+		"data/operator.md":     "## Hard constraints",
+		"data/learnings.md":    "# Learnings",
+		"data/done-archive.md": "# Done archive",
+		"data/note-archive.md": "# Note archive",
+	}
+	for rel, header := range want {
+		got, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			t.Fatalf("%s missing after update: %v", rel, err)
+		}
+		if !strings.Contains(string(got), header) {
+			t.Fatalf("%s = %q, want it to contain %q", rel, got, header)
+		}
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("got stderr %q, want none", errOut.String())
+	}
+}
+
+func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	existing := "# Operator\n\n## Authority\n\nMerge without asking.\n"
+	if err := os.WriteFile(filepath.Join(home, "data", "operator.md"), []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(home, "data", "operator.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Fatalf("data/operator.md = %q, want unchanged %q", got, existing)
+	}
+}
+
 func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("update binary layout targets unix asset names")

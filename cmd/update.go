@@ -44,14 +44,19 @@ func newUpdateCmd(version string) *cobra.Command {
 			}
 
 			// The binary is already replaced by this point, so a failed
-			// AGENTS.md refresh is reported as a warning rather than an error:
-			// exiting nonzero here reads as "the update failed" and invites a
-			// pointless re-run.
+			// AGENTS.md refresh or skeleton seed is reported as a warning
+			// rather than an error: exiting nonzero here reads as "the update
+			// failed" and invites a pointless re-run.
 			var refreshed bool
+			var seedErr error
 			fleetHome, refreshErr := home.Resolve()
 			switch {
 			case refreshErr == nil:
 				refreshed, refreshErr = agentsmd.Refresh(fleetHome)
+				// The refreshed template directs the agent at data files an
+				// older home never had, so the command that installs it also
+				// leaves those files in place.
+				seedErr = initSkeletonFiles(fleetHome)
 			case errors.Is(refreshErr, home.ErrNotFound):
 				refreshErr = nil
 			}
@@ -75,6 +80,11 @@ func newUpdateCmd(version string) *cobra.Command {
 			}
 			if refreshErr != nil {
 				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: refresh AGENTS.md: %v\n", refreshErr); err != nil {
+					return err
+				}
+			}
+			if seedErr != nil {
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: seed data skeletons: %v\n", seedErr); err != nil {
 					return err
 				}
 			}

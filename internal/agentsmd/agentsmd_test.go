@@ -218,6 +218,7 @@ func TestGeneratedRulesCoverOperatorContextLearningsAndArchives(t *testing.T) {
 		"data/done-archive.md",
 		"data/note-archive.md",
 		"written for the operator to read",
+		"never rewrite it",
 	} {
 		if !strings.Contains(generatedBody, want) {
 			t.Fatalf("got generated body %q, want it to name %q", generatedBody, want)
