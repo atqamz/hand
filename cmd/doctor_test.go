@@ -64,6 +64,27 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	}
 }
 
+func TestDoctorMarkerLessAgentsMdIsInformationalNotFailing(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	path := filepath.Join(home, "AGENTS.md")
+	if err := os.WriteFile(path, []byte("# Hand-authored, no generated markers\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newDoctorCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got error %v, want nil: a marker-less AGENTS.md can be deliberate, so this finding must not fail the command", err)
+	}
+	if !strings.Contains(out.String(), "no hand:generated markers") {
+		t.Fatalf("stdout = %q, want the missing-markers finding reported even though it does not fail", out.String())
+	}
+}
+
 func TestDoctorOutsideFleetHomeIsPrecondition(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

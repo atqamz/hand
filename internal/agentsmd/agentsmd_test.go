@@ -401,10 +401,15 @@ func TestCheckFlagsMissingGeneratedMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !hasViolation(violations, "no hand:generated markers") {
-		t.Fatalf("got %v, want a missing-markers violation: Refresh declines to touch this file, so nothing else reports it", violations)
+		t.Fatalf("got %v, want a missing-markers finding: Refresh declines to touch this file, so nothing else reports it", violations)
 	}
 	if hasViolation(violations, "generated block has drifted") {
 		t.Fatalf("got %v, want no drift violation when there is no block to drift", violations)
+	}
+	for _, v := range violations {
+		if strings.Contains(v.Text, "no hand:generated markers") && v.Severity != SeverityInfo {
+			t.Fatalf("got severity %v for the missing-markers finding, want SeverityInfo: Check cannot tell an accidental marker-less file from a deliberate one", v.Severity)
+		}
 	}
 }
 

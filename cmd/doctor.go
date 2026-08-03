@@ -26,7 +26,11 @@ func newDoctorCmd() *cobra.Command {
 
 			path := filepath.Join(fleetHome, "AGENTS.md")
 			out := cmd.OutOrStdout()
+			failing := 0
 			for _, v := range violations {
+				if v.Severity != agentsmd.SeverityInfo {
+					failing++
+				}
 				if v.Line > 0 {
 					if _, err := fmt.Fprintf(out, "%s:%d: %s\n", path, v.Line, v.Text); err != nil {
 						return err
@@ -37,8 +41,8 @@ func newDoctorCmd() *cobra.Command {
 					return err
 				}
 			}
-			if len(violations) > 0 {
-				return fmt.Errorf("%s: %d issue(s) found", path, len(violations))
+			if failing > 0 {
+				return fmt.Errorf("%s: %d issue(s) found", path, failing)
 			}
 			return nil
 		},

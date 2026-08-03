@@ -163,21 +163,38 @@ var (
 	urlRe        = regexp.MustCompile(`https?://\S+`)
 )
 
+// Severity distinguishes a Violation that fails hand doctor from one that is
+// informational: reported because it is real and worth a human's attention,
+// but not something the checker can resolve into a pass/fail verdict on its
+// own - the marker-less case below is the only one so far, since Check has
+// no way to tell a file left marker-less by accident from one left that way
+// on purpose.
+type Severity int
+
+const (
+	SeverityViolation Severity = iota
+	SeverityInfo
+)
+
 // Violation is one perishable-content, malformed-file, or generated-block hit
-// Check found. Line is 1-based, or 0 for a violation that isn't about a single
-// line (a drifted or absent generated block).
+// Check found, at SeverityViolation unless Severity says otherwise. Line is
+// 1-based, or 0 for a violation that isn't about a single line (a drifted or
+// absent generated block).
 type Violation struct {
-	Line int
-	Text string
+	Line     int
+	Text     string
+	Severity Severity
 }
 
 // Check reports perishable content, an unterminated code fence, and either
 // generated-block drift or generated markers absent altogether in dir's
 // AGENTS.md, described in SPECS.md's "AGENTS.md (target)" section
-// (atqamz/secondhand#90). It never writes: the point is to make a human look
-// at prose judgment a machine cannot make, not to rewrite it. A nil result
-// with no error means dir is not a fleet home, or has no AGENTS.md yet -
-// both are an absence, not a violation.
+// (atqamz/secondhand#90). Absent markers come back at SeverityInfo rather
+// than SeverityViolation, since Check cannot tell a marker-less file left
+// that way by accident from one left that way on purpose. It never writes:
+// the point is to make a human look at prose judgment a machine cannot make,
+// not to rewrite it. A nil result with no error means dir is not a fleet
+// home, or has no AGENTS.md yet - both are an absence, not a violation.
 func Check(dir string) ([]Violation, error) {
 	isHome, err := home.IsHome(dir)
 	if err != nil {
@@ -239,7 +256,10 @@ func Check(dir string) ([]Violation, error) {
 
 	switch {
 	case !hasBlock:
-		violations = append(violations, Violation{Text: fmt.Sprintf("no hand:generated markers: hand init and hand update leave a marker-less file alone, so this template can never refresh itself; paste the current generated block back in, or move this file aside and run hand init %s", dir)})
+		violations = append(violations, Violation{
+			Text:     "no hand:generated markers: hand init and hand update leave a marker-less file alone, so this template can never refresh itself here - paste the current generated block back in if that is unintended, or ignore this finding if the file is deliberately hand-authored (see SPECS.md's \"AGENTS.md (target)\" section)",
+			Severity: SeverityInfo,
+		})
 	case content[blockStart:blockEnd] != strings.TrimSuffix(generatedBlock(), "\n"):
 		violations = append(violations, Violation{Text: fmt.Sprintf("generated block has drifted from generatedBody: run hand init %s to refresh", dir)})
 	}
