@@ -958,16 +958,20 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
-// An outage stamp is written for herdr's unknown status, so honoring it as a pane
-// start would let a two-tick blink slide parked's floor forward and forget the real
-// report silence that accumulated before it.
-func TestReportEvidenceTimeIgnoresAnOutageStamp(t *testing.T) {
+// The floor reads status_changed_at whatever status the stamp was taken for, so an
+// outage stamp only ever delays parked. Falling back to created_at for such a stamp
+// instead - as an outage-aware floor would have to - reopens the hazard the floor
+// exists to close, because after a promote created_at is the scout's own creation and
+// the ship inherits its whole accumulated silence. Separating the two needs a durable
+// pane-start fact; see atqamz/secondhand#128.
+func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
 	now := time.Now()
 	home := t.TempDir()
+	stamped := now.Add(-time.Minute)
 	task := state.Task{
 		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt:        now.Add(-time.Hour).UTC().Format(time.RFC3339),
-		StatusChangedAt:  now.UTC().Format(time.RFC3339),
+		CreatedAt:        now.Add(-4 * time.Hour).UTC().Format(time.RFC3339),
+		StatusChangedAt:  stamped.UTC().Format(time.RFC3339),
 		StatusChangedFor: string(herdr.StatusUnknown),
 	}
 	if err := state.Write(home, task); err != nil {
@@ -977,8 +981,8 @@ func TestReportEvidenceTimeIgnoresAnOutageStamp(t *testing.T) {
 	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	silentSince := now.Add(-10 * time.Minute)
-	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+	scoutSilence := now.Add(-2 * time.Hour)
+	if err := os.Chtimes(reportPath, scoutSilence, scoutSilence); err != nil {
 		t.Fatal(err)
 	}
 
@@ -986,8 +990,8 @@ func TestReportEvidenceTimeIgnoresAnOutageStamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.After(silentSince.Add(time.Second)) {
-		t.Fatalf("evidence time = %s, want the report mtime %s: the outage stamp is not a pane start", got, silentSince)
+	if got.Before(stamped.Add(-time.Second)) {
+		t.Fatalf("evidence time = %s, want no earlier than the stamp %s: the floor must never collapse to the scout's created_at", got, stamped)
 	}
 }
 

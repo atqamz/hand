@@ -1013,7 +1013,12 @@ Genuinely pane-independent, and carried:
 | `pr`, `merged`, `pr_merged_observed` | Facts about the branch and its PR, not about any pane. |
 | `created_at` | The task's identity, which promote deliberately preserves - this is one task's lifecycle, not two. |
 | The `parked` fired latch | Keyed to the report mtime it fired for, not to a pane, and the report channel is itself carried. The ship's own silence is a new episode against a new mtime, so the latch cannot suppress it. |
-| The report mtime `parked` measures silence from | Carried with the report channel, but *floored* at the pane-start instant: `status_changed_at`, or `created_at` before any status has ever been recorded - and `created_at` too when the stamp was taken for herdr's `unknown`, since that stamp records an outage the watcher detected rather than a pane that started, and honoring it would let a blink slide the floor forward and forget up to a full bound of real report silence. Promote leaves the scout's last append - and so its mtime - untouched while clearing the `last_report_state` that used to exempt the task from `parked` entirely, so an unfloored mtime would hand a pane seconds old the scout's whole accumulated silence and fire `parked` on it immediately. |
+| The report mtime `parked` measures silence from | Carried with the report channel, but *floored* at the pane-start instant: `status_changed_at`, or `created_at` before any status has ever been recorded. Promote leaves the scout's last append - and so its mtime - untouched while clearing the `last_report_state` that used to exempt the task from `parked` entirely, so an unfloored mtime would hand a pane seconds old the scout's whole accumulated silence and fire `parked` on it immediately. |
+
+**Known limitation, not fixed here: the floor reads `status_changed_at` whatever status it was stamped for.**
+A watcher tracking an unreachable pane persists `status_changed_for = unknown` with the stamp restamped to the outage-detection time, so an outage - or a blink that raises no event at all - slides the floor forward and can forget up to a full bound of real report silence before `parked` fires.
+Reading `created_at` instead when the stamp is an outage one is not the remedy: after a promote `created_at` is the *scout's* creation, which reopens exactly the hazard the floor exists to close.
+The honest fix is a durable pane-start fact of its own, written by spawn and promote and never conflated with the herdr dwell clock, tracked as atqamz/secondhand#128 alongside atqamz/secondhand#127 - the same root cause, no durable per-task state for `parked`.
 
 Two properties of the forget rule are load-bearing:
 

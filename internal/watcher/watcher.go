@@ -402,13 +402,14 @@ func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 
 // paneStartTime is when the task's current pane began holding the status it holds:
 // promote restamps StatusChangedAt, and before any status has ever been observed
-// the pane is the one spawn created. A stamp taken for herdr's unknown status is
-// the instant an outage was detected, not the instant a pane started, so it is
-// discarded here - honoring it would let every blink slide the floor forward and
-// forget up to a full bound of the report silence `parked` measures.
+// the pane is the one spawn created. It reads the stamp whatever status it was taken
+// for: an outage stamp overstates the floor and can delay a task's parked, but the
+// alternatives available without a durable pane-start field are worse - CreatedAt is
+// the scout's own creation after a promote, which hands a seconds-old ship pane the
+// scout's whole accumulated silence. See atqamz/secondhand#128.
 func paneStartTime(t state.Task) (time.Time, error) {
 	stamp, field := t.StatusChangedAt, "status_changed_at"
-	if stamp == "" || t.StatusChangedFor == string(herdr.StatusUnknown) {
+	if stamp == "" {
 		stamp, field = t.CreatedAt, "created_at"
 	}
 	parsed, err := time.Parse(time.RFC3339, stamp)
