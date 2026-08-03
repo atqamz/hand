@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -66,10 +67,7 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 
-			if err := initDirs(home); err != nil {
-				return err
-			}
-			if err := initSkeletonFiles(home); err != nil {
+			if err := initLayout(home); err != nil {
 				return err
 			}
 			if err := initMarker(home); err != nil {
@@ -99,6 +97,13 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
+func initLayout(home string) error {
+	if err := initDirs(home); err != nil {
+		return err
+	}
+	return initSkeletonFiles(home)
+}
+
 func initDirs(home string) error {
 	dirs := []string{"state", "data", "projects", "config"}
 	for _, d := range dirs {
@@ -109,27 +114,36 @@ func initDirs(home string) error {
 	return nil
 }
 
+// initSkeletonFiles seeds every file it can and reports every one it could
+// not, in this fixed order, because the seeds are independent of each other:
+// stopping at the first failure named an arbitrary victim, so two runs against
+// the same broken home disagreed about which file was at fault.
 func initSkeletonFiles(home string) error {
-	files := map[string]string{
-		"data/backlog.md":      backlogSkeleton,
-		"data/projects.md":     projectsSkeleton,
-		"data/operator.md":     operatorSkeleton,
-		"data/learnings.md":    learningsSkeleton,
-		"data/done-archive.md": doneArchiveSkeleton,
-		"data/note-archive.md": noteArchiveSkeleton,
+	files := []struct {
+		rel     string
+		content string
+	}{
+		{"data/backlog.md", backlogSkeleton},
+		{"data/projects.md", projectsSkeleton},
+		{"data/operator.md", operatorSkeleton},
+		{"data/learnings.md", learningsSkeleton},
+		{"data/done-archive.md", doneArchiveSkeleton},
+		{"data/note-archive.md", noteArchiveSkeleton},
 	}
-	for rel, content := range files {
-		path := filepath.Join(home, rel)
+	var errs []error
+	for _, f := range files {
+		path := filepath.Join(home, f.rel)
 		if _, err := os.Stat(path); err == nil {
 			continue
 		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("stat %s: %w", rel, err)
+			errs = append(errs, fmt.Errorf("stat %s: %w", f.rel, err))
+			continue
 		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", rel, err)
+		if err := os.WriteFile(path, []byte(f.content), 0o644); err != nil {
+			errs = append(errs, fmt.Errorf("write %s: %w", f.rel, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // initMarker creates state/hand.db up front so home.IsHome's marker exists as

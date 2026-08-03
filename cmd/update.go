@@ -55,8 +55,9 @@ func newUpdateCmd(version string) *cobra.Command {
 				refreshed, refreshErr = agentsmd.Refresh(fleetHome)
 				// The refreshed template directs the agent at data files an
 				// older home never had, so the command that installs it also
-				// leaves those files in place.
-				seedErr = initSkeletonFiles(fleetHome)
+				// leaves those files in place - directories included, since a
+				// home resolves as one on its state/hand.db marker alone.
+				seedErr = initLayout(fleetHome)
 			case errors.Is(refreshErr, home.ErrNotFound):
 				refreshErr = nil
 			}
