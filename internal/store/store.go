@@ -248,11 +248,44 @@ func (db *DB) setMeta(key, value string) error {
 	return nil
 }
 
-const taskColumns = `id, project, kind, harness, model, effort, worktree, brief,
-	herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id, pr,
-	merge_executed, merge_executed_at, report_offset, merge_announced, done_verified,
-	created_at, status_changed_at, status_changed_for, last_report_state, last_report_note,
-	send_undelivered_message, send_undelivered_at, lease_id`
+// taskColumnNames is the one list of the task table's columns. Everything a
+// write needs is derived from it - the column list, the placeholders, the
+// upsert's SET clause - so adding a column to `schema` and to taskValues below
+// cannot reach one writer and silently miss another.
+var taskColumnNames = []string{
+	"id", "project", "kind", "harness", "model", "effort", "worktree", "brief",
+	"herdr_session", "herdr_workspace_id", "herdr_tab_id", "herdr_pane_id", "pr",
+	"merge_executed", "merge_executed_at", "report_offset", "merge_announced", "done_verified",
+	"created_at", "status_changed_at", "status_changed_for", "last_report_state", "last_report_note",
+	"send_undelivered_message", "send_undelivered_at", "lease_id",
+}
+
+var (
+	taskColumns      = strings.Join(taskColumnNames, ", ")
+	taskPlaceholders = strings.TrimSuffix(strings.Repeat("?, ", len(taskColumnNames)), ", ")
+	taskUpsertSet    = taskExcludedAssignments()
+)
+
+// taskExcludedAssignments builds the upsert's SET clause for every column but
+// the primary key, which is what the conflict matched on.
+func taskExcludedAssignments() string {
+	assignments := make([]string, 0, len(taskColumnNames)-1)
+	for _, name := range taskColumnNames[1:] {
+		assignments = append(assignments, name+" = excluded."+name)
+	}
+	return strings.Join(assignments, ", ")
+}
+
+// taskValues is one task's columns in taskColumnNames order.
+func taskValues(t Task) []any {
+	return []any{
+		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
+		t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
+		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
+		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
+		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID,
+	}
+}
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
@@ -278,25 +311,9 @@ func (db *DB) ReadTask(id string) (Task, bool, error) {
 
 func (db *DB) WriteTask(t Task) error {
 	_, err := db.sql.Exec(`INSERT INTO task (`+taskColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			project = excluded.project, kind = excluded.kind, harness = excluded.harness,
-			model = excluded.model, effort = excluded.effort, worktree = excluded.worktree,
-			brief = excluded.brief, herdr_session = excluded.herdr_session,
-			herdr_workspace_id = excluded.herdr_workspace_id, herdr_tab_id = excluded.herdr_tab_id,
-			herdr_pane_id = excluded.herdr_pane_id, pr = excluded.pr,
-			merge_executed = excluded.merge_executed, merge_executed_at = excluded.merge_executed_at,
-			report_offset = excluded.report_offset, merge_announced = excluded.merge_announced,
-			done_verified = excluded.done_verified, created_at = excluded.created_at,
-			status_changed_at = excluded.status_changed_at, status_changed_for = excluded.status_changed_for,
-			last_report_state = excluded.last_report_state, last_report_note = excluded.last_report_note,
-			send_undelivered_message = excluded.send_undelivered_message,
-			send_undelivered_at = excluded.send_undelivered_at, lease_id = excluded.lease_id`,
-		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
-		t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
-		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
-		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
-		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID)
+		VALUES (`+taskPlaceholders+`)
+		ON CONFLICT(id) DO UPDATE SET `+taskUpsertSet,
+		taskValues(t)...)
 	if err != nil {
 		return fmt.Errorf("write task %q: %w", t.ID, err)
 	}
