@@ -191,7 +191,7 @@ func newSpawnCmd() *cobra.Command {
 	cmd.Flags().StringVar(&harnessName, "harness", "", "agent harness to launch (default: config/harness, or claude)")
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort level for harnesses that support it")
-	cmd.Flags().BoolVar(&skipGateCheck, "skip-gate-check", false, "dispatch even if the no-mistakes gate is not initialized for this project")
+	cmd.Flags().BoolVar(&skipGateCheck, "skip-gate-check", false, "dispatch even if the no-mistakes gate is not initialized, the clone path is missing from disk, or that path is not a git repository")
 	return cmd
 }
 
