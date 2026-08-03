@@ -221,15 +221,27 @@ func gatePreflight(cmd *cobra.Command, proj project.Project, clonePath string, s
 	return nil
 }
 
+// herdrWorkspaceLabel is the label hand gives, and searches for, a project's shared workspace.
+// A bare project name is not a safe search key: herdr derives a workspace's label from its root
+// directory's basename, so any workspace a human opens under a directory named after the project
+// carries the same label and would otherwise be a candidate (atqamz/secondhand#118). Prefixing it
+// the same way worktree.Get's pool name already does ("hand:"+id) makes the label one only hand
+// itself would ever set, so a same-labelled workspace hand did not create can never match, no
+// matter how the herdr's workspace list happens to be ordered.
+func herdrWorkspaceLabel(projName string) string {
+	return "hand:" + projName
+}
+
 // The caller must invoke the returned rollback, guarded by its own spawned/promoted flag,
 // until state.Write durably records the task.
 func acquireTaskWorkspace(client *herdr.Client, wt, id, projName string) (herdr.Workspace, herdr.Tab, herdr.Pane, func() error, error) {
-	ws, found, err := client.FindWorkspaceByLabel(projName)
+	label := herdrWorkspaceLabel(projName)
+	ws, found, err := client.FindWorkspaceByLabel(label)
 	createdWorkspace := false
 	var rootTab herdr.Tab
 	var rootPane herdr.Pane
 	if err == nil && !found {
-		ws, rootTab, rootPane, err = client.WorkspaceCreate(wt, projName)
+		ws, rootTab, rootPane, err = client.WorkspaceCreate(wt, label)
 		createdWorkspace = err == nil
 	}
 	if err != nil {

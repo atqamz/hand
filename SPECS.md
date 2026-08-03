@@ -1459,7 +1459,18 @@ The herdr server must be running before any `hand` operation that touches tabs/p
 
 ### Workspace and tab model
 
-- One workspace per project. Workspace label = project name.
+- One workspace per project. Workspace label = `hand:<project-name>`, not the bare project name
+  (atqamz/secondhand#118): herdr derives a label from a workspace root directory's basename, so it
+  is neither unique nor owned by `hand` - a project cloned to a directory sharing that basename
+  with something else on the machine (the fleet home itself, another tool's workspace) produces a
+  second workspace with the identical bare label, and `FindWorkspaceByLabel` returning whichever one
+  `herdr workspace list` happens to return first is a silent dispatch into a workspace `hand` never
+  created. The `hand:` prefix is `hand`'s own namespace, mirroring the existing `hand:<task-id>`
+  convention for treehouse worktree ownership - it does not make the label unique on its own, but it
+  does mean a collision now requires another `hand`-managed project to coincidentally share the same
+  name, not any directory on the system. A workspace already created under the bare label from
+  before this change is not adopted; `hand spawn` creates a new `hand:<project-name>` workspace
+  alongside it, and the old one is orphaned (still functional, just no longer found by lookup).
 - One tab per task within the project workspace. Tab label = task ID.
 - The supervisory agent's own session is a separate herdr workspace (or the user's own terminal).
 
@@ -1508,7 +1519,7 @@ herdr workspace list
 # creates a root tab and pane too, at --cwd; hand points --cwd at the worktree (not the clone) and
 # reuses that root tab as the first task's tab (see "herdr tab rename" below) rather than
 # discarding it and creating a second tab, which would leave it behind as an orphan shell
-herdr workspace create --no-focus --cwd <worktree> --label <project-name>
+herdr workspace create --no-focus --cwd <worktree> --label hand:<project-name>
 
 # create tab in an already-existing workspace
 herdr tab create --workspace <ws-id> --no-focus --cwd <worktree> --label <task-id>
