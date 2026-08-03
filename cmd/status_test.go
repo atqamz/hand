@@ -1630,7 +1630,7 @@ func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
-	t.Setenv("PATH", fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)"))
+	t.Setenv("PATH", fakeNoMistakesPathExit(t, "repo not initialized (run 'no-mistakes init' first)", 1))
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
 		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {

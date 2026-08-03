@@ -474,15 +474,15 @@ It is deliberately not the task's age: the two used to be conflated, so a task s
 
 Output (fleet overview):
 ```
-id           project  kind   state                                     age     last report
-fix-login    nsr      ship   working                                   2h ago  3m ago
-dark-mode    nsr      ship   blocked                                   45m ago 40m ago
-build-wait   nsr      ship   working (reported: paused)                20m ago 5m ago
-stuck-task   nsr      ship   idle (unreported)                         1h ago  (none)
-paused-task  nsr      ship   idle (reported: needs-decision)           30m ago 12m ago
-investigate  nsr      scout  done (reported: done)                     10m ago 9m ago
-shipped-fix  nsr      ship   done (reported: done) (merged, external)  5m ago  4m ago
-no-gate-fix  nsr      ship   done (reported: done) (gate: no run found) 3m ago 2m ago
+id           project  kind   state                                       age     last report
+fix-login    nsr      ship   working                                     2h ago  3m ago
+dark-mode    nsr      ship   blocked                                     45m ago 40m ago
+build-wait   nsr      ship   working (reported: paused)                  20m ago 5m ago
+stuck-task   nsr      ship   idle (unreported)                           1h ago  (none)
+paused-task  nsr      ship   idle (reported: needs-decision)             30m ago 12m ago
+investigate  nsr      scout  done (reported: done)                       10m ago 9m ago
+shipped-fix  nsr      ship   done (reported: done) (merged, external)    5m ago  4m ago
+no-gate-fix  nsr      ship   done (reported: done) (gate: no run found)  3m ago  2m ago
 
 held:
   fix-login         operator  two ways to fix this, needs a call          2h ago
@@ -522,7 +522,6 @@ PR:          (none)
 Reported:    needs-decision: two ways to fix the race, ask-user found both risky
 Report file: /home/user/secondhand/state/fix-login.status
 Held:        waiting on migrate-schema: needs the new column before this can proceed
-Gate run:    no run found
 
 Report history (reported by worker, not verified current truth):
   working: added the retry loop
@@ -532,7 +531,7 @@ The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the sam
 
 The `Held:` line is present only when this id has a hold, and reads the reason alone for an `operator` hold or `waiting on <blocked_on>: <reason>` for a `blocked` one; an inconsistent row (see the fleet overview above) prints `inconsistent: <why>` instead.
 
-The `Gate run:` line is present only for a `done` `ship` task with a recorded PR on a registered `no-mistakes` project whose gate-run check (see "Gate-run visibility" below) did not come back clean - `no run found` or `unreachable`. It is absent for every other task, including one where the check came back clean.
+A `Gate run:` line (`Gate run:    no run found`, printed below the `Held:` line) is present only for a `done` `ship` task with a recorded PR on a registered `no-mistakes` project whose gate-run check (see "Gate-run visibility" below) did not come back clean - `no run found` or `unreachable`. It is absent for every other task, including one where the check came back clean, so the example above - which has no PR recorded - never carries it.
 
 atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `Reported:`, again as the last line of `Report history`. Without `--full`:
 - The `Reported` line and every history line are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut line always carries a trailing `... [+N chars]` marker naming how much was dropped, so a short report is never mistaken for a truncated one. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").
@@ -562,12 +561,11 @@ Output (JSON, single task):
   "last_report_at": "2026-07-24T09:57:00Z",
   "reported": {"state": "needs-decision", "note": "two ways to fix the race, ask-user found both risky"},
   "report_history": ["working: added the retry loop", "needs-decision: two ways to fix the race, ask-user found both risky"],
-  "held": {"id": "fix-login", "kind": "blocked", "reason": "needs the new column before this can proceed", "blocked_on": "migrate-schema", "set_at": "2026-07-24T09:00:00Z"},
-  "gate_run_issue": "no run found"
+  "held": {"id": "fix-login", "kind": "blocked", "reason": "needs the new column before this can proceed", "blocked_on": "migrate-schema", "set_at": "2026-07-24T09:00:00Z"}
 }
 ```
 
-`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted. `gate_run_issue` is omitted whenever the `Gate run:` line above would be - not a `done` `ship` task with a recorded PR on a registered `no-mistakes` project, or the check came back clean.
+`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted. `gate_run_issue` carries the same `no run found` / `unreachable` text as the `Gate run:` line above and is omitted whenever that line would be - not a `done` `ship` task with a recorded PR on a registered `no-mistakes` project, or the check came back clean - which is why the example above, with no PR recorded, does not carry it.
 
 Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it, and `task_count` alongside that, always present (never omitted, zero included) so an empty fleet is a positive statement rather than the same absence of output a broken command could also produce:
 
@@ -1579,9 +1577,10 @@ Five outcomes:
   error (exit code `1`), never `GateReady`: a caller must never be told to dispatch into a project
   the gate cannot cover.
 
-The last two are atqamz/secondhand#97: both are read the same way as every other outcome here,
-from `no-mistakes status`'s own text (a missing clone path fails the chdir before the binary ever
-runs), never from `~/.no-mistakes/state.sqlite`.
+The last two are atqamz/secondhand#97, and neither reads `~/.no-mistakes/state.sqlite` either. The
+non-git one is read from `no-mistakes status`'s own text, the same way every other outcome here is.
+The missing clone path is caught by stat-ing that path before the binary is run at all, because
+otherwise the failed chdir is what surfaces, as the misleading "binary not found or not runnable".
 
 Escape hatch: `--skip-gate-check` on both `hand spawn` and `hand promote` bypasses the preflight
 and prints a warning to stderr naming the project, so bypassing it is visible in the transcript

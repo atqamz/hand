@@ -218,14 +218,23 @@ func TestRemoveNotFound(t *testing.T) {
 	}
 }
 
-// fakeNoMistakes puts a fake no-mistakes binary at the front of PATH. It only ever needs to
-// answer `status`, so it ignores its arguments and always exits 0, matching the real binary's
-// observed behavior: no-mistakes status exits 0 whether the repo is initialized or not, so
-// GateStatus reads the outcome from stdout text rather than the exit code.
+// fakeNoMistakes puts a fake no-mistakes binary at the front of PATH. It ignores its arguments and
+// always exits 0, matching the real binary's observed behavior for `status`: it exits 0 whether the
+// repo is initialized or not, so GateStatus reads the outcome from stdout text rather than the exit
+// code. Fakes for `runs` refusals need fakeNoMistakesExit instead.
 func fakeNoMistakes(t *testing.T, stdout string) {
+	fakeNoMistakesExit(t, stdout, 0)
+}
+
+// fakeNoMistakesExit is fakeNoMistakes with an explicit exit code, for the invocations the real
+// binary refuses non-zero: `no-mistakes runs` exits 1 on both "repo not initialized" and "not in a
+// git repository", where `no-mistakes status` exits 0 printing the same text. A caller must read
+// the refusal from the text either way, so the fake reproduces the exit code rather than flattening
+// every refusal to 0 and letting a text-check-after-exit-check regression pass here.
+func fakeNoMistakesExit(t *testing.T, stdout string, code int) {
 	t.Helper()
 	bin := t.TempDir()
-	script := "#!/bin/sh\ncat <<'EOF'\n" + stdout + "\nEOF\n"
+	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", stdout, code)
 	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

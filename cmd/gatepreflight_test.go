@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,15 +12,25 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// fakeNoMistakesPath writes a fake no-mistakes binary that only answers `status`, mirroring the
-// real binary's observed behavior documented in internal/project.GateStatus: it always exits 0,
-// so the outcome is read from stdout text rather than the exit code. Returns a PATH with the fake
-// binary's directory prepended ahead of the real PATH: the script's own "cat" still needs to
-// resolve, and the fake must win the lookup over any real no-mistakes already on this machine.
+// fakeNoMistakesPath writes a fake no-mistakes binary that answers every subcommand with the same
+// text, mirroring the real binary's observed behavior documented in internal/project.GateStatus:
+// `no-mistakes status` exits 0 whether or not the repo is initialized, so the outcome is read from
+// stdout text rather than the exit code. Returns a PATH with the fake binary's directory prepended
+// ahead of the real PATH: the script's own "cat" still needs to resolve, and the fake must win the
+// lookup over any real no-mistakes already on this machine.
 func fakeNoMistakesPath(t *testing.T, stdout string) string {
+	return fakeNoMistakesPathExit(t, stdout, 0)
+}
+
+// fakeNoMistakesPathExit is fakeNoMistakesPath with an explicit exit code, for the invocations the
+// real binary refuses non-zero: `no-mistakes runs` exits 1 on both "repo not initialized" and "not
+// in a git repository", where `no-mistakes status` exits 0 printing the same text. GateRunPRs reads
+// the refusal from the text either way, so the fake reproduces the exit code rather than flattening
+// every refusal to 0.
+func fakeNoMistakesPathExit(t *testing.T, stdout string, code int) string {
 	t.Helper()
 	bin := t.TempDir()
-	script := "#!/bin/sh\ncat <<'EOF'\n" + stdout + "\nEOF\n"
+	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", stdout, code)
 	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
