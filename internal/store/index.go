@@ -236,8 +236,10 @@ func (ix *Index) Search(query string, limit int) ([]Hit, error) {
 	return hits, nil
 }
 
-// Rendered from machine state rather than written by a human, so indexing them
-// would answer a prose search with a cache of the database it complements.
+// Nothing renders data/dashboard.md any more (atqamz/secondhand#62), but a
+// home initialized before its deletion keeps the last render on disk forever,
+// and indexing that would answer a prose search out of a frozen snapshot of
+// removed functionality.
 var generatedCorpusFiles = map[string]bool{
 	filepath.Join("data", "dashboard.md"): true,
 }

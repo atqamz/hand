@@ -36,7 +36,6 @@ Install `hand` from one of the options under "Installation" below and make sure 
 
 Every `hand` command resolves its fleet home the same way: the `HAND_HOME` environment variable if set, otherwise the current directory or the nearest ancestor holding `state/hand.db`.
 `state/hand.db` is the marker because only `hand` ever writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` never captures the walk up.
-A home initialized before this marker existed falls back to the marker it was initialized with, `data/dashboard.md` plus `state/`, so upgrading in place needs nothing re-run by hand.
 Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a script or a different working directory; pointed at a directory that is not a fleet home it refuses rather than falling back.
 
 ## Core concepts
@@ -47,7 +46,6 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 - **herdr tabs**: each worker runs in its own herdr tab. herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events, so no terminal scraping. herdr's state says whether a pane is busy, not whether a task finished - see SPECS.md's "Agent state" section.
 - **Report channel**: `state/<id>.status` is an append-only file the worker writes and `hand` only reads. It carries the task outcome herdr cannot (working/paused/blocked/needs-decision/done/failed), surfaces in `hand status` and `hand watch`, and auto-records a PR URL the worker reports - see SPECS.md's "Report channel" section.
 - **treehouse worktrees**: workers operate in isolated git checkouts acquired from a treehouse pool, never in the project clone itself.
-- **Dashboard**: `data/dashboard.md` is the living fleet overview, auto-maintained by `hand`. The agent reads it for context; the user watches it for visibility.
 - **Backlog**: `data/backlog.md` is a plain markdown task queue, read and edited directly by the supervisory agent.
 - **Machine state vs. the prose corpus**: machine state - tasks, PR state, pane ids, the project registry, holds - is authoritative in sqlite at `state/hand.db`. The prose under `data/` stays authoritative in files, with a derived full-text index at `state/index.db` that `hand search` reads and that is safe to delete at any time. When the database and a `state/<id>.status` file disagree about what a worker said, believe the file: it is readable without a working `hand`, which is what recovery has actually needed - see SPECS.md's "Machine state and the prose corpus" section.
 

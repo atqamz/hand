@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -44,12 +43,8 @@ func newPRCmd() *cobra.Command {
 				return err
 			}
 
-			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-				return fmt.Errorf("update dashboard: %w", err)
-			}
-
 			if reconcile {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "pr already recorded for %s: %s (dashboard reconciled)\n", t.ID, url)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "pr already recorded for %s: %s\n", t.ID, url)
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "recorded PR for %s: %s\n", t.ID, url)
@@ -68,9 +63,9 @@ func recordPR(ctx context.Context, home string, t state.Task, url string) (state
 		return t, false, &ExitError{Err: fmt.Errorf("task %s already has a different PR recorded: %s", t.ID, t.PR), Code: 3}
 	}
 
-	// Reconcile rather than no-op: this command is the documented remedy for
-	// a pr-not-recorded event, and the recording it has to repair may have
-	// failed only at the dashboard, with the URL already in task state.
+	// This command is the documented remedy for a pr-not-recorded event, and an
+	// operator retrying it after the URL already made it into task state should
+	// get a friendly no-op rather than an error.
 	reconcile := t.PR == url
 	if reconcile {
 		return t, true, nil

@@ -113,24 +113,12 @@ func setFakeExecutable(t *testing.T) string {
 	return execPath
 }
 
-func makeUpdateWorkspace(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "data", "dashboard.md"), []byte("# Dashboard\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
 func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("update binary layout targets unix asset names")
 	}
 	setFakeExecutable(t)
-	home := makeUpdateWorkspace(t)
+	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
@@ -165,7 +153,7 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 		t.Skip("update binary layout targets unix asset names")
 	}
 	setFakeExecutable(t)
-	fleetHome := makeUpdateWorkspace(t)
+	fleetHome := t.TempDir()
 	mkFleetDirs(t, fleetHome)
 	t.Setenv("HAND_HOME", fleetHome)
 	t.Chdir(t.TempDir())
@@ -266,7 +254,7 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 		t.Skip("update binary layout targets unix asset names")
 	}
 	setFakeExecutable(t)
-	home := makeUpdateWorkspace(t)
+	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
@@ -295,7 +283,7 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 		t.Skip("update binary layout targets unix asset names")
 	}
 	setFakeExecutable(t)
-	home := makeUpdateWorkspace(t)
+	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "AGENTS.md"), 0o755); err != nil {
 		t.Fatal(err)
 	}

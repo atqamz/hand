@@ -255,23 +255,6 @@ func TestSearchDoesNotDependOnMachineState(t *testing.T) {
 	}
 }
 
-// The dashboard is rendered from machine state, so indexing it would answer a
-// prose search with a cache of the database the search exists to complement.
-func TestSearchSkipsTheGeneratedDashboard(t *testing.T) {
-	home := t.TempDir()
-	t.Chdir(home)
-	mkFleetDirs(t, home)
-	writeCorpusFile(t, home, "data/dashboard.md", "# Fleet Dashboard\n\nThe queue drains under load.\n")
-
-	out, _, err := runSearch(t, "drains")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out, "dashboard.md") {
-		t.Fatalf("got %q, want the generated dashboard kept out of the corpus", out)
-	}
-}
-
 func TestSearchWithoutAQueryIsAUsageError(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

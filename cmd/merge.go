@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
@@ -136,9 +135,6 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 			if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project sync failed: %v\n", syncErr); printErr != nil {
 				return printErr
 			}
-		}
-		if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-			return err
 		}
 	}
 

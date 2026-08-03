@@ -28,7 +28,6 @@ func legacyHome(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join("data", "dashboard.md"), "# Fleet Dashboard\n\n## Active Tasks\n")
 	write(filepath.Join("data", "projects.md"), "# Projects\n\n- demo: https://example.com/demo.git mode=direct-pr\n")
 	write(filepath.Join("state", "task-1.json"), `{
 		"id": "task-1",

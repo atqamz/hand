@@ -194,7 +194,10 @@ func TestDeletingTheIndexCostsNeitherMachineStateNorCorpus(t *testing.T) {
 	}
 }
 
-func TestIndexSkipsTheGeneratedDashboard(t *testing.T) {
+// A home initialized before the dashboard was deleted still carries its last
+// render, which no command refreshes any more, so it must stay out of the
+// corpus rather than answer searches out of a frozen snapshot.
+func TestIndexSkipsTheStaleDashboard(t *testing.T) {
 	home := t.TempDir()
 	writeDoc(t, home, "data/dashboard.md", "# Dashboard\n\nzebra\n")
 	writeDoc(t, home, "data/a.md", "# A\n\nalpha\n")

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
@@ -119,7 +118,7 @@ func newSpawnCmd() *cobra.Command {
 
 			// spawned disarms the rollback below once state.Write has durably recorded the
 			// task: from that point its workspace and tab are owned by the running task, not
-			// by this call, even if a later step (dashboard update) fails.
+			// by this call.
 			spawned := false
 			defer func() {
 				if spawned {
@@ -175,10 +174,6 @@ func newSpawnCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}
 			spawned = true
-
-			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-				return fmt.Errorf("update dashboard: %w", err)
-			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "spawned %s project=%s kind=%s harness=%s worktree=%s\n", id, proj.Name, kind, harnessName, wt); err != nil {
 				return err

@@ -97,15 +97,18 @@ func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
 	}
 
-	events := dashboardSection(t, home, "Recent Events")
-	if len(events) != 1 || !strings.Contains(events[0], "idle-unreported task-1") {
-		t.Fatalf("Recent Events = %+v, want the unreported idle on the log an operator reads", events)
+	eventsLog, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	row, ok := activeTaskRow(t, home, "task-1")
-	if !ok || !strings.Contains(row, "| unreported |") {
-		t.Fatalf("Active Tasks row = %q, %v, want the state column saying nothing was reported", row, ok)
+	if !strings.Contains(string(eventsLog), "idle-unreported task-1") {
+		t.Fatalf("events.log = %q, want the unreported idle on the log an operator reads", eventsLog)
 	}
-	if pending := dashboardSection(t, home, "Pending Decisions"); len(pending) != 0 {
-		t.Fatalf("Pending Decisions = %+v, want no question invented for a worker that asked none", pending)
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.LastReportState != "" {
+		t.Fatalf("LastReportState = %q, want nothing recorded for a worker that reported nothing", task.LastReportState)
 	}
 }

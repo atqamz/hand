@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/completion"
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
@@ -374,12 +373,6 @@ func setupTeardownHome(t *testing.T) (home, worktree string) {
 	home = t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte(dashboardSkeleton), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	worktree = filepath.Join(t.TempDir(), "wt")
 	initGitRepo(t, worktree)
 	writeFakeTreehouseReturn(t)
@@ -488,12 +481,12 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 		t.Fatalf("state still exists after retried teardown: %v %v", exists, err)
 	}
 
-	dashboardData, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
+	records, err := completion.List(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(dashboardData), "task-1: myproj | ship | merged | PR https://example.com/pr/1") {
-		t.Fatalf("dashboard = %q, want task-1 moved to Recent Completions", dashboardData)
+	if len(records) == 0 || records[len(records)-1].Outcome != "merged" {
+		t.Fatalf("completions = %+v, want task-1 recorded as merged", records)
 	}
 }
 
@@ -600,12 +593,6 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: which base branch?\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-		t.Fatal(err)
-	}
-	if before := dashboardSection(t, home, "Pending Decisions"); len(before) != 1 {
-		t.Fatalf("Pending Decisions = %+v before teardown, want the question this test retires", before)
-	}
 
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
@@ -613,11 +600,11 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if pending := dashboardSection(t, home, "Pending Decisions"); len(pending) != 0 {
-		t.Fatalf("Pending Decisions = %+v, want the torn-down task's question gone", pending)
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after teardown: %v %v", exists, err)
 	}
-	if rows := dashboardSection(t, home, "Active Tasks"); len(rows) != 0 {
-		t.Fatalf("Active Tasks = %+v, want the row gone too", rows)
+	if _, err := os.Stat(state.ReportPath(home, "task-1")); !os.IsNotExist(err) {
+		t.Fatalf("got report path err %v, want the question's report channel gone too", err)
 	}
 }
 

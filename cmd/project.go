@@ -11,7 +11,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/atqamz/secondhand/internal/dashboard"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -86,10 +85,6 @@ func newProjectAddCmd() *cobra.Command {
 			}
 
 			if err := project.Add(home, project.Project{Name: name, URL: url, Mode: mode}); err != nil {
-				return cleanupCloneAfterFailure(clonePath, err)
-			}
-			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-				_ = project.Remove(home, name)
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
@@ -288,9 +283,6 @@ func newProjectRemoveCmd() *cobra.Command {
 			if err := project.Remove(home, name); err != nil {
 				return asPrecondition(err)
 			}
-			if err := dashboard.Update(home, dashboard.UpdateOpts{}); err != nil {
-				return err
-			}
 
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "removed project %s (clone retained at projects/%s)\n", name, name); err != nil {
 				return err
@@ -364,7 +356,7 @@ func newProjectSyncCmd() *cobra.Command {
 				}
 			}
 
-			return dashboard.Update(home, dashboard.UpdateOpts{})
+			return nil
 		},
 	}
 	return cmd

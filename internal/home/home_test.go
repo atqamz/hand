@@ -8,10 +8,13 @@ import (
 	"testing"
 )
 
+// makeHome builds a home carrying the marker IsHome checks, state/hand.db.
 func makeHome(t *testing.T, dir string) {
 	t.Helper()
-	makeGenericDataAndState(t, dir)
-	if err := os.WriteFile(filepath.Join(dir, "data", "dashboard.md"), []byte("# Dashboard\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state", "hand.db"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -28,34 +31,25 @@ func makeGenericDataAndState(t *testing.T, dir string) {
 	}
 }
 
-// makeHandDBHome builds a home carrying only the current marker, state/hand.db,
-// without the legacy data/dashboard.md marker a pre-upgrade home would also have.
-func makeHandDBHome(t *testing.T, dir string) {
+// makeLegacyHome builds a home initialized before state/hand.db existed: the
+// data/projects.md plus state/ marker a pre-sqlite hand init wrote, and the
+// one migrateLegacy needs recognized as a home before it can ever run.
+func makeLegacyHome(t *testing.T, dir string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", "projects.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "state", "hand.db"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
-func TestIsHomeTrueWhenDashboardFileAndStateDirExist(t *testing.T) {
+func TestIsHomeTrueWhenHandDbExists(t *testing.T) {
 	dir := t.TempDir()
 	makeHome(t, dir)
-
-	got, err := IsHome(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got {
-		t.Fatal("got false, want true")
-	}
-}
-
-func TestIsHomeTrueWhenHandDbExistsWithoutDashboard(t *testing.T) {
-	dir := t.TempDir()
-	makeHandDBHome(t, dir)
 
 	got, err := IsHome(dir)
 	if err != nil {
@@ -85,51 +79,31 @@ func TestIsHomeFalseForAProjectCloneWithGenericDataAndStateDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got {
-		t.Fatal("got true, want false without data/dashboard.md")
+		t.Fatal("got true, want false without state/hand.db")
 	}
 }
 
-func TestIsHomeFalseWhenDashboardExistsWithoutStateDir(t *testing.T) {
+func TestIsHomeTrueForALegacyHomeWithoutHandDb(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "data", "dashboard.md"), []byte("# Dashboard\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	makeLegacyHome(t, dir)
 
 	got, err := IsHome(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got {
-		t.Fatal("got true, want false")
+	if !got {
+		t.Fatal("got false, want true")
 	}
 }
 
-func TestIsHomeFalseWhenStateIsAFileNotADir(t *testing.T) {
+func TestIsHomeFalseWhenProjectsFileIsADirNotAFile(t *testing.T) {
 	dir := t.TempDir()
-	makeHome(t, dir)
-	if err := os.RemoveAll(filepath.Join(dir, "state")); err != nil {
+	makeLegacyHome(t, dir)
+	projectsPath := filepath.Join(dir, "data", "projects.md")
+	if err := os.Remove(projectsPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := IsHome(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got {
-		t.Fatal("got true, want false")
-	}
-}
-
-func TestIsHomeFalseWhenDashboardIsADirNotAFile(t *testing.T) {
-	dir := t.TempDir()
-	makeGenericDataAndState(t, dir)
-	if err := os.MkdirAll(filepath.Join(dir, "data", "dashboard.md"), 0o755); err != nil {
+	if err := os.Mkdir(projectsPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -162,10 +136,44 @@ func TestIsHomeFalseWhenDataIsAFileNotADir(t *testing.T) {
 	}
 }
 
+func TestIsHomeFalseWhenStateIsAFileNotADir(t *testing.T) {
+	dir := t.TempDir()
+	makeHome(t, dir)
+	if err := os.RemoveAll(filepath.Join(dir, "state")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := IsHome(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("got true, want false")
+	}
+}
+
 func TestResolveReturnsCwdWhenItIsAHome(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	dir := t.TempDir()
 	makeHome(t, dir)
+	t.Chdir(dir)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != dir {
+		t.Fatalf("got %q, want %q", got, dir)
+	}
+}
+
+func TestResolveReturnsCwdWhenItIsALegacyHome(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	dir := t.TempDir()
+	makeLegacyHome(t, dir)
 	t.Chdir(dir)
 
 	got, err := Resolve()
@@ -202,25 +210,6 @@ func TestResolveWalksPastAProjectCloneWithGenericDataAndStateDirs(t *testing.T) 
 	t.Setenv("HAND_HOME", "")
 	home := t.TempDir()
 	makeHome(t, home)
-	clone := filepath.Join(home, "projects", "myapp")
-	makeGenericDataAndState(t, clone)
-	t.Chdir(clone)
-
-	got, err := Resolve()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != home {
-		t.Fatalf("got %q, want %q", got, home)
-	}
-}
-
-// A home that only carries the current marker must still survive the same
-// clone-shaped directory below it that the legacy marker had to survive.
-func TestResolveWalksPastAProjectCloneWhenAncestorHomeHasOnlyTheHandDbMarker(t *testing.T) {
-	t.Setenv("HAND_HOME", "")
-	home := t.TempDir()
-	makeHandDBHome(t, home)
 	clone := filepath.Join(home, "projects", "myapp")
 	makeGenericDataAndState(t, clone)
 	t.Chdir(clone)

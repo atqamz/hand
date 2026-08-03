@@ -210,17 +210,11 @@ func TestPruneGoneBranchesDeletesLocalBranchWithGoneUpstream(t *testing.T) {
 	}
 }
 
-func TestProjectSyncCommandUpdatesDashboardWhenAdvanced(t *testing.T) {
+func TestProjectSyncCommandFastForwardsTheClone(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.MkdirAll(filepath.Join(home, "projects"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "data", "dashboard.md"), []byte("# Dashboard\n\n## Projects\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -245,12 +239,8 @@ func TestProjectSyncCommandUpdatesDashboardWhenAdvanced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dashboard, err := os.ReadFile(filepath.Join(home, "data", "dashboard.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(dashboard), "myproj: direct-pr") {
-		t.Fatalf("dashboard = %q, want myproj entry", dashboard)
+	if _, err := os.Stat(filepath.Join(movedClone, "new.txt")); err != nil {
+		t.Fatalf("clone did not fast-forward: %v", err)
 	}
 }
 

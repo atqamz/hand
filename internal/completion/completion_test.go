@@ -45,8 +45,7 @@ func TestListMissingStore(t *testing.T) {
 }
 
 // TestAppendUncapped is the storage half of atqamz/secondhand#61's "uncapped, or
-// capped somewhere other than the display layer" requirement: dashboard.md's
-// Recent Completions caps at 10, and this store must not inherit that cap.
+// capped somewhere other than the display layer" requirement.
 func TestAppendUncapped(t *testing.T) {
 	dir := t.TempDir()
 	const n = 25
