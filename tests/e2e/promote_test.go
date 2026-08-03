@@ -38,6 +38,7 @@ func TestPromoteScoutToShip(t *testing.T) {
 	if err := state.Write(home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindScout,
 		Worktree:  oldWorktree,
+		LeaseID:   "lease-old",
 		Herdr:     state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"},
 		CreatedAt: createdAt,
 	}); err != nil {
@@ -52,7 +53,7 @@ func TestPromoteScoutToShip(t *testing.T) {
 	// treehouse return's actual (silent) output; "pane run" below is a void
 	// command whose real success is empty stdout (callVoid doc, client.go) -
 	// callVoid only checks env.Error, so the extra envelope body is harmless.
-	writeFakeDispatch(t, dir, "treehouse", invocationLog, "$1", `  get) printf '{"path":"%s"}\n' `+shellSingleQuote(newWorktree)+` ;;
+	writeFakeDispatch(t, dir, "treehouse", invocationLog, "$1", `  get) printf '{"path":"%s","lease_id":"lease-new"}\n' `+shellSingleQuote(newWorktree)+` ;;
   return) echo ok ;;`)
 	// The scout's old workspace holds a second tab, so releasing the scout is a
 	// tab close rather than closeTaskTab's sole-tab workspace-close shortcut.
@@ -97,6 +98,9 @@ func TestPromoteScoutToShip(t *testing.T) {
 	}
 	if task.Worktree != newWorktree {
 		t.Fatalf("task.Worktree = %q, want the new worktree %q", task.Worktree, newWorktree)
+	}
+	if task.LeaseID != "lease-new" {
+		t.Fatalf("task.LeaseID = %q, want the new lease identity, not the scout's", task.LeaseID)
 	}
 	if task.Herdr.WorkspaceID != "ws-new" || task.Herdr.TabID != "tab-new" || task.Herdr.PaneID != "pane-new" {
 		t.Fatalf("task.Herdr = %+v, want the new ws-new/tab-new/pane-new identifiers", task.Herdr)

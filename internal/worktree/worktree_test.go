@@ -49,14 +49,29 @@ func writeFakeTreehouse(t *testing.T, script string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-func TestGetParsesLeasePath(t *testing.T) {
+func TestGetParsesLeasePathAndIdentity(t *testing.T) {
+	writeFakeTreehouse(t, `printf '{"path":"/tmp/wt-1","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8"}'`)
+	got, err := Get(t.TempDir(), "hand:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Lease{Path: "/tmp/wt-1", ID: "5fe5412a4aabdeb85a148d6d73eb42d8"}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// A treehouse older than v2.1.0 reports no identity at all, and that has to
+// stay a usable lease rather than an error - CheckCollision falls back to the
+// path for it.
+func TestGetAcceptsAPayloadWithoutALeaseIdentity(t *testing.T) {
 	writeFakeTreehouse(t, `printf '{"path":"/tmp/wt-1"}'`)
 	got, err := Get(t.TempDir(), "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "/tmp/wt-1" {
-		t.Fatalf("got %q, want /tmp/wt-1", got)
+	if got != (Lease{Path: "/tmp/wt-1"}) {
+		t.Fatalf("got %+v, want path-only lease", got)
 	}
 }
 
@@ -133,13 +148,66 @@ func TestReturnFailsOnAWorktreeNoPoolManages(t *testing.T) {
 	}
 }
 
-func TestCheckCollisionDetectsConflict(t *testing.T) {
+func TestCheckCollisionDetectsAConflictOnLeaseIdentity(t *testing.T) {
 	home := t.TempDir()
-	if err := state.Write(home, state.Task{ID: "other-task", Worktree: "/tmp/wt-shared"}); err != nil {
+	if err := state.Write(home, state.Task{ID: "other-task", Worktree: "/tmp/wt-shared", LeaseID: "lease-1"}); err != nil {
 		t.Fatal(err)
 	}
 
-	conflict, err := CheckCollision(home, "/tmp/wt-shared", "new-task")
+	conflict, err := CheckCollision(home, Lease{Path: "/tmp/wt-shared", ID: "lease-1"}, "new-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict != "other-task" {
+		t.Fatalf("got conflict %q, want other-task", conflict)
+	}
+}
+
+// The whole point of keying on identity: teardown returns the worktree before
+// state.Delete, so a failed Delete leaves a row still naming path P while
+// treehouse has already freed P and handed it to the next task under a lease of
+// its own. That is not a collision, and refusing the spawn over it was the bug.
+func TestCheckCollisionAllowsAReusedPathUnderAFreshLease(t *testing.T) {
+	home := t.TempDir()
+	if err := state.Write(home, state.Task{ID: "stale-task", Worktree: "/tmp/wt-shared", LeaseID: "lease-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	conflict, err := CheckCollision(home, Lease{Path: "/tmp/wt-shared", ID: "lease-2"}, "new-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict != "" {
+		t.Fatalf("got conflict %q, want none: a recycled pool slot under a new lease is not a collision", conflict)
+	}
+}
+
+// A row written before the lease_id column existed has no identity to compare,
+// so it keeps being checked by path until its task is torn down and respawned.
+func TestCheckCollisionFallsBackToPathForARowWithNoIdentity(t *testing.T) {
+	home := t.TempDir()
+	if err := state.Write(home, state.Task{ID: "legacy-task", Worktree: "/tmp/wt-shared"}); err != nil {
+		t.Fatal(err)
+	}
+
+	conflict, err := CheckCollision(home, Lease{Path: "/tmp/wt-shared", ID: "lease-2"}, "new-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conflict != "legacy-task" {
+		t.Fatalf("got conflict %q, want legacy-task", conflict)
+	}
+}
+
+// The mirror case: a treehouse older than v2.1.0 reports no identity, so even
+// rows that have one are compared by path.
+func TestCheckCollisionFallsBackToPathForALeaseWithNoIdentity(t *testing.T) {
+	home := t.TempDir()
+	if err := state.Write(home, state.Task{ID: "other-task", Worktree: "/tmp/wt-shared", LeaseID: "lease-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	conflict, err := CheckCollision(home, Lease{Path: "/tmp/wt-shared"}, "new-task")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,11 +218,11 @@ func TestCheckCollisionDetectsConflict(t *testing.T) {
 
 func TestCheckCollisionExcludesOwnTask(t *testing.T) {
 	home := t.TempDir()
-	if err := state.Write(home, state.Task{ID: "same-task", Worktree: "/tmp/wt-shared"}); err != nil {
+	if err := state.Write(home, state.Task{ID: "same-task", Worktree: "/tmp/wt-shared", LeaseID: "lease-1"}); err != nil {
 		t.Fatal(err)
 	}
 
-	conflict, err := CheckCollision(home, "/tmp/wt-shared", "same-task")
+	conflict, err := CheckCollision(home, Lease{Path: "/tmp/wt-shared", ID: "lease-1"}, "same-task")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,11 +233,11 @@ func TestCheckCollisionExcludesOwnTask(t *testing.T) {
 
 func TestCheckCollisionNoConflict(t *testing.T) {
 	home := t.TempDir()
-	if err := state.Write(home, state.Task{ID: "other-task", Worktree: "/tmp/wt-other"}); err != nil {
+	if err := state.Write(home, state.Task{ID: "other-task", Worktree: "/tmp/wt-other", LeaseID: "lease-1"}); err != nil {
 		t.Fatal(err)
 	}
 
-	conflict, err := CheckCollision(home, "/tmp/wt-shared", "new-task")
+	conflict, err := CheckCollision(home, Lease{Path: "/tmp/wt-shared", ID: "lease-2"}, "new-task")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +247,7 @@ func TestCheckCollisionNoConflict(t *testing.T) {
 }
 
 func TestCheckCollisionEmptyStateDir(t *testing.T) {
-	conflict, err := CheckCollision(t.TempDir(), "/tmp/wt-shared", "new-task")
+	conflict, err := CheckCollision(t.TempDir(), Lease{Path: "/tmp/wt-shared", ID: "lease-1"}, "new-task")
 	if err != nil {
 		t.Fatal(err)
 	}

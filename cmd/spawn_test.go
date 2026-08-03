@@ -64,10 +64,15 @@ esac
 // Real treehouse writes a banner to stderr ahead of its JSON on "get"
 // (internal/worktree/worktree.go's Get doc comment); this fake omits it since
 // worktree.Get's own stdout-only parsing is covered where the banner matters,
-// in tests/e2e/fakes_test.go's writeFakeTreehouse.
+// in tests/e2e/fakes_test.go's writeFakeTreehouse. It does mint a fresh
+// lease_id per invocation, because that - not the recycled slot path - is what
+// real treehouse guarantees is unique per acquisition, and it is what the spawn
+// collision guard keys on.
 func writeFakeTreehouseGet(t *testing.T, bin, worktreePath string) {
 	t.Helper()
-	script := "#!/bin/sh\nprintf '{\"path\":\"" + worktreePath + "\"}'\n"
+	counter := filepath.Join(bin, ".treehouse-leases")
+	script := "#!/bin/sh\nn=$(cat " + counter + " 2>/dev/null || echo 0)\nn=$((n+1))\necho \"$n\" > " + counter +
+		"\nprintf '{\"path\":\"" + worktreePath + "\",\"lease_id\":\"lease-%s\"}' \"$n\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +129,9 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 	if got.Herdr.WorkspaceID != "wA" || got.Herdr.TabID != "wA:tB" || got.Herdr.PaneID != "wA:pC" {
 		t.Fatalf("got herdr %+v", got.Herdr)
+	}
+	if got.LeaseID != "lease-1" {
+		t.Fatalf("got lease id %q, want the identity treehouse handed back", got.LeaseID)
 	}
 }
 
@@ -318,7 +326,9 @@ func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
 	}
 }
 
-func TestSpawnDetectsWorktreeCollision(t *testing.T) {
+// A row with no lease identity - written before the lease_id column existed -
+// is still guarded by worktree path, and that guard is still wired into spawn.
+func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
 	if err := state.Write(home, state.Task{ID: "other-task", Worktree: wt}); err != nil {
@@ -333,6 +343,31 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state written after collision: exists=%v err=%v", exists, err)
+	}
+}
+
+// A row left behind by a teardown whose state.Delete failed still names the pool
+// slot treehouse has since freed and handed out again. Under a lease of its own
+// that is not a collision, and the spawn has to go through.
+func TestSpawnAllowsAReusedWorktreePathUnderAFreshLease(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	if err := state.Write(home, state.Task{ID: "stale-task", Worktree: wt, LeaseID: "lease-0"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got err %v, want the spawn to proceed past a stale row on the same path", err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LeaseID != "lease-1" {
+		t.Fatalf("got lease id %q, want the identity treehouse handed back", got.LeaseID)
 	}
 }
 

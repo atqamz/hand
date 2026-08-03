@@ -41,6 +41,8 @@ func sampleTask() Task {
 
 		SendUndeliveredMessage: "stop and wait for review",
 		SendUndeliveredAt:      "2026-07-24T13:00:00Z",
+
+		LeaseID: "5fe5412a4aabdeb85a148d6d73eb42d8",
 	}
 }
 

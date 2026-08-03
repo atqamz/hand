@@ -241,11 +241,25 @@ func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
 // "get" writes a banner line to stderr before its JSON, mirroring real
 // treehouse's documented "all banners go to stderr" behavior, so a
 // CombinedOutput regression at the call site fails the suite.
+//
+// Every "get" mints a fresh lease_id off a counter file, because that is the
+// one thing real treehouse (v2.1.0 and up) guarantees is never reused: a pool
+// slot handed back out keeps its path and gets a new identity, which is exactly
+// what worktree.CheckCollision keys on. A fake reusing one identity across
+// acquisitions could not tell the collision guard's two branches apart. The
+// counter lives beside the fake rather than in a fresh temp dir so that a test
+// reinstalling this fake - a subtest pointing it at its own worktree - keeps
+// counting up instead of reissuing an identity it already handed out.
 func writeFakeTreehouse(t *testing.T, dir, worktreePath string) {
 	t.Helper()
-	body := fmt.Sprintf(`  get) echo 'treehouse 0.7.4' >&2; printf '{"path":"%%s"}\n' %s ;;
+	counter := filepath.Join(dir, ".treehouse-leases")
+	body := fmt.Sprintf(`  get)
+    echo 'treehouse 0.7.4' >&2
+    n=$(cat %[1]s 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > %[1]s
+    printf '{"path":"%%s","lease_id":"lease-%%s"}\n' %[2]s "$n"
+    ;;
   return) echo ok ;;
-  init) echo ok ;;`, shellSingleQuote(worktreePath))
+  init) echo ok ;;`, shellSingleQuote(counter), shellSingleQuote(worktreePath))
 	writeFakeDispatch(t, dir, "treehouse", "", "$1", body)
 }
 

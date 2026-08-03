@@ -86,6 +86,11 @@ type Task struct {
 	// reaches the pane, whatever message that send carries.
 	SendUndeliveredMessage string `json:"send_undelivered_message"`
 	SendUndeliveredAt      string `json:"send_undelivered_at"`
+	// treehouse mints a fresh identity on every acquisition, so this - unlike
+	// Worktree, whose pool slot path is recycled - names the one lease this task
+	// holds and no other. Empty on a row written before the column existed, or by
+	// a treehouse that predates lease identities; see worktree.CheckCollision.
+	LeaseID string `json:"lease_id"`
 }
 
 type Project struct {
@@ -150,7 +155,8 @@ CREATE TABLE IF NOT EXISTS task (
 	last_report_state  TEXT NOT NULL DEFAULT '',
 	last_report_note   TEXT NOT NULL DEFAULT '',
 	send_undelivered_message TEXT NOT NULL DEFAULT '',
-	send_undelivered_at      TEXT NOT NULL DEFAULT ''
+	send_undelivered_at      TEXT NOT NULL DEFAULT '',
+	lease_id                 TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
@@ -239,7 +245,7 @@ const taskColumns = `id, project, kind, harness, model, effort, worktree, brief,
 	herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id, pr,
 	merge_executed, merge_executed_at, report_offset, merge_announced, done_verified,
 	created_at, status_changed_at, status_changed_for, last_report_state, last_report_note,
-	send_undelivered_message, send_undelivered_at`
+	send_undelivered_message, send_undelivered_at, lease_id`
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
@@ -247,7 +253,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.Herdr.Session, &t.Herdr.WorkspaceID, &t.Herdr.TabID, &t.Herdr.PaneID, &t.PR,
 		&t.MergeExecuted, &t.MergeExecutedAt, &t.ReportOffset, &t.MergeAnnounced, &t.DoneVerified,
 		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
-		&t.SendUndeliveredMessage, &t.SendUndeliveredAt)
+		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID)
 	return t, err
 }
 
@@ -265,7 +271,7 @@ func (db *DB) ReadTask(id string) (Task, bool, error) {
 
 func (db *DB) WriteTask(t Task) error {
 	_, err := db.sql.Exec(`INSERT INTO task (`+taskColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project = excluded.project, kind = excluded.kind, harness = excluded.harness,
 			model = excluded.model, effort = excluded.effort, worktree = excluded.worktree,
@@ -278,12 +284,12 @@ func (db *DB) WriteTask(t Task) error {
 			status_changed_at = excluded.status_changed_at, status_changed_for = excluded.status_changed_for,
 			last_report_state = excluded.last_report_state, last_report_note = excluded.last_report_note,
 			send_undelivered_message = excluded.send_undelivered_message,
-			send_undelivered_at = excluded.send_undelivered_at`,
+			send_undelivered_at = excluded.send_undelivered_at, lease_id = excluded.lease_id`,
 		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
 		t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
 		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
-		t.SendUndeliveredMessage, t.SendUndeliveredAt)
+		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID)
 	if err != nil {
 		return fmt.Errorf("write task %q: %w", t.ID, err)
 	}

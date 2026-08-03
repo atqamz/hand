@@ -198,7 +198,9 @@ func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	migrations = restore
+	// Only through this step: a later migration's column is still present from
+	// `schema`, so replaying it here would fail on "duplicate column name".
+	migrations = restore[:1]
 
 	reopened, err := Open(home)
 	if err != nil {
@@ -212,5 +214,57 @@ func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	}
 	if got.SendUndeliveredMessage != "" || got.SendUndeliveredAt != "" {
 		t.Fatalf("migrated columns not empty-defaulted: %+v", got)
+	}
+}
+
+// The live fleet home holds rows written before lease_id existed, and they have
+// to keep being readable through the migration rather than only after their task
+// is respawned - so the column arrives empty on every one of them, which is
+// exactly what worktree.CheckCollision's path fallback keys on.
+func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+
+	restore := migrations
+	t.Cleanup(func() { migrations = restore })
+
+	// Every migration but the last, so the database this first open builds sits
+	// one step behind - the shape a fleet home upgraded to this commit is in.
+	// `schema` still creates lease_id (it cannot be swapped the way `migrations`
+	// can), so the column is dropped by hand to complete that shape.
+	migrations = restore[:len(restore)-1]
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN lease_id`); err != nil {
+		t.Fatal(err)
+	}
+	// WriteTask always targets the full, current taskColumns, which still names
+	// the dropped column - so this row goes in with a raw insert against the
+	// pre-migration column set instead.
+	if _, err := existing.sql.Exec(`INSERT INTO task (id, worktree) VALUES ('t1', '/w/nsr')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrations = restore
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen replaying the real lease_id migration: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	got, found, err := reopened.ReadTask("t1")
+	if err != nil || !found {
+		t.Fatalf("ReadTask = %v, %v", found, err)
+	}
+	if got.LeaseID != "" {
+		t.Fatalf("migrated column not empty-defaulted: %+v", got)
+	}
+	if got.Worktree != "/w/nsr" {
+		t.Fatalf("migration lost the pre-existing row's worktree: %+v", got)
 	}
 }

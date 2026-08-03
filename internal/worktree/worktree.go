@@ -11,11 +11,18 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
+// Lease is one acquisition of a treehouse pool slot. ID is empty when treehouse
+// reported no identity, which a version older than v2.1.0 does.
+type Lease struct {
+	Path string
+	ID   string
+}
+
 // Get acquires a worktree from the project clone's treehouse pool.
 // clonePath must be the project clone directory (treehouse resolves the pool from cwd).
 // treehouse writes banners to stderr ahead of the JSON, so the payload must be read
 // from stdout alone; CombinedOutput here corrupts every parse (issue #21).
-func Get(clonePath, leaseHolder string) (string, error) {
+func Get(clonePath, leaseHolder string) (Lease, error) {
 	args := []string{"get", "--lease", "--json"}
 	if leaseHolder != "" {
 		args = append(args, "--lease-holder", leaseHolder)
@@ -26,19 +33,20 @@ func Get(clonePath, leaseHolder string) (string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return Lease{}, fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
-	var lease struct {
-		Path string `json:"path"`
+	var payload struct {
+		Path    string `json:"path"`
+		LeaseID string `json:"lease_id"`
 	}
-	if err := json.Unmarshal(out, &lease); err != nil {
-		return "", fmt.Errorf("parse treehouse get output: %w", err)
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return Lease{}, fmt.Errorf("parse treehouse get output: %w", err)
 	}
-	if lease.Path == "" {
-		return "", fmt.Errorf("treehouse get returned no worktree path")
+	if payload.Path == "" {
+		return Lease{}, fmt.Errorf("treehouse get returned no worktree path")
 	}
-	return lease.Path, nil
+	return Lease{Path: payload.Path, ID: payload.LeaseID}, nil
 }
 
 // Return releases a worktree back to its treehouse pool. Returning a worktree
@@ -61,10 +69,28 @@ func Return(worktreePath string, force bool) error {
 	return nil
 }
 
-// CheckCollision cross-checks worktreePath against every other active task's recorded
-// worktree path, guarding against the stale-lease-after-crash bug (firstmate #947).
-// It returns the ID of the conflicting task, or "" if there is no collision.
-func CheckCollision(homeDir, worktreePath, excludeID string) (string, error) {
+// CheckCollision cross-checks a freshly acquired lease against every other task's
+// recorded one, returning the ID of the conflicting task or "" for no collision.
+//
+// Keyed on the lease identity rather than the worktree path, because a pool slot
+// path is recycled across leases while an identity never is. The guard's older doc
+// comment claimed the stale-lease-after-crash bug (firstmate #947) as its origin;
+// that bug is not reachable here, since Get always passes --lease and treehouse's
+// pool lock will not hand out a currently-leased slot. What path comparison did
+// produce is a false positive: teardown returns the worktree before state.Delete
+// (deliberately, so a fault stays retryable - see state.Delete), so a failed Delete
+// leaves a row still naming path P after treehouse has freed it, and the next spawn
+// or promote to legitimately acquire P was refused over a collision that never
+// existed concurrently.
+//
+// Path comparison stays the fallback whenever either side has no identity: rows
+// written before the lease_id column existed, and any treehouse older than v2.1.0,
+// still have to be checked against something.
+//
+// Every task row is compared, done and failed ones included, because a task keeps
+// its lease until teardown returns it - status says nothing about whether the
+// worktree is still held.
+func CheckCollision(homeDir string, lease Lease, excludeID string) (string, error) {
 	tasks, err := state.List(homeDir)
 	if err != nil {
 		return "", err
@@ -73,7 +99,13 @@ func CheckCollision(homeDir, worktreePath, excludeID string) (string, error) {
 		if t.ID == excludeID {
 			continue
 		}
-		if t.Worktree == worktreePath {
+		if lease.ID != "" && t.LeaseID != "" {
+			if t.LeaseID == lease.ID {
+				return t.ID, nil
+			}
+			continue
+		}
+		if t.Worktree == lease.Path {
 			return t.ID, nil
 		}
 	}
