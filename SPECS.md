@@ -439,7 +439,9 @@ Task row written to the `task` table in `state/hand.db`, one column per field be
   "status_changed_at": "",
   "status_changed_for": "",
   "last_report_state": "",
-  "last_report_note": ""
+  "last_report_note": "",
+  "send_undelivered_message": "",
+  "send_undelivered_at": ""
 }
 ```
 
@@ -591,19 +593,51 @@ Errors:
 
 ---
 
-### `hand send <id> <message>`
+### `hand send <id> [message]`
 
 Send a text message to a running worker's herdr pane.
 
 ```
 hand send fix-login "focus on the auth middleware, not the test framework"
+hand send fix-login --file data/fix-login/steer.md
 ```
+
+A busy composer (agent mid-response) is the normal state a steer arrives into, not an error
+condition (atqamz/secondhand#102): `hand send` waits for it to free rather than failing
+immediately, so a caller does not have to reimplement that retry in shell. The wait is bounded,
+not indefinite - a composer that stays busy for the whole bound means the message never reached
+the pane, and that has to surface as a distinct, terminal-for-this-invocation outcome rather than
+a hang.
+
+Flags:
+- `--file <path>`: read the message from this file instead of the positional argument, trailing
+  newlines trimmed. A multi-paragraph steer going through the shell as a positional argument has
+  to survive quoting, embedded newlines, and backticks intact; `--file` is the way to send one
+  without gambling on that. Mutually exclusive with the positional `message` - exactly one of the
+  two is required.
+- `--wait <duration>`: how long to wait for a busy composer to free before giving up. Default
+  `config/send-wait`, or `2m` if that is unset too. Long enough that an ordinary agent turn does
+  not need the caller to retry at all, short enough that an invocation still returns in bounded
+  time; a steer into an unusually long-running turn is a `--wait` argument, not a bigger polling
+  loop.
 
 Behavior:
 1. Read the task's row for herdr pane coordinates.
 2. Check herdr pane exists and agent is present.
-3. Wait for composer to be empty (agent not mid-response).
-4. Submit the message text.
+3. Acquire a per-task send lock (`send:<id>`), held for the rest of this list. A second `hand send`
+   against the same task waits behind the first rather than polling the same pane at the same
+   time - two unsynchronized retry loops racing the same busy composer is the exact hazard
+   atqamz/secondhand#102 traced a lost steer to.
+4. If the composer is busy, poll until it frees or `--wait` elapses.
+5. If `--wait` elapses first: durably record the message and a timestamp on the task row
+   (`send_undelivered_message`, `send_undelivered_at`) under a separate, short-lived task-row lock,
+   so a steer that never arrives leaves a trace instead of vanishing with the process that
+   attempted it - and exit distinctly (see "Exit codes"). This lock is not held for the wait
+   itself: a `hand send` waiting out its bound must not stall `hand watch`'s polling or a `hand
+   status` read on the same task.
+6. Otherwise, submit the message text and clear any previously recorded undelivered-send trace on
+   the task row (whatever message that trace carries) - a send that reaches the pane moots it,
+   whether or not it is a retry of the exact message that was previously abandoned.
 
 Output:
 ```
@@ -611,9 +645,14 @@ sent to fix-login
 ```
 
 Errors:
-- Task not found.
-- Herdr pane doesn't exist (agent died, tab closed).
-- Composer not empty after timeout (agent busy, message queued or refused).
+- Task not found (exit 3).
+- Neither or both of the positional `message` and `--file` given (exit 2).
+- Invalid `--wait` value (exit 2 from the flag, exit 1 from a bad `config/send-wait`).
+- Herdr pane doesn't exist (agent died, tab closed) - exit 1, distinct from a busy composer because
+  this send can never succeed, no matter how long it waits.
+- Composer still busy after `--wait` elapses - exit 6, distinct from the pane-not-found case above:
+  this is a transient state a caller can retry (e.g. with a longer `--wait`), not a terminal
+  failure. The message is durably recorded as undelivered rather than lost; see step 5 above.
 
 ---
 
@@ -1936,6 +1975,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
+- `6`: send undelivered, only from `hand send`: the composer stayed busy for the whole `--wait` bound, so the message never reached the pane. Distinct from `1`, which for `hand send` means the send can never succeed (no such herdr pane, herdr itself erroring) - `6` means the opposite, a transient state a caller can retry, most simply with a longer `--wait`. Not `4` or `5`: those are reserved to `hand watch --until-event`.
 
 ### Error output
 

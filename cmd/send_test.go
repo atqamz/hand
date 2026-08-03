@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,6 +116,154 @@ esac
 	cmd.SetArgs([]string{"task-1", "hello"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSendReadsMessageFromFile(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "sent.log")
+	home := setupSendHome(t, `#!/bin/sh
+cmd="$1 $2"
+case "$cmd" in
+"pane get")
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
+	;;
+"pane send-text")
+	printf '%s\n' "$4" >> "`+logPath+`"
+	printf '{"id":"cli:1","result":{}}'
+	;;
+"pane send-keys")
+	printf '{"id":"cli:1","result":{}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`)
+	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	msgPath := filepath.Join(t.TempDir(), "message.txt")
+	if err := os.WriteFile(msgPath, []byte("line one\nline two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "--file", msgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimRight(string(got), "\n") != "line one\nline two" {
+		t.Fatalf("sent text = %q, want file contents with trailing newline trimmed", got)
+	}
+}
+
+func TestSendRejectsFileAndMessageTogether(t *testing.T) {
+	setupSendHome(t, `#!/bin/sh
+echo "unexpected herdr invocation: $@" >&2
+exit 1
+`)
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "hello", "--file", "/does/not/matter"})
+	assertExitCode2(t, cmd.Execute())
+}
+
+func TestSendRequiresMessageOrFile(t *testing.T) {
+	setupSendHome(t, `#!/bin/sh
+echo "unexpected herdr invocation: $@" >&2
+exit 1
+`)
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1"})
+	assertExitCode2(t, cmd.Execute())
+}
+
+func TestSendRecordsUndeliveredMessageWhenComposerStaysBusy(t *testing.T) {
+	// The composer never frees, so WaitComposerEmpty always exhausts --wait;
+	// a short --wait keeps the test itself fast.
+	home := setupSendHome(t, `#!/bin/sh
+cmd="$1 $2"
+case "$cmd" in
+"pane get")
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`)
+	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "stop and wait for review", "--wait", "300ms"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 6 {
+		t.Fatalf("got %v, want ExitError code 6", err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SendUndeliveredMessage != "stop and wait for review" {
+		t.Fatalf("SendUndeliveredMessage = %q, want the abandoned message", got.SendUndeliveredMessage)
+	}
+	if got.SendUndeliveredAt == "" {
+		t.Fatal("SendUndeliveredAt not recorded")
+	}
+}
+
+func TestSendClearsAPreviouslyRecordedUndeliveredSendOnSuccess(t *testing.T) {
+	home := setupSendHome(t, `#!/bin/sh
+cmd="$1 $2"
+case "$cmd" in
+"pane get")
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
+	;;
+"pane send-text")
+	printf '{"id":"cli:1","result":{}}'
+	;;
+"pane send-keys")
+	printf '{"id":"cli:1","result":{}}'
+	;;
+*)
+	echo "unexpected herdr args: $@" >&2
+	exit 1
+	;;
+esac
+`)
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"},
+		SendUndeliveredMessage: "an earlier abandoned steer",
+		SendUndeliveredAt:      "2026-08-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "hello"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SendUndeliveredMessage != "" || got.SendUndeliveredAt != "" {
+		t.Fatalf("undelivered send trace not cleared: %+v", got)
 	}
 }
 
