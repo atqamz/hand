@@ -28,7 +28,10 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # A full major.minor.patch pin resolves locally; "latest" makes the
+          # action fetch a remote version mapping that fails the job on any
+          # network blip. Keep in sync with nixpkgs' golangci-lint in flake.nix.
+          version: v2.12.2
 
   test:
     name: Test (${{ matrix.os }})
