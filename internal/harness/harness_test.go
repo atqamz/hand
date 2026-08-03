@@ -3,7 +3,16 @@ package harness
 import (
 	"strings"
 	"testing"
+
+	"github.com/atqamz/secondhand/internal/agentsmd"
 )
+
+// quotedPrompt is the shell-quoted first message a harness launches with. The
+// operator-decision rule is a paragraph of prose owned by internal/agentsmd, so
+// exact-match wants build the prompt from it instead of restating it here.
+func quotedPrompt(brief string) string {
+	return shellQuote("Read the brief at " + brief + " and carry out the task it describes. " + agentsmd.OperatorDecisionRule)
+}
 
 func TestBuildUnrecognizedHarness(t *testing.T) {
 	if _, err := Build("nonexistent", Options{}); err == nil {
@@ -39,7 +48,7 @@ func TestBuildClaude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions 'Read the brief at /tmp/data/fix-login/brief.md and carry out the task it describes.'"
+	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions " + quotedPrompt("/tmp/data/fix-login/brief.md")
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -50,7 +59,7 @@ func TestBuildClaudeWithModelAndEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --model 'sonnet' --effort 'low' 'Read the brief at /tmp/brief.md and carry out the task it describes.'"
+	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --model 'sonnet' --effort 'low' " + quotedPrompt("/tmp/brief.md")
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -109,7 +118,7 @@ func TestBuildOpenCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "cd '/tmp/wt' && OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --prompt 'Read the brief at /tmp/brief.md and carry out the task it describes.'"
+	want := "cd '/tmp/wt' && OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --prompt " + quotedPrompt("/tmp/brief.md")
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -167,6 +176,24 @@ func TestBuildOpenCodeFrontMatterDisclaimer(t *testing.T) {
 	}
 	if !strings.Contains(got, "dispatch metadata") {
 		t.Fatalf("got %q, want the front matter disclaimed", got)
+	}
+}
+
+// TestBuildCarriesOperatorDecisionRule pins the only channel that rule has: a
+// worker's worktree is never under the fleet home, so the AGENTS.md copy of it
+// never reaches the worker. Codex, Grok, and Pi launch with a bare --file and
+// no inline prompt, so they are out of reach until one of them is verified.
+func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
+	quoted := shellQuote(agentsmd.OperatorDecisionRule)
+	escaped := quoted[1 : len(quoted)-1]
+	for _, name := range []string{Claude, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+		if err != nil {
+			t.Fatalf("Build(%q) error: %v", name, err)
+		}
+		if !strings.Contains(got, escaped) {
+			t.Errorf("Build(%q) = %q, want the operator-decision rule %q in the launch prompt", name, got, escaped)
+		}
 	}
 }
 

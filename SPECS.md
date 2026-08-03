@@ -166,7 +166,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     completion/             # durable teardown completion record
       completion.go         # append/list state/completions.jsonl
     agentsmd/               # generated AGENTS.md template
-      agentsmd.go           # write and refresh the generated span
+      agentsmd.go           # write and refresh the generated span, check a home's file (see "`hand doctor`")
     atomicfile/             # shared write-to-temp-then-rename helper
       atomicfile.go         # atomic file replacement
   go.mod
@@ -1163,6 +1163,35 @@ Both are general errors (`1`), never usage errors: the operator typed the comman
 
 ---
 
+### `hand doctor`
+
+Report-only check of the resolved fleet home's `AGENTS.md` for perishable content and generated-block drift. Fixes nothing; a human or agent reads the findings and edits the file. Findings are not all equal weight - see "Behavior" below for the one that is informational rather than exit-failing.
+
+```
+hand doctor
+```
+
+Behavior:
+1. Resolve the fleet home (same resolution as every other command; a `hand doctor` outside one is the same precondition failure as elsewhere).
+2. Scan `AGENTS.md` line by line, tracking fenced code blocks and the `hand:generated` span (see "AGENTS.md (target)"), and flag:
+   - a date (`YYYY-MM-DD`) outside the generated span, since a date only stays true as long as the day it names,
+   - self-expiring phrasing outside the generated span - `until #N lands`, `once #N lands`, `awaiting #N` - the same shape of problem as a bare date. Each shape needs an issue to expire against, so a bare "awaiting" with nothing to anchor it is durable prose and is not flagged,
+   - an em dash or emoji anywhere in the file, generated span included,
+   - a code fence that is never closed, since it silences the date and self-expiring checks for every line after it,
+   - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`, a violation,
+   - the `hand:generated` markers being absent altogether - the same `generatedBlockSpan` result `agentsmd.mergeGenerated` uses to decide whether to touch the file at all, so this finding states exactly the fact a refresh already acts on: nothing in `hand` will ever update this file's template. It is informational rather than a violation (see `agentsmd.Severity`), since a marker-less file can be an accident or a deliberate choice and nothing in the file tells the two apart.
+3. Print one line per hit to stdout, prefixed with the resolved fleet home's absolute path to `AGENTS.md` (`generatedBody`'s absolute-path rule applies to the checker's own output too - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope) - `<path>:<line>: <finding>` for a line-anchored finding, `<path>: <finding>` for the whole-file block checks - and exit `1` if any violation-severity finding was found, `0` if the file is clean or every finding present is informational.
+
+A remedy naming a command that takes a path spells that path out: `hand init` with no argument targets the working directory, which is a new nested fleet home whenever the operator ran `hand doctor` from anywhere but the home itself.
+
+The missing-markers finding stays informational rather than becoming a violation because `hand doctor` cannot resolve it into a pass/fail verdict on its own: a maintainer who has deliberately kept a file marker-less - this repo's own checkout being the example, see "AGENTS.md (target)" - sees that finding on every `hand doctor` run in that home, permanently, but the command still exits `0` there, so a red `hand doctor` keeps meaning something. A maintainer who left a file marker-less by accident sees the same finding and reads it as a nudge to paste the current generated block back in, not as a command failure to chase down.
+
+A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting #12" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
+
+A missing `AGENTS.md` is not an error: same as a directory that is not a fleet home at all, `hand doctor` finds nothing to flag and exits `0` silently, leaving `hand init` to be the one place that complains about an incomplete fleet home.
+
+---
+
 ## Dashboard: `data/dashboard.md`
 
 The dashboard is secondhand's answer to the session clobbering problem.
@@ -1296,10 +1325,11 @@ autonomy/permission flag set so an unattended worker does not stall on a permiss
 ### Claude Code
 
 ```sh
-cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "Read the brief at <brief-path> and carry out the task it describes."
+cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "Read the brief at <brief-path> and carry out the task it describes. <operator-decision-rule>"
 ```
 
 The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
+`<operator-decision-rule>` is `agentsmd.OperatorDecisionRule` verbatim (see "AGENTS.md (target)"), appended to every prompt-carrying template because the worktree is outside the fleet home and the worker never reads the home's `AGENTS.md`.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
 Claude is the only harness with an effort flag: `opencode` takes `--model` but no effort, and
 `codex`, `grok` and `pi` take neither (`harness.SupportsEffort`).
@@ -1400,7 +1430,7 @@ Unverified, same caveat as Codex above.
 ### OpenCode
 
 ```sh
-cd <worktree> && OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode --prompt "Read the brief at <brief-path> and carry out the task it describes."
+cd <worktree> && OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode --prompt "Read the brief at <brief-path> and carry out the task it describes. <operator-decision-rule>"
 ```
 
 The bare `opencode` command opens its interactive TUI, unlike `opencode run`, which is
@@ -1416,6 +1446,9 @@ The Claude and OpenCode forms above were verified against the installed CLI vers
 Codex, Grok, and Pi retain unverified templates until those binaries are installable; whoever
 verifies them must confirm interactive (not headless) launch, not just flag names.
 The harness module is the single place that constructs these commands.
+A template that hands the brief over as a file rather than as prompt text (Codex, Grok, Pi) has no
+prompt to append to, so `agentsmd.OperatorDecisionRule` never reaches those workers: the brief is
+all they read.
 
 ## Herdr integration detail
 
@@ -1794,6 +1827,8 @@ Fixed vocabulary (anything else is malformed, and malformed lines are surfaced, 
 - `done`: the worker believes the task is complete. `<note>` should include the PR URL for ship tasks.
 - `failed`: the worker gave up. `<note>` is why.
 
+Only a `hand send` message carries an operator decision. A worker answering its own harness's question dialog is deciding for itself, not being told - it must never write that answer as if the operator said it. There is no separate vocabulary word for this: the worker records it as `working: deciding myself: <the call> because <reason>`, first person, and reserves `needs-decision:` for what it cannot take back itself (see atqamz/secondhand#87).
+
 Read/classify semantics:
 
 - `hand watch` tails the file once per task per poll tick from a byte offset persisted as `report_offset` on the task, classifying only whole, newline-terminated lines. A partial trailing line (a write still in flight) is left unconsumed until the next tick. Because the offset is durable, a restarted `hand watch` resumes exactly where it stopped: no already-surfaced line is replayed into stdout, `state/events.log`, or Pending Decisions, and no line written moments before the restart is dropped. The last state and note a line classified to are carried across a restart as `last_report_state` and `last_report_note` rather than re-read from the file, so a pane found not-busy after a restart isn't mistaken for an unexplained stop - see "What survives a `hand watch` restart".
@@ -2150,7 +2185,9 @@ Deliverable: ready for daily use.
 
 ## AGENTS.md (target)
 
-**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh.
+**`internal/agentsmd/agentsmd.go`'s `generatedBody` constant** is authoritative - the template `hand init` writes into a new fleet home's `AGENTS.md` and `hand update` refreshes there, delimited by `hand:generated` markers so anything a user adds outside that span survives a refresh. `hand doctor` (see the CLI specification) reports perishable content, generated-block drift, and absent generated markers in a real fleet home's `AGENTS.md` without fixing any of them - the first two fail the command, absent markers alone does not (`agentsmd.SeverityInfo`).
 
-This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even once a maintainer runs `hand init` in the checkout and makes it a fleet home: its top section is a hand-kept copy of `generatedBody`, kept in sync manually rather than by the refresh mechanism.
-Drift between the two copies is caught by a unit test in `internal/agentsmd` asserting the repo copy's rules open with the generated ones verbatim, not by the mechanism that would remove the duplication.
+One rule in that template, `agentsmd.OperatorDecisionRule`, is also an exported constant, because a worker runs in a worktree that is never under the fleet home and so never loads the home's `AGENTS.md`. `internal/harness` appends that same constant to every prompt-carrying launch template (see "Harness launch templates"), the only channel the rule has to a worker. It stays one string in one place rather than two copies that drift.
+
+This repo's own `AGENTS.md` carries no `hand:generated` markers, so `agentsmd.Refresh` declines to touch it even if a maintainer runs `hand init` in the checkout and `state/hand.db` makes `internal/home.IsHome` report true for it. Rather than hand-keep a second copy of `generatedBody` in sync (the drift #44 was filed against), this file's own Rules section points at `generatedBody` and SPECS.md by name instead of restating it: one prose template, one place it can go stale.
+`hand doctor` run in that checkout therefore reports the absent markers every time - correct, since the template really will never refresh here - but that finding is informational (see "`hand doctor`"), so the command still exits `0` in this checkout rather than failing forever over a state the maintainers chose on purpose.

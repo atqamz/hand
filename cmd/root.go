@@ -48,6 +48,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newPromoteCmd())
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newSearchCmd())
+	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newUpdateCmd(version))
 	// ExecuteC would add the completion group later, too late for the guard below.
 	root.InitDefaultCompletionCmd()
