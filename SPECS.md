@@ -2006,6 +2006,10 @@ A dedicated `acknowledged` column would be that same fact stored twice, with a w
 
 Only the last classified line of the unconsumed tail counts, which is what keeps this from flagging history: a `done` a worker followed with more `working:` was superseded rather than missed, and a resumed worker's second `done` is flagged again on its own terms even though the first was consumed.
 
+A terminal line the worker never terminated with a newline counts too, and this is the one place a reader deliberately parts company with the watcher.
+The watcher leaves an unterminated trailing line unconsumed for its next tick, since the line will still be there (see "Report channel" above); a report it has not announced yet is exactly one that has reached nobody, so leaving it unflagged would let the silent completion this exists to surface back in through the newline.
+A worker mid-append is therefore flagged for the moment its line is incomplete, which is the safe direction: the same reasoning as a watcher denied the task lock, where the transient answer is calling an acknowledged report unacknowledged, never the reverse.
+
 ### Holds
 
 A hold (atqamz/secondhand#63) records that an id is waiting on something, so "what needs the operator" is derived from the store rather than authored by hand in `data/backlog.md` - that file stays out of scope for holds entirely; a design that finds itself parsing it has gone wrong.

@@ -270,6 +270,18 @@ func TestUnacknowledgedTerminalReport(t *testing.T) {
 			want:    true,
 		},
 		{
+			// TailReport leaves this line for the watcher's next tick, so nothing has
+			// announced it - the newline must not be what decides whether a finished
+			// worker is visible.
+			name:    "terminal report with no terminating newline",
+			content: "working: on it\ndone: PR up",
+			want:    true,
+		},
+		{
+			name:    "unterminated line the worker is still writing supersedes a done",
+			content: "done: PR up\nworking: addressing rev",
+		},
+		{
 			name: "no report file at all",
 		},
 	}
