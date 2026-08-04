@@ -94,9 +94,8 @@ func TestReleaseClearsTheRecordedPid(t *testing.T) {
 	release()
 }
 
-// deadPid returns a pid that was real and is now gone, so a test about a crashed
-// watcher is about an actually dead process rather than an invented number that
-// might collide with a live one.
+// Returns a pid that was real and is now gone, so a test about a crashed watcher is about an
+// actually dead process rather than an invented number that might collide with a live one.
 func deadPid(t *testing.T) int {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^$")

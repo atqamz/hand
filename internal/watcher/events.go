@@ -11,31 +11,21 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// Kind values classify an Event for stdout/log routing.
-//
-// There is deliberately no bare "done" kind. A done announcement only exists once a
-// worker's own done report is cross-checked against recorded evidence that the task
-// landed - see doneVerified for what counts, which is deliberately not a question
-// about the project's mode or the route the work took - so it is a verified
-// KindReportDone. ClassifyStatus emits nothing for herdr's own done/idle split, which
-// carries no task-outcome signal. "done" survives only as the state column that event
-// writes (state.ReportDone), never as a kind.
+// Kind values classify an Event for stdout/log routing. There is deliberately no bare "done" kind -
+// a done announcement is a verified KindReportDone, see classifyReportDone - and "done" survives
+// only as the state column that event writes (state.ReportDone).
 const (
 	KindIdleUnreported = "idle-unreported"
 	KindBlocked        = "blocked"
 	KindFailed         = "failed"
 	KindStale          = "stale"
 	KindPRMerged       = "pr-merged"
-	// KindPRNotRecorded and KindPRRecordUnknown are two different facts, kept as
-	// two greppable tokens: an auto-record that was attempted and did not
-	// complete - for any reason, refused validation through unreadable state -
-	// whose remedy is `hand pr`, which reconciles all of them rather than
-	// no-opping; versus one never attempted because another
-	// process held the task lock, where whether the PR got recorded is unknown
-	// and the only honest instruction is to check `hand status`. The split is by
-	// whether an attempt happened, never by cause, so a new cause needs no new
-	// kind.
-	KindPRNotRecorded       = "pr-not-recorded"
+	// An auto-record attempted and not completed, for any reason from refused validation through
+	// unreadable state. The remedy is `hand pr`, which reconciles all of them rather than no-opping.
+	KindPRNotRecorded = "pr-not-recorded"
+	// Never attempted, because another process held the task lock: whether the PR got recorded is
+	// unknown, so the only honest instruction is to check `hand status`. Two greppable tokens because
+	// the split is by whether an attempt happened, never by cause - a new cause needs no new kind.
 	KindPRRecordUnknown     = "pr-record-unknown"
 	KindReportWorking       = "report-working"
 	KindReportPaused        = "report-paused"
@@ -45,10 +35,9 @@ const (
 	KindReportFailed        = "report-failed"
 	KindReportMalformed     = "report-malformed"
 	KindParked              = "parked"
-	// Three kinds for the usage-limit lifecycle, split by what an operator can do
-	// about each: the limit itself and the resume that ends it are bookkeeping a
-	// human has no part in, while `usage-limit-stuck` is the one that says the
-	// mechanism has run out of its own answers and needs someone.
+	// Three kinds for the usage-limit lifecycle, split by what an operator can do about each: the limit
+	// and the resume that ends it are bookkeeping a human has no part in, while `usage-limit-stuck` says
+	// the mechanism has run out of its own answers and needs someone.
 	KindUsageLimit        = "usage-limit"
 	KindUsageLimitResumed = "usage-limit-resumed"
 	KindUsageLimitStuck   = "usage-limit-stuck"
@@ -67,31 +56,25 @@ func KnownKinds() []string {
 	}
 }
 
-// NotifyFilter is the EventFilter for the watcher's in-process notify hook -
-// see SPECS.md's "Notifying a supervisory agent with no session watching" for
-// why its membership differs from --event's. report-blocked has to be listed
-// even though blocked already is: it is the worker's own report-channel
-// declaration that it is stuck, not the herdr transition, and ClassifyStatus
-// suppresses idle-unreported once LastReportState is set - so a worker that
-// reports blocked and then goes idle would otherwise notify no one.
-//
-// Of the three usage-limit kinds only usage-limit-stuck is here. A limit that clears
-// on its own wakes nobody, by design: the resume needs no human, and notifying on
-// every limit would make the fleet's loudest channel the one carrying its most
-// routine event.
+// NotifyFilter is the EventFilter for the watcher's in-process notify hook - see SPECS.md's
+// "Notifying a supervisory agent with no session watching" for why its membership differs from
+// --event's.
 func NotifyFilter() EventFilter {
+	// report-blocked is listed even though blocked already is: it is the worker's own report-channel
+	// declaration that it is stuck, not the herdr transition, and ClassifyStatus suppresses
+	// idle-unreported once LastReportState is set - so reporting then going idle would notify no one.
 	return NewEventFilter([]string{
 		KindBlocked, KindReportBlocked, KindFailed, KindReportFailed, KindReportNeedsDecision, KindReportDone,
+		// Only usage-limit-stuck of the three limit kinds: a limit that clears on its own wakes nobody by
+		// design, since the resume needs no human and notifying on every limit would make the fleet's
+		// loudest channel the one carrying its most routine event.
 		KindUsageLimitStuck,
 	})
 }
 
-// EventFilter restricts which event kinds count as a wake for RunUntilEvent. The
-// caller expresses it directly in terms of Kind rather than against a fixed
-// actionable/progress split: report-working is exactly what distinguishes a
-// wedged spawn from a slow one, so hardcoding it out would defeat the one case
-// that most needs watching. A nil/empty filter matches every kind - the only
-// behavior the streaming Run path ever has, and --until-event's default too.
+// EventFilter restricts which event kinds count as a wake for RunUntilEvent, expressed directly in
+// terms of Kind rather than against a fixed actionable/progress split: report-working is exactly
+// what distinguishes a wedged spawn from a slow one, so hardcoding it out defeats the main case.
 type EventFilter map[string]bool
 
 // NewEventFilter builds a filter from caller-supplied kind names. An empty list
@@ -109,14 +92,16 @@ func NewEventFilter(kinds []string) EventFilter {
 }
 
 func (f EventFilter) Matches(kind string) bool {
+	// A nil or empty filter matches every kind - the only behavior the streaming Run path ever has,
+	// and --until-event's default too.
 	if len(f) == 0 {
 		return true
 	}
 	return f[kind]
 }
 
-// blockedReason is the only detail available: herdr reports agent_status without a
-// free-text cause, so this mirrors herdr's own "blocked" state description.
+// The only detail available: herdr reports agent_status without a free-text cause, so this mirrors
+// herdr's own "blocked" state description.
 const blockedReason = "agent needs help"
 
 type Event struct {
@@ -147,57 +132,42 @@ type TaskState struct {
 	PersistedCursor       state.ReportCursor
 	PersistedPRMerged     bool
 	PersistedDoneVerified bool
-	// PersistedPaneID names the herdr pane every pane-anchored field below was
-	// cached against, so hand promote handing the task a new pane is detectable as
-	// such. No timestamp can stand in for it: RFC3339 is second-granular, so a
-	// restamp landing in the same second as this watcher's own last write is
-	// indistinguishable from no promote at all.
+	// Names the herdr pane every pane-anchored field below was cached against, so hand promote handing
+	// the task a new pane is detectable as such. No timestamp can stand in: RFC3339 is second-granular,
+	// so a restamp in the same second as this watcher's own last write looks like no promote at all.
 	PersistedPaneID string
-	// PersistedChangedAt mirrors ChangedAt the same way, and PersistedChangedFor the
-	// status it was stamped for: a dwell clock that resumes from "now" never
-	// survives a fleet re-arming faster than it elapses, so ChangedAt is seeded from
-	// durable evidence on resume rather than reset - evidence that only holds while
-	// it still describes the status being dwelt in.
+	// Mirrors ChangedAt the same way, with PersistedChangedFor the status it was stamped for: a dwell
+	// clock resuming from "now" never survives a fleet re-arming faster than it elapses, so ChangedAt
+	// is seeded from durable evidence - evidence that holds only while it still describes that status.
 	PersistedChangedAt  time.Time
 	PersistedChangedFor string
 	LastReportState     string
-	// LastReportNote is kept alongside LastReportState so a done report that only
-	// gains its completion evidence later can be re-announced with the same text a
-	// synchronous verification would have produced.
+	// Kept alongside LastReportState so a done report that only gains its completion evidence later
+	// can be re-announced with the same text a synchronous verification would have produced.
 	LastReportNote string
 	// DoneVerified makes the verified-done announcement idempotent across ticks,
 	// and is persisted after the announcement so it stays idempotent across a
 	// restart too.
 	DoneVerified bool
-	// ParkedFiredFor is persisted, unlike the stale and unreachable latches: what
-	// makes re-deriving those safe is that their dwell clocks keep moving, so a
-	// restart costs one duplicate at most. A done or failed task's report file
-	// never grows again, so its silence instant is frozen and every restart
-	// re-fires against it - and state/events.log is capped, so those duplicates
-	// evict real history rather than merely repeating themselves.
+	// Persisted, unlike the stale and unreachable latches: their dwell clocks keep moving, so
+	// re-deriving costs one duplicate at most. A done or failed task's report file never grows again,
+	// so its silence instant is frozen, every restart re-fires, and capped events.log evicts history.
 	ParkedFiredFor          time.Time
 	PersistedParkedFiredFor time.Time
-	// LimitRetryAt and LimitAttempts mirror the task's durable usage-limit schedule:
-	// non-zero LimitRetryAt is what makes the task limited, and the attempt count is
-	// what the backoff and the stuck bound are measured in. Both are persisted for the
-	// same reason ParkedFiredFor is, only sharper - a re-derived schedule would let
-	// every watcher restart attempt a resume immediately, against an account the last
-	// attempt just found still limited.
+	// Mirrors the task's durable usage-limit schedule: a non-zero retry instant is what makes the task
+	// limited, and the attempt count is what the backoff and the stuck bound are measured in. Persisted
+	// for ParkedFiredFor's reason, sharper - a re-derived schedule resumes against a still-limited account.
 	LimitRetryAt           time.Time
 	LimitAttempts          int
 	PersistedLimitRetryAt  time.Time
 	PersistedLimitAttempts int
-	// LimitProbed records that this watcher has read the pane looking for a limit
-	// message at least once for this task. Deliberately not persisted, and the reason
-	// a watcher that starts up against an already-limited worker still finds it: the
-	// stop that stranded the worker happened before this process existed, so there is
-	// no transition left to detect on and the first sighting has to do it instead.
+	// Records that this watcher has read the pane looking for a limit message at least once for this
+	// task. Deliberately not persisted, and the reason a watcher starting against an already-limited
+	// worker still finds it: the stop predates this process, so a first sighting stands in for a transition.
 	LimitProbed bool
-	// UnreachableFired claims an outage episode the same way Stale claims a
-	// silence episode: re-derived, never persisted. A restart mid-outage loses it
-	// and ClassifyUnreachable simply re-evaluates the dwell against durable
-	// evidence, so the safe failure mode is one duplicate announcement, never a
-	// suppressed one.
+	// Claims an outage episode the same way Stale claims a silence episode: re-derived, never
+	// persisted. A restart mid-outage loses it and ClassifyUnreachable re-evaluates the dwell against
+	// durable evidence, so the safe failure mode is one duplicate announcement, never a suppressed one.
 	UnreachableFired bool
 }
 
@@ -207,19 +177,9 @@ func NewTaskState(status herdr.Status, now time.Time) *TaskState {
 	return &TaskState{Status: status, Probed: true, ChangedAt: now}
 }
 
-// ClassifyStatus compares a freshly probed status against ts and returns an
-// actionable event for the transitions SPECS.md calls out (idle-unreported, blocked,
-// failed). Benign transitions (into working, repeated not-busy/blocked) update ts in
-// place and return nil.
-//
-// herdr's idle and done are the same signal for hand's purposes: the pane stopped
-// being busy. Neither says anything about whether the task actually finished - see
-// herdr.Status's doc comment for why hand only ever observes done, not idle, for this
-// transition in practice. A transition out of working/blocked into not-busy only fires
-// KindIdleUnreported when nothing has explained the stop: no report at all, or the
-// last report was still "working". Any other reported state (paused, blocked,
-// needs-decision, done, failed) already explains the pane going quiet, so the
-// transition is absorbed silently instead of raising a false alarm.
+// ClassifyStatus compares a freshly probed status against ts and returns an actionable event for the
+// transitions SPECS.md calls out (idle-unreported, blocked, failed). Benign transitions - into
+// working, repeated not-busy or blocked - update ts in place and return nil.
 func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr error, now time.Time) *Event {
 	if probeErr != nil {
 		wasProbed := ts.Probed
@@ -242,9 +202,15 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 	ts.Stale = false
 
 	switch {
+	// herdr's idle and done are one signal here: the pane stopped being busy, neither saying the task
+	// finished. See herdr.Status's doc for why hand only ever observes done, not idle, for this
+	// transition - and nothing at all is emitted for that done/idle split, which carries no outcome.
 	case status.NotBusy():
 		if prevStatus == herdr.StatusWorking || prevStatus == herdr.StatusBlocked {
 			ts.Blocked = false
+			// Only when nothing has explained the stop: no report at all, or a last report still
+			// "working". Any other reported state - paused, blocked, needs-decision, done, failed -
+			// already explains the pane going quiet, so the transition is absorbed instead of alarming.
 			if ts.LastReportState == "" || ts.LastReportState == state.ReportWorking {
 				return &Event{TaskID: id, Kind: KindIdleUnreported, Text: fmt.Sprintf("idle-unreported %s", id)}
 			}
@@ -271,26 +237,24 @@ func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Durat
 	return &Event{TaskID: id, Kind: KindStale, Text: fmt.Sprintf("stale %s", id)}
 }
 
-// ClassifyUnreachable covers the one outage ClassifyStatus's immediate branch
-// can't: a task whose very first sighting - or first sighting after a restart -
-// finds its pane unreachable, which leaves ts.Probed false with no prior "was
-// probed" edge to fire on. Gating on threshold rather than firing on sight is
-// what makes a blink produce nothing: a pane that answers again before the dwell
-// matures never reaches here, since ClassifyStatus's success path clears
-// ts.Probed back to true first. ts.ChangedAt is reused as the outage's dwell
-// clock rather than adding a new one, so it rides the same restart-safe seeding
-// every other dwell in this package already gets - see statusChangeSeed. Reusing
-// KindFailed rather than a new kind keeps this the same fact ClassifyStatus's
-// immediate branch already announces: the pane is unreachable, whichever tick
-// caught it first.
+// ClassifyUnreachable covers the one outage ClassifyStatus's immediate branch cannot: a task whose
+// very first sighting - or first sighting after a restart - finds its pane unreachable, which leaves
+// ts.Probed false with no prior "was probed" edge to fire on.
 func ClassifyUnreachable(ts *TaskState, id string, now time.Time, threshold time.Duration) *Event {
+	// ClassifyStatus's success path clears ts.Probed back to true, so a pane that answers again before
+	// the dwell matures never reaches it.
 	if ts.Probed || ts.UnreachableFired {
 		return nil
 	}
+	// Gating on the threshold rather than firing on sight is what makes a blink produce nothing.
+	// ts.ChangedAt is reused as the outage's dwell clock rather than adding a new one, so it rides the
+	// same restart-safe seeding every other dwell in this package gets - see statusChangeSeed.
 	if now.Sub(ts.ChangedAt) < threshold {
 		return nil
 	}
 	ts.UnreachableFired = true
+	// KindFailed rather than a new kind: this is the same fact ClassifyStatus's immediate branch
+	// announces - the pane is unreachable, whichever tick caught it first.
 	return &Event{TaskID: id, Kind: KindFailed, Text: fmt.Sprintf("failed %s", id)}
 }
 
@@ -300,11 +264,9 @@ type ParkedBounds struct {
 	Other  time.Duration
 }
 
-// A non-positive bound means unconfigured rather than zero-tolerance. done/failed
-// get their own tier rather than the blanket exemption this used to be: the
-// status file being torn down is what actually severs a task from steering, not
-// the worker's own last word on the matter, so a done/failed worker still
-// attached to a pane is silence like any other and gets bounded the same way.
+// done and failed get their own tier rather than the blanket exemption this used to be: the status
+// file being torn down is what actually severs a task from steering, not the worker's own last word,
+// so a done or failed worker still attached to a pane is silence like any other and is bounded too.
 func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
 	switch lastState {
 	case state.ReportDone, state.ReportFailed:
@@ -314,6 +276,7 @@ func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, ex
 	default:
 		bound = bounds.Other
 	}
+	// A non-positive bound means unconfigured, not zero-tolerance.
 	if bound <= 0 {
 		return 0, true
 	}
@@ -353,12 +316,12 @@ func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {
 	return &Event{TaskID: id, Kind: KindPRMerged, Text: fmt.Sprintf("pr-merged %s", id)}
 }
 
-// ClassifyReportLine turns one classified report line into an event and records
-// it as ts.LastReportState so a subsequent idle transition can consult it. A
-// malformed line is surfaced rather than dropped, but doesn't overwrite the last
-// known report state since free text alone explains nothing.
+// ClassifyReportLine turns one classified report line into an event and records it as
+// ts.LastReportState so a subsequent idle transition can consult it.
 func ClassifyReportLine(home string, ts *TaskState, t state.Task, line state.ReportLine) *Event {
 	id := t.ID
+	// A malformed line is surfaced rather than dropped, but does not overwrite the last known report
+	// state, since free text alone explains nothing.
 	if line.Malformed {
 		return &Event{TaskID: id, Kind: KindReportMalformed, Text: fmt.Sprintf("malformed report %s: %s", id, line.Raw), Reason: line.Raw}
 	}
@@ -382,9 +345,9 @@ func ClassifyReportLine(home string, ts *TaskState, t state.Task, line state.Rep
 	return nil
 }
 
-// classifyReportDone never trusts a worker's own belief that it's finished: without
-// independent completion evidence the event is marked unverified so watch
-// consumers surface "worker says done" without treating it as confirmed fact.
+// Never trusts a worker's own belief that it is finished: without independent completion evidence
+// the event is marked unverified, so watch consumers surface "worker says done" without treating it
+// as confirmed fact.
 func classifyReportDone(home string, ts *TaskState, t state.Task, line state.ReportLine) *Event {
 	verified := doneVerified(home, ts, t)
 	if verified {
@@ -393,11 +356,11 @@ func classifyReportDone(home string, ts *TaskState, t state.Task, line state.Rep
 	return &Event{TaskID: t.ID, Kind: KindReportDone, Text: doneText(t.ID, line.Note, verified), Reason: line.Note, Verified: verified}
 }
 
-// ClassifyDeferredDone covers the ordinary ordering, where a worker reports done
-// before the evidence exists: the done line was already consumed and can't be
-// re-read, so once evidence shows up on a later tick the verified event fires from
-// the state the report left behind. Idempotent - it fires at most once per task.
+// ClassifyDeferredDone covers the ordinary ordering, where a worker reports done before the evidence
+// exists: the done line was already consumed and cannot be re-read, so once evidence shows up on a
+// later tick the verified event fires from the state the report left behind.
 func ClassifyDeferredDone(home string, ts *TaskState, t state.Task) *Event {
+	// Idempotent: at most one deferred announcement per task.
 	if ts.DoneVerified || ts.LastReportState != state.ReportDone {
 		return nil
 	}
@@ -416,23 +379,18 @@ func doneText(id, note string, verified bool) string {
 	return fmt.Sprintf("%s %s: %s", text, id, note)
 }
 
-// doneVerified asks one question: is there recorded evidence, not authored by the
-// worker, that this task landed? What counts is a property of the deliverable, not
-// of the route or the project's mode - a ship task lands by merging, however that
-// merge happened, and a scout task lands by producing the data/<id>/report.md that
-// hand promote itself requires.
-//
-// So the ship check reads t.MergeExecuted first and asks nothing further: it is
-// only ever written after a merge actually happened, whether through a PR or a
-// local fast-forward that leaves no PR at all. A recorded PR the watcher's own
-// poll saw merged is that same evidence arriving the other way. Narrowing this to
-// one route is what made the check silently always-false for a whole class of
-// task twice.
+// Asks one question: is there recorded evidence, not authored by the worker, that this task landed?
+// What counts is a property of the deliverable, not of the route or the project's mode. Narrowing it
+// to one route is what made this check silently always-false for a whole class of task twice.
 func doneVerified(home string, ts *TaskState, t state.Task) bool {
 	switch t.Kind {
 	case state.KindShip:
+		// A ship task lands by merging, however the merge happened: t.MergeExecuted is only ever
+		// written after one actually did, through a PR or a local fast-forward leaving no PR at all. A
+		// recorded PR the watcher's own poll saw merged is that same evidence arriving the other way.
 		return t.MergeExecuted || (t.PR != "" && ts.PRMerged)
 	case state.KindScout:
+		// A scout task lands by producing the data/<id>/report.md hand promote itself requires.
 		_, err := os.Stat(filepath.Join(home, "data", t.ID, "report.md"))
 		return err == nil
 	}

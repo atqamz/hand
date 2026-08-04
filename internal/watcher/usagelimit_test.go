@@ -16,15 +16,13 @@ import (
 
 const claudeLimitText = "Claude usage limit reached. Your limit will reset at 3pm (UTC)."
 
-// limitedPaneAgent is the harness herdr reports for a pane the usage-limit capability
-// covers. Held as a constant so a test asserting the capability's gate reads against
-// the same value the fake serves.
+// The harness herdr reports for a pane the usage-limit capability covers. Held as a constant so a test
+// asserting the capability's gate reads against the same value the fake serves.
 const limitedPaneAgent = "claude"
 
-// paneScript arms the fake herdr with what a usage-limit check reads and where its
-// steers are recorded, and returns the log the test asserts against. An empty agent is
-// how a test says "herdr has not classified this pane", which is what every test
-// predating the usage-limit check gets by default.
+// Arms the fake herdr with what a usage-limit check reads and where its steers are recorded, and returns
+// the log the test asserts against. An empty agent is how a test says "herdr has not classified this
+// pane", which is what every test predating the usage-limit check gets by default.
 func paneScript(t *testing.T, agent, paneText string) (paneLog string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -66,10 +64,9 @@ func limitHold(t *testing.T, home, id string) (state.Hold, bool) {
 	return h, exists
 }
 
-// setLimitRetryAt rewrites the durable retry stamp, which is how a test makes an
-// attempt due without waiting one out. Dropping the tracking map alongside it is the
-// restart the stamp exists for: the watcher that scheduled the attempt is gone, and the
-// one that resumes has nothing but this column to learn from.
+// Rewrites the durable retry stamp, which is how a test makes an attempt due without waiting one out.
+// Dropping the tracking map alongside it is the restart the stamp exists for: the watcher that scheduled
+// the attempt is gone, and the one that resumes has nothing but this column to learn from.
 func setLimitRetryAt(t *testing.T, home, id string, at time.Time) {
 	t.Helper()
 	task := readTask(t, home, id)
@@ -79,10 +76,9 @@ func setLimitRetryAt(t *testing.T, home, id string, at time.Time) {
 	}
 }
 
-// TestTickResumesALimitedWorkerAndLetsGoWhenItRuns is the behavior atqamz/secondhand#136
-// asks for, end to end through tick: a worker whose harness stopped on a usage limit is
-// detected, recorded, steered once its schedule comes due, and released the moment it is
-// running again. Recognising the message is only the first of the four.
+// The behavior atqamz/secondhand#136 asks for, end to end through tick: a worker whose harness stopped
+// on a usage limit is detected, recorded, steered once its schedule comes due, and released the moment
+// it is running again. Recognising the message is only the first of the four.
 func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -155,10 +151,9 @@ func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {
 	}
 }
 
-// The other half of the same behavior: a worker that stopped for any other reason must
-// come out of a tick untouched. A mechanism that steers on a stop it cannot explain is
-// worse than no mechanism, since the steer lands in a pane whose worker had its own
-// reason to be quiet.
+// The other half of the same behavior: a worker that stopped for any other reason must come out of a
+// tick untouched. A mechanism that steers on a stop it cannot explain is worse than no mechanism, since
+// the steer lands in a pane whose worker had its own reason to be quiet.
 func TestTickLeavesAWorkerThatStoppedForAnotherReasonAlone(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -443,10 +438,9 @@ func (p *steerFailingPane) PaneSendText(string, string) error { return errors.Ne
 
 func (p *steerFailingPane) PaneSendKeys(string, ...string) error { return nil }
 
-// An attempt is the same steer hand send performs and takes the same lock, so a send in
-// flight is never interleaved into the composer it is already writing. The attempt is
-// deferred rather than spent: the schedule stays due, and the next tick either steers or
-// finds the send has ended the limit for it.
+// An attempt is the same steer hand send performs and takes the same lock, so a send in flight is never
+// interleaved into the composer it is already writing. The attempt is deferred rather than spent: the
+// schedule stays due, and the next tick either steers or finds the send has ended the limit for it.
 func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	release, err := state.TryLock(home, "send:task-1")
@@ -477,10 +471,9 @@ func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
 	}
 }
 
-// The hold is only a projection of the schedule, and an operator's hold on the same id
-// is a question of their own. Overwriting it would not merely hide that question: the
-// clear at the end of the limit matches on kind, so the row - operator hold and all -
-// would be deleted outright once the worker ran again.
+// The hold is only a projection of the schedule, and an operator's hold on the same id is a question of
+// their own. Overwriting it would not merely hide that question: the clear at the end of the limit
+// matches on kind, so the row - operator hold and all - would be deleted once the worker ran again.
 func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	operatorHold := state.Hold{
