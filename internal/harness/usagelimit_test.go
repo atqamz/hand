@@ -108,6 +108,40 @@ func TestDetectUsageLimitReadsTheResetInstant(t *testing.T) {
 	}
 }
 
+// Scrollback accumulates refusals: the one a resume attempt just provoked sits under
+// the one that stranded the worker in the first place. Reading the older prediction is
+// how a worker whose quota returns at 8pm gets left until tomorrow's 3pm instead.
+func TestDetectUsageLimitReadsTheFreshestRefusal(t *testing.T) {
+	now := time.Date(2026, 8, 4, 16, 0, 0, 0, time.UTC)
+	text := "Claude usage limit reached. Your limit will reset at 3pm (UTC).\n" +
+		"> Your previous turn stopped on a usage limit.\n" +
+		"Claude usage limit reached. Your limit will reset at 8pm (UTC).\n"
+	reset, limited := DetectUsageLimit(Claude, text, now)
+	if !limited {
+		t.Fatal("DetectUsageLimit = false, want true")
+	}
+	if want := time.Date(2026, 8, 4, 20, 0, 0, 0, time.UTC); !reset.Equal(want) {
+		t.Fatalf("reset = %s, want %s from the refusal the last attempt provoked", reset, want)
+	}
+}
+
+// The same, the other way around: the freshest refusal owns the answer even when it is
+// the one that names no instant at all, since the stale one's is a prediction the
+// harness has already superseded.
+func TestDetectUsageLimitDoesNotFallBackToAStaleReset(t *testing.T) {
+	now := time.Date(2026, 8, 4, 16, 0, 0, 0, time.UTC)
+	text := "Claude usage limit reached. Your limit will reset at 3pm (UTC).\n" +
+		"> Your previous turn stopped on a usage limit.\n" +
+		"Claude usage limit reached.\n"
+	reset, limited := DetectUsageLimit(Claude, text, now)
+	if !limited {
+		t.Fatal("DetectUsageLimit = false, want true")
+	}
+	if !reset.IsZero() {
+		t.Fatalf("reset = %s, want the zero instant: the freshest refusal named none", reset)
+	}
+}
+
 // A limit whose message names no reset instant is still a limit. The caller must be
 // able to tell the two apart, since the instant is what it schedules the first attempt
 // from and its absence means fall back to the floor.

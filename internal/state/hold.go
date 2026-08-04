@@ -39,6 +39,25 @@ func ClearHold(homeDir, id string) error {
 	return db.ClearHold(id)
 }
 
+// SetHoldIfNotOtherKind writes h unless the id already carries a hold of a different
+// kind, and reports whether it wrote. It is the set-side counterpart of
+// ClearHoldIfKind: a machine-set hold that overwrote an operator's own hold would not
+// merely hide their open question, since the later ClearHoldIfKind matching its own
+// kind then deletes the row outright.
+func SetHoldIfNotOtherKind(homeDir string, h Hold) (bool, error) {
+	existing, exists, err := ReadHold(homeDir, h.ID)
+	if err != nil {
+		return false, err
+	}
+	if exists && existing.Kind != h.Kind {
+		return false, nil
+	}
+	if err := SetHold(homeDir, h); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ClearHoldIfKind drops the hold on id only when it is of kind, so a caller that
 // invalidated one machine-set hold decides nothing about an operator's own hold on the
 // same id. A missing hold is the ordinary case, not a failure.

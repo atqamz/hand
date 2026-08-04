@@ -442,3 +442,99 @@ func (p *steerFailingPane) PaneRead(string, int) (string, error) { return claude
 func (p *steerFailingPane) PaneSendText(string, string) error { return errors.New("pane p1 not found") }
 
 func (p *steerFailingPane) PaneSendKeys(string, ...string) error { return nil }
+
+// An attempt is the same steer hand send performs and takes the same lock, so a send in
+// flight is never interleaved into the composer it is already writing. The attempt is
+// deferred rather than spent: the schedule stays due, and the next tick either steers or
+// finds the send has ended the limit for it.
+func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	release, err := state.TryLock(home, "send:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	due := time.Now().Add(-time.Minute)
+	ts := &TaskState{LimitRetryAt: due}
+	client := &countingPane{}
+	cfg := Config{Home: home}
+	task := state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "p1"}}
+	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
+	var errBuf bytes.Buffer
+
+	if e := classifyUsageLimit(cfg, client, ts, task, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
+		t.Fatalf("event = %+v, want none", e)
+	}
+	if client.steers != 0 || client.reads != 0 {
+		t.Fatalf("reads = %d, steers = %d, want neither: another writer holds the composer", client.reads, client.steers)
+	}
+	if ts.LimitAttempts != 0 {
+		t.Fatalf("LimitAttempts = %d, want 0: a deferred attempt is not a spent one", ts.LimitAttempts)
+	}
+	if !ts.LimitRetryAt.Equal(due) {
+		t.Fatalf("LimitRetryAt = %s, want it left due at %s", ts.LimitRetryAt, due)
+	}
+}
+
+// The hold is only a projection of the schedule, and an operator's hold on the same id
+// is a question of their own. Overwriting it would not merely hide that question: the
+// clear at the end of the limit matches on kind, so the row - operator hold and all -
+// would be deleted outright once the worker ran again.
+func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	operatorHold := state.Hold{
+		ID: "task-1", Kind: state.HoldKindOperator, Reason: "two ways to fix this, needs a call",
+		SetAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := state.SetHold(home, operatorHold); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := &TaskState{}
+	client := &countingPane{}
+	cfg := Config{Home: home}
+	task := state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "p1"}}
+	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
+	var errBuf bytes.Buffer
+
+	e := classifyUsageLimit(cfg, client, ts, task, pane, herdr.StatusDone, nil, true, time.Now(), &errBuf)
+	if e == nil || e.Kind != KindUsageLimit {
+		t.Fatalf("event = %+v, want %s: the limit is real whatever else holds the id", e, KindUsageLimit)
+	}
+	if ts.LimitRetryAt.IsZero() {
+		t.Fatal("LimitRetryAt is zero: the schedule, not the hold, is what resumes the worker")
+	}
+	if !strings.Contains(errBuf.String(), "left unprojected") {
+		t.Fatalf("errOut = %q, want the unprojected wait reported", errBuf.String())
+	}
+	held, exists := limitHold(t, home, "task-1")
+	if !exists || held.Kind != state.HoldKindOperator || held.Reason != operatorHold.Reason {
+		t.Fatalf("hold = %+v, exists = %v, want the operator's own hold untouched", held, exists)
+	}
+
+	if e := classifyUsageLimit(cfg, client, ts, task, pane, herdr.StatusWorking, nil, false, time.Now(), &errBuf); e == nil || e.Kind != KindUsageLimitResumed {
+		t.Fatalf("event = %+v, want %s once the worker runs again", e, KindUsageLimitResumed)
+	}
+	held, exists = limitHold(t, home, "task-1")
+	if !exists || held.Kind != state.HoldKindOperator {
+		t.Fatalf("hold = %+v, exists = %v: the end of the limit destroyed the operator's question", held, exists)
+	}
+}
+
+type countingPane struct {
+	reads  int
+	steers int
+}
+
+func (p *countingPane) PaneRead(string, int) (string, error) {
+	p.reads++
+	return claudeLimitText, nil
+}
+
+func (p *countingPane) PaneSendText(string, string) error {
+	p.steers++
+	return nil
+}
+
+func (p *countingPane) PaneSendKeys(string, ...string) error { return nil }

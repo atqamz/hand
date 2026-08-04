@@ -10,7 +10,8 @@ import (
 // usageLimit is a harness's signature for its own usage-limit stop: the harness has
 // refused the turn because the account is out of quota, and the pane goes quiet with
 // the refusal on screen. Match recognizes that refusal; Reset reads the instant the
-// harness predicts the quota returns, and reports false when the message names none.
+// harness predicts the quota returns out of the text from the freshest refusal
+// onwards, and reports false when that refusal names none.
 //
 // A reset instant is only ever a prediction, so nothing decides from it whether the
 // limit is over - it decides only when to start trying. See internal/watcher's
@@ -49,15 +50,24 @@ func SupportsUsageLimit(name string) bool {
 // DetectUsageLimit reports whether text - a pane's recent scrollback - shows name's
 // harness stopped on a usage limit, plus the reset instant the message names if it
 // names one at all. A harness with no catalogued signature never reports a limit.
+//
+// Scrollback holds every refusal the harness has printed, not only the one that
+// stopped the current turn, so the reset is read from the last match onwards: an
+// earlier refusal names a reset that has already come and gone, and reading it would
+// schedule the next attempt off a prediction the harness has itself superseded.
 func DetectUsageLimit(name, text string, now time.Time) (time.Time, bool) {
 	limit := usageLimits[name]
-	if limit.Match == nil || !limit.Match.MatchString(text) {
+	if limit.Match == nil {
+		return time.Time{}, false
+	}
+	found := limit.Match.FindAllStringIndex(text, -1)
+	if found == nil {
 		return time.Time{}, false
 	}
 	if limit.Reset == nil {
 		return time.Time{}, true
 	}
-	reset, ok := limit.Reset(text, now)
+	reset, ok := limit.Reset(text[found[len(found)-1][0]:], now)
 	if !ok {
 		return time.Time{}, true
 	}

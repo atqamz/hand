@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -149,7 +150,22 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 // The attempt itself is the observation. Nothing here decides whether the limit is
 // over - the next tick's clear check does that, by seeing whether the pane started
 // working.
+//
+// The steer takes the same `send:<id>` lock hand send holds, because two writers
+// racing one composer is the lost steer atqamz/secondhand#102 traced. TryLock, never
+// Lock: a poll tick must not block behind an operator's whole --wait, and an operator
+// send landing right now is itself the thing that ends the limit. A busy lock spends
+// no attempt - the schedule is left untouched, so the next tick finds it due again.
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
+	release, err := state.TryLock(cfg.Home, "send:"+t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock send %s failed: %v\n", t.ID, err)
+		}
+		return nil
+	}
+	defer release()
+
 	reset := time.Time{}
 	if text, err := client.PaneRead(t.Herdr.PaneID, limitReadLines); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read pane for %s failed: %v\n", t.ID, err)
@@ -275,6 +291,12 @@ func limitReason(ts *TaskState) string {
 // `hand spawn` from reusing the id out from under a worker that is only waiting on
 // quota. A failure is loud but never fatal: the schedule in task state is what
 // actually resumes the worker, and losing its projection must not cost the resume.
+//
+// A hold of another kind on the same id is left standing for the same reason a machine
+// clear spares one: an operator's own question is theirs to answer, and overwriting it
+// with this projection would destroy it once the limit ends and the row is cleared.
+// Nothing is lost by yielding - the id is already held against `hand spawn`, and the
+// schedule that resumes the worker never reads the hold.
 func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) {
 	h := state.Hold{
 		ID:     id,
@@ -282,7 +304,12 @@ func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) {
 		Reason: limitReason(ts),
 		SetAt:  time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := state.SetHold(home, h); err != nil {
+	written, err := state.SetHoldIfNotOtherKind(home, h)
+	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: set usage-limit hold on %s failed: %v\n", id, err)
+		return
+	}
+	if !written {
+		_, _ = fmt.Fprintf(errOut, "watch: hold on %s is not of kind limit; usage-limit wait left unprojected: %s\n", id, limitReason(ts))
 	}
 }
