@@ -89,6 +89,11 @@ The changes are discarded, the slot is freed, and the directory is left clean.
 Creates `treehouse.toml` in the working directory and reports the path it wrote on stdout.
 Exit 1 with `treehouse.toml already exists` on stderr when one is already there.
 
+State left behind: `treehouse.toml` is **untracked and excluded nowhere**.
+`git status --porcelain` in the clone reports `?? treehouse.toml` from then on, and nothing is added to `.gitignore` or `.git/info/exclude`.
+Excluding it is therefore `hand project add`'s job, which `excludeLocally` in `cmd/project.go` does; without that every later `hand project sync` reports `skipped (dirty working tree)` for the project it just registered.
+`TestProjectLifecycle` is the check that fails without it.
+
 ## herdr
 
 Driven by `internal/herdr`, and through it by every command that touches a task's tab.

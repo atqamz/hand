@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/secondhand/internal/atomicfile"
 	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
@@ -229,7 +230,7 @@ func noMistakesInit(clonePath string) error {
 
 func treehouseInitIfNeeded(clonePath string) error {
 	if _, err := os.Stat(filepath.Join(clonePath, "treehouse.toml")); err == nil {
-		return nil
+		return excludeLocally(clonePath, "treehouse.toml")
 	}
 	c := exec.Command("treehouse", "init")
 	c.Dir = clonePath
@@ -237,7 +238,42 @@ func treehouseInitIfNeeded(clonePath string) error {
 	if err != nil {
 		return fmt.Errorf("treehouse init failed: %s", string(out))
 	}
-	return nil
+	return excludeLocally(clonePath, "treehouse.toml")
+}
+
+// Excluding the pool config is hand's job because writing it was: treehouse init
+// leaves treehouse.toml untracked and ignores it nowhere (internal/faketool/FIDELITY.md),
+// so a project whose repo does not list it reads as a dirty clone from then on and
+// every later project sync skips it.
+//
+// info/exclude rather than .gitignore: it is per-clone and never committed, so
+// hand cannot leave a change of its own in the operator's repo.
+func excludeLocally(clonePath, pattern string) error {
+	out, err := exec.Command("git", "-C", clonePath, "rev-parse", "--git-path", "info/exclude").Output()
+	if err != nil {
+		return fmt.Errorf("resolve info/exclude in %s: %w", clonePath, err)
+	}
+	path := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(clonePath, path)
+	}
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	for _, line := range strings.Split(string(existing), "\n") {
+		if strings.TrimSpace(line) == pattern {
+			return nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	body := string(existing)
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return atomicfile.Write(path, "exclude-", []byte(body+pattern+"\n"), 0o644)
 }
 
 // projectView is one registry row plus the gate check the row is worth
