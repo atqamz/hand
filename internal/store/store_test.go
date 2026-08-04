@@ -43,6 +43,9 @@ func sampleTask() Task {
 		PaneStartedAt:  "2026-07-24T10:30:00Z",
 		ParkedFiredFor: "2026-07-24T11:30:00.123456789Z",
 
+		UsageLimitRetryAt:  "2026-07-24T15:00:00Z",
+		UsageLimitAttempts: 2,
+
 		SendUndeliveredMessage: "stop and wait for review",
 		SendUndeliveredAt:      "2026-07-24T13:00:00Z",
 

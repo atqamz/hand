@@ -96,6 +96,17 @@ func newTeardownCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
+			// A hold outlives the task row it was set on, which is what an operator
+			// hold is for. A limit hold is the opposite: nothing is left to resume
+			// and no watcher will ever clear it, so left behind it would refuse
+			// `hand spawn` on this id forever. A warning rather than a failure - the
+			// teardown itself is done, and re-running it cannot undo the delete.
+			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {
+				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear usage-limit hold failed: %v\n", err); printErr != nil {
+					return printErr
+				}
+			}
+
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "teardown %s complete\n", id); err != nil {
 				return err
 			}

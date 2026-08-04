@@ -20,8 +20,8 @@ import (
 	"github.com/atqamz/secondhand/internal/store"
 )
 
-// writeFakeHerdr fakes the two query commands a tick makes: real herdr answers
-// both with a JSON envelope carrying a non-null result on stdout and exit 0,
+// writeFakeHerdr fakes every herdr command a tick can make: real herdr answers the
+// query commands with a JSON envelope carrying a non-null result on stdout and exit 0,
 // and reports failures as an envelope error rather than bare stderr
 // (internal/herdr/client.go's call doc comment), which this fake mirrors for
 // success and diverges from for the unexpected-args arm - a bare stderr line
@@ -29,6 +29,10 @@ import (
 // parsing. "pane get" reads its status from statusFile so a test can drive
 // transitions between ticks; failure paths belong to
 // internal/herdr/client_test.go.
+//
+// PANE_AGENT is empty unless a test sets it, which is what keeps every test written
+// before the usage-limit check from reading a pane: an unclassified pane names no
+// harness, so no harness capability applies to it.
 
 // paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an error
 // envelope on stdout with exit code 0. A fake that exited nonzero would also reach
@@ -56,7 +60,17 @@ case "$1 $2" in
 		printf '{"id":"cli:1","error":{"code":"not_found","message":"pane p1 not found"}}'
 		exit 0
 	fi
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"%s"}}}' "$status"
+	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"%s","agent":"%s"}}}' "$status" "$PANE_AGENT"
+	;;
+"pane read")
+	echo "read" >> "${PANE_LOG:-/dev/null}"
+	# Raw text on stdout, not an envelope: herdr's own contract for this one
+	# command, mirrored here because the client parses it that way.
+	cat "$PANE_TEXT_FILE" 2>/dev/null
+	;;
+"pane send-text"|"pane send-keys")
+	# Empty stdout and exit 0 is real herdr's success shape for a void command.
+	echo "$2 $4" >> "${PANE_LOG:-/dev/null}"
 	;;
 *)
 	echo "unexpected herdr args: $@" >&2
@@ -1523,6 +1537,11 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		DoneVerified:            true,
 		ParkedFiredFor:          time.Date(2003, 3, 3, 0, 0, 0, 0, time.UTC),
 		PersistedParkedFiredFor: time.Date(2004, 4, 4, 0, 0, 0, 0, time.UTC),
+		LimitRetryAt:            time.Date(2005, 5, 5, 0, 0, 0, 0, time.UTC),
+		LimitAttempts:           3,
+		PersistedLimitRetryAt:   time.Date(2006, 6, 6, 0, 0, 0, 0, time.UTC),
+		PersistedLimitAttempts:  4,
+		LimitProbed:             true,
 		UnreachableFired:        true,
 	}
 	promoted := state.Task{

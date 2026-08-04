@@ -218,6 +218,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
+		// Read before ClassifyStatus consumes the transition, which is the edge the
+		// usage-limit check reads a pane on.
+		justStopped := status.NotBusy() && status != ts.Status
+
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
@@ -243,6 +247,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if mtime, err := reportEvidenceTime(cfg.Home, t); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
 		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
+			handleEvent(cfg, e, out, errOut)
+		}
+		if e := classifyUsageLimit(cfg, client, ts, t, pane, status, probeErr, justStopped, now, errOut); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
 		syncTaskState(cfg.Home, t.ID, ts, now, errOut)
@@ -277,7 +284,30 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 	ts.LastReportNote = t.LastReportNote
 	ts.ParkedFiredFor = parkedFiredSeed(t)
 	ts.PersistedParkedFiredFor = ts.ParkedFiredFor
+	ts.LimitRetryAt = limitRetrySeed(t)
+	ts.PersistedLimitRetryAt = ts.LimitRetryAt
+	ts.LimitAttempts = t.UsageLimitAttempts
+	ts.PersistedLimitAttempts = ts.LimitAttempts
 	return ts
+}
+
+// limitRetrySeed reads back the instant a limited worker may next be tried. An
+// unparseable stamp seeds unlimited, which loses the schedule rather than inventing
+// one: the next stop edge or first probe re-detects the limit from the pane, whereas a
+// stamp guessed at here would drive real steers off a value nothing wrote.
+func limitRetrySeed(t state.Task) time.Time {
+	parsed, err := time.Parse(time.RFC3339, t.UsageLimitRetryAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+func limitRetryStamp(retryAt time.Time) string {
+	if retryAt.IsZero() {
+		return ""
+	}
+	return retryAt.UTC().Format(time.RFC3339)
 }
 
 // parkedFiredSeed reads back the silence instant parked last fired against. An
@@ -347,6 +377,16 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	// false anyway, but a fresh pane deserves a fresh episode on purpose, not by
 	// accident of that ordering.
 	ts.UnreachableFired = false
+	// A usage limit is the harness's, and the new pane runs a new harness process with
+	// its own quota state. Carrying the schedule over would steer the fresh pane on a
+	// clock the scout's refusal set. The mirrors are re-read from the promoted row
+	// rather than zeroed alongside it, so the columns get written clear here in the one
+	// case hand promote did not already clear them itself.
+	ts.LimitRetryAt = time.Time{}
+	ts.LimitAttempts = 0
+	ts.LimitProbed = false
+	ts.PersistedLimitRetryAt = limitRetrySeed(t)
+	ts.PersistedLimitAttempts = t.UsageLimitAttempts
 	ts.LastReportState = t.LastReportState
 	ts.LastReportNote = t.LastReportNote
 }
@@ -588,7 +628,8 @@ func recordedByLockHolder(home, id, url string) error {
 func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writer) {
 	if ts.ReportCursor == ts.PersistedCursor && ts.PRMerged == ts.PersistedPRMerged &&
 		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) &&
-		ts.PersistedChangedFor == string(ts.Status) && ts.ParkedFiredFor.Equal(ts.PersistedParkedFiredFor) {
+		ts.PersistedChangedFor == string(ts.Status) && ts.ParkedFiredFor.Equal(ts.PersistedParkedFiredFor) &&
+		ts.LimitRetryAt.Equal(ts.PersistedLimitRetryAt) && ts.LimitAttempts == ts.PersistedLimitAttempts {
 		return
 	}
 
@@ -620,6 +661,8 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	t.LastReportState = ts.LastReportState
 	t.LastReportNote = ts.LastReportNote
 	t.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
+	t.UsageLimitRetryAt = limitRetryStamp(ts.LimitRetryAt)
+	t.UsageLimitAttempts = ts.LimitAttempts
 	if err := state.Write(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
@@ -630,6 +673,8 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedChangedAt = ts.ChangedAt
 	ts.PersistedChangedFor = string(ts.Status)
 	ts.PersistedParkedFiredFor = ts.ParkedFiredFor
+	ts.PersistedLimitRetryAt = ts.LimitRetryAt
+	ts.PersistedLimitAttempts = ts.LimitAttempts
 }
 
 // EventFilter gates only the out write - events.log and the notify hook both

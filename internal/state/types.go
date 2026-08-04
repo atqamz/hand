@@ -13,6 +13,7 @@ const (
 const (
 	HoldKindOperator = store.HoldKindOperator
 	HoldKindBlocked  = store.HoldKindBlocked
+	HoldKindLimit    = store.HoldKindLimit
 )
 
 // Aliases rather than separate structs: the store owns the columns these map

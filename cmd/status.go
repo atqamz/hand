@@ -144,10 +144,11 @@ type holdJSON struct {
 // holdInconsistency names why a hold row can't be trusted at face value, so
 // that ListHolds surfacing every row (rather than filtering) turns into a
 // visible flag instead of a silently wrong render: an unrecognized kind, a
-// blocked hold with nothing to point at, or an operator hold carrying a
-// blocked_on nothing set. Nothing in this codebase writes such a row today -
-// only hand hold set, which validates first - so seeing one here means
-// something outside hand touched state/hand.db directly.
+// blocked hold with nothing to point at, or an operator or limit hold carrying
+// a blocked_on nothing set. Nothing in this codebase writes such a row today -
+// hand hold set validates first, and hand watch's limit holds set no
+// blocked_on at all - so seeing one here means something outside hand touched
+// state/hand.db directly.
 func holdInconsistency(h state.Hold) string {
 	switch h.Kind {
 	case state.HoldKindOperator:
@@ -158,6 +159,11 @@ func holdInconsistency(h state.Hold) string {
 	case state.HoldKindBlocked:
 		if h.BlockedOn == "" {
 			return "blocked hold has no blocked_on"
+		}
+		return ""
+	case state.HoldKindLimit:
+		if h.BlockedOn != "" {
+			return fmt.Sprintf("limit hold carries a blocked_on %q", h.BlockedOn)
 		}
 		return ""
 	default:

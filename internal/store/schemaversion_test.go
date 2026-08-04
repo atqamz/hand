@@ -522,3 +522,63 @@ func TestReportDigestColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 		t.Fatalf("digest did not survive a write to the migrated row: %+v", reread)
 	}
 }
+
+// Exercises the real usage-limit entry against a database holding rows written before
+// hand could detect a limit. Deliberately no backfill: an empty retry stamp means "this
+// task is not limited", which is the honest reading of every such row, and a value
+// invented here would drive real steers into a pane off a schedule nothing observed.
+func TestUsageLimitColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+
+	restore := migrations
+	own := migrationsContaining("usage_limit_retry_at")
+	t.Cleanup(func() { migrations = restore })
+
+	migrations = []string{}
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN usage_limit_retry_at`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN usage_limit_attempts`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`INSERT INTO task (id, created_at) VALUES ('pre-existing', '2026-07-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrations = own
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen replaying the real usage-limit migration: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	task, found, err := reopened.ReadTask("pre-existing")
+	if err != nil || !found {
+		t.Fatalf("ReadTask = %v, %v", found, err)
+	}
+	if task.UsageLimitRetryAt != "" || task.UsageLimitAttempts != 0 {
+		t.Fatalf("usage-limit columns = %q/%d, want an unlimited row", task.UsageLimitRetryAt, task.UsageLimitAttempts)
+	}
+
+	task.UsageLimitRetryAt = "2026-08-04T15:01:00Z"
+	task.UsageLimitAttempts = 3
+	if err := reopened.WriteTask(task); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := reopened.ReadTask("pre-existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UsageLimitRetryAt != task.UsageLimitRetryAt || got.UsageLimitAttempts != task.UsageLimitAttempts {
+		t.Fatalf("round trip on the migrated row = %q/%d, want %q/%d",
+			got.UsageLimitRetryAt, got.UsageLimitAttempts, task.UsageLimitRetryAt, task.UsageLimitAttempts)
+	}
+}

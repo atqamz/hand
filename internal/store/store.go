@@ -23,6 +23,10 @@ const (
 const (
 	HoldKindOperator = "operator"
 	HoldKindBlocked  = "blocked"
+	// HoldKindLimit is the one machine-set kind: hand watch sets it when a worker's
+	// harness stops on a usage limit and clears it when the worker runs again, so
+	// `hand hold set` refuses it (atqamz/secondhand#136).
+	HoldKindLimit = "limit"
 )
 
 // Wrapped by DeleteTask, rendered by callers as `task "<id>" not found`.
@@ -117,6 +121,16 @@ type Task struct {
 	// lets every watcher restart re-fire against that same frozen instant and
 	// evict real history from the capped state/events.log (atqamz/secondhand#127).
 	ParkedFiredFor string `json:"parked_fired_for"`
+	// The earliest instant hand watch may next try to resume a worker its harness
+	// stopped on a usage limit, and how many such attempts it has already made.
+	// Non-empty is what makes a task limited; the `limit` hold is the operator-visible
+	// projection of it. Durable because a re-derived schedule lets every watcher
+	// restart attempt immediately against an account that is still limited, which is
+	// the retry storm the whole mechanism is bounded to avoid, and because a restart
+	// that forgot the schedule would never resume the worker at all
+	// (atqamz/secondhand#136).
+	UsageLimitRetryAt  string `json:"usage_limit_retry_at"`
+	UsageLimitAttempts int    `json:"usage_limit_attempts"`
 }
 
 // Upstream is the "owner/repo" a fork project opens its PRs against, empty for
@@ -193,7 +207,9 @@ CREATE TABLE IF NOT EXISTS task (
 	delivered_reason         TEXT NOT NULL DEFAULT '',
 	pane_started_at          TEXT NOT NULL DEFAULT '',
 	parked_fired_for         TEXT NOT NULL DEFAULT '',
-	report_digest            TEXT NOT NULL DEFAULT ''
+	report_digest            TEXT NOT NULL DEFAULT '',
+	usage_limit_retry_at     TEXT NOT NULL DEFAULT '',
+	usage_limit_attempts     INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
@@ -291,6 +307,7 @@ var taskColumnNames = []string{
 	"send_undelivered_message", "send_undelivered_at", "lease_id",
 	"delivered_at", "delivered_reason",
 	"pane_started_at", "parked_fired_for", "report_digest",
+	"usage_limit_retry_at", "usage_limit_attempts",
 }
 
 var (
@@ -319,6 +336,7 @@ func taskValues(t Task) []any {
 		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID,
 		t.DeliveredAt, t.DeliveredReason,
 		t.PaneStartedAt, t.ParkedFiredFor, t.ReportDigest,
+		t.UsageLimitRetryAt, t.UsageLimitAttempts,
 	}
 }
 
@@ -330,7 +348,8 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
 		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID,
 		&t.DeliveredAt, &t.DeliveredReason,
-		&t.PaneStartedAt, &t.ParkedFiredFor, &t.ReportDigest)
+		&t.PaneStartedAt, &t.ParkedFiredFor, &t.ReportDigest,
+		&t.UsageLimitRetryAt, &t.UsageLimitAttempts)
 	return t, err
 }
 

@@ -1,6 +1,10 @@
 package state
 
-import "github.com/atqamz/secondhand/internal/store"
+import (
+	"errors"
+
+	"github.com/atqamz/secondhand/internal/store"
+)
 
 // ErrHoldNotFound is wrapped into errors returned by ClearHold when no hold
 // row exists for the given ID, rendering as `hold "<id>" not found`.
@@ -33,6 +37,39 @@ func ClearHold(homeDir, id string) error {
 	}
 	defer func() { _ = db.Close() }()
 	return db.ClearHold(id)
+}
+
+// SetHoldIfNotOtherKind writes h unless the id already carries a hold of a different
+// kind, and reports whether it wrote. It is the set-side counterpart of
+// ClearHoldIfKind: a machine-set hold that overwrote an operator's own hold would not
+// merely hide their open question, since the later ClearHoldIfKind matching its own
+// kind then deletes the row outright.
+func SetHoldIfNotOtherKind(homeDir string, h Hold) (bool, error) {
+	existing, exists, err := ReadHold(homeDir, h.ID)
+	if err != nil {
+		return false, err
+	}
+	if exists && existing.Kind != h.Kind {
+		return false, nil
+	}
+	if err := SetHold(homeDir, h); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ClearHoldIfKind drops the hold on id only when it is of kind, so a caller that
+// invalidated one machine-set hold decides nothing about an operator's own hold on the
+// same id. A missing hold is the ordinary case, not a failure.
+func ClearHoldIfKind(homeDir, id, kind string) error {
+	h, exists, err := ReadHold(homeDir, id)
+	if err != nil || !exists || h.Kind != kind {
+		return err
+	}
+	if err := ClearHold(homeDir, id); err != nil && !errors.Is(err, ErrHoldNotFound) {
+		return err
+	}
+	return nil
 }
 
 func ReadHold(homeDir, id string) (Hold, bool, error) {

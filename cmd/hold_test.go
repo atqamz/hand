@@ -104,6 +104,44 @@ func TestHoldSetRejectsInvalidKind(t *testing.T) {
 	assertExitCode2(t, cmd.Execute())
 }
 
+// The limit kind is hand watch's, and the message says so rather than claiming the kind
+// does not exist: an operator who has seen one in hand status needs to know who sets it.
+func TestHoldSetRefusesTheMachineSetLimitKind(t *testing.T) {
+	home := setupHoldHome(t)
+
+	cmd := newHoldSetCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"fix-login", "--kind", "limit", "--reason", "out of quota"})
+	err := cmd.Execute()
+	assertExitCode2(t, err)
+	if !strings.Contains(err.Error(), "hand watch") {
+		t.Fatalf("err = %v, want it to name hand watch as the owner of the kind", err)
+	}
+	if _, found, readErr := state.ReadHold(home, "fix-login"); found || readErr != nil {
+		t.Fatalf("ReadHold = %v, %v, want no hold written", found, readErr)
+	}
+}
+
+// Clearing one by hand is allowed and stays allowed: it is the operator's escape hatch
+// out of a hold hand set on their behalf, and refusing it would make the machine-set
+// kind the one thing an operator cannot undo.
+func TestHoldClearAcceptsAMachineSetLimitHold(t *testing.T) {
+	home := setupHoldHome(t)
+	if err := state.SetHold(home, state.Hold{ID: "fix-login", Kind: state.HoldKindLimit, Reason: "out of quota"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newHoldClearCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"fix-login"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := state.ReadHold(home, "fix-login"); found || err != nil {
+		t.Fatalf("ReadHold after clear = %v, %v, want gone", found, err)
+	}
+}
+
 func TestHoldSetRequiresReason(t *testing.T) {
 	setupHoldHome(t)
 

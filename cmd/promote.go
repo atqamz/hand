@@ -180,10 +180,20 @@ func newPromoteCmd() *cobra.Command {
 			t.StatusChangedFor = ""
 			t.LastReportState = ""
 			t.LastReportNote = ""
+			// The scout's harness process is gone along with its pane, and the ship's
+			// runs against whatever quota exists now. Kept, the schedule would steer
+			// the fresh pane on a clock the scout's refusal set.
+			t.UsageLimitRetryAt = ""
+			t.UsageLimitAttempts = 0
 			if err := state.Write(home, t); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}
 			promoted = true
+			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {
+				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear usage-limit hold failed: %v\n", err); printErr != nil {
+					return printErr
+				}
+			}
 
 			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
