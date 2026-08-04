@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/completion"
+	"github.com/atqamz/secondhand/internal/faketool"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
@@ -49,143 +50,71 @@ func initGitRepo(t *testing.T, dir string) {
 	run("commit", "-q", "-m", "initial commit")
 }
 
-// writeFakeGHPRState fakes `gh pr view --json state`, which really answers with
-// that JSON object on stdout and exit 0. Real gh writes warnings to stderr
-// ahead of the JSON (internal/ghutil/pr.go's PRIsMerged doc comment); this fake
-// omits them since these tests only check the parsed state, not the
-// stdout/stderr split - that split is covered faithfully by
-// internal/ghutil/pr_test.go's writeFakeGHPRView.
+// The PR recorded on a task whose test does not exercise detection.
+const teardownTestPR = "https://example.com/pr/1"
+
+// The PR state teardown's landed-work check reads. From internal/faketool so a
+// merge through the fake moves it, which is what keeps a test from asserting a
+// state nothing could have produced.
 func writeFakeGHPRState(t *testing.T, prState string) {
 	t.Helper()
-	bin := t.TempDir()
-	script := "#!/bin/sh\nprintf '{\"state\":\"" + prState + "\"}'\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.GH{PRs: []faketool.GHPR{
+		{Number: 1, URL: teardownTestPR, Branch: "task-1-branch", Repo: "owner/repo", State: prState},
+	}}.Install(t, faketool.Bin(t))
 }
 
-// writeFakeTreehouseReturn fakes the two tools teardown shells out to, each keyed
-// on the state its own commands leave behind, since a fake that answers a
-// state-changing command identically before and after that command cannot test
-// anything about the state change.
-//
-// treehouse return keeps the returned worktree's pool slot directory and succeeds
-// again on a second return of the same path, checked against the real tool; only
-// a path no pool manages fails, and that failure path is covered directly by
-// internal/worktree/worktree_test.go against the same fidelity note.
-//
-// A dirty worktree is the other half of that contract: the real tool prompts
-// before cleaning one and aborts when nothing answers, and only --force ("clean,
-// reset, and return without prompting") gets past it, so the fake refuses the
-// unforced dirty return and cleans on the forced one. A fake that returned any
-// directory regardless of dirt could not tell a forced return from an unforced
-// one, which is precisely what teardown's safe-dirt path depends on.
-//
-// The fake records its argv at worktreeReturnArgsPath so a test can assert which
-// of the two it got.
-//
-// herdr stops listing a closed tab. A stateless fake that re-lists a tab it was
-// just told to close makes every retry test vacuous - it can never reach the
-// already-closed case a second teardown run actually hits.
-func writeFakeTreehouseReturn(t *testing.T) {
+// The two tools teardown shells out to, both from internal/faketool so each keeps
+// the state its own commands change: the returned worktree's slot stops being
+// leasable and the closed tab stops being listed. worktree need not exist yet,
+// only be the path the pool will be asked for.
+func writeFakeTreehouseReturn(t *testing.T, worktree string) {
 	t.Helper()
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(`#!/bin/sh
-case "$1" in
-return)
-	path="$2"
-	printf '%s\n' "$@" > "$path.return-args"
-	if [ ! -d "$path" ]; then
-		echo "worktree $path is not managed by treehouse" >&2
-		exit 1
-	fi
-	forced=""
-	for arg in "$@"; do
-		if [ "$arg" = "--force" ]; then forced=1; fi
-	done
-	if [ -n "$(git -C "$path" status --porcelain)" ] && [ -z "$forced" ]; then
-		echo "Worktree left dirty. Use 'treehouse return --force' to clean it later." >&2
-		exit 1
-	fi
-	if [ -n "$forced" ]; then
-		git -C "$path" reset -q --hard HEAD
-		git -C "$path" clean -qfd
-	fi
-	echo "Worktree returned to pool."
-	exit 0
-	;;
-esac
-echo "unexpected treehouse args: $@" >&2
-exit 1
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	closed := filepath.Join(t.TempDir(), "closed")
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
-closed='`+closed+`'
-cmd="$1 $2"
-case "$cmd" in
-"tab list")
-	if [ -e "$closed" ]; then
-		printf '{"id":"cli:1","result":{"tabs":[]}}'
-	else
-		printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
-	fi
-	;;
-"tab close")
-	touch "$closed"
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"workspace close")
-	touch "$closed"
-	printf '{"id":"cli:1","result":{}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	log := invocationLog(worktree)
+	faketool.Treehouse{Held: []string{worktree}, Log: log}.Install(t, bin)
+	faketool.Herdr{Log: log, Workspaces: []faketool.HerdrWorkspace{
+		{ID: "wA", Label: "hand:myproj", Tabs: []faketool.HerdrTab{{ID: "wA:tB", Label: "task-1", Pane: "wA:pB"}}},
+	}}.Install(t, bin)
 }
 
-// ghFakePR is one PR writeFakeGHPRListAndView reports for a branch.
+func invocationLog(worktree string) string {
+	return worktree + ".invocations"
+}
+
+func readInvocations(t *testing.T, worktree string) []string {
+	t.Helper()
+	data, err := os.ReadFile(invocationLog(worktree))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
+// ghFakePR is one PR on the task branch, in the project's own repo.
 type ghFakePR struct {
 	Number int
 	URL    string
 	State  string
 }
 
-// writeFakeGHPRListAndView fakes both gh calls a gate-opened-PR detection makes:
-// `gh pr list --head <branch> --json number,url,state,headRepository`
-// (FindPRByBranch) and `gh pr view <url> --json state` (project.ValidatePR's
-// existence check, then checkLandedWork's own merged check). Accepting several
-// PRs, rather than only the one the old fake could produce, is what lets these
-// tests exercise FindPRByBranch's preference-tier rule (atqamz/secondhand#77)
-// instead of just its single-result path.
+// The PRs a gate-opened-PR detection finds: `gh pr list --repo <repo> --head
+// <branch>` (FindPRByBranch) then `gh pr view <url> --json state`
+// (project.ValidatePR's existence check, then checkLandedWork's own merged check).
+// Several of them is what exercises FindPRByBranch's preference-tier rule
+// (atqamz/secondhand#77) rather than only its single-result path.
 func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	t.Helper()
-	bin := t.TempDir()
-
-	items := make([]string, len(prs))
-	viewCases := make([]string, len(prs))
-	for i, pr := range prs {
-		items[i] = fmt.Sprintf(`{"number":%d,"url":%q,"state":%q}`, pr.Number, pr.URL, pr.State)
-		viewCases[i] = fmt.Sprintf("%q) printf '{\"state\":%q}' ;;\n", pr.URL, pr.State)
+	g := faketool.GH{}
+	for _, pr := range prs {
+		g.PRs = append(g.PRs, faketool.GHPR{
+			Number: pr.Number, URL: pr.URL, State: pr.State,
+			Branch: "task-1-branch", Repo: "owner/repo",
+		})
 	}
-	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
-		"\"pr list\") printf '[" + strings.Join(items, ",") + "]' ;;\n" +
-		"\"pr view\") case \"$3\" in\n" + strings.Join(viewCases, "") +
-		"*) echo \"unexpected gh pr view arg: $3\" >&2; exit 1 ;;\nesac ;;\n" +
-		"*) echo \"unexpected gh args: $@\" >&2; exit 1 ;;\n" +
-		"esac\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	g.Install(t, faketool.Bin(t))
 }
 
 // setupTeardownGateProject registers a non-local-only project whose clone has a
@@ -211,33 +140,16 @@ func registerGateProject(t *testing.T, home string) {
 	}
 }
 
-// writeFakeGHForkPRListAndView is writeFakeGHPRListAndView for a fork project:
-// `gh pr list` dispatches on --repo, so the PR exists on the upstream only and a
-// search of the project's own repo comes back empty, and it reports the
-// headRepository field the fork filter reads. Without the --repo dispatch no test
-// can express the atqamz/secondhand#134 shape at all (atqamz/secondhand#40 is why
-// that matters). The dispatch case-folds --repo because GitHub serves a repo under
-// any casing of its slug, so a fake matching case-sensitively would answer a
-// double search of one repo with one hit and hide the duplicate it really returns.
+// writeFakeGHPRListAndView for a fork project: the PR lives on the upstream while
+// the branch lives in headRepo, so a search of the project's own repo comes back
+// empty and the fork filter has a headRepository to read. Without a fake that
+// narrows on --repo no test can express the atqamz/secondhand#134 shape at all.
 func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr ghFakePR) {
 	t.Helper()
-	bin := t.TempDir()
-
-	item := fmt.Sprintf(`{"number":%d,"url":%q,"state":%q,"headRepository":{"nameWithOwner":%q}}`,
-		pr.Number, pr.URL, pr.State, headRepo)
-	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
-		"\"pr list\") case \"$(printf '%s' \"$4\" | tr 'A-Z' 'a-z')\" in\n" +
-		fmt.Sprintf("%q) printf '[%s]' ;;\n", strings.ToLower(upstream), item) +
-		"*) printf '[]' ;;\nesac ;;\n" +
-		"\"pr view\") case \"$3\" in\n" +
-		fmt.Sprintf("%q) printf '{\"state\":%q}' ;;\n", pr.URL, pr.State) +
-		"*) echo \"unexpected gh pr view arg: $3\" >&2; exit 1 ;;\nesac ;;\n" +
-		"*) echo \"unexpected gh args: $@\" >&2; exit 1 ;;\n" +
-		"esac\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.GH{PRs: []faketool.GHPR{{
+		Number: pr.Number, URL: pr.URL, State: pr.State,
+		Branch: "task-1-branch", Repo: upstream, HeadRepo: headRepo,
+	}}}.Install(t, faketool.Bin(t))
 }
 
 // TestTeardownDetectsGateOpenedPRonDeclaredUpstream is the atqamz/secondhand#134
@@ -461,7 +373,7 @@ func setupTeardownHome(t *testing.T) (home, worktree string) {
 	mkFleetDirs(t, home)
 	worktree = filepath.Join(t.TempDir(), "wt")
 	initGitRepo(t, worktree)
-	writeFakeTreehouseReturn(t)
+	writeFakeTreehouseReturn(t, worktree)
 	return home, worktree
 }
 
@@ -776,7 +688,7 @@ func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 		t.Fatalf("git commit failed: %v: %s", err, out)
 	}
 
-	writeFakeTreehouseReturn(t)
+	writeFakeTreehouseReturn(t, worktree)
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -942,11 +854,11 @@ func TestTeardownRecordsMergedWhenALocallyMergedShipRowKeptItsScoutReport(t *tes
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	writeFakeTreehouseReturn(t)
 
 	clonePath := filepath.Join(home, "projects", "myproj")
 	initGitRepo(t, clonePath)
 	worktree := filepath.Join(t.TempDir(), "wt")
+	writeFakeTreehouseReturn(t, worktree)
 	runGitIn(t, clonePath, "branch", "task-1-branch")
 	runGitIn(t, clonePath, "worktree", "add", "-q", worktree, "task-1-branch")
 	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/myproj.git", Mode: project.ModeLocalOnly}); err != nil {
@@ -1386,15 +1298,57 @@ func TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase(t *testing.T) {
 	}
 }
 
-// readTreehouseReturnArgs reads the argv writeFakeTreehouseReturn's fake recorded
-// for the last `treehouse return` of worktree.
+// Two tasks share a workspace and the first one's teardown already closed its tab,
+// which is where an unguarded rerun does real damage: one tab is left, the sole-tab
+// branch fires, and the surviving task's workspace is closed under it.
+func TestCloseTaskTabRerunLeavesASharedWorkspaceAlone(t *testing.T) {
+	bin := faketool.Bin(t)
+	log := filepath.Join(bin, "herdr.log")
+	faketool.Herdr{Log: log, Workspaces: []faketool.HerdrWorkspace{
+		{ID: "wA", Label: "hand:myproj", Tabs: []faketool.HerdrTab{
+			{ID: "wA:t1", Label: "task-1", Pane: "wA:p1"},
+			{ID: "wA:t2", Label: "task-2", Pane: "wA:p2"},
+		}},
+	}}.Install(t, bin)
+	client := herdr.NewClient()
+
+	if err := closeTaskTab(client, "wA", "wA:t1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := closeTaskTab(client, "wA", "wA:t1"); err != nil {
+		t.Fatalf("got %v, want a rerun over an already-closed tab to succeed", err)
+	}
+
+	tabs, err := client.TabList("wA")
+	if err != nil {
+		t.Fatalf("got %v, want the shared workspace still open", err)
+	}
+	if len(tabs) != 1 || tabs[0].TabID != "wA:t2" {
+		t.Fatalf("got tabs %+v, want the other task's tab untouched", tabs)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "workspace close") {
+		t.Fatalf("herdr log = %q, want no workspace close: the workspace still holds task-2", data)
+	}
+}
+
+// The argv of the last `treehouse return` of worktree, from the shared fakes'
+// invocation log.
 func readTreehouseReturnArgs(t *testing.T, worktree string) []string {
 	t.Helper()
-	data, err := os.ReadFile(worktree + ".return-args")
-	if err != nil {
-		t.Fatalf("treehouse return was never invoked for %s: %v", worktree, err)
+	var args []string
+	for _, line := range readInvocations(t, worktree) {
+		if fields := strings.Fields(line); len(fields) > 1 && fields[1] == "return" {
+			args = fields[1:]
+		}
 	}
-	return strings.Fields(string(data))
+	if args == nil {
+		t.Fatalf("treehouse return was never invoked for %s", worktree)
+	}
+	return args
 }
 
 // TestTeardownForcesWorktreeReturnPastSafeDirt covers the step that follows the

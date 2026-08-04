@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/faketool"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
@@ -24,49 +25,31 @@ func writeBriefWith(t *testing.T, home, id, body string) {
 	}
 }
 
-// writeFakeHerdrLaunchLog is writeFakeHerdrStatic plus a record of the launch
-// command every "pane run" carried, which is the only place a resolved
-// model/effort becomes observable to an operator.
+// writeFakeHerdrStatic with its invocations logged, which is where the launch
+// command every "pane run" carried becomes observable - the only place a resolved
+// model and effort show up at all.
 func writeFakeHerdrLaunchLog(t *testing.T, dir, launchLog string, ids herdrIDs) {
 	t.Helper()
-	workspaceList := herdrOK(t, map[string]any{"workspaces": []any{}})
-	workspaceCreate := herdrOK(t, map[string]any{
-		"workspace": map[string]any{"workspace_id": ids.WorkspaceID, "label": ids.Label, "tab_count": 1},
-		"tab":       map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": "1"},
-		"root_pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": "working"},
-	})
-	tabRename := herdrOK(t, map[string]any{"tab": map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}})
-	status := ids.PaneStatus
-	if status == "" {
-		status = "working"
-	}
-	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent": "claude", "agent_status": status}})
-	tabList := herdrOK(t, map[string]any{"tabs": []any{
-		map[string]any{"tab_id": "tab-old", "workspace_id": "ws-old", "label": ids.Label},
-		map[string]any{"tab_id": "tab-other", "workspace_id": "ws-old", "label": "other"},
-	}})
-
-	body := strings.Join([]string{
-		`  "workspace list") echo ` + shellSingleQuote(workspaceList) + ` ;;`,
-		`  "workspace create") echo ` + shellSingleQuote(workspaceCreate) + ` ;;`,
-		`  "tab rename") echo ` + shellSingleQuote(tabRename) + ` ;;`,
-		`  "tab list") echo ` + shellSingleQuote(tabList) + ` ;;`,
-		`  "tab close") echo ` + shellSingleQuote(herdrOK(t, map[string]any{"type": "ok"})) + ` ;;`,
-		`  "pane run") printf '%s\n' "$4" >> ` + shellSingleQuote(launchLog) + ` ;;`,
-		`  "pane send-keys") ;;`,
-		`  "pane read") printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n' ;;`,
-		`  "pane get") echo ` + shellSingleQuote(paneGet) + ` ;;`,
-	}, "\n")
-	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
+	writeFakeHerdrStaticLogged(t, dir, launchLog, ids)
 }
 
+// The launch commands out of a herdr invocation log, in the order they ran.
 func readLaunchLog(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read launch log: %v", err)
 	}
-	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	var launches []string
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		if strings.HasPrefix(line, "herdr pane run ") {
+			launches = append(launches, line)
+		}
+	}
+	if len(launches) == 0 {
+		t.Fatalf("herdr invocation log has no pane run in it:\n%s", data)
+	}
+	return launches
 }
 
 func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
@@ -190,10 +173,21 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The scout already holds a pool slot and a tab in the project's workspace, so
+	// promote reuses that workspace for the ship task rather than opening a second
+	// one, and hands the scout's worktree back to the pool that leased it.
 	launchLog := filepath.Join(t.TempDir(), "launch.log")
 	dir := binDir(t)
-	writeFakeTreehouse(t, dir, filepath.Join(home, "wt-ship-new"))
-	writeFakeHerdrLaunchLog(t, dir, launchLog, herdrIDs{WorkspaceID: "ws-new", TabID: "tab-new", PaneID: "pane-new", Label: "demo", PaneStatus: "done"})
+	writeFakeTreehouse(t, dir, filepath.Join(home, "wt-ship-new"), filepath.Join(home, "wt-scout-old"))
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "ws-old", Label: "hand:demo", Tabs: []faketool.HerdrTab{
+			{ID: "tab-old", Label: "task-1", Pane: "pane-old"},
+			{ID: "tab-other", Label: "other", Pane: "pane-other"},
+		}}},
+		TabCreates: []faketool.HerdrTab{{ID: "tab-new", Label: "task-1", Pane: "pane-new"}},
+		PaneStatus: "done",
+		Log:        launchLog,
+	}.Install(t, dir)
 
 	promoted := runHand(t, home, "promote", "task-1")
 	if promoted.code != 0 {

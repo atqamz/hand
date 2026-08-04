@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/secondhand/internal/faketool"
+	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 )
@@ -74,49 +77,20 @@ func writeFakeGh(t *testing.T, script string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// fakeGhChecksGreenAndMerge always exits 0. Real gh exits 1 on a fail bucket and
-// 8 on pending (prChecksGreen's own doc comment in cmd/merge.go), but
-// prChecksGreen deliberately never consults the exit code once the JSON parses,
-// so an exit-0 fake exercises the same code path a nonzero one would; "pr merge"
-// failing is untested here (see runPRMerge's "gh pr merge failed" error path).
-const fakeGhChecksGreenAndMerge = `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pr view")
-	printf '{"state":"OPEN"}'
-	;;
-"pr checks")
-	printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
-	;;
-"pr merge")
-	printf 'merged\n'
-	;;
-*)
-	echo "unexpected gh args: $@" >&2
-	exit 1
-	;;
-esac
-`
+const mergeTestPR = "https://github.com/org/repo/pull/42"
 
-// fakeGhChecksRed exits 0 with a "fail" bucket rather than real gh's documented
-// exit 1, for the same reason as fakeGhChecksGreenAndMerge: prChecksGreen only
-// looks at the exit code when the JSON fails to parse, so this still exercises
-// the real "trust the JSON over the exit code" behavior the function is built on.
-const fakeGhChecksRed = `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pr view")
-	printf '{"state":"OPEN"}'
-	;;
-"pr checks")
-	printf '[{"bucket":"pass"},{"bucket":"fail"}]'
-	;;
-*)
-	echo "unexpected gh args: $@" >&2
-	exit 1
-	;;
-esac
-`
+// The PR hand merge works on, with the buckets `pr checks` reports for it. Every
+// merge through the fake moves it to MERGED, which is what makes the pre-check in
+// runPRMerge reachable at all.
+func mergeTestGH(checks ...string) faketool.GH {
+	return faketool.GH{PRs: []faketool.GHPR{{
+		Number: 42,
+		URL:    mergeTestPR,
+		Branch: "task-1-branch",
+		Repo:   "org/repo",
+		Checks: checks,
+	}}}
+}
 
 func TestPRChecksGreenAllPass(t *testing.T) {
 	// Faithful to real gh here: an all-pass `pr checks --json bucket` prints
@@ -175,14 +149,11 @@ func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	writeFakeGh(t, `#!/bin/sh
-case "$1 $2" in
-"pr view") printf '{"state":"MERGED"}' ;;
-*) echo "unexpected gh args: $@" >&2; exit 1 ;;
-esac
-`)
+	g := mergeTestGH()
+	g.PRs[0].State = "MERGED"
+	g.Install(t, faketool.Bin(t))
 
-	if err := state.Write(home, state.Task{ID: "task-1", PR: "https://github.com/org/repo/pull/42"}); err != nil {
+	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -210,9 +181,9 @@ func TestMergePRRefusesRedCI(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	writeFakeGh(t, fakeGhChecksRed)
+	mergeTestGH("pass", "fail").Install(t, faketool.Bin(t))
 
-	if err := state.Write(home, state.Task{ID: "task-1", PR: "https://github.com/org/repo/pull/42"}); err != nil {
+	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,9 +211,9 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	writeFakeGh(t, fakeGhChecksGreenAndMerge)
+	mergeTestGH("pass", "skipping").Install(t, faketool.Bin(t))
 
-	if err := state.Write(home, state.Task{ID: "task-1", PR: "https://github.com/org/repo/pull/42"}); err != nil {
+	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -261,6 +232,67 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	}
 	if got.MergeExecutedAt == "" {
 		t.Fatal("want merged_at set")
+	}
+
+	merged, err := ghutil.PRIsMerged(context.Background(), mergeTestPR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !merged {
+		t.Fatal("want the PR merged on gh's side too, not only on the task row")
+	}
+}
+
+// hand merge writes the row only after gh has merged, so a fault between the two
+// leaves the PR merged and the row saying otherwise. The pre-check is then all that
+// stops a rerun re-merging a closed PR, and a repeated `gh pr merge` is exit 0 with
+// a warning (internal/faketool/FIDELITY.md), so nothing downstream would notice.
+func TestMergeRefusesAPRAnEarlierRunAlreadyMerged(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	log := filepath.Join(t.TempDir(), "gh.log")
+	g := mergeTestGH()
+	g.Log = log
+	g.Install(t, faketool.Bin(t))
+
+	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newMergeCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.MergeExecuted = false
+	got.MergeExecutedAt = ""
+	if err := state.Write(home, got); err != nil {
+		t.Fatal(err)
+	}
+
+	rerun := newMergeCmd()
+	rerun.SetArgs([]string{"task-1"})
+	err = rerun.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "already merged") {
+		t.Fatalf("err = %v, want already merged", err)
+	}
+
+	invocations, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(invocations), "gh pr merge"); n != 1 {
+		t.Fatalf("gh pr merge ran %d times, want 1: the rerun must not merge again\n%s", n, invocations)
 	}
 }
 

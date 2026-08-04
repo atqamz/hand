@@ -385,6 +385,8 @@ Behavior:
 4. `git clone` into `projects/<name>`.
 5. If `--mode no-mistakes`, run `no-mistakes init` inside the clone.
 6. Initialize treehouse for the project: `treehouse init` inside the clone if no `treehouse.toml` exists.
+   Then list `treehouse.toml` in the clone's `info/exclude`, since treehouse leaves it untracked and
+   an untracked pool config makes the clone read dirty to every later `hand project sync`.
 7. Add the project to the store and rewrite the `data/projects.md` projection.
 8. If clone or init fails, clean up partial state (remove the clone dir, don't append to registry).
 
@@ -1062,6 +1064,8 @@ Behavior (ship task):
      It is decided here, last, so it can only answer the case nothing else claims: a delivery, a local-only merge, and a gate-opened PR all stop above it, so reaching it means no PR exists for it to shadow. Merge evidence excludes it outright for the same reason - `hand promote` keeps the report on disk while turning the row into a ship, so a promoted scout that then merged locally has every shape this case reads, and it landed as a merge. Recording it as a report would claim a merge never happened, the inverse of the atqamz/secondhand#78 accuracy rule.
 4. Close the herdr tab.
 5. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
+   That abort is the one treehouse failure its exit status does not report - it prints the abort and still exits 0 with the slot leased - so the return is judged on the output and refused, never taken for a returned worktree.
+   A scout is the path that reaches it: its checks read the report on disk and never the worktree, so dirt is still in place when the return runs.
 6. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
 7. Remove the task's row and the task's report channel `state/<id>.status`.
 8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
@@ -1126,7 +1130,7 @@ Errors:
 - PR not merged (without `--force`).
 - Ambiguous PR head ref: the task's branch carries several PRs that do not resolve to a single usable winner - no preference tier holds exactly one match, or a merged PR coexists with an open one (without `--force`).
 - Report not found for scout task (without `--force`).
-- Treehouse return failed (worktree locked, path no pool manages).
+- Treehouse return failed (worktree locked, path no pool manages), or an unforced return aborted on a dirty worktree and left the slot leased. The task's row is kept either way, since it is the only record of the leased slot.
 - Herdr tab close failed (graceful: warn and continue).
 - Completion record append failed (lock or I/O fault): task state is left untouched, so a retry is safe.
 
@@ -1522,6 +1526,9 @@ hand project sync nsr
 Behavior:
 1. For each project (or named project):
    - `git fetch origin` in the clone.
+   - List `treehouse.toml` in the clone's `info/exclude` if it is not already, which repairs a clone
+     registered before `hand project add` started excluding it: without that, its untracked pool
+     config reads as dirt and every sync from then on skips the project.
    - If on default branch and clean: fast-forward to `origin/<default>`.
    - If dirty, on non-default branch, or diverged: skip with warning.
 2. Prune local branches whose remote tracking branch is gone.
@@ -2516,10 +2523,20 @@ A non-zero exit does not retract what a command already printed: `hand doctor`'s
 
 ## Testing strategy
 
-Every faked `herdr`, `gh`, `treehouse` or harness invocation, in unit and end-to-end tests alike, carries a comment recording the fake-fidelity contract: what the real tool does on success and on failure - exit code, stream, response shape - and whether the fake mirrors that or deliberately diverges.
+`herdr`, `treehouse` and `gh` are faked once, in `internal/faketool`, shared by the unit and end-to-end suites alike.
+A test declares the fleet it wants - which pool slots exist, which workspaces are already open, which PRs are on which branch - and the package generates the POSIX-sh script for it.
+Hand-writing a fake per test is what let the same vacuous shape through repeatedly, so a new test extends the shared fake rather than writing its own.
 
-A fake of a *state-changing* command carries a second obligation, because the first one alone has let vacuous tests through repeatedly: **a fake that answers a state-changing command identically before and after that command cannot test anything about the state change.**
-Such a fake must model the state its own commands leave behind, and its fidelity note must say what that state is - a closed herdr tab stops being listed; a returned treehouse worktree keeps its pool slot directory and returns again as a no-op success, while a path no pool manages exits 1.
+The rule that governs it: **a fake that answers a state-changing command identically before and after that command cannot test anything about the state change.**
+So every fake models the state its own commands leave behind.
+Returning a treehouse worktree frees its pool slot for the next `get` while leaving the directory in place; closing a herdr tab does not merely unlist it, every later command naming that tab or its pane answers `*_not_found` on stderr with exit 1; merging a PR moves it to `MERGED` for every later `pr view` and `pr list`.
+
+`internal/faketool/FIDELITY.md` records what the real tool does for each call the suite depends on - exit code, stream, response shape, and what the call leaves behind - observed by running the real binary, not read off its documentation.
+Only calls `hand` makes are recorded; behaviour no test exercises does not belong there.
+A fidelity claim that is load-bearing names the test that fails without it, so the record and the check cannot drift apart silently.
+
+The contract tests under `tests/contract` close the loop the other direction: built only under the `contract` tag and skipped where the real binary is absent, each one runs the recorded calls against the real tool in scratch state of its own and asserts the shape `FIDELITY.md` claims.
+They are opt-in because CI installs no real `herdr` or `treehouse`; they exist so a fake that has quietly gone stale against a newer tool is discoverable by running them, rather than by a defect reaching an operator.
 
 ### Unit tests
 

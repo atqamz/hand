@@ -2,43 +2,18 @@ package worktree
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/secondhand/internal/faketool"
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// writeFakeTreehouse fakes "treehouse get"/"return". Get's doc comment above
-// notes the real stderr banner ahead of JSON; these fakes write straight to
-// stdout on success since Get reads stdout alone (cmd.Output()), which is
-// exactly what that separation is for - no banner needed to exercise it
-// faithfully. Failure fakes below write to stderr, matching both Get's
-// separate-stderr-buffer error path and Return's CombinedOutput one.
-//
-// fakeTreehousePool models what real treehouse does to a returned worktree,
-// checked against the tool itself: return leaves the pool slot's directory in
-// place and flips the slot from leased to available, so a second return of the
-// same path succeeds again (exit 0, with and without --force), while a path in no
-// pool exits 1 with "is not managed by treehouse". A fake that answers a
-// state-changing command identically before and after that command cannot test
-// anything about the state change, which is why this one is keyed on the state
-// return actually leaves behind.
-const fakeTreehousePool = `
-case "$1" in
-return)
-	if [ -d "$2" ]; then
-		echo "Worktree returned to pool."
-		exit 0
-	fi
-	echo "worktree $2 is not managed by treehouse" >&2
-	exit 1
-	;;
-esac
-echo "unexpected args: $@" >&2
-exit 1
-`
-
+// One-off treehouse for a single response shape, used only where the call changes
+// no state: payload and exit-status parsing. Everything stateful drives
+// faketool.Treehouse instead, the shared pool fake.
 func writeFakeTreehouse(t *testing.T, script string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -122,13 +97,14 @@ func TestReturnFailsOnNonZeroExit(t *testing.T) {
 	}
 }
 
-// Returning a worktree that is already back in the pool succeeds, so teardown can
-// run its cleanup a second time after a later step faulted. The path surviving the
-// first return is the point: it is why nothing here may infer "already returned"
-// from the path being gone.
+// Teardown reruns its cleanup after a later step faults, so a second return has to
+// succeed. The path surviving the first is the point: it is why nothing may infer
+// "already returned" from the path being gone.
 func TestReturnIsIdempotentOnAnAlreadyReturnedWorktree(t *testing.T) {
-	wt := t.TempDir()
-	writeFakeTreehouse(t, fakeTreehousePool)
+	wt := filepath.Join(t.TempDir(), "wt")
+	faketool.InitRepo(t, wt)
+	faketool.Treehouse{Held: []string{wt}}.Install(t, faketool.Bin(t))
+
 	if err := Return(wt, false); err != nil {
 		t.Fatal(err)
 	}
@@ -141,10 +117,33 @@ func TestReturnIsIdempotentOnAnAlreadyReturnedWorktree(t *testing.T) {
 }
 
 func TestReturnFailsOnAWorktreeNoPoolManages(t *testing.T) {
-	writeFakeTreehouse(t, fakeTreehousePool)
+	faketool.Treehouse{Slots: []string{t.TempDir()}}.Install(t, faketool.Bin(t))
 	err := Return(filepath.Join(t.TempDir(), "gone"), false)
 	if err == nil || !strings.Contains(err.Error(), "not managed by treehouse") {
 		t.Fatalf("got err %v, want an unmanaged worktree reported", err)
+	}
+}
+
+// treehouse exits 0 on the abort, so nothing but the aborted text distinguishes
+// this from a return that freed the slot. Reporting it as success leaks the lease:
+// the caller deletes the task row that is the only remaining record of the holder.
+func TestReturnFailsWhenAnUnforcedDirtyReturnAborts(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	faketool.InitRepo(t, wt)
+	faketool.Treehouse{Held: []string{wt}}.Install(t, faketool.Bin(t))
+	if err := os.WriteFile(filepath.Join(wt, "dirt.txt"), []byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Return(wt, false)
+	if err == nil || !strings.Contains(err.Error(), "still leased") {
+		t.Fatalf("got err %v, want the aborted return reported as a failure", err)
+	}
+	if out, gitErr := exec.Command("git", "-C", wt, "status", "--porcelain").Output(); gitErr != nil || len(out) == 0 {
+		t.Fatalf("worktree cleaned by an aborted return: %q %v", out, gitErr)
+	}
+	if err := Return(wt, true); err != nil {
+		t.Fatalf("got err %v, want the forced retry to succeed", err)
 	}
 }
 

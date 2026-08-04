@@ -5,3 +5,4 @@ run:
   # linter entirely, so it is silently unlinted. Do not remove as a "default".
   build-tags:
     - e2e
+    - contract

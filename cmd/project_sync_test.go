@@ -111,6 +111,38 @@ func TestSyncOneProjectSkipsDirtyWorkingTree(t *testing.T) {
 	}
 }
 
+// A clone registered before hand excluded the pool config: registration is over,
+// so sync is the only thing left that can stop it reading dirty forever.
+func TestSyncOneProjectExcludesAnUnexcludedPoolConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	clonePath, _ := setupSyncProject(t)
+	movedClone := filepath.Join(home, "projects", "myproj")
+	if err := os.Rename(clonePath, movedClone); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(movedClone, "treehouse.toml"), []byte("max_trees = 16\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := syncOneProject(home, project.Project{Name: "myproj"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Result != "up-to-date" {
+		t.Fatalf("outcome = %+v, want the clone syncable rather than dirty forever", got)
+	}
+	excluded, err := os.ReadFile(filepath.Join(movedClone, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(excluded), "treehouse.toml") {
+		t.Fatalf("info/exclude = %q, want the pool config excluded", excluded)
+	}
+}
+
 func TestSyncOneProjectSkipsNonDefaultBranch(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "projects"), 0o755); err != nil {

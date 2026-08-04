@@ -502,13 +502,14 @@ func currentBranch(worktreePath string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// closeTaskTab closes the task's tab, or the whole workspace if this was its last tab
-// (herdr refuses to close a workspace's only tab directly).
+// closeTaskTab closes the task's tab, or the whole workspace when this was its last
+// tab - herdr closes the workspace either way, so this says so rather than leaving
+// it to a side effect. internal/faketool/FIDELITY.md records that.
 //
 // A tab that is no longer listed is already closed, which is this step's goal, so
-// it is success and not an error: teardown removes several resources in sequence
-// and any of the later steps can fail, so the whole command has to be runnable a
-// second time without tripping over the work the first run already did.
+// it is success and not an error. Teardown removes several resources in sequence
+// and any later step can fail, so a rerun must not act on the first run's work: with
+// one tab left it would read as the sole-tab case and close another task's workspace.
 func closeTaskTab(client *herdr.Client, workspaceID, tabID string) error {
 	tabs, err := client.TabList(workspaceID)
 	if err != nil {
