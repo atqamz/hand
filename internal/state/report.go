@@ -75,12 +75,11 @@ func ParseReportLine(line string) ReportLine {
 	return ReportLine{State: prefix, Note: note, Raw: line}
 }
 
-// TailReport reads whatever complete lines have been appended to a task's
-// report file since offset, returning them alongside the new offset to persist.
-// A trailing line with no terminating newline is left unconsumed in case the
-// worker's append is still in flight. Rotation/truncation aren't supported; if
-// the file has shrunk below offset, tailing restarts from the beginning.
-func TailReport(path string, offset int64) ([]ReportLine, int64, error) {
+// tailReportBytes reads whatever a task's report file holds past offset, and
+// returns the offset it actually read from. Rotation/truncation aren't
+// supported; if the file has shrunk below offset, reading restarts from the
+// beginning.
+func tailReportBytes(path string, offset int64) ([]byte, int64, error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil, 0, nil
@@ -105,6 +104,18 @@ func TailReport(path string, offset int64) ([]ReportLine, int64, error) {
 	if err != nil {
 		return nil, offset, fmt.Errorf("read report %s: %w", path, err)
 	}
+	return data, offset, nil
+}
+
+// TailReport reads whatever complete lines have been appended to a task's
+// report file since offset, returning them alongside the new offset to persist.
+// A trailing line with no terminating newline is left unconsumed in case the
+// worker's append is still in flight.
+func TailReport(path string, offset int64) ([]ReportLine, int64, error) {
+	data, base, err := tailReportBytes(path, offset)
+	if err != nil {
+		return nil, base, err
+	}
 
 	var lines []ReportLine
 	consumed := 0
@@ -119,7 +130,7 @@ func TailReport(path string, offset int64) ([]ReportLine, int64, error) {
 			lines = append(lines, ParseReportLine(line))
 		}
 	}
-	return lines, offset + int64(consumed), nil
+	return lines, base + int64(consumed), nil
 }
 
 // ReadReportLines reads and classifies every line currently in a task's report
@@ -133,6 +144,15 @@ func ReadReportLines(homeDir, id string) ([]ReportLine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read report %q: %w", id, err)
 	}
+	return classifyReportBytes(data), nil
+}
+
+// classifyReportBytes classifies every line in data, a trailing line with no
+// terminating newline included. That last line is the difference between a
+// snapshot reader and TailReport: a watcher leaves it for its next tick because
+// it will still be there, while a reader answering a question about right now
+// has to account for it.
+func classifyReportBytes(data []byte) []ReportLine {
 	var lines []ReportLine
 	for _, l := range strings.Split(string(data), "\n") {
 		if blankReportLine(l) {
@@ -140,7 +160,7 @@ func ReadReportLines(homeDir, id string) ([]ReportLine, error) {
 		}
 		lines = append(lines, ParseReportLine(l))
 	}
-	return lines, nil
+	return lines
 }
 
 // blankReportLine is the skip rule both readers share, so hand status never
@@ -172,13 +192,39 @@ func LastReportedState(lines []ReportLine) (ReportLine, bool) {
 	return ReportLine{}, false
 }
 
-func ReportTail(homeDir, id string, n int) ([]ReportLine, error) {
-	lines, err := ReadReportLines(homeDir, id)
+// TerminalReport reports whether s is a state a worker does not carry on past
+// under its own steam, so that someone has to hear about it.
+func TerminalReport(s string) bool {
+	return s == ReportDone || s == ReportFailed
+}
+
+// UnacknowledgedTerminalReport reports a terminal state no hand watch has ever
+// consumed, from the task's durable report_offset. That offset is the marker: the
+// poll loop advances it only after the tick's events are announced, and every
+// announcement reaches state/events.log and the notify hook, so a terminal line
+// still past it has reached nobody (atqamz/secondhand#70).
+//
+// Only the last classified line of that unconsumed tail counts. A terminal
+// report a worker has since superseded with more work needs no acknowledging,
+// and a done report is routinely followed by more work on the same worker.
+//
+// It classifies its own tail rather than calling TailReport, so that a terminal
+// line with no terminating newline counts too: TailReport leaves that line for
+// the watcher's next tick, and a report the watcher will not announce until then
+// is precisely one that has reached nobody yet. Skipping it would let the silent
+// completion this exists to surface back in through the newline.
+//
+// A watcher denied the task lock announces a line and persists the offset a tick
+// later, so the transient error here is reporting an acknowledged terminal state,
+// never hiding an unacknowledged one.
+func UnacknowledgedTerminalReport(homeDir, id string, offset int64) (bool, error) {
+	data, _, err := tailReportBytes(ReportPath(homeDir, id), offset)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
+	last, ok := LastReportedState(classifyReportBytes(data))
+	if !ok {
+		return false, nil
 	}
-	return lines, nil
+	return TerminalReport(last.State), nil
 }

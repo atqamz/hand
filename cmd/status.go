@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"text/tabwriter"
 	"time"
 
@@ -112,6 +113,9 @@ type statusJSON struct {
 	ReportHistory   []string      `json:"report_history,omitempty"`
 	Held            *holdJSON     `json:"held,omitempty"`
 	GateRunIssue    string        `json:"gate_run_issue,omitempty"`
+	// Omitted when false so a consumer written before this field sees no change
+	// on the fleet it already understands.
+	Unacknowledged bool `json:"unacknowledged,omitempty"`
 }
 
 // fleetJSON wraps the task rows with the fleet's holds, which name any id -
@@ -306,6 +310,7 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			last = lines[len(lines)-1]
 		}
 		reported, reportedOK := state.LastReportedState(lines)
+		unacked, readErr := unacknowledged(home, t, reported, reportedOK, readErr)
 		p, registered := projectByName[t.Project]
 		runIssue := gateRunIssue(home, t, reportedOK && reported.State == state.ReportDone, p, registered, runPRs)
 		rows = append(rows, statusJSON{
@@ -316,9 +321,9 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, t.ID),
 			Reported:     reportedFrom(last, len(lines) > 0, readErr),
-			GateRunIssue: runIssue,
+			GateRunIssue: runIssue, Unacknowledged: unacked,
 		})
-		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr)+deliveredSuffix(t)+mergeSuffix(t)+gateRunSuffix(runIssue))
+		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr, unacked)+deliveredSuffix(t)+mergeSuffix(t)+gateRunSuffix(runIssue))
 	}
 
 	if asJSON {
@@ -386,10 +391,35 @@ func lastReportAt(home, id string) string {
 // never reported.
 const reportUnreadable = "unreadable"
 
+// unacknowledged asks state whether this task's terminal report reached a
+// watcher, folding a read that fails into the caller's own report-read error: the
+// file was readable a moment ago and is not now, which is what that error already
+// says, and swallowing it would render an unread completion as an acknowledged
+// one.
+//
+// It takes the state the caller already derived and answers false for anything
+// but a terminal one, so the flag can only ever qualify the state this row
+// prints. Reading the file a second time is a second snapshot, and a worker
+// appending between the two would otherwise put "unacknowledged" next to a
+// "working" this command reported in the same breath.
+func unacknowledged(home string, t state.Task, reported state.ReportLine, reportedOK bool, readErr error) (bool, error) {
+	if readErr != nil {
+		return false, readErr
+	}
+	if !reportedOK || !state.TerminalReport(reported.State) {
+		return false, nil
+	}
+	return state.UnacknowledgedTerminalReport(home, t.ID, t.ReportOffset)
+}
+
 // A pane state and a report answer different questions, so both print. This
 // used to speak only for a not-busy pane, which rendered a worker that appended
 // `paused:` with its harness still running as a bare `working`.
-func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr error) string {
+//
+// unacked rides the reported clause rather than a clause of its own because it
+// qualifies exactly that state: it is only ever set for a terminal report, which
+// is the one branch below that names the reported state at all.
+func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr error, unacked bool) string {
 	if readErr != nil {
 		return fmt.Sprintf(" (report %s)", reportUnreadable)
 	}
@@ -400,6 +430,9 @@ func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr
 			return " (unreported)"
 		}
 		return ""
+	}
+	if unacked {
+		return fmt.Sprintf(" (reported: %s, unacknowledged)", reported.State)
 	}
 	return fmt.Sprintf(" (reported: %s)", reported.State)
 }
@@ -435,7 +468,17 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// fault is named on the Reported line and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
 	const historyLen = 5
-	tail, readErr := state.ReportTail(home, id, historyLen)
+	// The whole file, sliced afterwards: deriving the flag from the 5-line
+	// history window instead would let five trailing free-text lines hide a
+	// completion the fleet view flags, and the two views must never disagree.
+	reportLines, readErr := state.ReadReportLines(home, id)
+	lastReported, lastReportedOK := state.LastReportedState(reportLines)
+	unacked, readErr := unacknowledged(home, t, lastReported, lastReportedOK, readErr)
+
+	tail := reportLines
+	if len(tail) > historyLen {
+		tail = tail[len(tail)-historyLen:]
+	}
 	history := make([]string, len(tail))
 	for i, line := range tail {
 		history[i] = reportLineText(line)
@@ -445,7 +488,6 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if len(tail) > 0 {
 		last = tail[len(tail)-1]
 	}
-	lastReported, lastReportedOK := state.LastReportedState(tail)
 
 	var heldJSON *holdJSON
 	if held {
@@ -475,8 +517,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced,
 			DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, id),
-			Reported:     reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
-			Held: heldJSON, GateRunIssue: runIssue,
+			Reported:     reportedFrom(last, len(reportLines) > 0, readErr), ReportHistory: history,
+			Held: heldJSON, GateRunIssue: runIssue, Unacknowledged: unacked,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -500,8 +542,27 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	switch {
 	case readErr != nil:
 		reported = fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
+	// Same clause the fleet view appends, so neither view can call a completion
+	// acknowledged that the other flags - and on the same classified line the
+	// fleet view names, not whatever free text the worker appended after it.
+	case unacked:
+		reported = render(lastReported) + " (unacknowledged)"
 	case len(tail) > 0:
 		reported = render(last)
+	}
+	// Which history entry the Reported line above already shows. Found rather
+	// than assumed last: with the flag applied that line is the classified
+	// terminal report, which the worker may have followed with free text, or
+	// pushed out of the history window entirely.
+	reportedIdx := len(tail) - 1
+	if unacked {
+		reportedIdx = -1
+		for i := len(tail) - 1; i >= 0; i-- {
+			if !tail[i].Malformed {
+				reportedIdx = i
+				break
+			}
+		}
 	}
 
 	w := cmd.OutOrStdout()
@@ -543,8 +604,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// --full restores the exact previous shape: the full tail, untruncated,
 	// duplicate entry included.
 	historyTail := tail
-	if !full && len(tail) > 0 {
-		historyTail = tail[:len(tail)-1]
+	if !full && reportedIdx >= 0 {
+		historyTail = slices.Concat(tail[:reportedIdx], tail[reportedIdx+1:])
 	}
 	if len(historyTail) > 0 {
 		if _, err := fmt.Fprintln(w, "\nReport history (reported by worker, not verified current truth):"); err != nil {

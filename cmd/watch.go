@@ -24,6 +24,7 @@ func newWatchCmd() *cobra.Command {
 	var untilEvent bool
 	var timeout time.Duration
 	var events []string
+	var takeover bool
 
 	cmd := &cobra.Command{
 		Use:   "watch",
@@ -85,6 +86,17 @@ func newWatchCmd() *cobra.Command {
 				return err
 			}
 
+			// After every validation above, so a usage error still exits 2 without
+			// having disturbed a running watcher's ownership.
+			release, err := watcher.Acquire(home, takeover)
+			if err != nil {
+				if errors.Is(err, watcher.ErrAttached) {
+					return &ExitError{Err: err, Code: 3}
+				}
+				return err
+			}
+			defer release()
+
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
@@ -124,5 +136,6 @@ func newWatchCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&untilEvent, "until-event", false, "block until the first event, print it, and exit 0")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "with --until-event, give up after this long and exit 4 (default: no timeout)")
 	cmd.Flags().StringSliceVar(&events, "event", nil, "with --until-event, wake only on these event kinds (default: any); repeatable or comma-separated")
+	cmd.Flags().BoolVar(&takeover, "takeover", false, "replace the watcher already attached to this fleet home, signaling it to stop first")
 	return cmd
 }

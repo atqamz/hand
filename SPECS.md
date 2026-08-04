@@ -103,7 +103,7 @@ The file is authoritative for what the worker said.
 
 sqlite in rollback journal mode, one short-lived process per command, one writer at a time.
 No server, no connection pool, no background process holding the database open.
-`hand watch` is still the only long-running process, and it holds no lock between ticks.
+`hand watch` is still the only long-running process, and it holds no database lock between ticks - only the `flock` that makes it the fleet home's single watcher (see "One watcher per fleet home").
 This keeps a fleet home a directory that can be copied, backed up and inspected with ordinary tools, which the whole design depends on.
 
 ## Directory layout
@@ -156,6 +156,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     watcher/                # fleet supervision
       watcher.go            # poll/push event loop
       events.go             # event classification
+      ownership.go          # flock on state/watch.pid (see "One watcher per fleet home")
     notify/                 # out-of-band delivery
       notify.go             # config/notify template execution, shared by hand notify and the watcher's in-process hook
     project/                # project registry
@@ -186,6 +187,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     migrated/               # pre-sqlite state/<id>.json files, moved aside once imported
     <id>.status             # worker-to-supervisor report channel, worker-written, hand-read-only
     events.log              # recent watcher events, bounded rotating log
+    watch.pid               # the flock the fleet home's single watcher holds (see "One watcher per fleet home")
     completions.jsonl       # durable teardown completion records, one JSON object per line, uncapped
   data/
     operator.md             # standing operator constraints and preferences, read at session start
@@ -531,7 +533,7 @@ Flags:
 Behavior (fleet overview):
 1. List every task in the store.
 2. For each, query herdr for current agent state.
-3. Append the worker's own last classified report to the same column as ` (reported: <state>)`, whatever the pane is doing. A pane state and a report answer different questions, so both print: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. `working` is the one report that stays unadorned, because it is what the column already says. ` (unreported)` still requires a not-busy pane (herdr's `idle` or `done` - see "Agent state" below), since a busy pane that has not reported yet is not a stop anyone has to explain. A report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported.
+3. Append the worker's own last classified report to the same column as ` (reported: <state>)`, whatever the pane is doing. A pane state and a report answer different questions, so both print: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. `working` is the one report that stays unadorned, because it is what the column already says. ` (unreported)` still requires a not-busy pane (herdr's `idle` or `done` - see "Agent state" below), since a busy pane that has not reported yet is not a stop anyone has to explain. A report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported. A terminal report (`done`, `failed`) no `hand watch` has consumed renders as ` (reported: <state>, unacknowledged)`; see "Unacknowledged terminal reports" below.
 4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
 5. Print one line per task, with a header row - or, if there are no tasks at all, `no tasks (0)` in place of the table, so an empty fleet reads as a positive statement with a count rather than the same bare output a broken command could also produce.
 6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held - printed even when there are no tasks, so a torn-down task's still-open hold is never hidden behind the `no tasks (0)` line above it. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
@@ -549,6 +551,7 @@ dark-mode    nsr      ship   blocked                                     45m ago
 build-wait   nsr      ship   working (reported: paused)                  20m ago 5m ago
 stuck-task   nsr      ship   idle (unreported)                           1h ago  (none)
 paused-task  nsr      ship   idle (reported: needs-decision)             30m ago 12m ago
+quiet-done   nsr      ship   idle (reported: done, unacknowledged)       15m ago 14m ago
 investigate  nsr      scout  done (reported: done)                       10m ago 9m ago
 shipped-fix  nsr      ship   done (reported: done) (merged, external)    5m ago  4m ago
 no-gate-fix  nsr      ship   done (reported: done) (gate: no run found)  3m ago  2m ago
@@ -570,7 +573,7 @@ Behavior (single task):
 1. Read the task from the store.
 2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A branch carrying several PRs resolves by preference tier - merged, then open, then closed-unmerged - and only when the winning tier holds exactly one PR: a tier with more than one match is ambiguous, and so is a merged PR coexisting with an open one on the same head ref - an open PR is live evidence the branch may carry unlanded work, so that mix refuses rather than resolving to the merged PR. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, an ambiguous branch, or a task with no branch all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
 3. Query herdr for current agent state and recent output.
-4. Read the last 5 lines of the task's report channel (see "Report channel"). A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing.
+4. Read the task's report channel (see "Report channel") and show its last 5 lines. The read covers the whole file even though only 5 lines are shown, since the unacknowledged check below is answered from all of it, exactly as the fleet overview answers it - a window would let trailing free text hide from one view a completion the other flags. A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing. A terminal report no watcher has consumed appends ` (unacknowledged)` to the same line; see "Unacknowledged terminal reports" under "Report channel".
 5. Read the hold on this id, if any (see "Holds" under "State management"). Unlike the report channel, a failure to read it fails the command - the same reasoning as the fleet overview's `held:` block.
 6. If the task is a `ship` task reported `done` with a recorded PR: look up its project (unlike the fleet overview's best-effort registry read, a failure here fails the command - this id's own project is the one fact the check is about) and, if it is a registered `no-mistakes` project, check whether that PR ever went through a gate run (see "Gate-run visibility" below).
 7. Print detailed view, including the most recent reported line and a labeled history block.
@@ -604,7 +607,7 @@ A `Gate run:` line (`Gate run:    no run found`, printed below the `Held:` line)
 
 atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `Reported:`, again as the last line of `Report history`. Without `--full`:
 - The `Reported` line and every history line are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut line always carries a trailing `... [+N chars]` marker naming how much was dropped, so a short report is never mistaken for a truncated one. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").
-- `Report history` drops the entry already shown on the `Reported:` line above it, so the same report is never printed twice in one invocation.
+- `Report history` drops the entry already shown on the `Reported:` line above it, so the same report is never printed twice in one invocation. That is whichever entry the line actually rendered, not simply the last one: an unacknowledged terminal report followed by free text renders the terminal line, so the free text is what stays in the history block, and a terminal report the free text pushed out of the 5-line window drops nothing.
 - A `Report file:` line names the absolute path to `state/<id>.status`, so nothing is lost: the full text stays on disk and the path to it is one line away.
 
 `--full` restores the exact pre-#65 shape: both lines untruncated, the latest entry repeated in history, and no `Report file:` line.
@@ -634,7 +637,7 @@ Output (JSON, single task):
 }
 ```
 
-`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted. `gate_run_issue` carries the same `no run found` / `unreachable` text as the `Gate run:` line above and is omitted whenever that line would be - not a `done` `ship` task with a recorded PR on a registered `no-mistakes` project, or the check came back clean - which is why the example above, with no PR recorded, does not carry it.
+`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `unacknowledged` is omitted unless it is true (see "Unacknowledged terminal reports" under "Report channel"). `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted. `gate_run_issue` carries the same `no run found` / `unreachable` text as the `Gate run:` line above and is omitted whenever that line would be - not a `done` `ship` task with a recorded PR on a registered `no-mistakes` project, or the check came back clean - which is why the example above, with no PR recorded, does not carry it.
 
 Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it, and `task_count` alongside that, always present (never omitted, zero included) so an empty fleet is a positive statement rather than the same absence of output a broken command could also produce:
 
@@ -996,12 +999,14 @@ Errors:
 
 Blocking watcher. Polls herdr agent states and prints actionable events to stdout.
 Also logs events to `state/events.log` for crash recovery.
+One fleet home has at most one watcher at a time (see "One watcher per fleet home").
 
 ```
 hand watch
 hand watch --poll 10s
 hand watch --until-event --timeout 30m
 hand watch --until-event --event parked,failed
+hand watch --takeover
 ```
 
 Flags:
@@ -1009,6 +1014,7 @@ Flags:
 - `--until-event`: block until the first events, print them, exit `0`. See "Delivering an event to a supervisory agent" below.
 - `--timeout <duration>`: with `--until-event`, give up after this long and exit `4`. Default: no timeout. Without `--until-event` it is a usage error (exit `2`), since a streaming watcher has no completion to bound.
 - `--event <kind>`: with `--until-event`, wake only on the given event kinds; repeatable or comma-separated. Default: any. Without `--until-event` it is a usage error (exit `2`), since the streaming path has no wake to filter - it prints every actionable event regardless. An unrecognized kind is also a usage error, naming the full known set. This is a stdout-only filter: `state/events.log` still receives every actionable event, filtered or not, since it is the fleet's durable record and a caller narrowing its own wake has no bearing on what happened. Kinds are internal identifiers, not the printed line's leading word - most agree (`stale`, `parked`, `blocked`, `failed`), but the report-derived ones don't: a `working <id>: <note>` line filters on `report-working`, a `reported-done`/`done <id>: <note>` line on `report-done`, and so on for every entry in "Report channel" below. A caller filtering on the classification a line came from, not its printed spelling, is why the filter is caller-expressible at all rather than hardcoded to one split: `working` is exactly what distinguishes a wedged spawn from a slow one, so no fixed actionable/progress grouping could serve every caller.
+- `--takeover`: replace the watcher already attached to this fleet home instead of refusing, signaling it to stop first. A no-op when nothing is attached, so it is safe to pass unconditionally. See "One watcher per fleet home".
 
 Behavior:
 1. List all active tasks from the store.
@@ -1036,6 +1042,21 @@ Behavior:
 10. Every task-state write the poll loop makes - the bookkeeping it owns (`report_offset`, `pr_merged_observed`) and an auto-recorded PR - takes the task lock non-blocking, and is skipped when another command holds it. The poll loop never waits on the **task** lock, because that lock is held across unbounded network and git work (`hand merge` across `gh pr checks`/`gh pr merge`, `hand promote` across a `git push`): waiting on it can stall every other task indefinitely, and `flock` cannot honor a SIGINT/SIGTERM in the meantime. Bookkeeping is re-derivable and simply retries next tick. A skipped auto-record is announced as `pr-record-unknown` - never as `pr-not-recorded`, which covers every attempt that was made and did not complete - except when the lock holder turns out to have recorded that same URL, which is silent.
 11. Per-task bookkeeping is written back only after the tick's events are announced, never before. A marker persisted ahead of its line would, if the process died in between, suppress an announcement nothing can re-derive; a duplicate line is the cheaper failure.
 
+#### One watcher per fleet home
+
+`hand watch` acquires ownership of the fleet home before it polls anything, and refuses with exit `3` when another watcher already holds it, naming the incumbent's pid and `--takeover` as the remedy.
+Two watchers on one home are not a redundant pair: each polls herdr independently, each classifies the same transition, and each fires `hand notify`, so the fleet's news arrives twice and the notify hook - whose whole purpose is to reach an operator with no session watching (see "Notifying a supervisory agent with no session watching") - becomes the loudest duplicate of all.
+Ownership is validated at the point of acquisition, in the tool, because the way a second watcher actually gets started is a session that lost the memory of having started the first one; a convention written down anywhere is a convention that compaction can drop.
+
+**Ownership is an `flock` on `state/watch.pid`, never the pid the file contains.**
+The kernel releases an `flock` when its holder dies, however it died, so a crashed watcher leaves nothing stale behind to clear and no liveness heuristic can decide wrongly.
+This is the whole reason the mechanism is safe to have at all: a lock that a crash can leave held would lock a fleet home out of watching itself, which is worse than having no lock.
+The pid recorded inside the lock is advisory only - it lets a refusal name the incumbent and lets `--takeover` signal it - and a read that races the incumbent's own write degrades to `unknown` rather than to some other process's pid, since the value is only trusted when it arrives newline-terminated.
+
+`--takeover` sends the incumbent SIGTERM, which `hand watch` already handles as a clean shutdown, and then waits up to 5s for the lock to come free.
+If it does not, the takeover fails rather than proceeding: two watchers is the condition being prevented, so a takeover that cannot confirm the incumbent is gone must not become one.
+Ownership is per fleet home and shared by both modes, so a streaming `hand watch` also blocks a `hand watch --until-event` arming against the same home - correctly, since the arming watcher would consume report lines out from under the streaming one - and `--takeover` is how a caller that wants the window says so.
+
 #### Delivering an event to a supervisory agent
 
 Detecting an event and delivering it are separate problems, and the streaming mode solves only the first.
@@ -1055,7 +1076,7 @@ Each rule below closes one way the `tee` + `grep -m1` wrapper this replaces fail
 - **The startup state is never an event.** Only a change from the baseline exits. A worker that was already `done` when the watcher armed produces nothing on stdout, where the wrapper's `grep` matched it, exited, and left the pipeline half-alive with nobody reading the two real events that followed.
 - **Every wake trigger is edge-triggered, `idle-unreported`, `stale`, and `parked` included.** A worker fires one on entering the condition and does not fire again until it leaves and re-enters, so no signal has to be excluded from the trigger to avoid a wake storm - which is how the wrapper came to exclude the exact signal it was built for.
 - **Arming itself can fail loudly, distinct from every other exit.** A worker whose pane answers with a failure at arm time is not a quiet fleet (`4`) and not a delivered event (`0`) - it is `5`, naming the worker, because the caller would otherwise wait out the full `--timeout` for a cause it can never see on stdout. An arm probe that instead runs past `--timeout` names no worker and is `4`.
-- **The exit code says which happened**: `0` an event was delivered, `4` no event (timeout or signal, wherever the timeout lands), `5` a named task's pane failed its arm-time probe, `1` the watcher itself failed, `2` a usage error. A caller can never read a crash or a quiet window as fleet news.
+- **The exit code says which happened**: `0` an event was delivered, `4` no event (timeout or signal, wherever the timeout lands), `5` a named task's pane failed its arm-time probe, `3` another watcher already owns this fleet home so the arming never happened (see "One watcher per fleet home"), `1` the watcher itself failed, `2` a usage error. A caller can never read a crash or a quiet window as fleet news.
 - **No pipeline for the caller to get wrong.** The exit is the whole mechanism.
 
 Worst-case delay from a real transition to the exit that delivers it is one `--poll` interval (`config/watch-interval`, default 5s) plus that tick's own bounded work - the only unbounded-looking piece, a `gh pr view` check for each task with a recorded, not-yet-confirmed-merged PR, is itself capped at 30s per task and run one task at a time, so a fleet with several such tasks can push a single tick past the poll interval alone, but never past that per-task cap times the count. Once the event is written to stdout, the process exits immediately; nothing after that adds delay.
@@ -1191,6 +1212,7 @@ Streaming that way only reaches the agent if something prompts it to read; `--un
 Event durability: if the supervisory agent's context compacts or the session restarts, events since the last read are in `state/events.log`. The agent can `hand status` to recover current truth and read `state/events.log` for recent history.
 
 Errors:
+- Another watcher already attached to this fleet home: names the incumbent's pid on stderr and exits `3` before any polling, whether it refused outright or a `--takeover` could not confirm the incumbent was gone (see "One watcher per fleet home").
 - Herdr not running (fatal: exit `1`, the reachability probe answering with a failure). Under `--until-event` that probe is additionally raced against `--timeout` so a wedged daemon can't strand the wait, and *losing that race* is exit `4`, not `1` or `5`: the window closed with nothing delivered, which is what `4` means wherever in the process it happens, and stderr names herdr as what it was still waiting on. A signal during the same probe is `4` for the same reason.
 - Individual task probe failure (graceful: report as "unknown" state, and entered into tracking with a dwell clock running rather than left out of it - see the `failed` bullet above).
 - `--until-event` reaching its `--timeout`, or being signaled, without delivering an event: a line on stderr and exit `4`, never a silent exit `0`. This covers the timeout elapsing anywhere in arming - the herdr reachability probe as well as the per-task probe sweep - as well as during the poll: the window is over either way, and no one task is at fault.
@@ -1972,6 +1994,25 @@ Read/classify semantics:
 - **A `done` report is never trusted alone.** A worker's belief that it's finished is a claim, not a fact; it's cross-checked against completion evidence the worker didn't produce before it's allowed to change agent state or clear a pending decision, and until then it surfaces as "reported-done", not "done" (see `classifyReportDone` in `internal/watcher/events.go`). Each task kind has its own evidence: a ship task's merge (`merged` written by `hand merge`, whichever route it took - a PR merge or a `--local` fast-forward that leaves no PR at all - or a recorded PR the watcher's own `gh pr view` poll saw merged), and a scout task's `data/<id>/report.md` - the deliverable `hand promote` itself requires. The ship check never asks which mode the project uses. Evidence usually arrives *after* the `done` line is consumed, so the watcher re-checks every tick and fires the verified `done` event once, when the evidence lands (`ClassifyDeferredDone`) - including when it landed while the watcher was stopped, since the announcement is tracked by the durable `done_verified` marker rather than re-derived from whatever evidence is on disk at startup (see "What survives a `hand watch` restart").
 - A line carrying exactly one PR URL auto-records it on a task that doesn't have one yet, exactly as if `hand pr` had been called - including `hand pr`'s full validation (repo-slug match against the project clone's origin remote, plus the `gh pr view` existence check), since a recorded PR is what `hand merge` later merges for real. Both paths call the one shared `project.ValidatePR`. Neither kind of miss aborts the watcher: an attempted recording that did not complete raises `pr-not-recorded` with the underlying error appended, flattened onto the event's single line, and its remedy is a human running `hand pr`, which records the URL the watcher could not; one the task lock kept the watcher from even attempting raises `pr-record-unknown`, which claims nothing about the outcome and points at `hand status`. The report line is consumed either way, so both go to the event stream and `state/events.log` rather than only to stderr. The one exception is silent by design: losing the lock race to the `hand pr` recording that very URL is not a failure, so the watcher re-reads the task and says nothing when the URL is already on record. A line with more than one URL, or a task that already has a PR recorded, is left alone so `hand pr`'s own explicit-mismatch refusal stays the single path for correcting a wrong record.
 
+#### Unacknowledged terminal reports
+
+A worker can reach `done` or `failed` with nothing attached to hear it: no session, no `hand watch`, and - if `config/notify` is unset - no notify hook either.
+The event is not lost, since it will be classified and announced whenever a watcher next runs, but until then it is announced to nobody, and nobody is who is left to notice.
+So `hand status` answers it directly: a task whose report channel carries a terminal state past the watcher's own durable `report_offset` renders as ` (reported: done, unacknowledged)` in the fleet overview, as `done: <note> (unacknowledged)` on the detail view's `Reported:` line, and as `"unacknowledged": true` in either `--json` shape - omitted when false, so a consumer written before the field sees no change on the fleet it already understands.
+When the flag applies, the detail view's `Reported:` line names the classified terminal report rather than a later unclassified line, so the clause qualifies the state it describes - the same state the fleet overview names; the worker's literal last line is still shown there when the flag does not apply, and appears in the `Report history` block either way.
+Both views also derive the flag from the whole report file, never from the detail view's 5-line history window, so trailing free text can never leave one view calling a completion acknowledged that the other flags.
+
+**`report_offset` is the marker; there is no second one.**
+Advancing it already means announced: the poll loop persists it only after the tick's events are announced (behavior step 11 under `hand watch`), and every announcement reaches `state/events.log` and the notify hook whether or not it reached anyone's stdout - the `--until-event` baseline ticks discard stdout and still both (see "Delivering an event to a supervisory agent").
+A terminal line past the offset therefore reached nobody, and one behind it reached at least the durable log.
+A dedicated `acknowledged` column would be that same fact stored twice, with a way for the two to disagree.
+
+Only the last classified line of the unconsumed tail counts, which is what keeps this from flagging history: a `done` a worker followed with more `working:` was superseded rather than missed, and a resumed worker's second `done` is flagged again on its own terms even though the first was consumed.
+
+A terminal line the worker never terminated with a newline counts too, and this is the one place a reader deliberately parts company with the watcher.
+The watcher leaves an unterminated trailing line unconsumed for its next tick, since the line will still be there (see "Report channel" above); a report it has not announced yet is exactly one that has reached nobody, so leaving it unflagged would let the silent completion this exists to surface back in through the newline.
+A worker mid-append is therefore flagged for the moment its line is incomplete, which is the safe direction: the same reasoning as a watcher denied the task lock, where the transient answer is calling an acknowledged report unacknowledged, never the reverse.
+
 ### Holds
 
 A hold (atqamz/secondhand#63) records that an id is waiting on something, so "what needs the operator" is derived from the store rather than authored by hand in `data/backlog.md` - that file stays out of scope for holds entirely; a design that finds itself parsing it has gone wrong.
@@ -1993,7 +2034,7 @@ Set with `hand hold set`, which upserts - a second call on the same id replaces 
 ### Concurrency
 
 - Each task is one row. Writes go through sqlite, which serializes them; `hand`'s own named `flock`s (task, project, worktree, send) sit above that and guard whole command sequences, which a per-statement database lock cannot. The send lock is its own name rather than the task lock because it is held for the whole of a `hand send`'s composer wait, which the task lock must not be (see `hand send`). The project lock is what keeps the `data/projects.md` projection whole: rendering it is a read-modify-write over the file, so a second writer rendering from its own snapshot mid-write would drop a registered project from it.
-- `hand watch` is the only long-running process; all other commands are short-lived.
+- `hand watch` is the only long-running process; all other commands are short-lived. It is also the only singleton: at most one watcher per fleet home, enforced by an `flock` held for its whole lifetime (see "One watcher per fleet home").
 - File locking: machine state is written through sqlite, which serializes writers itself.
 - Multiple `hand` invocations against different tasks are safe in parallel.
 - Multiple `hand` invocations against the same task should be avoided (agent discipline, not locking).
@@ -2074,7 +2115,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 - `1`: general error.
 - `2`: usage error: wrong argument count, unknown flag, unknown command or subcommand, a required flag left out (`hand hold set --reason`), mutually exclusive or mutually dependent flags (`hand watch --timeout` or `--event` without `--until-event`, `hand hold set --blocked-on` on any kind but `blocked` and its absence on a `blocked` one), an invalid argument or flag value (malformed project URL, unknown project mode, harness or hold kind, unparsable `--poll` duration, a non-positive `--timeout`, an unrecognized `--event` kind).
   A value the invocation did not supply is not a usage error: the same malformed value read from a `config/` default is a general error (code `1`).
-- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or belongs to neither the task's project's repo nor its declared upstream (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight").
+- `3`: precondition failed, meaning the command refuses because the world is not in the state it requires: unlanded work, red CI, a missing or unmerged PR, a missing brief or report, a task, project or hold that does not exist, an id carrying an open hold (`hand spawn`), a task in the wrong kind or state (already merged, not a completed scout, already claimed by another command), a project name or worktree already taken, a project still referenced by active tasks, a PR that conflicts with one already recorded for a task or belongs to neither the task's project's repo nor its declared upstream (`hand pr`), a PR that `gh pr view` can't confirm exists (`hand pr`), a task branch whose PRs do not resolve to a single usable winner (`hand teardown`), a `no-mistakes`-mode project whose gate is not initialized (`hand spawn`, `hand promote` - see "Gate preflight"), a fleet home that already has a watcher attached (`hand watch`, remedied by `--takeover` - see "One watcher per fleet home").
   Two more apply to every command, since each one resolves a fleet home before it does anything: the working directory has no fleet home at or above it and `HAND_HOME` is unset, or `HAND_HOME` is set to a directory that is not a fleet home. The second refuses rather than falling back to the walk up, because a silent fallback is how an operator dispatches into the wrong fleet.
 - `4`: no event delivered, only from `hand watch --until-event`: its `--timeout` elapsed, or it was signaled, without a transition. This includes the timeout elapsing anywhere in arming, the herdr reachability probe as well as the per-task probe sweep - the window is over either way, and no one task is at fault. Distinct from `0` because there the exit *is* the event delivery, and from `1` because the watcher itself did not fail (see "Delivering an event to a supervisory agent").
 - `5`: arm-time probe failure, only from `hand watch --until-event`: one named task's herdr pane answered its pre-wait probe with a failure, named on stderr. Distinct from `4` because a specific worker is at fault and can be acted on, and from `0` because nothing was delivered (see "Delivering an event to a supervisory agent").
