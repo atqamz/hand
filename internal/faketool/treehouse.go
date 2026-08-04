@@ -99,7 +99,7 @@ func (th Treehouse) Install(t *testing.T, bin string) {
     echo "Created $(pwd)/treehouse.toml"
     ;;`, quote(TreehouseBanner), acquire.String(), len(th.Slots), resolve.String())
 
-	install(t, bin, "treehouse", th.Log, "$1", body)
+	install(t, bin, "treehouse", th.Log, "", "$1", body)
 
 	for _, slot := range th.Held {
 		writeFile(t, state+"/slot-"+key(slot), "leased\n")

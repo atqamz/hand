@@ -88,3 +88,92 @@ The changes are discarded, the slot is freed, and the directory is left clean.
 
 Creates `treehouse.toml` in the working directory and reports the path it wrote on stdout.
 Exit 1 with `treehouse.toml already exists` on stderr when one is already there.
+
+## herdr
+
+Driven by `internal/herdr`, and through it by every command that touches a task's tab.
+
+Recorded in a scratch workspace created for the purpose and closed again, not in the operator's own.
+Two behaviours below could not be observed without creating and destroying a real workspace, which is why the fake models them rather than guessing: closing a sole tab, and what happens to a closed workspace's tabs and panes.
+
+### Success and failure shapes
+
+A query command answers a JSON envelope on **stdout** with exit 0:
+
+```
+{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[...]}}
+```
+
+A command naming something that does not exist answers an error envelope on **stderr** with **exit 1**, and writes nothing to stdout:
+
+```
+{"error":{"code":"tab_not_found","message":"tab wY:t2 not found"},"id":"cli:tab:close"}
+```
+
+The codes observed are `workspace_not_found`, `tab_not_found` and `pane_not_found`.
+
+`pane run`, `pane send-text` and `pane send-keys` are void: empty stdout on success, and the same error envelope on stderr with exit 1 for a pane that is gone.
+`pane read` is the one command whose success is bare text on stdout rather than an envelope.
+
+Identifiers are assigned by herdr: workspaces `wX`, their tabs `wX:t1`, their panes `wX:p1`.
+
+### `herdr workspace create --cwd <dir> --label <label>`
+
+Exit 0.
+The result carries the workspace, the root tab herdr creates with it, and that tab's root pane, all three in one response.
+The root tab's label is `1`, not the label the workspace was given, which is why `hand spawn` renames it.
+
+State left behind: the workspace is listed by `workspace list` from this point on.
+
+### `herdr tab close <id>` on a workspace's only tab
+
+**Exit 0, and it takes the workspace with it.**
+Nothing refuses the call.
+Afterwards `tab list --workspace <ws>` is `workspace_not_found`, `pane get` on its pane is `pane_not_found`, and the workspace is gone from `workspace list`.
+
+`closeTaskTab` still issues `workspace close` explicitly for a sole tab: the end state is the same either way, and saying so beats depending on a side effect.
+
+### `herdr tab close <id>` repeated
+
+The second close is `tab_not_found` on stderr with exit 1.
+Nothing in `hand` may rely on a repeated close succeeding.
+This is what makes `closeTaskTab`'s absent-tab guard load-bearing, and `TestCloseTaskTabRerunLeavesASharedWorkspaceAlone` is the check that fails without it.
+
+### `herdr workspace close <id>`
+
+Exit 0.
+State left behind: the workspace, every tab in it and every pane in those tabs are gone.
+Each answers its own `*_not_found` afterwards, and a repeated `workspace close` is `workspace_not_found` with exit 1.
+
+### `herdr tab list --workspace <id>`
+
+Exit 0 with the workspace's live tabs in creation order, each carrying its current label.
+A closed workspace is `workspace_not_found` with exit 1, not an empty list - the distinction a rerun of teardown actually meets.
+
+### `herdr tab create --workspace <id> --cwd <dir> --label <label>`
+
+Exit 0, with the new tab and its root pane.
+`workspace_not_found` with exit 1 once that workspace has been closed.
+
+### `herdr tab rename <id> <label>`
+
+Exit 0, and the new label is what `tab list` reports from then on.
+`tab_not_found` with exit 1 for a tab that has been closed.
+
+## gh
+
+Driven by `internal/ghutil`, and through it by teardown's landed-work check and the gate's PR detection.
+
+### `gh pr list --head <branch> --json number,url,state,headRepository`
+
+Exit 0 with a JSON array on stdout, `[]` when nothing matches - an empty result is not an error.
+`headRepository` carries `id`, `name` and `nameWithOwner`.
+
+### `gh pr view <url-or-number> --json state`
+
+Exit 0 with the JSON object on stdout.
+A PR that does not exist is exit 1 with a GraphQL error on stderr.
+Real `gh` also writes warnings to stderr ahead of the JSON, which is why callers read stdout alone.
+
+Repository slugs from `gh` do not agree with git remotes on case, and `FindPRByBranch` folds case when comparing them.
+That behaviour is covered by `internal/ghutil/pr_test.go` and `tests/e2e/slug_case_test.go`, whose own `gh` fake is the one place a fake's fidelity had already been thought about; it is deliberately left as it is.

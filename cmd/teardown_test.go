@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atqamz/secondhand/internal/completion"
+	"github.com/atqamz/secondhand/internal/faketool"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/project"
@@ -65,91 +66,34 @@ func writeFakeGHPRState(t *testing.T, prState string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// writeFakeTreehouseReturn fakes the two tools teardown shells out to, each keyed
-// on the state its own commands leave behind, since a fake that answers a
-// state-changing command identically before and after that command cannot test
-// anything about the state change.
-//
-// treehouse return keeps the returned worktree's pool slot directory and succeeds
-// again on a second return of the same path, checked against the real tool; only
-// a path no pool manages fails, and that failure path is covered directly by
-// internal/worktree/worktree_test.go against the same fidelity note.
-//
-// A dirty worktree is the other half of that contract: the real tool prompts
-// before cleaning one and aborts when nothing answers, and only --force ("clean,
-// reset, and return without prompting") gets past it, so the fake refuses the
-// unforced dirty return and cleans on the forced one. A fake that returned any
-// directory regardless of dirt could not tell a forced return from an unforced
-// one, which is precisely what teardown's safe-dirt path depends on.
-//
-// The fake records its argv at worktreeReturnArgsPath so a test can assert which
-// of the two it got.
-//
-// herdr stops listing a closed tab. A stateless fake that re-lists a tab it was
-// just told to close makes every retry test vacuous - it can never reach the
-// already-closed case a second teardown run actually hits.
-func writeFakeTreehouseReturn(t *testing.T) {
+// The two tools teardown shells out to, both from internal/faketool so each keeps
+// the state its own commands change: the returned worktree's slot stops being
+// leasable and the closed tab stops being listed. worktree need not exist yet,
+// only be the path the pool will be asked for.
+func writeFakeTreehouseReturn(t *testing.T, worktree string) {
 	t.Helper()
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(`#!/bin/sh
-case "$1" in
-return)
-	path="$2"
-	printf '%s\n' "$@" > "$path.return-args"
-	if [ ! -d "$path" ]; then
-		echo "worktree $path is not managed by treehouse" >&2
-		exit 1
-	fi
-	forced=""
-	for arg in "$@"; do
-		if [ "$arg" = "--force" ]; then forced=1; fi
-	done
-	if [ -n "$(git -C "$path" status --porcelain)" ] && [ -z "$forced" ]; then
-		echo "Worktree left dirty. Use 'treehouse return --force' to clean it later." >&2
-		exit 1
-	fi
-	if [ -n "$forced" ]; then
-		git -C "$path" reset -q --hard HEAD
-		git -C "$path" clean -qfd
-	fi
-	echo "Worktree returned to pool."
-	exit 0
-	;;
-esac
-echo "unexpected treehouse args: $@" >&2
-exit 1
-`), 0o755); err != nil {
+	bin := faketool.Bin(t)
+	log := invocationLog(worktree)
+	faketool.Treehouse{Held: []string{worktree}, Log: log}.Install(t, bin)
+	faketool.Herdr{Log: log, Workspaces: []faketool.HerdrWorkspace{
+		{ID: "wA", Label: "hand:myproj", Tabs: []faketool.HerdrTab{{ID: "wA:tB", Label: "task-1", Pane: "wA:pB"}}},
+	}}.Install(t, bin)
+}
+
+func invocationLog(worktree string) string {
+	return worktree + ".invocations"
+}
+
+func readInvocations(t *testing.T, worktree string) []string {
+	t.Helper()
+	data, err := os.ReadFile(invocationLog(worktree))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		t.Fatal(err)
 	}
-	closed := filepath.Join(t.TempDir(), "closed")
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
-closed='`+closed+`'
-cmd="$1 $2"
-case "$cmd" in
-"tab list")
-	if [ -e "$closed" ]; then
-		printf '{"id":"cli:1","result":{"tabs":[]}}'
-	else
-		printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
-	fi
-	;;
-"tab close")
-	touch "$closed"
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"workspace close")
-	touch "$closed"
-	printf '{"id":"cli:1","result":{}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
 // ghFakePR is one PR writeFakeGHPRListAndView reports for a branch.
@@ -461,7 +405,7 @@ func setupTeardownHome(t *testing.T) (home, worktree string) {
 	mkFleetDirs(t, home)
 	worktree = filepath.Join(t.TempDir(), "wt")
 	initGitRepo(t, worktree)
-	writeFakeTreehouseReturn(t)
+	writeFakeTreehouseReturn(t, worktree)
 	return home, worktree
 }
 
@@ -776,7 +720,7 @@ func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 		t.Fatalf("git commit failed: %v: %s", err, out)
 	}
 
-	writeFakeTreehouseReturn(t)
+	writeFakeTreehouseReturn(t, worktree)
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -942,11 +886,11 @@ func TestTeardownRecordsMergedWhenALocallyMergedShipRowKeptItsScoutReport(t *tes
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	writeFakeTreehouseReturn(t)
 
 	clonePath := filepath.Join(home, "projects", "myproj")
 	initGitRepo(t, clonePath)
 	worktree := filepath.Join(t.TempDir(), "wt")
+	writeFakeTreehouseReturn(t, worktree)
 	runGitIn(t, clonePath, "branch", "task-1-branch")
 	runGitIn(t, clonePath, "worktree", "add", "-q", worktree, "task-1-branch")
 	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/myproj.git", Mode: project.ModeLocalOnly}); err != nil {
@@ -1386,15 +1330,57 @@ func TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase(t *testing.T) {
 	}
 }
 
-// readTreehouseReturnArgs reads the argv writeFakeTreehouseReturn's fake recorded
-// for the last `treehouse return` of worktree.
+// Two tasks share a workspace and the first one's teardown already closed its tab,
+// which is where an unguarded rerun does real damage: one tab is left, the sole-tab
+// branch fires, and the surviving task's workspace is closed under it.
+func TestCloseTaskTabRerunLeavesASharedWorkspaceAlone(t *testing.T) {
+	bin := faketool.Bin(t)
+	log := filepath.Join(bin, "herdr.log")
+	faketool.Herdr{Log: log, Workspaces: []faketool.HerdrWorkspace{
+		{ID: "wA", Label: "hand:myproj", Tabs: []faketool.HerdrTab{
+			{ID: "wA:t1", Label: "task-1", Pane: "wA:p1"},
+			{ID: "wA:t2", Label: "task-2", Pane: "wA:p2"},
+		}},
+	}}.Install(t, bin)
+	client := herdr.NewClient()
+
+	if err := closeTaskTab(client, "wA", "wA:t1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := closeTaskTab(client, "wA", "wA:t1"); err != nil {
+		t.Fatalf("got %v, want a rerun over an already-closed tab to succeed", err)
+	}
+
+	tabs, err := client.TabList("wA")
+	if err != nil {
+		t.Fatalf("got %v, want the shared workspace still open", err)
+	}
+	if len(tabs) != 1 || tabs[0].TabID != "wA:t2" {
+		t.Fatalf("got tabs %+v, want the other task's tab untouched", tabs)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "workspace close") {
+		t.Fatalf("herdr log = %q, want no workspace close: the workspace still holds task-2", data)
+	}
+}
+
+// The argv of the last `treehouse return` of worktree, from the shared fakes'
+// invocation log.
 func readTreehouseReturnArgs(t *testing.T, worktree string) []string {
 	t.Helper()
-	data, err := os.ReadFile(worktree + ".return-args")
-	if err != nil {
-		t.Fatalf("treehouse return was never invoked for %s: %v", worktree, err)
+	var args []string
+	for _, line := range readInvocations(t, worktree) {
+		if fields := strings.Fields(line); len(fields) > 1 && fields[1] == "return" {
+			args = fields[1:]
+		}
 	}
-	return strings.Fields(string(data))
+	if args == nil {
+		t.Fatalf("treehouse return was never invoked for %s", worktree)
+	}
+	return args
 }
 
 // TestTeardownForcesWorktreeReturnPastSafeDirt covers the step that follows the

@@ -24,9 +24,9 @@ func Bin(t *testing.T) string {
 // Dispatches body on selector, the shell expression each case arm matches ("$1",
 // or "$1 $2" for a two-word command). The loud default arm is what keeps an
 // invocation shape the fake does not model from passing as a silent success.
-func install(t *testing.T, bin, name, log, selector, body string) {
+func install(t *testing.T, bin, name, log, prelude, selector, body string) {
 	t.Helper()
-	script := "#!/bin/sh\n"
+	script := "#!/bin/sh\n" + prelude
 	if log != "" {
 		script += fmt.Sprintf("echo \"%s $@\" >> %s\n", name, quote(log))
 	}
