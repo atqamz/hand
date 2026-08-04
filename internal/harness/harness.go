@@ -159,8 +159,7 @@ func CarriesPrompt(name string) bool {
 func Build(name string, opts Options) (string, error) {
 	var launch string
 	// Flags for claude and opencode are verified against the installed CLI's own --help, and this file
-	// is the source of truth for those two. Codex, Grok and Pi have no binary available yet, so they
-	// fall back to the SPECS.md template syntax and need re-verifying for interactive launch.
+	// is the source of truth for those two.
 	switch name {
 	case Claude:
 		launch = buildClaude(opts)
@@ -198,7 +197,7 @@ func buildClaude(o Options) string {
 
 // No binary for codex, grok or pi exists on this host, so these three fall back to SPECS.md's
 // template syntax and need re-verifying for interactive launch, not just flag names, once one is
-// installable. claude's and opencode's flags are verified via --help, and this file owns them.
+// installable.
 func buildCodex(o Options) string {
 	return fmt.Sprintf("codex --file %s", shellQuote(o.Brief))
 }

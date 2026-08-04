@@ -208,8 +208,7 @@ func errorHelp(code int, path string) []string {
 }
 
 // ExitError carries a non-default exit code SPECS.md's "Exit codes" table defines, distinct from the
-// general-error code (1) cobra otherwise produces for any RunE error. Usage (2) is a bad arg count or an
-// unknown flag, subcommand, or value; precondition (3) is state like red CI or uncommitted changes.
+// general-error code (1) cobra otherwise produces for any RunE error.
 type ExitError struct {
 	Err error
 	// 2 for a usage error (bad arg count, unknown flag, unknown subcommand, invalid argument or flag
