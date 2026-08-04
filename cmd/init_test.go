@@ -95,6 +95,30 @@ func TestInitLeavesExistingDataFilesAlone(t *testing.T) {
 	}
 }
 
+// Whoever hits a seeding failure reads the message to decide where to look, so
+// it names every file that failed and says the same thing on every run.
+func TestInitSkeletonFilesReportsEveryFailureInAStableOrder(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "data"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first := initSkeletonFiles(dir)
+	if first == nil {
+		t.Fatal("got nil, want an error when data/ is not a directory")
+	}
+	second := initSkeletonFiles(dir)
+	if second == nil || second.Error() != first.Error() {
+		t.Fatalf("run 2 = %v, want the same message as run 1 %v", second, first)
+	}
+
+	for _, rel := range []string{"data/backlog.md", "data/projects.md", "data/operator.md", "data/learnings.md", "data/done-archive.md", "data/note-archive.md"} {
+		if !strings.Contains(first.Error(), rel) {
+			t.Fatalf("got %q, want it to name %s", first, rel)
+		}
+	}
+}
+
 func TestInitIsIdempotentAboutTheHandDbMarker(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	dir := t.TempDir()

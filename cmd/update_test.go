@@ -192,6 +192,43 @@ func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
 	}
 }
 
+// A home whose data/ directory is gone still resolves as a home on its
+// state/hand.db marker, so update has to create the directory it seeds into
+// rather than warning about six files it could not write.
+func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("update binary layout targets unix asset names")
+	}
+	setFakeExecutable(t)
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := os.RemoveAll(filepath.Join(home, "data")); err != nil {
+		t.Fatal(err)
+	}
+
+	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd("v0.1.0")
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if errOut.Len() != 0 {
+		t.Fatalf("got stderr %q, want none", errOut.String())
+	}
+	for _, rel := range []string{"data/backlog.md", "data/projects.md", "data/operator.md", "data/learnings.md", "data/done-archive.md", "data/note-archive.md"} {
+		if _, err := os.Stat(filepath.Join(home, rel)); err != nil {
+			t.Fatalf("%s missing after update: %v", rel, err)
+		}
+	}
+}
+
 func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("update binary layout targets unix asset names")
