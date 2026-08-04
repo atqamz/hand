@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// migrationsContaining narrows the registered list to the entries naming
-// substr. A test that exercises one real entry has to replay only that entry:
-// replaying the whole list would hit "duplicate column name" on every column
-// `schema` builds that the test did not drop, and naming the entry by index
-// instead would silently shift the moment another commit appends one.
+// Narrows the registered list to the entries naming substr, so a test replays only the one
+// entry it exercises: the whole list would hit "duplicate column name" on every column
+// `schema` builds, and an index would silently shift when another commit appends one.
 func migrationsContaining(substr string) []string {
 	var matched []string
 	for _, m := range migrations {
@@ -21,10 +19,9 @@ func migrationsContaining(substr string) []string {
 	return matched
 }
 
-// A fresh database is built by `schema`, which already carries every
-// registered migration, so it is stamped straight to the latest version
-// rather than 0 - only a database that predates the mechanism entirely reads
-// as 0 (TestExistingBaselineDatabaseOpensCleanly below).
+// A fresh database is built by `schema`, which already carries every registered migration,
+// so it is stamped straight to the latest version rather than 0 - only a database predating
+// the mechanism reads as 0 (TestExistingBaselineDatabaseOpensCleanly below).
 func TestFreshOpenRecordsSchemaVersionAtLatest(t *testing.T) {
 	db, _ := openTemp(t)
 	version, err := db.schemaVersion()
@@ -86,22 +83,18 @@ func TestOpenRefusesADatabaseNewerThanThisBuild(t *testing.T) {
 	}
 }
 
-// The real hand.db this mechanism has to keep working is exactly the shape
-// this sets up: tables already created by the pre-mechanism schema,
-// user_version at its sqlite default of 0, no meta row claiming a version.
-// Registering a migration step is meant to be the whole job for a column
-// addition to such a database: one entry, applied automatically without an
-// operator running anything, and cheap to run again on the next open.
+// The real hand.db this mechanism has to keep working is exactly the shape this sets up:
+// tables from the pre-mechanism schema, user_version at sqlite's default 0, no meta row.
+// One registered entry is meant to be the whole job: automatic, and cheap to run again.
 func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	home := t.TempDir()
 
 	restore := migrations
 	t.Cleanup(func() { migrations = restore })
 
-	// Empty migrations for this first open, so the fresh database it stamps
-	// reads as version 0 - the pre-mechanism baseline this test needs -
-	// rather than picking up whatever this build's real migrations already
-	// registered.
+	// Empty migrations for this first open, so the fresh database it stamps reads as version
+	// 0 - the pre-mechanism baseline this test needs - rather than picking up whatever this
+	// build's real migrations already registered.
 	migrations = []string{}
 	existing, err := Open(home)
 	if err != nil {
@@ -145,12 +138,9 @@ func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	defer func() { _ = second.Close() }()
 }
 
-// Adding a column puts it in the `schema` constant, so new databases are built
-// with it, and appends the matching ALTER TABLE to `migrations`, so existing
-// ones gain it. A brand-new database must take only the first of those: the
-// column is already there, and replaying the migration would fail with
-// "duplicate column name" on every fresh home. `mode` stands in for such a
-// column - the baseline `project` table already has it.
+// Adding a column puts it in `schema`, so new databases are built with it, and appends the
+// matching ALTER TABLE to `migrations`, so existing ones gain it. A fresh database must take
+// only the first, or replay fails with "duplicate column name"; `mode` stands in.
 func TestFreshDatabaseSkipsAMigrationTheSchemaAlreadyBuilds(t *testing.T) {
 	restore := migrations
 	migrations = []string{`ALTER TABLE project ADD COLUMN mode TEXT NOT NULL DEFAULT ''`}
@@ -190,10 +180,9 @@ func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	own := migrationsContaining("send_undelivered_message")
 	t.Cleanup(func() { migrations = restore })
 
-	// Empty migrations for this first open, so the fresh database it builds
-	// reads as version 0; `schema` still creates the two new columns (it can't
-	// be swapped the way `migrations` can), so they are dropped by hand to put
-	// the database back into the pre-migration shape this test needs.
+	// Empty migrations for this first open, so the fresh database reads as version 0.
+	// `schema` still creates the two new columns (it cannot be swapped the way `migrations`
+	// can), so they are dropped by hand to reach the pre-migration shape.
 	migrations = []string{}
 	existing, err := Open(home)
 	if err != nil {
@@ -232,10 +221,9 @@ func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
-// The live fleet home holds rows written before lease_id existed, and they have
-// to keep being readable through the migration rather than only after their task
-// is respawned - so the column arrives empty on every one of them, which is
-// exactly what worktree.CheckCollision's path fallback keys on.
+// The live fleet home holds rows written before lease_id existed, and they stay readable
+// through the migration rather than only after a respawn - so the column arrives empty on
+// every one of them, which is what worktree.CheckCollision's path fallback keys on.
 func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 
@@ -281,10 +269,9 @@ func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
-// Exercises the real delivered_at/delivered_reason entry against a database
-// holding a task row written before those columns existed - the live fleet
-// home's shape - so a task spawned before this commit stays readable and reads
-// as not delivered rather than making the whole database unopenable.
+// Exercises the real delivered_at/delivered_reason entry against a database holding a task
+// row written before those columns existed - the live fleet home's shape - so a task spawned
+// earlier stays readable and reads as not delivered rather than blocking the whole open.
 func TestDeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 
@@ -340,12 +327,9 @@ func TestDeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
-// Exercises the real pane_started_at/parked_fired_for entry against a database
-// holding rows written before those columns existed. pane_started_at is
-// backfilled rather than left empty: the pre-migration `parked` floor read
-// status_changed_at and fell back to created_at, so freezing that same value is
-// what stops the migration from either sliding a live task's floor or handing a
-// task promoted before the migration its scout's whole accumulated silence.
+// Exercises the real pane_started_at/parked_fired_for entry against a database holding rows
+// written before those columns existed. The pre-migration `parked` floor read
+// status_changed_at and fell back to created_at, so the backfill freezes that same value.
 func TestPaneStartColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 
@@ -403,10 +387,9 @@ func TestPaneStartColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
-// Exercises the real project.upstream entry against a database holding a
-// project row written before that column existed - the live fleet home's
-// shape - so a project registered long ago stays readable and gains the
-// column empty rather than the whole registry failing to open.
+// Exercises the real project.upstream entry against a database holding a project row written
+// before that column existed - the live fleet home's shape - so a project registered long ago
+// stays readable and gains the column empty rather than the whole registry failing to open.
 func TestProjectUpstreamColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 
@@ -458,13 +441,9 @@ func TestProjectUpstreamColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
-// Exercises the real report_digest entry against a database holding a task row
-// whose worker has already reported - a live fleet home's shape. The column
-// arrives empty rather than backfilled on purpose: the digest of the prefix
-// that offset already consumed cannot be recovered from a file that may have
-// been rewritten since, and empty is what state.ReportCursor falls back to the
-// newline boundary for. The offset itself has to survive, or the upgrade
-// replays every line the previous run already surfaced.
+// Exercises the real report_digest entry against a database holding a task row whose worker has
+// already reported - a live fleet home's shape. The column arrives empty rather than backfilled on
+// purpose: the consumed prefix cannot be recovered from a file that may have been rewritten since.
 func TestReportDigestColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 
@@ -503,6 +482,8 @@ func TestReportDigestColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	if got.ReportDigest != "" {
 		t.Fatalf("report_digest = %q, want empty: the migration carries no backfill", got.ReportDigest)
 	}
+	// The offset has to survive where the digest does not, or the upgrade replays every line the
+	// previous run already surfaced.
 	if got.ReportOffset != 61 {
 		t.Fatalf("report_offset = %d, want the pre-migration row's 61 intact", got.ReportOffset)
 	}
@@ -523,10 +504,9 @@ func TestReportDigestColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
-// Exercises the real usage-limit entry against a database holding rows written before
-// hand could detect a limit. Deliberately no backfill: an empty retry stamp means "this
-// task is not limited", which is the honest reading of every such row, and a value
-// invented here would drive real steers into a pane off a schedule nothing observed.
+// Exercises the real usage-limit entry against a database holding rows written before hand could
+// detect a limit. Deliberately no backfill: an empty retry stamp means "this task is not limited", the
+// honest reading of every such row, and an invented value would steer a pane off a schedule nobody saw.
 func TestUsageLimitColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	home := t.TempDir()
 

@@ -56,11 +56,9 @@ func TestReadHoldReportsAMissingHoldWithoutAnError(t *testing.T) {
 	}
 }
 
-// TestHoldSurvivesWithNoTaskRowBehindIt pins the design decision that makes a
-// hold cover the motivating case: it is its own row keyed by an arbitrary id,
-// not a foreign key into task, so a hold set on a task torn down while its
-// question stayed open still answers "what needs the operator" after
-// DeleteTask removes the task row that used to carry it.
+// Pins the decision that makes a hold cover the motivating case: its own row keyed by an
+// arbitrary id, not a foreign key into task, so a hold set on a task torn down with its
+// question open still answers "what needs the operator" after DeleteTask.
 func TestHoldSurvivesWithNoTaskRowBehindIt(t *testing.T) {
 	db, _ := openTemp(t)
 	if err := db.WriteTask(Task{ID: "fix-login"}); err != nil {
@@ -136,11 +134,9 @@ func TestListHoldsSortedAndEmpty(t *testing.T) {
 	}
 }
 
-// TestListHoldsSurfacesEveryRowRegardlessOfKind pins the read side of the
-// design decision in SPECS.md: a row an external write left inconsistent
-// (here, an unrecognized kind) must still come back from ListHolds, not be
-// filtered out, or "what is held" silently drops exactly the row most worth
-// seeing.
+// Pins the read side of the design decision in SPECS.md: a row an external write left
+// inconsistent (here, an unrecognized kind) must still come back from ListHolds, or "what
+// is held" silently drops exactly the row most worth seeing.
 func TestListHoldsSurfacesEveryRowRegardlessOfKind(t *testing.T) {
 	db, _ := openTemp(t)
 	if err := db.SetHold(Hold{ID: "weird", Kind: "not-a-real-kind", Reason: "who knows"}); err != nil {
