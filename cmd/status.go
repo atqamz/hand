@@ -29,6 +29,16 @@ func newStatusCmd() *cobra.Command {
 			if err := rejectFieldsWithJSON(fields, asJSON); err != nil {
 				return err
 			}
+			// Resolved before the home is: a name no column carries costs the
+			// caller nothing to be told about, and a fleet scan to find out.
+			def := fleetDefaultFields
+			if len(args) == 1 {
+				def = detailDefaultFields
+			}
+			cols, err := pickFields(taskFields, fields, def)
+			if err != nil {
+				return err
+			}
 			home, err := home.Resolve()
 			if err != nil {
 				return asPrecondition(err)
@@ -36,9 +46,9 @@ func newStatusCmd() *cobra.Command {
 			client := herdr.NewClient()
 
 			if len(args) == 1 {
-				return runStatusSingle(cmd, home, client, args[0], asJSON, full, fields)
+				return runStatusSingle(cmd, home, client, args[0], asJSON, full, cols)
 			}
-			return runStatusFleet(cmd, home, client, asJSON, fields)
+			return runStatusFleet(cmd, home, client, asJSON, cols)
 		},
 	}
 
@@ -266,7 +276,7 @@ func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Projec
 	return ""
 }
 
-func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, fields []string) error {
+func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
 	views, holds, err := fleetViews(cmd, home, client)
 	if err != nil {
 		return err
@@ -287,19 +297,13 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	var doc axi.Doc
-	if err := appendFleet(&doc, views, holds, fields); err != nil {
-		return err
-	}
+	appendFleet(&doc, views, holds, cols)
 	return doc.Render(cmd.OutOrStdout())
 }
 
 // appendFleet writes the fleet blocks onto doc rather than a writer, so the
 // bare command can put its identity fields above the same overview.
-func appendFleet(doc *axi.Doc, views []taskView, holds []state.Hold, fields []string) error {
-	cols, err := pickFields(taskFields, fields, fleetDefaultFields)
-	if err != nil {
-		return err
-	}
+func appendFleet(doc *axi.Doc, views []taskView, holds []state.Hold, cols []axi.Column[taskView]) {
 	attention := 0
 	for _, v := range views {
 		if needsAttention(v) {
@@ -313,7 +317,6 @@ func appendFleet(doc *axi.Doc, views []taskView, holds []state.Hold, fields []st
 	axi.Table(doc, "tasks", views, cols)
 	axi.Table(doc, "holds", holds, holdFields)
 	doc.Help(fleetHelp(views, attention)...)
-	return nil
 }
 
 func fleetViews(cmd *cobra.Command, home string, client *herdr.Client) ([]taskView, []state.Hold, error) {
@@ -458,7 +461,7 @@ func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
 	return &reportedJSON{State: last.State, Note: last.Note}
 }
 
-func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool, fields []string) error {
+func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool, cols []axi.Column[taskView]) error {
 	t, err := state.Read(home, id)
 	if err != nil {
 		return asPrecondition(err)
@@ -516,11 +519,6 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		return enc.Encode(out)
 	}
 
-	cols, err := pickFields(taskFields, fields, detailDefaultFields)
-	if err != nil {
-		return err
-	}
-
 	var doc axi.Doc
 	for _, c := range cols {
 		doc.Field(c.Name, c.Value(v))
@@ -552,8 +550,9 @@ func historyBlock(v taskView, tail []state.ReportLine, full bool) []string {
 	}
 	lines := make([]string, len(tail))
 	for i, line := range tail {
-		lines[i] = reportLineText(line)
-		if !full {
+		if full {
+			lines[i] = reportLineText(line)
+		} else {
 			lines[i] = truncateReportLine(line, reportSummaryBudget, v.task.ID)
 		}
 	}

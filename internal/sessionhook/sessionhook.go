@@ -36,17 +36,18 @@ func Refresh(dir, exe string) (bool, error) {
 	path := filepath.Join(dir, settingsDir, settingsFile)
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return false, fmt.Errorf("read %s: %w", filepath.Join(settingsDir, settingsFile), err)
+		return false, fmt.Errorf("read %s: %w", relPath(), err)
 	}
 
 	settings := map[string]any{}
 	if len(existing) > 0 {
 		if err := json.Unmarshal(existing, &settings); err != nil {
-			return false, fmt.Errorf("parse %s: %w", filepath.Join(settingsDir, settingsFile), err)
+			return false, fmt.Errorf("parse %s: %w", relPath(), err)
 		}
 	}
-	if !install(settings, exe) {
-		return false, nil
+	changed, err := install(settings, exe)
+	if err != nil || !changed {
+		return false, err
 	}
 
 	encoded, err := json.MarshalIndent(settings, "", "  ")
@@ -58,20 +59,27 @@ func Refresh(dir, exe string) (bool, error) {
 		return false, fmt.Errorf("create %s: %w", settingsDir, err)
 	}
 	if err := atomicfile.Write(path, ".settings.json-", encoded, 0o644); err != nil {
-		return false, fmt.Errorf("write %s: %w", filepath.Join(settingsDir, settingsFile), err)
+		return false, fmt.Errorf("write %s: %w", relPath(), err)
 	}
 	return true, nil
+}
+
+func relPath() string {
+	return filepath.Join(settingsDir, settingsFile)
 }
 
 // Edits settings in place and reports whether anything changed. Everything it
 // does not own is carried through untouched: an operator's own hooks,
 // permissions and settings outlive every refresh.
-func install(settings map[string]any, exe string) bool {
-	hooks, _ := settings["hooks"].(map[string]any)
-	if hooks == nil {
-		hooks = map[string]any{}
+func install(settings map[string]any, exe string) (bool, error) {
+	hooks, err := object(settings, "hooks", "hooks")
+	if err != nil {
+		return false, err
 	}
-	matchers, _ := hooks[event].([]any)
+	matchers, err := array(hooks, event, "hooks."+event)
+	if err != nil {
+		return false, err
+	}
 
 	for _, matcher := range matchers {
 		entry, _ := matcher.(map[string]any)
@@ -87,10 +95,10 @@ func install(settings map[string]any, exe string) bool {
 			// binary is ours to correct, which is what a moved install needs.
 			repointed := exe + args
 			if repointed == line {
-				return false
+				return false, nil
 			}
 			command["command"] = repointed
-			return true
+			return true, nil
 		}
 	}
 
@@ -98,7 +106,34 @@ func install(settings map[string]any, exe string) bool {
 		"hooks": []any{map[string]any{"type": "command", "command": exe}},
 	})
 	settings["hooks"] = hooks
-	return true
+	return true, nil
+}
+
+// A key whose value is not the shape hand merges into is the operator's, the
+// same way an unparseable file is: it cannot be carried through, and writing
+// over it destroys what is there. An absent or null key is neither.
+func object(m map[string]any, key, path string) (map[string]any, error) {
+	raw, ok := m[key]
+	if !ok || raw == nil {
+		return map[string]any{}, nil
+	}
+	value, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s: %s is not an object, refusing to overwrite it", relPath(), path)
+	}
+	return value, nil
+}
+
+func array(m map[string]any, key, path string) ([]any, error) {
+	raw, ok := m[key]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	value, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s: %s is not an array, refusing to overwrite it", relPath(), path)
+	}
+	return value, nil
 }
 
 // Splits a hook command into whatever follows the binary it runs. An entry is

@@ -1379,6 +1379,22 @@ func TestStatusFieldsRejectsAnUnknownFieldAsAUsageError(t *testing.T) {
 	}
 }
 
+// The name is checked before the home is resolved, so a flag typo never pays
+// for a fleet scan, a registry warning, or a no-mistakes subprocess per done
+// ship task before it is told what it got wrong.
+func TestStatusFieldsIsRejectedBeforeTheHomeIsResolved(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	t.Chdir(t.TempDir())
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--fields", "nope"})
+	err := cmd.Execute()
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("err = %v, exit code = %d, want the usage error rather than the unresolvable home's 3", err, code)
+	}
+}
+
 // --fields narrows the TOON schema; accepting it next to --json and then
 // ignoring it would hand back the full object the caller asked to narrow.
 func TestStatusFieldsWithJSONIsAUsageError(t *testing.T) {

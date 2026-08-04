@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -182,6 +183,45 @@ func TestRefreshRefusesToOverwriteUnparseableSettings(t *testing.T) {
 	raw, err := os.ReadFile(path)
 	if err != nil || string(raw) != "{not json" {
 		t.Fatalf("settings = %q, %v, want the file untouched", raw, err)
+	}
+}
+
+// Parseable JSON of a shape hand cannot merge into is the operator's just as
+// much as unparseable JSON is, so it gets the same refusal rather than a
+// clobber.
+func TestRefreshRefusesSettingsOfAnUnexpectedShape(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"hooks is not an object", `{"hooks": "SessionStart"}`},
+		{"the event is not an array", `{"hooks": {"SessionStart": {"command": "/usr/bin/tea"}}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := mkHome(t)
+			if err := os.MkdirAll(filepath.Join(dir, settingsDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, settingsDir, settingsFile)
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			changed, err := Refresh(dir, "/opt/bin/hand")
+			if err == nil {
+				t.Fatal("Refresh = nil, want an error naming the key at fault")
+			}
+			if changed {
+				t.Fatal("Refresh reported a change it refused to make")
+			}
+			if !strings.Contains(err.Error(), relPath()) {
+				t.Fatalf("err = %v, want it to name %s", err, relPath())
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil || string(raw) != tc.body {
+				t.Fatalf("settings = %q, %v, want the file untouched", raw, err)
+			}
+		})
 	}
 }
 

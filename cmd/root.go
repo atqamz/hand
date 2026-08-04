@@ -104,13 +104,15 @@ func runRootOverview(cmd *cobra.Command, version string) error {
 	}
 	doc.Field("home", tildePath(fleetHome))
 
+	cols, err := pickFields(taskFields, nil, fleetDefaultFields)
+	if err != nil {
+		return err
+	}
 	views, holds, err := fleetViews(cmd, fleetHome, herdr.NewClient())
 	if err != nil {
 		return err
 	}
-	if err := appendFleet(&doc, views, holds, nil); err != nil {
-		return err
-	}
+	appendFleet(&doc, views, holds, cols)
 	return doc.Render(cmd.OutOrStdout())
 }
 

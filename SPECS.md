@@ -285,12 +285,13 @@ home: ~/secondhand
 count: 2
 attention: 1
 held: 0
-tasks[2]{id,project,kind,agent,reported,age}:
-  fix-login,demo,ship,working,"working: wiring the session store",2 hours ago
-  audit-deps,demo,scout,idle,"done: 3 stale pins",20 minutes ago
+tasks[2]{id,state,reported,age,flags}:
+  fix-login,working,working,2h ago,none
+  audit-deps,done,done,20m ago,unacknowledged
 holds[0]{id,kind,detail,age}:
-help[2]:
+help[3]:
   - Run `hand status <id>` for one task's detail and report history
+  - A flagged row is waiting on you: `hand send <id> <message>` to steer it, `hand hold set <id> --kind operator --reason <text>` to park it
   - Run `hand status --fields <a,b>` to pick columns, `hand status --help` for every field name
 ```
 
@@ -423,9 +424,9 @@ Output:
 count: 3
 gate_issues: 1
 projects[3]{name,mode,url,upstream,gate}:
-  nsr,direct-pr,https://github.com/yes2games/nsr,none,none
-  yes2infra,no-mistakes,https://github.com/yes2games/yes2infra,none,not initialized
-  no-mistakes,direct-pr,https://github.com/atqamz/no-mistakes,kunchenguid/no-mistakes,none
+  nsr,direct-pr,"https://github.com/yes2games/nsr",none,none
+  yes2infra,no-mistakes,"https://github.com/yes2games/yes2infra",none,not initialized
+  no-mistakes,direct-pr,"https://github.com/atqamz/no-mistakes",kunchenguid/no-mistakes,none
 help[2]:
   - Run `hand spawn <id> <project>` to dispatch a worker into one of these
   - A project with a gate value cannot honour its no-mistakes mode until that is fixed; `hand doctor` and the project's own clone are where to look
@@ -2503,7 +2504,8 @@ Every kind but `general` carries a `help[]` line naming what recovers it; a `usa
 `general` is the one code with no recovery that can be stated in advance, so it carries no `help[]` block rather than a line that says nothing.
 
 The document goes to stderr, where the AXI principles put it on stdout, because `hand watch` owns stdout as an event stream a supervising agent consumes line by line.
-Keeping failures off that stream means a reader never has to tell an event from an error, and stdout stays empty on any non-zero exit.
+Keeping failures off that stream means a reader never has to tell an event from an error.
+A non-zero exit does not retract what a command already printed: `hand doctor`'s findings block and `hand watch`'s event lines stay on stdout whatever the exit code, so a caller reads the document on stderr for why it failed and stdout for what it found.
 
 ## Testing strategy
 

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -123,7 +122,7 @@ func newSendCmd() *cobra.Command {
 			var doc axi.Doc
 			doc.Field("id", id)
 			doc.Field("result", "sent")
-			doc.Field("chars", strconv.Itoa(len([]rune(message))))
+			doc.Int("chars", len([]rune(message)))
 			doc.Help("The pane has the message; run `hand status " + id + "` to read what it does with it")
 			return doc.Render(cmd.OutOrStdout())
 		},
