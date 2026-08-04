@@ -409,7 +409,7 @@ func unacknowledged(home string, t state.Task, reported state.ReportLine, report
 	if !reportedOK || !state.TerminalReport(reported.State) {
 		return false, nil
 	}
-	return state.UnacknowledgedTerminalReport(home, t.ID, t.ReportOffset)
+	return state.UnacknowledgedTerminalReport(home, t.ID, state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest})
 }
 
 // A pane state and a report answer different questions, so both print. This

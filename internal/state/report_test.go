@@ -60,7 +60,7 @@ func TestTailReportOnceThenIncremental(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, offset, err := TailReport(path, 0)
+	lines, cursor, err := TailReport(path, ReportCursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestTailReportOnceThenIncremental(t *testing.T) {
 		t.Fatalf("got %+v, want last line done", lines[2])
 	}
 
-	lines, offset, err = TailReport(path, offset)
+	lines, cursor, err = TailReport(path, cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestTailReportOnceThenIncremental(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, _, err = TailReport(path, offset)
+	lines, _, err = TailReport(path, cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,12 +106,12 @@ func TestTailReportLeavesPartialTrailingLineUnconsumed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lines, offset, err := TailReport(path, 0)
+	lines, cursor, err := TailReport(path, ReportCursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lines) != 0 || offset != 0 {
-		t.Fatalf("got lines=%+v offset=%d, want the unterminated line left unconsumed", lines, offset)
+	if len(lines) != 0 || cursor != (ReportCursor{}) {
+		t.Fatalf("got lines=%+v cursor=%+v, want the unterminated line left unconsumed", lines, cursor)
 	}
 }
 
@@ -121,7 +121,7 @@ func TestTailReportRestartsFromZeroWhenFileShrinks(t *testing.T) {
 	if err := os.WriteFile(path, []byte(dogfoodReportLines), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, offset, err := TailReport(path, 0)
+	_, cursor, err := TailReport(path, ReportCursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestTailReportRestartsFromZeroWhenFileShrinks(t *testing.T) {
 	if err := os.WriteFile(path, []byte("working: recreated\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lines, _, err := TailReport(path, offset)
+	lines, _, err := TailReport(path, cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestTailReportAfterInPlaceRewrite(t *testing.T) {
 			if err := os.WriteFile(path, []byte(c.consumed), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			_, offset, err := TailReport(path, 0)
+			_, cursor, err := TailReport(path, ReportCursor{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +188,7 @@ func TestTailReportAfterInPlaceRewrite(t *testing.T) {
 			if err := os.WriteFile(path, []byte(c.rewrite), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			lines, offset, err := TailReport(path, offset)
+			lines, cursor, err := TailReport(path, cursor)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -198,11 +198,11 @@ func TestTailReportAfterInPlaceRewrite(t *testing.T) {
 			if lines[0].Malformed || lines[0].State != c.state || lines[0].Note != c.note {
 				t.Fatalf("got %+v, want state %q note %q", lines[0], c.state, c.note)
 			}
-			if offset != int64(len(c.rewrite)) {
-				t.Fatalf("got offset %d, want %d", offset, len(c.rewrite))
+			if cursor.Offset != int64(len(c.rewrite)) {
+				t.Fatalf("got offset %d, want %d", cursor.Offset, len(c.rewrite))
 			}
 
-			lines, _, err = TailReport(path, offset)
+			lines, _, err = TailReport(path, cursor)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -228,12 +228,131 @@ func TestUnacknowledgedTerminalReportAfterInPlaceRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := UnacknowledgedTerminalReport(home, "task-1", int64(len(consumed)))
+	got, err := UnacknowledgedTerminalReport(home, "task-1", reportCursorFor([]byte(consumed)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !got {
 		t.Fatal("got false, want the rewritten done report still unacknowledged")
+	}
+}
+
+// The rewrite that carries no length change at all: reports are one line of
+// house-style prose, so two consecutive ones landing on the same byte count is a
+// matter of time. Every quantity the offset has to offer is identical across such
+// a rewrite - it still sits just past the file's final newline, with nothing after
+// it - so the new report was skipped entirely (atqamz/secondhand#149).
+func TestTailReportAfterSameLengthInPlaceRewrite(t *testing.T) {
+	cases := []struct {
+		name     string
+		consumed string
+		rewrite  string
+		state    string
+		note     string
+	}{
+		{
+			name:     "working over working",
+			consumed: "working: same-length rewrite now reproduced in the tests\n",
+			rewrite:  "working: rebasing onto main to read the code that exists\n",
+			state:    ReportWorking,
+			note:     "rebasing onto main to read the code that exists",
+		},
+		{
+			// The one that costs a completion rather than a wake: skipped here, the
+			// last report state stays `working` and ClassifyDeferredDone never runs.
+			name:     "done over working",
+			consumed: "working: gate green, merge in flight\n",
+			rewrite:  "done: PR 149 merged and issue closed\n",
+			state:    ReportDone,
+			note:     "PR 149 merged and issue closed",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if len(c.consumed) != len(c.rewrite) {
+				t.Fatalf("consumed %d bytes and rewrite %d bytes, want the collision this case exists for", len(c.consumed), len(c.rewrite))
+			}
+			path := filepath.Join(t.TempDir(), "task-1.status")
+			if err := os.WriteFile(path, []byte(c.consumed), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, cursor, err := TailReport(path, ReportCursor{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := os.WriteFile(path, []byte(c.rewrite), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			lines, cursor, err := TailReport(path, cursor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lines) != 1 {
+				t.Fatalf("got %+v, want exactly the rewritten report", lines)
+			}
+			if lines[0].Malformed || lines[0].State != c.state || lines[0].Note != c.note {
+				t.Fatalf("got %+v, want state %q note %q", lines[0], c.state, c.note)
+			}
+
+			lines, _, err = TailReport(path, cursor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lines) != 0 {
+				t.Fatalf("got %+v, want the rewritten report announced once", lines)
+			}
+		})
+	}
+}
+
+// A same-length rewrite is the silent completion reached by its own path: with
+// nothing past the offset, hand status called the finished worker acknowledged
+// too.
+func TestUnacknowledgedTerminalReportAfterSameLengthRewrite(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	consumed := "working: gate green, merge in flight\n"
+	rewrite := "done: PR 149 merged and issue closed\n"
+	if len(consumed) != len(rewrite) {
+		t.Fatalf("consumed %d bytes and rewrite %d bytes, want the collision this test exists for", len(consumed), len(rewrite))
+	}
+	if err := os.WriteFile(ReportPath(home, "task-1"), []byte(rewrite), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := UnacknowledgedTerminalReport(home, "task-1", reportCursorFor([]byte(consumed)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("got false, want the same-length done rewrite still unacknowledged")
+	}
+}
+
+// A cursor from a row written before report_digest existed keeps the guard it was
+// written under: the same-length rewrite is missed exactly as before, and the
+// longer one atqamz/secondhand#140 covers is still caught. The alternative is
+// replaying every consumed line on the tick after an upgrade.
+func TestTailReportFallsBackToTheNewlineBoundaryWithoutADigest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "task-1.status")
+	consumed := "working: same-length rewrite now reproduced in the tests\n"
+	if err := os.WriteFile(path, []byte("working: rebasing onto main to read the code that exists\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lines, cursor, err := TailReport(path, ReportCursor{Offset: int64(len(consumed))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 0 {
+		t.Fatalf("got %+v, want a digestless cursor to keep trusting its offset", lines)
+	}
+	if cursor.Digest == "" {
+		t.Fatal("got no digest, want the cursor upgraded so the next rewrite is caught")
 	}
 }
 
@@ -392,7 +511,7 @@ func TestUnacknowledgedTerminalReport(t *testing.T) {
 				}
 			}
 
-			got, err := UnacknowledgedTerminalReport(home, "task-1", int64(len(c.consumed)))
+			got, err := UnacknowledgedTerminalReport(home, "task-1", reportCursorFor([]byte(c.consumed)))
 			if err != nil {
 				t.Fatal(err)
 			}

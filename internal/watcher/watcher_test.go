@@ -913,6 +913,68 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	}
 }
 
+// A worker's `done:` rewrite that happens to land on the byte count of the
+// `working:` line before it was skipped outright: the offset still sat just past
+// the file's final newline with nothing after it, so nothing was announced,
+// LastReportState stayed `working`, and ClassifyDeferredDone - gated on it - never
+// ran for a worker that had finished (atqamz/secondhand#149). The restart in the
+// middle is the point of doing this at tick level: what makes the rewrite
+// detectable has to survive the process, exactly as the offset does.
+func TestTickAnnouncesADoneRewrittenToTheSameLengthAcrossARestart(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	working := "working: gate green, merge in flight\n"
+	done := "done: PR 149 merged and issue closed\n"
+	if len(working) != len(done) {
+		t.Fatalf("working report is %d bytes and done report %d, want the collision this test exists for", len(working), len(done))
+	}
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(working), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	restarted := make(map[string]*TaskState)
+	buf.Reset()
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(done), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	if !hasEventLine(buf.String(), "reported-done task-1: PR 149 merged and issue closed") {
+		t.Fatalf("out = %q, want the same-length done rewrite announced", buf.String())
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.LastReportState != state.ReportDone {
+		t.Fatalf("LastReportState = %q, want the done rewrite recorded so the deferred verification can fire", task.LastReportState)
+	}
+
+	task.MergeExecuted = true
+	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, restarted, &buf, io.Discard)
+	if !hasEventLine(buf.String(), "done task-1: PR 149 merged and issue closed") {
+		t.Fatalf("out = %q, want ClassifyDeferredDone to announce the verified done once the merge landed", buf.String())
+	}
+}
+
 func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "idle")
@@ -1449,8 +1511,8 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		Blocked:                 true,
 		Stale:                   true,
 		PRMerged:                true,
-		ReportOffset:            42,
-		PersistedOffset:         43,
+		ReportCursor:            state.ReportCursor{Offset: 42, Digest: "consumed-digest"},
+		PersistedCursor:         state.ReportCursor{Offset: 43, Digest: "persisted-digest"},
 		PersistedPRMerged:       true,
 		PersistedDoneVerified:   true,
 		PersistedPaneID:         "scout-pane",
@@ -1475,7 +1537,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	// carried names every field the PR body's field-by-field table classifies as
 	// genuinely pane-independent, so forgetPaneScopedCache is correct to leave it
 	// untouched: identity (CreatedAt), PR facts (PRMerged), report-file position
-	// (ReportOffset/PersistedOffset, PersistedPRMerged mirrors the same PR fact),
+	// (ReportCursor/PersistedCursor, PersistedPRMerged mirrors the same PR fact),
 	// and the parked latch (ParkedFiredFor is keyed to the report mtime, not the
 	// pane, and PersistedParkedFiredFor mirrors that same fact). Anything else
 	// added to TaskState later needs an entry here with a reason, or
@@ -1484,8 +1546,8 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	carried := map[string]bool{
 		"CreatedAt":               true,
 		"PRMerged":                true,
-		"ReportOffset":            true,
-		"PersistedOffset":         true,
+		"ReportCursor":            true,
+		"PersistedCursor":         true,
 		"PersistedPRMerged":       true,
 		"ParkedFiredFor":          true,
 		"PersistedParkedFiredFor": true,
@@ -1582,7 +1644,7 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 		PersistedDoneVerified: true,
 		LastReportState:       state.ReportDone,
 		LastReportNote:        "scout findings",
-		ReportOffset:          42,
+		ReportCursor:          state.ReportCursor{Offset: 42, Digest: "cached-digest"},
 	}
 
 	if err := state.Write(home, state.Task{

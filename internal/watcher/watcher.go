@@ -267,8 +267,8 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 	ts.PersistedChangedFor = t.StatusChangedFor
 	ts.PersistedPaneID = t.Herdr.PaneID
 	ts.CreatedAt = t.CreatedAt
-	ts.ReportOffset = t.ReportOffset
-	ts.PersistedOffset = t.ReportOffset
+	ts.ReportCursor = state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest}
+	ts.PersistedCursor = ts.ReportCursor
 	ts.PRMerged = t.MergeAnnounced
 	ts.PersistedPRMerged = t.MergeAnnounced
 	ts.DoneVerified = t.DoneVerified
@@ -351,7 +351,7 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	ts.LastReportNote = t.LastReportNote
 }
 
-// tailReport classifies whatever report lines have arrived since ts.ReportOffset,
+// tailReport classifies whatever report lines have arrived since ts.ReportCursor,
 // before ClassifyStatus runs for this tick, so a report that lands in the same
 // poll as a herdr idle transition is already reflected in ts.LastReportState when
 // the idle-vs-idle-unreported decision is made. A line carrying exactly one
@@ -359,7 +359,7 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 // enforces; more than one URL, or a PR already on record, is left alone.
 func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) state.Task {
 	path := state.ReportPath(cfg.Home, t.ID)
-	lines, offset, err := state.TailReport(path, ts.ReportOffset)
+	lines, cursor, err := state.TailReport(path, ts.ReportCursor)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: tail report %s failed: %v\n", t.ID, err)
 		return t
@@ -380,7 +380,7 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		}
 	}
 
-	ts.ReportOffset = offset
+	ts.ReportCursor = cursor
 	return t
 }
 
@@ -586,7 +586,7 @@ func recordedByLockHolder(home, id, url string) error {
 // and its own ctx a prompt exit that flock can't honor - must not queue behind it.
 // Everything written here is re-derivable, so a skipped write just retries.
 func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writer) {
-	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged &&
+	if ts.ReportCursor == ts.PersistedCursor && ts.PRMerged == ts.PersistedPRMerged &&
 		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) &&
 		ts.PersistedChangedFor == string(ts.Status) && ts.ParkedFiredFor.Equal(ts.PersistedParkedFiredFor) {
 		return
@@ -611,7 +611,8 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	// this watcher persisted, so no later tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, now)
 
-	t.ReportOffset = ts.ReportOffset
+	t.ReportOffset = ts.ReportCursor.Offset
+	t.ReportDigest = ts.ReportCursor.Digest
 	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
 	t.DoneVerified = t.DoneVerified || ts.DoneVerified
 	t.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
@@ -623,7 +624,7 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
 	}
-	ts.PersistedOffset = ts.ReportOffset
+	ts.PersistedCursor = ts.ReportCursor
 	ts.PersistedPRMerged = ts.PRMerged
 	ts.PersistedDoneVerified = ts.DoneVerified
 	ts.PersistedChangedAt = ts.ChangedAt

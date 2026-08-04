@@ -126,11 +126,11 @@ type TaskState struct {
 	Blocked      bool
 	Stale        bool
 	PRMerged     bool
-	ReportOffset int64
+	ReportCursor state.ReportCursor
 	// The Persisted* fields mirror what the task's durable state already carries,
 	// so a write skipped for lock contention is retried on the next tick instead
 	// of silently lost.
-	PersistedOffset       int64
+	PersistedCursor       state.ReportCursor
 	PersistedPRMerged     bool
 	PersistedDoneVerified bool
 	// PersistedPaneID names the herdr pane every pane-anchored field below was

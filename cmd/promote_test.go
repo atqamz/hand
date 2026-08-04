@@ -150,6 +150,7 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	}
 	scout.DoneVerified = true
 	scout.ReportOffset = 42
+	scout.ReportDigest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 	stale := time.Now().Add(-6 * time.Hour).UTC().Format(time.RFC3339)
 	scout.StatusChangedAt = stale
 	scout.StatusChangedFor = "working"
@@ -176,6 +177,11 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	}
 	if got.ReportOffset != 42 {
 		t.Fatalf("ReportOffset = %d, want the scout's offset carried forward", got.ReportOffset)
+	}
+	// The offset is only trusted together with the digest of what it consumed, so
+	// carrying one without the other discards it and replays the scout's history.
+	if got.ReportDigest != scout.ReportDigest {
+		t.Fatalf("ReportDigest = %q, want the scout's digest carried forward with its offset", got.ReportDigest)
 	}
 	if got.StatusChangedAt == stale {
 		t.Fatal("StatusChangedAt kept the scout's transition, want the ship's dwell reseeded at promotion")

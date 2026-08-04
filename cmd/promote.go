@@ -165,7 +165,7 @@ func newPromoteCmd() *cobra.Command {
 				PaneID:      pane.PaneID,
 			}
 			// Everything below is pane-scoped and so describes a pane this task no longer
-			// has, none of it evidence about the ship. ReportOffset is carried instead:
+			// has, none of it evidence about the ship. The report cursor is carried instead:
 			// promote never touches state/<id>.status, so the report stream is continuous.
 			// Cleared here rather than left for hand watch, which may not be running.
 			t.DoneVerified = false

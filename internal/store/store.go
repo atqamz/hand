@@ -58,8 +58,14 @@ type Task struct {
 	MergeExecuted   bool   `json:"merged"`
 	MergeExecutedAt string `json:"merged_at"`
 	// Durable so a watcher restart resumes exactly where it stopped instead of
-	// replaying every line the previous run already surfaced.
-	ReportOffset int64 `json:"report_offset"`
+	// replaying every line the previous run already surfaced. ReportDigest
+	// fingerprints the bytes ReportOffset has consumed, because the offset alone
+	// cannot tell a report file rewritten in place from one nothing was appended
+	// to when the rewrite kept its length; see state.ReportCursor, which is the
+	// pair these two columns store. Empty on a row written before the column
+	// existed, and on one whose worker has yet to report a line.
+	ReportOffset int64  `json:"report_offset"`
+	ReportDigest string `json:"report_digest"`
 	// A merge hand observed rather than performed. Distinct from MergeExecuted:
 	// a restarted watcher needs to know the announcement went out even when
 	// hand itself never ran the merge.
@@ -186,7 +192,8 @@ CREATE TABLE IF NOT EXISTS task (
 	delivered_at             TEXT NOT NULL DEFAULT '',
 	delivered_reason         TEXT NOT NULL DEFAULT '',
 	pane_started_at          TEXT NOT NULL DEFAULT '',
-	parked_fired_for         TEXT NOT NULL DEFAULT ''
+	parked_fired_for         TEXT NOT NULL DEFAULT '',
+	report_digest            TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
@@ -283,7 +290,7 @@ var taskColumnNames = []string{
 	"created_at", "status_changed_at", "status_changed_for", "last_report_state", "last_report_note",
 	"send_undelivered_message", "send_undelivered_at", "lease_id",
 	"delivered_at", "delivered_reason",
-	"pane_started_at", "parked_fired_for",
+	"pane_started_at", "parked_fired_for", "report_digest",
 }
 
 var (
@@ -311,7 +318,7 @@ func taskValues(t Task) []any {
 		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
 		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID,
 		t.DeliveredAt, t.DeliveredReason,
-		t.PaneStartedAt, t.ParkedFiredFor,
+		t.PaneStartedAt, t.ParkedFiredFor, t.ReportDigest,
 	}
 }
 
@@ -323,7 +330,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
 		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID,
 		&t.DeliveredAt, &t.DeliveredReason,
-		&t.PaneStartedAt, &t.ParkedFiredFor)
+		&t.PaneStartedAt, &t.ParkedFiredFor, &t.ReportDigest)
 	return t, err
 }
 

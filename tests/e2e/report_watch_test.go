@@ -168,3 +168,67 @@ func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 		t.Fatalf("LastReportNote = %q, want %q", task.LastReportNote, notes[len(notes)-1])
 	}
 }
+
+// Reports are one line of house-style prose, so a rewrite landing on exactly the
+// byte count of the report it replaces is a matter of time rather than a contrived
+// input - and it was skipped silently, because an offset at the end of the file
+// with a newline behind it is what "nothing new" looks like too. The `done:`
+// variant is the one that costs a completion: the deferred verification is gated
+// on the last recorded report state, so a skipped done means a scout that finished
+// is never announced as finished (atqamz/secondhand#149).
+func TestWatchDoneRewrittenToTheSameLengthReachesVerifiedDone(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "demo", Kind: state.KindScout,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "working")
+
+	dir := binDir(t)
+	herdrLog := filepath.Join(t.TempDir(), "herdr-invocations.log")
+	writeFakeHerdrWatch(t, dir, statusDir, herdrLog)
+
+	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
+	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
+
+	working := "working: finishing the findings section\n"
+	done := "done: report.md written, findings in it\n"
+	if len(working) != len(done) {
+		t.Fatalf("working report is %d bytes and done report %d, want the collision this test exists for", len(working), len(done))
+	}
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(working), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	watch.waitForStdout(t, "working task-1: finishing the findings section", 5*time.Second)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(done), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	watch.waitForStdout(t, "reported-done task-1: report.md written, findings in it", 5*time.Second)
+
+	// A scout's completion evidence is the deliverable itself, landing after the
+	// done line was consumed - so the verified announcement can only come from the
+	// recorded report state, which is what a skipped rewrite leaves stale.
+	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("# report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The unverified line above ends in this same text, so the leading newline is
+	// what tells "done task-1" apart from "reported-done task-1".
+	watch.waitForStdout(t, "\ndone task-1: report.md written, findings in it", 5*time.Second)
+
+	result := watch.stop(t, 3*time.Second)
+	if result.code != 0 {
+		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
+	}
+}
