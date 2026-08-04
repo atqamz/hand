@@ -37,12 +37,9 @@ func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 // PRSearchTarget names one repo FindPRByBranch searches for a head ref.
 type PRSearchTarget struct {
 	Repo string
-	// HeadRepo, when set, keeps only PRs whose head branch lives in that repo.
-	// A fork project's upstream carries head refs from every contributor's fork,
-	// so a branch name alone can match a stranger's PR there; the fork project
-	// knows which repo its own branch is pushed to. Compared case-insensitively:
-	// gh reports a repo in its canonical casing while this value is derived from
-	// whatever casing the clone's origin remote was written in.
+	// When set, keeps only PRs whose head branch lives in that repo: a fork's upstream carries head
+	// refs from every contributor, so a branch name alone can match a stranger's PR there. Folded,
+	// because gh reports canonical casing while this comes from the clone's origin remote.
 	HeadRepo string
 }
 
@@ -54,13 +51,9 @@ type PRCandidate struct {
 	State  string
 }
 
-// AmbiguousPRError reports that a branch's PRs do not resolve to a usable
-// winner: either no preference tier yields a single match (two merged, two
-// open, ...), or a merged PR coexists with an open one, which refuses by rule
-// even though the merged tier has a lone match. Candidates names every PR on
-// the head ref, whatever its state and whichever searched repo it came from,
-// not just the tier that triggered the refusal. FindPRByBranch returns this
-// instead of guessing; the caller decides.
+// AmbiguousPRError reports that a branch's PRs do not resolve to a usable winner: no preference
+// tier yields a single match, or a merged PR coexists with an open one, which refuses by rule.
+// Candidates names every PR on the head ref, any state and any searched repo, not just that tier.
 type AmbiguousPRError struct {
 	Branch     string
 	Candidates []PRCandidate
@@ -74,35 +67,13 @@ func (e *AmbiguousPRError) Error() string {
 	return fmt.Sprintf("ambiguous PR for branch %s: %s", e.Branch, strings.Join(parts, ", "))
 }
 
-// FindPRByBranch reports the PR across targets whose head ref is exactly branch -
-// the only rule hand uses to associate a PR with a task, never a title, issue
-// number or task id. --state all is required because gh pr list defaults to
-// open only, and a gate-opened PR may already be merged or closed by the time
-// hand looks for it; found is false when no PR has that head ref.
-//
-// More than one target is how a fork project finds its PR: the branch is pushed
-// to the fork while the PR is opened on the declared upstream, so both repos are
-// searched. gh's --head takes the plain branch name even for a cross-repo PR
-// (the qualified owner:branch form matches nothing), so the upstream target
-// carries a HeadRepo to keep a same-named branch from another fork out. Matches
-// from every target resolve through one tier pass, so a PR on the fork and one
-// on the upstream are ambiguous exactly like two in one repo.
-//
-// A branch can carry more than one PR (a closed-unmerged one plus a reopened
-// replacement, say), so results are resolved by preference tier rather than
-// picked arbitrarily: merged, then open, then closed-unmerged. A tier with more
-// than one match is ambiguous, and so is a merged PR coexisting with an open one:
-// an open PR on the same head ref is live evidence the branch may still carry
-// unlanded work, so that mix refuses rather than resolving to the merged PR.
-// Either case returns AmbiguousPRError naming every candidate, rather than
-// guessing (atqamz/secondhand#77) - the same guess that let
-// cmd/teardown.go's landed-work guard trust a merged PR while the branch's
-// real state was closed-unmerged. That rule is only sound on the complete
-// set of PRs for the head ref, so --limit is stated explicitly rather than
-// left on gh pr list's implicit 30: the cap is set far above any realistic
-// count for one branch, so a same-tier duplicate cannot be truncated out of
-// the page and silently resolve as a single winner.
+// FindPRByBranch reports the PR across targets whose head ref is exactly branch - the only rule
+// hand uses to associate a PR with a task, never a title, an issue number or a task id. found is
+// false when no PR carries that head ref.
 func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarget) (url string, merged bool, found bool, err error) {
+	// More than one target is how a fork project finds its PR: the branch is pushed to the fork
+	// while the PR is opened on the declared upstream. Matches from every target resolve through
+	// one tier pass, so a fork PR and an upstream PR are ambiguous exactly like two in one repo.
 	var results []prListItem
 	for _, target := range targets {
 		found, err := listPRsByBranch(ctx, target, branch)
@@ -115,6 +86,9 @@ func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarge
 		return "", false, false, nil
 	}
 
+	// A branch can carry more than one PR - a closed-unmerged one plus a reopened replacement - so
+	// results resolve by preference tier rather than arbitrarily: merged, then open, then
+	// closed-unmerged, and a tier holding more than one match is ambiguous.
 	var mergedPRs, openPRs, closedPRs []prListItem
 	for _, r := range results {
 		switch r.State {
@@ -127,6 +101,9 @@ func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarge
 		}
 	}
 
+	// A merged PR coexisting with an open one refuses too: the open PR is live evidence the branch
+	// may still carry unlanded work. Guessing here is what let cmd/teardown.go's landed-work guard
+	// trust a merged PR while the branch's real state was closed-unmerged (#77).
 	if len(mergedPRs) > 0 && len(openPRs) > 0 {
 		return "", false, false, ambiguousPRError(branch, results)
 	}
@@ -145,6 +122,9 @@ func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarge
 }
 
 func listPRsByBranch(ctx context.Context, target PRSearchTarget, branch string) ([]prListItem, error) {
+	// --state all because gh pr list defaults to open only and a gate-opened PR may already be
+	// merged or closed; --limit stated rather than left on gh's implicit 30, far above any real
+	// count for one branch, so a same-tier duplicate cannot be truncated into a lone winner.
 	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", target.Repo, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state,headRepository")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -156,6 +136,9 @@ func listPRsByBranch(ctx context.Context, target PRSearchTarget, branch string) 
 	if err := json.Unmarshal(out, &results); err != nil {
 		return nil, fmt.Errorf("parse gh pr list output: %w", err)
 	}
+	// gh's --head takes the plain branch name even for a cross-repo PR (the qualified owner:branch
+	// form matches nothing), so the upstream target carries a HeadRepo to keep a same-named branch
+	// from another fork out.
 	kept := make([]prListItem, 0, len(results))
 	for _, r := range results {
 		if target.HeadRepo != "" && !strings.EqualFold(r.HeadRepository.NameWithOwner, target.HeadRepo) {
@@ -175,9 +158,9 @@ func ambiguousPRError(branch string, matches []prListItem) *AmbiguousPRError {
 	return &AmbiguousPRError{Branch: branch, Candidates: candidates}
 }
 
-// prListItem is one entry of `gh pr list --json number,url,state,headRepository`.
-// Repo is the searched repo, not part of gh's payload: a match's own repo has to
-// survive into an AmbiguousPRError naming PRs from two repos at once.
+// One entry of `gh pr list --json number,url,state,headRepository`. Repo is the searched repo, not
+// part of gh's payload: a match's own repo has to survive into an AmbiguousPRError naming PRs from
+// two repos at once.
 type prListItem struct {
 	Number         int    `json:"number"`
 	URL            string `json:"url"`
