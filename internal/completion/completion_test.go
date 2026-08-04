@@ -44,8 +44,8 @@ func TestListMissingStore(t *testing.T) {
 	}
 }
 
-// TestAppendUncapped is the storage half of atqamz/secondhand#61's "uncapped, or
-// capped somewhere other than the display layer" requirement.
+// The storage half of atqamz/secondhand#61's "uncapped, or capped somewhere other
+// than the display layer" requirement.
 func TestAppendUncapped(t *testing.T) {
 	dir := t.TempDir()
 	const n = 25
@@ -64,9 +64,8 @@ func TestAppendUncapped(t *testing.T) {
 	}
 }
 
-// TestListSkipsDamagedLine covers the read semantic a durable store needs: a
-// truncated write leaves one unparseable line, and every good record around it
-// must still be readable.
+// Covers the read semantic a durable store needs: a truncated write leaves one
+// unparseable line, and every good record around it must still be readable.
 func TestListSkipsDamagedLine(t *testing.T) {
 	dir := t.TempDir()
 	first := Record{ID: "before", Project: "nsr", Kind: "ship", Outcome: "merged", Detail: "PR 1", TornDownAt: "2026-08-02T13:00:00Z"}
@@ -105,9 +104,9 @@ func TestListSkipsDamagedLine(t *testing.T) {
 	}
 }
 
-// TestAppendConcurrent is the concurrency guarantee the brief for #61 requires
-// explaining: two Append calls racing must never lose either line, unlike
-// state/events.log's read-modify-write-whole-file pattern.
+// The concurrency guarantee the brief for #61 requires explaining: two Append calls
+// racing must never lose either line, unlike state/events.log's read-modify-write
+// pattern over the whole file.
 func TestAppendConcurrent(t *testing.T) {
 	dir := t.TempDir()
 	const n = 50

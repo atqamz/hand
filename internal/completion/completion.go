@@ -28,15 +28,9 @@ func Path(homeDir string) string {
 	return filepath.Join(state.Dir(homeDir), "completions.jsonl")
 }
 
-// Append adds r as the store's newest line. Concurrent Append calls, including
-// from other hand processes, stay intact because of what this deliberately does
-// not do: state/events.log's appendEventLog reads the whole file, adds a line,
-// and atomically replaces it, so two writers racing that read-modify-write can
-// each read the same old content and one's line clobbers the other's on
-// rename. Append instead takes the same named-lock primitive hand's other
-// command sequences use, serializing against any other Append, and writes one complete
-// line with a single O_APPEND syscall - no read, no rename, nothing for a
-// second writer to race.
+// Append adds r as the store's newest line. Concurrent calls, including from other
+// hand processes, stay intact by avoiding events.log's read-modify-write-rename race:
+// a named lock plus one O_APPEND write leaves a second writer nothing to clobber.
 func Append(homeDir string, r Record) error {
 	release, err := state.Lock(homeDir, "completions")
 	if err != nil {
@@ -59,24 +53,18 @@ func Append(homeDir string, r Record) error {
 		_ = f.Close()
 		return fmt.Errorf("append completion record %q: %w", r.ID, err)
 	}
-	// Not deferred and not discarded: a filesystem that reports a write fault
-	// only at close (NFS, delayed-allocation ENOSPC) makes Close the sole signal
-	// that the record reached disk, and teardown removes the task's row on the
-	// strength of this call returning nil.
+	// Not deferred and not discarded: a filesystem that reports a write fault only
+	// at close (NFS, delayed-allocation ENOSPC) makes Close the sole signal the record
+	// reached disk, and teardown removes the task's row on this returning nil.
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close completions store: %w", err)
 	}
 	return nil
 }
 
-// List returns every record in the store, oldest first. Returns nil if the
-// store doesn't exist yet.
-//
-// A line that does not parse is skipped rather than failing the read. A
-// truncated write (a short write on ENOSPC leaves a partial line that the next
-// O_APPEND write glues a complete object onto) damages one line, and a store
-// whose purpose is surviving loss must not let that one line hide every good
-// record written before it.
+// List returns every record, oldest first, and nil if the store doesn't exist yet. A
+// line that does not parse is skipped: a short write leaves a partial line the next
+// O_APPEND glues onto, and one damaged line must not hide the good records before it.
 func List(homeDir string) ([]Record, error) {
 	f, err := os.Open(Path(homeDir))
 	if os.IsNotExist(err) {
