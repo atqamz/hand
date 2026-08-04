@@ -93,11 +93,9 @@ func readLegacyTask(path, id string) (Task, error) {
 	if t.ID != id {
 		return Task{}, fmt.Errorf("legacy task state %s has mismatched ID %q (move it aside to continue)", path, t.ID)
 	}
-	// A file predating the pane-start column carries no such key, and the import
-	// lands as an INSERT the schema migration's backfill never sees. Same CASE as
-	// that backfill, so a task promoted before either existed still gets its own
-	// pane's start rather than its scout's creation instant, which would be the
-	// false `parked` of atqamz/secondhand#128.
+	// A file predating the pane-start column carries no such key, so the import lands as an
+	// INSERT the backfill never sees. Same CASE as that backfill, so a task promoted before
+	// either existed gets its own pane's start, not atqamz/secondhand#128's false one.
 	if t.PaneStartedAt == "" {
 		t.PaneStartedAt = t.StatusChangedAt
 		if t.PaneStartedAt == "" {

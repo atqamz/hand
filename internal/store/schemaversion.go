@@ -10,12 +10,9 @@ import (
 // apart from every other reason Open can fail.
 var ErrSchemaNewer = errors.New("schema version newer than this build of hand supports")
 
-// migrations lists every schema change since the version-0 baseline the
-// `schema` constant in store.go builds, applied in commit order to a database
-// that already exists. A database that predates this mechanism reads PRAGMA
-// user_version as 0 by sqlite's own default, and that has to mean "the schema
-// this commit ships", not "unknown, refuse to proceed" - otherwise the one
-// fleet home that exists stops opening the moment this merges.
+// Every schema change since the version-0 baseline `schema` builds, applied in commit order
+// to a database that already exists. Version 0 is sqlite's own default, so it has to mean
+// "the schema this commit ships" or the one fleet home that exists stops opening.
 var migrations = []string{
 	`ALTER TABLE task ADD COLUMN send_undelivered_message TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN send_undelivered_at TEXT NOT NULL DEFAULT '';`,
@@ -23,18 +20,15 @@ var migrations = []string{
 	`ALTER TABLE project ADD COLUMN upstream TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE task ADD COLUMN delivered_at TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN delivered_reason TEXT NOT NULL DEFAULT '';`,
-	// The backfill freezes each existing row's pane start at the value the
-	// pre-migration floor was already computing for it. Backfilling from
-	// created_at instead would hand a task promoted before this migration its
-	// scout's creation instant, which is the false `parked` this floor exists to
-	// prevent; the stamp only ever overstates the floor, which delays a true one.
+	// The backfill freezes each row's pane start at what the pre-migration floor already
+	// computed for it. created_at would hand a task promoted earlier its scout's creation
+	// instant - the false `parked` this floor prevents; overstating only delays a true one.
 	`ALTER TABLE task ADD COLUMN pane_started_at TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN parked_fired_for TEXT NOT NULL DEFAULT '';
 	UPDATE task SET pane_started_at = CASE WHEN status_changed_at <> '' THEN status_changed_at ELSE created_at END;`,
-	// No backfill: the digest of an existing row's consumed prefix cannot be
-	// recovered from a report file that may already have been rewritten, and an
-	// empty one is what the reader falls back to the newline boundary for. The
-	// first tick that consumes a line records it.
+	// No backfill: the digest of an existing row's consumed prefix cannot be recovered from a report
+	// file that may already have been rewritten, and an empty one is what the reader falls back to the
+	// newline boundary for. The first tick that consumes a line records it.
 	`ALTER TABLE task ADD COLUMN report_digest TEXT NOT NULL DEFAULT '';`,
 	// No backfill: an empty retry stamp is exactly "this task is not limited", which
 	// is the honest reading of every row written before hand could detect a limit.
@@ -58,21 +52,9 @@ func schemaVersionError(current, latest int) error {
 		current, latest, ErrSchemaNewer)
 }
 
-// migrateSchema is the first statement Open runs against the database: a
-// version newer than this binary knows is refused before the baseline
-// `schema` even executes, so an old hand never guesses at a layout it does
-// not understand. Bringing an old database up to date takes a lock because
-// sqlite's per-statement locking cannot make "add this column, then bump
-// user_version" atomic across a whole open - without it, two hand processes
-// racing to migrate the same freshly-upgraded home would have the loser see
-// "duplicate column name" instead of a clean, idempotent no-op.
-//
-// A database with no tables yet is built by `schema` and stamped straight to
-// the latest version, migrations skipped: `schema` is the current layout,
-// every column a registered migration adds included, so replaying that list
-// on top of it would fail with "duplicate column name" on every fresh home
-// while the already-migrated ones kept working - the test-passes,
-// production-fails asymmetry this whole mechanism exists to remove.
+// The first statement Open runs against the database: a version newer than this binary
+// knows is refused before the baseline `schema` even executes, so an old hand never
+// guesses at a layout it does not understand.
 func (db *DB) migrateSchema() error {
 	current, err := db.schemaVersion()
 	if err != nil {
@@ -83,6 +65,9 @@ func (db *DB) migrateSchema() error {
 		return err
 	}
 	if current < latest {
+		// sqlite's per-statement locking cannot make "add this column, then bump
+		// user_version" atomic across a whole open. Without the lock, two processes racing
+		// to migrate the same home leave the loser a "duplicate column name" error.
 		unlock, err := Lock(db.home, SchemaLock, false)
 		if err != nil {
 			return fmt.Errorf("lock schema migration: %w", err)
@@ -108,6 +93,9 @@ func (db *DB) migrateSchema() error {
 	if err := db.createSchema(isNew, latest); err != nil {
 		return err
 	}
+	// `schema` is the current layout, every column a registered migration adds included, so
+	// replaying the list over a fresh home fails with "duplicate column name" while the
+	// already-migrated homes keep working - a test-passes, production-fails asymmetry.
 	if isNew {
 		return nil
 	}
@@ -119,11 +107,9 @@ func (db *DB) migrateSchema() error {
 	return nil
 }
 
-// One transaction, because a new database's tables and the version stamp that
-// says migrations are already folded into them have to land together: a crash
-// between the two would leave the migrated columns present at version 0, and
-// every later open replaying those migrations against them - a freshly
-// initialized home no operator step short of a hand-written PRAGMA reopens.
+// One transaction, because a new database's tables and the version stamp saying migrations
+// are already folded into them have to land together: a crash between the two strands the
+// home at version 0 with migrated columns, replaying them forever short of a raw PRAGMA.
 func (db *DB) createSchema(isNew bool, latest int) error {
 	tx, err := db.sql.Begin()
 	if err != nil {

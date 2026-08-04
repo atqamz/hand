@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// dogfoodReportLines is the literal content of a real report file captured
-// from a production dogfood run (/home/atqa/handlab/state/release-dispatch.status):
-// a worker that reported working/needs-decision/done the whole time while hand
-// never read a single line of it. Used verbatim here instead of invented
-// examples so the parser is proven against real data.
+// Literal content of a report file captured from a dogfood run
+// (/home/atqa/handlab/state/release-dispatch.status), where a worker reported the whole
+// time and hand read nothing. Verbatim, not invented, so the parser meets real data.
 const dogfoodReportLines = `working: workflow_dispatch added to release.yaml, invoking no-mistakes
 needs-decision: review gate on PR for #20 raised 2 ask-user findings - (1) concurrency group release-${{ github.ref }} does not serialize manual dispatch against push-triggered runs on main, risking concurrent release-please runs; (2) dispatch replays same release-please step that already no-op'd on issue #20, may not unblock the conflicted PR without also deleting/recreating the release branch. Run parked at review gate, run id 01KYEVGV26MD8X08MZY2VXXCSR on branch 20-release-workflow-dispatch.
 done: PR https://github.com/atqamz/secondhand/pull/31 checks green
@@ -138,11 +136,9 @@ func TestTailReportRestartsFromZeroWhenFileShrinks(t *testing.T) {
 	}
 }
 
-// Three reports captured off this fleet's live report files, each rewritten in
-// place over a shorter earlier report the watcher had already consumed. Every one
-// of them was announced as "malformed report" with a mid-word fragment of itself
-// as the event text (atqamz/secondhand#140), because the consumed offset survived
-// the rewrite and landed inside the longer new line.
+// Three reports captured off this fleet's live report files, each rewritten in place over a
+// shorter consumed one. All were announced as "malformed report" with a mid-word fragment of
+// themselves (atqamz/secondhand#140): the consumed offset survived the rewrite, mid-line.
 func TestTailReportAfterInPlaceRewrite(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -237,11 +233,9 @@ func TestUnacknowledgedTerminalReportAfterInPlaceRewrite(t *testing.T) {
 	}
 }
 
-// The rewrite that carries no length change at all: reports are one line of
-// house-style prose, so two consecutive ones landing on the same byte count is a
-// matter of time. Every quantity the offset has to offer is identical across such
-// a rewrite - it still sits just past the file's final newline, with nothing after
-// it - so the new report was skipped entirely (atqamz/secondhand#149).
+// The rewrite that carries no length change at all: reports are one line of house-style prose, so two
+// consecutive ones landing on the same byte count is a matter of time, and every quantity the offset
+// has to offer is identical across it - so the new report was skipped entirely (atqamz/secondhand#149).
 func TestTailReportAfterSameLengthInPlaceRewrite(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -333,10 +327,9 @@ func TestUnacknowledgedTerminalReportAfterSameLengthRewrite(t *testing.T) {
 	}
 }
 
-// A cursor from a row written before report_digest existed keeps the guard it was
-// written under: the same-length rewrite is missed exactly as before, and the
-// longer one atqamz/secondhand#140 covers is still caught. The alternative is
-// replaying every consumed line on the tick after an upgrade.
+// A cursor from a row written before report_digest existed keeps the guard it was written under: the
+// same-length rewrite is missed exactly as before, and the longer one atqamz/secondhand#140 covers is
+// still caught. The alternative is replaying every consumed line on the tick after an upgrade.
 func TestTailReportFallsBackToTheNewlineBoundaryWithoutADigest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "task-1.status")
 	consumed := "working: same-length rewrite now reproduced in the tests\n"

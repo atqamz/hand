@@ -9,16 +9,9 @@ import (
 	"time"
 )
 
-// writeFakeHerdr fakes herdr with the caller's own script body, so each test
-// below picks the response shape it needs. Real herdr answers a query command
-// with a JSON envelope carrying a non-null result object on stdout, answers a
-// void command with empty stdout, and reports failure as an envelope error
-// object that may come with any exit status - which is why call/callVoid
-// (client.go) let an error envelope win whenever one is present and fall back
-// to the exit status only when stdout is empty or the envelope parsed clean
-// (env.Error == nil). The tests here fake each of those shapes verbatim,
-// including both error-envelope-with-exit-1 and error-envelope-with-exit-0;
-// other packages' herdr fakes cite this file rather than re-deriving them.
+// Fakes herdr with the caller's own script body, so each test picks the response shape it needs.
+// Every real shape is reproduced verbatim - a query's non-null result envelope, a void command's
+// empty stdout, an error envelope at exit 1 and at exit 0 - and other packages cite these.
 func writeFakeHerdr(t *testing.T, script string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -65,10 +58,9 @@ func TestFindWorkspaceByLabelNotFound(t *testing.T) {
 	}
 }
 
-// TestWorkspaceCreateParsesRootTabAndPane pins the fix for the orphan-tab bug: herdr always
-// creates a root tab and pane at cwd as a side effect of creating a workspace, so
-// WorkspaceCreate must parse and return them rather than discarding them - a caller that then
-// creates a second tab for its task leaves the root tab behind as an unowned live shell.
+// Pins the fix for the orphan-tab bug: herdr creates a root tab and pane at cwd as a side effect
+// of creating a workspace, so WorkspaceCreate must return them rather than discard them - a caller
+// that then creates its own tab leaves the root tab behind as an unowned live shell.
 func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj","tab_count":1},"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'`)
 	c := NewClient()
@@ -87,11 +79,9 @@ func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
 	}
 }
 
-// TestWorkspaceCreateSanitizesInheritedHarnessMarkers pins the fix for atqamz/secondhand#109: a
-// pane is a child of the herdr server, so it otherwise inherits any CLAUDE_CODE_CHILD_SESSION,
-// CLAUDE_CODE_SESSION_ID, or CLAUDECODE the server itself was started under, silently disabling
-// the worker's transcript. WorkspaceCreate must blank all three on every pane it creates,
-// regardless of whether the server actually carries them.
+// Pins the fix for atqamz/secondhand#109: a pane is a child of the herdr server, so it otherwise
+// inherits any CLAUDE_CODE_CHILD_SESSION, CLAUDE_CODE_SESSION_ID, or CLAUDECODE the server was
+// started under, silently killing the worker's transcript. All three are blanked either way.
 func TestWorkspaceCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
 	writeFakeHerdr(t, `
 echo "$@" >> "$HERDR_CALL_LOG"
@@ -124,11 +114,9 @@ func TestWorkspaceCreateRejectsMissingRootTabOrPane(t *testing.T) {
 	}
 }
 
-// TestWorkspaceCreateClosesWorkspaceOnPartialResponse pins the fix for atqamz/secondhand#74: a
-// workspace_created result missing tab or root_pane still means herdr already created the
-// workspace (reachable against a herdr whose protocol predates those fields), so WorkspaceCreate
-// must close it itself before the parse error reaches the caller - nothing downstream ever learns
-// the workspace ID otherwise.
+// Pins the fix for atqamz/secondhand#74: a workspace_created result missing tab or root_pane still
+// means herdr created the workspace (a protocol predating those fields), so WorkspaceCreate closes
+// it before the parse error reaches the caller - nothing downstream learns the ID.
 func TestWorkspaceCreateClosesWorkspaceOnPartialResponse(t *testing.T) {
 	writeFakeHerdr(t, `
 echo "$@" >> "$HERDR_CALL_LOG"
@@ -166,9 +154,9 @@ esac
 	}
 }
 
-// TestWorkspaceCreateClosesWorkspaceOnMalformedResponse covers the sibling of the partial-response
-// path: encoding/json keeps decoding past its first type error, so a response that types a field
-// wrongly still yields a workspace ID herdr has already created and this call must still close.
+// Covers the sibling of the partial-response path: encoding/json keeps decoding past its first
+// type error, so a response that types a field wrongly still yields a workspace ID herdr has
+// already created and this call must still close.
 func TestWorkspaceCreateClosesWorkspaceOnMalformedResponse(t *testing.T) {
 	writeFakeHerdr(t, `
 echo "$@" >> "$HERDR_CALL_LOG"
@@ -317,9 +305,9 @@ func TestTabCreateParsesTabAndRootPane(t *testing.T) {
 	}
 }
 
-// TestTabCreateSanitizesInheritedHarnessMarkers is TabCreate's half of
-// TestWorkspaceCreateSanitizesInheritedHarnessMarkers: a task landing in an already-existing
-// workspace creates its own tab via TabCreate instead, and that path must be sanitized too.
+// TabCreate's half of TestWorkspaceCreateSanitizesInheritedHarnessMarkers: a task landing in an
+// already-existing workspace creates its own tab via TabCreate instead, and that path must be
+// sanitized too.
 func TestTabCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
 	writeFakeHerdr(t, `
 echo "$@" >> "$HERDR_CALL_LOG"
@@ -344,11 +332,9 @@ printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"ro
 	}
 }
 
-// TestTabCreateClosesTabOnPartialResponse pins the fix for atqamz/secondhand#119: a tab-create
-// result missing root_pane still means herdr already created the tab (reachable against a herdr
-// whose protocol predates that field, same as atqamz/secondhand#74's WorkspaceCreate case), so
-// TabCreate must close it itself before the parse error reaches the caller - nothing downstream
-// ever learns the tab ID otherwise.
+// Pins the fix for atqamz/secondhand#119: a tab-create result missing root_pane still means herdr
+// created the tab (same as atqamz/secondhand#74's WorkspaceCreate case), so TabCreate closes it
+// before the parse error reaches the caller - nothing downstream learns the tab ID.
 func TestTabCreateClosesTabOnPartialResponse(t *testing.T) {
 	writeFakeHerdr(t, `
 echo "$@" >> "$HERDR_CALL_LOG"
@@ -386,9 +372,9 @@ esac
 	}
 }
 
-// TestTabCreateClosesTabOnMalformedResponse covers the sibling of the partial-response path:
-// encoding/json keeps decoding past its first type error, so a response that types a field wrongly
-// still yields a tab ID herdr has already created and this call must still close it.
+// Covers the sibling of the partial-response path: encoding/json keeps decoding past its first
+// type error, so a response that types a field wrongly still yields a tab ID herdr has already
+// created and this call must still close it.
 func TestTabCreateClosesTabOnMalformedResponse(t *testing.T) {
 	writeFakeHerdr(t, `
 echo "$@" >> "$HERDR_CALL_LOG"
@@ -479,9 +465,8 @@ func TestTabListParsesResult(t *testing.T) {
 	}
 }
 
-// TestPaneReadReadsRecentScrollback pins --source recent: a 23-row unattached pane clips the option
-// and footer lines that identify a first-run dialog, and a dialog that matches nothing is confirmed
-// as a started worker.
+// Pins --source recent: a 23-row unattached pane clips the option and footer lines that identify a
+// first-run dialog, and a dialog that matches nothing is confirmed as a started worker.
 func TestPaneReadReadsRecentScrollback(t *testing.T) {
 	writeFakeHerdr(t, `case "$*" in
 *"--source recent"*) printf 'Welcome to Claude Code\n' ;;
@@ -497,9 +482,8 @@ esac`)
 	}
 }
 
-// TestPaneReadRejectsErrorBodyOnExitZero pins that the bare {code,message} failure body is
-// honored even when herdr exits 0: read as pane text it would look like a dialog-free pane and
-// confirm a worker no one ever observed.
+// Pins that the bare {code,message} failure body is honored even when herdr exits 0: read as pane
+// text it would look like a dialog-free pane and confirm a worker no one ever observed.
 func TestPaneReadRejectsErrorBodyOnExitZero(t *testing.T) {
 	writeFakeHerdr(t, `printf '{"code":"pane_not_found","message":"no such pane"}'; exit 0`)
 	c := NewClient()

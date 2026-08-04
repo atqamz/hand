@@ -42,11 +42,9 @@ func decodeJSON(t *testing.T, got invocation, into any) {
 	}
 }
 
-// TestHoldLifecycle drives holds end to end through the built binary: set on a
-// live task and on an id with no task row at all, rendered by every hand status
-// surface, surviving the teardown of the task it was set on (the case a
-// task-scoped hold could not cover), refusing the spawn that would reuse the
-// id, and leaving nothing behind once cleared.
+// Drives holds end to end through the built binary: set on a live task and on an id with no task row at
+// all, rendered by every hand status surface, surviving the teardown of the task it was set on (the case a
+// task-scoped hold could not cover), refusing the spawn that would reuse the id, cleared without a trace.
 func TestHoldLifecycle(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")

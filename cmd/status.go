@@ -58,13 +58,9 @@ func newStatusCmd() *cobra.Command {
 	return cmd
 }
 
-// reportSummaryBudget bounds the rendered length of one report line (state
-// prefix plus note) in the human-readable single-task view, in runes so a
-// multi-byte character never lands half-cut. A worker's status prose has run
-// 2.7-4.3 KB for a single task; this keeps a normal terse report (which is
-// what the vocabulary in CLAUDE.md/AGENTS.md asks for) untouched while
-// bounding the pathological case. --json and --full both bypass it, since a
-// machine consumer needs the whole field and --full is the explicit opt-out.
+// Bounds the rendered length of one report line (state prefix plus note) in the human-readable
+// single-task view, in runes so a multi-byte character never lands half-cut. A worker's status prose has
+// run 2.7-4.3 KB for a single task, and the terse report AGENTS.md asks for fits well inside this.
 const reportSummaryBudget = 200
 
 // The state-vocabulary prefix ("done: ", "blocked: ", ...) is never part of
@@ -78,9 +74,9 @@ func truncateReportLine(line state.ReportLine, budget int, id string) string {
 	return axi.Truncate(reportLineText(line), max(budget, prefixLen), "hand status "+id+" --full")
 }
 
-// reportSummary renders the last report line the way both status views show
-// it: an unreadable channel named as such, and the unacknowledged clause on the
-// classified line the fleet view flags rather than on trailing free text.
+// Renders the last report line the way both status views show it: an unreadable channel named as such,
+// and the unacknowledged clause on the classified line the fleet view flags rather than on trailing free
+// text.
 func reportSummary(id string, lines []state.ReportLine, readErr error, unacked, full bool) string {
 	if readErr != nil {
 		return fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
@@ -95,14 +91,16 @@ func reportSummary(id string, lines []state.ReportLine, readErr error, unacked, 
 			line, suffix = classified, " (unacknowledged)"
 		}
 	}
+	// --full is the explicit opt-out from reportSummaryBudget, and --json bypasses it as well: a machine
+	// consumer needs the whole field.
 	if full {
 		return reportLineText(line) + suffix
 	}
 	return truncateReportLine(line, reportSummaryBudget, id) + suffix
 }
 
-// paneAgentStatus degrades gracefully to "unknown" when herdr is unreachable or the
-// pane can't be queried, per SPECS.md's fail-open policy for read operations.
+// Degrades gracefully to "unknown" when herdr is unreachable or the pane cannot be queried, per
+// SPECS.md's fail-open policy for read operations.
 func paneAgentStatus(client *herdr.Client, paneID string) string {
 	if paneID == "" {
 		return string(herdr.StatusUnknown)
@@ -114,9 +112,8 @@ func paneAgentStatus(client *herdr.Client, paneID string) string {
 	return string(pane.AgentStatus)
 }
 
-// reportedJSON mirrors one classified line from state.ReportLine for JSON
-// output; Malformed lines carry their raw text in Note with State left empty,
-// and an unreadable report file carries the read error in Note under the
+// Mirrors one classified line from state.ReportLine for JSON output: malformed lines carry their raw text
+// in Note with State left empty, and an unreadable report file carries the read error in Note under the
 // reportUnreadable state.
 type reportedJSON struct {
 	State string `json:"state"`
@@ -147,20 +144,18 @@ type statusJSON struct {
 	Unacknowledged bool `json:"unacknowledged,omitempty"`
 }
 
-// fleetJSON wraps the task rows with the fleet's holds, which name any id -
-// not only a live task - so a torn-down task's still-open hold keeps
-// surfacing here after its task row is gone. TaskCount is always present,
-// zero included, so an empty fleet is a positive statement ("no tasks") and
-// not the same absence of output a broken command would also produce.
+// Wraps the task rows with the fleet's holds, which name any id - not only a live task - so a torn-down
+// task's still-open hold keeps surfacing here after its task row is gone.
 type fleetJSON struct {
+	// Always present, zero included, so an empty fleet is a positive statement ("no tasks") and not the
+	// same absence of output a broken command would also produce.
 	TaskCount int          `json:"task_count"`
 	Tasks     []statusJSON `json:"tasks"`
 	Holds     []holdJSON   `json:"holds"`
 }
 
-// holdJSON mirrors state.Hold, plus Inconsistent, which is set instead of the
-// row being dropped when a value can't be trusted at face value - see
-// holdInconsistency.
+// Mirrors state.Hold, plus Inconsistent, which is set instead of the row being dropped when a value
+// cannot be trusted at face value - see holdInconsistency.
 type holdJSON struct {
 	ID           string `json:"id"`
 	Kind         string `json:"kind"`
@@ -170,15 +165,12 @@ type holdJSON struct {
 	Inconsistent string `json:"inconsistent,omitempty"`
 }
 
-// holdInconsistency names why a hold row can't be trusted at face value, so
-// that ListHolds surfacing every row (rather than filtering) turns into a
-// visible flag instead of a silently wrong render: an unrecognized kind, a
-// blocked hold with nothing to point at, or an operator or limit hold carrying
-// a blocked_on nothing set. Nothing in this codebase writes such a row today -
-// hand hold set validates first, and hand watch's limit holds set no
-// blocked_on at all - so seeing one here means something outside hand touched
-// state/hand.db directly.
+// Names why a hold row cannot be trusted at face value, so that ListHolds surfacing every row (rather
+// than filtering) turns into a visible flag instead of a silently wrong render.
 func holdInconsistency(h state.Hold) string {
+	// An unrecognized kind, a blocked hold with nothing to point at, or an operator or limit hold carrying
+	// a blocked_on nothing set. Nothing here writes such a row today - hand hold set validates first, and
+	// limit holds set no blocked_on - so one means something outside hand touched state/hand.db directly.
 	switch h.Kind {
 	case state.HoldKindOperator:
 		if h.BlockedOn != "" {
@@ -207,9 +199,8 @@ func holdToJSON(h state.Hold) holdJSON {
 	}
 }
 
-// holdDetail renders a hold's non-identifying fields for the plain-text held
-// block. An inconsistency takes over the whole line: a garbled blocked-on or
-// reason next to it would read as a valid detail rather than as the flag it is.
+// Renders a hold's non-identifying fields for the plain-text held block. An inconsistency takes over the
+// whole line: a garbled blocked-on or reason next to it would read as a valid detail rather than a flag.
 func holdDetail(h state.Hold) string {
 	if inc := holdInconsistency(h); inc != "" {
 		return "inconsistent: " + inc
@@ -220,21 +211,19 @@ func holdDetail(h state.Hold) string {
 	return h.Reason
 }
 
-// gateRunApplies is the single predicate for whether the gate-run check has anything to say about a
-// task: only a done ship task with a recorded PR does. Everything the check needs - the project
-// lookup above all, whose failure the single-task view propagates - hangs off this, so a task the
-// check would stay silent on never pays that cost nor fails over it.
+// The single predicate for whether the gate-run check has anything to say about a task: only a done ship
+// task with a recorded PR does. Everything the check needs - the project lookup above all, whose failure
+// the single-task view propagates - hangs off this, so a silent task never pays that cost nor fails over it.
 func gateRunApplies(t state.Task, reportedDone bool) bool {
 	return t.Kind == state.KindShip && t.PR != "" && reportedDone
 }
 
-// gateRunReader answers "which PRs did completed no-mistakes runs record" for one clone path.
+// Answers "which PRs did completed no-mistakes runs record" for one clone path.
 type gateRunReader func(clonePath string) (map[string]bool, error)
 
-// newGateRunReader caches each clone path's answer for the life of one render, so a fleet with
-// several done ship tasks on the same project spawns one no-mistakes process for it, not one per
-// task. Failures are cached too: a clone that could not be asked once is not worth re-asking within
-// the same render.
+// Caches each clone path's answer for the life of one render, so a fleet with several done ship tasks on
+// the same project spawns one no-mistakes process for it, not one per task. Failures are cached too: a
+// clone that could not be asked once is not worth re-asking within the same render.
 func newGateRunReader() gateRunReader {
 	type answer struct {
 		prs map[string]bool
@@ -251,23 +240,21 @@ func newGateRunReader() gateRunReader {
 	}
 }
 
-// gateRunIssue reports why a done ship task's recorded PR cannot be confirmed to have gone through a
-// no-mistakes gate run, using the same "unreachable" bucket gateIssue (cmd/project.go) uses for any
-// failure to ask no-mistakes at all - a missing clone, an unrunnable binary, a gate never
-// initialized - so a question this check cannot answer never renders as the stronger claim "no run
-// found".
-//
-// A project not registered or not run through no-mistakes stays silent alongside every task
-// gateRunApplies rejects, since the check does not apply to it either.
+// Reports why a done ship task's recorded PR cannot be confirmed to have gone through a no-mistakes gate
+// run, using the same "unreachable" bucket gateIssue (cmd/project.go) uses for any failure to ask
+// no-mistakes at all, so a question this check cannot answer never renders as "no run found".
 func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Project, registered bool, runPRs gateRunReader) string {
 	if !gateRunApplies(t, reportedDone) {
 		return ""
 	}
+	// A project not registered or not run through no-mistakes stays silent alongside every task
+	// gateRunApplies rejects, since the check does not apply to it either.
 	if !registered || p.Mode != project.ModeNoMistakes {
 		return ""
 	}
 	prs, err := runPRs(filepath.Join(home, "projects", p.Name))
 	if err != nil {
+		// A missing clone, an unrunnable binary, or a gate never initialized all land in this bucket.
 		return "unreachable"
 	}
 	if !prs[t.PR] {
@@ -301,8 +288,8 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	return doc.Render(cmd.OutOrStdout())
 }
 
-// appendFleet writes the fleet blocks onto doc rather than a writer, so the
-// bare command can put its identity fields above the same overview.
+// Writes the fleet blocks onto doc rather than a writer, so the bare command can put its identity fields
+// above the same overview.
 func appendFleet(doc *axi.Doc, views []taskView, holds []state.Hold, cols []axi.Column[taskView]) {
 	attention := 0
 	for _, v := range views {
@@ -331,13 +318,12 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client) ([]taskVi
 		return nil, nil, err
 	}
 
-	// Best-effort, like project.List elsewhere in this fleet view: a registry
-	// read fault degrades every task's gate-run check to silent rather than
-	// failing the whole fleet overview over it. Named on stderr all the same -
-	// silently dropping every (gate: ...) marker fleet-wide would render an
-	// ungated PR as clean, the false all-clear this feature exists to avoid.
+	// Best-effort, like project.List elsewhere in this fleet view: a registry read fault degrades every
+	// task's gate-run check to silent rather than failing the whole fleet overview over it.
 	projects, projectsErr := project.List(home)
 	if projectsErr != nil {
+		// Named on stderr all the same - silently dropping every (gate: ...) marker fleet-wide would render
+		// an ungated PR as clean, the false all-clear this feature exists to avoid.
 		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project registry unreadable, gate-run checks skipped: %v\n", projectsErr); err != nil {
 			return nil, nil, err
 		}
@@ -387,30 +373,25 @@ func lastReportAt(home, id string) string {
 // never reported.
 const reportUnreadable = "unreadable"
 
-// unacknowledged asks state whether this task's terminal report reached a
-// watcher, folding a read that fails into the caller's own report-read error: the
-// file was readable a moment ago and is not now, which is what that error already
-// says, and swallowing it would render an unread completion as an acknowledged
-// one.
-//
-// It takes the state the caller already derived and answers false for anything
-// but a terminal one, so the flag can only ever qualify the state this row
-// prints. Reading the file a second time is a second snapshot, and a worker
-// appending between the two would otherwise put "unacknowledged" next to a
-// "working" this command reported in the same breath.
+// Asks state whether this task's terminal report reached a watcher. It takes the state the caller already
+// derived rather than reading the file a second time: a second snapshot with a worker appending between
+// the two would put "unacknowledged" next to a "working" this command reported in the same breath.
 func unacknowledged(home string, t state.Task, reported state.ReportLine, reportedOK bool, readErr error) (bool, error) {
+	// A read that fails folds into the caller's own report-read error: the file was readable a moment ago
+	// and is not now, which is what that error already says, and swallowing it would render an unread
+	// completion as an acknowledged one.
 	if readErr != nil {
 		return false, readErr
 	}
+	// False for anything but a terminal state, so the flag can only ever qualify the state this row prints.
 	if !reportedOK || !state.TerminalReport(reported.State) {
 		return false, nil
 	}
 	return state.UnacknowledgedTerminalReport(home, t.ID, state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest})
 }
 
-// buildTaskView reads everything both status views derive from one task, and
-// returns the report lines alongside so the detail view's history block and the
-// summary line above it can never come from two different reads of the file.
+// Reads everything both status views derive from one task, and returns the report lines alongside so the
+// detail view's history block and the summary line above it can never come from two reads of the file.
 func buildTaskView(home string, client *herdr.Client, t state.Task, full bool) (taskView, []state.ReportLine) {
 	agentState := paneAgentStatus(client, t.Herdr.PaneID)
 	lines, readErr := state.ReadReportLines(home, t.ID)
@@ -480,14 +461,13 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	}
 	v.hold, v.held = hold, held
 
-	// Looked up only when the check applies, so a registry this id's detail view
-	// does not need can never fail the command. When it does apply the failure is
-	// propagated, not degraded: a single task's own project is the one fact this
-	// check is about, unlike the fleet view's best-effort lookup across every
-	// task's project at once.
+	// Looked up only when the check applies, so a registry this id's detail view does not need can never
+	// fail the command.
 	reportedDone := v.reportedState == state.ReportDone
 	if gateRunApplies(t, reportedDone) {
 		p, registered, err := project.Find(home, t.Project)
+		// Propagated, not degraded: a single task's own project is the one fact this check is about, unlike
+		// the fleet view's best-effort lookup across every task's project at once.
 		if err != nil {
 			return err
 		}
@@ -528,13 +508,11 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	return doc.Render(cmd.OutOrStdout())
 }
 
-// historyBlock is the report tail with the entry the report field already
-// shows dropped - repeating it was the core of atqamz/secondhand#65, doubling
-// the cost of every terminal report. --full keeps the tail whole.
+// The report tail with the entry the report field already shows dropped - repeating it was the core of
+// atqamz/secondhand#65, doubling the cost of every terminal report. --full keeps the tail whole.
 func historyBlock(v taskView, tail []state.ReportLine, full bool) []string {
-	// Which entry the report field shows. Found rather than assumed last: with
-	// the unacknowledged flag applied that line is the classified terminal
-	// report, which the worker may have followed with free text.
+	// Which entry the report field shows. Found rather than assumed last: with the unacknowledged flag
+	// applied that line is the classified terminal report, which the worker may have followed with text.
 	reportedIdx := len(tail) - 1
 	if v.unacked {
 		reportedIdx = -1
@@ -559,9 +537,8 @@ func historyBlock(v taskView, tail []state.ReportLine, full bool) []string {
 	return lines
 }
 
-// detailHelp names the one command this task's current state calls for, so a
-// caller reading the detail view does not have to work out what comes next
-// from the state vocabulary.
+// Names the one command this task's current state calls for, so a caller reading the detail view does not
+// have to work out what comes next from the state vocabulary.
 func detailHelp(v taskView, full bool) []string {
 	var help []string
 	if !full && strings.Contains(v.reportedLine, "(truncated,") {

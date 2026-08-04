@@ -13,8 +13,7 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// writeBriefWith writes a brief whose body the test controls, so a declaration
-// block can be put in front of real prose.
+// Writes a brief whose body the test controls, so a declaration block can be put in front of real prose.
 func writeBriefWith(t *testing.T, home, id, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(home, "data", id), 0o755); err != nil {
@@ -210,9 +209,8 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 	}
 }
 
-// TestSpawnWarnsOnEffortIncapableHarness covers the deliberate middle path for
-// a declared effort no harness flag can carry: the spawn proceeds, the model
-// still applies, and the dropped effort is said out loud on stderr.
+// Covers the deliberate middle path for a declared effort no harness flag can carry: the spawn proceeds,
+// the model still applies, and the dropped effort is said out loud on stderr.
 func TestSpawnWarnsOnEffortIncapableHarness(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")

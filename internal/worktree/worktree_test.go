@@ -162,10 +162,9 @@ func TestCheckCollisionDetectsAConflictOnLeaseIdentity(t *testing.T) {
 	}
 }
 
-// The whole point of keying on identity: teardown returns the worktree before
-// state.Delete, so a failed Delete leaves a row still naming path P while
-// treehouse has already freed P and handed it to the next task under a lease of
-// its own. That is not a collision, and refusing the spawn over it was the bug.
+// Teardown returns the worktree before state.Delete, so a failed Delete leaves a row still naming
+// path P while treehouse has freed P and handed it to the next task under a lease of its own. That
+// is not a collision, and refusing the spawn over it was the bug.
 func TestCheckCollisionAllowsAReusedPathUnderAFreshLease(t *testing.T) {
 	home := t.TempDir()
 	if err := state.Write(home, state.Task{ID: "stale-task", Worktree: "/tmp/wt-shared", LeaseID: "lease-1"}); err != nil {

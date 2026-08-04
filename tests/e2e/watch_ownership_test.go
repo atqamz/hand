@@ -14,11 +14,9 @@ import (
 	"github.com/atqamz/secondhand/internal/watcher"
 )
 
-// TestWatchIsASingletonPerFleetHome drives atqamz/secondhand#73 end to end with
-// real processes, which is the only way to prove the contract that matters: a
-// second watcher is refused rather than added to the fleet's pool of pollers,
-// --takeover replaces a genuinely live incumbent that has to be signaled and
-// reaped, and ownership then belongs to the replacement.
+// Drives atqamz/secondhand#73 end to end with real processes, which is the only way to prove the contract
+// that matters: a second watcher is refused rather than added to the fleet's pool of pollers, and
+// --takeover replaces a genuinely live incumbent that has to be signaled and reaped.
 func TestWatchIsASingletonPerFleetHome(t *testing.T) {
 	home := seedOneTaskHome(t)
 
@@ -42,8 +40,8 @@ func TestWatchIsASingletonPerFleetHome(t *testing.T) {
 	}
 	waitForOwner(t, home, second.cmd.Process.Pid)
 
-	// The replacement is a full owner, not a squatter: it refuses a third watcher
-	// exactly as the incumbent it displaced did.
+	// Ownership then belongs to the replacement, a full owner rather than a squatter: it refuses a third
+	// watcher exactly as the incumbent it displaced did.
 	third := runHand(t, home, "watch", "--poll", "30ms")
 	if third.code != 3 || !strings.Contains(third.stderr, "pid "+strconv.Itoa(second.cmd.Process.Pid)) {
 		t.Fatalf("third watch: exit %d stderr %q, want 3 naming pid %d", third.code, third.stderr, second.cmd.Process.Pid)
@@ -51,19 +49,17 @@ func TestWatchIsASingletonPerFleetHome(t *testing.T) {
 
 	second.stop(t, 10*time.Second)
 
-	// Ownership outlives no watcher: the lock has to be free again the moment the
-	// last one exits, or the next hand watch inherits a home it can never watch.
+	// Ownership outlives no watcher: the lock has to be free again the moment the last one exits, or the next
+	// hand watch inherits a home it can never watch.
 	after := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "100ms")
 	if after.code != 4 {
 		t.Fatalf("watch after the last watcher exited: exit %d, want 4 (no event), not an ownership refusal (stderr %q)", after.code, after.stderr)
 	}
 }
 
-// TestWatchStartsOverACrashedWatchersPidFile is the strand test: a watcher killed
-// with SIGKILL never runs its own release, so the pid file it leaves behind holds
-// a dead pid. The kernel drops its flock anyway, and the next watcher has to start
-// with no operator intervention at all - a lock that refuses forever after a crash
-// is worse than no lock.
+// The strand test: a watcher killed with SIGKILL never runs its own release, so the pid file it leaves
+// behind holds a dead pid. The kernel drops its flock anyway, and the next watcher has to start with no
+// operator intervention at all - a lock that refuses forever after a crash is worse than no lock.
 func TestWatchStartsOverACrashedWatchersPidFile(t *testing.T) {
 	home := seedOneTaskHome(t)
 
@@ -90,9 +86,8 @@ func TestWatchStartsOverACrashedWatchersPidFile(t *testing.T) {
 	}
 }
 
-// seedOneTaskHome gives the watcher one task to poll, so waitForOwner is
-// waiting on a loop that has really started rather than on a process that has
-// merely been forked.
+// Gives the watcher one task to poll, so waitForOwner is waiting on a loop that has really started rather
+// than on a process that has merely been forked.
 func seedOneTaskHome(t *testing.T) string {
 	t.Helper()
 	home := newHome(t)

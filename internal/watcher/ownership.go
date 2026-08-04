@@ -29,14 +29,9 @@ func OwnerPath(homeDir string) string {
 	return filepath.Join(state.Dir(homeDir), "watch.pid")
 }
 
-// Acquire makes hand watch a singleton per fleet home, returning the release to
-// defer.
-//
-// Ownership is the flock on state/watch.pid, never the pid the file holds: the
-// kernel drops an flock when the holder dies, so a crashed watcher leaves
-// nothing stale to clear and no liveness heuristic can lock a home out of
-// watching itself. The pid is recorded inside the lock only so a refusal can
-// name the incumbent and takeover can signal it.
+// Acquire makes hand watch a singleton per fleet home, returning the release to defer. Ownership is
+// the flock on state/watch.pid, never the pid the file holds: the kernel drops an flock when the
+// holder dies, so nothing stale is left to clear and no liveness heuristic locks a home out.
 func Acquire(homeDir string, takeover bool) (func(), error) {
 	path := OwnerPath(homeDir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -58,6 +53,8 @@ func Acquire(homeDir string, takeover bool) (func(), error) {
 		}
 	}
 
+	// The pid is recorded inside the lock only so a refusal can name the incumbent and takeover can
+	// signal it.
 	if err := recordOwner(file); err != nil {
 		releaseOwner(file)
 		return nil, err
@@ -65,9 +62,9 @@ func Acquire(homeDir string, takeover bool) (func(), error) {
 	return func() { releaseOwner(file) }, nil
 }
 
-// contend decides what a lock another live watcher holds means. The pid is read
-// after the lock attempt failed, so it belongs to a process that still held the
-// lock a moment ago rather than to some long-dead predecessor.
+// Decides what a lock another live watcher holds means. The pid is read after the lock attempt
+// failed, so it belongs to a process that still held the lock a moment ago rather than to some
+// long-dead predecessor.
 func contend(file *os.File, takeover bool) error {
 	pid := readOwner(file)
 	if !takeover {
@@ -105,9 +102,8 @@ func lockOwner(file *os.File) error {
 	return syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 }
 
-// releaseOwner clears the pid before dropping the lock, so an operator reading
-// state/watch.pid on an unwatched home finds nothing rather than the number of a
-// process that has exited.
+// Clears the pid before dropping the lock, so an operator reading state/watch.pid on an unwatched
+// home finds nothing rather than the number of a process that has exited.
 func releaseOwner(file *os.File) {
 	_ = file.Truncate(0)
 	_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
@@ -124,15 +120,15 @@ func recordOwner(file *os.File) error {
 	return nil
 }
 
-// readOwner reports the recorded pid, or 0 for anything it cannot read as one.
-// The terminating newline is required: the incumbent truncates before it writes,
-// so a read racing that write sees an empty or partial value, and only a
-// terminated line proves the whole pid reached disk. A wrong pid here would be
+// Reports the recorded pid, or 0 for anything it cannot read as one - a wrong pid here would be
 // handed to Kill.
 func readOwner(file *os.File) int {
 	buf := make([]byte, 32)
 	n, _ := file.ReadAt(buf, 0)
 	line, _, terminated := strings.Cut(string(buf[:n]), "\n")
+	// The terminating newline is required: the incumbent truncates before it writes, so a read racing
+	// that write sees an empty or partial value, and only a terminated line proves the whole pid
+	// reached disk.
 	if !terminated {
 		return 0
 	}

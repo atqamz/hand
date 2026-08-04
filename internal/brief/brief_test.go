@@ -8,10 +8,9 @@ import (
 	"testing"
 )
 
-// realBriefFixture is a verbatim copy of data/secondhand-th-floor/brief.md from the fleet
-// this repo runs, chosen because it opens with plain prose ("You are a crewmate...") rather
-// than a "#" heading - the shape most likely to trip up a header parser that scans for
-// "key: value" lines before the first heading instead of requiring an explicit "---" fence.
+// Verbatim copy of data/secondhand-th-floor/brief.md from the fleet this repo runs, chosen
+// because it opens with plain prose rather than a "#" heading - the shape most likely to
+// trip a parser that scans for "key: value" lines instead of requiring a "---" fence.
 const realBriefFixture = `You are a crewmate: an autonomous worker agent managed by the first mate. Work on your own; do not wait for a human.
 
 # Task

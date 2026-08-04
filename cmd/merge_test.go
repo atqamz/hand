@@ -142,8 +142,7 @@ func TestMergeRefusesWhenNoPRRecorded(t *testing.T) {
 	}
 }
 
-// TestMergeRefusesAlreadyMergedPR covers cmd/merge.go:90's gap noted in
-// atqamz/secondhand#69: a gate-opened PR can populate t.PR without hand having
+// Covers the gap noted in atqamz/secondhand#69: a gate-opened PR can populate t.PR without hand having
 // merged it, so t.PR != "" no longer implies hand hasn't seen it land yet.
 func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 	home := t.TempDir()
@@ -243,10 +242,9 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	}
 }
 
-// hand merge writes the row only after gh has merged, so a fault between the two
-// leaves the PR merged and the row saying otherwise. The pre-check is then all that
-// stops a rerun re-merging a closed PR, and a repeated `gh pr merge` is exit 0 with
-// a warning (internal/faketool/FIDELITY.md), so nothing downstream would notice.
+// hand merge writes the row only after gh has merged, so a fault between the two leaves the PR merged
+// and the row saying otherwise. The pre-check is then all that stops a rerun, because a repeated
+// `gh pr merge` is exit 0 with a warning (internal/faketool/FIDELITY.md) and nothing would notice.
 func TestMergeRefusesAPRAnEarlierRunAlreadyMerged(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

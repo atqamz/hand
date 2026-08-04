@@ -17,11 +17,9 @@ import (
 	"github.com/atqamz/secondhand/internal/store"
 )
 
-// writeFakeHerdrPaneStatus fakes "pane get" as a query command per
-// internal/herdr/client.go's call() doc comment: a non-null result object on
-// success. It always succeeds; the "herdr unreachable" degrade path is
-// exercised for real (no fake, empty PATH) by
-// TestStatusFleetDegradesToUnknownWhenHerdrUnreachable below.
+// Fakes "pane get" as a query command per internal/herdr/client.go's call() doc: a non-null result
+// object on success. It always succeeds; the "herdr unreachable" degrade path is exercised for real
+// (no fake, empty PATH) by TestStatusFleetDegradesToUnknownWhenHerdrUnreachable below.
 func writeFakeHerdrPaneStatus(t *testing.T, status string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -32,8 +30,8 @@ func writeFakeHerdrPaneStatus(t *testing.T, status string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// fleetRow returns the tasks[] row whose first cell is id, so a test can assert
-// on one row's cells without matching the whole document.
+// The tasks[] row whose first cell is id, so a test can assert on one row's cells without matching the
+// whole document.
 func fleetRow(t *testing.T, out, id string) string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
@@ -45,7 +43,7 @@ func fleetRow(t *testing.T, out, id string) string {
 	return ""
 }
 
-// fleetFlags returns the tokens of a default fleet row's trailing flags cell.
+// The tokens of a default fleet row's trailing flags cell.
 func fleetFlags(t *testing.T, out, id string) []string {
 	t.Helper()
 	row := fleetRow(t, out, id)
@@ -56,7 +54,7 @@ func fleetFlags(t *testing.T, out, id string) []string {
 	return strings.Fields(cell)
 }
 
-// mergeFlag is whichever merge token a flags cell carries, or "" for neither.
+// Whichever merge token a flags cell carries, or "" for neither.
 func mergeFlag(flags []string) string {
 	for _, f := range flags {
 		if strings.HasPrefix(f, "merged") {
@@ -66,7 +64,7 @@ func mergeFlag(flags []string) string {
 	return ""
 }
 
-// detailField returns one scalar field of the single-task view, unquoted.
+// One scalar field of the single-task view, unquoted.
 func detailField(t *testing.T, out, name string) string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
@@ -257,8 +255,7 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 	}
 }
 
-// TestStatusSingleTaskDetectsGateOpenedPR covers hand status's half of
-// atqamz/secondhand#69: a task whose PR a no-mistakes gate opened directly
+// hand status's half of atqamz/secondhand#69: a task whose PR a no-mistakes gate opened directly
 // (bypassing hand pr) still shows the PR, once status looks it up by branch.
 func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
@@ -291,10 +288,9 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	}
 }
 
-// A scout task's deliverable is data/<id>/report.md, never a PR, so status skips
-// the branch lookup for it exactly as checkLandedWork does - the gh fake here
-// would answer with a PR, and recording it would pin one onto a task whose
-// completion detail never uses it.
+// A scout task's deliverable is data/<id>/report.md, never a PR, so status skips the branch lookup for
+// it exactly as checkLandedWork does - the gh fake here would answer with a PR, and recording it would
+// pin one onto a task whose completion detail never uses it.
 func TestStatusSkipsPRDetectionForScoutTasks(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -457,10 +453,9 @@ func TestStatusFleetFlagsIdleWithTerminalReportInsteadOfUnreported(t *testing.T)
 	}
 }
 
-// A worker that appends free text after a real report has still reported, so the
-// suffix comes from the last line that classified - the same answer hand watch
-// reaches about the same quiet pane. The Reported field still shows the raw last
-// line, free text included.
+// A worker that appends free text after a real report has still reported, so the suffix comes from the
+// last line that classified - the same answer hand watch reaches about the same quiet pane. The
+// Reported field still shows the raw last line, free text included.
 func TestStatusFleetKeepsTheReportedFlagAfterATrailingMalformedLine(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -675,11 +670,9 @@ func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
 	}
 }
 
-// TestStatusSingleTaskDegradesOnAnUnreadableReport holds the detail view to the
-// same graceful degradation the fleet view already has: a report file that
-// exists but can't be read names the fault and still prints the rest, rather
-// than failing the whole command and showing nothing at all. A directory in the
-// report file's place is a real EISDIR, not a mocked error.
+// Holds the detail view to the same graceful degradation the fleet view already has: a report file
+// that exists but can't be read names the fault and still prints the rest, rather than failing the
+// whole command and showing nothing. A directory in its place is a real EISDIR, not a mocked error.
 func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1071,10 +1064,9 @@ func TestStatusFleetFlagsInconsistentHold(t *testing.T) {
 	}
 }
 
-// hand watch writes limit holds, so hand status has to render one as the ordinary fact
-// it is. Left out of holdInconsistency it would come out flagged inconsistent, turning
-// every routine usage limit into a report that something outside hand corrupted the
-// database.
+// hand watch writes limit holds, so hand status has to render one as the ordinary fact it is. Left out of
+// holdInconsistency it would come out flagged inconsistent, turning every routine usage limit into a
+// report that something outside hand corrupted the database.
 func TestStatusFleetRendersAMachineSetLimitHold(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1456,8 +1448,8 @@ func TestStatusFleetEmptyStillShowsHeldBlock(t *testing.T) {
 	}
 }
 
-// registerNoMistakesProject registers a no-mistakes-mode project and creates its clone directory, so
-// gateRunIssue's os.Stat(clonePath) check and its no-mistakes invocation both have something to find.
+// Registers a no-mistakes-mode project and creates its clone directory, so gateRunIssue's
+// os.Stat(clonePath) check and its no-mistakes invocation both have something to find.
 func registerNoMistakesProject(t *testing.T, home, name string) {
 	t.Helper()
 	if err := project.Add(home, project.Project{Name: name, URL: "https://example.com/" + name + ".git", Mode: project.ModeNoMistakes}); err != nil {
@@ -1468,7 +1460,7 @@ func registerNoMistakesProject(t *testing.T, home, name string) {
 	}
 }
 
-// writeDoneReport writes a single done report line, so LastReportedState reads the task as reported done.
+// Writes a single done report line, so LastReportedState reads the task as reported done.
 func writeDoneReport(t *testing.T, home, id, note string) {
 	t.Helper()
 	if err := os.WriteFile(state.ReportPath(home, id), []byte("done: "+note+"\n"), 0o644); err != nil {
@@ -1578,9 +1570,8 @@ func TestStatusFleetGateRunUnreachableWhenNoMistakesBinaryMissing(t *testing.T) 
 	}
 }
 
-// TestStatusFleetSkipsGateCheckWhenItDoesNotApply covers a scout task with a PR-like field unset and
-// no report at all: the check has nothing to say about a task that never shipped, so it must stay
-// silent rather than misreport it as an ungated ship.
+// A scout task with a PR-like field unset and no report at all: the check has nothing to say about a
+// task that never shipped, so it must stay silent rather than misreport it as an ungated ship.
 func TestStatusFleetSkipsGateCheckWhenItDoesNotApply(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1680,8 +1671,8 @@ func TestStatusSingleTaskNoGateLineWhenRunFound(t *testing.T) {
 	}
 }
 
-// countingNoMistakesPath is fakeNoMistakesPath plus an append to countFile per invocation, so a test
-// can assert how many no-mistakes processes one render actually spawned.
+// fakeNoMistakesPath plus an append to countFile per invocation, so a test can assert how many
+// no-mistakes processes one render actually spawned.
 func countingNoMistakesPath(t *testing.T, stdout, countFile string) string {
 	t.Helper()
 	bin := t.TempDir()
@@ -1692,9 +1683,9 @@ func countingNoMistakesPath(t *testing.T, stdout, countFile string) string {
 	return bin + string(os.PathListSeparator) + os.Getenv("PATH")
 }
 
-// TestStatusFleetAsksNoMistakesOncePerProject pins the per-clone caching: without it every done ship
-// task on one project spawns its own `no-mistakes runs` and re-parses identical output, on the
-// command CLAUDE.md makes the first step of every session.
+// Pins the per-clone caching: without it every done ship task on one project spawns its own
+// `no-mistakes runs` and re-parses identical output, on the command CLAUDE.md makes the first step of
+// every session.
 func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1730,8 +1721,8 @@ func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	}
 }
 
-// writeBrokenRegistry writes a data/projects.md line the registry parser rejects, so project.List
-// and project.Find both fail on this home.
+// Writes a data/projects.md line the registry parser rejects, so project.List and project.Find both
+// fail on this home.
 func writeBrokenRegistry(t *testing.T, home string) {
 	t.Helper()
 	if err := os.WriteFile(project.RegistryPath(home), []byte("- broken line with no url or mode\n"), 0o644); err != nil {
@@ -1768,9 +1759,8 @@ func TestStatusFleetNamesAnUnreadableRegistryOnStderr(t *testing.T) {
 	}
 }
 
-// TestStatusSingleTaskReadsRegistryOnlyWhenTheGateCheckApplies covers a scout task on a home whose
-// registry does not parse: the gate-run check has nothing to say about it, so the detail view must
-// not fail over a lookup it never needed.
+// A scout task on a home whose registry does not parse: the gate-run check has nothing to say about
+// it, so the detail view must not fail over a lookup it never needed.
 func TestStatusSingleTaskReadsRegistryOnlyWhenTheGateCheckApplies(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1815,9 +1805,8 @@ func TestStatusSingleTaskPropagatesAnUnreadableRegistryWhenTheGateCheckApplies(t
 	}
 }
 
-// TestStatusGateRunUnreachableWhenGateNotInitialized is the uninitialized-gate half of the
-// unreachable bucket: no-mistakes still holds that repo's completed runs, so reading its refusal as
-// an empty run list would report a genuinely gated PR as never gated.
+// The uninitialized-gate half of the unreachable bucket: no-mistakes still holds that repo's completed
+// runs, so reading its refusal as an empty run list would report a genuinely gated PR as never gated.
 func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1950,11 +1939,9 @@ func TestStatusSingleTaskFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	}
 }
 
-// Free text appended after a real report is expected traffic that must never
-// erase it, and enough of it used to push the terminal line out of the detail
-// view's 5-line history window - the one view deriving the flag from that
-// window instead of the whole file, so it alone called the completion
-// acknowledged.
+// Free text appended after a real report is expected traffic that must never erase it, and enough of
+// it used to push the terminal line out of the detail view's 5-line history window - the one view
+// deriving the flag from that window instead of the whole file, so it alone called it acknowledged.
 func TestStatusSingleTaskFlagsATerminalReportBeyondTheHistoryWindow(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -2072,11 +2059,9 @@ func TestStatusSingleTaskJSONOmitsUnacknowledgedWhenAcknowledged(t *testing.T) {
 	}
 }
 
-// A worker whose append lands between the row's own read and the flag's read is
-// the one way the two can disagree, and it cannot be staged through the command
-// itself - so the guard is exercised where it lives. A --json row saying
-// "unacknowledged" next to a "working" it reported in the same breath is
-// contradictory on the interface the supervisor reads on every check.
+// A worker whose append lands between the row's own read and the flag's read is the one way the two
+// can disagree, and it cannot be staged through the command itself - so the guard is exercised where
+// it lives.
 func TestUnacknowledgedAnswersForTheStateTheRowPrints(t *testing.T) {
 	home := t.TempDir()
 	mkFleetDirs(t, home)
@@ -2092,6 +2077,8 @@ func TestUnacknowledgedAnswersForTheStateTheRowPrints(t *testing.T) {
 		want     bool
 	}{
 		{name: "row prints the terminal state", reported: state.ReportLine{State: state.ReportDone}, ok: true, want: true},
+		// A --json row saying "unacknowledged" next to a "working" it reported in the same breath is
+		// contradictory on the interface the supervisor reads on every check.
 		{name: "row prints work that supersedes it", reported: state.ReportLine{State: state.ReportWorking}, ok: true},
 		{name: "row prints nothing classified", reported: state.ReportLine{}},
 	}
@@ -2108,10 +2095,9 @@ func TestUnacknowledgedAnswersForTheStateTheRowPrints(t *testing.T) {
 	}
 }
 
-// The watcher leaves an unterminated line for its next tick, so a done written
-// without a trailing newline has been announced to nobody. Flagging it is the
-// whole of atqamz/secondhand#70; skipping it would let the same silent completion
-// back in through the newline.
+// The watcher leaves an unterminated line for its next tick, so a done written without a trailing
+// newline has been announced to nobody. Flagging it is the whole of atqamz/secondhand#70; skipping it
+// would let the same silent completion back in through the newline.
 func TestStatusFleetFlagsATerminalReportWithNoTrailingNewline(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

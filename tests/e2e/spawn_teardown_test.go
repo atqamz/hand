@@ -12,11 +12,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestSpawnTeardownCycle drives a full spawn -> refused teardown -> local
-// merge -> successful teardown cycle through the built binary, using a
-// local-only project so the landed-work check exercises real git plumbing
-// (a linked worktree merged into the clone's default branch) instead of a
-// faked gh.
+// Drives a full spawn -> refused teardown -> local merge -> successful teardown cycle through the built
+// binary, using a local-only project so the landed-work check exercises real git plumbing (a linked
+// worktree merged into the clone's default branch) instead of a faked gh.
 func TestSpawnTeardownCycle(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")

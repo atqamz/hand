@@ -98,14 +98,13 @@ func TestPRRefusesDifferentAlreadyRecordedPR(t *testing.T) {
 	}
 }
 
-// TestPRReconcilesWhenSameURLAlreadyRecorded pins the reconciling repeat: an
-// operator retrying this command after the URL already made it into task
-// state gets a friendly no-op instead of an error. The project is deliberately
-// unregistered: reaching validation would exit 3, so passing also proves it is
-// skipped for a URL already on record.
+// Pins the reconciling repeat: an operator retrying this command after the URL already made it into task
+// state gets a friendly no-op instead of an error.
 func TestPRReconcilesWhenSameURLAlreadyRecorded(t *testing.T) {
 	home, _ := setupPRHome(t)
 	url := "https://github.com/a/b/pull/1"
+	// The project is deliberately unregistered: reaching validation would exit 3, so passing also proves it
+	// is skipped for a URL already on record.
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "unregistered", PR: url}); err != nil {
 		t.Fatal(err)
 	}
@@ -158,11 +157,8 @@ func TestPRRefusesWhenRepoMismatch(t *testing.T) {
 	assertExitCode3(t, err)
 }
 
-// A fork contribution's PR lives on the upstream repo, never on the fork hand
-// pushed to, so the guard has to accept the declared upstream - and only that
-// one. The pair is kept in one test so the accepting and the refusing case share
-// an identical project, leaving the declaration as the only difference between
-// them.
+// A fork contribution's PR lives on the upstream repo, never on the fork hand pushed to, so the guard has
+// to accept the declared upstream - and only that one.
 func TestPRAcceptsTheDeclaredUpstreamAndStillRefusesAnyOtherRepo(t *testing.T) {
 	home, clonePath := setupPRHome(t)
 	addOriginRemote(t, clonePath, "https://github.com/atqamz/no-mistakes.git")
@@ -194,6 +190,8 @@ func TestPRAcceptsTheDeclaredUpstreamAndStillRefusesAnyOtherRepo(t *testing.T) {
 		t.Fatalf("task.PR = %q, want %q", task.PR, upstreamPR)
 	}
 
+	// The pair is kept in one test so the accepting and the refusing case share an identical project,
+	// leaving the declaration as the only difference between them.
 	unrelated := newPRCmd()
 	unrelated.SetArgs([]string{"task-2", "https://github.com/someone/else/pull/1"})
 	assertExitCode3(t, unrelated.Execute())
@@ -206,15 +204,13 @@ func TestPRAcceptsTheDeclaredUpstreamAndStillRefusesAnyOtherRepo(t *testing.T) {
 	}
 }
 
-// A GitHub slug is case-insensitive, so the repo guard has to fold: a PR URL
-// carries GitHub's canonical casing while the slug it is checked against comes
-// from whatever casing the clone's origin remote and the declared upstream were
-// written in. Comparing exactly refuses landed work as a foreign repo, and on
-// hand teardown's detection path that surfaces as "no PR recorded" - unlanded,
-// the opposite of what happened. Both sides of the guard are covered in one test
-// so the fold is pinned for the project's own repo and its upstream alike.
+// A GitHub slug is case-insensitive, so the repo guard has to fold: a PR URL carries GitHub's canonical
+// casing while the slug it is checked against comes from whatever casing the clone's origin remote and the
+// declared upstream were written in.
 func TestPRAcceptsCanonicalCasingForDifferentlyCasedRemoteAndUpstream(t *testing.T) {
 	home, clonePath := setupPRHome(t)
+	// Comparing exactly refuses landed work as a foreign repo, and on hand teardown's detection path that
+	// surfaces as "no PR recorded" - unlanded, the opposite of what happened.
 	addOriginRemote(t, clonePath, "https://github.com/Atqamz/No-Mistakes.git")
 	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/Atqamz/No-Mistakes.git", Mode: project.ModeDirectPR}); err != nil {
 		t.Fatal(err)
@@ -222,6 +218,8 @@ func TestPRAcceptsCanonicalCasingForDifferentlyCasedRemoteAndUpstream(t *testing
 	if err := project.SetUpstream(home, "demo", "KunchenGUID/No-Mistakes"); err != nil {
 		t.Fatal(err)
 	}
+	// Both sides of the guard are covered in one test so the fold is pinned for the project's own repo and
+	// its upstream alike.
 	for _, id := range []string{"task-1", "task-2"} {
 		if err := state.Write(home, state.Task{ID: id, Project: "demo"}); err != nil {
 			t.Fatal(err)

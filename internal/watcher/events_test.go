@@ -11,10 +11,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// notBusyStatuses covers herdr's two spellings of "pane stopped being busy" - see
-// herdr.Status's doc comment for why idle and done must be classified identically:
-// hand's headless polling model observes done, essentially always, never idle, for
-// this transition against real herdr.
+// Covers herdr's two spellings of "pane stopped being busy" - see herdr.Status's doc for why idle
+// and done must be classified identically: hand's headless polling model observes done, essentially
+// always, never idle, for this transition against real herdr.
 var notBusyStatuses = []herdr.Status{herdr.StatusIdle, herdr.StatusDone}
 
 func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenNoTerminalReport(t *testing.T) {
@@ -174,11 +173,9 @@ func TestClassifyStaleSkipsUnprobedTasks(t *testing.T) {
 	}
 }
 
-// TestClassifyUnreachableFiresOnceAfterTheDwellForATaskFirstSeenDown covers the
-// case ClassifyStatus's immediate branch cannot: a task whose very first
-// sighting has ts.Probed already false, so there is no "was probed" edge to
-// fire on. This is the shape resumeTaskState leaves an unreachable-at-first-
-// sighting task in.
+// Covers the case ClassifyStatus's immediate branch cannot: a task whose very first sighting has
+// ts.Probed already false, so there is no "was probed" edge to fire on. This is the shape
+// resumeTaskState leaves an unreachable-at-first-sighting task in.
 func TestClassifyUnreachableFiresOnceAfterTheDwellForATaskFirstSeenDown(t *testing.T) {
 	now := time.Now()
 	threshold := 5 * time.Minute
@@ -402,9 +399,8 @@ func TestClassifyReportDoneVerifiedOnlyWithCompletionEvidence(t *testing.T) {
 	}
 }
 
-// TestClassifyDeferredDoneFiresOnceWhenEvidenceArrivesAfterTheReport covers the
-// ordinary ordering: the worker reports done, the PR is merged only afterwards,
-// and the done line is long consumed by the time the merge is observed.
+// Covers the ordinary ordering: the worker reports done, the PR is merged only afterwards, and the
+// done line is long consumed by the time the merge is observed.
 func TestClassifyDeferredDoneFiresOnceWhenEvidenceArrivesAfterTheReport(t *testing.T) {
 	home := t.TempDir()
 	task := state.Task{ID: "task-1", Kind: state.KindShip, PR: "https://github.com/a/b/pull/1"}

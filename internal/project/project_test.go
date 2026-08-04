@@ -103,10 +103,9 @@ func TestSetUpstreamNotFound(t *testing.T) {
 	}
 }
 
-// A hand-written registry line is imported before the database exists, so an
-// upstream typed as a URL has to normalize on the way in, and one that cannot
-// be resolved to a slug has to refuse the whole line rather than import a
-// project whose upstream would silently never match.
+// A hand-written registry line is imported before the database exists, so an upstream typed as
+// a URL has to normalize on the way in, and one that resolves to no slug has to refuse the whole
+// line rather than import a project whose upstream would silently never match.
 func TestListNormalizesUpstreamFromTheRegistry(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "- fork: https://github.com/atqamz/fork mode=direct-pr upstream=https://github.com/upstream/fork.git\n")
@@ -321,19 +320,16 @@ func TestRemoveNotFound(t *testing.T) {
 	}
 }
 
-// fakeNoMistakes puts a fake no-mistakes binary at the front of PATH. It ignores its arguments and
-// always exits 0, matching the real binary's observed behavior for `status`: it exits 0 whether the
-// repo is initialized or not, so GateStatus reads the outcome from stdout text rather than the exit
-// code. Fakes for `runs` refusals need fakeNoMistakesExit instead.
+// Puts a fake no-mistakes binary at the front of PATH, ignoring its arguments and always exiting
+// 0, matching the real binary for `status`: initialized or not, it exits 0, so GateStatus reads
+// the outcome from stdout text. `runs` refusals need fakeNoMistakesExit instead.
 func fakeNoMistakes(t *testing.T, stdout string) {
 	fakeNoMistakesExit(t, stdout, 0)
 }
 
-// fakeNoMistakesExit is fakeNoMistakes with an explicit exit code, for the invocations the real
-// binary refuses non-zero: `no-mistakes runs` exits 1 on both "repo not initialized" and "not in a
-// git repository", where `no-mistakes status` exits 0 printing the same text. A caller must read
-// the refusal from the text either way, so the fake reproduces the exit code rather than flattening
-// every refusal to 0 and letting a text-check-after-exit-check regression pass here.
+// fakeNoMistakes with an explicit exit code, for the invocations the real binary refuses non-zero:
+// `no-mistakes runs` exits 1 on both "repo not initialized" and "not in a git repository", where
+// `status` exits 0 on the same text. Flattening that to 0 would pass a real regression.
 func fakeNoMistakesExit(t *testing.T, stdout string, code int) {
 	t.Helper()
 	bin := t.TempDir()
@@ -356,11 +352,9 @@ func TestGateStatusReady(t *testing.T) {
 	}
 }
 
-// TestGateStatusNotInitialized covers both real histories from atqamz/secondhand#60 at once: a
-// project registered but never given a no-mistakes init, and a project whose working_path went
-// stale when the fleet home was renamed (/home/atqa/fleet to /home/atqa/secondhand). Both were
-// checked against the real binary and print this one text byte-for-byte, exiting 0 either way, so
-// a second test replaying the same literal would assert nothing new.
+// Covers both real histories from atqamz/secondhand#60 at once: a project never given a
+// no-mistakes init, and one whose working_path went stale when the fleet home was renamed. Both
+// print this text byte-for-byte, so a second test on the same literal asserts nothing.
 func TestGateStatusNotInitialized(t *testing.T) {
 	fakeNoMistakes(t, "repo not initialized (run 'no-mistakes init' first)")
 
@@ -388,10 +382,9 @@ func TestGateStatusMissingBinaryIsDistinctFromNotInitialized(t *testing.T) {
 	}
 }
 
-// TestGateStatusNotGitRepo covers atqamz/secondhand#97's first clone-path outcome: clonePath exists
-// but isn't a git repository at all. no-mistakes status still exits 0 and prints this text verbatim,
-// so without this branch GateStatus would fall through to GateReady and let a caller dispatch into a
-// project the gate cannot cover.
+// Covers atqamz/secondhand#97's first clone-path outcome: clonePath exists but isn't a git
+// repository. no-mistakes status still exits 0 printing this text verbatim, so without the branch
+// GateStatus falls through to GateReady and lets a caller dispatch into an uncovered project.
 func TestGateStatusNotGitRepo(t *testing.T) {
 	fakeNoMistakes(t, "not in a git repository")
 
@@ -408,11 +401,9 @@ func TestGateStatusNotGitRepo(t *testing.T) {
 	}
 }
 
-// TestGateStatusMissingClonePath covers atqamz/secondhand#97's second clone-path outcome: clonePath
-// does not exist on disk at all, so exec.Command's chdir fails before the binary ever runs. Without
-// the os.Stat check, this used to read as "no-mistakes binary not found or not runnable", which is
-// true in the letter and misleading in substance - the binary is fine, the clone directory is missing.
-// No fake binary is installed for this test: os.Stat must fail before GateStatus ever tries to exec.
+// Covers atqamz/secondhand#97's second clone-path outcome: clonePath does not exist, so
+// exec.Command's chdir fails before the binary runs. Without the os.Stat check this read as "binary
+// not found or not runnable" - true in the letter, misleading in substance.
 func TestGateStatusMissingClonePath(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 

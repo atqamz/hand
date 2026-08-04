@@ -16,6 +16,7 @@ lint:
 	@output=$$(gofmt -l .); if [ -n "$$output" ]; then echo "Files not formatted:"; echo "$$output"; exit 1; fi
 	go vet ./...
 	golangci-lint run
+	go run ./tools/commentlint .
 
 e2e:
 	go test -tags=e2e -timeout=10m ./tests/e2e/...

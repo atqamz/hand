@@ -12,15 +12,14 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// writeFakeGHAnyCasing fakes `gh pr list` the way GitHub actually serves a repo:
-// the same PR list comes back under every casing of the slug, so a search issued
-// in the casing a clone's origin remote or a declared upstream happens to carry
-// answers exactly as one issued in GitHub's canonical casing. A fake that matched
-// --repo case-sensitively would answer a differently-cased search with an empty
-// list and hide the very hit these tests are about. prRepoCasings are the casings
-// of the one repo that holds the PR; every other repo answers empty.
+// Fakes `gh pr list` the way GitHub actually serves a repo: the same PR list comes back under every casing
+// of the slug, so a search issued in the casing a clone's origin remote or a declared upstream happens to
+// carry answers exactly as one issued in GitHub's canonical casing.
 func writeFakeGHAnyCasing(t *testing.T, dir string, prRepoCasings []string, number int, url, prState, headRepo string) {
 	t.Helper()
+	// A fake matching --repo case-sensitively would answer a differently-cased search with an empty list and
+	// hide the very hit these tests are about. prRepoCasings are the casings of the one repo that holds the
+	// PR; every other repo answers empty.
 	item := fmt.Sprintf(`{"number":%d,"url":"%s","state":"%s","headRepository":{"nameWithOwner":"%s"}}`,
 		number, url, prState, headRepo)
 	patterns := make([]string, len(prRepoCasings))
@@ -35,13 +34,12 @@ func writeFakeGHAnyCasing(t *testing.T, dir string, prRepoCasings []string, numb
 	writeFakeDispatch(t, dir, "gh", "", "$1 $2", caseBody)
 }
 
-// setupCasedGateProject registers a project from remoteURL, gives it a task-1
-// worktree on a branch, and spawns task-1 with a commit on it - the state a
-// no-mistakes gate leaves behind when it opens the PR itself, so t.PR is empty and
-// hand has to find the PR by branch. It returns the fake-binary dir so the caller
-// can write the gh fake that decides what that search finds.
+// Registers a project from remoteURL, gives it a task-1 worktree on a branch, and spawns task-1 with a
+// commit on it - the state a no-mistakes gate leaves behind when it opens the PR itself, so t.PR is empty
+// and hand has to find the PR by branch.
 func setupCasedGateProject(t *testing.T, remoteURL, projectName string) (home, binaries string) {
 	t.Helper()
+	// The fake-binary dir is returned so the caller can write the gh fake that decides what that search finds.
 	remote := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remote)
 	redirectGitRemote(t, remoteURL, remote)
@@ -67,12 +65,9 @@ func setupCasedGateProject(t *testing.T, remoteURL, projectName string) (home, b
 	return home, binaries
 }
 
-// TestPRRecordAcceptsCanonicalCasingOfOwnRepoAndUpstream drives the recording
-// guard itself: a PR URL carries GitHub's canonical casing while the slugs it is
-// checked against come from whatever casing the clone's origin remote and the
-// declared upstream were written in. Both have to be accepted, and a repo nobody
-// declared still refused - folding widens nothing, because a GitHub slug is unique
-// only up to casing.
+// Drives the recording guard itself: a PR URL carries GitHub's canonical casing while the slugs it is
+// checked against come from whatever casing the clone's origin remote and the declared upstream were
+// written in.
 func TestPRRecordAcceptsCanonicalCasingOfOwnRepoAndUpstream(t *testing.T) {
 	remote := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remote)
@@ -116,16 +111,15 @@ func TestPRRecordAcceptsCanonicalCasingOfOwnRepoAndUpstream(t *testing.T) {
 		}
 	}
 
+	// Both casings above have to be accepted, and a repo nobody declared still refused: folding widens
+	// nothing, because a GitHub slug is unique only up to casing.
 	foreign := runHand(t, home, "pr", "task-3", "https://github.com/someone/else/pull/1")
 	assertInvocation(t, foreign, 3, "not project No-Mistakes's repo")
 }
 
-// TestGateOpenedUpstreamPRFoundWhenOriginRemoteCasingDiffers drives the dropped
-// fork PR through the built binary: the upstream search keeps only PRs whose head
-// repo is the project's own, and gh reports that head repo in GitHub's canonical
-// casing while hand derives it from whatever casing the clone's origin remote was
-// written in. Compared case-sensitively the landed PR is discarded, so an operator
-// sees "PR: (none)" and teardown refuses work that is already merged.
+// Drives the dropped fork PR through the built binary: the upstream search keeps only PRs whose head repo
+// is the project's own, and gh reports that head repo in GitHub's canonical casing while hand derives it
+// from whatever casing the clone's origin remote was written in.
 func TestGateOpenedUpstreamPRFoundWhenOriginRemoteCasingDiffers(t *testing.T) {
 	home, binaries := setupCasedGateProject(t, "https://github.com/Atqamz/No-Mistakes.git", "No-Mistakes")
 
@@ -139,6 +133,8 @@ func TestGateOpenedUpstreamPRFoundWhenOriginRemoteCasingDiffers(t *testing.T) {
 		[]string{"KunchenGUID/No-Mistakes", "kunchenguid/no-mistakes"},
 		597, upstreamPR, "MERGED", "atqamz/no-mistakes")
 
+	// Compared case-sensitively the landed PR is discarded, so an operator sees "PR: (none)" here and the
+	// teardown below refuses work that is already merged.
 	status := runHand(t, home, "status", "task-1")
 	if status.code != 0 {
 		t.Fatalf("status: exit %d, stderr %q", status.code, status.stderr)
@@ -156,10 +152,9 @@ func TestGateOpenedUpstreamPRFoundWhenOriginRemoteCasingDiffers(t *testing.T) {
 	}
 }
 
-// TestGateOpenedPRLandsWhenUpstreamDeclaresOwnRepoInOtherCasing drives the other
-// half: an upstream declared as the project's own repo in different casing is the
-// same repo, so searching it as a second target returns the one PR twice and the
-// same-tier rule refuses landed work as ambiguous.
+// Drives the other half: an upstream declared as the project's own repo in different casing is the same
+// repo, so searching it as a second target returns the one PR twice and the same-tier rule refuses landed
+// work as ambiguous.
 func TestGateOpenedPRLandsWhenUpstreamDeclaresOwnRepoInOtherCasing(t *testing.T) {
 	home, binaries := setupCasedGateProject(t, "https://github.com/atqamz/no-mistakes.git", "no-mistakes")
 

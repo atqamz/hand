@@ -177,16 +177,13 @@ func parseLine(line string) (Project, bool) {
 	return Project{Name: name, URL: url, Mode: mode, Upstream: upstream}, true
 }
 
-// ParseRepoRef normalizes a repo reference an operator types - a bare
-// "owner/repo" or any remote URL form ghutil understands - into the
-// "owner/repo" slug the PR guard compares against. It refuses rather than
-// guessing: an upstream nobody can resolve to a slug would widen the guard to
-// whatever the comparison happened to fall through to.
-// A slug containing whitespace is refused outright rather than stored: the
-// registry projection writes it as a whitespace-separated upstream=<slug> field,
-// which parseLine would read back truncated and then reject as an invalid
-// registry line, breaking every project command against a rebuilt db.
+// ParseRepoRef normalizes a repo reference an operator types - a bare "owner/repo" or any
+// remote URL form ghutil understands - into the slug the PR guard compares against. It refuses
+// rather than guessing: an upstream nobody can resolve to a slug would widen that guard.
 func ParseRepoRef(ref string) (string, bool) {
+	// Whitespace is refused outright rather than stored: the registry projection writes the
+	// slug as a whitespace-separated upstream=<slug> field, which parseLine reads back
+	// truncated and then rejects, breaking every project command against a rebuilt db.
 	if strings.ContainsAny(ref, " \t\r\n") {
 		return "", false
 	}
@@ -249,9 +246,9 @@ const (
 
 const gateNotInitializedMarker = "repo not initialized"
 
-// notGitRepoMarker is what `no-mistakes status` prints, exiting 0, when clonePath exists but isn't
-// a git repository at all - a different, unrepairable outcome from GateNotInitialized: `no-mistakes
-// init` fixes a repo that was never initialized, not a directory that isn't a git repo.
+// What `no-mistakes status` prints, exiting 0, when clonePath exists but isn't a git repository
+// at all - a different, unrepairable outcome from GateNotInitialized: `no-mistakes init` fixes
+// a repo that was never initialized, not a directory that isn't a git repo.
 const notGitRepoMarker = "not in a git repository"
 
 // GateInitCommand is the exact remedy for GateNotInitialized. no-mistakes init is idempotent and
@@ -261,14 +258,12 @@ func GateInitCommand(clonePath string) string {
 }
 
 // GateStatus asks the no-mistakes binary whether clonePath's gate is initialized, rather than
-// reading ~/.no-mistakes/state.sqlite directly, which is another tool's private schema.
-// no-mistakes status exits 0 whether or not the repo is initialized, so the outcome is read from
-// its output text, not its exit code. Any failure to run the binary at all (missing, unexecutable,
-// unexpected nonzero exit) is returned as an error distinct from GateNotInitialized: the remedy for
-// a missing binary is not `no-mistakes init`. clonePath not existing on disk, and clonePath existing
-// but not being a git repository, are both returned as plain errors naming the real cause too - not
-// GateReady, which would let a caller dispatch into a project the gate cannot cover.
+// reading ~/.no-mistakes/state.sqlite, which is another tool's private schema. The outcome comes
+// from the output text: no-mistakes status exits 0 whether or not the repo is initialized.
 func GateStatus(clonePath string) (GateState, error) {
+	// A clone path missing from disk and one that is not a git repository are both plain errors
+	// naming the real cause, never GateReady, which would let a caller dispatch into a project
+	// the gate cannot cover.
 	if _, err := os.Stat(clonePath); err != nil {
 		return GateReady, fmt.Errorf("no-mistakes clone path: %w", err)
 	}
@@ -276,6 +271,8 @@ func GateStatus(clonePath string) (GateState, error) {
 	cmd.Dir = clonePath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		// Distinct from GateNotInitialized, because the remedy for a binary that is missing,
+		// unexecutable, or failing unexpectedly is not `no-mistakes init`.
 		return GateReady, fmt.Errorf("no-mistakes binary not found or not runnable: %w", err)
 	}
 	text := string(out)

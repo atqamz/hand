@@ -165,10 +165,9 @@ func newPromoteCmd() *cobra.Command {
 				TabID:       tab.TabID,
 				PaneID:      pane.PaneID,
 			}
-			// Everything below is pane-scoped and so describes a pane this task no longer
-			// has, none of it evidence about the ship. The report cursor is carried instead:
-			// promote never touches state/<id>.status, so the report stream is continuous.
-			// Cleared here rather than left for hand watch, which may not be running.
+			// Everything below is pane-scoped and so describes a pane this task no longer has, none of it
+			// evidence about the ship. The report cursor is carried instead: promote never touches
+			// state/<id>.status, so the stream is continuous. Cleared here rather than left for a watch that may be off.
 			t.DoneVerified = false
 			// The delivery described the scout's report, not the ship run starting
 			// here: left set, teardown would accept the ship task as terminal on a

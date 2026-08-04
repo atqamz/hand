@@ -12,12 +12,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestConcurrentSendsToTheSameTaskSerialize drives two `hand send` processes at
-// one busy pane. The send lock is cross-process by construction, so no
-// cmd-level test can cover it: what has to hold is that one sender waits out
-// the other's whole retry loop instead of both polling the same composer and
-// firing their text into it at once, which is the lost-steer hazard
-// atqamz/secondhand#102 traced.
+// Drives two `hand send` processes at one busy pane. The send lock is cross-process by construction, so no
+// cmd-level test can cover it: what has to hold is that one sender waits out the other's whole retry loop
+// instead of both firing their text into the same composer at once (atqamz/secondhand#102's lost steer).
 func TestConcurrentSendsToTheSameTaskSerialize(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -86,10 +83,9 @@ func TestConcurrentSendsToTheSameTaskSerialize(t *testing.T) {
 	}
 }
 
-// TestSendRecordsAnUndeliveredSteerAndExitsSix covers the outcome an operator or
-// a calling agent actually sees when a composer never frees: the documented exit
-// code off the real process, and a trace of the abandoned message that outlives
-// the process that tried to send it (SPECS.md, `hand send`).
+// Covers the outcome an operator or a calling agent actually sees when a composer never frees: the
+// documented exit code off the real process, and a trace of the abandoned message that outlives the process
+// that tried to send it (SPECS.md, `hand send`).
 func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")

@@ -61,14 +61,12 @@ type Task struct {
 	// means leaves this false and is what MergeAnnounced records instead.
 	MergeExecuted   bool   `json:"merged"`
 	MergeExecutedAt string `json:"merged_at"`
-	// Durable so a watcher restart resumes exactly where it stopped instead of
-	// replaying every line the previous run already surfaced. ReportDigest
-	// fingerprints the bytes ReportOffset has consumed, because the offset alone
-	// cannot tell a report file rewritten in place from one nothing was appended
-	// to when the rewrite kept its length; see state.ReportCursor, which is the
-	// pair these two columns store. Empty on a row written before the column
-	// existed, and on one whose worker has yet to report a line.
-	ReportOffset int64  `json:"report_offset"`
+	// Durable so a watcher restart resumes exactly where it stopped instead of replaying every line
+	// the previous run already surfaced.
+	ReportOffset int64 `json:"report_offset"`
+	// Fingerprints the bytes ReportOffset has consumed, because the offset alone cannot tell a report
+	// file rewritten in place from one nothing was appended to when the rewrite kept its length; see
+	// state.ReportCursor, the pair these two columns store. Empty before the column, or before a report.
 	ReportDigest string `json:"report_digest"`
 	// A merge hand observed rather than performed. Distinct from MergeExecuted:
 	// a restarted watcher needs to know the announcement went out even when
@@ -88,56 +86,41 @@ type Task struct {
 	// re-reading report history it has already consumed past ReportOffset.
 	LastReportState string `json:"last_report_state"`
 	LastReportNote  string `json:"last_report_note"`
-	// Durable so a hand send message with no evidence it reached the pane -
-	// a composer still busy past the --wait bound, a failed send, a failed
-	// submit - leaves a trace instead of vanishing with the process that
-	// attempted it; the operator who ran that send is the only one who would
-	// otherwise know it was ever tried. Cleared on the next send that actually
-	// reaches the pane, whatever message that send carries.
+	// Durable so a send with no evidence it reached the pane - a composer busy past the
+	// --wait bound, a failed send, a failed submit - leaves a trace instead of vanishing
+	// with the process that tried it. Cleared by the next send that does reach the pane.
 	SendUndeliveredMessage string `json:"send_undelivered_message"`
 	SendUndeliveredAt      string `json:"send_undelivered_at"`
-	// treehouse mints a fresh identity on every acquisition, so this - unlike
-	// Worktree, whose pool slot path is recycled - names the one lease this task
-	// holds and no other. Empty on a row written before the column existed, or by
-	// a treehouse that predates lease identities; see worktree.CheckCollision.
+	// treehouse mints a fresh identity per acquisition, so unlike Worktree, whose pool slot
+	// path is recycled, this names the one lease this task holds. Empty on a row older than
+	// the column or from a treehouse predating lease identities (worktree.CheckCollision).
 	LeaseID string `json:"lease_id"`
-	// Set when the work is handed off and the decision to land it belongs to
-	// someone outside the fleet - an upstream maintainer, or a deliverable that
-	// is a report rather than a commit. Distinct from MergeExecuted and
-	// MergeAnnounced, which both assert the work landed: a delivered task is
-	// terminal without that claim, and stays distinguishable from a merged one
-	// afterwards (atqamz/secondhand#78). DeliveredReason is required, so the record
-	// says what was delivered and to whom rather than only that something was.
+	// Set when landing the work belongs outside the fleet - an upstream maintainer, or a
+	// deliverable that is a report, not a commit. Terminal without MergeExecuted's claim that
+	// it landed (atqamz/secondhand#78). Reason required, so the record says what and to whom.
 	DeliveredAt     string `json:"delivered_at"`
 	DeliveredReason string `json:"delivered_reason"`
-	// When the pane this task currently occupies began, written by spawn and
-	// restamped by hand promote. A separate fact from StatusChangedAt, which the
-	// outage-dwell clock restamps for a pane it could not even reach: one field
-	// cannot mean both "this pane started here" and "the last herdr transition
-	// was observed here" (atqamz/secondhand#128).
+	// When this task's pane began, written by spawn and restamped by hand promote. Unlike
+	// StatusChangedAt, which the outage-dwell clock restamps for an unreachable pane, one field
+	// cannot mean both pane-start and last-observed transition (atqamz/secondhand#128).
 	PaneStartedAt string `json:"pane_started_at"`
-	// The silence instant hand watch last fired `parked` against. Durable because
-	// a done or failed task's report file never grows again, so a re-derived latch
-	// lets every watcher restart re-fire against that same frozen instant and
-	// evict real history from the capped state/events.log (atqamz/secondhand#127).
+	// The silence instant hand watch last fired `parked` against. Durable: a terminal task's
+	// report file never grows, so a re-derived latch would re-fire that frozen instant every
+	// restart and evict real history from events.log (atqamz/secondhand#127).
 	ParkedFiredFor string `json:"parked_fired_for"`
-	// The earliest instant hand watch may next try to resume a worker its harness
-	// stopped on a usage limit, and how many such attempts it has already made.
-	// Non-empty is what makes a task limited; the `limit` hold is the operator-visible
-	// projection of it. Durable because a re-derived schedule lets every watcher
-	// restart attempt immediately against an account that is still limited, which is
-	// the retry storm the whole mechanism is bounded to avoid, and because a restart
-	// that forgot the schedule would never resume the worker at all
-	// (atqamz/secondhand#136).
-	UsageLimitRetryAt  string `json:"usage_limit_retry_at"`
-	UsageLimitAttempts int    `json:"usage_limit_attempts"`
+	// The earliest instant hand watch may next try to resume a worker its harness stopped on a usage
+	// limit. Non-empty is what makes a task limited; the `limit` hold is the operator-visible
+	// projection of it.
+	UsageLimitRetryAt string `json:"usage_limit_retry_at"`
+	// How many such attempts have been made. Both are durable because a re-derived schedule lets every
+	// watcher restart attempt immediately against an account still limited - the retry storm this is
+	// bounded to avoid - and a restart that forgot it never resumes at all (atqamz/secondhand#136).
+	UsageLimitAttempts int `json:"usage_limit_attempts"`
 }
 
-// Upstream is the "owner/repo" a fork project opens its PRs against, empty for
-// a project that contributes to its own repo. A fork contribution has two
-// repos - the fork hand pushes to, which URL names, and the upstream the PR
-// lives on - and only a declared upstream lets hand tell that pair apart from
-// a PR URL naming a repo nobody authorized (atqamz/secondhand#78).
+// Upstream is the "owner/repo" a fork project opens its PRs against, empty when it contributes to
+// its own repo. A fork has two repos, the one URL names and the one its PRs live on, and only a
+// declared upstream tells that pair from an unauthorized one (atqamz/secondhand#78).
 type Project struct {
 	Name     string
 	URL      string
@@ -145,10 +128,9 @@ type Project struct {
 	Upstream string
 }
 
-// Hold is its own row keyed by an arbitrary id, not a foreign key into task:
-// the case it exists for is a question left open by work that has no task row
-// behind it any more, because hand teardown already removed it. BlockedOn
-// carries the id a HoldKindBlocked hold waits on; empty for HoldKindOperator.
+// Hold is its own row keyed by an arbitrary id, not a foreign key into task: it exists for a
+// question left open by work whose task row hand teardown already removed. BlockedOn carries
+// the id a HoldKindBlocked hold waits on, empty for HoldKindOperator.
 type Hold struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
@@ -295,10 +277,9 @@ func (db *DB) setMeta(key, value string) error {
 	return nil
 }
 
-// taskColumnNames is the one list of the task table's columns. Everything a
-// write needs is derived from it - the column list, the placeholders, the
-// upsert's SET clause - so adding a column to `schema` and to taskValues below
-// cannot reach one writer and silently miss another.
+// The one list of the task table's columns. Everything a write needs is derived from it -
+// the column list, the placeholders, the upsert's SET clause - so adding a column to
+// `schema` and to taskValues below cannot reach one writer and silently miss another.
 var taskColumnNames = []string{
 	"id", "project", "kind", "harness", "model", "effort", "worktree", "brief",
 	"herdr_session", "herdr_workspace_id", "herdr_tab_id", "herdr_pane_id", "pr",
@@ -316,8 +297,8 @@ var (
 	taskUpsertSet    = taskExcludedAssignments()
 )
 
-// taskExcludedAssignments builds the upsert's SET clause for every column but
-// the primary key, which is what the conflict matched on.
+// Builds the upsert's SET clause for every column but the primary key, which is what the
+// conflict matched on.
 func taskExcludedAssignments() string {
 	assignments := make([]string, 0, len(taskColumnNames)-1)
 	for _, name := range taskColumnNames[1:] {
@@ -326,7 +307,7 @@ func taskExcludedAssignments() string {
 	return strings.Join(assignments, ", ")
 }
 
-// taskValues is one task's columns in taskColumnNames order.
+// One task's columns in taskColumnNames order.
 func taskValues(t Task) []any {
 	return []any{
 		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
@@ -521,10 +502,9 @@ func (db *DB) ReadHold(id string) (Hold, bool, error) {
 	return h, true, nil
 }
 
-// ListHolds surfaces every row, whatever it holds: a caller that filtered
-// here on kind or on BlockedOn being consistent with kind would let a row an
-// external write left inconsistent silently disappear from "what is held"
-// instead of being reported as a hold that needs attention.
+// ListHolds surfaces every row, whatever it holds: filtering here on kind, or on BlockedOn
+// being consistent with kind, would let a row an external write left inconsistent disappear
+// from "what is held" instead of being reported as a hold that needs attention.
 func (db *DB) ListHolds() ([]Hold, error) {
 	rows, err := db.sql.Query(`SELECT ` + holdColumns + ` FROM hold ORDER BY id`)
 	if err != nil {

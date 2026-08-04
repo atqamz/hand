@@ -1,0 +1,286 @@
+package main
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"strings"
+	"testing"
+)
+
+func findingsFor(t *testing.T, path, src string) []finding {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	if ast.IsGenerated(f) {
+		return nil
+	}
+	return check(fset, f, path)
+}
+
+func TestRulesCatchTheShapeTheIssueMeasured(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		src  string
+		want string
+	}{
+		{
+			name: "test function doc opening with its own name",
+			path: "slug_test.go",
+			src: `package p
+// TestFoldsCasing drives the recording guard itself: a URL carries canonical
+// casing while the slug does not.
+func TestFoldsCasing(t *testing.T) {}
+`,
+			want: `rule 1: comment opens with the identifier it documents ("TestFoldsCasing")`,
+		},
+		{
+			name: "unexported helper doc opening with its own name",
+			path: "fakes_test.go",
+			src: `package p
+// writeFakeGH fakes ` + "`gh pr list`" + ` the way GitHub serves a repo.
+func writeFakeGH() {}
+`,
+			want: `rule 1: comment opens with the identifier it documents ("writeFakeGH")`,
+		},
+		{
+			name: "in-body comment opening with the variable it introduces",
+			path: "run.go",
+			src: `package p
+func f() {
+	// want is the canonical casing, which gh returns whatever was asked for.
+	want := 1
+	_ = want
+}
+`,
+			want: `rule 1: comment opens with the identifier it documents ("want")`,
+		},
+		{
+			name: "four line block",
+			path: "run.go",
+			src: `package p
+func f() {
+	// A differently cased search would answer empty and hide the hit, so the
+	// fake has to fold. GitHub serves the repo under every casing of the slug
+	// and the clone's origin remote decides which one a search is issued in,
+	// which is not the casing gh answers with.
+	g()
+}
+`,
+			want: "rule 2: comment block is 4 lines, the limit is 3",
+		},
+		{
+			name: "blank comment line does not break the block",
+			path: "run.go",
+			src: `package p
+func f() {
+	// The fake has to fold casing.
+	//
+	// GitHub serves the repo under every casing and the origin remote decides
+	// which one the search carries.
+	g()
+}
+`,
+			want: "rule 2: comment block is 4 lines, the limit is 3",
+		},
+		{
+			name: "a blank line above a doc comment does not break the block either",
+			path: "run.go",
+			src: `package p
+
+// GitHub serves the repo under every casing of its slug, while the origin
+// remote decides which one a search carries, so the fake has to fold casing
+// the way the real tool does.
+
+// The blank line above satisfies the count and changes nothing a reader sees.
+var v = 1
+`,
+			want: "rule 2: two blocks a blank line apart document one declaration, 4 lines together, the limit is 3",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := findingsFor(t, c.path, c.src)
+			if len(got) != 1 {
+				t.Fatalf("got %d findings, want 1: %v", len(got), got)
+			}
+			if got[0].msg != c.want {
+				t.Errorf("got %q, want %q", got[0].msg, c.want)
+			}
+		})
+	}
+}
+
+// The negative cases decide whether the rules are adoptable: a checker that flags
+// idiomatic Go, pragmas, or a real three-line WHY would be turned off on day one.
+func TestRulesPassWhatMustKeepPassing(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		src  string
+	}{
+		{
+			name: "three line why",
+			path: "run.go",
+			src: `package p
+func f() {
+	// GitHub serves a repo under every casing of its slug, so a search issued in
+	// the casing the origin remote carries answers exactly as one issued in the
+	// canonical casing. Folding widens nothing: a slug is unique up to casing.
+	g()
+}
+`,
+		},
+		{
+			name: "neighbouring declarations each documented",
+			path: "run.go",
+			src: `package p
+
+// The block above a documents a and nothing else, so the block above b is a
+// second subject rather than a's second paragraph. Reading every such pair as
+// one split block would flag most of the tree.
+var a = 1
+
+// Three lines here too, to prove the pair is judged by what each block
+// documents and not by how long the two are together.
+var b = 2
+`,
+		},
+		{
+			name: "a split that stays inside the limit",
+			path: "run.go",
+			src: `package p
+
+// A one-line aside.
+
+// V is exported and documented.
+var V = 1
+`,
+		},
+		{
+			name: "pragmas",
+			path: "run.go",
+			src: `//go:build e2e
+
+package p
+
+//go:generate stringer -type=kind
+//nolint:gosec // the path is repo-relative
+// #nosec G404
+//lint:ignore SA1019 the replacement lands with the next release
+var x = 1
+`,
+		},
+		{
+			name: "idiomatic exported doc comment",
+			path: "run.go",
+			src: `package p
+// Execute runs the root command.
+func Execute() {}
+// Kind is a task's lifecycle stage.
+type Kind int
+// ErrNoHome reports a missing fleet home.
+var ErrNoHome = f()
+`,
+		},
+		{
+			name: "long package doc comment",
+			path: "run.go",
+			src: `// Package p records what the fleet knows about a task, which is four lines of
+// prose because the invariants are the file's actual subject and godoc is where
+// they are read. A worker reading the package for the first time needs them
+// before it touches the store.
+package p
+`,
+		},
+		{
+			name: "generated file",
+			path: "zz_generated.go",
+			src: `// Code generated by stringer. DO NOT EDIT.
+
+package p
+// kind restates its own name across four lines, and none of it is checked
+// because a generator wrote it and nobody edits it by hand, so flagging it
+// would only ever produce noise no one can act on.
+var kind = 1
+`,
+		},
+		{
+			name: "comment not adjacent to the declaration it names",
+			path: "run.go",
+			src: `package p
+func f() {
+	// want is set below, after the fake is in place.
+
+	g()
+	want := 1
+	_ = want
+}
+`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := findingsFor(t, c.path, c.src); len(got) != 0 {
+				t.Errorf("got %d findings, want 0: %v", len(got), got)
+			}
+		})
+	}
+}
+
+func TestTreeWalkSkipsNonGoAndReportsFileLine(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir+"/a.go", `package p
+func f() {
+	// x names itself, which is the shape rule 1 is about.
+	x := 1
+	_ = x
+}
+`)
+	write(t, dir+"/README.md", "// x is not Go\n")
+	got, err := checkTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1: %v", len(got), got)
+	}
+	if !strings.HasSuffix(got[0].pos.Filename, "a.go") || got[0].pos.Line != 3 {
+		t.Errorf("got %s:%d, want a.go:3", got[0].pos.Filename, got[0].pos.Line)
+	}
+}
+
+func TestTreeWalkNeverSkipsItsOwnRoot(t *testing.T) {
+	dir := t.TempDir() + "/.checkout"
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir+"/a.go", `package p
+func f() {
+	// x names itself, which is the shape rule 1 is about.
+	x := 1
+	_ = x
+}
+`)
+	for _, root := range []string{dir, dir + "/", dir + "/."} {
+		got, err := checkTree(root)
+		if err != nil {
+			t.Fatalf("checkTree(%q): %v", root, err)
+		}
+		if len(got) != 1 {
+			t.Errorf("checkTree(%q) got %d findings, want 1: %v", root, len(got), got)
+		}
+	}
+}
+
+func write(t *testing.T, path, src string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

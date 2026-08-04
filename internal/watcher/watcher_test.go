@@ -20,30 +20,20 @@ import (
 	"github.com/atqamz/secondhand/internal/store"
 )
 
-// writeFakeHerdr fakes every herdr command a tick can make: real herdr answers the
-// query commands with a JSON envelope carrying a non-null result on stdout and exit 0,
-// and reports failures as an envelope error rather than bare stderr
-// (internal/herdr/client.go's call doc comment), which this fake mirrors for
-// success and diverges from for the unexpected-args arm - a bare stderr line
-// and exit 1, so a call shape no test anticipated fails loudly instead of
-// parsing. "pane get" reads its status from statusFile so a test can drive
-// transitions between ticks; failure paths belong to
-// internal/herdr/client_test.go.
-//
-// PANE_AGENT is empty unless a test sets it, which is what keeps every test written
-// before the usage-limit check from reading a pane: an unclassified pane names no
-// harness, so no harness capability applies to it.
-
-// paneGoneStatus drives the fake into herdr's failure shape for `pane get`: an error
-// envelope on stdout with exit code 0. A fake that exited nonzero would also reach
-// ClassifyStatus's probeErr branch, but through the client's empty-stdout path rather
-// than the envelope check that runs ahead of the exit status - and this is the shape
-// real herdr uses, which is the one that check exists for.
+// Drives the fake into herdr's failure shape for `pane get` - an error envelope on stdout with exit 0,
+// the shape the envelope check exists for. Exiting nonzero would reach ClassifyStatus's probeErr
+// branch too, but through the client's empty-stdout path rather than that check, which runs first.
 const paneGoneStatus = "pane-gone"
 
+// Fakes the two query commands a tick makes, mirroring real herdr: a JSON envelope with a non-null
+// result on stdout and exit 0, failures as an envelope error rather than bare stderr, per
+// internal/herdr/client.go's call doc. Those failure paths belong to internal/herdr/client_test.go.
 func writeFakeHerdr(t *testing.T, statusFile string) {
 	t.Helper()
 	bin := t.TempDir()
+	// The unexpected-args arm deliberately diverges - a bare stderr line and exit 1 - so a call shape
+	// no test anticipated fails loudly instead of parsing. "pane get" reads its status from statusFile,
+	// so a test can drive transitions between ticks.
 	script := `#!/bin/sh
 case "$1 $2" in
 "workspace list")
@@ -60,6 +50,9 @@ case "$1 $2" in
 		printf '{"id":"cli:1","error":{"code":"not_found","message":"pane p1 not found"}}'
 		exit 0
 	fi
+	# PANE_AGENT is empty unless a test sets it, which is what keeps every test written before the
+	# usage-limit check from reading a pane: an unclassified pane names no harness, so no harness
+	# capability applies to it.
 	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"%s","agent":"%s"}}}' "$status" "$PANE_AGENT"
 	;;
 "pane read")
@@ -85,23 +78,21 @@ esac
 	t.Setenv("STATUS_FILE", statusFile)
 }
 
-// writeFakeGh fakes `gh pr view --json state`, the only gh call a tick makes
-// (watcher.go's ghutil.PRIsMerged). Real gh prints that JSON object on stdout
-// with exit 0 and prefixes its own warnings on stderr, so the fake emits a
-// stderr line too: PRIsMerged reads stdout alone, and a CombinedOutput
-// regression there must fail this watcher path as well, not only
-// internal/ghutil/pr_test.go.
+// Fakes `gh pr view --json state`, the only gh call a tick makes (watcher.go's ghutil.PRIsMerged),
+// which real gh answers with that JSON object on stdout and exit 0.
 func writeFakeGh(t *testing.T, prState string) {
 	writeFakeGhWithHook(t, prState, "")
 }
 
-// writeFakeGhWithHook runs hook (a shell snippet) before the gh double answers.
-// project.ValidatePR shells out to gh before the auto-record takes the task lock,
-// so this is the only place a test can mutate task state at the one instant that
-// matters: after tick's own state.List snapshot, before the auto-record re-reads.
+// Runs hook (a shell snippet) before the gh double answers. project.ValidatePR shells out to gh
+// before the auto-record takes the task lock, so this is the only place a test can mutate task state
+// at the instant that matters: after tick's state.List snapshot, before the auto-record re-reads.
 func writeFakeGhWithHook(t *testing.T, prState, hook string) {
 	t.Helper()
 	bin := t.TempDir()
+	// Real gh prefixes its own warnings on stderr and PRIsMerged reads stdout alone, so the fake emits
+	// a stderr line too: a CombinedOutput regression there must fail this watcher path as well, not
+	// only internal/ghutil/pr_test.go.
 	script := "#!/bin/sh\necho 'Warning: gh version is out of date' >&2\n" + hook + "\nprintf '{\"state\":\"" + prState + "\"}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -109,9 +100,8 @@ func writeFakeGhWithHook(t *testing.T, prState, hook string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// registerProject gives a watcher home the two things the auto-record path's
-// validation reads: a registry entry and a clone whose origin remote names the
-// repo a reported PR URL has to belong to.
+// Gives a watcher home the two things the auto-record path's validation reads: a registry entry and a
+// clone whose origin remote names the repo a reported PR URL has to belong to.
 func registerProject(t *testing.T, home, name, remote string) {
 	t.Helper()
 	clonePath := filepath.Join(home, "projects", name)
@@ -130,9 +120,9 @@ func registerProject(t *testing.T, home, name, remote string) {
 	}
 }
 
-// setStatus publishes by atomic rename because the fake herdr cats this file from
-// another process: a truncating write would let it read a phantom empty status,
-// which classifies as a transition to unknown and swallows the real one.
+// Publishes by atomic rename because the fake herdr cats this file from another process: a
+// truncating write would let it read a phantom empty status, which classifies as a transition to
+// unknown and swallows the real one.
 func setStatus(t *testing.T, statusFile, status string) {
 	t.Helper()
 	tmp := statusFile + ".tmp"
@@ -184,15 +174,9 @@ func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
 	return home
 }
 
-// TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling proves the fix
-// for #30/#32/#33's working->idle bug against the herdr spelling hand's headless
-// polling actually observes: herdr renders a working/blocked->idle transition as
-// "done", not "idle", unless a live OS-focused herdr client has that pane's tab
-// active at the instant of the transition (see herdr.Status's doc comment) - a
-// condition hand's pure-polling model never satisfies. An earlier version of this
-// test drove the fake herdr's status file to "done" and expected an unconditional
-// "done" event; that was itself the bug the fix corrects, so it's now expected to
-// behave exactly like an unexplained idle transition: idle-unreported.
+// Proves the working->idle fix (atqamz/secondhand#30, atqamz/secondhand#32, atqamz/secondhand#33)
+// against the spelling hand's headless polling observes: herdr renders working/blocked->idle as "done",
+// not "idle", unless a live OS-focused client has that tab active then (see herdr.Status's doc).
 func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -211,6 +195,9 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 		t.Fatalf("first tick printed output for newly seen task: %q", buf.String())
 	}
 
+	// Driving the status file to "done" is what an earlier version of this test did while expecting an
+	// unconditional "done" event - itself the bug the fix corrects, since hand's pure-polling model
+	// never satisfies that focus condition, so this is exactly an unexplained idle transition.
 	setStatus(t, statusFile, "done")
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, &errBuf)
@@ -247,10 +234,9 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 	}
 }
 
-// TestTickRecordsVerifiedDoneOnlyOnceReportedDoneIsVerified is the only
-// remaining source of a verified-done record: a worker's own "done" report,
-// cross-checked against a task the caller has already recorded as merged.
-// herdr's agent_status never drives this by itself - see the test above.
+// The only remaining source of a verified-done record: a worker's own "done" report, cross-checked
+// against a task the caller has already recorded as merged. herdr's agent_status never drives this by
+// itself - see the test above.
 func TestTickRecordsVerifiedDoneOnlyOnceReportedDoneIsVerified(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -486,9 +472,8 @@ func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	}
 }
 
-// TestTickRefusesToAutoRecordAForeignRepoPR is the guard against the worst
-// outcome of trusting a worker's text: a PR URL from an unrelated repo becoming
-// the task's PR, which `hand merge` would then merge for real.
+// The guard against the worst outcome of trusting a worker's text: a PR URL from an unrelated repo
+// becoming the task's PR, which `hand merge` would then merge for real.
 func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -534,11 +519,9 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 	}
 }
 
-// TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused pins the slot ownership: one
-// report line can both ask the supervisor something and carry a URL that fails to
-// record, and the task's own last-reported state/note is keyed by task ID, so a
-// second writer touching it for the refused PR would erase the question from the
-// one surface a supervisor is told to read first.
+// Pins the slot ownership: one report line can both ask the supervisor something and carry a URL that
+// fails to record, and the last-reported state/note is keyed by task ID, so a second writer touching
+// it for the refused PR would erase the question from the surface a supervisor reads first.
 func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -575,10 +558,9 @@ func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
 	}
 }
 
-// TestTickSurfacesAContendedAutoRecordInsteadOfWaiting covers the poll loop's
-// no-blocking-lock rule at the auto-record site: another command holding the task
-// lock across network work must not stall the watcher, so the tick reports the
-// contention through the ordinary refusal path and moves on.
+// Covers the poll loop's no-blocking-lock rule at the auto-record site: another command holding the
+// task lock across network work must not stall the watcher, so the tick reports the contention
+// through the ordinary refusal path and moves on.
 func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -637,16 +619,9 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	}
 }
 
-// TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR covers the race the
-// non-blocking task lock introduced: `hand pr` holds that lock across its own gh
-// round-trip while recording the very URL the watcher just read off the report.
-// Announcing anything there is a false alarm naming a no-op remedy.
-//
-// The holder's write has to land after tick's own state.List snapshot, or the
-// pre-existing "task already has a PR" guard absorbs the URL and the contention
-// path under test is never reached - which is what made an earlier version of
-// this test vacuous. Hence the gh double writes it: ValidatePR shells out to gh
-// on the way to the lock, so the hook fires inside exactly that window.
+// Covers the race the non-blocking task lock introduced: `hand pr` holds that lock across its own gh
+// round-trip while recording the very URL the watcher just read off the report. Announcing anything
+// there is a false alarm naming a no-op remedy.
 func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -656,7 +631,12 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
 
 	url := "https://github.com/atqamz/secondhand/pull/7"
+	// The holder's write has to land after tick's own state.List snapshot, or the pre-existing "task
+	// already has a PR" guard absorbs the URL and the contention path under test is never reached -
+	// which is what made an earlier version of this test vacuous.
 	snapshot := taskSnapshotWithPR(t, home, "task-1", url)
+	// Hence the gh double writes it: ValidatePR shells out to gh on the way to the lock, so the hook
+	// fires inside exactly that window.
 	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", snapshot, store.Path(home)))
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -763,11 +743,9 @@ func TestTickReportsAnUnreadableTaskWhenTheLockIsContended(t *testing.T) {
 	}
 }
 
-// TestTickAnnouncesPRMergedBeforePersistingIt pins the ordering the durable
-// marker depends on. Reading the task state at the instant the line hits stdout
-// is exactly what a restarted watcher would find had the process died there: the
-// marker must still be unset, so the announcement is re-derivable. Persisting
-// first would trade a tolerable duplicate for a permanently lost event.
+// Pins the ordering the durable marker depends on. Reading task state at the instant the line hits
+// stdout is what a restarted watcher would find had the process died there: the marker must still be
+// unset, so the announcement is re-derivable; persisting first trades a duplicate for a lost event.
 func TestTickAnnouncesPRMergedBeforePersistingIt(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -801,8 +779,8 @@ func TestTickAnnouncesPRMergedBeforePersistingIt(t *testing.T) {
 	}
 }
 
-// stateAtWriteWriter records what a task's durable state held at the moment each
-// event line was written, keyed by the line.
+// Records what a task's durable state held at the moment each event line was written, keyed by the
+// line.
 type stateAtWriteWriter struct {
 	t        *testing.T
 	home     string
@@ -820,8 +798,7 @@ func (w *stateAtWriteWriter) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-// TestTickDoesNotReannounceAPollObservedMergeAfterRestart covers the other half
-// of the durable marker: a merge only this watcher's gh poll ever saw, and the
+// The other half of the durable marker: a merge only this watcher's gh poll ever saw, and the
 // verified done that followed it, must not be re-emitted by the next process.
 func TestTickDoesNotReannounceAPollObservedMergeAfterRestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
@@ -878,9 +855,8 @@ func TestTickReportsAnUnreadableReport(t *testing.T) {
 	}
 }
 
-// TestTickResumesReportTailAfterRestart proves the offset survives the process:
-// a fresh states map (a restarted hand watch) must not replay lines the previous
-// run already surfaced, and must not forget the report explaining a quiet pane.
+// Proves the offset survives the process: a fresh states map (a restarted hand watch) must not replay
+// lines the previous run already surfaced, and must not forget the report explaining a quiet pane.
 func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -927,13 +903,9 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	}
 }
 
-// A worker's `done:` rewrite that happens to land on the byte count of the
-// `working:` line before it was skipped outright: the offset still sat just past
-// the file's final newline with nothing after it, so nothing was announced,
-// LastReportState stayed `working`, and ClassifyDeferredDone - gated on it - never
-// ran for a worker that had finished (atqamz/secondhand#149). The restart in the
-// middle is the point of doing this at tick level: what makes the rewrite
-// detectable has to survive the process, exactly as the offset does.
+// A `done:` rewrite landing on the byte count of the `working:` line before it was skipped outright
+// (atqamz/secondhand#149): the offset still sat just past the final newline with nothing after it, so
+// nothing was announced, LastReportState stayed `working`, and ClassifyDeferredDone - gated on it - never ran.
 func TestTickAnnouncesADoneRewrittenToTheSameLengthAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -959,6 +931,8 @@ func TestTickAnnouncesADoneRewrittenToTheSameLengthAcrossARestart(t *testing.T) 
 	}
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
+	// Restarting mid-test is the point of doing this at tick level: what makes the rewrite detectable has
+	// to survive the process, exactly as the offset does.
 	restarted := make(map[string]*TaskState)
 	buf.Reset()
 	tick(ctx, cfg, client, restarted, &buf, io.Discard)
@@ -1034,11 +1008,9 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
-// A done worker's report file never grows again, so the silence instant parked
-// fired against is frozen: a re-derived latch fires against that same instant on
-// every restart, and state/events.log is capped, so the duplicates evict real
-// history. The whole point of persisting the latch is this second run staying
-// quiet.
+// A done worker's report file never grows again, so the silence instant parked fired against is
+// frozen: a re-derived latch fires against that same instant on every restart, and state/events.log
+// is capped, so the duplicates evict real history.
 func TestTickDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1076,6 +1048,7 @@ func TestTickDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	}
 
 	buf.Reset()
+	// The whole point of persisting the latch is this second run staying quiet.
 	restarted := make(map[string]*TaskState)
 	tick(context.Background(), cfg, client, restarted, &buf, io.Discard)
 	tick(context.Background(), cfg, client, restarted, &buf, io.Discard)
@@ -1084,10 +1057,9 @@ func TestTickDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	}
 }
 
-// The two facts the floor has to keep apart. An outage restamps status_changed_at
-// for a pane the watcher could not reach, which must not move the floor at all;
-// a promote restamps pane_started_at, which must move it past the scout's whole
-// accumulated silence. Reading either field for both jobs gets one of them wrong.
+// The two facts the floor has to keep apart. An outage restamps status_changed_at for a pane the
+// watcher could not reach, which must not move the floor at all; a promote restamps pane_started_at,
+// which must move it past the scout's whole silence. Reading either field for both jobs breaks one.
 func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 	now := time.Now()
 	home := t.TempDir()
@@ -1199,12 +1171,9 @@ func TestTickRefusesADurableDwellStampedForADifferentStatus(t *testing.T) {
 	}
 }
 
-// TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence covers the
-// window between the two halves: the worker reports done, hand watch stops, and
-// hand merge lands the work by writing merged. On restart the evidence is
-// already on disk, so a marker re-derived from current evidence would conclude
-// the verified line had gone out and never print it, leaving the task's
-// recorded state stuck where the unverified report left it.
+// Covers the window between the two halves: the worker reports done, hand watch stops, and hand merge
+// lands the work by writing merged. On restart the evidence is already on disk, so a marker re-derived
+// from it would conclude the verified line went out and never print it.
 func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1255,6 +1224,7 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Without the announcement the recorded state stays stuck where the unverified report left it.
 	if task.LastReportState != state.ReportDone {
 		t.Fatalf("LastReportState = %q, want the task's own recorded state moved to done", task.LastReportState)
 	}
@@ -1509,13 +1479,9 @@ func TestForgetPaneScopedCacheGivesTheShipsFirstProbeFailureADwell(t *testing.T)
 	}
 }
 
-// TestForgetPaneScopedCacheHandlesEveryField is a completeness guard, not a behavior
-// test: TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch above only asserts the
-// fields already known to need resetting, and would keep passing if a future field
-// repeated the exact defect Status and then Probed both had - present in TaskState,
-// absent from forgetPaneScopedCache. This test instead walks every field by
-// reflection, so a field neither reset/re-derived nor named in the carried map below
-// fails it automatically by staying equal to its deliberately-stale "before" value.
+// A completeness guard, not a behavior test: TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch
+// above asserts only the fields already known to need resetting, and would keep passing if a future
+// field repeated the defect Status and then Probed both had - in TaskState, absent from the function.
 func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	before := TaskState{
 		CreatedAt:               "created-marker",
@@ -1553,15 +1519,9 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		LastReportNote:   "ship-report-note",
 	}
 
-	// carried names every field the PR body's field-by-field table classifies as
-	// genuinely pane-independent, so forgetPaneScopedCache is correct to leave it
-	// untouched: identity (CreatedAt), PR facts (PRMerged), report-file position
-	// (ReportCursor/PersistedCursor, PersistedPRMerged mirrors the same PR fact),
-	// and the parked latch (ParkedFiredFor is keyed to the report mtime, not the
-	// pane, and PersistedParkedFiredFor mirrors that same fact). Anything else
-	// added to TaskState later needs an entry here with a reason, or
-	// forgetPaneScopedCache needs to handle it - this test does not care which,
-	// only that the decision was made on purpose.
+	// Every field the PR body's field-by-field table classifies as pane-independent, so
+	// forgetPaneScopedCache is right to leave it alone: identity, PR facts, report-file position, and
+	// the parked latch, keyed to the report mtime not the pane. Persisted* entries mirror those facts.
 	carried := map[string]bool{
 		"CreatedAt":               true,
 		"PRMerged":                true,
@@ -1575,6 +1535,9 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	ts := before
 	forgetPaneScopedCache(&ts, promoted, time.Now())
 
+	// Walking every field by reflection: one neither reset/re-derived nor named in the carried map fails
+	// automatically by staying equal to its deliberately-stale "before" value. Which of the two fixes it
+	// gets does not matter here, only that the decision was made on purpose.
 	beforeVal, afterVal := reflect.ValueOf(before), reflect.ValueOf(ts)
 	typ := beforeVal.Type()
 	seen := make(map[string]bool, typ.NumField())
@@ -1702,8 +1665,8 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 	}
 }
 
-// hasEventLine matches want as a whole output line, so "reported-done <id>" and
-// "done <id>" - one a substring of the other - can't be confused.
+// Matches want as a whole output line, so "reported-done <id>" and "done <id>" - one a substring of
+// the other - cannot be confused.
 func hasEventLine(out, want string) bool {
 	for _, line := range strings.Split(out, "\n") {
 		if line == want {
@@ -1713,12 +1676,9 @@ func hasEventLine(out, want string) bool {
 	return false
 }
 
-// TestTickKeepsAMultiLineAutoRecordFailureOnOneLine pins the one-line-per-event
-// invariant against its noisiest real cause: ghutil wraps gh's stderr into the
-// error verbatim, and gh emits several lines for auth and network failures. A
-// multi-line Event.Text breaks the stdout contract and makes events.log's
-// 200-line bound count one event as several. The cause is preserved - only its
-// line breaks are not.
+// Pins the one-line-per-event invariant against its noisiest real cause: ghutil wraps gh's stderr
+// into the error verbatim, and gh emits several lines for auth and network failures. A multi-line
+// Event.Text breaks the stdout contract and makes events.log's 200-line bound count one as several.
 func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1743,9 +1703,9 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, &errBuf)
 
-	// The same report line also emits reported-done, so the invariant under test
-	// is per event: the failure occupies exactly one line, carrying the whole
-	// cause, and no fragment of it lands on a line of its own.
+	// The same report line also emits reported-done, so the invariant under test is per event: the
+	// failure occupies exactly one line, keeping the whole cause and losing only its line breaks, with
+	// no fragment of it on a line of its own.
 	printed := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	var failures []string
 	for _, line := range printed {
@@ -1773,10 +1733,9 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 	}
 }
 
-// writeFakeGhFailingMultiline mirrors the real gh's noisiest failure: auth and
-// network errors exit non-zero having written several lines to stderr, which
-// ghutil.PRIsMerged wraps into the returned error verbatim. Nothing is written
-// to stdout, as with the real tool on this path.
+// Mirrors the real gh's noisiest failure: auth and network errors exit non-zero having written
+// several lines to stderr, which ghutil.PRIsMerged wraps into the returned error verbatim. Nothing is
+// written to stdout, as with the real tool on this path.
 func writeFakeGhFailingMultiline(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
@@ -1944,10 +1903,9 @@ func TestHandleEventReportsAFailingNotifyTemplateToErrOut(t *testing.T) {
 }
 
 func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
-	// exit 1 with empty stdout is the faithful crashed-or-missing-binary shape,
-	// which call()'s empty-stdout-plus-runErr branch handles (len(trimmed) == 0
-	// && runErr != nil). It is a distinct shape from herdr's ordinary failure
-	// (exit 0 plus an error envelope), and only this one means "unreachable".
+	// exit 1 with empty stdout is the faithful crashed-or-missing-binary shape, which call()'s
+	// empty-stdout-plus-runErr branch handles. A distinct shape from herdr's ordinary failure (exit 0
+	// plus an error envelope), and only this one means "unreachable".
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1990,10 +1948,9 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 	}
 }
 
-// TestRunUntilEventTakesTheStartupStateAsBaseline is the regression test for the
-// delivery failure of 2026-07-28: the grep-on-first-line wrapper this mode
-// replaces matched a done worker's startup line, took it for a transition, and
-// left the two real events that followed unread for three hours.
+// The regression test for the delivery failure of 2026-07-28: the grep-on-first-line wrapper this
+// mode replaces matched a done worker's startup line, took it for a transition, and left the two real
+// events that followed unread for three hours.
 func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "done")
@@ -2055,11 +2012,9 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	}
 }
 
-// TestRunUntilEventFiltersWakesToTheRequestedKinds covers #85: a caller that
-// only wants to wake on blocked must not be woken by a routine idle-unreported
-// transition, but the filtered-out event still has to reach events.log exactly
-// like a baseline tick's events already do - the filter gates the wake, not the
-// record.
+// Covers atqamz/secondhand#85: a caller that only wants to wake on blocked must not be woken by a
+// routine idle-unreported transition, but the filtered-out event still has to reach events.log exactly
+// like a baseline tick's events already do - the filter gates the wake, not the record.
 func TestRunUntilEventFiltersWakesToTheRequestedKinds(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2288,11 +2243,9 @@ func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
 	}
 }
 
-// TestTickResumesTheLastStateAfterATrailingMalformedLine holds resume to what the
-// live path already does: a free-text line appended after a real report explains
-// nothing, so it must not erase the report it follows. Reading it back as "never
-// reported" turns the next quiet pane into idle-unreported, replacing the
-// worker's own explanation with a bare unexplained stop.
+// Holds resume to what the live path already does: a free-text line appended after a real report
+// explains nothing, so it must not erase the report it follows. Reading it back as "never reported"
+// turns the next quiet pane into idle-unreported, replacing the explanation with a bare stop.
 func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2336,11 +2289,9 @@ func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
 	}
 }
 
-// TestTickReseedsARespawnedTaskID keys tracking on identity rather than on ID. A
-// teardown and respawn between two ticks is a different task, and inheriting the
-// previous run's TaskState suppresses the new one's verified done for good:
-// syncTaskState writes that inherited done_verified onto the fresh JSON. Same
-// hazard as a surviving report channel, one layer in.
+// Keys tracking on identity rather than on ID. A teardown and respawn between two ticks is a
+// different task, and inheriting the previous run's TaskState suppresses the new one's verified done
+// for good: syncTaskState writes that inherited done_verified onto the fresh JSON.
 func TestTickReseedsARespawnedTaskID(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2374,6 +2325,8 @@ func TestTickReseedsARespawnedTaskID(t *testing.T) {
 	if err := state.Delete(home, "task-1"); err != nil {
 		t.Fatal(err)
 	}
+	// Same hazard as a surviving report channel, one layer in, so the scout's report.md goes with the
+	// state row.
 	if err := os.Remove(reportMD); err != nil {
 		t.Fatal(err)
 	}
@@ -2411,15 +2364,9 @@ func TestTickReseedsARespawnedTaskID(t *testing.T) {
 	}
 }
 
-// TestTickSetsTheStateColumnOnAReportedStop covers the well-behaved worker: it
-// says why it stopped, herdr's not-busy transition is then absorbed on purpose,
-// and the task's recorded state would otherwise keep reading "working" - the
-// very bug the report channel exists to remove, with the supervisor reading
-// that state first. The last step is the way back, the steer-and-continue
-// loop: nothing else in the codebase writes "working" to that state, so
-// without report-working the task latches on the stop-state and a steered
-// worker shows as awaiting a decision forever - the same two-views-disagree
-// defect, inverted.
+// Covers the well-behaved worker: it says why it stopped, herdr's not-busy transition is then absorbed
+// on purpose, and the recorded state would otherwise keep reading "working" - the very bug the report
+// channel exists to remove, with the supervisor reading that state first.
 func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2439,6 +2386,9 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 		{"blocked: needs an API key\n", state.ReportBlocked},
 		{"needs-decision: which base branch?\n", state.ReportNeedsDecision},
 		{"paused: sleeping on it\n", state.ReportPaused},
+		// The way back, the steer-and-continue loop: nothing else in the codebase writes "working" to that
+		// state, so without report-working the task latches on the stop-state and a steered worker shows
+		// as awaiting a decision forever - the same two-views-disagree defect, inverted.
 		{"working: main, carrying on\n", state.ReportWorking},
 	} {
 		report += tc.line
@@ -2457,16 +2407,9 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	}
 }
 
-// A pane hand cannot probe says nothing about a question the worker already asked,
-// and clearing it would be unrecoverable: the report line is already past
-// report_offset, and the recovery tick emits no event because the tracked status
-// never changed. ClassifyStatus fires failed on any probe error, so a herdr daemon
-// restart would otherwise wipe every tracked task's last-reported state in one
-// tick - fleet-wide loss out of a transient blip.
-// TestTickStaysSilentOnABlinkAtFirstSighting covers #81's hard part: a task
-// whose very first sighting finds its pane unreachable must not be dropped
-// (the old !tracked branch's bare continue), but a probe failure that clears
-// before the dwell matures - a blink - must produce nothing at all.
+// Covers atqamz/secondhand#81's hard part: a task whose very first sighting finds its pane unreachable
+// must not be dropped (the old !tracked branch's bare continue), but a probe failure that clears before
+// the dwell matures - a blink - must produce nothing at all.
 func TestTickStaysSilentOnABlinkAtFirstSighting(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, paneGoneStatus)
@@ -2495,9 +2438,8 @@ func TestTickStaysSilentOnABlinkAtFirstSighting(t *testing.T) {
 	}
 }
 
-// TestTickAnnouncesATaskUnreachableAtFirstSightingOnceTheDwellMatures covers the
-// other half: a pane that stays dark must produce exactly one failed event,
-// not one per tick, and not never.
+// The other half: a pane that stays dark must produce exactly one failed event, not one per tick, and
+// not never.
 func TestTickAnnouncesATaskUnreachableAtFirstSightingOnceTheDwellMatures(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, paneGoneStatus)
@@ -2531,10 +2473,9 @@ func TestTickAnnouncesATaskUnreachableAtFirstSightingOnceTheDwellMatures(t *test
 	}
 }
 
-// TestTickResumesAnUnreachableDwellAcrossARestart ties the outage clock to
-// durable evidence the same way stale and parked already do: a restart mid-
-// outage must not reset the dwell to zero, or a long-dark task would silently
-// buy itself a fresh grace period every time the watcher restarts.
+// Ties the outage clock to durable evidence the same way stale and parked already do: a restart
+// mid-outage must not reset the dwell to zero, or a long-dark task would silently buy itself a fresh
+// grace period every time the watcher restarts.
 func TestTickResumesAnUnreachableDwellAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, paneGoneStatus)
@@ -2564,6 +2505,9 @@ func TestTickResumesAnUnreachableDwellAcrossARestart(t *testing.T) {
 	}
 }
 
+// A pane hand cannot probe says nothing about a question the worker already asked, and clearing it
+// would be unrecoverable: the report line is already past report_offset, and the recovery tick emits
+// no event because the tracked status never changed.
 func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2582,6 +2526,8 @@ func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
 	}
 	tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
 
+	// ClassifyStatus fires failed on any probe error, so a herdr daemon restart would otherwise wipe
+	// every tracked task's last-reported state in one tick - fleet-wide loss out of a transient blip.
 	setStatus(t, statusFile, paneGoneStatus)
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)

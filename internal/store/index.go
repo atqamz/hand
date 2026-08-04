@@ -236,10 +236,9 @@ func (ix *Index) Search(query string, limit int) ([]Hit, error) {
 	return hits, nil
 }
 
-// Nothing renders data/dashboard.md any more (atqamz/secondhand#62), but a
-// home initialized before its deletion keeps the last render on disk forever,
-// and indexing that would answer a prose search out of a frozen snapshot of
-// removed functionality.
+// Nothing renders data/dashboard.md any more (atqamz/secondhand#62), but a home initialized
+// before its deletion keeps the last render on disk forever, and indexing that would answer a
+// prose search out of a frozen snapshot of removed functionality.
 var generatedCorpusFiles = map[string]bool{
 	filepath.Join("data", "dashboard.md"): true,
 }

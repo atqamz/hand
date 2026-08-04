@@ -14,16 +14,14 @@ import (
 	"time"
 )
 
-// ErrNotConfigured means home has no config/notify template, or has an empty
-// one, so Send has nothing to run and delivers nothing. Callers must not treat
-// this as success: the one property this package exists to protect is that "not
-// configured" and "delivered" are never the same observable outcome.
+// ErrNotConfigured means home has no config/notify template, or an empty one, so
+// Send runs nothing. Callers must not treat it as success: this package exists to
+// keep "not configured" and "delivered" from being the same observable outcome.
 var ErrNotConfigured = errors.New("no config/notify")
 
-// sendTimeout bounds the template's own run. The watcher calls Send inline in
-// its poll loop, so an unbounded template - the documented example is a bare
-// curl with no --max-time - would wedge polling, --until-event's timeout and
-// shutdown alike. A var so tests can shorten it.
+// Bounds the template's own run: the watcher calls Send inline in its poll loop,
+// so an unbounded template (the documented curl example has no --max-time) would
+// wedge polling, --until-event's timeout and shutdown alike. A var so tests cut it.
 var sendTimeout = 10 * time.Second
 
 // Send runs config/notify's shell command template with message available as
@@ -52,10 +50,9 @@ func Send(home, message string) error {
 	run.WaitDelay = time.Second
 	out, err := run.CombinedOutput()
 	if err != nil {
-		// WaitDelay only bounds how long Send waits on a pipe an orphaned
-		// grandchild still holds ("... &" templates); the template's own process
-		// already exited 0, so the send happened. A real failure is a non-zero
-		// exit code, reported ahead of ErrWaitDelay.
+		// WaitDelay only bounds waiting on a pipe an orphaned grandchild still
+		// holds ("... &" templates), where the template's own process exited 0 and
+		// the send happened. A real failure is a non-zero exit, reported ahead of it.
 		if errors.Is(err, exec.ErrWaitDelay) && run.ProcessState != nil && run.ProcessState.Success() {
 			return nil
 		}

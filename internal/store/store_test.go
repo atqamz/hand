@@ -201,11 +201,9 @@ func TestOpenImportsLegacyTaskFiles(t *testing.T) {
 	}
 }
 
-// A legacy file written before pane_started_at existed must land the value the
-// schema migration's backfill would have given it: the import is an INSERT, so
-// the backfill never runs over it, and an empty pane start slides parked's floor
-// back to the row's creation - the scout's, for a task promoted before either
-// mechanism existed.
+// A legacy file written before pane_started_at existed must land the value the schema
+// migration's backfill would have given it: the import is an INSERT the backfill never runs
+// over, and an empty pane start slides parked's floor back to the row's creation.
 func TestLegacyImportBackfillsThePaneStart(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
@@ -305,11 +303,9 @@ func TestOpenRefusesAnUnreadableLegacyFile(t *testing.T) {
 	}
 }
 
-// Every hand command opens the store, so the first contact with a legacy home
-// is routinely several of them at once. The import spans a readdir, an insert
-// and an archive rename, none of which sqlite serializes, so concurrent opens
-// have to come out of it with each task imported exactly once and every legacy
-// file archived - not a partial import and not a second copy of a task.
+// Every hand command opens the store, so first contact with a legacy home is routinely
+// several at once. The import spans a readdir, an insert and an archive rename, none of them
+// serialized, so concurrent opens must still import each task once and archive every file.
 func TestConcurrentOpensImportALegacyHomeExactlyOnce(t *testing.T) {
 	home := t.TempDir()
 	const legacyTasks = 5

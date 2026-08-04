@@ -7,8 +7,8 @@ import (
 	"github.com/atqamz/secondhand/internal/axi"
 )
 
-// pickFields resolves --fields against cols, defaulting to def. An unknown name
-// is a usage error, not a silently narrower schema header.
+// Resolves --fields against cols, defaulting to def. An unknown name is a usage error, not a silently
+// narrower schema header.
 func pickFields[T any](cols []axi.Column[T], fields, def []string) ([]axi.Column[T], error) {
 	want := fields
 	if len(want) == 0 {
@@ -21,9 +21,8 @@ func pickFields[T any](cols []axi.Column[T], fields, def []string) ([]axi.Column
 	return out, nil
 }
 
-// rejectFieldsWithJSON keeps --fields honest: it narrows the TOON schema
-// header, and silently ignoring it next to --json would hand a caller the full
-// object it asked to narrow.
+// Keeps --fields honest: it narrows the TOON schema header, and silently ignoring it next to --json
+// would hand a caller the full object it asked to narrow.
 func rejectFieldsWithJSON(fields []string, asJSON bool) error {
 	if len(fields) > 0 && asJSON {
 		return &ExitError{Err: fmt.Errorf("--fields applies to the default TOON output, not --json"), Code: 2}

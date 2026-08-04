@@ -12,11 +12,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// fakeHerdrPromoteScript covers the herdr calls a clean promote makes, same
-// void-command-as-envelope simplification as fakeHerdrSpawnScript in
-// spawn_test.go: real "pane run" succeeds with empty stdout, but callVoid also
-// accepts this envelope, and promote's own logic only checks for a non-nil
-// error, so the exact response shape isn't this test's concern.
+// Covers the herdr calls a clean promote makes, same void-command-as-envelope simplification as
+// fakeHerdrSpawnScript in spawn_test.go: real "pane run" succeeds with empty stdout, but callVoid takes
+// this envelope too, and promote only checks for a non-nil error, so the response shape is not the point.
 const fakeHerdrPromoteScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -48,13 +46,9 @@ case "$cmd" in
 esac
 `
 
-// fakeHerdrPromotePaneWorking only fakes "pane get", a query command per
-// internal/herdr/client.go's call() doc comment: real success is a non-null
-// result object on exit 0, real failure a non-zero exit or an error envelope
-// (full contract at cmd/status_test.go's writeFakeHerdrPaneStatus). This fake
-// only exercises success, reporting the scout's pane as still "working" so
-// promote's precondition check refuses the promotion before any other herdr
-// call is needed; it mirrors the real success shape.
+// Fakes only a successful "pane get" in the real shape (the query-command contract is at
+// internal/herdr/client.go's call doc), reporting the scout's pane as still "working" so promote's
+// precondition check refuses the promotion before any other herdr call is needed.
 const fakeHerdrPromotePaneWorking = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -303,12 +297,9 @@ func TestPromoteRefusesUnregisteredProject(t *testing.T) {
 	}
 }
 
-// fakeHerdrPromoteLeakScript mirrors fakeHerdrLeakScript for promote: it logs every call and
-// fails "pane run" so the promotion always fails after the new tab exists, with
+// Mirrors fakeHerdrLeakScript in spawn_test.go for promote, its bare-exit-1 simplification included: it
+// logs every call and fails "pane run" so the promotion always fails after the new tab exists, with
 // $HERDR_WS_EXISTS_FLAG choosing between the created-workspace and pre-existing-workspace cases.
-// Same bare-exit-1 simplification as fakeHerdrLeakScript in spawn_test.go: promote.go only
-// checks PaneRun's error for non-nil, not its shape, and the real exit-0-plus-error-envelope
-// failure shape is covered at the client level, not here.
 const fakeHerdrPromoteLeakScript = `#!/bin/sh
 echo "$@" >> "$HERDR_CALL_LOG"
 cmd="$1 $2"

@@ -31,11 +31,9 @@ type Config struct {
 	// Timeout bounds RunUntilEvent only. Zero blocks until an event arrives.
 	Timeout      time.Duration
 	ParkedBounds ParkedBounds
-	// EventFilter bounds which kinds reach out, whichever writer that is: handleEvent
-	// applies it to every event it writes there, on the Run path as much as the
-	// RunUntilEvent one. Keeping the streaming path unfiltered is cmd/watch.go's
-	// doing, not this package's - it rejects --event without --until-event, so Run
-	// never receives a filter from the CLI.
+	// Bounds which kinds reach out, whichever writer that is: handleEvent applies it to every event on
+	// the Run path as much as the RunUntilEvent one. Keeping Run unfiltered is cmd/watch.go's doing,
+	// not this package's: it rejects --event without --until-event, so Run never gets a CLI filter.
 	EventFilter EventFilter
 }
 
@@ -45,11 +43,9 @@ var ErrNoEvent = errors.New("no event")
 // an exit from RunUntilEvent always means the whole fleet was actually watched.
 var ErrArmFailed = errors.New("could not arm")
 
-// Run blocks, polling herdr agent states at cfg.PollInterval until ctx is
-// canceled. It returns nil on clean cancellation, or an error if herdr is
-// unreachable at startup. out receives the actionable event stream documented
-// in SPECS.md; errOut receives internal diagnostics (list/log failures),
-// keeping the two streams separable per the stdout/stderr contract.
+// Run blocks, polling herdr agent states at cfg.PollInterval until ctx is canceled, returning nil on
+// clean cancellation or an error if herdr is unreachable at startup. out receives the actionable
+// event stream SPECS.md documents, errOut internal diagnostics, per the stdout/stderr split.
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect(ctx)
 	if err != nil {
@@ -71,12 +67,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 }
 
-// RunUntilEvent blocks until a tick produces events, writes them to out, and
-// returns nil - the exit is the delivery, since it's the one signal a supervisory
-// agent's background-task runner already honors. The startup state is never
-// delivered: two ticks take a silent baseline first, so an already-done worker
-// isn't mistaken for a fresh transition. Baseline events still reach
-// events.log, just not stdout.
+// RunUntilEvent blocks until a tick produces events, writes them to out and returns nil - the exit is
+// the delivery, since it is the one signal a supervisory agent's background-task runner already
+// honors.
 func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -94,6 +87,9 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	}
 
 	states := make(map[string]*TaskState)
+	// The startup state is never delivered: two ticks take a silent baseline first, so an already-done
+	// worker is not mistaken for a fresh transition. Baseline events still reach events.log, just not
+	// stdout, which is what io.Discard as out means here.
 	tick(ctx, cfg, client, states, io.Discard, errOut)
 	tick(ctx, cfg, client, states, io.Discard, errOut)
 
@@ -118,15 +114,15 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	}
 }
 
-// connect races the reachability probe against ctx because unbounded, a wedged
-// herdr daemon blocks RunUntilEvent's --timeout from ever starting to count.
-// Losing that race is ErrNoEvent for the same reason probeAllTasks's is: the
-// window closed during arming, which is exit 4 wherever in arming it happens.
+// Races the reachability probe against ctx because unbounded, a wedged herdr daemon blocks
+// RunUntilEvent's --timeout from ever starting to count.
 func connect(ctx context.Context) (*herdr.Client, error) {
 	client := herdr.NewClient()
 	done := make(chan error, 1)
 	go func() { _, err := client.WorkspaceList(); done <- err }()
 	select {
+	// Losing the race is ErrNoEvent for the same reason probeAllTasks's is: the window closed during
+	// arming, which is exit 4 wherever in arming it happens.
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, fmt.Errorf("%w: timed out reaching herdr", ErrNoEvent)
@@ -140,11 +136,8 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 	}
 }
 
-// probeAllTasks confirms every active task's pane answers before RunUntilEvent
-// arms, since an unprobed task would otherwise wait out the timeout with no
-// distinguishing signal. Losing the race against ctx is ErrNoEvent, not
-// ErrArmFailed: the window is simply over and no single task can be named as the
-// cause the way ErrArmFailed's exit promises.
+// Confirms every active task's pane answers before RunUntilEvent arms, since an unprobed task would
+// otherwise wait out the timeout with no distinguishing signal.
 func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error {
 	tasks, err := state.List(home)
 	if err != nil {
@@ -161,6 +154,8 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 		done <- nil
 	}()
 	select {
+	// ErrNoEvent, not ErrArmFailed: the window is simply over, and no single task can be named as the
+	// cause the way ErrArmFailed's exit promises.
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fmt.Errorf("%w: timed out probing tasks before arming", ErrNoEvent)
@@ -188,27 +183,25 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		pane, probeErr := client.PaneGet(t.Herdr.PaneID)
 		status := pane.AgentStatus
 
-		// Tracking is keyed by task identity, not by ID: an ID torn down and
-		// respawned between two ticks is a different task, and inheriting the
-		// previous run's TaskState would suppress the new task's verified done
-		// forever - syncTaskState writes that inherited done_verified onto the fresh
-		// row, making the suppression durable - and absorb its first unexplained
-		// stop. Same hazard as a surviving report channel, one layer in; see
+		// Tracking is keyed by task identity, not by ID: an ID torn down and respawned between two
+		// ticks is a different task. Same hazard as a surviving report channel, one layer in - see
 		// state.Delete for that half.
 		ts, tracked := states[t.ID]
+		// Inheriting the previous run's TaskState would suppress the new task's verified done forever -
+		// syncTaskState writes that inherited done_verified onto the fresh row, making the suppression
+		// durable - and absorb its first unexplained stop.
 		if tracked && ts.CreatedAt != t.CreatedAt {
 			tracked = false
 		}
 		if !tracked {
-			// herdr.StatusUnknown stands in for "no real status observed yet", so the
-			// eventual recovery reads as an ordinary transition rather than inventing a
-			// prior status. Probed=false starts ClassifyUnreachable's dwell clock
-			// immediately instead of waiting for a second failed probe to notice this
-			// task at all.
+			// herdr.StatusUnknown stands in for "no real status observed yet", so the eventual recovery
+			// reads as an ordinary transition rather than inventing a prior status.
 			if probeErr != nil {
 				status = herdr.StatusUnknown
 			}
 			ts = resumeTaskState(t, status, now)
+			// False starts ClassifyUnreachable's dwell clock immediately, instead of waiting for a second
+			// failed probe to notice this task at all.
 			ts.Probed = probeErr == nil
 			states[t.ID] = ts
 			continue
@@ -252,6 +245,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if e := classifyUsageLimit(cfg, client, ts, t, pane, status, probeErr, justStopped, now, errOut); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
+		// Last, after every event this tick produced has been announced: a marker persisted before its
+		// line is emitted would, if the process died in between, suppress an announcement nothing can
+		// re-derive. A duplicate line is a far cheaper failure than a silently dropped one.
 		syncTaskState(cfg.Home, t.ID, ts, now, errOut)
 	}
 
@@ -262,11 +258,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 }
 
-// Every fact resumeTaskState restores comes from durable state, never re-derived
-// from current evidence: evidence that landed while the watcher was down (hand
-// merge writing merged, say) would otherwise look like an announcement that
-// already went out. SPECS.md's "What survives a hand watch restart" enumerates
-// what is deliberately re-derived instead, and why that is safe.
+// Every fact restored here comes from durable state, never re-derived from current evidence: what
+// landed while the watcher was down (hand merge writing merged, say) would otherwise look like an
+// announcement that already went out. SPECS.md's "What survives a hand watch restart" owns the rest.
 func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskState {
 	changedAt := statusChangeSeed(t, status, now)
 	ts := NewTaskState(status, changedAt)
@@ -291,10 +285,9 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 	return ts
 }
 
-// limitRetrySeed reads back the instant a limited worker may next be tried. An
-// unparseable stamp seeds unlimited, which loses the schedule rather than inventing
-// one: the next stop edge or first probe re-detects the limit from the pane, whereas a
-// stamp guessed at here would drive real steers off a value nothing wrote.
+// Reads back the instant a limited worker may next be tried. An unparseable stamp seeds unlimited,
+// losing the schedule rather than inventing one: the next stop edge or first probe re-detects the limit
+// from the pane, whereas a stamp guessed at here would drive real steers off a value nothing wrote.
 func limitRetrySeed(t state.Task) time.Time {
 	parsed, err := time.Parse(time.RFC3339, t.UsageLimitRetryAt)
 	if err != nil {
@@ -310,10 +303,9 @@ func limitRetryStamp(retryAt time.Time) string {
 	return retryAt.UTC().Format(time.RFC3339)
 }
 
-// parkedFiredSeed reads back the silence instant parked last fired against. An
-// unparseable stamp seeds unfired rather than failing the resume: one duplicate
-// event is the same failure direction the whole classifier already prefers over a
-// suppressed one.
+// Reads back the silence instant parked last fired against. An unparseable stamp seeds unfired
+// rather than failing the resume: one duplicate event is the same failure direction the whole
+// classifier already prefers over a suppressed one.
 func parkedFiredSeed(t state.Task) time.Time {
 	parsed, err := time.Parse(time.RFC3339Nano, t.ParkedFiredFor)
 	if err != nil {
@@ -322,10 +314,9 @@ func parkedFiredSeed(t state.Task) time.Time {
 	return parsed
 }
 
-// parkedFiredStamp is nanosecond-precision because the value is a report file's
-// mtime compared for exact equality, and RFC3339's whole seconds would round it
-// down into an instant no later mtime ever matches - re-firing on every restart,
-// which is the bug.
+// Nanosecond precision because the value is a report file's mtime compared for exact equality, and
+// RFC3339's whole seconds would round it down into an instant no later mtime ever matches -
+// re-firing on every restart, which is the bug.
 func parkedFiredStamp(fired time.Time) string {
 	if fired.IsZero() {
 		return ""
@@ -333,24 +324,20 @@ func parkedFiredStamp(fired time.Time) string {
 	return fired.UTC().Format(time.RFC3339Nano)
 }
 
-// forgetPaneScopedCache drops the cached facts hand promote invalidated: it gives
-// the task a new herdr pane while keeping created_at, so tick's identity check
-// never fires, yet every pane-anchored fact cached here describes a pane the task
-// no longer has. The trigger is the pane itself changing, not the newly observed
-// status differing - a ship whose first probe reads the status the scout last held
-// raises no transition at all - and not any restamped timestamp either, which is
-// both too eager (a resume reseeds the dwell to now for reasons of its own) and too
-// blunt (a restamp inside one RFC3339 second of this watcher's own write is
-// invisible).
+// Drops the cached facts hand promote invalidated: it gives the task a new herdr pane while keeping
+// created_at, so tick's identity check never fires, yet every pane-anchored fact cached here
+// describes a pane the task no longer has.
 func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
-	// Compared against the persisted mirror, not the live flag: the watcher only ever
-	// sets the flag true, so a disk value that has gone false since this watcher last
-	// wrote true is such a rewrite - whereas a flag set true earlier in this very tick
-	// is simply not persisted yet, and syncTaskState's OR is how it gets there.
+	// Compared against the persisted mirror, not the live flag: the watcher only ever sets the flag
+	// true, so a disk value gone false since this watcher wrote true is such a rewrite - while a flag
+	// set true earlier in this very tick is simply not persisted yet, which syncTaskState's OR fixes.
 	if !t.DoneVerified && ts.PersistedDoneVerified {
 		ts.DoneVerified = false
 		ts.PersistedDoneVerified = false
 	}
+	// The trigger is the pane changing, not the newly observed status differing - a ship whose first
+	// probe reads the status the scout last held raises no transition at all - and not a restamped
+	// timestamp, too eager (a resume reseeds the dwell) and too blunt (same-second restamps vanish).
 	if t.Herdr.PaneID == ts.PersistedPaneID {
 		return
 	}
@@ -359,44 +346,36 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	ts.ChangedAt = seed
 	ts.PersistedChangedAt = seed
 	ts.PersistedChangedFor = t.StatusChangedFor
-	// Reset after the seed above, which asks what status the cached dwell describes.
-	// StatusUnknown is the sentinel a ship's first probe is diffed against, matching
-	// neither the working nor the blocked branch, so that probe reads as the baseline
-	// a first sighting always is rather than as a transition out of the scout's status.
+	// Reset after the seed above, which asks what status the cached dwell describes. StatusUnknown
+	// matches neither the working nor the blocked branch, so a ship's first probe reads as the
+	// baseline a first sighting always is rather than as a transition out of the scout's status.
 	ts.Status = herdr.StatusUnknown
 	ts.Stale = false
 	ts.Blocked = false
-	// False, exactly as tick seeds a task first sighted with an unreachable pane: the
-	// ship's first probe of its new pane is a first sighting, so an unreachable one
-	// dwells under ClassifyUnreachable's threshold instead of firing `failed` on
-	// sight. Carrying the old pane's true would fire that no-dwell `failed` off a
-	// blink, on the strength of a probe that only ever described the scout's pane.
+	// False, exactly as tick seeds a task first sighted with an unreachable pane: an unreachable first
+	// probe of the new pane dwells under ClassifyUnreachable's threshold instead of firing `failed` on
+	// sight, which the old pane's true would do off a blink, on a probe describing the scout's pane.
 	ts.Probed = false
-	// A latch claiming the old pane's outage has nothing to say about the new one;
-	// left true it would sit inert until the next probe failure resets Probed to
-	// false anyway, but a fresh pane deserves a fresh episode on purpose, not by
-	// accident of that ordering.
+	// A latch claiming the old pane's outage has nothing to say about the new one. Left true it would
+	// sit inert until the next probe failure reset Probed anyway, but a fresh pane deserves a fresh
+	// episode on purpose, not by accident of that ordering.
 	ts.UnreachableFired = false
-	// A usage limit is the harness's, and the new pane runs a new harness process with
-	// its own quota state. Carrying the schedule over would steer the fresh pane on a
-	// clock the scout's refusal set. The mirrors are re-read from the promoted row
-	// rather than zeroed alongside it, so the columns get written clear here in the one
-	// case hand promote did not already clear them itself.
+	// A usage limit is the harness's, and the new pane runs a new harness process with its own quota
+	// state. Carrying the schedule over would steer the fresh pane on a clock the scout's refusal set.
 	ts.LimitRetryAt = time.Time{}
 	ts.LimitAttempts = 0
 	ts.LimitProbed = false
+	// Re-read from the promoted row rather than zeroed alongside the rest, so the columns get written
+	// clear here in the one case hand promote did not already clear them itself.
 	ts.PersistedLimitRetryAt = limitRetrySeed(t)
 	ts.PersistedLimitAttempts = t.UsageLimitAttempts
 	ts.LastReportState = t.LastReportState
 	ts.LastReportNote = t.LastReportNote
 }
 
-// tailReport classifies whatever report lines have arrived since ts.ReportCursor,
-// before ClassifyStatus runs for this tick, so a report that lands in the same
-// poll as a herdr idle transition is already reflected in ts.LastReportState when
-// the idle-vs-idle-unreported decision is made. A line carrying exactly one
-// embedded PR URL auto-records it, subject to the same validation hand pr
-// enforces; more than one URL, or a PR already on record, is left alone.
+// Classifies whatever report lines have arrived since ts.ReportCursor, before ClassifyStatus runs
+// for this tick, so a report landing in the same poll as a herdr idle transition is already
+// reflected in ts.LastReportState when the idle-vs-idle-unreported decision is made.
 func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) state.Task {
 	path := state.ReportPath(cfg.Home, t.ID)
 	lines, cursor, err := state.TailReport(path, ts.ReportCursor)
@@ -409,6 +388,8 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		if e := ClassifyReportLine(cfg.Home, ts, t, line); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
+		// A line carrying exactly one embedded PR URL auto-records it, subject to the same validation
+		// hand pr enforces; more than one URL, or a PR already on record, is left alone.
 		if t.PR == "" {
 			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
 				if err := autoRecordPR(ctx, cfg.Home, t, urls[0]); err != nil {
@@ -424,11 +405,10 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 	return t
 }
 
-// statusChangeSeed answers how long a task has already been dwelling in status, so
-// a restart does not reset a dwell that has been real all along. StatusChangedAt
-// is only evidence about the status it was stamped for; a task with no observed
-// transition at all has been dwelling since CreatedAt.
+// Answers how long a task has already been dwelling in status, so a restart does not reset a dwell
+// that has been real all along.
 func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Time {
+	// StatusChangedAt is only evidence about the status it was stamped for.
 	if t.StatusChangedAt != "" {
 		if t.StatusChangedFor != string(status) {
 			return now
@@ -437,18 +417,16 @@ func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Tim
 			return parsed
 		}
 	}
+	// A task with no observed transition at all has been dwelling since CreatedAt.
 	if parsed, err := time.Parse(time.RFC3339, t.CreatedAt); err == nil {
 		return parsed
 	}
 	return now
 }
 
-// reportEvidenceTime floors the report file's mtime at the instant the task's
-// current pane started, because hand promote leaves the scout's report file - and
-// so its mtime - untouched while clearing the last-report state that had the scout's
-// silence under the long done/failed bound. Unfloored, a ship seconds old inherits
-// the scout's whole silence, now measured against the short bound, and fires parked
-// immediately.
+// Floors the report file's mtime at the instant the task's current pane started, because hand
+// promote leaves the scout's report file - and so its mtime - untouched while clearing the
+// last-report state that had the scout's silence under the long done/failed bound.
 func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 	started, err := paneStartTime(t)
 	if err != nil {
@@ -461,21 +439,21 @@ func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 		}
 		return started, nil
 	}
+	// Unfloored, a ship seconds old inherits the scout's whole silence, now measured against the short
+	// bound, and fires parked immediately.
 	if mtime := info.ModTime(); mtime.After(started) {
 		return mtime, nil
 	}
 	return started, nil
 }
 
-// paneStartTime is when the task's current pane started, as spawn and hand promote
-// each recorded it. It deliberately no longer reads StatusChangedAt, which the
-// outage-dwell clock restamps for a pane it could not even reach and which would
-// slide this floor forward by up to a full bound of real report silence. The
-// schema migration and the legacy import both backfill the column, so an empty
-// stamp means a row nothing in hand wrote, and CreatedAt is the honest floor for
-// it.
+// When the task's current pane started, as spawn and hand promote each recorded it. Deliberately no
+// longer StatusChangedAt, which the outage-dwell clock restamps for a pane it could not even reach,
+// sliding this floor forward by up to a full bound of real report silence.
 func paneStartTime(t state.Task) (time.Time, error) {
 	stamp, field := t.PaneStartedAt, "pane_started_at"
+	// The schema migration and the legacy import both backfill the column, so an empty stamp means a
+	// row nothing in hand wrote, and CreatedAt is the honest floor for it.
 	if stamp == "" {
 		stamp, field = t.CreatedAt, "created_at"
 	}
@@ -493,24 +471,22 @@ func lastReportLine(ts *TaskState) string {
 	return fmt.Sprintf("%s: %s", ts.LastReportState, ts.LastReportNote)
 }
 
-// announceAutoRecordFailure makes an auto-record that didn't happen a durable
-// lifecycle fact on the event stream and in events.log, alongside the stderr
-// diagnostic: the line is consumed and the offset moves on either way, so an
-// unrecorded URL that only reached a long-running watcher's stderr would be lost.
-// It is deliberately not a Pending Decision - that slot holds the worker's own
-// question, and upserting by task ID there would erase one.
-//
-// The event kind is the outcome, since that token is what an operator greps
-// events.log for: an attempt that did not complete is pr-not-recorded whatever
-// stopped it, while losing the task lock leaves the outcome unknown and must not
-// claim otherwise. The kind says only that much; the appended error text is what
-// says why, so neither has to stand in for the other.
+// Makes an auto-record that did not happen a durable lifecycle fact on the event stream and in
+// events.log, alongside the stderr diagnostic: the line is consumed and the offset moves on either
+// way, so an unrecorded URL that only reached a long-running watcher's stderr would be lost.
 func announceAutoRecordFailure(cfg Config, t state.Task, url string, err error, out, errOut io.Writer) {
+	// Deliberately not a Pending Decision: that slot holds the worker's own question, and upserting by
+	// task ID there would erase one.
 	kind, outcome := KindPRNotRecorded, "failed"
+	// The kind is the outcome, the token an operator greps events.log for: an attempt that did not
+	// complete is pr-not-recorded whatever stopped it, while losing the task lock leaves the outcome
+	// unknown and must not claim otherwise.
 	if errors.Is(err, errLockContended) {
 		kind, outcome = KindPRRecordUnknown, "skipped"
 	}
 	_, _ = fmt.Fprintf(errOut, "watch: auto-record PR for %s %s: %v\n", t.ID, outcome, err)
+	// The kind says only that much; the appended error text is what says why, so neither has to stand
+	// in for the other.
 	handleEvent(cfg, &Event{
 		TaskID: t.ID,
 		Kind:   kind,
@@ -519,10 +495,9 @@ func announceAutoRecordFailure(cfg Config, t state.Task, url string, err error, 
 	}, out, errOut)
 }
 
-// flattenError renders err's whole cause on one line. An event is one line on
-// stdout and one entry in events.log; the errors reaching here wrap gh's
-// stderr verbatim, which is routinely multi-line for auth and network
-// failures. The stderr diagnostic above keeps the original formatting.
+// Renders err's whole cause on one line: an event is one line on stdout and one entry in events.log,
+// while the errors reaching here wrap gh's stderr verbatim, routinely multi-line for auth and
+// network failures. The stderr diagnostic above keeps the original formatting.
 func flattenError(err error) string {
 	var parts []string
 	for _, line := range strings.FieldsFunc(err.Error(), func(r rune) bool { return r == '\n' || r == '\r' }) {
@@ -533,10 +508,9 @@ func flattenError(err error) string {
 	return strings.Join(parts, "; ")
 }
 
-// autoRecordPR routes a worker-supplied URL through hand pr's own validation
-// before it can reach task state: a URL that survives here is what `hand merge`
-// later hands to `gh pr merge`, so a PR belonging to some other repo the worker
-// merely mentioned must be refused, not recorded.
+// Routes a worker-supplied URL through hand pr's own validation before it can reach task state: a
+// URL that survives here is what `hand merge` later hands to `gh pr merge`, so a PR belonging to
+// some other repo the worker merely mentioned must be refused, not recorded.
 func autoRecordPR(ctx context.Context, home string, t state.Task, url string) error {
 	proj, exists, err := project.Find(home, t.Project)
 	if err != nil {
@@ -554,19 +528,15 @@ func autoRecordPR(ctx context.Context, home string, t state.Task, url string) er
 	return recordAutoPR(home, t.ID, url)
 }
 
-// recordAutoPR is race-safe against a concurrent explicit `hand pr` call or
-// another tick's auto-record. The task lock is non-blocking for the same reason
-// syncTaskState's is: this runs in the poll loop, which owes every other task a
-// timely tick and its own ctx a prompt exit that flock cannot honor, while hand
-// merge and hand promote hold the same task lock across gh and git round-trips.
-//
-// So the "already recorded" no-op has two halves. Holding the lock, it re-reads
-// and no-ops if the PR arrived first. Denied the lock, it re-reads anyway: the
-// likeliest holder is the `hand pr` recording this very URL, and treating that
-// as a failed auto-record would announce a problem that fixed itself.
+// Race-safe against a concurrent explicit `hand pr` call or another tick's auto-record.
 func recordAutoPR(home, id, url string) error {
+	// The task lock is non-blocking for the same reason syncTaskState's is: this runs in the poll loop,
+	// which owes every other task a timely tick and its own ctx a prompt exit flock cannot honor,
+	// while hand merge and hand promote hold the same task lock across gh and git round-trips.
 	unlock, err := state.TryLock(home, "task:"+id)
 	if err != nil {
+		// Denied the lock, it re-reads anyway: the likeliest holder is the `hand pr` recording this very
+		// URL, and treating that as a failed auto-record would announce a problem that fixed itself.
 		if errors.Is(err, state.ErrLockBusy) {
 			return recordedByLockHolder(home, id, url)
 		}
@@ -578,6 +548,7 @@ func recordAutoPR(home, id, url string) error {
 	if err != nil {
 		return fmt.Errorf("read task %s: %w", id, err)
 	}
+	// Holding the lock, the "already recorded" no-op re-reads and no-ops if the PR arrived first.
 	if t.PR != "" {
 		return nil
 	}
@@ -588,43 +559,31 @@ func recordAutoPR(home, id, url string) error {
 	return nil
 }
 
-// errLockContended marks an auto-record the watcher declined rather than
-// attempted, so callers can tell "refused this URL" from "never got to try".
+// Marks an auto-record the watcher declined rather than attempted, so callers can tell "refused this
+// URL" from "never got to try".
 var errLockContended = errors.New("task locked by another process")
 
-// recordedByLockHolder decides what a lost race to the task lock means. If the
-// URL is already on record the holder did the work, so there is nothing to say.
-// Otherwise the outcome is genuinely unknown - the holder may be mid-write - and
-// the report line is consumed either way, so it stays loud and says only that,
-// rather than claiming a failure or naming a remedy that may be a no-op. A task
-// whose state won't read says exactly that instead of sending the operator to
-// hand status, which reads the same unreadable file.
+// Decides what a lost race to the task lock means.
 func recordedByLockHolder(home, id, url string) error {
 	t, err := state.Read(home, id)
 	if err != nil {
+		// A task whose state will not read says exactly that, instead of sending the operator to hand
+		// status, which reads the same unreadable file.
 		return fmt.Errorf("%w, and its state could not be read: %v", errLockContended, err)
 	}
+	// The URL already on record means the holder did the work, so there is nothing to say.
 	if t.PR == url {
 		return nil
 	}
+	// Otherwise the outcome is genuinely unknown - the holder may be mid-write - and the report line is
+	// consumed either way, so this stays loud and says only that, rather than claiming a failure or
+	// naming a remedy that may be a no-op.
 	return fmt.Errorf("%w that may be recording it - confirm with: hand status %s", errLockContended, id)
 }
 
-// syncTaskState writes back the bookkeeping hand watch owns on a task - how far
-// its report file is consumed, whether this watcher's own gh poll already
-// announced the PR merged, and whether the verified done already went out - so a
-// restart neither replays report lines nor re-announces, nor silently skips, an
-// announcement it can no longer re-derive.
-//
-// It runs last, after every event this tick produced has been announced: a marker
-// persisted before its line is emitted would, if the process died in between,
-// suppress an announcement nothing can re-derive. A duplicate line is a far
-// cheaper failure than a silently dropped one.
-//
-// The lock is non-blocking on purpose. hand merge holds the same task lock across
-// gh round-trips, and the poll loop - which owes every other task a timely tick,
-// and its own ctx a prompt exit that flock can't honor - must not queue behind it.
-// Everything written here is re-derivable, so a skipped write just retries.
+// Writes back the bookkeeping hand watch owns on a task - how far its report file is consumed,
+// whether this watcher's own gh poll announced the PR merged, whether the verified done went out - so
+// a restart neither replays report lines nor re-announces, nor skips, what it cannot re-derive.
 func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writer) {
 	if ts.ReportCursor == ts.PersistedCursor && ts.PRMerged == ts.PersistedPRMerged &&
 		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) &&
@@ -633,6 +592,9 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		return
 	}
 
+	// Non-blocking on purpose: hand merge holds the same task lock across gh round-trips, and the poll
+	// loop - which owes every other task a timely tick, and its own ctx a prompt exit flock cannot
+	// honor - must not queue behind it. Everything written here is re-derivable, so a skip retries.
 	unlock, err := state.TryLock(home, "task:"+id)
 	if err != nil {
 		if !errors.Is(err, state.ErrLockBusy) {
@@ -647,9 +609,9 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		_, _ = fmt.Fprintf(errOut, "watch: read task %s failed: %v\n", id, err)
 		return
 	}
-	// A promote may have landed since this tick's state.List. Writing the cached
-	// values back would erase its restamp and leave the disk value matching what
-	// this watcher persisted, so no later tick would find anything to forget either.
+	// A promote may have landed since this tick's state.List. Writing the cached values back would
+	// erase its restamp and leave the disk value matching what this watcher persisted, so no later
+	// tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, now)
 
 	t.ReportOffset = ts.ReportCursor.Offset
@@ -693,9 +655,9 @@ func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	notifyEvent(cfg.Home, e, errOut)
 }
 
-// notifyEvent is NotifyFilter's own consumer of the classified event stream -
-// see SPECS.md's "Notifying a supervisory agent with no session watching" for
-// why an unconfigured config/notify stays silent while a failed send is loud.
+// NotifyFilter's own consumer of the classified event stream - see SPECS.md's "Notifying a
+// supervisory agent with no session watching" for why an unconfigured config/notify stays silent
+// while a failed send is loud.
 func notifyEvent(home string, e *Event, errOut io.Writer) {
 	if !NotifyFilter().Matches(e.Kind) {
 		return

@@ -25,6 +25,29 @@ Without Nix, install those yourself.
 Commits use conventional commits: feat:, fix:, chore:, etc.
 release-please handles versioning and changelogs from these.
 
+## Comments
+
+The default is no comment.
+Add one only for a why the code cannot show: a hidden constraint, a subtle invariant, a workaround for a specific bug.
+Restating code, narrating what, banners, and doc comments on the obvious are noise no linter can catch, so they stay a reviewer's call.
+
+Two rules bound the comments that clear that bar, enforced by `make lint` rather than by a reviewer reading a diff:
+
+1. A comment may not open with the identifier it documents.
+2. A comment block may not exceed three lines.
+
+Consecutive `//` lines are one block, and neither a bare `//` line inside a run nor a blank line above a doc comment breaks it.
+Both are ways of writing six lines of prose in front of one declaration while satisfying a three-line rule, and the blank-line form also drops the first half out of godoc.
+Rule 1 applies wherever Go's doc convention does not: unexported declarations, everything in `_test.go`, and comments inside function bodies.
+An exported declaration's doc comment is required by convention to open with its name, so it is exempt from rule 1, but not from rule 2.
+Exempt from both rules: the package doc comment, directives (`//go:build`, `//go:generate`, `//nolint`, `// #nosec`), and files carrying the generated-code header.
+
+Rule 2 will occasionally be wrong, because a genuinely subtle invariant sometimes needs a fourth line.
+That is accepted: a rule that is right most of the time and mechanically enforced binds harder than one that is right always and enforced never.
+Prose that outgrows three lines belongs in SPECS.md, which is where it is read.
+
+`go run ./tools/commentlint .` runs the check alone and prints one `file:line:column` per violation.
+
 ## Reporting issues
 
 Open a GitHub issue with repro steps, OS, arch, and hand --version.

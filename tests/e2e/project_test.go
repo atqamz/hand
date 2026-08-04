@@ -11,11 +11,9 @@ import (
 	"github.com/atqamz/secondhand/internal/project"
 )
 
-// TestProjectLifecycle drives add -> list -> sync (fast-forward) -> remove
-// through the built binary against a real local git remote (redirected via
-// git's insteadOf mechanism, never the network), plus the one failure path
-// not already covered by TestExitCodeThreeOnPreconditionFailure: sync
-// against a project registered but never actually cloned to disk.
+// Drives add -> list -> sync (fast-forward) -> remove through the built binary against a real local git
+// remote (redirected via git's insteadOf mechanism, never the network), plus the one failure path not
+// already covered by TestExitCodeThreeOnPreconditionFailure: sync against a project never cloned to disk.
 func TestProjectLifecycle(t *testing.T) {
 	remote := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remote)

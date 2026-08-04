@@ -185,10 +185,9 @@ func TestThisRepoAgentsMdPointsAtGeneratedBody(t *testing.T) {
 	}
 }
 
-// #87's fix has to reach every worker without a new report-vocabulary word,
-// since internal/watcher's classifier and hand status's renderer are outside
-// this change's scope: reusing the working: prefix with a first-person
-// convention is the only lever available.
+// atqamz/secondhand#87's fix has to reach every worker without a new report-vocabulary word, since the
+// watcher's classifier and hand status's renderer were outside that change's scope: the working: prefix
+// plus a first-person convention was the only lever available.
 func TestGeneratedRulesCoverSelfDecidedCallsInFirstPerson(t *testing.T) {
 	if !strings.Contains(generatedBody, "hand send") || !strings.Contains(generatedBody, "operator decision") {
 		t.Fatalf("got generated body %q, want the hand send invariant", generatedBody)
@@ -207,10 +206,9 @@ func TestGeneratedRulesCoverHolds(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#47: the four files hand init seeds are inert unless the
-// template says who reads each one and when, and atqamz/secondhand#64: the one
-// direction data/ does not carry has to be stated, or the agent invents a
-// hand-written operator channel again.
+// atqamz/secondhand#47: the four files hand init seeds are inert unless the template says
+// who reads each one and when. atqamz/secondhand#64: the one direction data/ does not carry
+// has to be stated, or the agent invents a hand-written operator channel again.
 func TestGeneratedRulesCoverOperatorContextLearningsAndArchives(t *testing.T) {
 	for _, want := range []string{
 		"data/operator.md",

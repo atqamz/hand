@@ -59,11 +59,9 @@ func newSendCmd() *cobra.Command {
 				return usageValue(waitFromFlag, fmt.Errorf("invalid wait duration %q: %w", wait, err))
 			}
 
-			// Serializes concurrent sends to the same task: two retry loops racing
-			// against the same busy composer is the exact hazard atqamz/secondhand#102
-			// traced a lost steer to. A second send now waits behind the first
-			// rather than polling the same pane at the same time, its own
-			// --wait clock starting only once it holds this lock.
+			// Serializes concurrent sends to the same task: two retry loops racing against the same busy
+			// composer is the exact hazard atqamz/secondhand#102 traced a lost steer to. A second send waits
+			// behind the first, its own --wait clock starting only once it holds this lock.
 			release, err := state.Lock(home, "send:"+id)
 			if err != nil {
 				return fmt.Errorf("lock send %q: %w", id, err)
@@ -92,11 +90,9 @@ func newSendCmd() *cobra.Command {
 					if err := recordUndeliveredSend(home, id, message); err != nil {
 						return fmt.Errorf("%w; record undelivered send: %w", waitErr, err)
 					}
-					// Code 6: the composer stayed busy for the whole --wait bound, so
-					// the message never reached the pane - a transient state a caller
-					// can retry, distinct from the exit-1 paths above and below that
-					// mean the send can never succeed (no such pane, herdr itself
-					// erroring). 4 and 5 are reserved to hand watch --until-event.
+					// Code 6: the composer stayed busy for the whole --wait bound, so the message never reached
+					// the pane - a transient a caller can retry, distinct from the exit-1 paths above and below
+					// that can never succeed (no such pane, herdr erroring). 4 and 5 are hand watch --until-event's.
 					return &ExitError{Err: fmt.Errorf("%w, message recorded as undelivered", waitErr), Code: 6}
 				}
 			}
@@ -133,9 +129,8 @@ func newSendCmd() *cobra.Command {
 	return cmd
 }
 
-// withUndeliveredSend records the trace alongside a delivery failure, keeping
-// the cause as the returned error so the exit code of the failing path is
-// unchanged.
+// Records the trace alongside a delivery failure, keeping the cause as the returned error so the exit
+// code of the failing path is unchanged.
 func withUndeliveredSend(home, id, message string, cause error) error {
 	if err := recordUndeliveredSend(home, id, message); err != nil {
 		return fmt.Errorf("%w; record undelivered send: %w", cause, err)
@@ -143,24 +138,21 @@ func withUndeliveredSend(home, id, message string, cause error) error {
 	return cause
 }
 
-// recordUndeliveredSend durably records the message hand send could not
-// demonstrably deliver, so an operator or worker learns the steer never
-// arrived instead of it vanishing with the process that attempted it. A
-// short-lived task-row lock, separate from the send lock held for the whole
-// wait above, so a long busy wait never blocks an unrelated reader like hand
-// watch or hand status.
+// Durably records the message hand send could not demonstrably deliver, so an operator or worker learns
+// the steer never arrived instead of it vanishing with the process that attempted it.
 func recordUndeliveredSend(home, id, message string) error {
 	return setUndeliveredSend(home, id, message, time.Now().UTC().Format(time.RFC3339))
 }
 
-// clearUndeliveredSend runs after every send that actually reaches the pane,
-// whatever message that send carries: the trace's job is telling the operator
-// their last attempt did not land, and any successful send moots it.
+// Runs after every send that actually reaches the pane, whatever message that send carries: the trace's
+// job is telling the operator their last attempt did not land, and any successful send moots it.
 func clearUndeliveredSend(home, id string) error {
 	return setUndeliveredSend(home, id, "", "")
 }
 
 func setUndeliveredSend(home, id, message, at string) error {
+	// A short-lived task-row lock, separate from the send lock the command holds across its whole wait,
+	// so a long busy wait never blocks an unrelated reader like hand watch or hand status.
 	release, err := state.Lock(home, "task:"+id)
 	if err != nil {
 		return fmt.Errorf("lock task %q: %w", id, err)

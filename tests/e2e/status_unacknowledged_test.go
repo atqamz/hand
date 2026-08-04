@@ -10,11 +10,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestStatusFlagsATerminalReportNoWatcherEverRead drives atqamz/secondhand#70 end
-// to end: a worker that finished while no watcher was attached has to be visible
-// to the next hand status, and has to stop being flagged once a watcher really
-// consumed it. Only real processes prove the second half, because what clears the
-// flag is the report_offset a watcher persisted to state/hand.db.
+// Drives atqamz/secondhand#70 end to end: a worker that finished while no watcher was attached has to be
+// visible to the next hand status, and has to stop being flagged once a watcher really consumed it. Only
+// real processes prove the second half, because what clears the flag is a persisted report_offset.
 func TestStatusFlagsATerminalReportNoWatcherEverRead(t *testing.T) {
 	home := seedOneTaskHome(t)
 

@@ -143,11 +143,11 @@ func initDirs(home string) error {
 	return nil
 }
 
-// initSkeletonFiles seeds every file it can and reports every one it could
-// not, in this fixed order, because the seeds are independent of each other:
-// stopping at the first failure named an arbitrary victim, so two runs against
-// the same broken home disagreed about which file was at fault.
+// Seeds every file it can and reports every one it could not, because the seeds are independent of each
+// other.
 func initSkeletonFiles(home string) error {
+	// A fixed order: stopping at the first failure named an arbitrary victim, so two runs against the same
+	// broken home disagreed about which file was at fault.
 	files := []struct {
 		rel     string
 		content string
@@ -175,9 +175,9 @@ func initSkeletonFiles(home string) error {
 	return errors.Join(errs...)
 }
 
-// initMarker creates state/hand.db up front so home.IsHome's marker exists as
-// soon as init returns, rather than waiting for the first command that
-// happens to touch machine state. store.Open is safe to call repeatedly.
+// Creates state/hand.db up front so home.IsHome's marker exists as soon as init returns, rather than
+// waiting for the first command that happens to touch machine state. store.Open is safe to call
+// repeatedly.
 func initMarker(home string) error {
 	db, err := store.Open(home)
 	if err != nil {
@@ -275,9 +275,8 @@ func resolveInitHome(cwd string, args []string) (string, error) {
 	return filepath.Clean(home), nil
 }
 
-// warnHandHomeMismatch reports the one asymmetry in home handling: init
-// creates the home its argument or working directory names, while every other
-// command resolves HAND_HOME first, so an operator who exported HAND_HOME and
+// Reports the one asymmetry in home handling: init creates the home its argument or working directory
+// names, while every other command resolves HAND_HOME first, so an operator who exported HAND_HOME and
 // initialized somewhere else would otherwise get a home nothing ever uses.
 func warnHandHomeMismatch(w io.Writer, home string) error {
 	handHome := os.Getenv("HAND_HOME")

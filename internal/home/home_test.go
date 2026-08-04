@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// makeHome builds a home carrying the marker IsHome checks, state/hand.db.
+// Builds a home carrying the marker IsHome checks, state/hand.db.
 func makeHome(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {
@@ -19,8 +19,8 @@ func makeHome(t *testing.T, dir string) {
 	}
 }
 
-// makeGenericDataAndState builds what an unrelated project clone can plausibly
-// have at its top level, which must not be mistaken for a fleet home.
+// Builds what an unrelated project clone can plausibly have at its top level,
+// which must not be mistaken for a fleet home.
 func makeGenericDataAndState(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
@@ -31,9 +31,9 @@ func makeGenericDataAndState(t *testing.T, dir string) {
 	}
 }
 
-// makeLegacyHome builds a home initialized before state/hand.db existed: the
-// data/projects.md plus state/ marker a pre-sqlite hand init wrote, and the
-// one migrateLegacy needs recognized as a home before it can ever run.
+// Builds a home initialized before state/hand.db existed: the data/projects.md plus
+// state/ marker a pre-sqlite hand init wrote, and the one migrateLegacy needs
+// recognized as a home before it can ever run.
 func makeLegacyHome(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
@@ -258,10 +258,9 @@ func TestResolvePrefersHandHomeOverCwd(t *testing.T) {
 	}
 }
 
-// A relative HAND_HOME names one fleet home, not a different one per working
-// directory: commands join paths onto the resolved home and hand them to
-// subprocesses that run somewhere else entirely (hand spawn's brief path, which
-// the harness reads from inside the worktree).
+// A relative HAND_HOME names one fleet home, not a different one per working directory:
+// commands join paths onto the resolved home and hand them to subprocesses running
+// elsewhere (hand spawn's brief path, which the harness reads inside the worktree).
 func TestResolveAbsolutizesARelativeHandHome(t *testing.T) {
 	parent := t.TempDir()
 	home := filepath.Join(parent, "fleet")

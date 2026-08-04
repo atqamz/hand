@@ -13,10 +13,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestMergePR drives `hand merge` through a faked gh, no real remote: a task
-// whose PR checks are all green merges cleanly, one whose checks include a
-// failing bucket is refused before gh pr merge is ever invoked, and a rerun of
-// the merge that succeeded is refused rather than merging a second time.
+// Drives `hand merge` through a faked gh, no real remote: all-green checks merge cleanly, a failing
+// bucket is refused before gh pr merge is ever invoked, and a rerun of the merge that succeeded is
+// refused rather than merging a second time.
 func TestMergePR(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -31,11 +30,9 @@ func TestMergePR(t *testing.T) {
 
 	dir := binDir(t)
 	invocationLog := filepath.Join(t.TempDir(), "gh-invocations.log")
-	// prChecksGreen (cmd/merge.go) never consults gh's exit code once the "pr
-	// checks" JSON parses, so the always-exit-0 fake below exercises the same
-	// path a real fail-bucket exit 1 would. Each merge through it moves that PR
-	// to MERGED, which is what makes the rerun below see the state the first
-	// merge left rather than the state it started in.
+	// prChecksGreen (cmd/merge.go) never consults gh's exit code once the "pr checks" JSON parses, so the
+	// always-exit-0 fake below exercises the same path a real fail-bucket exit 1 would. Each merge through
+	// it moves that PR to MERGED, so the rerun sees the state the first merge left, not the initial one.
 	faketool.GH{Log: invocationLog, PRs: []faketool.GHPR{
 		{Number: 1, Branch: "task-1-branch", Repo: "org/demo", Checks: []string{"pass"}},
 		{Number: 2, Branch: "task-2-branch", Repo: "org/demo", Checks: []string{"fail"}},
@@ -53,10 +50,9 @@ func TestMergePR(t *testing.T) {
 		t.Fatalf("task-1 state = %+v, want MergeExecuted=true and MergeExecutedAt set", task1)
 	}
 
-	// The row is written only after gh has merged, so a fault between the two leaves
-	// the PR merged and the row saying otherwise. The pre-check is then all that stops
-	// a rerun re-merging it, and a repeated `gh pr merge` is exit 0 with a warning
-	// (internal/faketool/FIDELITY.md), so nothing downstream would notice.
+	// The row is written only after gh has merged, so a fault between the two leaves the PR merged and the
+	// row saying otherwise. The pre-check is then all that stops a rerun, because a repeated `gh pr merge`
+	// is exit 0 with a warning (internal/faketool/FIDELITY.md) and nothing downstream would notice.
 	task1.MergeExecuted = false
 	task1.MergeExecutedAt = ""
 	if err := state.Write(home, task1); err != nil {
