@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
@@ -180,10 +181,16 @@ func newSpawnCmd() *cobra.Command {
 			}
 			spawned = true
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "spawned %s project=%s kind=%s harness=%s worktree=%s\n", id, proj.Name, kind, harnessName, wt); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("id", id)
+			doc.Field("result", "spawned")
+			doc.Field("project", proj.Name)
+			doc.Field("kind", string(kind))
+			doc.Field("harness", harnessName)
+			doc.Field("worktree", wt)
+			doc.Help("Run `hand status "+id+"` to read what this worker reports",
+				"Run `hand send "+id+" <message>` to steer it")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
@@ -206,10 +207,17 @@ func newPromoteCmd() *cobra.Command {
 				}
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "promoted %s: scout -> ship project=%s harness=%s\n", id, proj.Name, harnessName); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("id", id)
+			doc.Field("result", "promoted")
+			doc.Field("kind", string(state.KindShip))
+			doc.Field("was", string(state.KindScout))
+			doc.Field("project", proj.Name)
+			doc.Field("harness", harnessName)
+			doc.Field("worktree", wt)
+			doc.Help("The scout's worktree and pane are gone; run `hand status "+id+"` to read the ship worker",
+				"The scout's delivery no longer counts for this task, so `hand deliver "+id+"` runs again on the code")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 

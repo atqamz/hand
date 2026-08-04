@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/completion"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/herdr"
@@ -107,10 +108,16 @@ func newTeardownCmd() *cobra.Command {
 				}
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "teardown %s complete\n", id); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("id", id)
+			doc.Field("result", "torn-down")
+			doc.Field("project", record.Project)
+			doc.Field("kind", record.Kind)
+			doc.Field("outcome", record.Outcome)
+			doc.Field("detail", orNone(record.Detail))
+			doc.Field("worktree", "returned")
+			doc.Help("This id is gone from `hand status`; its completion is the last word on it")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 

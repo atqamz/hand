@@ -23,7 +23,7 @@ func TestStatusFlagsATerminalReportNoWatcherEverRead(t *testing.T) {
 	}
 
 	fleet := runHand(t, home, "status")
-	if !strings.Contains(fleet.stdout, "(reported: done, unacknowledged)") {
+	if !strings.Contains(fleet.stdout, ",done,") || !strings.Contains(fleet.stdout, "unacknowledged\n") {
 		t.Fatalf("hand status stdout %q, want the completion no watcher read flagged unacknowledged", fleet.stdout)
 	}
 	single := runHand(t, home, "status", "task-1")
@@ -40,7 +40,7 @@ func TestStatusFlagsATerminalReportNoWatcherEverRead(t *testing.T) {
 	}
 
 	after := runHand(t, home, "status")
-	if !strings.Contains(after.stdout, "reported: done") {
+	if !strings.Contains(after.stdout, ",done,") {
 		t.Fatalf("hand status stdout %q, want the reported state still shown", after.stdout)
 	}
 	if strings.Contains(after.stdout, "unacknowledged") {

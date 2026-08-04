@@ -56,7 +56,7 @@ func TestPRCommand(t *testing.T) {
 	if again.code != 0 {
 		t.Fatalf("repeated identical pr record: exit %d, stderr %q", again.code, again.stderr)
 	}
-	if !strings.Contains(again.stdout, "already recorded") {
+	if !strings.Contains(again.stdout, "result: already-recorded\n") {
 		t.Fatalf("repeat stdout = %q, want the repeat reported", again.stdout)
 	}
 

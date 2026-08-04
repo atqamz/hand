@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -43,12 +44,16 @@ func newPRCmd() *cobra.Command {
 				return err
 			}
 
+			result := "recorded"
 			if reconcile {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "pr already recorded for %s: %s\n", t.ID, url)
-				return err
+				result = "already-recorded"
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "recorded PR for %s: %s\n", t.ID, url)
-			return err
+			var doc axi.Doc
+			doc.Field("id", t.ID)
+			doc.Field("result", result)
+			doc.Field("pr", url)
+			doc.Help("Run `hand merge " + t.ID + "` once this PR's checks are green")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 	return cmd

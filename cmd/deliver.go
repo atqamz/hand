@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
@@ -47,8 +48,13 @@ func newDeliverCmd() *cobra.Command {
 				return fmt.Errorf("write task state: %w", err)
 			}
 
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "marked %s delivered: %s\n", id, reason)
-			return err
+			var doc axi.Doc
+			doc.Field("id", id)
+			doc.Field("result", "delivered")
+			doc.Field("reason", reason)
+			doc.Field("delivered", t.DeliveredAt)
+			doc.Help("Run `hand teardown " + id + "` once the work is landed to release the worktree and pane")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 

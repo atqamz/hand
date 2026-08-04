@@ -113,6 +113,23 @@ func setFakeExecutable(t *testing.T) string {
 	return execPath
 }
 
+// Every outcome renders the same seven fields, so a reader parses one schema
+// rather than a set of lines that appear or do not.
+func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
+	doc := "current: v0.1.0\n" +
+		"latest: v0.5.0\n" +
+		"update_available: true\n" +
+		"updated: true\n" +
+		"agents_md: " + agentsMD + "\n" +
+		"session_hook: " + sessionHook + "\n" +
+		fmt.Sprintf("notes[%d]:\n", len(notes))
+	for _, note := range notes {
+		doc += "  - " + note + "\n"
+	}
+	return doc + "help[1]:\n" +
+		"  - Run `hand doctor` to check this home's AGENTS.md against the template v0.5.0 installed\n"
+}
+
 func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("update binary layout targets unix asset names")
@@ -134,8 +151,7 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	}
 
 	got := out.String()
-	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nupdated AGENTS.md template\nchanged:\nfixed the frobnicator\n"
-	if got != want {
+	if want := appliedUpdateDoc("refreshed", "refreshed", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 
@@ -285,8 +301,7 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 	}
 
 	got := out.String()
-	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nupdated AGENTS.md template\nchanged:\nfixed the frobnicator\n"
-	if got != want {
+	if want := appliedUpdateDoc("refreshed", "refreshed", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 
@@ -320,8 +335,7 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 	}
 
 	got := out.String()
-	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nchanged:\nfixed the frobnicator\n"
-	if got != want {
+	if want := appliedUpdateDoc("no-fleet-home", "no-fleet-home", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !os.IsNotExist(err) {
@@ -355,8 +369,7 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	}
 
 	got := out.String()
-	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nchanged:\nfixed the frobnicator\n"
-	if got != want {
+	if want := appliedUpdateDoc("failed", "no-fleet-home", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), notAHome) {
@@ -385,8 +398,7 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 	}
 
 	got := out.String()
-	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nupdated AGENTS.md template\n"
-	if got != want {
+	if want := appliedUpdateDoc("refreshed", "refreshed"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
@@ -418,13 +430,27 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 	}
 
 	got := out.String()
-	want := "current: v0.1.0\nlatest:  v0.5.0\nupdated hand to v0.5.0\nchanged:\nfixed the frobnicator\n"
-	if got != want {
+	if want := appliedUpdateDoc("failed", "refreshed", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") {
 		t.Fatalf("got stderr %q, want a refresh warning", errOut.String())
 	}
+}
+
+func checkedUpdateDoc(current, latest string, available bool) string {
+	doc := "current: " + current + "\n" +
+		"latest: " + latest + "\n" +
+		fmt.Sprintf("update_available: %t\n", available) +
+		"updated: false\n" +
+		"agents_md: not-applicable\n" +
+		"session_hook: not-applicable\n" +
+		"notes[0]:\n"
+	if !available {
+		return doc
+	}
+	return doc + "help[1]:\n" +
+		"  - Run `hand update` to install " + latest + ", which also refreshes this home's AGENTS.md template\n"
 }
 
 func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
@@ -437,12 +463,14 @@ func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	want := "update available: v0.1.0 -> v0.5.0\n"
+	want := checkedUpdateDoc("v0.1.0", "v0.5.0", true)
 	if out.String() != want {
 		t.Fatalf("got %q, want %q", out.String(), want)
 	}
 }
 
+// Up to date is an answer, not an absence: it renders the same schema as an
+// available update, differing only in the value of update_available.
 func TestUpdateCheckReportsUpToDate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.1.0")
 
@@ -453,7 +481,7 @@ func TestUpdateCheckReportsUpToDate(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	want := "hand v0.1.0 is up to date\n"
+	want := checkedUpdateDoc("v0.1.0", "v0.1.0", false)
 	if out.String() != want {
 		t.Fatalf("got %q, want %q", out.String(), want)
 	}
@@ -469,7 +497,7 @@ func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	want := "hand v0.1.0 is up to date\n"
+	want := checkedUpdateDoc("v0.1.0", "v0.1.0", false)
 	if out.String() != want {
 		t.Fatalf("got %q, want %q", out.String(), want)
 	}
@@ -485,7 +513,7 @@ func TestUpdateCheckReportsAvailableUpdateForDevBuild(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	want := "update available: dev -> v0.5.0\n"
+	want := checkedUpdateDoc("dev", "v0.5.0", true)
 	if out.String() != want {
 		t.Fatalf("got %q, want %q", out.String(), want)
 	}

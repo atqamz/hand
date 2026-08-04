@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
+	"github.com/atqamz/secondhand/internal/axi"
+	"github.com/atqamz/secondhand/internal/sessionhook"
 	"github.com/atqamz/secondhand/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -73,12 +75,23 @@ func newInitCmd() *cobra.Command {
 			if err := initMarker(home); err != nil {
 				return err
 			}
-			if _, err := agentsmd.Refresh(home); err != nil {
+			refreshed, err := agentsmd.Refresh(home)
+			if err != nil {
+				return err
+			}
+			exe, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("resolve the hand executable: %w", err)
+			}
+			hooked, err := sessionhook.Refresh(home, exe)
+			if err != nil {
 				return err
 			}
 
+			var chosen setupChoice
 			if setup {
-				if err := runInteractiveSetup(cmd, home); err != nil {
+				chosen, err = runInteractiveSetup(cmd, home)
+				if err != nil {
 					return err
 				}
 			}
@@ -86,15 +99,31 @@ func newInitCmd() *cobra.Command {
 			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), home); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "initialized secondhand home at %s\n", home); err != nil {
-				return err
-			}
-			return nil
+
+			var doc axi.Doc
+			doc.Field("result", "initialized")
+			doc.Field("home", home)
+			doc.Field("agents_md", writtenOrUnchanged(refreshed))
+			doc.Field("session_hook", writtenOrUnchanged(hooked))
+			doc.Field("harness", orNone(chosen.harness))
+			doc.Field("model", orNone(chosen.model))
+			doc.Field("effort", orNone(chosen.effort))
+			doc.Help("Run `hand project add <repo-url>` to register the first project",
+				"Read AGENTS.md in this home for how a supervising agent is meant to drive it",
+				"A Claude Code session started in this home now opens with the fleet already in context")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
 	cmd.Flags().BoolVar(&setup, "setup", false, "run interactive first-time setup")
 	return cmd
+}
+
+func writtenOrUnchanged(changed bool) string {
+	if changed {
+		return "written"
+	}
+	return "unchanged"
 }
 
 func initLayout(home string) error {
@@ -157,7 +186,15 @@ func initMarker(home string) error {
 	return db.Close()
 }
 
-func runInteractiveSetup(cmd *cobra.Command, home string) error {
+// The prompts stay plain lines: they are a dialog with whoever is at the
+// terminal, and only the answers are a result worth rendering.
+type setupChoice struct {
+	harness string
+	model   string
+	effort  string
+}
+
+func runInteractiveSetup(cmd *cobra.Command, home string) (setupChoice, error) {
 	out := cmd.OutOrStdout()
 
 	var foundHarnesses []string
@@ -175,63 +212,50 @@ func runInteractiveSetup(cmd *cobra.Command, home string) error {
 	}
 
 	if _, err := fmt.Fprintf(out, "found harnesses: %s\n", strings.Join(foundHarnesses, " ")); err != nil {
-		return err
+		return setupChoice{}, err
 	}
 	if _, err := fmt.Fprintf(out, "found tools: %s\n", strings.Join(foundTools, " ")); err != nil {
-		return err
+		return setupChoice{}, err
 	}
 
 	if len(foundHarnesses) == 0 {
-		return fmt.Errorf("no supported harnesses found on PATH")
+		return setupChoice{}, fmt.Errorf("no supported harnesses found on PATH")
 	}
 
 	in := cmd.InOrStdin()
 	if _, err := fmt.Fprintln(out, "select default worker harness:"); err != nil {
-		return err
+		return setupChoice{}, err
 	}
 	for i, h := range foundHarnesses {
 		if _, err := fmt.Fprintf(out, "%d) %s\n", i+1, h); err != nil {
-			return err
+			return setupChoice{}, err
 		}
 	}
 	harness, err := readSetupChoice(in, foundHarnesses, "harness")
 	if err != nil {
-		return err
+		return setupChoice{}, err
 	}
 
 	model, err := readSetupValue(in, out, "default worker model")
 	if err != nil {
-		return err
+		return setupChoice{}, err
 	}
 	effort, err := readSetupValue(in, out, "worker effort")
 	if err != nil {
-		return err
+		return setupChoice{}, err
 	}
 
 	if err := os.WriteFile(filepath.Join(home, "config", "harness"), []byte(harness+"\n"), 0o644); err != nil {
-		return fmt.Errorf("write config/harness: %w", err)
+		return setupChoice{}, fmt.Errorf("write config/harness: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "config", "model"), []byte(model+"\n"), 0o644); err != nil {
-		return fmt.Errorf("write config/model: %w", err)
+		return setupChoice{}, fmt.Errorf("write config/model: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "config", "effort"), []byte(effort+"\n"), 0o644); err != nil {
-		return fmt.Errorf("write config/effort: %w", err)
+		return setupChoice{}, fmt.Errorf("write config/effort: %w", err)
 	}
 
-	if _, err := fmt.Fprintf(out, "default worker harness: %s\n", harness); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(out, "default worker model: %s\n", model); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(out, "worker effort: %s\n", effort); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(out, "wrote config/harness config/model config/effort"); err != nil {
-		return err
-	}
-
-	return nil
+	return setupChoice{harness: harness, model: model, effort: effort}, nil
 }
 
 func resolveInitHome(cwd string, args []string) (string, error) {

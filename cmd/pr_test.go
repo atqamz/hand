@@ -117,7 +117,7 @@ func TestPRReconcilesWhenSameURLAlreadyRecorded(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "already recorded") {
+	if !strings.Contains(out.String(), "result: already-recorded\n") {
 		t.Fatalf("out = %q, want an already-recorded message", out.String())
 	}
 
@@ -330,7 +330,7 @@ func TestPRRecordsSuccessfully(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "recorded PR for task-1: https://github.com/owner/secondhand/pull/1") {
+	if !strings.Contains(out.String(), "result: recorded\n") || !strings.Contains(out.String(), "/owner/secondhand/pull/1") {
 		t.Fatalf("out = %q, want a recorded confirmation", out.String())
 	}
 

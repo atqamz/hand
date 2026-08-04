@@ -65,21 +65,21 @@ func TestHoldLifecycle(t *testing.T) {
 		t.Fatalf("spawn: exit %d, stderr %q", got.code, got.stderr)
 	}
 
-	// A fleet with nothing held prints exactly what it did before holds existed.
-	if got := runHand(t, home, "status"); got.code != 0 || strings.Contains(got.stdout, "held:") {
-		t.Fatalf("status with no holds = %q (exit %d), want no held block", got.stdout, got.code)
+	// A fleet with nothing held says so rather than leaving the block out.
+	if got := runHand(t, home, "status"); got.code != 0 || !strings.Contains(got.stdout, "held: 0\n") {
+		t.Fatalf("status with no holds = %q (exit %d), want an explicit zero held count", got.stdout, got.code)
 	}
 
 	set := runHand(t, home, "hold", "set", "fix-login",
 		"--kind", "blocked", "--reason", "needs the new column before this can proceed",
 		"--blocked-on", "migrate-schema")
-	if set.code != 0 || !strings.Contains(set.stdout, "hold set on fix-login (kind=blocked)") {
+	if set.code != 0 || !strings.Contains(set.stdout, "result: held\nkind: blocked\n") {
 		t.Fatalf("hold set = %q (exit %d), stderr %q", set.stdout, set.code, set.stderr)
 	}
 
 	single := runHand(t, home, "status", "fix-login")
-	if single.code != 0 || !strings.Contains(single.stdout, "Held:        waiting on migrate-schema: needs the new column before this can proceed") {
-		t.Fatalf("status fix-login = %q (exit %d), want the Held line", single.stdout, single.code)
+	if single.code != 0 || !strings.Contains(single.stdout, `held: "waiting on migrate-schema: needs the new column before this can proceed"`) {
+		t.Fatalf("status fix-login = %q (exit %d), want the held field naming what it waits on", single.stdout, single.code)
 	}
 
 	var one singleStatus
@@ -101,9 +101,10 @@ func TestHoldLifecycle(t *testing.T) {
 		t.Fatalf("status: exit %d, stderr %q", fleet.code, fleet.stderr)
 	}
 	for _, want := range []string{
-		"held:",
-		"fix-login      blocked   waiting on migrate-schema: needs the new column before this can proceed",
-		"unqueued-work  operator  two ways to do this, needs a call",
+		"held: 2\n",
+		"holds[2]{id,kind,detail,age}:\n",
+		`  fix-login,blocked,"waiting on migrate-schema: needs the new column before this can proceed",`,
+		`  unqueued-work,operator,"two ways to do this, needs a call",`,
 	} {
 		if !strings.Contains(fleet.stdout, want) {
 			t.Fatalf("status = %q, want it to contain %q", fleet.stdout, want)
@@ -133,7 +134,7 @@ func TestHoldLifecycle(t *testing.T) {
 	}
 
 	survived := runHand(t, home, "status")
-	if survived.code != 0 || !strings.Contains(survived.stdout, "fix-login      blocked   waiting on migrate-schema") {
+	if survived.code != 0 || !strings.Contains(survived.stdout, `  fix-login,blocked,"waiting on migrate-schema`) {
 		t.Fatalf("status after teardown = %q, want the torn-down task's hold still listed", survived.stdout)
 	}
 
@@ -146,15 +147,18 @@ func TestHoldLifecycle(t *testing.T) {
 	}
 
 	cleared := runHand(t, home, "hold", "clear", "fix-login")
-	if cleared.code != 0 || !strings.Contains(cleared.stdout, "hold cleared on fix-login") {
+	if cleared.code != 0 || !strings.Contains(cleared.stdout, "result: released\n") {
 		t.Fatalf("hold clear = %q (exit %d), stderr %q", cleared.stdout, cleared.code, cleared.stderr)
+	}
+	if !strings.Contains(cleared.stdout, "hand status fix-login") {
+		t.Fatalf("hold clear = %q, want a help line naming the task it released", cleared.stdout)
 	}
 	assertInvocation(t, runHand(t, home, "hold", "clear", "fix-login"), 3, `hold "fix-login" not found`)
 
 	if got := runHand(t, home, "hold", "clear", "unqueued-work"); got.code != 0 {
 		t.Fatalf("hold clear unqueued-work: exit %d, stderr %q", got.code, got.stderr)
 	}
-	if got := runHand(t, home, "status"); got.code != 0 || strings.Contains(got.stdout, "held:") {
-		t.Fatalf("status after clearing every hold = %q, want no held block left", got.stdout)
+	if got := runHand(t, home, "status"); got.code != 0 || !strings.Contains(got.stdout, "held: 0\n") {
+		t.Fatalf("status after clearing every hold = %q, want the held count back to zero", got.stdout)
 	}
 }

@@ -3,8 +3,12 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
+	"github.com/atqamz/secondhand/internal/axi"
+	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
@@ -26,10 +30,13 @@ func newRootCmd(version string) *cobra.Command {
 			}
 			return nil
 		},
-		// Cobra's own error/usage printing is disabled; Execute prints exactly
-		// one line to stderr and picks the exit code, so nothing else should.
+		// Cobra's own error/usage printing is disabled; Execute renders exactly
+		// one error document on stderr and picks the exit code.
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRootOverview(cmd, version)
+		},
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
@@ -73,6 +80,50 @@ func guardSubcommandGroups(c *cobra.Command) {
 	}
 }
 
+// The bare command answers with the fleet it manages rather than a help dump:
+// what a caller with nothing to go on needs first is the state, and `hand
+// --help` is still one word away for the reference.
+func runRootOverview(cmd *cobra.Command, version string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "unknown"
+	}
+
+	var doc axi.Doc
+	doc.Field("tool", "hand")
+	doc.Field("purpose", "manages a fleet of coding agents - one worker per task in its own worktree and herdr pane")
+	doc.Field("version", version)
+	doc.Field("exec", tildePath(exe))
+
+	fleetHome, err := home.Resolve()
+	if err != nil {
+		doc.Field("home", "none")
+		doc.Help("Run `hand init` in the directory that should become the fleet home, or point HAND_HOME at one that already exists",
+			"Run `hand --help` for the command reference")
+		return doc.Render(cmd.OutOrStdout())
+	}
+	doc.Field("home", tildePath(fleetHome))
+
+	cols, err := pickFields(taskFields, nil, fleetDefaultFields)
+	if err != nil {
+		return err
+	}
+	views, holds, err := fleetViews(cmd, fleetHome, herdr.NewClient())
+	if err != nil {
+		return err
+	}
+	appendFleet(&doc, views, holds, cols)
+	return doc.Render(cmd.OutOrStdout())
+}
+
+func tildePath(path string) string {
+	dir, err := os.UserHomeDir()
+	if err != nil || dir == "" || !strings.HasPrefix(path, dir+string(os.PathSeparator)) {
+		return path
+	}
+	return "~" + strings.TrimPrefix(path, dir)
+}
+
 func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(c *cobra.Command, args []string) error {
 		if err := validate(c, args); err != nil {
@@ -99,7 +150,6 @@ func Execute(version string) {
 		return
 	}
 
-	fmt.Fprintln(os.Stderr, err)
 	code := 1
 	var exitErr *ExitError
 	switch {
@@ -110,7 +160,53 @@ func Execute(version string) {
 		// check (e.g. an unknown command name) - untagged, but still a usage error.
 		code = 2
 	}
+	_ = renderError(os.Stderr, err, code, found.CommandPath())
 	os.Exit(code)
+}
+
+// The error document goes to stderr, where AXI puts it on stdout, because
+// `hand watch` owns stdout as an event stream a reader consumes line by line.
+func renderError(w io.Writer, err error, code int, path string) error {
+	var doc axi.Doc
+	doc.Field("error", err.Error())
+	doc.Field("kind", errorKind(code))
+	doc.Int("exit", code)
+	doc.Help(errorHelp(code, path)...)
+	return doc.Render(w)
+}
+
+// The vocabulary is SPECS.md's "Exit codes" table, so a caller can branch on a
+// name instead of memorizing which number means what.
+var errorKinds = map[int]string{
+	1: "general",
+	2: "usage",
+	3: "precondition",
+	4: "no-event",
+	5: "arm-failed",
+	6: "send-undelivered",
+}
+
+func errorKind(code int) string {
+	if kind, ok := errorKinds[code]; ok {
+		return kind
+	}
+	return "general"
+}
+
+func errorHelp(code int, path string) []string {
+	switch code {
+	case 2:
+		return []string{"Run `" + path + " --help` for the arguments and flags this command accepts"}
+	case 3:
+		return []string{"Nothing changed: this refuses until the state it names is fixed, then the same command runs again"}
+	case 4:
+		return []string{"The wait ended with no transition: run it again with a longer `--timeout`, or read `hand status` for where the fleet stands"}
+	case 5:
+		return []string{"A named task's pane failed its arm-time probe: run `hand status <id>` to read what that worker reports"}
+	case 6:
+		return []string{"The message never reached the pane: send it again, with a longer `--wait` if the composer stays busy"}
+	}
+	return nil
 }
 
 // ExitError carries a non-default exit code that SPECS.md requires: 2 for a

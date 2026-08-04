@@ -32,7 +32,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
 5. **No feature without friction.** Every feature in firstmate that doesn't have a proven use case is cut. Features get added when their absence causes real pain.
 6. **A fleet home is any directory `state/hand.db` marks as one.** `hand init` creates the file up front; put `hand` on PATH and launch the agent there. Only `hand` ever writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` cannot capture the walk up. A home initialized before `state/hand.db` existed falls back to the marker it was initialized with, `data/projects.md` plus `state/`, so an operator upgrading in place never has to re-run anything by hand and the legacy `state/<id>.json` import still finds a home to run against (see "Migration"). Maintainers dogfood a fleet home inside the secondhand repo checkout itself, with runtime state gitignored alongside the tracked code, but the CLI has no opinion about the two: `HAND_HOME`, or an ancestor of the working directory, is all it looks for.
 7. **`hand status` is the memory.** It is computed from the store and the report channel at the moment it is asked for, never a file the agent or the user reads out of band. No session digests, no bootstrap scripts, no 187-line status dumps, and no rendering that can disagree with the state behind it (atqamz/secondhand#62).
-8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic.
+8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic. The one hook `hand` installs is the opposite of a guard: a `SessionStart` entry that runs the bare command so a session opens with the fleet in context, policing nothing and refusing nothing (see "Ambient context").
 
 ## Architecture overview
 
@@ -174,6 +174,10 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       age.go                # FormatAge, FormatDuration
     atomicfile/             # shared write-to-temp-then-rename helper
       atomicfile.go         # atomic file replacement
+    axi/                    # the one TOON renderer every command emits through (see "Output shape")
+      axi.go                # fields, row blocks, --fields selection, truncation hints, help[] lines
+    sessionhook/            # ambient context for a supervising session (see "Ambient context")
+      sessionhook.go        # install, repoint and report the SessionStart hook entry
   go.mod
   go.sum
   AGENTS.md                 # agent instructions (~25 lines of rules)
@@ -213,6 +217,8 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     parked-paused-bound     # seconds a paused-and-silent task may sit before it's parked (default: 3600)
     parked-done-bound       # seconds a done-or-failed-and-silent task may sit before it's parked (default: 5400)
     parked-other-bound      # seconds a silent task in any other state may sit before it's parked (default: 1200)
+  .claude/
+    settings.json           # merged, never overwritten: hand owns one SessionStart entry in it
 ```
 
 Who writes a file for whom is what decides whether it belongs under `data/` at all.
@@ -223,7 +229,91 @@ The direction `data/` does not carry is a file maintained by hand for the operat
 `learnings.md`, `done-archive.md` and `note-archive.md` are plain agent-edited markdown with no schema, no subcommand and no validation, the same treatment `backlog.md` already gets.
 `operator.md` gets that same treatment minus the editing: it is the operator's file, which the agent reads at session start and never rewrites, and that one-way ownership is what lets its constraints outrank the agent's judgment at all.
 
+## Ambient context
+
+A supervising agent that has to ask for the fleet before it can reason about it spends a turn on
+what the session could have opened with. `hand init` and `hand update` install `hand` as a Claude
+Code `SessionStart` hook in the home's `.claude/settings.json`, so every conversation starts with
+the bare command's overview - identity, home, counts and the task table - already in context.
+`data/dashboard.md` was the file-based answer to the same need and was removed with atqamz/secondhand#62;
+the hook replaces it with output generated at the moment it is read, which no file can be.
+
+The file is merged, never overwritten. An operator's permissions, other events and other
+`SessionStart` entries are carried through untouched, and a `settings.json` hand cannot parse is an
+error rather than a clobber. Hand owns at most one entry: the first whose command runs this binary
+or any binary named `hand`. Refreshing repoints that entry's path, which is what an install that
+moved needs, and leaves any arguments the operator added to it alone.
+
+Installing is confined to a fleet home. A directory with no `state/hand.db` gets no `.claude/`
+directory at all, because nothing there runs a supervising session.
+
+## Output shape
+
+`hand`'s only consumer is an LLM agent, so its default output is TOON (https://axi.md) rather than a table aligned for a human terminal (atqamz/secondhand#45).
+`internal/axi` is the single renderer every command emits through, so the shape below is a property of that package and not a convention each command re-implements.
+
+Three block kinds, rendered in the order the command adds them:
+- A scalar field, `key: value`.
+- A row block, `name[N]{f1,f2,f3}:` followed by one two-space-indented comma-joined row per item.
+- A list block, `name[N]:` followed by one `  - item` line per item.
+
+The rules that hold across every command:
+- A row block prints its `name[N]{...}:` header even when `N` is zero, so an empty result is a positive statement carrying a count rather than the silence a broken command also produces (atqamz/secondhand#100).
+- A value is quoted, in Go string-literal syntax, only when it would otherwise be ambiguous: it carries a `,`, a `:` or a `"`, it has leading or trailing whitespace, or it is empty. The empty string renders as `""`, since unquoted it is indistinguishable from a field nobody emitted.
+- A field with nothing behind it renders as `none`, so "no PR recorded" never reads as a PR whose URL happens to be blank.
+- A truncated field carries its own recovery: `<cut text>... (truncated, <N> chars total - use <command> to see complete text)`, naming the command that returns the whole field. The budget is counted in runes, never bytes, so a multi-byte character is never cut in half.
+- A list item runs to end of line, so an embedded newline is collapsed to a space rather than silently becoming a second item.
+- A `help[N]:` block, when present, is last, and names what to run next. It is omitted entirely when a command has nothing to suggest - an empty `help[0]` block costs context and says nothing.
+- Counts and other aggregates are pre-computed and emitted as scalar fields above the rows they summarize, so a caller that only needs the number never has to count rows to get it.
+- A command that changes something confirms it with a `result:` field naming what happened, alongside the fields it changed. One field carries the outcome, so `recorded` and `already-recorded`, or `merged` and its method, are told apart by reading a value rather than matching a sentence.
+- `--fields <a,b,c>` narrows a command's row block to the named columns, in the order named, and the schema header narrows with the rows: a header promising columns the rows do not carry is worse than no header at all. An unknown name is a usage error (exit 2) naming the whole vocabulary, never a silently narrower result. `<command> --help` lists every field name.
+- `--json` is retained everywhere it existed, byte for byte unchanged. TOON is the default because the consumer is an agent; JSON stays because a caller that wants a parser-backed object should not have to parse TOON to build one. `--fields` narrows the TOON schema only, so combining it with `--json` is a usage error rather than a silently ignored request.
+
+`hand watch` is the one command outside this contract: its stdout is a per-line event stream a supervisory agent tails as it arrives, so it stays a line protocol (see "`hand watch`").
+
 ## CLI specification
+
+### `hand`
+
+The bare command introduces the binary and reports the fleet in one document, rather than printing the help screen cobra defaults to.
+What a caller with nothing to go on needs first is the state; `hand --help` is one word away for the command reference.
+
+```
+tool: hand
+purpose: manages a fleet of coding agents - one worker per task in its own worktree and herdr pane
+version: 0.1.4
+exec: ~/.local/bin/hand
+home: ~/secondhand
+count: 2
+attention: 1
+held: 0
+tasks[2]{id,state,reported,age,flags}:
+  fix-login,working,working,2h ago,none
+  audit-deps,done,done,20m ago,unacknowledged
+holds[0]{id,kind,detail,age}:
+help[3]:
+  - Run `hand status <id>` for one task's detail and report history
+  - A flagged row is waiting on you: `hand send <id> <message>` to steer it, `hand hold set <id> --kind operator --reason <text>` to park it
+  - Run `hand status --fields <a,b>` to pick columns, `hand status --help` for every field name
+```
+
+`exec` names the executable that answered, with the user's home abbreviated to `~`, so a caller who has more than one `hand` on `PATH` can tell which one it reached.
+Everything from `count` down is `hand status`'s fleet overview with its default fields, built by the same code, so the two can never disagree.
+
+Outside a fleet home the identity fields still print, `home` is `none`, and the help block names the way in:
+
+```
+tool: hand
+purpose: manages a fleet of coding agents - one worker per task in its own worktree and herdr pane
+version: 0.1.4
+exec: ~/.local/bin/hand
+home: none
+help[2]:
+  - Run `hand init` in the directory that should become the fleet home, or point HAND_HOME at one that already exists
+  - Run `hand --help` for the command reference
+```
+
+Exit `0`, unlike every other command's `3` for an unresolvable home: this is the one surface whose job is to introduce the tool, and a caller who has not set a home up yet is exactly who runs it.
 
 ### `hand init [path] [flags]`
 
@@ -232,6 +322,7 @@ Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
 Creates `data/backlog.md`, `data/projects.md`, `data/operator.md`, `data/learnings.md`, `data/done-archive.md` and `data/note-archive.md` with skeleton content, and creates `state/hand.db` if it does not already exist - the fleet-home marker `IsHome` checks for (see "Core principles").
 A skeleton is written only when the file is absent, so re-running `hand init` in an existing home is how it picks up a file the layout gained since it was initialized, and never how it loses what is in one.
 `hand update` seeds the same skeletons the same way, so an existing home picks a new layout file up whether it is re-initialized or updated.
+Also installs the ambient-context session hook described below.
 Idempotent: safe to run multiple times.
 This is the one command that does not resolve its home: it creates the one its argument or the working directory names.
 When `HAND_HOME` is set and names some other directory it still initializes the requested target, and warns on stderr that every other command will use `HAND_HOME` instead, naming it as the absolute path those commands resolve it to so a relative `HAND_HOME` is not mistaken for a second home.
@@ -246,19 +337,27 @@ Flags:
 
 Output:
 ```
-initialized secondhand home at /path/to/secondhand
+result: initialized
+home: /path/to/secondhand
+agents_md: written
+session_hook: written
+harness: none
+model: none
+effort: none
+help[3]:
+  - Run `hand project add <repo-url>` to register the first project
+  - Read AGENTS.md in this home for how a supervising agent is meant to drive it
+  - A Claude Code session started in this home now opens with the fleet already in context
 ```
 
-Output with `--setup`:
-```
-found harnesses: claude codex pi grok
-found tools: treehouse herdr no-mistakes gh
-default worker harness: claude
-default worker model: sonnet
-worker effort: low
-wrote config/harness config/model config/effort
-initialized secondhand home at /path/to/secondhand
-```
+`agents_md` and `session_hook` are each `written` or `unchanged`, so a re-run says which of the two
+it had to touch rather than going silent about both.
+
+`--setup` is a dialog with whoever is at the terminal, so its discovery lines and prompts stay plain
+lines (`found harnesses: ...`, `found tools: ...`, a numbered harness menu, then a prompt per value).
+Only the answers reach the document, which follows the dialog with `harness: claude`, `model: sonnet`
+and `effort: low` in place of the three `none`s above. Without `--setup` nothing was chosen, so all
+three read `none` rather than being dropped: the schema is the same either way.
 
 Errors:
 - Filesystem permission errors.
@@ -291,7 +390,13 @@ Behavior:
 
 Output:
 ```
-added project nsr (https://github.com/yes2games/nsr) mode=direct-pr
+name: nsr
+result: added
+mode: direct-pr
+url: "https://github.com/yes2games/nsr"
+clone: /home/user/fleet/projects/nsr
+help[1]:
+  - Run `hand spawn <id> nsr` to dispatch a worker into it
 ```
 
 Errors:
@@ -308,14 +413,25 @@ List registered projects from the store.
 
 ```
 hand project list
+hand project list --fields name,mode
 hand project list --json
 ```
 
-Output (human):
+Flags:
+- `--fields <a,b,c>`: which columns the `projects` block emits, in the order given. Any of `name`, `mode`, `url`, `upstream`, `gate`; all five by default. An unknown name is a usage error (`2`) naming the known ones.
+- `--json`: the raw registry objects, unchanged from earlier versions. Rejects `--fields` as a usage error (`2`) rather than silently handing back the full object the caller asked to narrow.
+
+Output:
 ```
-nsr           https://github.com/yes2games/nsr          direct-pr
-yes2infra     https://github.com/yes2games/yes2infra    no-mistakes  (gate: not initialized)
-no-mistakes   https://github.com/atqamz/no-mistakes     direct-pr    (upstream: kunchenguid/no-mistakes)
+count: 3
+gate_issues: 1
+projects[3]{name,mode,url,upstream,gate}:
+  nsr,direct-pr,"https://github.com/yes2games/nsr",none,none
+  yes2infra,no-mistakes,"https://github.com/yes2games/yes2infra",none,not initialized
+  no-mistakes,direct-pr,"https://github.com/atqamz/no-mistakes",kunchenguid/no-mistakes,none
+help[2]:
+  - Run `hand spawn <id> <project>` to dispatch a worker into one of these
+  - A project with a gate value cannot honour its no-mistakes mode until that is fixed; `hand doctor` and the project's own clone are where to look
 ```
 
 Output (JSON):
@@ -327,17 +443,20 @@ Output (JSON):
 ]
 ```
 
-A project with a declared upstream gets an `upstream: <owner/repo>` annotation in human output and an
-`upstream` field in JSON output (omitted when there is none). Annotations share one trailing column
-rather than taking one each, so a project carrying an upstream and no gate issue does not print its
-upstream under the gate issue of the row above it.
+Every column carries a value on every row: a project with no declared upstream reads `none` rather
+than dropping the cell, so the row stays aligned with the schema header. JSON keeps its
+omit-when-absent shape (`upstream`, `gate_issue`).
 
 A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or
 `unreachable` - the binary itself missing, the clone path missing on disk, or the clone path
-existing but not a git repository; see "Gate preflight") gets a `(gate: <issue>)` suffix in human
-output and a `gate_issue` field in JSON output (omitted when there is no issue). Every
-`no-mistakes`-mode project pays one `no-mistakes status` call per `hand project list` invocation;
-other modes pay nothing.
+existing but not a git repository; see "Gate preflight") carries that text in its `gate` column and
+its `gate_issue` field in JSON. `gate_issues` counts them, so a caller learns whether any project is
+unspawnable without reading every row; a nonzero count adds the `help[]` line above saying where to
+look. Every `no-mistakes`-mode project pays one `no-mistakes status` call per
+`hand project list` invocation; other modes pay nothing.
+
+An empty registry is `count: 0` with the schema header and a `help[]` line naming
+`hand project add`, never silence.
 
 ---
 
@@ -369,12 +488,16 @@ add` cannot be re-run against an existing clone.
 
 Output:
 ```
-project no-mistakes opens PRs against kunchenguid/no-mistakes
+name: no-mistakes
+result: upstream-set
+upstream: kunchenguid/no-mistakes
 ```
 
 Output (cleared):
 ```
-cleared upstream for project no-mistakes
+name: no-mistakes
+result: upstream-cleared
+upstream: none
 ```
 
 Errors:
@@ -394,7 +517,11 @@ hand project remove nsr
 
 Output:
 ```
-removed project nsr (clone retained at projects/nsr)
+name: nsr
+result: removed
+clone: /home/user/fleet/projects/nsr
+help[1]:
+  - The clone is retained; delete it by hand if the registration was the only thing holding it
 ```
 
 Errors:
@@ -474,7 +601,15 @@ tear down a task that is already running.
 
 Output:
 ```
-spawned fix-login project=nsr kind=ship harness=claude worktree=/home/user/.treehouse/nsr-abc/1/nsr
+id: fix-login
+result: spawned
+project: nsr
+kind: ship
+harness: claude
+worktree: /home/user/.treehouse/nsr-abc/1/nsr
+help[2]:
+  - Run `hand status fix-login` to read what this worker reports
+  - Run `hand send fix-login <message>` to steer it
 ```
 
 Errors:
@@ -542,99 +677,131 @@ Show fleet overview or single-task detail.
 ```
 hand status
 hand status fix-login
+hand status --fields id,state,pr
 hand status --json
 hand status fix-login --full
 ```
 
 Flags:
-- `--json`: output as JSON. Always carries the reported line and history untruncated - a machine consumer wants the whole field, and silently truncating a JSON field is a data-loss bug, not a rendering choice.
-- `--full`: in the single-task view, show the reported line and history untruncated and skip the history dedup below, reproducing the output from before atqamz/secondhand#65 exactly.
+- `--fields <a,b,c>`: emit these columns instead of the view's defaults, in the order named. One vocabulary serves both views, so a field means the same thing wherever it is asked for: `id`, `project`, `kind`, `harness`, `model`, `effort`, `state`, `reported`, `report`, `age`, `created`, `last_report`, `pr`, `worktree`, `herdr`, `brief`, `delivered`, `held`, `gate`, `report_file`, `flags`. See "Output shape" for the rules this flag follows everywhere.
+- `--json`: output as JSON instead of TOON. Always carries the reported line and history untruncated - a machine consumer wants the whole field, and silently truncating a JSON field is a data-loss bug, not a rendering choice.
+- `--full`: in the single-task view, show the reported line and history untruncated and skip the history dedup below, reproducing the pre-atqamz/secondhand#65 content exactly.
 
 Behavior (fleet overview):
 1. List every task in the store.
 2. For each, query herdr for current agent state.
-3. Append the worker's own last classified report to the same column as ` (reported: <state>)`, whatever the pane is doing. A pane state and a report answer different questions, so both print: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. `working` is the one report that stays unadorned, because it is what the column already says. ` (unreported)` still requires a not-busy pane (herdr's `idle` or `done` - see "Agent state" below), since a busy pane that has not reported yet is not a stop anyone has to explain. A report file that exists but can't be read appends ` (report unreadable)`, never ` (unreported)` - an I/O fault is not evidence the worker never reported. A terminal report (`done`, `failed`) no `hand watch` has consumed renders as ` (reported: <state>, unacknowledged)`; see "Unacknowledged terminal reports" below.
-4. If the task has a recorded PR, append its merge state to the same column: ` (merged)` when `hand` performed the merge, ` (merged, external)` when `hand` only observed it - `hand watch`'s own `gh` poll saw it merged, or gate-opened-PR detection recorded a PR that was already merged. It is appended whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane.
-5. Print one line per task, with a header row - or, if there are no tasks at all, `no tasks (0)` in place of the table, so an empty fleet reads as a positive statement with a count rather than the same bare output a broken command could also produce.
-6. List every hold in the store (see "Holds" under "State management") and print a `held:` block below the task table, one line per hold, skipped entirely when nothing is held - printed even when there are no tasks, so a torn-down task's still-open hold is never hidden behind the `no tasks (0)` line above it. A hold names any id, not only a live task's, so a torn-down task's still-open hold keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
-7. For a `ship` task reported `done` with a recorded PR, on a registered `no-mistakes` project: check whether that PR ever went through a gate run (see "Gate-run visibility" below), and append ` (gate: <issue>)` to the same column when it did not. The project registry read this step needs is best-effort - a registry fault leaves the check silent for every task rather than failing the whole overview over it, but prints a one-line `warning:` to stderr naming the read failure, so dropping every `(gate: ...)` marker fleet-wide is never silent.
+3. Carry the worker's own last classified report in the `reported` column, whatever the pane is doing, and `none` when it has never reported. A pane state and a report answer different questions, so both are emitted as their own column: a worker that appends `paused:` while its harness keeps running used to render as a bare `working`, showing the pane and hiding the only party that had said why. A report file that exists but can't be read reads `unreadable` there, which is why that column is never the place the `unreported` flag lands - an I/O fault is not evidence the worker never reported.
+4. Derive the `flags` column, one space-separated token per marker so a caller can test for one without parsing prose, and `none` when a task carries no marker at all. `unreported` requires both a not-busy pane (herdr's `idle` or `done` - see "Agent state" below) and a last word of `working` or nothing, since a busy pane that has not reported yet is not a stop anyone has to explain. `report-unreadable` is the I/O fault above. `unacknowledged` is a terminal report (`done`, `failed`) no `hand watch` has consumed; see "Unacknowledged terminal reports" below. `delivered` is a task closed out by `hand deliver`. `merged` and `merged-external` are the merge state of a recorded PR - `merged` when `hand` performed the merge, `merged-external` when `hand` only observed it, whether `hand watch`'s own `gh` poll saw it merged or gate-opened-PR detection recorded a PR that was already merged - carried whatever the agent state is, since a merged PR is a fact about the PR rather than about the pane. `gate-no-run-found` and `gate-unreachable` come from step 6.
+5. Emit `count`, `attention` and `held` as scalar fields above the rows. `count` is the number of tasks, `attention` the number of them a supervisor has to look at, and `held` the number of open holds. `attention` counts a task whose report is `paused`, `blocked`, `needs-decision` or `failed`, or that carries `unreported`, `unacknowledged`, `report-unreadable` or a gate flag: the point is that a reader who only takes the aggregate learns whether anything wants them without reading a single row.
+6. For a `ship` task reported `done` with a recorded PR, on a registered `no-mistakes` project: check whether that PR ever went through a gate run (see "Gate-run visibility" below), and set the `gate-<issue>` flag when it did not. The project registry read this step needs is best-effort - a registry fault leaves the check silent for every task rather than failing the whole overview over it, but prints a one-line `warning:` to stderr naming the read failure, so dropping every gate flag fleet-wide is never silent.
+7. Emit the `tasks[N]{...}` block, then the `holds[N]{...}` block, then `help[N]`. Both row blocks print their header at `N` of zero, so an empty fleet is a positive statement rather than the same bare output a broken command could also produce, and a torn-down task's still-open hold is never hidden behind an absent task table. A hold names any id, not only a live task's, so it keeps appearing here after its task row is gone. A failure to read the holds fails the whole command rather than degrading to an empty list - reading no holds back must never be mistaken for nothing being held.
 
-The `last report` column is the mtime of `state/<id>.status`, and `(none)` when the worker has never written one.
+The `last_report` column is the mtime of `state/<id>.status`, and `none` when the worker has never written one.
 It is deliberately not the task's age: the two used to be conflated, so a task spawned hours ago read as hours stale next to a status file its worker had touched minutes earlier - a reporting worker that looked abandoned.
-`age` measures the task, `last report` measures the channel.
+`age` measures the task, `last_report` measures the channel.
 
 Output (fleet overview):
 ```
-id           project  kind   state                                       age     last report
-fix-login    nsr      ship   working                                     2h ago  3m ago
-dark-mode    nsr      ship   blocked                                     45m ago 40m ago
-build-wait   nsr      ship   working (reported: paused)                  20m ago 5m ago
-stuck-task   nsr      ship   idle (unreported)                           1h ago  (none)
-paused-task  nsr      ship   idle (reported: needs-decision)             30m ago 12m ago
-quiet-done   nsr      ship   idle (reported: done, unacknowledged)       15m ago 14m ago
-investigate  nsr      scout  done (reported: done)                       10m ago 9m ago
-shipped-fix  nsr      ship   done (reported: done) (merged, external)    5m ago  4m ago
-no-gate-fix  nsr      ship   done (reported: done) (gate: no run found)  3m ago  2m ago
-
-held:
-  fix-login         operator  two ways to fix this, needs a call          2h ago
-  torn-down-task    operator  question never answered                    1d ago
+count: 9
+attention: 5
+held: 2
+tasks[9]{id,state,reported,age,flags}:
+  fix-login,working,working,2h ago,none
+  dark-mode,blocked,none,45m ago,none
+  build-wait,working,paused,20m ago,none
+  stuck-task,idle,none,1h ago,unreported
+  paused-task,idle,needs-decision,30m ago,none
+  quiet-done,idle,done,15m ago,unacknowledged
+  investigate,done,done,10m ago,none
+  shipped-fix,done,done,5m ago,merged-external
+  no-gate-fix,done,done,3m ago,gate-no-run-found
+holds[2]{id,kind,detail,age}:
+  fix-login,operator,"two ways to fix this, needs a call",2h ago
+  torn-down-task,operator,question never answered,1d ago
+help[3]:
+  - Run `hand status <id>` for one task's detail and report history
+  - A flagged row is waiting on you: `hand send <id> <message>` to steer it, `hand hold set <id> --kind operator --reason <text>` to park it
+  - Run `hand status --fields <a,b>` to pick columns, `hand status --help` for every field name
 ```
 
-A hold row that can't be trusted at face value - an unrecognized kind, a `blocked` hold with no `blocked_on`, or an `operator` or `limit` hold carrying one - is still printed, never dropped, with `inconsistent: <why>` in place of its detail: an external write to `state/hand.db` is the only way such a row exists, since `hand hold set` validates before writing, and filtering it out here would silently drop the row most worth seeing.
+The default columns are the five that answer "what is running and what wants me"; the rest of the vocabulary is one `--fields` away, and narrowing it narrows the schema header with it:
+```
+$ hand status --fields id,pr,gate
+count: 9
+attention: 5
+held: 2
+tasks[9]{id,pr,gate}:
+  fix-login,none,none
+  ...
+```
+
+A hold row that can't be trusted at face value - an unrecognized kind, a `blocked` hold with no `blocked_on`, or an `operator` or `limit` hold carrying one - is still emitted, never dropped, with `inconsistent: <why>` in place of its `detail`: an external write to `state/hand.db` is the only way such a row exists, since `hand hold set` validates before writing, and filtering it out here would silently drop the row most worth seeing.
 
 Output (fleet overview, empty):
 ```
-no tasks (0)
+count: 0
+attention: 0
+held: 0
+tasks[0]{id,state,reported,age,flags}:
+holds[0]{id,kind,detail,age}:
+help[2]:
+  - Run `hand project list` to see which projects are registered
+  - Run `hand spawn <id> <project>` to start a worker
 ```
-Still followed by a `held:` block if any hold is open (step 6 above).
+The `holds[N]` block still carries any open hold when there are no tasks at all (step 7 above).
 
 Behavior (single task):
 1. Read the task from the store.
 2. If the task is a `ship` task with no PR recorded and its project is registered and not `local-only`: look for a PR on the project's repo whose head ref is the task's current branch (never matched on title, issue number, or task id), and record it under the task if found - a no-mistakes gate's own `pr` step opens a PR directly, bypassing `hand pr`, so `pr` can go unrecorded for genuinely landed work. A project with a declared `upstream` searches that repo too, since a fork contribution's PR is opened on the upstream while the branch is pushed to the fork (atqamz/secondhand#134). Only PRs whose head branch lives in the project's own repo count there: an upstream carries head refs from every contributor's fork, and a head ref is matched on the branch name alone, so a stranger's same-named branch would otherwise be recorded as this task's PR. Every repo-slug comparison in this lookup folds case, since a GitHub slug is unique only up to casing: the head-repo filter matches what `gh` reports in GitHub's canonical casing against a slug derived from whatever casing the clone's `origin` remote carries, and an `upstream` naming the project's own repo in another casing is that same repo, so it is not searched a second time. Compared exactly, the first drops a landed PR and the second returns it twice, making it its own same-tier duplicate (atqamz/secondhand#146). A branch carrying several PRs resolves by preference tier - merged, then open, then closed-unmerged - and only when the winning tier holds exactly one PR: a tier with more than one match is ambiguous, and so is a merged PR coexisting with an open one on the same head ref - an open PR is live evidence the branch may carry unlanded work, so that mix refuses rather than resolving to the merged PR. Matches from both searched repos resolve through that one tier pass, so a fork whose upstream also carries a PR on that branch name is ambiguous exactly like two PRs in one repo, and each candidate is named with its repo (`owner/repo#N`) rather than a bare number an operator would have to hunt for. A `scout` task is skipped: its deliverable is `data/<id>/report.md`, never a PR. This is a best-effort, non-blocking lookup (a held task lock, an unreachable `gh`, an ambiguous branch, or a task with no branch all just leave the command reporting what it read) so a fleet-wide `hand status` never pays this cost.
 3. Query herdr for current agent state and recent output.
-4. Read the task's report channel (see "Report channel") and show its last 5 lines. The read covers the whole file even though only 5 lines are shown, since the unacknowledged check below is answered from all of it, exactly as the fleet overview answers it - a window would let trailing free text hide from one view a completion the other flags. A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `Reported` line reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing. A terminal report no watcher has consumed appends ` (unacknowledged)` to the same line; see "Unacknowledged terminal reports" under "Report channel".
-5. Read the hold on this id, if any (see "Holds" under "State management"). Unlike the report channel, a failure to read it fails the command - the same reasoning as the fleet overview's `held:` block.
+4. Read the task's report channel (see "Report channel") and show its last 5 lines. The read covers the whole file even though only 5 lines are shown, since the unacknowledged check below is answered from all of it, exactly as the fleet overview answers it - a window would let trailing free text hide from one view a completion the other flags. A report file that exists but can't be read degrades exactly as it does in the fleet overview: the `report` field reads `report unreadable: <error>` and the rest of the detail view still prints, rather than the command failing and showing nothing. A terminal report no watcher has consumed appends ` (unacknowledged)` to that field; see "Unacknowledged terminal reports" under "Report channel".
+5. Read the hold on this id, if any (see "Holds" under "State management"). Unlike the report channel, a failure to read it fails the command - the same reasoning as the fleet overview's `holds[N]` block.
 6. If the task is a `ship` task reported `done` with a recorded PR: look up its project (unlike the fleet overview's best-effort registry read, a failure here fails the command - this id's own project is the one fact the check is about) and, if it is a registered `no-mistakes` project, check whether that PR ever went through a gate run (see "Gate-run visibility" below).
-7. Print detailed view, including the most recent reported line and a labeled history block.
+7. Emit the selected fields, then `report_history[N]`, then `help[N]`.
 
 Output (single task):
 ```
-Task:        fix-login
-Project:     nsr
-Kind:        ship
-Harness:     claude
-Model:       sonnet
-State:       working
-Worktree:    /home/user/.treehouse/nsr-abc/1/nsr
-Herdr:       default / wA:tB
-Created:     2h ago
-Last report: 3m ago
-PR:          (none)
-Reported:    needs-decision: two ways to fix the race, ask-user found both risky
-Report file: /home/user/secondhand/state/fix-login.status
-Held:        waiting on migrate-schema: needs the new column before this can proceed
-
-Report history (reported by worker, not verified current truth):
-  working: added the retry loop
+id: fix-login
+project: nsr
+kind: ship
+harness: claude
+model: sonnet
+state: working
+worktree: /home/user/.treehouse/nsr-abc/1/nsr
+herdr: "default/wA:tB"
+age: 2h ago
+last_report: 3m ago
+pr: none
+reported: needs-decision
+report: "needs-decision: two ways to fix the race, ask-user found both risky"
+delivered: none
+held: "waiting on migrate-schema: needs the new column before this can proceed"
+gate: none
+flags: none
+report_file: /home/user/secondhand/state/fix-login.status
+report_history[1]:
+  - working: added the retry loop
+help[1]:
+  - Run `hand send fix-login <message>` to answer this worker
 ```
 
-The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:          https://github.com/org/repo/pull/42 (merged, external)`.
+One item is not a list, so this view defaults to every field the fleet overview leaves out rather than to five of them; `--fields` narrows it the same way, drawing from the same vocabulary.
+Every default field is emitted every time, `none` when it has nothing behind it, so the shape a caller parses never changes with the content: `pr` reads `none` with no PR recorded, `held` only carries a detail when this id has a hold, and `gate` only when the gate-run check came back `no run found` or `unreachable`.
+That is also why the merge state, the gate issue and the unacknowledged marker live in `flags` here exactly as they do in the fleet overview, rather than as suffixes on the fields they qualify.
 
-The `Held:` line is present only when this id has a hold, and reads the reason alone for an `operator` or `limit` hold or `waiting on <blocked_on>: <reason>` for a `blocked` one; an inconsistent row (see the fleet overview above) prints `inconsistent: <why>` instead. A `limit` hold's reason is written by `hand watch` and says which resume attempt it is on and when it next tries (see "Resuming a usage-limited worker").
+`held` reads the reason alone for an `operator` or `limit` hold, `waiting on <blocked_on>: <reason>` for a `blocked` one, and `inconsistent: <why>` for a row that can't be trusted at face value (see the fleet overview above). A `limit` hold's reason is written by `hand watch` and says which resume attempt it is on and when it next tries (see "Resuming a usage-limited worker").
+`report` is the worker's own last claim about itself, not something `hand` has verified - the same caution as the `done`-vs-`reported-done` distinction in `hand watch` - and so is every entry in `report_history`.
+The field names carry that framing, which is why no invocation repeats it in prose.
 
-A `Gate run:` line (`Gate run:    no run found`, printed below the `Held:` line) is present only for a `done` `ship` task with a recorded PR on a registered `no-mistakes` project whose gate-run check (see "Gate-run visibility" below) did not come back clean - `no run found` or `unreachable`. It is absent for every other task, including one where the check came back clean, so the example above - which has no PR recorded - never carries it.
+atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `report`, again as the last entry of `report_history`. Without `--full`:
+- The `report` field and every history entry are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut entry carries the recovery hint every truncated field carries (see "Output shape"), naming `hand status <id> --full` as what returns the whole text. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").
+- `report_history` drops the entry the `report` field already carries, so the same report is never emitted twice in one invocation. That is whichever entry the field actually rendered, not simply the last one: an unacknowledged terminal report followed by free text renders the terminal line, so the free text is what stays in the history block, and a terminal report the free text pushed out of the 5-line window drops nothing.
+- The `report_file` field names the absolute path to `state/<id>.status`, so nothing is lost: the full text stays on disk and the path to it is one field away. It is emitted whether or not anything was cut, since a field that appears only when the content is long makes the schema a function of the content.
+- The truncation adds a `help[]` line naming `hand status <id> --full`, so the recovery is stated once more where a caller looks for what to run next.
 
-atqamz/secondhand#65: a worker's report prose has run several KB for a single task, and rendering it in full doubled the cost by repeating the latest entry - once as `Reported:`, again as the last line of `Report history`. Without `--full`:
-- The `Reported` line and every history line are capped to 200 runes (a character budget, not a word or line count, since the point is bounding rendered size). The cut lands after the state-vocabulary prefix (`working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, `failed:`) - the prefix is never part of what's cut - and a cut line always carries a trailing `... [+N chars]` marker naming how much was dropped, so a short report is never mistaken for a truncated one. `done: <PR url>` stays intact under this budget in the common case, since the worker convention puts the URL immediately after the prefix and 200 runes covers it comfortably; a URL buried after long prose is the same brief-authoring problem the write side already owns (see "Report channel").
-- `Report history` drops the entry already shown on the `Reported:` line above it, so the same report is never printed twice in one invocation. That is whichever entry the line actually rendered, not simply the last one: an unacknowledged terminal report followed by free text renders the terminal line, so the free text is what stays in the history block, and a terminal report the free text pushed out of the 5-line window drops nothing.
-- A `Report file:` line names the absolute path to `state/<id>.status`, so nothing is lost: the full text stays on disk and the path to it is one line away.
-
-`--full` restores the exact pre-#65 shape: both lines untruncated, the latest entry repeated in history, and no `Report file:` line.
+`--full` restores the pre-#65 content: `report` and `report_history` untruncated, and the latest entry repeated in history.
 
 `--json` is never truncated or deduped, `--full` or not - see the JSON section below.
-
-The "Report history" label is deliberate: these lines are the worker's own claims about itself, not something `hand` has verified, same caution as the `done`-vs-`reported-done` distinction in `hand watch`.
 
 Output (JSON, single task):
 ```json
@@ -657,7 +824,7 @@ Output (JSON, single task):
 }
 ```
 
-`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `unacknowledged` is omitted unless it is true (see "Unacknowledged terminal reports" under "Report channel"). `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted. `gate_run_issue` carries the same `no run found` / `unreachable` text as the `Gate run:` line above and is omitted whenever that line would be - not a `done` `ship` task with a recorded PR on a registered `no-mistakes` project, or the check came back clean - which is why the example above, with no PR recorded, does not carry it.
+`reported` and `report_history` are omitted when the task has no report file yet, and so is `last_report_at`. `unacknowledged` is omitted unless it is true (see "Unacknowledged terminal reports" under "Report channel"). `held` is omitted when this id has no hold; an inconsistent hold (see the fleet overview above) adds an `inconsistent` field naming why instead of being omitted. `gate_run_issue` carries the same `no run found` / `unreachable` text as the `gate` field above and is omitted whenever that field would read `none` - not a `done` `ship` task with a recorded PR on a registered `no-mistakes` project, or the check came back clean - which is why the example above, with no PR recorded, does not carry it.
 
 Fleet-overview JSON wraps the per-task rows rather than returning a bare array, so holds - which can outlive the task that had them - have somewhere to sit alongside it, and `task_count` alongside that, always present (never omitted, zero included) so an empty fleet is a positive statement rather than the same absence of output a broken command could also produce:
 
@@ -677,8 +844,9 @@ Each row in `tasks` carries `gate_run_issue` under the same omission rule as the
 Errors:
 - Task ID not found.
 - Herdr unreachable (graceful degradation: show state as "unknown").
-- The hold store can't be read (fails the command; never degrades to an empty `holds`/no `held` - see "Holds" under "State management").
-- The single-task view's own project can't be read while checking gate-run visibility (fails the command; the fleet overview's equivalent lookup is best-effort instead - see behavior step 7 above).
+- The hold store can't be read (fails the command; never degrades to an empty `holds[N]` block - see "Holds" under "State management").
+- The single-task view's own project can't be read while checking gate-run visibility (fails the command; the fleet overview's equivalent lookup is best-effort instead - see behavior step 6 above).
+- `--fields` names a field no view carries, or is combined with `--json` (usage error, exit 2 - see "Output shape").
 
 ---
 
@@ -736,8 +904,15 @@ Behavior:
 
 Output:
 ```
-sent to fix-login
+id: fix-login
+result: sent
+chars: 42
+help[1]:
+  - The pane has the message; run `hand status fix-login` to read what it does with it
 ```
+
+`chars` counts runes, not bytes, and is the one thing the caller cannot see for itself: what reached
+the pane is the message as `hand` read it, `--file` or argument.
 
 Errors:
 - Task not found (exit 3).
@@ -777,7 +952,13 @@ Behavior:
 
 Output:
 ```
-hold set on fix-login (kind=operator)
+id: fix-login
+result: held
+kind: operator
+reason: two ways to do this, needs a call
+blocked_on: none
+help[1]:
+  - `hand status` carries this in its holds block until `hand hold clear fix-login`
 ```
 
 Errors:
@@ -803,7 +984,10 @@ Every kind is clearable, `limit` included: it is the operator's way out of a hol
 
 Output:
 ```
-hold cleared on fix-login
+id: fix-login
+result: released
+help[1]:
+  - Run `hand status fix-login` for where that task stands now that nothing holds it
 ```
 
 Errors:
@@ -830,11 +1014,16 @@ Re-running with a new reason is a correction rather than a conflict, unlike `han
 
 The state is keyed off the recorded delivery, never off `kind`, so a task filed as a ship whose deliverable turned out to be a report tears down cleanly without anyone correcting the kind first (atqamz/secondhand#129).
 
-`hand status` shows it: a `(delivered)` marker in the fleet view's suffix column, a `Delivered:` line carrying the reason in the single-task view, and `delivered_at`/`delivered_reason` in `--json`. It never sets `merged` or `pr_merged_observed`, which both assert the work landed.
+`hand status` shows it: a `delivered` token in the fleet view's `flags` column, a `delivered` field carrying the reason in the single-task view, and `delivered_at`/`delivered_reason` in `--json`. It never sets `merged` or `pr_merged_observed`, which both assert the work landed.
 
 Output:
 ```
-marked no-mistakes-flake delivered: PR https://github.com/kunchenguid/no-mistakes/pull/597 offered upstream, maintainer decides
+id: no-mistakes-flake
+result: delivered
+reason: "PR 597 offered upstream, maintainer decides"
+delivered: "2026-07-29T11:04:00Z"
+help[1]:
+  - Run `hand teardown no-mistakes-flake` once the work is landed to release the worktree and pane
 ```
 
 Errors:
@@ -911,8 +1100,19 @@ The store is deliberately uncapped: it is the only durable record of a task's co
 
 Output:
 ```
-teardown fix-login complete
+id: fix-login
+result: torn-down
+project: nsr
+kind: ship
+outcome: merged
+detail: "https://github.com/org/repo/pull/42"
+worktree: returned
+help[1]:
+  - This id is gone from `hand status`; its completion is the last word on it
 ```
+
+`outcome` and `detail` are the completion record's own fields, so what teardown says and what the
+permanent record holds cannot drift.
 
 Errors:
 - Task not found.
@@ -963,12 +1163,25 @@ Behavior (local merge, `--local`):
 
 Output:
 ```
-merged fix-login: https://github.com/org/repo/pull/42
+id: fix-login
+result: merged
+method: squash
+pr: "https://github.com/org/repo/pull/42"
+merged: "2026-07-29T11:04:00Z"
+help[1]:
+  - Run `hand teardown fix-login` to release this task's worktree and pane
 ```
 
 Output (local):
 ```
-merged fix-login: local fast-forward into main
+id: fix-login
+result: merged
+method: local-fast-forward
+branch: 42-fix-login
+into: main
+merged: "2026-07-29T11:04:00Z"
+help[1]:
+  - Run `hand teardown fix-login` to release this task's worktree and pane
 ```
 
 Errors:
@@ -1005,13 +1218,15 @@ Steps 5-7 live in `project.ValidatePR` and are the *only* validation path: `hand
 
 Output:
 ```
-recorded PR for fix-login: https://github.com/org/repo/pull/42
+id: fix-login
+result: recorded
+pr: "https://github.com/org/repo/pull/42"
+help[1]:
+  - Run `hand merge fix-login` once this PR's checks are green
 ```
 
-Output (reconciling repeat):
-```
-pr already recorded for fix-login: https://github.com/org/repo/pull/42
-```
+Output (reconciling repeat) - same document, `result: already-recorded`, so a caller reads one field
+to tell the two apart rather than two sentences.
 
 Errors:
 - Malformed PR URL (usage error, code `2`).
@@ -1207,7 +1422,7 @@ The limit is released the moment the pane is observed working or blocked again, 
 | Last reported state and note | Persisted as `last_report_state` and `last_report_note`, written alongside `report_offset` on the same tick that consumed the line. Re-reading them from `state/<id>.status` on resume instead - the previous behavior - meant re-reading history the durable offset says has already been consumed, and re-derived them from a file `hand promote` deliberately leaves alone, so a promoted ship inherited the scout's last report as if it were its own. They explain a quiet pane (`parked`'s bound is selected by the state, and `hand status` renders the note) and gate the scout's deferred-`done` bookkeeping. |
 | The identity of the task being tracked | Re-read as `created_at` and compared every tick: an ID torn down and respawned is a different task, so it is re-seeded from its own state rather than inheriting the previous run's. Inheriting it would suppress the new task's verified `done` forever, since the bookkeeping write-back stamps that inherited `done_verified` onto the fresh row, and would absorb its first unexplained stop. Same hazard as a surviving report channel, one layer in (see `hand teardown`). |
 | The same bookkeeping across `hand promote` | Not covered by the identity check above, and the sharper problem: promote rewrites the task row in place, keeps `created_at`, and gives the task a *new herdr pane*. Every cached fact anchored to the old pane is therefore not evidence about the ship at all, however plausible it looks. See "Pane-anchored facts across `hand promote`" below for the field-by-field classification and for how the watcher forgets its cached copies. |
-| Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane as `(unreported)` or `(reported: <state>)` from the same report channel, and the stale timer below re-flags the task within one window. |
+| Current herdr agent status, and the blocked flag derived from it | Re-derived, safely: a live pane property with no durable answer, seeded on first sight without emitting (transitions, not states, are events). A transition that happened while the watcher was down is not announced, but is not lost either: `hand status` shows a quiet pane through its `reported` and `flags` columns, read off the same report channel, and the stale timer below re-flags the task within one window. |
 | Whether the last probe of the pane succeeded | Re-derived, safely: seeded from the probe that does the sighting, so it is true only once a probe has actually succeeded, and false whenever none has yet - a fresh spawn, a live `hand promote` (see below), or a resume whose own first probe fails. It gates the once-only `failed` latch and `stale`'s detection. False is the honest seed for both, because there is no true-to-false edge to announce when nothing was ever reached: a pane still unreachable at the sighting is announced by the dwell in the row below rather than on sight, so a blink at exactly the wrong moment produces no event at all. |
 | How long the current herdr status has been dwelt in | Persisted as `status_changed_at`, updated whenever a herdr status transition is actually observed - any transition, not only ones that raise an event - and re-seeded from `created_at` until the first one. This is what `stale`'s dwell is measured against. Seeding it from the resume time instead - the previous behavior - erased a real dwell on every restart, and since `--until-event` restarts on every delivered event by design, a fleet busy enough to re-arm faster than the threshold elapses could erase that dwell before it ever completed once, silencing `stale` for exactly the fleet it exists to watch (issue #75's Ruling 1). |
 | Which status that dwell clock describes | Persisted alongside it as `status_changed_for`, and the timestamp is trusted only while the two agree. A timestamp on its own cannot prove the dwell it describes is still running: a status observed in a different pane is a new dwell even when it spells the same word, so a mismatch means the transition into the observed status happened at an unknown point since and the dwell can only honestly start now. Without this a restart after a `hand promote` read the restamped `status_changed_at` as the ship's own dwell in whatever status the ship happened to be in. |
@@ -1308,9 +1523,20 @@ Behavior:
 
 Output:
 ```
-nsr: fast-forwarded to origin/develop (was 3 behind)
-yes2infra: skipped (dirty working tree)
+count: 3
+advanced: 1
+failed: 0
+projects[3]{name,result,detail}:
+  nsr,fast-forwarded,"origin/develop, was 3 behind"
+  yes2infra,skipped,dirty working tree
+  no-mistakes,up-to-date,none
 ```
+
+`advanced` counts the clones that actually moved, so a caller learns whether the sync changed
+anything without reading every row. A project whose sync errored outright carries no row: with one
+named project that error is the command's exit, and across the whole registry it is a stderr warning
+the run continues past, counted in `failed` and named by a `help[]` line so the row count is never
+read as the whole story.
 
 ---
 
@@ -1353,7 +1579,16 @@ instead of stranding the task with nothing to look at.
 
 Output:
 ```
-promoted investigate-crash: scout -> ship project=nsr harness=claude
+id: investigate-crash
+result: promoted
+kind: ship
+was: scout
+project: nsr
+harness: claude
+worktree: /home/user/.treehouse/nsr-abc/2/nsr
+help[2]:
+  - The scout's worktree and pane are gone; run `hand status investigate-crash` to read the ship worker
+  - The scout's delivery no longer counts for this task, so `hand deliver investigate-crash` runs again on the code
 ```
 
 Errors:
@@ -1403,7 +1638,8 @@ place it is loud, per the exit code below.
 
 Output:
 ```
-notified: fix-login PR is ready for review
+result: notified
+message: fix-login PR is ready for review
 ```
 
 Errors:
@@ -1428,14 +1664,31 @@ hand search --rebuild deploy failure
 ```
 
 Flags:
-- `--json`: output as JSON, one object per hit with `Path`, `Title` and `Snippet`. An empty result is `[]`, never `null`, so a caller can iterate without special-casing it.
+- `--fields <a,b,c>`: which columns the `hits` block emits, in the order given. Any of `path`, `title`, `snippet`; all three by default. An unknown name is a usage error (`2`) naming the known ones.
+- `--json`: output as JSON, one object per hit with `Path`, `Title` and `Snippet`. An empty result is `[]`, never `null`, so a caller can iterate without special-casing it. Rejects `--fields` as a usage error (`2`).
 - `--rebuild`: discard and re-derive the index before searching. The recovery for an index that is present but wrong; an index that is simply *missing* needs no flag.
 - `--limit <n>`: maximum hits, default 20.
 
+Output:
+```
+query: gate preflight
+count: 2
+hits[2]{path,title,snippet}:
+  data/task-12/brief.md,Rework the gate preflight,... the gate preflight runs before ...
+  data/learnings.md,Learnings,... a gate preflight that cannot reach ...
+help[1]:
+  - Read a hit's path for the whole document; the snippet is a window, not the match in full
+```
+
 Behavior:
 1. Scan `data/` for markdown files, comparing each against the index by mtime and size, and index what changed. Refreshing on every query rather than on a schedule keeps every other command free of the index entirely: the index is derived, so a stale answer is always settled by the corpus, and nothing else in `hand` has to know the index exists.
-2. Match against the FTS5 index, ranked by bm25, and print `path`, `title` and a snippet per hit.
-3. With no hits, print nothing to stdout and say `no matches for "<query>"` on stderr, so an empty result reads differently from a search that never ran while a pipeline still reads nothing.
+2. Match against the FTS5 index, ranked by bm25, and emit `path`, `title` and a snippet per hit.
+3. With no hits, stdout still carries the query, `count: 0` and the schema header, plus `help[]` lines naming the two things that produce an empty answer: a query too narrow to match, and a corpus the index never caught up with (`--rebuild`). Silence is what a search that never ran also produces, so the zero is stated rather than implied.
+4. A result that came in exactly at `--limit` says so in `help[]`, naming the doubled limit that would widen it: the capped rows and a corpus that genuinely holds no more are identical from the outside.
+
+Snippets are not truncated by `hand`: FTS5's own snippet window already bounds them to a fixed token
+count, so the `--full` recovery shape `hand status` carries has nothing to recover here (see "Output
+shape").
 
 Every whitespace-separated token in the query is quoted before it reaches FTS5, so a query a supervisor would actually type - `no-mistakes gate`, `atqamz/secondhand#53` - is matched as the literal text it looks like rather than parsed as query operators.
 
@@ -1468,7 +1721,32 @@ Behavior:
    - a code fence that is never closed, since it silences the date and self-expiring checks for every line after it,
    - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`, a violation,
    - the `hand:generated` markers being absent altogether - the same `generatedBlockSpan` result `agentsmd.mergeGenerated` uses to decide whether to touch the file at all, so this finding states exactly the fact a refresh already acts on: nothing in `hand` will ever update this file's template. It is informational rather than a violation (see `agentsmd.Severity`), since a marker-less file can be an accident or a deliberate choice and nothing in the file tells the two apart.
-3. Print one line per hit to stdout, prefixed with the resolved fleet home's absolute path to `AGENTS.md` (`generatedBody`'s absolute-path rule applies to the checker's own output too - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope) - `<path>:<line>: <finding>` for a line-anchored finding, `<path>: <finding>` for the whole-file block checks - and exit `1` if any violation-severity finding was found, `0` if the file is clean or every finding present is informational.
+3. Emit one row per hit under a `file` field carrying the resolved fleet home's absolute path to `AGENTS.md` (`generatedBody`'s absolute-path rule applies to the checker's own output too - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope), and exit `1` if any violation-severity finding was found, `0` if the file is clean or every finding present is informational.
+
+Output:
+```
+file: /home/you/fleet/AGENTS.md
+count: 2
+violations: 1
+findings[2]{line,severity,finding}:
+  12,violation,"a date (2026-07-29) outside the generated block goes stale"
+  none,info,no hand:generated markers - nothing in hand will ever refresh this file's template
+help[2]:
+  - Edit AGENTS.md to resolve each finding; hand doctor reports and never rewrites
+  - Run `hand update` if the finding is generated-block drift, since that block is refreshed rather than hand-edited
+```
+
+`count` is every finding and `violations` only the exit-failing ones, so a reader learns which
+verdict they got without classifying rows themselves. A whole-file finding has no line to anchor to
+and reads `none` there rather than `0`, which would read as line one.
+
+Flags:
+- `--fields <a,b,c>`: which columns the `findings` block emits, in the order given. Any of `line`, `severity`, `finding`; all three by default.
+
+A clean file is `count: 0`, `violations: 0` and the schema header, with no `help[]`: there is nothing
+to act on, and silence would be indistinguishable from a checker that never ran. A run whose findings
+are all informational passed, and says so in `help[]` rather than leaving a reader to infer it from
+`violations: 0`.
 
 A remedy naming a command that takes a path spells that path out: `hand init` with no argument targets the working directory, which is a new nested fleet home whenever the operator ran `hand doctor` from anywhere but the home itself.
 
@@ -1476,7 +1754,7 @@ The missing-markers finding stays informational rather than becoming a violation
 
 A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting #12" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
 
-A missing `AGENTS.md` is not an error: same as a directory that is not a fleet home at all, `hand doctor` finds nothing to flag and exits `0` silently, leaving `hand init` to be the one place that complains about an incomplete fleet home.
+A missing `AGENTS.md` is not an error: `hand doctor` finds nothing to flag and reports its zero count and exits `0`, leaving `hand init` to be the one place that complains about an incomplete fleet home.
 
 ---
 
@@ -1848,10 +2126,10 @@ Escape hatch: `--skip-gate-check` on both `hand spawn` and `hand promote` bypass
 and prints a warning to stderr naming the project, so bypassing it is visible in the transcript
 rather than a silent env var.
 
-`hand project list` runs the same check for every `no-mistakes`-mode project and appends `(gate:
-not initialized)` or `(gate: unreachable)` to its output line (and `"gate_issue"` in `--json`
-output) when the check doesn't come back clean, so a stale or never-initialized gate is visible
-without waiting for a spawn or promote to refuse.
+`hand project list` runs the same check for every `no-mistakes`-mode project and carries `not
+initialized` or `unreachable` in that project's `gate` column (and `"gate_issue"` in `--json`
+output) when the check doesn't come back clean, counting them in `gate_issues`, so a stale or
+never-initialized gate is visible without waiting for a spawn or promote to refuse.
 
 ### Gate-run visibility
 
@@ -2079,8 +2357,8 @@ Read/classify semantics:
 
 A worker can reach `done` or `failed` with nothing attached to hear it: no session, no `hand watch`, and - if `config/notify` is unset - no notify hook either.
 The event is not lost, since it will be classified and announced whenever a watcher next runs, but until then it is announced to nobody, and nobody is who is left to notice.
-So `hand status` answers it directly: a task whose report channel carries a terminal state past the watcher's own durable `report_offset` renders as ` (reported: done, unacknowledged)` in the fleet overview, as `done: <note> (unacknowledged)` on the detail view's `Reported:` line, and as `"unacknowledged": true` in either `--json` shape - omitted when false, so a consumer written before the field sees no change on the fleet it already understands.
-When the flag applies, the detail view's `Reported:` line names the classified terminal report rather than a later unclassified line, so the clause qualifies the state it describes - the same state the fleet overview names; the worker's literal last line is still shown there when the flag does not apply, and appears in the `Report history` block either way.
+So `hand status` answers it directly: a task whose report channel carries a terminal state past the watcher's own durable `report_offset` carries the `unacknowledged` token in the `flags` field of both views, `done: <note> (unacknowledged)` in the detail view's `report` field, and `"unacknowledged": true` in either `--json` shape - omitted when false, so a consumer written before the field sees no change on the fleet it already understands.
+When the flag applies, the detail view's `report` field names the classified terminal report rather than a later unclassified line, so the clause qualifies the state it describes - the same state the `reported` field names; the worker's literal last line is still shown there when the flag does not apply, and appears in `report_history` either way.
 Both views also derive the flag from the whole report file, never from the detail view's 5-line history window, so trailing free text can never leave one view calling a completion acknowledged that the other flags.
 
 **`report_offset` is the marker; there is no second one.**
@@ -2118,7 +2396,7 @@ Yielding costs the wait nothing: a held id already refuses `hand spawn`, the sch
 
 `limit` is the one kind that does *not* outlive the task it was set on, and `hand teardown` releases it (again, only when the hold really is of that kind). The reasoning that keeps an operator hold alive past teardown inverts here: there is no question left open, no worker left to resume, and no watcher that will ever clear it, so left behind it would refuse `hand spawn` on that id forever.
 
-**A hold that cannot be read must never read as nothing waiting.** `ListHolds`/`ReadHold` surface every row exactly as stored, inconsistent ones included - filtering here is what would let an external write's mistake silently disappear from "what is held" - and `hand status` flags an inconsistent row (an unrecognized `kind`, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one) rather than rendering it as if it were valid. A store-level failure to read holds at all - not a single bad row, the whole read - propagates as a hard error out of `hand status`, fleet or single-task, rather than degrading to an empty list: this is the one place in `hand status` that does not fail open on a read, because an empty `held:` block and "the store couldn't be read" look identical unless the second one is a fatal error instead.
+**A hold that cannot be read must never read as nothing waiting.** `ListHolds`/`ReadHold` surface every row exactly as stored, inconsistent ones included - filtering here is what would let an external write's mistake silently disappear from "what is held" - and `hand status` flags an inconsistent row (an unrecognized `kind`, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one) rather than rendering it as if it were valid. A store-level failure to read holds at all - not a single bad row, the whole read - propagates as a hard error out of `hand status`, fleet or single-task, rather than degrading to an empty list: this is the one place in `hand status` that does not fail open on a read, because a `holds[0]` block and "the store couldn't be read" look identical unless the second one is a fatal error instead.
 
 ### Concurrency
 
@@ -2212,8 +2490,24 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 
 ### Error output
 
-All errors go to stderr. Commands print structured output to stdout.
-The agent can parse stdout reliably and read stderr for diagnostics.
+Every failure renders one document on stderr, whatever command produced it:
+
+```
+error: task "nosuch" not found
+kind: precondition
+exit: 3
+help[1]:
+  - Nothing changed: this refuses until the state it names is fixed, then the same command runs again
+```
+
+`kind` names the exit code above, so a caller branches on a word rather than memorizing which number means what: `general` (1), `usage` (2), `precondition` (3), `no-event` (4), `arm-failed` (5), `send-undelivered` (6).
+`error` carries the message the command wrote, quoted whenever it holds a `:`, a quote or a newline, so a multi-line error stays one field rather than becoming lines the reader mistakes for further fields.
+Every kind but `general` carries a `help[]` line naming what recovers it; a `usage` one names the command that refused, as in ``Run `hand hold set --help` for the arguments and flags this command accepts``.
+`general` is the one code with no recovery that can be stated in advance, so it carries no `help[]` block rather than a line that says nothing.
+
+The document goes to stderr, where the AXI principles put it on stdout, because `hand watch` owns stdout as an event stream a supervising agent consumes line by line.
+Keeping failures off that stream means a reader never has to tell an event from an error.
+A non-zero exit does not retract what a command already printed: `hand doctor`'s findings block and `hand watch`'s event lines stay on stdout whatever the exit code, so a caller reads the document on stderr for why it failed and stdout for what it found.
 
 ## Testing strategy
 
@@ -2279,7 +2573,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 | Turn-end guards | `fm-turnend-guard.sh`, `docs/turnend-guard.md` | The supervisory agent's harness handles its own session lifecycle. |
 | Persona / role-play | "captain", "ahoy", nautical theming | Pure functionality. Users add personality if they want. Operator context is not persona and is not cut by this row: `data/operator.md` carries identity, authority and hard constraints, which is configuration the agent must not have to guess at (see "Directory layout"). |
 | Session lock | `fm-lock.sh`, `fm-lock-lib.sh` | No session lock. Atomic file writes prevent corruption. Agent avoids duplicate work. |
-| Bootstrap / session-start | `fm-session-start.sh`, `fm-bootstrap.sh` (56K lines combined) | Agent runs `hand status`. No 187-line digest. |
+| Bootstrap / session-start | `fm-session-start.sh`, `fm-bootstrap.sh` (56K lines combined) | Agent runs `hand status`. No 187-line digest. The `SessionStart` hook `hand init` installs is not this row's bootstrap: it runs the bare command when the session opens rather than rendering a file the agent then reads (see "Ambient context"). |
 
 ## Distribution
 
@@ -2338,16 +2632,46 @@ Behavior:
 2. Compare against the running binary's embedded version.
 3. If newer: download the binary for the current OS/arch, verify checksum, replace the running binary in place.
 4. After update, refresh the generated AGENTS.md template in the resolved fleet home to the latest version, preserving user edits (see "AGENTS.md (target)"), and seed whichever `data/` skeleton files that home is missing, on the same absent-only terms as `hand init` (see "Directory layout"): the refreshed template directs the agent at those files, so the command that installs it leaves them in place rather than pointing at nothing. Outside any fleet home both are skipped silently; a `HAND_HOME` that names no fleet home is a warning, not a silent skip, since that is a misconfiguration rather than an absence. Seeding creates the runtime directories first, exactly as `hand init` does: a home resolves as one on its `state/hand.db` marker alone, so the `data/` directory it seeds into is not guaranteed to be there. A refresh or a seed that fails is likewise a warning on stderr, not a failed update, since the binary is already replaced. The seed warning names every file that could not be written, in the layout's own order, so two runs against the same broken home say the same thing.
-5. Print old version, new version, and what changed (from the installed release's notes). The AGENTS.md line appears only when the template actually changed, and the `changed:` block only when the release has notes.
+5. Refresh the session hook too, on the same warning-not-error terms: an install that moved leaves the hook pointing at a path with no binary behind it any more (see "Ambient context").
+6. Emit old version, new version, whether the binary was replaced, what became of the AGENTS.md template and the session hook, and what changed (from the installed release's notes).
+
+Every run emits the same seven fields whatever happened, so a caller reads one schema rather than a
+set of lines that appear or do not:
 
 ```
 hand update
 current: v0.3.1
-latest:  v0.4.0
-updated hand to v0.4.0
-updated AGENTS.md template
-changed:
-- fix: teardown no longer strands worktrees
+latest: v0.4.0
+update_available: true
+updated: true
+agents_md: refreshed
+session_hook: refreshed
+notes[1]:
+  - fix: teardown no longer strands worktrees
+help[1]:
+  - Run `hand doctor` to check this home's AGENTS.md against the template v0.4.0 installed
+```
+
+`agents_md` and `session_hook` are each one of `refreshed`, `unchanged`, `no-fleet-home`, `failed`,
+or `not-applicable` when nothing was installed. They are reported separately because they fail
+separately. The stderr warnings of steps 4 and 5 stay on stderr: they name a fault in the world
+around a successful update, not a field of its result.
+
+`--check`, and a `hand update` that finds nothing newer, emit the same document with
+`updated: false`, both outcome fields `not-applicable` and `notes[0]:`. An available update adds a
+`help[]` line naming `hand update`; up to date adds none, since there is nothing to do:
+
+```
+hand update --check
+current: v0.3.1
+latest: v0.4.0
+update_available: true
+updated: false
+agents_md: not-applicable
+session_hook: not-applicable
+notes[0]:
+help[1]:
+  - Run `hand update` to install v0.4.0, which also refreshes this home's AGENTS.md template
 ```
 
 Same pattern as `no-mistakes update`, `treehouse update`, and `herdr update`.

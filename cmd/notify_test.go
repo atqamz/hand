@@ -47,7 +47,7 @@ func TestNotifySubstitutesMessageAndExecutesTemplate(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "notified: hello world\n" {
+	if out.String() != "result: notified\nmessage: hello world\n" {
 		t.Fatalf("stdout = %q", out.String())
 	}
 

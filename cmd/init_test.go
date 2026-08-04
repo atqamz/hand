@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +135,32 @@ func TestInitIsIdempotentAboutTheHandDbMarker(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(dir, "state", "hand.db")); err != nil {
 		t.Fatalf("state/hand.db missing after repeat init: %v", err)
+	}
+}
+
+func TestInitInstallsTheSessionHookAndSaysSoOnlyWhenItWroteIt(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	for i, want := range []string{"session_hook: written\n", "session_hook: unchanged\n"} {
+		cmd := newInitCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("run %d: %v", i+1, err)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("run %d output = %q, want it to contain %q", i+1, out.String(), want)
+		}
+	}
+
+	settings, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(settings), "SessionStart") {
+		t.Fatalf("settings = %q, want a SessionStart hook in it", settings)
 	}
 }

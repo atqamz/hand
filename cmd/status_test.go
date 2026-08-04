@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/atqamz/secondhand/internal/store"
@@ -27,6 +30,61 @@ func writeFakeHerdrPaneStatus(t *testing.T, status string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// fleetRow returns the tasks[] row whose first cell is id, so a test can assert
+// on one row's cells without matching the whole document.
+func fleetRow(t *testing.T, out, id string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "  "+id+",") {
+			return strings.TrimPrefix(line, "  ")
+		}
+	}
+	t.Fatalf("got %q, want a tasks row for %q", out, id)
+	return ""
+}
+
+// fleetFlags returns the tokens of a default fleet row's trailing flags cell.
+func fleetFlags(t *testing.T, out, id string) []string {
+	t.Helper()
+	row := fleetRow(t, out, id)
+	cell := row[strings.LastIndex(row, ",")+1:]
+	if cell == "none" {
+		return nil
+	}
+	return strings.Fields(cell)
+}
+
+// mergeFlag is whichever merge token a flags cell carries, or "" for neither.
+func mergeFlag(flags []string) string {
+	for _, f := range flags {
+		if strings.HasPrefix(f, "merged") {
+			return f
+		}
+	}
+	return ""
+}
+
+// detailField returns one scalar field of the single-task view, unquoted.
+func detailField(t *testing.T, out, name string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		value, ok := strings.CutPrefix(line, name+": ")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(value, `"`) {
+			unquoted, err := strconv.Unquote(value)
+			if err != nil {
+				t.Fatalf("field %q value %q does not unquote: %v", name, value, err)
+			}
+			return unquoted
+		}
+		return value
+	}
+	t.Fatalf("got %q, want a %q field", out, name)
+	return ""
 }
 
 func TestStatusFleetListsAllTasks(t *testing.T) {
@@ -52,7 +110,10 @@ func TestStatusFleetListsAllTasks(t *testing.T) {
 	}
 }
 
-func TestStatusFleetColumnsDoNotMergeAtFieldWidth(t *testing.T) {
+// The width-padded columns this replaced could run together at exactly the
+// field width; a delimited row cannot, and this pins that the delimiter is
+// still there for a value long enough to have merged before.
+func TestStatusFleetRowCellsStaySeparableAtAnyValueWidth(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -67,15 +128,12 @@ func TestStatusFleetColumnsDoNotMergeAtFieldWidth(t *testing.T) {
 	cmd := newStatusCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetArgs(nil)
+	cmd.SetArgs([]string{"--fields", "id,project,state"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), id+"myproject12") {
-		t.Fatalf("got %q, ID and project columns merged", out.String())
-	}
-	if !strings.Contains(out.String(), id+" ") {
-		t.Fatalf("got %q, want %q followed by a column separator", out.String(), id)
+	if got, want := fleetRow(t, out.String(), id), id+",myproject12,working"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
@@ -148,8 +206,11 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Task:        task-1") || !strings.Contains(out.String(), "State:       idle") {
-		t.Fatalf("got %q", out.String())
+	if got := detailField(t, out.String(), "id"); got != "task-1" {
+		t.Fatalf("id = %q, want task-1", got)
+	}
+	if got := detailField(t, out.String(), "state"); got != "idle" {
+		t.Fatalf("state = %q, want idle", got)
 	}
 }
 
@@ -158,13 +219,12 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 		name             string
 		merged           bool
 		prMergedObserved bool
-		want             string
-		wantNot          []string
+		wantMerge        string
 	}{
-		{"neither", false, false, "PR:          https://github.com/a/b/pull/1\n", []string{"merged"}},
-		{"handMerged", true, false, "PR:          https://github.com/a/b/pull/1 (merged)\n", []string{"external"}},
-		{"observedOnly", false, true, "PR:          https://github.com/a/b/pull/1 (merged, external)\n", nil},
-		{"both", true, true, "PR:          https://github.com/a/b/pull/1 (merged)\n", []string{"external"}},
+		{"neither", false, false, ""},
+		{"handMerged", true, false, "merged"},
+		{"observedOnly", false, true, "merged-external"},
+		{"both", true, true, "merged"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -187,13 +247,11 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := out.String()
-			if !strings.Contains(got, c.want) {
-				t.Fatalf("got %q, want to contain %q", got, c.want)
+			if pr := detailField(t, got, "pr"); pr != "https://github.com/a/b/pull/1" {
+				t.Fatalf("pr = %q, want the PR url", pr)
 			}
-			for _, absent := range c.wantNot {
-				if strings.Contains(got, absent) {
-					t.Fatalf("got %q, want no occurrence of %q", got, absent)
-				}
+			if merge := mergeFlag(strings.Fields(detailField(t, got, "flags"))); merge != c.wantMerge {
+				t.Fatalf("merge flag = %q, want %q", merge, c.wantMerge)
 			}
 		})
 	}
@@ -283,8 +341,8 @@ func TestStatusFleetOverviewRendersMergeMarker(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "(merged, external)") {
-		t.Fatalf("got %q, want the fleet overview to carry the merge marker", out.String())
+	if got := mergeFlag(fleetFlags(t, out.String(), "task-1")); got != "merged-external" {
+		t.Fatalf("merge flag = %q, want the fleet overview to carry the merge marker", got)
 	}
 }
 
@@ -363,8 +421,9 @@ func TestStatusFleetFlagsIdleWithoutTerminalReportAsUnreported(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "idle (unreported)") {
-		t.Fatalf("got %q, want idle flagged unreported", out.String())
+	row := fleetRow(t, out.String(), "task-1")
+	if !strings.HasPrefix(row, "task-1,idle,none,") || !strings.HasSuffix(row, ",unreported") {
+		t.Fatalf("got %q, want idle flagged unreported", row)
 	}
 }
 
@@ -389,11 +448,12 @@ func TestStatusFleetFlagsIdleWithTerminalReportInsteadOfUnreported(t *testing.T)
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "idle (reported: needs-decision)") {
-		t.Fatalf("got %q, want idle flagged with the reported state", out.String())
+	row := fleetRow(t, out.String(), "task-1")
+	if !strings.HasPrefix(row, "task-1,idle,needs-decision,") {
+		t.Fatalf("got %q, want idle flagged with the reported state", row)
 	}
-	if strings.Contains(out.String(), "unreported") {
-		t.Fatalf("got %q, want no unreported flag once a terminal report explains the idle", out.String())
+	if strings.Contains(row, "unreported") {
+		t.Fatalf("got %q, want no unreported flag once a terminal report explains the idle", row)
 	}
 }
 
@@ -423,8 +483,8 @@ func TestStatusFleetKeepsTheReportedFlagAfterATrailingMalformedLine(t *testing.T
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "idle (reported: needs-decision)") {
-		t.Fatalf("got %q, want the last classified report kept behind the free text", out.String())
+	if row := fleetRow(t, out.String(), "task-1"); !strings.HasPrefix(row, "task-1,idle,needs-decision,") {
+		t.Fatalf("got %q, want the last classified report kept behind the free text", row)
 	}
 }
 
@@ -446,8 +506,9 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "unreported") || strings.Contains(out.String(), "reported:") {
-		t.Fatalf("got %q, want no report suffix on a working task", out.String())
+	row := fleetRow(t, out.String(), "task-1")
+	if !strings.HasPrefix(row, "task-1,working,none,") || !strings.HasSuffix(row, ",none") {
+		t.Fatalf("got %q, want a working task carrying no report and no flags", row)
 	}
 }
 
@@ -475,8 +536,8 @@ func TestStatusFleetCarriesAPausedReportThroughABusyPane(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "working (reported: paused)") {
-		t.Fatalf("got %q, want the paused report carried through the busy pane", out.String())
+	if row := fleetRow(t, out.String(), "task-1"); !strings.HasPrefix(row, "task-1,working,paused,") {
+		t.Fatalf("got %q, want the paused report carried through the busy pane", row)
 	}
 }
 
@@ -506,21 +567,12 @@ func TestStatusFleetDwellTimeFollowsTheReportFileNotTheTaskAge(t *testing.T) {
 	cmd := newStatusCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetArgs(nil)
+	cmd.SetArgs([]string{"--fields", "id,age,last_report"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	row := ""
-	for _, line := range strings.Split(out.String(), "\n") {
-		if strings.HasPrefix(line, "task-1") {
-			row = line
-		}
-	}
-	if !strings.Contains(row, "5h ago") {
-		t.Fatalf("got %q, want the age column still measuring the task", row)
-	}
-	if !strings.Contains(row, "3m ago") {
-		t.Fatalf("got %q, want the last report column measuring the report file", row)
+	if got, want := fleetRow(t, out.String(), "task-1"), "task-1,5h ago,3m ago"; got != want {
+		t.Fatalf("got %q, want %q: age measures the task, last_report the report file", got, want)
 	}
 }
 
@@ -554,11 +606,11 @@ func TestStatusSingleTaskDwellTimeFollowsTheReportFileNotTheTaskAge(t *testing.T
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "Created:     5h ago") {
-		t.Fatalf("got %q, want Created still measuring the task", got)
+	if age := detailField(t, got, "age"); age != "5h ago" {
+		t.Fatalf("age = %q, want it still measuring the task", age)
 	}
-	if !strings.Contains(got, "Last report: 3m ago") {
-		t.Fatalf("got %q, want Last report measuring the report file", got)
+	if last := detailField(t, got, "last_report"); last != "3m ago" {
+		t.Fatalf("last_report = %q, want it measuring the report file", last)
 	}
 }
 
@@ -584,8 +636,8 @@ func TestStatusReportsNoDwellTimeWithoutAReportFile(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Last report: (none)") {
-		t.Fatalf("got %q, want no dwell time invented for a task that never reported", out.String())
+	if got := detailField(t, out.String(), "last_report"); got != "none" {
+		t.Fatalf("last_report = %q, want no dwell time invented for a task that never reported", got)
 	}
 }
 
@@ -612,14 +664,14 @@ func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "Reported:    needs-decision: waiting on review") {
-		t.Fatalf("got %q, want the last reported state on its own line", got)
+	if report := detailField(t, got, "report"); report != "needs-decision: waiting on review" {
+		t.Fatalf("report = %q, want the last reported line", report)
 	}
-	if !strings.Contains(got, "Report history (reported by worker, not verified current truth):") {
-		t.Fatalf("got %q, want the history block labeled as reported, not verified truth", got)
+	if reported := detailField(t, got, "reported"); reported != "needs-decision" {
+		t.Fatalf("reported = %q, want the classified state on its own field", reported)
 	}
-	if !strings.Contains(got, "working: started") {
-		t.Fatalf("got %q, want the earlier report line in the history", got)
+	if !strings.Contains(got, "report_history[1]:\n  - working: started\n") {
+		t.Fatalf("got %q, want the earlier report line in the history block", got)
 	}
 }
 
@@ -650,10 +702,13 @@ func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
 		t.Fatalf("got %v, want the read fault degraded rather than failing the command", err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "Reported:    report "+reportUnreadable) {
-		t.Fatalf("got %q, want the unreadable report named on the Reported line", got)
+	if reported := detailField(t, got, "reported"); reported != reportUnreadable {
+		t.Fatalf("reported = %q, want the fault named as the reported state", reported)
 	}
-	if !strings.Contains(got, "Task:        task-1") || !strings.Contains(got, "State:       idle") {
+	if report := detailField(t, got, "report"); !strings.HasPrefix(report, "report "+reportUnreadable+": ") {
+		t.Fatalf("report = %q, want the read fault named", report)
+	}
+	if detailField(t, got, "id") != "task-1" || detailField(t, got, "state") != "idle" {
 		t.Fatalf("got %q, want the rest of the detail view still printed", got)
 	}
 }
@@ -662,7 +717,7 @@ func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
 // single task, and hand status rendered it in full - the point of this test.
 func TestTruncateReportLineKeepsVocabularyPrefixIntactUnderAnAdversarialBudget(t *testing.T) {
 	line := state.ParseReportLine("done: " + strings.Repeat("x", 500))
-	got := truncateReportLine(line, 3) // smaller than the "done: " prefix itself
+	got := truncateReportLine(line, 3, "task-1") // smaller than the "done: " prefix itself
 	if !strings.HasPrefix(got, "done: ") {
 		t.Fatalf("got %q, want the done: prefix preserved even when the budget can't fit it", got)
 	}
@@ -670,25 +725,25 @@ func TestTruncateReportLineKeepsVocabularyPrefixIntactUnderAnAdversarialBudget(t
 
 func TestTruncateReportLineMarksTruncationVisibly(t *testing.T) {
 	line := state.ParseReportLine("working: " + strings.Repeat("x", 500))
-	got := truncateReportLine(line, 50)
+	got := truncateReportLine(line, 50, "task-1")
 	if strings.Contains(got, strings.Repeat("x", 500)) {
 		t.Fatalf("got %q, want the note cut short", got)
 	}
-	if !strings.Contains(got, "[+") {
-		t.Fatalf("got %q, want a visible marker naming the cut, not a silently shortened line", got)
+	if !strings.Contains(got, "(truncated, 509 chars total - use hand status task-1 --full to see complete text)") {
+		t.Fatalf("got %q, want the cut to name its full size and the command that recovers it", got)
 	}
 }
 
 func TestTruncateReportLineLeavesShortLinesUntouched(t *testing.T) {
 	line := state.ParseReportLine("done: short")
-	if got := truncateReportLine(line, reportSummaryBudget); got != "done: short" {
+	if got := truncateReportLine(line, reportSummaryBudget, "task-1"); got != "done: short" {
 		t.Fatalf("got %q, want a report already under budget left exactly as reported", got)
 	}
 }
 
 func TestTruncateReportLineDoesNotSplitAMultibyteRune(t *testing.T) {
 	line := state.ParseReportLine("done: " + strings.Repeat("héllo", 100))
-	got := truncateReportLine(line, 50)
+	got := truncateReportLine(line, 50, "task-1")
 	if !utf8.ValidString(got) {
 		t.Fatalf("got %q, want valid utf8 even when the cut lands inside a multi-byte character", got)
 	}
@@ -720,24 +775,30 @@ func TestStatusSingleTaskTruncatesALongReportedLineAndPointsAtTheFile(t *testing
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "Reported:    done: ") {
-		t.Fatalf("got %q, want the done: prefix intact on the Reported line", got)
+	report := detailField(t, got, "report")
+	if !strings.HasPrefix(report, "done: ") {
+		t.Fatalf("report = %q, want the done: prefix intact", report)
 	}
-	if strings.Contains(got, longNote) {
-		t.Fatalf("got %q, want the long note truncated rather than printed in full", got)
+	if strings.Contains(report, longNote) {
+		t.Fatalf("report = %q, want the long note truncated rather than printed in full", report)
 	}
-	if !strings.Contains(got, "[+") {
-		t.Fatalf("got %q, want a visible truncation marker", got)
+	// The truncation hint is the whole recovery path: without the total size and
+	// the command that reaches the rest, a cut field reads as a short one.
+	if !strings.Contains(report, "(truncated, 506 chars total - use hand status task-1 --full to see complete text)") {
+		t.Fatalf("report = %q, want the cut to name its size and its recovery command", report)
 	}
-	if !strings.Contains(got, "Report file: "+state.ReportPath(home, "task-1")) {
-		t.Fatalf("got %q, want the absolute path to the full report shown", got)
+	if !strings.Contains(got, "  - Run `hand status task-1 --full` for the untruncated report and history\n") {
+		t.Fatalf("got %q, want the recovery command in the help block too", got)
+	}
+	if file := detailField(t, got, "report_file"); file != state.ReportPath(home, "task-1") {
+		t.Fatalf("report_file = %q, want the absolute path to the full report", file)
 	}
 }
 
-// The longest label in the block is "Report file:", so every other label pads
-// to its width; a new label that outgrows the column has to widen the whole
-// block, not start its own.
-func TestStatusSingleTaskAlignsEveryLabeledValueInOneColumn(t *testing.T) {
+// Every scalar the detail view emits has to be one key: value line, and every
+// key has to be a name --fields accepts - otherwise a caller cannot ask for
+// again what it was just shown.
+func TestStatusSingleTaskEmitsOnlyAddressableFields(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -761,22 +822,29 @@ func TestStatusSingleTaskAlignsEveryLabeledValueInOneColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	labels := 0
-	for _, line := range strings.Split(out.String(), "\n") {
-		if line == "" {
-			break
-		}
-		label, value, ok := strings.Cut(line, ":")
-		if !ok {
-			t.Fatalf("got %q, want every line of the detail block labeled", line)
-		}
-		labels++
-		if col := len(label) + 1 + (len(value) - len(strings.TrimLeft(value, " "))); col != len("Report file: ") {
-			t.Fatalf("got %q starting its value at column %d, want every value at column %d", line, col+1, len("Report file: ")+1)
-		}
+	known := map[string]bool{}
+	for _, name := range axi.Names(taskFields) {
+		known[name] = true
 	}
-	if labels != 13 {
-		t.Fatalf("got %d labeled lines, want all 13 checked for alignment", labels)
+	var got []string
+	for _, line := range strings.Split(out.String(), "\n") {
+		if line == "" || strings.HasPrefix(line, "  ") {
+			continue
+		}
+		key, _, ok := strings.Cut(line, ": ")
+		if !ok {
+			if strings.HasSuffix(line, "]:") {
+				continue
+			}
+			t.Fatalf("got %q, want every scalar line shaped key: value", line)
+		}
+		if !known[key] {
+			t.Fatalf("got field %q, want a name --fields accepts", key)
+		}
+		got = append(got, key)
+	}
+	if strings.Join(got, ",") != strings.Join(detailDefaultFields, ",") {
+		t.Fatalf("got fields %v, want the declared detail defaults %v", got, detailDefaultFields)
 	}
 }
 
@@ -811,9 +879,10 @@ func TestStatusSingleTaskHistoryDoesNotRepeatTheReportedEntry(t *testing.T) {
 	}
 }
 
-// --full is the literal opt-out: it must reproduce the pre-#65 shape exactly,
-// duplicate entry and all, with no new report-file pointer line.
-func TestStatusSingleTaskFullFlagRestoresThePreviousBehaviorExactly(t *testing.T) {
+// --full is the literal opt-out: the report field and the history entry both
+// carry the whole line, and the history keeps the entry the summary already
+// shows.
+func TestStatusSingleTaskFullFlagShowsEveryReportUntruncated(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -838,10 +907,10 @@ func TestStatusSingleTaskFullFlagRestoresThePreviousBehaviorExactly(t *testing.T
 	}
 	got := out.String()
 	if strings.Count(got, "done: "+longNote) != 2 {
-		t.Fatalf("got %q, want --full to show the full untruncated entry twice, matching prior behavior", got)
+		t.Fatalf("got %q, want --full to show the full untruncated entry in both the report field and the history", got)
 	}
-	if strings.Contains(got, "Report file:") {
-		t.Fatalf("got %q, want --full to skip the new report-file pointer line", got)
+	if strings.Contains(got, "truncated,") {
+		t.Fatalf("got %q, want --full to cut nothing", got)
 	}
 }
 
@@ -917,10 +986,10 @@ func TestStatusFleetShowsHeldBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "held:") {
-		t.Fatalf("got %q, want a held block", got)
+	if !strings.Contains(got, "held: 1\n") {
+		t.Fatalf("got %q, want the held aggregate counting the hold", got)
 	}
-	if !strings.Contains(got, "fix-login") || !strings.Contains(got, "operator") || !strings.Contains(got, "needs a call") {
+	if !strings.Contains(got, "holds[1]{id,kind,detail,age}:\n  fix-login,operator,needs a call,") {
 		t.Fatalf("got %q, want the hold's id, kind, and reason", got)
 	}
 }
@@ -949,7 +1018,9 @@ func TestStatusFleetShowsHeldBlockWithNoTaskRowBehindIt(t *testing.T) {
 	}
 }
 
-func TestStatusFleetOmitsHeldBlockWithoutHolds(t *testing.T) {
+// Nothing held is a fact worth stating: an omitted block reads the same as a
+// command that failed to look.
+func TestStatusFleetStatesZeroHoldsRatherThanOmittingTheBlock(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -967,8 +1038,8 @@ func TestStatusFleetOmitsHeldBlockWithoutHolds(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "held:") {
-		t.Fatalf("got %q, want no held block when nothing is held", out.String())
+	if !strings.Contains(out.String(), "held: 0\n") || !strings.Contains(out.String(), "holds[0]{id,kind,detail,age}:\n") {
+		t.Fatalf("got %q, want a zero count and an empty holds block", out.String())
 	}
 }
 
@@ -995,7 +1066,7 @@ func TestStatusFleetFlagsInconsistentHold(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `inconsistent: unrecognized kind "not-a-real-kind"`) {
+	if !strings.Contains(out.String(), `inconsistent: unrecognized kind \"not-a-real-kind\"`) {
 		t.Fatalf("got %q, want the inconsistent hold flagged rather than silently rendered", out.String())
 	}
 }
@@ -1103,12 +1174,12 @@ func TestStatusSingleTaskShowsHeldLine(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Held:        waiting on task-2: waiting on migration") {
-		t.Fatalf("got %q, want a Held line naming what it waits on", out.String())
+	if got := detailField(t, out.String(), "held"); got != "waiting on task-2: waiting on migration" {
+		t.Fatalf("held = %q, want it naming what the task waits on", got)
 	}
 }
 
-func TestStatusSingleTaskOmitsHeldLineWithoutAHold(t *testing.T) {
+func TestStatusSingleTaskStatesNoHoldRatherThanOmittingTheField(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -1126,8 +1197,8 @@ func TestStatusSingleTaskOmitsHeldLineWithoutAHold(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "Held:") {
-		t.Fatalf("got %q, want no Held line without a hold", out.String())
+	if got := detailField(t, out.String(), "held"); got != "none" {
+		t.Fatalf("held = %q, want an explicit none without a hold", got)
 	}
 }
 
@@ -1154,11 +1225,12 @@ func TestStatusShowsDeliveredWorkWithoutClaimingAMerge(t *testing.T) {
 	if err := single.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Delivered:   offered upstream, maintainer decides (2026-08-03T00:00:00Z)") {
-		t.Fatalf("got %q, want a Delivered line carrying the reason", out.String())
+	if got := detailField(t, out.String(), "delivered"); got != "offered upstream, maintainer decides (2026-08-03T00:00:00Z)" {
+		t.Fatalf("delivered = %q, want it carrying the reason", got)
 	}
-	if strings.Contains(out.String(), "(merged)") {
-		t.Fatalf("got %q, want no merge claim on delivered work", out.String())
+	flags := strings.Fields(detailField(t, out.String(), "flags"))
+	if !slices.Contains(flags, "delivered") || mergeFlag(flags) != "" {
+		t.Fatalf("flags = %v, want delivered with no merge claim", flags)
 	}
 
 	fleet := newStatusCmd()
@@ -1167,8 +1239,8 @@ func TestStatusShowsDeliveredWorkWithoutClaimingAMerge(t *testing.T) {
 	if err := fleet.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(fleetOut.String(), "(delivered)") {
-		t.Fatalf("got %q, want a delivered marker in the fleet view", fleetOut.String())
+	if got := fleetFlags(t, fleetOut.String(), "task-1"); !slices.Contains(got, "delivered") {
+		t.Fatalf("flags = %v, want a delivered marker in the fleet view", got)
 	}
 
 	asJSON := newStatusCmd()
@@ -1249,8 +1321,96 @@ func TestStatusFleetEmptyIsAPositiveStatement(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(out.String()) != "no tasks (0)" {
-		t.Fatalf("got %q, want an explicit no-tasks count and nothing else", out.String())
+	want := "count: 0\n" +
+		"attention: 0\n" +
+		"held: 0\n" +
+		"tasks[0]{id,state,reported,age,flags}:\n" +
+		"holds[0]{id,kind,detail,age}:\n" +
+		"help[2]:\n" +
+		"  - Run `hand project list` to see which projects are registered\n" +
+		"  - Run `hand spawn <id> <project>` to start a worker\n"
+	if got := out.String(); got != want {
+		t.Fatalf("got %q, want an explicit zero count, both schema headers, and where to go next:\n%q", got, want)
+	}
+}
+
+// --fields narrows what is emitted, and the schema header has to narrow with
+// it: a header promising columns the rows do not carry is worse than no header.
+func TestStatusFleetFieldsNarrowsTheSchemaHeaderWithTheRows(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--fields", "state,id"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "tasks[1]{state,id}:\n  working,task-1\n") {
+		t.Fatalf("got %q, want the header and the row narrowed to the requested fields, in that order", out.String())
+	}
+}
+
+func TestStatusFieldsRejectsAnUnknownFieldAsAUsageError(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--fields", "id,nope"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("got nil error, want an unknown field rejected rather than silently dropped")
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("exit code = %d, want 2 for a usage error", code)
+	}
+	if !strings.Contains(err.Error(), `"nope"`) || !strings.Contains(err.Error(), "id, project") {
+		t.Fatalf("got %v, want the bad field named alongside the ones that exist", err)
+	}
+}
+
+// The name is checked before the home is resolved, so a flag typo never pays
+// for a fleet scan, a registry warning, or a no-mistakes subprocess per done
+// ship task before it is told what it got wrong.
+func TestStatusFieldsIsRejectedBeforeTheHomeIsResolved(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	t.Chdir(t.TempDir())
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--fields", "nope"})
+	err := cmd.Execute()
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("err = %v, exit code = %d, want the usage error rather than the unresolvable home's 3", err, code)
+	}
+}
+
+// --fields narrows the TOON schema; accepting it next to --json and then
+// ignoring it would hand back the full object the caller asked to narrow.
+func TestStatusFieldsWithJSONIsAUsageError(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	cmd := newStatusCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--fields", "id", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("got nil error, want --fields and --json rejected together")
+	}
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("exit code = %d, want 2 for a usage error", code)
 	}
 }
 
@@ -1289,9 +1449,10 @@ func TestStatusFleetEmptyStillShowsHeldBlock(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "no tasks (0)") || !strings.Contains(out.String(), "held:") ||
-		!strings.Contains(out.String(), "needs a call") {
-		t.Fatalf("got %q, want both the no-tasks count and the held block", out.String())
+	got := out.String()
+	if !strings.Contains(got, "count: 0\n") || !strings.Contains(got, "held: 1\n") ||
+		!strings.Contains(got, "  gone-task,operator,needs a call,") {
+		t.Fatalf("got %q, want both the no-tasks count and the held row", got)
 	}
 }
 
@@ -1337,8 +1498,8 @@ func TestStatusFleetFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "(gate: no run found)") {
-		t.Fatalf("got %q, want a gate marker naming the shipped PR never ran through the gate", out.String())
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-no-run-found") {
+		t.Fatalf("flags = %v, want a gate marker naming the shipped PR never ran through the gate", got)
 	}
 }
 
@@ -1387,7 +1548,7 @@ func TestStatusFleetNoGateMarkerWhenRunFound(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "(gate:") {
+	if strings.Contains(out.String(), "gate-") {
 		t.Fatalf("got %q, want no gate marker once a completed run recorded this PR", out.String())
 	}
 }
@@ -1412,8 +1573,8 @@ func TestStatusFleetGateRunUnreachableWhenNoMistakesBinaryMissing(t *testing.T) 
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "(gate: unreachable)") {
-		t.Fatalf("got %q, want the gate check named unreachable rather than the stronger no-run-found claim", out.String())
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unreachable") {
+		t.Fatalf("flags = %v, want the gate check named unreachable rather than the stronger no-run-found claim", got)
 	}
 }
 
@@ -1439,7 +1600,7 @@ func TestStatusFleetSkipsGateCheckWhenItDoesNotApply(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "(gate:") {
+	if strings.Contains(out.String(), "gate-") {
 		t.Fatalf("got %q, want no gate marker for a scout task with no shipped PR", out.String())
 	}
 }
@@ -1464,8 +1625,8 @@ func TestStatusSingleTaskFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Gate run:    no run found") {
-		t.Fatalf("got %q, want a Gate run line naming the shipped PR never ran through the gate", out.String())
+	if got := detailField(t, out.String(), "gate"); got != "no run found" {
+		t.Fatalf("gate = %q, want it naming that the shipped PR never ran through the gate", got)
 	}
 }
 
@@ -1514,8 +1675,8 @@ func TestStatusSingleTaskNoGateLineWhenRunFound(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "Gate run:") {
-		t.Fatalf("got %q, want no Gate run line once a completed run recorded this PR", out.String())
+	if got := detailField(t, out.String(), "gate"); got != "none" {
+		t.Fatalf("gate = %q, want none once a completed run recorded this PR", got)
 	}
 }
 
@@ -1557,7 +1718,7 @@ func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(out.String(), "(gate: no run found)") != 3 {
+	if strings.Count(out.String(), " gate-no-run-found\n") != 3 {
 		t.Fatalf("got %q, want all three ungated tasks marked", out.String())
 	}
 	calls, err := os.ReadFile(countFile)
@@ -1578,7 +1739,7 @@ func writeBrokenRegistry(t *testing.T, home string) {
 	}
 }
 
-// An unreadable registry silently drops every (gate: ...) marker fleet-wide, which renders an
+// An unreadable registry silently drops every gate flag fleet-wide, which renders an
 // ungated PR as clean - so the overview still prints, but says on stderr that it did.
 func TestStatusFleetNamesAnUnreadableRegistryOnStderr(t *testing.T) {
 	home := t.TempDir()
@@ -1627,8 +1788,8 @@ func TestStatusSingleTaskReadsRegistryOnlyWhenTheGateCheckApplies(t *testing.T) 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want the detail view to print without reading the registry", err)
 	}
-	if !strings.Contains(out.String(), "Task:        scout-1") {
-		t.Fatalf("got %q, want the detail view rendered", out.String())
+	if got := detailField(t, out.String(), "id"); got != "scout-1" {
+		t.Fatalf("id = %q, want the detail view rendered", got)
 	}
 }
 
@@ -1677,8 +1838,8 @@ func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "(gate: unreachable)") {
-		t.Fatalf("got %q, want an uninitialized gate read as unreachable, never as no run found", out.String())
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unreachable") {
+		t.Fatalf("flags = %v, want an uninitialized gate read as unreachable, never as no run found", got)
 	}
 }
 
@@ -1704,8 +1865,8 @@ func TestStatusFleetFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "idle (reported: done, unacknowledged)") {
-		t.Fatalf("got %q, want the done report flagged unacknowledged", out.String())
+	if row := fleetRow(t, out.String(), "task-1"); !strings.HasPrefix(row, "task-1,idle,done,") || !strings.HasSuffix(row, ",unacknowledged") {
+		t.Fatalf("got %q, want the done report flagged unacknowledged", row)
 	}
 }
 
@@ -1732,11 +1893,12 @@ func TestStatusFleetDoesNotFlagATerminalReportAWatcherConsumed(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "idle (reported: done)") {
-		t.Fatalf("got %q, want the reported state still shown", out.String())
+	row := fleetRow(t, out.String(), "task-1")
+	if !strings.HasPrefix(row, "task-1,idle,done,") {
+		t.Fatalf("got %q, want the reported state still shown", row)
 	}
-	if strings.Contains(out.String(), "unacknowledged") {
-		t.Fatalf("got %q, want no flag on a report a watcher already announced", out.String())
+	if strings.Contains(row, "unacknowledged") {
+		t.Fatalf("got %q, want no flag on a report a watcher already announced", row)
 	}
 }
 
@@ -1844,10 +2006,10 @@ func TestStatusSingleTaskFlagsTheClassifiedLineNotTrailingFreeText(t *testing.T)
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Reported:    done: PR up (unacknowledged)") {
-		t.Fatalf("got %q, want the clause on the terminal report it describes", out.String())
+	if got := detailField(t, out.String(), "report"); got != "done: PR up (unacknowledged)" {
+		t.Fatalf("report = %q, want the clause on the terminal report it describes", got)
 	}
-	if !strings.Contains(out.String(), "  still tidying") {
+	if !strings.Contains(out.String(), "report_history[1]:\n  - still tidying\n") {
 		t.Fatalf("got %q, want the worker's trailing free text still in the history block", out.String())
 	}
 }
@@ -1877,8 +2039,8 @@ func TestStatusSingleTaskShowsTrailingFreeTextWhenAcknowledged(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Reported:    still tidying") {
-		t.Fatalf("got %q, want the literal last line when no clause applies", out.String())
+	if got := detailField(t, out.String(), "report"); got != "still tidying" {
+		t.Fatalf("report = %q, want the literal last line when no clause applies", got)
 	}
 }
 
@@ -1971,7 +2133,7 @@ func TestStatusFleetFlagsATerminalReportWithNoTrailingNewline(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "idle (reported: done, unacknowledged)") {
-		t.Fatalf("got %q, want an unterminated done flagged like any other unread completion", out.String())
+	if row := fleetRow(t, out.String(), "task-1"); !strings.HasPrefix(row, "task-1,idle,done,") || !strings.HasSuffix(row, ",unacknowledged") {
+		t.Fatalf("got %q, want an unterminated done flagged like any other unread completion", row)
 	}
 }
