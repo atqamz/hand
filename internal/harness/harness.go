@@ -132,14 +132,26 @@ var effortCapable = map[string]bool{
 	Claude: true,
 }
 
-// SupportsModel: false means the caller must warn instead of silently dropping the model.
+var promptCapable = map[string]bool{
+	Claude:   true,
+	OpenCode: true,
+}
+
+// False means the caller must warn instead of silently dropping the model.
 func SupportsModel(name string) bool {
 	return modelCapable[name]
 }
 
-// SupportsEffort: false means the caller must warn instead of silently dropping the effort.
+// False means the caller must warn instead of silently dropping the effort.
 func SupportsEffort(name string) bool {
 	return effortCapable[name]
+}
+
+// False means the builder hands the brief over as a file and has no prompt to append to, so
+// briefPrompt's operator-decision rule and front-matter disclaimer never reach the worker.
+// Carrying them properly needs flags verified against a real --help (atqamz/secondhand#36).
+func CarriesPrompt(name string) bool {
+	return promptCapable[name]
 }
 
 // Build constructs the shell command that cds into the worktree and launches the harness

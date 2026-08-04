@@ -239,7 +239,7 @@ func TestSpawnWarnsOnEffortIncapableHarness(t *testing.T) {
 	if spawned.code != 0 {
 		t.Fatalf("spawn: exit %d, stderr %q", spawned.code, spawned.stderr)
 	}
-	if !strings.Contains(spawned.stderr, `warning: harness "opencode" has no effort flag, ignoring effort "high"`) {
+	if !strings.Contains(spawned.stderr, `warning: harness "opencode" cannot carry effort "high"; launching anyway`) {
 		t.Fatalf("stderr = %q, want the effort-incapable warning", spawned.stderr)
 	}
 

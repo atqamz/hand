@@ -197,8 +197,8 @@ func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
 	}
 }
 
-// TestSupportsModel pins the capability against the builders: exactly the harnesses whose build
-// function emits --model may report true, or a caller that trusts it drops the model in silence.
+// Pinned against the builders rather than restating the map: a harness reporting true while its
+// command carries no --model is exactly the silent drop being fixed here.
 func TestSupportsModel(t *testing.T) {
 	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
 		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "some-model"})
@@ -222,6 +222,25 @@ func TestSupportsEffort(t *testing.T) {
 		if SupportsEffort(name) {
 			t.Errorf("SupportsEffort(%q) = true, want false", name)
 		}
+	}
+}
+
+// Pinned against the builders for the same reason as TestSupportsModel: a harness reporting true
+// while its command carries no prompt text drops the operator-decision rule in silence.
+func TestCarriesPrompt(t *testing.T) {
+	quoted := shellQuote(agentsmd.OperatorDecisionRule)
+	escaped := quoted[1 : len(quoted)-1]
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+		if err != nil {
+			t.Fatalf("Build(%q) error: %v", name, err)
+		}
+		if carries := strings.Contains(got, escaped); carries != CarriesPrompt(name) {
+			t.Errorf("CarriesPrompt(%q) = %v but Build(%q) = %q", name, CarriesPrompt(name), name, got)
+		}
+	}
+	if CarriesPrompt("nonexistent") {
+		t.Error("CarriesPrompt(nonexistent) = true, want false")
 	}
 }
 

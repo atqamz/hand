@@ -422,11 +422,21 @@ Flags:
   clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
 Model and effort resolve most-specific-first: the flag, then the brief's `---` declaration (see
-"Brief format"), then the config default, then unset. A resolved value the harness has no flag for
-is a warning on stderr, not a failure: the spawn proceeds with the value recorded in state and
-ignored by the launch command. This covers a resolved effort under anything but claude
-(`harness.SupportsEffort`) and a resolved model under `codex`, `grok` or `pi`
-(`harness.SupportsModel`).
+"Brief format"), then the config default, then unset.
+
+Anything the chosen harness cannot carry is a warning on stderr, not a failure: the spawn proceeds,
+with a resolved model or effort recorded in state and ignored by the launch command. Three things
+can be dropped, and all of them are named on one line per launch rather than one line each, since
+consecutive warnings all naming the same harness read as separate problems:
+
+- a resolved effort under anything but claude (`harness.SupportsEffort`)
+- a resolved model under `codex`, `grok` or `pi` (`harness.SupportsModel`)
+- the operator-decision rule, and the front-matter disclaimer when the brief has front matter,
+  under `codex`, `grok` or `pi` (`harness.CarriesPrompt`, see "Harness launch templates")
+
+The line reads `warning: harness "codex" cannot carry model "opus", effort "high", the
+operator-decision rule, the front-matter disclaimer; launching anyway`, listing only what that
+launch actually drops.
 
 Behavior:
 1. Validate project exists in registry.
@@ -1644,8 +1654,12 @@ Codex, Grok, and Pi retain unverified templates until those binaries are install
 verifies them must confirm interactive (not headless) launch, not just flag names.
 The harness module is the single place that constructs these commands.
 A template that hands the brief over as a file rather than as prompt text (Codex, Grok, Pi) has no
-prompt to append to, so `agentsmd.OperatorDecisionRule` never reaches those workers: the brief is
-all they read.
+prompt to append to, so `agentsmd.OperatorDecisionRule` and the front-matter disclaimer never reach
+those workers: the brief is all they read. `harness.CarriesPrompt` reports this, and `hand spawn`
+warns on stderr rather than dropping it in silence (see `hand spawn`). The warning is a stopgap, not
+the fix: carrying the text properly needs an inline-prompt flag verified against a real `--help` for
+each of the three, which is blocked on the same missing binaries as
+atqamz/secondhand#36.
 
 ## Herdr integration detail
 

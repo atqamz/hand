@@ -153,29 +153,46 @@ func TestResolveTierWarnsWhenHarnessCannotApplyEffort(t *testing.T) {
 	}
 }
 
-// TestResolveTierWarnsWhenHarnessCannotApplyModel covers all three model-less harnesses because
-// their launch builders are near-copies: a test that only proves codex warns lets grok or pi
-// regress in silence.
-func TestResolveTierWarnsWhenHarnessCannotApplyModel(t *testing.T) {
+// All three prompt-less builders are near-copies, so proving only codex warns is what lets grok or
+// pi regress. Exact-match rather than Contains because the single combined line is the point: the
+// alternative was three warnings per launch all naming the same harness.
+func TestResolveTierWarnsOnceForEverythingAHarnessCannotCarry(t *testing.T) {
 	for _, harnessName := range []string{harness.Codex, harness.Grok, harness.Pi} {
 		t.Run(harnessName, func(t *testing.T) {
 			home := t.TempDir()
 			briefAbs := writeTierBrief(t, home, declaredBrief)
 
 			cmd, stderr := newTierTestCmd()
-			model, _, _, err := resolveTier(cmd, home, briefAbs, harnessName, "", "")
+			model, effort, _, err := resolveTier(cmd, home, briefAbs, harnessName, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if model != "brief-model" {
-				t.Fatalf("got model=%q, want it still resolved even though %s cannot apply it", model, harnessName)
+			if model != "brief-model" || effort != "brief-effort" {
+				t.Fatalf("got model=%q effort=%q, want both resolved even though %s cannot carry them", model, effort, harnessName)
 			}
-			want := "warning: harness " + strconv.Quote(harnessName) + " has no model flag, ignoring model \"brief-model\"\n"
-			if !strings.Contains(stderr.String(), want) {
-				t.Fatalf("stderr = %q, want it to contain %q", stderr.String(), want)
+			want := "warning: harness " + strconv.Quote(harnessName) + ` cannot carry model "brief-model", effort "brief-effort", the operator-decision rule, the front-matter disclaimer; launching anyway` + "\n"
+			if stderr.String() != want {
+				t.Fatalf("stderr = %q, want exactly %q", stderr.String(), want)
 			}
-			if !strings.Contains(stderr.String(), "no effort flag") {
-				t.Fatalf("stderr = %q, want the effort warning alongside the model one", stderr.String())
+		})
+	}
+}
+
+// A brief with no front matter has no disclaimer to drop, so the operator-decision rule is the
+// only thing left and the line must not claim otherwise.
+func TestResolveTierWarnsOnPromptDropWithNothingDeclared(t *testing.T) {
+	for _, harnessName := range []string{harness.Codex, harness.Grok, harness.Pi} {
+		t.Run(harnessName, func(t *testing.T) {
+			home := t.TempDir()
+			briefAbs := writeTierBrief(t, home, "# Title\n\nno declaration here\n")
+
+			cmd, stderr := newTierTestCmd()
+			if _, _, _, err := resolveTier(cmd, home, briefAbs, harnessName, "", ""); err != nil {
+				t.Fatal(err)
+			}
+			want := "warning: harness " + strconv.Quote(harnessName) + " cannot carry the operator-decision rule; launching anyway\n"
+			if stderr.String() != want {
+				t.Fatalf("stderr = %q, want exactly %q", stderr.String(), want)
 			}
 		})
 	}
@@ -202,11 +219,9 @@ func TestResolveTierNoWarningWhenNoModelResolved(t *testing.T) {
 	if _, _, _, err := resolveTier(cmd, home, briefAbs, harness.Codex, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(stderr.String(), "model") {
-		t.Fatalf("stderr = %q, want no model warning when no model was resolved at all", stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "no effort flag") {
-		t.Fatalf("stderr = %q, want the effort warning still reported", stderr.String())
+	want := `warning: harness "codex" cannot carry effort "brief-effort", the operator-decision rule, the front-matter disclaimer; launching anyway` + "\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q, want exactly %q (no model named, none was resolved)", stderr.String(), want)
 	}
 }
 
