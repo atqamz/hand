@@ -3,8 +3,10 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
@@ -99,7 +101,6 @@ func Execute(version string) {
 		return
 	}
 
-	fmt.Fprintln(os.Stderr, err)
 	code := 1
 	var exitErr *ExitError
 	switch {
@@ -110,7 +111,53 @@ func Execute(version string) {
 		// check (e.g. an unknown command name) - untagged, but still a usage error.
 		code = 2
 	}
+	_ = renderError(os.Stderr, err, code, found.CommandPath())
 	os.Exit(code)
+}
+
+// The error document goes to stderr, where AXI puts it on stdout, because
+// `hand watch` owns stdout as an event stream a reader consumes line by line.
+func renderError(w io.Writer, err error, code int, path string) error {
+	var doc axi.Doc
+	doc.Field("error", err.Error())
+	doc.Field("kind", errorKind(code))
+	doc.Int("exit", code)
+	doc.Help(errorHelp(code, path)...)
+	return doc.Render(w)
+}
+
+// The vocabulary is SPECS.md's "Exit codes" table, so a caller can branch on a
+// name instead of memorizing which number means what.
+var errorKinds = map[int]string{
+	1: "general",
+	2: "usage",
+	3: "precondition",
+	4: "no-event",
+	5: "arm-failed",
+	6: "send-undelivered",
+}
+
+func errorKind(code int) string {
+	if kind, ok := errorKinds[code]; ok {
+		return kind
+	}
+	return "general"
+}
+
+func errorHelp(code int, path string) []string {
+	switch code {
+	case 2:
+		return []string{"Run `" + path + " --help` for the arguments and flags this command accepts"}
+	case 3:
+		return []string{"Nothing changed: this refuses until the state it names is fixed, then the same command runs again"}
+	case 4:
+		return []string{"The wait ended with no transition: run it again with a longer `--timeout`, or read `hand status` for where the fleet stands"}
+	case 5:
+		return []string{"A named task's pane failed its arm-time probe: run `hand status <id>` to read what that worker reports"}
+	case 6:
+		return []string{"The message never reached the pane: send it again, with a longer `--wait` if the composer stays busy"}
+	}
+	return nil
 }
 
 // ExitError carries a non-default exit code that SPECS.md requires: 2 for a

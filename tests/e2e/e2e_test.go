@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -302,15 +303,47 @@ func writeBrief(t *testing.T, home, id string) {
 	}
 }
 
+// A failure arrives as a TOON document whose message field is quoted whenever
+// it carries a character a reader would otherwise have to guess at, so an
+// assertion about what an error says reads the field rather than the stream.
+func errorMessage(t *testing.T, stderr string) string {
+	t.Helper()
+	for _, line := range strings.Split(stderr, "\n") {
+		value, ok := strings.CutPrefix(line, "error: ")
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(value, `"`) {
+			return value
+		}
+		unquoted, err := strconv.Unquote(value)
+		if err != nil {
+			t.Fatalf("error field %q does not unquote: %v", value, err)
+		}
+		return unquoted
+	}
+	t.Fatalf("stderr = %q, want an error field in it", stderr)
+	return ""
+}
+
 func assertInvocation(t *testing.T, got invocation, wantCode int, wantStderr string) {
 	t.Helper()
 	if got.code != wantCode {
 		t.Fatalf("exit = %d, want %d (stderr %q, stdout %q)", got.code, wantCode, got.stderr, got.stdout)
 	}
-	if wantStderr != "" && !strings.Contains(got.stderr, wantStderr) {
-		t.Fatalf("stderr = %q, want it to contain %q", got.stderr, wantStderr)
+	if wantCode == 0 {
+		if wantStderr != "" && !strings.Contains(got.stderr, wantStderr) {
+			t.Fatalf("stderr = %q, want it to contain %q", got.stderr, wantStderr)
+		}
+		return
 	}
-	if wantCode != 0 && strings.TrimSpace(got.stdout) != "" {
+	if msg := errorMessage(t, got.stderr); wantStderr != "" && !strings.Contains(msg, wantStderr) {
+		t.Fatalf("error = %q, want it to contain %q", msg, wantStderr)
+	}
+	if want := fmt.Sprintf("\nexit: %d\n", wantCode); !strings.Contains(got.stderr, want) {
+		t.Fatalf("stderr = %q, want it to report %q", got.stderr, want)
+	}
+	if strings.TrimSpace(got.stdout) != "" {
 		t.Fatalf("stdout = %q, want errors on stderr only", got.stdout)
 	}
 }

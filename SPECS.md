@@ -2416,8 +2416,23 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 
 ### Error output
 
-All errors go to stderr. Commands print structured output to stdout.
-The agent can parse stdout reliably and read stderr for diagnostics.
+Every failure renders one document on stderr, whatever command produced it:
+
+```
+error: task "nosuch" not found
+kind: precondition
+exit: 3
+help[1]:
+  - Nothing changed: this refuses until the state it names is fixed, then the same command runs again
+```
+
+`kind` names the exit code above, so a caller branches on a word rather than memorizing which number means what: `general` (1), `usage` (2), `precondition` (3), `no-event` (4), `arm-failed` (5), `send-undelivered` (6).
+`error` carries the message the command wrote, quoted whenever it holds a `:`, a quote or a newline, so a multi-line error stays one field rather than becoming lines the reader mistakes for further fields.
+Every kind but `general` carries a `help[]` line naming what recovers it; a `usage` one names the command that refused, as in ``Run `hand hold set --help` for the arguments and flags this command accepts``.
+`general` is the one code with no recovery that can be stated in advance, so it carries no `help[]` block rather than a line that says nothing.
+
+The document goes to stderr, where the AXI principles put it on stdout, because `hand watch` owns stdout as an event stream a supervising agent consumes line by line.
+Keeping failures off that stream means a reader never has to tell an event from an error, and stdout stays empty on any non-zero exit.
 
 ## Testing strategy
 
