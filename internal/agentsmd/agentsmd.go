@@ -41,15 +41,26 @@ Run ` + "`hand --help`" + ` for the full command reference.
 ## Workflow
 
 1. Read ` + "`data/operator.md`" + ` before anything else. Its constraints outrank your own judgment.
-2. Run ` + "`hand status`" + ` for current fleet state. A row marked ` + "`unacknowledged`" + ` is a worker that reached done or failed while nothing was watching; treat it as news that just arrived.
-3. Match the request to a project in ` + "`data/projects.md`" + `.
-4. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
-5. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it. The brief may open with a ` + "`---`" + ` fenced block declaring ` + "`model`" + ` and ` + "`effort`" + ` for the task, which spawn and promote apply unless a flag overrides them.
-6. ` + "`hand spawn <id> <project>`" + ` to start a worker.
-7. ` + "`hand watch --until-event`" + ` as a background task to monitor the fleet. It exits on the first fleet event and that exit is what reaches you, so re-arm it every time you act on one. Bound the wait with ` + "`--timeout <duration>`" + `; exit 4 means the window passed with nothing happening, exit 5 means a worker named on stderr couldn't be reached before it even started waiting, exit 3 means another watcher is already attached to this home - one per home is the limit, so replace it with ` + "`--takeover`" + ` rather than starting a second.
-8. Act on watch output: steer blocked workers with ` + "`hand send`" + `, relay results.
-9. When told to merge: ` + "`hand merge <id>`" + `.
-10. ` + "`hand teardown <id>`" + ` after work is landed. Work that is handed off but whose landing is someone else's call - a PR offered to an upstream repo, a deliverable that is a report - is recorded with ` + "`hand deliver <id> --reason <text>`" + ` first; teardown then accepts it without ` + "`--force`" + `, and the completion record says delivered rather than merged.
+2. Settle any worker default the session overview's ` + "`config`" + ` block reports ` + "`missing`" + `, before dispatching anything: see "First-run configuration" below.
+3. Run ` + "`hand status`" + ` for current fleet state. A row marked ` + "`unacknowledged`" + ` is a worker that reached done or failed while nothing was watching; treat it as news that just arrived.
+4. Match the request to a project in ` + "`data/projects.md`" + `.
+5. Edit ` + "`data/backlog.md`" + ` to record the task with a unique ID.
+6. Write a brief at ` + "`data/<id>/brief.md`" + `, including the absolute path to ` + "`state/<id>.status`" + ` and the report vocabulary the worker should append to it. The brief may open with a ` + "`---`" + ` fenced block declaring ` + "`model`" + ` and ` + "`effort`" + ` for the task, which spawn and promote apply unless a flag overrides them.
+7. ` + "`hand spawn <id> <project>`" + ` to start a worker.
+8. ` + "`hand watch --until-event`" + ` as a background task to monitor the fleet. It exits on the first fleet event and that exit is what reaches you, so re-arm it every time you act on one. Bound the wait with ` + "`--timeout <duration>`" + `; exit 4 means the window passed with nothing happening, exit 5 means a worker named on stderr couldn't be reached before it even started waiting, exit 3 means another watcher is already attached to this home - one per home is the limit, so replace it with ` + "`--takeover`" + ` rather than starting a second.
+9. Act on watch output: steer blocked workers with ` + "`hand send`" + `, relay results.
+10. When told to merge: ` + "`hand merge <id>`" + `.
+11. ` + "`hand teardown <id>`" + ` after work is landed. Work that is handed off but whose landing is someone else's call - a PR offered to an upstream repo, a deliverable that is a report - is recorded with ` + "`hand deliver <id> --reason <text>`" + ` first; teardown then accepts it without ` + "`--force`" + `, and the completion record says delivered rather than merged.
+
+## First-run configuration
+
+The session overview's ` + "`config`" + ` block is what this fleet dispatches with, and every value in it is the operator's to choose.
+
+- A setting reported ` + "`missing`" + ` is a question you ask the operator in this conversation, in plain words, offering what ` + "`hand config`" + ` lists as supported and installed. Persist their answer with ` + "`hand config set <key> <value>`" + `, which validates it and writes it atomically; never write anything under ` + "`config/`" + ` yourself.
+- Never answer one of these for the operator. A value you picked, or one your own harness dialog accepted, configures the fleet with a guess that afterwards looks exactly like their decision.
+- ` + "`hand config set`" + ` reprints the block, so read what it returns and keep asking until nothing is ` + "`missing`" + `. ` + "`hand config`" + ` re-reads it at any time.
+- ` + "`unsupported`" + ` means the selected harness takes no such launch flag, so it is not a question and not a gap. ` + "`pending-harness`" + ` means applicability is unknown until the harness is chosen, so choose that first.
+- An operator who declines to answer has answered: leave it missing, say so, and carry on with everything that does not need it. The next session asks again.
 
 ## Rules
 
