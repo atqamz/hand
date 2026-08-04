@@ -32,7 +32,7 @@ Secondhand keeps the concept and rebuilds the execution as a single Go CLI binar
 5. **No feature without friction.** Every feature in firstmate that doesn't have a proven use case is cut. Features get added when their absence causes real pain.
 6. **A fleet home is any directory `state/hand.db` marks as one.** `hand init` creates the file up front; put `hand` on PATH and launch the agent there. Only `hand` ever writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` cannot capture the walk up. A home initialized before `state/hand.db` existed falls back to the marker it was initialized with, `data/projects.md` plus `state/`, so an operator upgrading in place never has to re-run anything by hand and the legacy `state/<id>.json` import still finds a home to run against (see "Migration"). Maintainers dogfood a fleet home inside the secondhand repo checkout itself, with runtime state gitignored alongside the tracked code, but the CLI has no opinion about the two: `HAND_HOME`, or an ancestor of the working directory, is all it looks for.
 7. **`hand status` is the memory.** It is computed from the store and the report channel at the moment it is asked for, never a file the agent or the user reads out of band. No session digests, no bootstrap scripts, no 187-line status dumps, and no rendering that can disagree with the state behind it (atqamz/secondhand#62).
-8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic.
+8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic. The one hook `hand` installs is the opposite of a guard: a `SessionStart` entry that runs the bare command so a session opens with the fleet in context, policing nothing and refusing nothing (see "Ambient context").
 
 ## Architecture overview
 
@@ -174,6 +174,8 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       age.go                # FormatAge, FormatDuration
     atomicfile/             # shared write-to-temp-then-rename helper
       atomicfile.go         # atomic file replacement
+    axi/                    # the one TOON renderer every command emits through (see "Output shape")
+      axi.go                # fields, row blocks, --fields selection, truncation hints, help[] lines
     sessionhook/            # ambient context for a supervising session (see "Ambient context")
       sessionhook.go        # install, repoint and report the SessionStart hook entry
   go.mod
@@ -2571,7 +2573,7 @@ These are explicit non-goals. Each lists the firstmate feature it replaces and w
 | Turn-end guards | `fm-turnend-guard.sh`, `docs/turnend-guard.md` | The supervisory agent's harness handles its own session lifecycle. |
 | Persona / role-play | "captain", "ahoy", nautical theming | Pure functionality. Users add personality if they want. Operator context is not persona and is not cut by this row: `data/operator.md` carries identity, authority and hard constraints, which is configuration the agent must not have to guess at (see "Directory layout"). |
 | Session lock | `fm-lock.sh`, `fm-lock-lib.sh` | No session lock. Atomic file writes prevent corruption. Agent avoids duplicate work. |
-| Bootstrap / session-start | `fm-session-start.sh`, `fm-bootstrap.sh` (56K lines combined) | Agent runs `hand status`. No 187-line digest. |
+| Bootstrap / session-start | `fm-session-start.sh`, `fm-bootstrap.sh` (56K lines combined) | Agent runs `hand status`. No 187-line digest. The `SessionStart` hook `hand init` installs is not this row's bootstrap: it runs the bare command when the session opens rather than rendering a file the agent then reads (see "Ambient context"). |
 
 ## Distribution
 
