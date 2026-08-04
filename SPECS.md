@@ -241,6 +241,7 @@ The rules that hold across every command:
 - A list item runs to end of line, so an embedded newline is collapsed to a space rather than silently becoming a second item.
 - A `help[N]:` block, when present, is last, and names what to run next. It is omitted entirely when a command has nothing to suggest - an empty `help[0]` block costs context and says nothing.
 - Counts and other aggregates are pre-computed and emitted as scalar fields above the rows they summarize, so a caller that only needs the number never has to count rows to get it.
+- A command that changes something confirms it with a `result:` field naming what happened, alongside the fields it changed. One field carries the outcome, so `recorded` and `already-recorded`, or `merged` and its method, are told apart by reading a value rather than matching a sentence.
 - `--fields <a,b,c>` narrows a command's row block to the named columns, in the order named, and the schema header narrows with the rows: a header promising columns the rows do not carry is worse than no header at all. An unknown name is a usage error (exit 2) naming the whole vocabulary, never a silently narrower result. `<command> --help` lists every field name.
 - `--json` is retained everywhere it existed, byte for byte unchanged. TOON is the default because the consumer is an agent; JSON stays because a caller that wants a parser-backed object should not have to parse TOON to build one. `--fields` narrows the TOON schema only, so combining it with `--json` is a usage error rather than a silently ignored request.
 
@@ -269,19 +270,22 @@ Flags:
 
 Output:
 ```
-initialized secondhand home at /path/to/secondhand
+result: initialized
+home: /path/to/secondhand
+agents_md: written
+harness: none
+model: none
+effort: none
+help[2]:
+  - Run `hand project add <repo-url>` to register the first project
+  - Read AGENTS.md in this home for how a supervising agent is meant to drive it
 ```
 
-Output with `--setup`:
-```
-found harnesses: claude codex pi grok
-found tools: treehouse herdr no-mistakes gh
-default worker harness: claude
-default worker model: sonnet
-worker effort: low
-wrote config/harness config/model config/effort
-initialized secondhand home at /path/to/secondhand
-```
+`--setup` is a dialog with whoever is at the terminal, so its discovery lines and prompts stay plain
+lines (`found harnesses: ...`, `found tools: ...`, a numbered harness menu, then a prompt per value).
+Only the answers reach the document, which follows the dialog with `harness: claude`, `model: sonnet`
+and `effort: low` in place of the three `none`s above. Without `--setup` nothing was chosen, so all
+three read `none` rather than being dropped: the schema is the same either way.
 
 Errors:
 - Filesystem permission errors.
@@ -314,7 +318,13 @@ Behavior:
 
 Output:
 ```
-added project nsr (https://github.com/yes2games/nsr) mode=direct-pr
+name: nsr
+result: added
+mode: direct-pr
+url: "https://github.com/yes2games/nsr"
+clone: /home/user/fleet/projects/nsr
+help[1]:
+  - Run `hand spawn <id> nsr` to dispatch a worker into it
 ```
 
 Errors:
@@ -406,12 +416,16 @@ add` cannot be re-run against an existing clone.
 
 Output:
 ```
-project no-mistakes opens PRs against kunchenguid/no-mistakes
+name: no-mistakes
+result: upstream-set
+upstream: kunchenguid/no-mistakes
 ```
 
 Output (cleared):
 ```
-cleared upstream for project no-mistakes
+name: no-mistakes
+result: upstream-cleared
+upstream: none
 ```
 
 Errors:
@@ -431,7 +445,11 @@ hand project remove nsr
 
 Output:
 ```
-removed project nsr (clone retained at projects/nsr)
+name: nsr
+result: removed
+clone: /home/user/fleet/projects/nsr
+help[1]:
+  - The clone is retained; delete it by hand if the registration was the only thing holding it
 ```
 
 Errors:
@@ -511,7 +529,15 @@ tear down a task that is already running.
 
 Output:
 ```
-spawned fix-login project=nsr kind=ship harness=claude worktree=/home/user/.treehouse/nsr-abc/1/nsr
+id: fix-login
+result: spawned
+project: nsr
+kind: ship
+harness: claude
+worktree: /home/user/.treehouse/nsr-abc/1/nsr
+help[2]:
+  - Run `hand status fix-login` to read what this worker reports
+  - Run `hand send fix-login <message>` to steer it
 ```
 
 Errors:
@@ -806,8 +832,15 @@ Behavior:
 
 Output:
 ```
-sent to fix-login
+id: fix-login
+result: sent
+chars: 42
+help[1]:
+  - The pane has the message; run `hand status fix-login` to read what it does with it
 ```
+
+`chars` counts runes, not bytes, and is the one thing the caller cannot see for itself: what reached
+the pane is the message as `hand` read it, `--file` or argument.
 
 Errors:
 - Task not found (exit 3).
@@ -847,7 +880,13 @@ Behavior:
 
 Output:
 ```
-hold set on fix-login (kind=operator)
+id: fix-login
+result: held
+kind: operator
+reason: two ways to do this, needs a call
+blocked_on: none
+help[1]:
+  - `hand status` carries this in its holds block until `hand hold clear fix-login`
 ```
 
 Errors:
@@ -873,7 +912,8 @@ Every kind is clearable, `limit` included: it is the operator's way out of a hol
 
 Output:
 ```
-hold cleared on fix-login
+id: fix-login
+result: released
 ```
 
 Errors:
@@ -904,7 +944,12 @@ The state is keyed off the recorded delivery, never off `kind`, so a task filed 
 
 Output:
 ```
-marked no-mistakes-flake delivered: PR https://github.com/kunchenguid/no-mistakes/pull/597 offered upstream, maintainer decides
+id: no-mistakes-flake
+result: delivered
+reason: "PR 597 offered upstream, maintainer decides"
+delivered: "2026-07-29T11:04:00Z"
+help[1]:
+  - Run `hand teardown no-mistakes-flake` once the work is landed to release the worktree and pane
 ```
 
 Errors:
@@ -981,8 +1026,19 @@ The store is deliberately uncapped: it is the only durable record of a task's co
 
 Output:
 ```
-teardown fix-login complete
+id: fix-login
+result: torn-down
+project: nsr
+kind: ship
+outcome: merged
+detail: "https://github.com/org/repo/pull/42"
+worktree: returned
+help[1]:
+  - This id is gone from `hand status`; its completion is the last word on it
 ```
+
+`outcome` and `detail` are the completion record's own fields, so what teardown says and what the
+permanent record holds cannot drift.
 
 Errors:
 - Task not found.
@@ -1033,12 +1089,25 @@ Behavior (local merge, `--local`):
 
 Output:
 ```
-merged fix-login: https://github.com/org/repo/pull/42
+id: fix-login
+result: merged
+method: squash
+pr: "https://github.com/org/repo/pull/42"
+merged: "2026-07-29T11:04:00Z"
+help[1]:
+  - Run `hand teardown fix-login` to release this task's worktree and pane
 ```
 
 Output (local):
 ```
-merged fix-login: local fast-forward into main
+id: fix-login
+result: merged
+method: local-fast-forward
+branch: 42-fix-login
+into: main
+merged: "2026-07-29T11:04:00Z"
+help[1]:
+  - Run `hand teardown fix-login` to release this task's worktree and pane
 ```
 
 Errors:
@@ -1075,13 +1144,15 @@ Steps 5-7 live in `project.ValidatePR` and are the *only* validation path: `hand
 
 Output:
 ```
-recorded PR for fix-login: https://github.com/org/repo/pull/42
+id: fix-login
+result: recorded
+pr: "https://github.com/org/repo/pull/42"
+help[1]:
+  - Run `hand merge fix-login` once this PR's checks are green
 ```
 
-Output (reconciling repeat):
-```
-pr already recorded for fix-login: https://github.com/org/repo/pull/42
-```
+Output (reconciling repeat) - same document, `result: already-recorded`, so a caller reads one field
+to tell the two apart rather than two sentences.
 
 Errors:
 - Malformed PR URL (usage error, code `2`).
@@ -1378,9 +1449,20 @@ Behavior:
 
 Output:
 ```
-nsr: fast-forwarded to origin/develop (was 3 behind)
-yes2infra: skipped (dirty working tree)
+count: 3
+advanced: 1
+failed: 0
+projects[3]{name,result,detail}:
+  nsr,fast-forwarded,"origin/develop, was 3 behind"
+  yes2infra,skipped,dirty working tree
+  no-mistakes,up-to-date,none
 ```
+
+`advanced` counts the clones that actually moved, so a caller learns whether the sync changed
+anything without reading every row. A project whose sync errored outright carries no row: with one
+named project that error is the command's exit, and across the whole registry it is a stderr warning
+the run continues past, counted in `failed` and named by a `help[]` line so the row count is never
+read as the whole story.
 
 ---
 
@@ -1423,7 +1505,16 @@ instead of stranding the task with nothing to look at.
 
 Output:
 ```
-promoted investigate-crash: scout -> ship project=nsr harness=claude
+id: investigate-crash
+result: promoted
+kind: ship
+was: scout
+project: nsr
+harness: claude
+worktree: /home/user/.treehouse/nsr-abc/2/nsr
+help[2]:
+  - The scout's worktree and pane are gone; run `hand status investigate-crash` to read the ship worker
+  - The scout's delivery no longer counts for this task, so `hand deliver investigate-crash` runs again on the code
 ```
 
 Errors:
@@ -1473,7 +1564,8 @@ place it is loud, per the exit code below.
 
 Output:
 ```
-notified: fix-login PR is ready for review
+result: notified
+message: fix-login PR is ready for review
 ```
 
 Errors:

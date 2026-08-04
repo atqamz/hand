@@ -59,12 +59,15 @@ func newProjectUpstreamCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
+			result := "upstream-set"
 			if upstream == "" {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "cleared upstream for project %s\n", name)
-				return err
+				result = "upstream-cleared"
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "project %s opens PRs against %s\n", name, upstream)
-			return err
+			var doc axi.Doc
+			doc.Field("name", name)
+			doc.Field("result", result)
+			doc.Field("upstream", orNone(upstream))
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 	return cmd
@@ -129,10 +132,14 @@ func newProjectAddCmd() *cobra.Command {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "added project %s (%s) mode=%s\n", name, url, mode); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("name", name)
+			doc.Field("result", "added")
+			doc.Field("mode", mode)
+			doc.Field("url", url)
+			doc.Field("clone", clonePath)
+			doc.Help("Run `hand spawn <id> " + name + "` to dispatch a worker into it")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
@@ -368,10 +375,12 @@ func newProjectRemoveCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "removed project %s (clone retained at projects/%s)\n", name, name); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("name", name)
+			doc.Field("result", "removed")
+			doc.Field("clone", filepath.Join(home, "projects", name))
+			doc.Help("The clone is retained; delete it by hand if the registration was the only thing holding it")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 	return cmd
@@ -418,93 +427,129 @@ func newProjectSyncCmd() *cobra.Command {
 				}
 			}
 
+			var outcomes []syncOutcome
+			failed := 0
 			for _, p := range targets {
 				releaseProject, err := state.Lock(home, "project:"+p.Name)
 				if err != nil {
 					return fmt.Errorf("lock project %q: %w", p.Name, err)
 				}
-				msg, syncErr := syncOneProject(home, p)
+				outcome, syncErr := syncOneProject(home, p)
 				releaseProject()
 
 				if syncErr != nil {
 					if len(targets) == 1 {
 						return syncErr
 					}
+					failed++
 					if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", syncErr); err != nil {
 						return err
 					}
 					continue
 				}
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), msg); err != nil {
-					return err
+				outcomes = append(outcomes, outcome)
+			}
+
+			advanced := 0
+			for _, o := range outcomes {
+				if o.Result == "fast-forwarded" {
+					advanced++
 				}
 			}
 
-			return nil
+			var doc axi.Doc
+			doc.Int("count", len(targets))
+			doc.Int("advanced", advanced)
+			doc.Int("failed", failed)
+			axi.Table(&doc, "projects", outcomes, syncFields)
+			if failed > 0 {
+				doc.Help("A project that failed to sync carries no row here; its error is on stderr")
+			}
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 	return cmd
 }
 
+type syncOutcome struct {
+	Name   string
+	Result string
+	Detail string
+}
+
+var syncFields = []axi.Column[syncOutcome]{
+	{Name: "name", Value: func(o syncOutcome) string { return o.Name }},
+	{Name: "result", Value: func(o syncOutcome) string { return o.Result }},
+	{Name: "detail", Value: func(o syncOutcome) string { return orNone(o.Detail) }},
+}
+
+func skippedSync(name, detail string) (syncOutcome, error) {
+	return syncOutcome{Name: name, Result: "skipped", Detail: detail}, nil
+}
+
 // syncOneProject fetches and, when eligible, fast-forwards a single project clone.
 // It never errors on a benign skip (dirty, wrong branch, diverged, no remote) -
-// those are reported in the returned message, per SPECS.md's fail-open policy.
-func syncOneProject(home string, p project.Project) (string, error) {
+// those come back as a skipped outcome, per SPECS.md's fail-open policy.
+func syncOneProject(home string, p project.Project) (syncOutcome, error) {
 	clonePath := filepath.Join(home, "projects", p.Name)
 
 	if !hasOriginRemote(clonePath) {
-		return fmt.Sprintf("%s: skipped (no origin remote)", p.Name), nil
+		return skippedSync(p.Name, "no origin remote")
 	}
 
 	fetch := exec.Command("git", "fetch", "origin", "--prune")
 	fetch.Dir = clonePath
 	if out, err := fetch.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
+		return syncOutcome{}, fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
 	}
 
 	pruneGoneBranches(clonePath)
 
 	defaultBr, err := defaultBranch(clonePath)
 	if err != nil {
-		return "", fmt.Errorf("%s: resolve default branch: %w", p.Name, err)
+		return syncOutcome{}, fmt.Errorf("%s: resolve default branch: %w", p.Name, err)
 	}
 	currentBr, err := currentBranch(clonePath)
 	if err != nil {
-		return "", fmt.Errorf("%s: current branch: %w", p.Name, err)
+		return syncOutcome{}, fmt.Errorf("%s: current branch: %w", p.Name, err)
 	}
 	if currentBr != defaultBr {
-		return fmt.Sprintf("%s: skipped (on branch %s, not %s)", p.Name, currentBr, defaultBr), nil
+		return skippedSync(p.Name, fmt.Sprintf("on branch %s, not %s", currentBr, defaultBr))
 	}
 	dirty, err := hasUncommittedChanges(clonePath)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", p.Name, err)
+		return syncOutcome{}, fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if dirty {
-		return fmt.Sprintf("%s: skipped (dirty working tree)", p.Name), nil
+		return skippedSync(p.Name, "dirty working tree")
 	}
 
 	remoteRef := "origin/" + defaultBr
 	behind, err := commitCount(clonePath, "HEAD.."+remoteRef)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", p.Name, err)
+		return syncOutcome{}, fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if behind == 0 {
-		return fmt.Sprintf("%s: up to date", p.Name), nil
+		return syncOutcome{Name: p.Name, Result: "up-to-date"}, nil
 	}
 	ahead, err := commitCount(clonePath, remoteRef+"..HEAD")
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", p.Name, err)
+		return syncOutcome{}, fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if ahead > 0 {
-		return fmt.Sprintf("%s: skipped (diverged from %s)", p.Name, remoteRef), nil
+		return skippedSync(p.Name, "diverged from "+remoteRef)
 	}
 
 	merge := exec.Command("git", "merge", "--ff-only", remoteRef)
 	merge.Dir = clonePath
 	if out, err := merge.CombinedOutput(); err != nil {
-		return fmt.Sprintf("%s: skipped (fast-forward failed: %s)", p.Name, strings.TrimSpace(string(out))), nil
+		return skippedSync(p.Name, "fast-forward failed: "+strings.TrimSpace(string(out)))
 	}
-	return fmt.Sprintf("%s: fast-forwarded to %s (was %d behind)", p.Name, remoteRef, behind), nil
+	return syncOutcome{
+		Name:   p.Name,
+		Result: "fast-forwarded",
+		Detail: fmt.Sprintf("%s, was %d behind", remoteRef, behind),
+	}, nil
 }
 
 func hasOriginRemote(clonePath string) bool {

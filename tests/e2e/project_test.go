@@ -72,7 +72,7 @@ func TestProjectLifecycle(t *testing.T) {
 	if removed.code != 0 {
 		t.Fatalf("project remove: exit %d, stderr %q", removed.code, removed.stderr)
 	}
-	if !strings.Contains(removed.stdout, "clone retained") {
+	if !strings.Contains(removed.stdout, "result: removed\n") || !strings.Contains(removed.stdout, "clone is retained") {
 		t.Fatalf("project remove stdout = %q, want it to note the clone is retained", removed.stdout)
 	}
 

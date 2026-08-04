@@ -201,7 +201,7 @@ func TestProjectUpstreamDeclaresAndClears(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "fork opens PRs against kunchenguid/no-mistakes") {
+	if !strings.Contains(out.String(), "result: upstream-set\nupstream: kunchenguid/no-mistakes\n") {
 		t.Fatalf("out = %q, want the declared upstream confirmed", out.String())
 	}
 
@@ -220,7 +220,7 @@ func TestProjectUpstreamDeclaresAndClears(t *testing.T) {
 	if err := clear.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(cleared.String(), "cleared upstream for project fork") {
+	if !strings.Contains(cleared.String(), "result: upstream-cleared\nupstream: none\n") {
 		t.Fatalf("out = %q, want the clear confirmed", cleared.String())
 	}
 	projects, err = project.List(home)

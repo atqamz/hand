@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/state"
@@ -118,10 +120,12 @@ func newSendCmd() *cobra.Command {
 				}
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "sent to %s\n", id); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("id", id)
+			doc.Field("result", "sent")
+			doc.Field("chars", strconv.Itoa(len([]rune(message))))
+			doc.Help("The pane has the message; run `hand status " + id + "` to read what it does with it")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 

@@ -41,7 +41,7 @@ func TestConcurrentSendsToTheSameTaskSerialize(t *testing.T) {
 
 	for name, b := range map[string]*backgroundHand{"first": first, "second": second} {
 		got := b.waitForExit(t, 40*time.Second, "the composer freeing")
-		if got.code != 0 || !strings.Contains(got.stdout, "sent to task-1") {
+		if got.code != 0 || !strings.Contains(got.stdout, "result: sent\n") {
 			t.Fatalf("%s sender: exit %d, stdout %q, stderr %q", name, got.code, got.stdout, got.stderr)
 		}
 	}
@@ -115,7 +115,7 @@ func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 
 	setPaneStatus(t, statusDir, "pane-1", "idle")
 	delivered := runHand(t, home, "send", "task-1", "different steer entirely")
-	if delivered.code != 0 || !strings.Contains(delivered.stdout, "sent to task-1") {
+	if delivered.code != 0 || !strings.Contains(delivered.stdout, "result: sent\n") {
 		t.Fatalf("send after the composer freed: exit %d, stdout %q, stderr %q",
 			delivered.code, delivered.stdout, delivered.stderr)
 	}

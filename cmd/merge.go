@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/ghutil"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
@@ -138,10 +139,14 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		}
 	}
 
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "merged %s: %s\n", t.ID, t.PR); err != nil {
-		return err
-	}
-	return nil
+	var doc axi.Doc
+	doc.Field("id", t.ID)
+	doc.Field("result", "merged")
+	doc.Field("method", method)
+	doc.Field("pr", t.PR)
+	doc.Field("merged", t.MergeExecutedAt)
+	doc.Help("Run `hand teardown " + t.ID + "` to release this task's worktree and pane")
+	return doc.Render(cmd.OutOrStdout())
 }
 
 func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
@@ -188,10 +193,15 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
 		return fmt.Errorf("write task state: %w", err)
 	}
 
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "merged %s: local fast-forward into %s\n", t.ID, defaultBr); err != nil {
-		return err
-	}
-	return nil
+	var doc axi.Doc
+	doc.Field("id", t.ID)
+	doc.Field("result", "merged")
+	doc.Field("method", "local-fast-forward")
+	doc.Field("branch", branch)
+	doc.Field("into", defaultBr)
+	doc.Field("merged", t.MergeExecutedAt)
+	doc.Help("Run `hand teardown " + t.ID + "` to release this task's worktree and pane")
+	return doc.Render(cmd.OutOrStdout())
 }
 
 // prChecksGreen parses `gh pr checks --json bucket` rather than trusting the

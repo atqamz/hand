@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/notify"
 	"github.com/spf13/cobra"
@@ -31,10 +32,10 @@ func newNotifyCmd() *cobra.Command {
 				return err
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "notified: %s\n", message); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("result", "notified")
+			doc.Field("message", message)
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 	return cmd

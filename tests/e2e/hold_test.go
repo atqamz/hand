@@ -73,7 +73,7 @@ func TestHoldLifecycle(t *testing.T) {
 	set := runHand(t, home, "hold", "set", "fix-login",
 		"--kind", "blocked", "--reason", "needs the new column before this can proceed",
 		"--blocked-on", "migrate-schema")
-	if set.code != 0 || !strings.Contains(set.stdout, "hold set on fix-login (kind=blocked)") {
+	if set.code != 0 || !strings.Contains(set.stdout, "result: held\nkind: blocked\n") {
 		t.Fatalf("hold set = %q (exit %d), stderr %q", set.stdout, set.code, set.stderr)
 	}
 
@@ -147,7 +147,7 @@ func TestHoldLifecycle(t *testing.T) {
 	}
 
 	cleared := runHand(t, home, "hold", "clear", "fix-login")
-	if cleared.code != 0 || !strings.Contains(cleared.stdout, "hold cleared on fix-login") {
+	if cleared.code != 0 || !strings.Contains(cleared.stdout, "result: released\n") {
 		t.Fatalf("hold clear = %q (exit %d), stderr %q", cleared.stdout, cleared.code, cleared.stderr)
 	}
 	assertInvocation(t, runHand(t, home, "hold", "clear", "fix-login"), 3, `hold "fix-login" not found`)

@@ -22,7 +22,7 @@ func TestDeliverRecordsTheReasonOnTheTask(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "marked task-1 delivered") {
+	if !strings.Contains(out.String(), "result: delivered\n") {
 		t.Fatalf("out = %q, want a delivered confirmation", out.String())
 	}
 

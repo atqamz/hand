@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
@@ -54,10 +55,14 @@ func newHoldSetCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "hold set on %s (kind=%s)\n", id, kind); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("id", id)
+			doc.Field("result", "held")
+			doc.Field("kind", kind)
+			doc.Field("reason", orNone(reason))
+			doc.Field("blocked_on", orNone(blockedOn))
+			doc.Help("`hand status` carries this in its holds block until `hand hold clear " + id + "`")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
@@ -99,10 +104,10 @@ func newHoldClearCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "hold cleared on %s\n", id); err != nil {
-				return err
-			}
-			return nil
+			var doc axi.Doc
+			doc.Field("id", id)
+			doc.Field("result", "released")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 	return cmd
