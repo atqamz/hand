@@ -342,8 +342,9 @@ other modes pay nothing.
 ### `hand project upstream <name> <repo>`
 
 Declare which repo a fork project opens its PRs against, so `hand pr` accepts a PR living there
-instead of on the fork hand pushes to (see "Project registry format"). Pass an empty `<repo>` to clear
-the declaration.
+instead of on the fork hand pushes to, and gate-opened-PR detection looks for one there as well as on
+the project's own repo (see "Project registry format", and `hand status` for the detection rule). Pass
+an empty `<repo>` to clear the declaration.
 
 ```
 hand project upstream no-mistakes kunchenguid/no-mistakes

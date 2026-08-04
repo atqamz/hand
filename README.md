@@ -59,7 +59,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 | `hand project list` | List registered projects | Available |
 | `hand project remove` | Unregister a project, keeping its clone | Available |
 | `hand project sync` | Fast-forward project clones to their remote default branch | Available |
-| `hand project upstream` | Declare the repo a fork project opens its PRs against, so `hand pr` accepts a PR living there | Available |
+| `hand project upstream` | Declare the repo a fork project opens its PRs against, so `hand pr` accepts a PR living there and gate-opened-PR detection looks for one there | Available |
 | `hand spawn` | Spawn a worker agent in an isolated worktree | Available |
 | `hand status` | Show fleet overview or single-task detail | Available |
 | `hand send` | Send a message to a running worker, from an argument or `--file`; waits out a busy composer up to `--wait` instead of failing, and records the message as undelivered when it never reaches the pane | Available |

@@ -160,12 +160,12 @@ type ghFakePR struct {
 }
 
 // writeFakeGHPRListAndView fakes both gh calls a gate-opened-PR detection makes:
-// `gh pr list --head <branch> --json number,url,state` (FindPRByBranch) and
-// `gh pr view <url> --json state` (project.ValidatePR's existence check, then
-// checkLandedWork's own merged check). Accepting several PRs, rather than only
-// the one the old fake could produce, is what lets these tests exercise
-// FindPRByBranch's preference-tier rule (atqamz/secondhand#77) instead of just
-// its single-result path.
+// `gh pr list --head <branch> --json number,url,state,headRepository`
+// (FindPRByBranch) and `gh pr view <url> --json state` (project.ValidatePR's
+// existence check, then checkLandedWork's own merged check). Accepting several
+// PRs, rather than only the one the old fake could produce, is what lets these
+// tests exercise FindPRByBranch's preference-tier rule (atqamz/secondhand#77)
+// instead of just its single-result path.
 func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	t.Helper()
 	bin := t.TempDir()

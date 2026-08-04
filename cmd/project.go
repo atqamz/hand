@@ -36,7 +36,8 @@ func newProjectUpstreamCmd() *cobra.Command {
 		Short: "Declare the upstream repo a fork project opens its PRs against",
 		Long: "Declare the upstream repo a fork project opens its PRs against, as owner/repo or a\n" +
 			"remote URL. hand pr then accepts a PR on either the project's own repo or that\n" +
-			"upstream. An empty repo clears the declaration.",
+			"upstream, and gate-opened-PR detection searches both. An empty repo clears the\n" +
+			"declaration.",
 		Args: usageArgs(cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, repo := args[0], args[1]
