@@ -65,8 +65,6 @@ func newSpawnCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			// Refused rather than cleared: the hold is operator-authored, and answering it is an
-			// acknowledgement hand has no business making on the operator's behalf.
 			if hasHold {
 				return &ExitError{Err: fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", id, held.Kind, held.Reason, id), Code: 3}
 			}

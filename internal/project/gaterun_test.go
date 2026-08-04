@@ -60,9 +60,9 @@ func TestGateRunPRsMissingBinary(t *testing.T) {
 	}
 }
 
-// Covers the uninitialized gate and #60's stale renamed working_path, which print this text
-// identically. An empty run set would claim the PR never went through a gate run, when in truth
-// no-mistakes was never asked - the state it answers from still holds those runs.
+// Covers the uninitialized gate and atqamz/secondhand#60's stale renamed working_path, which print
+// this text identically. An empty run set would claim the PR never went through a gate run, when
+// in truth no-mistakes was never asked - the state it answers from still holds those runs.
 func TestGateRunPRsNotInitializedIsAnError(t *testing.T) {
 	fakeNoMistakesExit(t, "repo not initialized (run 'no-mistakes init' first)", 1)
 

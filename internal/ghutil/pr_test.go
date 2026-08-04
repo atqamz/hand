@@ -91,8 +91,9 @@ func TestFindPRByBranchReturnsMatch(t *testing.T) {
 	}
 }
 
-// The #77 regression: a branch carrying a merged PR alongside a closed-unmerged one (a duplicate
-// opened by mistake, say) must resolve to the merged PR rather than an arbitrary pick.
+// The atqamz/secondhand#77 regression: a branch carrying a merged PR alongside a closed-unmerged
+// one (a duplicate opened by mistake, say) must resolve to the merged PR rather than an arbitrary
+// pick.
 func TestFindPRByBranchPrefersMergedOverClosedUnmerged(t *testing.T) {
 	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"},`+
 		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"}]`, 0, "")
@@ -205,9 +206,9 @@ func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
 	}
 }
 
-// Fakes `gh pr list` for a fork search, dispatching on the --repo argument the old single-body fake
-// ignored: without that, no test can express "the PR is on repo B while the project's repo is A",
-// and a fork test would pass against a shape gh never returns (#40).
+// Fakes `gh pr list` for a fork search, dispatching on the --repo argument the old single-body
+// fake ignored: without that, no test can express "the PR is on repo B while the project's repo is
+// A", and a fork test would pass against a shape gh never returns (atqamz/secondhand#40).
 func writeFakeGHPRListPerRepo(t *testing.T, bodies map[string]string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -258,8 +259,8 @@ func forkTargets() []PRSearchTarget {
 	return []PRSearchTarget{{Repo: "me/repo"}, {Repo: "up/repo", HeadRepo: "me/repo"}}
 }
 
-// The #134 regression: a fork contribution's PR lives on the declared upstream, so searching the
-// project's own repo alone finds nothing.
+// The atqamz/secondhand#134 regression: a fork contribution's PR lives on the declared upstream,
+// so searching the project's own repo alone finds nothing.
 func TestFindPRByBranchFindsUpstreamPRForFork(t *testing.T) {
 	writeFakeGHPRListPerRepo(t, map[string]string{
 		"me/repo": `[]`,

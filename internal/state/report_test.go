@@ -136,9 +136,9 @@ func TestTailReportRestartsFromZeroWhenFileShrinks(t *testing.T) {
 	}
 }
 
-// Three reports captured off this fleet's live report files, each rewritten in place over
-// a shorter consumed report. All three were announced as "malformed report" with a mid-word
-// fragment of themselves (#140): the consumed offset survived the rewrite, mid-line.
+// Three reports captured off this fleet's live report files, each rewritten in place over a
+// shorter consumed one. All were announced as "malformed report" with a mid-word fragment of
+// themselves (atqamz/secondhand#140): the consumed offset survived the rewrite, mid-line.
 func TestTailReportAfterInPlaceRewrite(t *testing.T) {
 	cases := []struct {
 		name     string
