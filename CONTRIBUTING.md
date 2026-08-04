@@ -36,7 +36,8 @@ Two rules bound the comments that clear that bar, enforced by `make lint` rather
 1. A comment may not open with the identifier it documents.
 2. A comment block may not exceed three lines.
 
-Consecutive `//` lines are one block, and a bare `//` line inside a run does not break it.
+Consecutive `//` lines are one block, and neither a bare `//` line inside a run nor a blank line above a doc comment breaks it.
+Both are ways of writing six lines of prose in front of one declaration while satisfying a three-line rule, and the blank-line form also drops the first half out of godoc.
 Rule 1 applies wherever Go's doc convention does not: unexported declarations, everything in `_test.go`, and comments inside function bodies.
 An exported declaration's doc comment is required by convention to open with its name, so it is exempt from rule 1, but not from rule 2.
 Exempt from both rules: the package doc comment, directives (`//go:build`, `//go:generate`, `//nolint`, `// #nosec`), and files carrying the generated-code header.

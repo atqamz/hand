@@ -88,6 +88,20 @@ func f() {
 `,
 			want: "rule 2: comment block is 4 lines, the limit is 3",
 		},
+		{
+			name: "a blank line above a doc comment does not break the block either",
+			path: "run.go",
+			src: `package p
+
+// GitHub serves the repo under every casing of its slug, while the origin
+// remote decides which one a search carries, so the fake has to fold casing
+// the way the real tool does.
+
+// The blank line above satisfies the count and changes nothing a reader sees.
+var v = 1
+`,
+			want: "rule 2: two blocks a blank line apart document one declaration, 4 lines together, the limit is 3",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -120,6 +134,32 @@ func f() {
 	// canonical casing. Folding widens nothing: a slug is unique up to casing.
 	g()
 }
+`,
+		},
+		{
+			name: "neighbouring declarations each documented",
+			path: "run.go",
+			src: `package p
+
+// The block above a documents a and nothing else, so the block above b is a
+// second subject rather than a's second paragraph. Reading every such pair as
+// one split block would flag most of the tree.
+var a = 1
+
+// Three lines here too, to prove the pair is judged by what each block
+// documents and not by how long the two are together.
+var b = 2
+`,
+		},
+		{
+			name: "a split that stays inside the limit",
+			path: "run.go",
+			src: `package p
+
+// A one-line aside.
+
+// V is exported and documented.
+var V = 1
 `,
 		},
 		{

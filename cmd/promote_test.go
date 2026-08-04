@@ -46,12 +46,9 @@ case "$cmd" in
 esac
 `
 
-// Only fakes "pane get", a query command per internal/herdr/client.go's call() doc comment: real success
-// is a non-null result object on exit 0, real failure a non-zero exit or an error envelope (full contract
-// at cmd/status_test.go's writeFakeHerdrPaneStatus).
-
-// Exercises only success, mirroring the real shape, and reports the scout's pane as still "working" so
-// promote's precondition check refuses the promotion before any other herdr call is needed.
+// Fakes only a successful "pane get" in the real shape (the query-command contract is at
+// internal/herdr/client.go's call doc), reporting the scout's pane as still "working" so promote's
+// precondition check refuses the promotion before any other herdr call is needed.
 const fakeHerdrPromotePaneWorking = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -300,13 +297,9 @@ func TestPromoteRefusesUnregisteredProject(t *testing.T) {
 	}
 }
 
-// Mirrors fakeHerdrLeakScript for promote: it logs every call and fails "pane run" so the promotion
-// always fails after the new tab exists, with $HERDR_WS_EXISTS_FLAG choosing between the
-// created-workspace and pre-existing-workspace cases.
-
-// Same bare-exit-1 simplification as fakeHerdrLeakScript in spawn_test.go: promote.go only checks
-// PaneRun's error for non-nil, not its shape, and the real exit-0-plus-error-envelope failure shape is
-// covered at the client level, not here.
+// Mirrors fakeHerdrLeakScript in spawn_test.go for promote, its bare-exit-1 simplification included: it
+// logs every call and fails "pane run" so the promotion always fails after the new tab exists, with
+// $HERDR_WS_EXISTS_FLAG choosing between the created-workspace and pre-existing-workspace cases.
 const fakeHerdrPromoteLeakScript = `#!/bin/sh
 echo "$@" >> "$HERDR_CALL_LOG"
 cmd="$1 $2"

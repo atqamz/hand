@@ -27,13 +27,9 @@ func TestSpawnCleanupReportsAllErrors(t *testing.T) {
 	}
 }
 
-// Covers the herdr calls a clean spawn makes: it reports a pane herdr sees claude running in, painted
-// past its startup frame and showing no first-run dialog, so confirmLaunch confirms the launch on its
-// first poll.
-
-// Real herdr answers query commands with a JSON envelope and void commands ("pane run") with empty
-// stdout on success (internal/herdr/client.go's call/callVoid docs); this echoes an envelope for "pane
-// run" too, which callVoid accepts, since internal/herdr/client_test.go covers that parsing.
+// Covers the herdr calls a clean spawn makes: a pane herdr sees claude running in, painted past its
+// startup frame with no first-run dialog, so confirmLaunch confirms on its first poll. It echoes an
+// envelope for the void "pane run" too, which callVoid accepts (real shapes: internal/faketool/FIDELITY.md).
 const fakeHerdrSpawnScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -131,13 +127,9 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 }
 
-// Pins the fix for atqamz/secondhand#118: herdr derives a workspace's label from its root directory's
-// basename, so a human who opens a directory named after the project gets a workspace sharing hand's
-// own bare-label search key.
-
-// The plain-labelled "myproj" workspace here sorts first in "workspace list" and would have won under
-// the old bare-label lookup; hand must still resolve to its own "hand:myproj" workspace regardless of
-// list order, never the one it did not create.
+// Pins atqamz/secondhand#118: the plain-labelled "myproj" workspace here sorts first in "workspace list"
+// and would have won the old bare-label lookup, so hand must resolve to its own "hand:myproj" whatever
+// the order, never one it did not create (how a human's workspace collides: internal/faketool/FIDELITY.md).
 const fakeHerdrTwoWorkspacesOneLabelScript = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -369,12 +361,8 @@ func TestSpawnAllowsAReusedWorktreePathUnderAFreshLease(t *testing.T) {
 }
 
 // Logs every invocation to $HERDR_CALL_LOG and fails "pane run" so a spawn always fails after tab
-// creation. Whether "workspace list" reports an existing workspace is controlled by the presence of
-// $HERDR_WS_EXISTS_FLAG, letting one script drive both leak scenarios, created and pre-existing.
-
-// "pane run" fails via bare exit 1 rather than real herdr's documented void-command failure shape
-// (empty exit 0 plus a JSON error envelope, see callVoid's doc): spawn.go only branches on whether
-// PaneRun errored, never on its shape, and client_test.go covers the shape at the client level.
+// creation, with $HERDR_WS_EXISTS_FLAG driving both leak scenarios, created and pre-existing. Bare exit
+// 1, not herdr's void-failure shape: spawn.go branches only on whether PaneRun errored (client_test.go).
 const fakeHerdrLeakScript = `#!/bin/sh
 echo "$@" >> "$HERDR_CALL_LOG"
 cmd="$1 $2"
@@ -508,12 +496,9 @@ func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {
 	}
 }
 
-// Answers "workspace create" the way a herdr whose protocol predates the tab/root_pane fields on
-// workspace_created would: it reports the workspace but omits both, the partial-response shape
-// atqamz/secondhand#74 fixes.
-
-// herdr has still created the workspace by the time this responds, so a faithful fake must also accept
-// "workspace close" and log it, or a test using this script could pass with the leak fix reverted.
+// Answers "workspace create" as a herdr predating the tab/root_pane fields would, reporting the workspace
+// and omitting both - the partial-response shape atqamz/secondhand#74 fixes. It accepts and logs
+// "workspace close" too, since the workspace exists by then and a test could otherwise pass unfixed.
 const fakeHerdrPartialWorkspaceCreateScript = `#!/bin/sh
 echo "$@" >> "$HERDR_CALL_LOG"
 cmd="$1 $2"

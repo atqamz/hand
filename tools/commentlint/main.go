@@ -164,7 +164,52 @@ func check(fset *token.FileSet, f *ast.File, path string) []finding {
 			})
 		}
 	}
+
+	// A blank line above a doc comment does not start a new block either: splitting a long
+	// block that way leaves the same prose in front of the same declaration, and above an
+	// exported one it silently drops the first half out of godoc.
+	docs := docGroups(f)
+	for i := 1; i < len(f.Comments); i++ {
+		g, prev := f.Comments[i], f.Comments[i-1]
+		if !docs[g] || docs[prev] || fset.Position(g.Pos()).Column != 1 {
+			continue
+		}
+		if fset.Position(g.Pos()).Line-fset.Position(prev.End()).Line != 2 {
+			continue
+		}
+		if n := blockLines(fset, prev) + blockLines(fset, g); n > maxBlockLines {
+			findings = append(findings, finding{
+				fset.Position(prev.Pos()),
+				fmt.Sprintf("rule 2: two blocks a blank line apart document one declaration, %d lines together, the limit is %d", n, maxBlockLines),
+			})
+		}
+	}
 	return findings
+}
+
+func docGroups(f *ast.File) map[*ast.CommentGroup]bool {
+	docs := map[*ast.CommentGroup]bool{}
+	add := func(g *ast.CommentGroup) {
+		if g != nil {
+			docs[g] = true
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch d := n.(type) {
+		case *ast.FuncDecl:
+			add(d.Doc)
+		case *ast.GenDecl:
+			add(d.Doc)
+		case *ast.TypeSpec:
+			add(d.Doc)
+		case *ast.ValueSpec:
+			add(d.Doc)
+		case *ast.Field:
+			add(d.Doc)
+		}
+		return true
+	})
+	return docs
 }
 
 func rule1msg(name string) string {

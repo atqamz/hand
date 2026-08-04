@@ -13,13 +13,9 @@ import (
 	"github.com/atqamz/secondhand/internal/faketool"
 )
 
-// The only real executables this suite needs to resolve: git, which both hand and the test helpers shell
-// out to for real; sh, which internal/notify execs to run a notify template (from both cmd/notify.go and
-// the watcher's in-process hook); and cat, which the fake herdr scripts below read a pane's status file with.
-
-// Everything hand execs that is not listed here is faked per test (backendsThisSuiteFakes, e2e_test.go), so
-// leaving those unreachable turns a missing fake into a loud failure instead of a call against the
-// developer's real tools.
+// Everything hand execs beyond these three is faked per test and left unreachable, so a missing fake fails
+// loudly instead of reaching the developer's real tools (e2e_test.go). The three: git, which hand and the
+// helpers really shell out to; sh, for internal/notify's template; cat, for the fake herdr pane status.
 var realBinsOnPath = []string{"git", "sh", "cat"}
 
 // The PATH every test runs under, built once by TestMain from the inherited PATH.
