@@ -9,7 +9,8 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// detectPR looks for a PR on proj's repo whose head ref is t's current branch, for a
+// detectPR looks for a PR on proj's repo, and on its declared upstream when it has
+// one, whose head ref is t's current branch, for a
 // task whose PR was never recorded because a no-mistakes gate opened it directly
 // instead of going through hand pr (issue #69). It records what it finds through
 // recordPR, so a detected PR is subject to the exact same conflict guard and repo
@@ -19,6 +20,12 @@ import (
 //
 // Called only where t.PR == "" already; a task with a PR on record already answers
 // this question and never reaches here.
+//
+// A fork project's PR lives on the upstream while hand pushes the branch to the
+// fork (atqamz/secondhand#78), so the upstream is searched too, restricted to head
+// refs in the fork - the upstream also carries same-named branches from every other
+// contributor's fork. A PR matching in both repos is ambiguous, resolved by
+// FindPRByBranch's own tier rule rather than by preferring either repo.
 func detectPR(ctx context.Context, home string, t state.Task, proj project.Project) (state.Task, error) {
 	branch, err := currentBranch(t.Worktree)
 	if err != nil {
@@ -28,7 +35,11 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 	if err != nil {
 		return t, err
 	}
-	url, merged, found, err := ghutil.FindPRByBranch(ctx, repoSlug, branch)
+	targets := []ghutil.PRSearchTarget{{Repo: repoSlug}}
+	if proj.Upstream != "" && proj.Upstream != repoSlug {
+		targets = append(targets, ghutil.PRSearchTarget{Repo: proj.Upstream, HeadRepo: repoSlug})
+	}
+	url, merged, found, err := ghutil.FindPRByBranch(ctx, branch, targets...)
 	if err != nil {
 		return t, err
 	}

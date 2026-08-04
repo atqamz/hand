@@ -211,6 +211,61 @@ func registerGateProject(t *testing.T, home string) {
 	}
 }
 
+// writeFakeGHForkPRListAndView is writeFakeGHPRListAndView for a fork project:
+// `gh pr list` dispatches on --repo, so the PR exists on the upstream only and a
+// search of the project's own repo comes back empty, and it reports the
+// headRepository field the fork filter reads. Without the --repo dispatch no test
+// can express the atqamz/secondhand#134 shape at all (atqamz/secondhand#40 is why
+// that matters).
+func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr ghFakePR) {
+	t.Helper()
+	bin := t.TempDir()
+
+	item := fmt.Sprintf(`{"number":%d,"url":%q,"state":%q,"headRepository":{"nameWithOwner":%q}}`,
+		pr.Number, pr.URL, pr.State, headRepo)
+	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
+		"\"pr list\") case \"$4\" in\n" +
+		fmt.Sprintf("%q) printf '[%s]' ;;\n", upstream, item) +
+		"*) printf '[]' ;;\nesac ;;\n" +
+		"\"pr view\") case \"$3\" in\n" +
+		fmt.Sprintf("%q) printf '{\"state\":%q}' ;;\n", pr.URL, pr.State) +
+		"*) echo \"unexpected gh pr view arg: $3\" >&2; exit 1 ;;\nesac ;;\n" +
+		"*) echo \"unexpected gh args: $@\" >&2; exit 1 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestTeardownDetectsGateOpenedPRonDeclaredUpstream is the atqamz/secondhand#134
+// regression: a fork project's gate opens its PR on the declared upstream, so
+// detection that searches the project's own repo alone finds nothing and teardown
+// refuses landed work as unlanded.
+func TestTeardownDetectsGateOpenedPRonDeclaredUpstream(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	if err := project.SetUpstream(home, "myproj", "up/repo"); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGHForkPRListAndView(t, "up/repo", "owner/repo",
+		ghFakePR{Number: 7, URL: "https://github.com/up/repo/pull/7", State: "MERGED"})
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want teardown to detect the upstream PR and succeed", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	}
+}
+
 // TestTeardownDetectsAndTearsDownGateOpenedMergedPR is the first of the two
 // regression cases atqamz/secondhand#69 requires: a no-mistakes gate's own `pr`
 // step opens a PR directly, bypassing `hand pr`, so t.PR is empty even though the
