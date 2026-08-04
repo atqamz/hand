@@ -430,9 +430,10 @@ func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 // paneStartTime is when the task's current pane started, as spawn and hand promote
 // each recorded it. It deliberately no longer reads StatusChangedAt, which the
 // outage-dwell clock restamps for a pane it could not even reach and which would
-// slide this floor forward by up to a full bound of real report silence. A row
-// written before the column existed falls back to CreatedAt, the instant its one
-// and only pane started.
+// slide this floor forward by up to a full bound of real report silence. The
+// schema migration and the legacy import both backfill the column, so an empty
+// stamp means a row nothing in hand wrote, and CreatedAt is the honest floor for
+// it.
 func paneStartTime(t state.Task) (time.Time, error) {
 	stamp, field := t.PaneStartedAt, "pane_started_at"
 	if stamp == "" {
