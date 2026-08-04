@@ -175,5 +175,32 @@ Exit 0 with the JSON object on stdout.
 A PR that does not exist is exit 1 with a GraphQL error on stderr.
 Real `gh` also writes warnings to stderr ahead of the JSON, which is why callers read stdout alone.
 
+### `gh pr checks <url-or-number> --json bucket`
+
+Exit 0 with every check's bucket on stdout when they all pass.
+The exit code carries the verdict too: **1** when any bucket is `fail`, **8** while any is still pending.
+`prChecksGreen` reads the buckets and deliberately ignores the exit code once the JSON parses, so the fake reports buckets at exit 0 and still exercises the path a nonzero exit would.
+The buckets `hand` treats as green are `pass` and `skipping`.
+
+### `gh pr merge <url-or-number> --squash|--merge|--rebase`
+
+Exit 0, with the merge reported on stdout.
+
+State left behind: `pr view` answers `MERGED` from this point on, and so does `pr list` for the branch.
+This is the transition `hand merge` and `hand teardown` are sequenced around - merge lands the PR, and teardown's landed-work check reads the state merge left.
+
+### `gh pr merge` on an already-merged PR
+
+**Exit 0**, with nothing on stdout and a warning on stderr:
+
+```
+! Pull request #42 was already merged
+```
+
+So the exit status cannot say whether a merge happened, and a rerun of `hand merge` would report success for a merge it did not perform.
+`runPRMerge` checks `PRIsMerged` before the merge for that reason, and `TestMergeRefusesAPRAnEarlierRunAlreadyMerged` is the check that fails without it.
+
+### Slug case
+
 Repository slugs from `gh` do not agree with git remotes on case, and `FindPRByBranch` folds case when comparing them.
 That behaviour is covered by `internal/ghutil/pr_test.go` and `tests/e2e/slug_case_test.go`, whose own `gh` fake is the one place a fake's fidelity had already been thought about; it is deliberately left as it is.

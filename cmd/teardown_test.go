@@ -50,20 +50,17 @@ func initGitRepo(t *testing.T, dir string) {
 	run("commit", "-q", "-m", "initial commit")
 }
 
-// writeFakeGHPRState fakes `gh pr view --json state`, which really answers with
-// that JSON object on stdout and exit 0. Real gh writes warnings to stderr
-// ahead of the JSON (internal/ghutil/pr.go's PRIsMerged doc comment); this fake
-// omits them since these tests only check the parsed state, not the
-// stdout/stderr split - that split is covered faithfully by
-// internal/ghutil/pr_test.go's writeFakeGHPRView.
+// The PR recorded on a task whose test does not exercise detection.
+const teardownTestPR = "https://example.com/pr/1"
+
+// The PR state teardown's landed-work check reads. From internal/faketool so a
+// merge through the fake moves it, which is what keeps a test from asserting a
+// state nothing could have produced.
 func writeFakeGHPRState(t *testing.T, prState string) {
 	t.Helper()
-	bin := t.TempDir()
-	script := "#!/bin/sh\nprintf '{\"state\":\"" + prState + "\"}'\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.GH{PRs: []faketool.GHPR{
+		{Number: 1, URL: teardownTestPR, Branch: "task-1-branch", Repo: "owner/repo", State: prState},
+	}}.Install(t, faketool.Bin(t))
 }
 
 // The two tools teardown shells out to, both from internal/faketool so each keeps
@@ -96,40 +93,28 @@ func readInvocations(t *testing.T, worktree string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
-// ghFakePR is one PR writeFakeGHPRListAndView reports for a branch.
+// ghFakePR is one PR on the task branch, in the project's own repo.
 type ghFakePR struct {
 	Number int
 	URL    string
 	State  string
 }
 
-// writeFakeGHPRListAndView fakes both gh calls a gate-opened-PR detection makes:
-// `gh pr list --head <branch> --json number,url,state,headRepository`
-// (FindPRByBranch) and `gh pr view <url> --json state` (project.ValidatePR's
-// existence check, then checkLandedWork's own merged check). Accepting several
-// PRs, rather than only the one the old fake could produce, is what lets these
-// tests exercise FindPRByBranch's preference-tier rule (atqamz/secondhand#77)
-// instead of just its single-result path.
+// The PRs a gate-opened-PR detection finds: `gh pr list --repo <repo> --head
+// <branch>` (FindPRByBranch) then `gh pr view <url> --json state`
+// (project.ValidatePR's existence check, then checkLandedWork's own merged check).
+// Several of them is what exercises FindPRByBranch's preference-tier rule
+// (atqamz/secondhand#77) rather than only its single-result path.
 func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	t.Helper()
-	bin := t.TempDir()
-
-	items := make([]string, len(prs))
-	viewCases := make([]string, len(prs))
-	for i, pr := range prs {
-		items[i] = fmt.Sprintf(`{"number":%d,"url":%q,"state":%q}`, pr.Number, pr.URL, pr.State)
-		viewCases[i] = fmt.Sprintf("%q) printf '{\"state\":%q}' ;;\n", pr.URL, pr.State)
+	g := faketool.GH{}
+	for _, pr := range prs {
+		g.PRs = append(g.PRs, faketool.GHPR{
+			Number: pr.Number, URL: pr.URL, State: pr.State,
+			Branch: "task-1-branch", Repo: "owner/repo",
+		})
 	}
-	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
-		"\"pr list\") printf '[" + strings.Join(items, ",") + "]' ;;\n" +
-		"\"pr view\") case \"$3\" in\n" + strings.Join(viewCases, "") +
-		"*) echo \"unexpected gh pr view arg: $3\" >&2; exit 1 ;;\nesac ;;\n" +
-		"*) echo \"unexpected gh args: $@\" >&2; exit 1 ;;\n" +
-		"esac\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	g.Install(t, faketool.Bin(t))
 }
 
 // setupTeardownGateProject registers a non-local-only project whose clone has a
@@ -155,33 +140,16 @@ func registerGateProject(t *testing.T, home string) {
 	}
 }
 
-// writeFakeGHForkPRListAndView is writeFakeGHPRListAndView for a fork project:
-// `gh pr list` dispatches on --repo, so the PR exists on the upstream only and a
-// search of the project's own repo comes back empty, and it reports the
-// headRepository field the fork filter reads. Without the --repo dispatch no test
-// can express the atqamz/secondhand#134 shape at all (atqamz/secondhand#40 is why
-// that matters). The dispatch case-folds --repo because GitHub serves a repo under
-// any casing of its slug, so a fake matching case-sensitively would answer a
-// double search of one repo with one hit and hide the duplicate it really returns.
+// writeFakeGHPRListAndView for a fork project: the PR lives on the upstream while
+// the branch lives in headRepo, so a search of the project's own repo comes back
+// empty and the fork filter has a headRepository to read. Without a fake that
+// narrows on --repo no test can express the atqamz/secondhand#134 shape at all.
 func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr ghFakePR) {
 	t.Helper()
-	bin := t.TempDir()
-
-	item := fmt.Sprintf(`{"number":%d,"url":%q,"state":%q,"headRepository":{"nameWithOwner":%q}}`,
-		pr.Number, pr.URL, pr.State, headRepo)
-	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
-		"\"pr list\") case \"$(printf '%s' \"$4\" | tr 'A-Z' 'a-z')\" in\n" +
-		fmt.Sprintf("%q) printf '[%s]' ;;\n", strings.ToLower(upstream), item) +
-		"*) printf '[]' ;;\nesac ;;\n" +
-		"\"pr view\") case \"$3\" in\n" +
-		fmt.Sprintf("%q) printf '{\"state\":%q}' ;;\n", pr.URL, pr.State) +
-		"*) echo \"unexpected gh pr view arg: $3\" >&2; exit 1 ;;\nesac ;;\n" +
-		"*) echo \"unexpected gh args: $@\" >&2; exit 1 ;;\n" +
-		"esac\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.GH{PRs: []faketool.GHPR{{
+		Number: pr.Number, URL: pr.URL, State: pr.State,
+		Branch: "task-1-branch", Repo: upstream, HeadRepo: headRepo,
+	}}}.Install(t, faketool.Bin(t))
 }
 
 // TestTeardownDetectsGateOpenedPRonDeclaredUpstream is the atqamz/secondhand#134
