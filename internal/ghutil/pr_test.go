@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // writeFakeGHPRView fakes `gh pr view --json state`, emitting a stderr line
@@ -221,6 +222,11 @@ func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
 // refuses a qualified owner:branch --head value, which real gh silently answers
 // with an empty list - verified against gh 2.97 on a live cross-repo PR - so the
 // mistake surfaces as a failure here instead of as "no PR found" in production.
+// The dispatch case-folds --repo because GitHub serves a repo under any casing of
+// its slug, so a fake matching case-sensitively would answer a differently-cased
+// target with an empty list and hide the hit real gh returns. It folds with a glob
+// rather than tr: PATH is replaced by the fake's own dir alone, so no external
+// binary resolves inside these scripts.
 func writeFakeGHPRListPerRepo(t *testing.T, bodies map[string]string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -231,13 +237,32 @@ func writeFakeGHPRListPerRepo(t *testing.T, bodies map[string]string) {
 		"case \"$6\" in *:*) echo \"qualified head ref matches nothing in real gh: $6\" >&2; exit 1 ;; esac\n" +
 		"case \"$4\" in\n"
 	for repo, body := range bodies {
-		script += fmt.Sprintf("%q) printf '%s' ;;\n", repo, body)
+		script += fmt.Sprintf("%s) printf '%s' ;;\n", anyCasingGlob(repo), body)
 	}
 	script += "*) printf '[]' ;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
+}
+
+// anyCasingGlob turns a repo slug into an unquoted sh case pattern matching it in
+// any casing. Safe unquoted because a GitHub slug is [A-Za-z0-9._-/] only, so it
+// carries no glob metacharacter of its own.
+func anyCasingGlob(slug string) string {
+	var b strings.Builder
+	for _, r := range slug {
+		lower, upper := unicode.ToLower(r), unicode.ToUpper(r)
+		if lower == upper {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('[')
+		b.WriteRune(upper)
+		b.WriteRune(lower)
+		b.WriteByte(']')
+	}
+	return b.String()
 }
 
 // forkTargets is the target pair a fork project searches with: its own repo,
@@ -289,7 +314,7 @@ func TestFindPRByBranchIgnoresUpstreamPRFromAnotherFork(t *testing.T) {
 // drop the project's own PR.
 func TestFindPRByBranchMatchesHeadRepoCaseInsensitively(t *testing.T) {
 	writeFakeGHPRListPerRepo(t, map[string]string{
-		"up/repo": `[{"number":7,"url":"https://github.com/up/repo/pull/7","state":"OPEN",` +
+		"Up/Repo": `[{"number":7,"url":"https://github.com/up/repo/pull/7","state":"OPEN",` +
 			`"headRepository":{"nameWithOwner":"Me/Repo"}}]`,
 	})
 	url, _, found, err := FindPRByBranch(context.Background(), "task-1-branch", forkTargets()...)
