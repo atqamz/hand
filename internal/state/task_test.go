@@ -131,10 +131,9 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-// TestDeleteRemovesTheReportChannel pins the cleanup a respawn depends on: a new
-// task under a used ID starts at report_offset 0, so a surviving wake log would
-// be replayed as if it were this run's - re-raising resolved decisions and
-// auto-recording a PR URL out of the previous run's done line.
+// Pins the cleanup a respawn depends on: a new task under a used ID starts at
+// report_offset 0, so a surviving wake log replays as this run's - re-raising resolved
+// decisions and auto-recording a PR URL out of the previous run's done line.
 func TestDeleteRemovesTheReportChannel(t *testing.T) {
 	dir := t.TempDir()
 	if err := Write(dir, Task{ID: "fix-login"}); err != nil {

@@ -76,32 +76,19 @@ func ParseReportLine(line string) ReportLine {
 	return ReportLine{State: prefix, Note: note, Raw: line}
 }
 
-// ReportCursor is how far a task's report channel has been consumed: the byte
-// offset, and a fingerprint of the bytes that offset covers. A worker reporting
-// with a truncating redirect rewrites the file in place rather than appending to
-// it, and the offset alone cannot tell such a rewrite from an unchanged file. A
-// rewrite whose total length happens to equal the offset leaves every quantity
-// the offset has to offer identical - it still sits just past the file's final
-// newline, with nothing after it - so the report is silently skipped, and a
-// same-length `done:` rewrite means a finished worker never classifies as
-// finished (atqamz/secondhand#149). The fingerprint is what differs, so it is
-// what decides whether the offset still means anything.
+// How far a task's report channel has been consumed. A worker reporting with a truncating redirect
+// rewrites the file in place rather than appending, and a rewrite whose length happens to equal the
+// offset leaves every quantity the offset alone can offer identical (atqamz/secondhand#149).
 type ReportCursor struct {
 	Offset int64
+	// What tells that same-length rewrite apart: it still sits just past a final newline with nothing
+	// after it, so only a fingerprint of the covered bytes decides whether Offset still means
+	// anything - without one a same-length `done:` rewrite never classifies as finished.
 	Digest string
 }
 
-// covers reports whether c still describes this file's own history, so that the
-// bytes past c.Offset are newly written rather than a slice of a file that has
-// been replaced wholesale.
-//
-// An empty digest is a cursor persisted before hand recorded one, so there is
-// nothing to compare against and the check falls back to the newline boundary
-// every offset hand persists sits on: a consumed line can end nowhere else, so
-// an offset whose preceding byte is not a newline points into the middle of a
-// line a longer rewrite replaced (atqamz/secondhand#140). That is exactly the
-// guard such a cursor was written under, and it stands until the next tick
-// records a digest for it.
+// Reports whether c still describes this file's own history, so the bytes past c.Offset are newly
+// written rather than a slice of a file that has been replaced wholesale.
 func (c ReportCursor) covers(data []byte) bool {
 	if c.Offset < 0 || c.Offset > int64(len(data)) {
 		return false
@@ -109,12 +96,14 @@ func (c ReportCursor) covers(data []byte) bool {
 	if c.Digest != "" {
 		return c.Digest == reportDigest(data[:c.Offset])
 	}
+	// An empty digest is a cursor persisted before hand recorded one, so the check falls back to the
+	// newline boundary every persisted offset sits on: an offset whose preceding byte is not a newline
+	// points into the middle of a line a longer rewrite replaced (atqamz/secondhand#140).
 	return c.Offset == 0 || data[c.Offset-1] == '\n'
 }
 
-// reportCursorFor is the cursor that says consumed has been consumed. An empty
-// prefix gets the zero cursor rather than the digest of nothing: a cursor at
-// offset 0 covers any file already, and a digest there would be a value the
+// The cursor that says consumed has been consumed. An empty prefix gets the zero cursor rather than
+// the digest of nothing: offset 0 covers any file already, and a digest there would be a value the
 // watcher persists for every task whose worker has yet to report a line.
 func reportCursorFor(consumed []byte) ReportCursor {
 	if len(consumed) == 0 {
@@ -128,13 +117,9 @@ func reportDigest(consumed []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// readReport reads a task's report file whole, and returns it alongside the
-// cursor its content actually supports: the caller's own where that still
-// describes this file, and a zero cursor where it does not, so a rewritten file
-// is read from the beginning. A file shorter than the offset restarts the same
-// way. Re-announcing a report costs less than inventing a broken one out of a
-// file that has been replaced, or skipping one because the replacement happens
-// to be the same size.
+// Reads a task's report file whole, alongside the cursor its content actually supports: the caller's
+// own where that still describes this file, and a zero cursor where it does not - a file shorter than
+// the offset included.
 func readReport(path string, cur ReportCursor) ([]byte, ReportCursor, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -143,16 +128,17 @@ func readReport(path string, cur ReportCursor) ([]byte, ReportCursor, error) {
 	if err != nil {
 		return nil, cur, fmt.Errorf("read report %s: %w", path, err)
 	}
+	// Re-announcing a report costs less than inventing a broken one out of a file that has been
+	// replaced, or skipping one because the replacement happens to be the same size.
 	if !cur.covers(data) {
 		return data, ReportCursor{}, nil
 	}
 	return data, cur, nil
 }
 
-// TailReport reads whatever complete lines have arrived in a task's report file
-// since cur, returning them alongside the new cursor to persist. A trailing line
-// with no terminating newline is left unconsumed in case the worker's append is
-// still in flight.
+// TailReport reads whatever complete lines have arrived in a task's report file since cur, alongside
+// the new cursor to persist. A trailing line with no terminating newline is left unconsumed in case
+// the worker's append is still in flight.
 func TailReport(path string, cur ReportCursor) ([]ReportLine, ReportCursor, error) {
 	data, base, err := readReport(path, cur)
 	if err != nil {
@@ -190,11 +176,9 @@ func ReadReportLines(homeDir, id string) ([]ReportLine, error) {
 	return classifyReportBytes(data), nil
 }
 
-// classifyReportBytes classifies every line in data, a trailing line with no
-// terminating newline included. That last line is the difference between a
-// snapshot reader and TailReport: a watcher leaves it for its next tick because
-// it will still be there, while a reader answering a question about right now
-// has to account for it.
+// Classifies every line in data, a trailing line with no terminating newline included. That last
+// line is the difference between a snapshot reader and TailReport: a watcher leaves it for its next
+// tick because it will still be there, while a reader answering a question about now cannot.
 func classifyReportBytes(data []byte) []ReportLine {
 	var lines []ReportLine
 	for _, l := range strings.Split(string(data), "\n") {
@@ -206,27 +190,20 @@ func classifyReportBytes(data []byte) []ReportLine {
 	return lines
 }
 
-// blankReportLine is the skip rule both readers share, so hand status never
-// shows an entry hand watch didn't surface. Whitespace-only counts as blank:
-// otherwise a trailing "  \n" would become the last (malformed) report and
-// mask a real terminal report sitting right above it.
+// The skip rule both readers share, so hand status never shows an entry hand watch didn't surface.
+// Whitespace-only counts as blank: otherwise a trailing "  \n" would become the last (malformed)
+// report and mask a real terminal report sitting right above it.
 func blankReportLine(line string) bool {
 	return strings.TrimSpace(line) == ""
 }
 
-// LastReportedState returns the most recent line in lines whose state classified -
-// the last thing the worker actually said about itself - skipping trailing malformed
-// lines rather than letting one erase it. Free text explains nothing, so a worker
-// that appends some after a real report has still reported: this is the rule the
-// live classifier follows (see ClassifyReportLine), and a reader that recovers the
-// last known report state from the file has to reach the same answer.
-//
-// It takes lines rather than reading the file so a caller that also needs the raw
-// last line gets both from one read. Two reads are two snapshots, and a worker
-// appending between them would have one row's raw line and its own classified state
-// describing different reports - the same two-views-disagree defect the report
-// channel exists to remove.
+// LastReportedState returns the most recent line whose state classified - the last thing the worker
+// actually said about itself - skipping trailing malformed lines rather than letting one erase it.
+// Free text explains nothing, so appending some after a real report still counts (ClassifyReportLine).
 func LastReportedState(lines []ReportLine) (ReportLine, bool) {
+	// Taking lines rather than reading the file lets a caller that also needs the raw last line get
+	// both from one read: two reads are two snapshots, and a worker appending between them would have
+	// one row's raw line and its classified state describing different reports.
 	for i := len(lines) - 1; i >= 0; i-- {
 		if !lines[i].Malformed {
 			return lines[i], true
@@ -241,36 +218,25 @@ func TerminalReport(s string) bool {
 	return s == ReportDone || s == ReportFailed
 }
 
-// UnacknowledgedTerminalReport reports a terminal state no hand watch has ever
-// consumed, from the task's durable report cursor. That cursor is the marker: the
-// poll loop advances it only after the tick's events are announced, and every
-// announcement reaches state/events.log and the notify hook, so a terminal line
-// still past it has reached nobody (atqamz/secondhand#70). A cursor the file's own
-// content no longer supports covers nothing, so a rewritten channel is read whole -
-// including the rewrite that kept the file's length, whose `done:` line no watcher
-// has announced either (atqamz/secondhand#149).
-//
-// Only the last classified line of that unconsumed tail counts. A terminal
-// report a worker has since superseded with more work needs no acknowledging,
-// and a done report is routinely followed by more work on the same worker.
-//
-// It classifies its own tail rather than calling TailReport, so that a terminal
-// line with no terminating newline counts too: TailReport leaves that line for
-// the watcher's next tick, and a report the watcher will not announce until then
-// is precisely one that has reached nobody yet. Skipping it would let the silent
-// completion this exists to surface back in through the newline.
-//
-// A watcher denied the task lock announces a line and persists the offset a tick
-// later, so the transient error here is reporting an acknowledged terminal state,
-// never hiding an unacknowledged one.
+// UnacknowledgedTerminalReport reports a terminal state no hand watch has ever consumed. The task's
+// durable report cursor is the marker: the poll loop advances it only after a tick's events are
+// announced, and every announcement reaches state/events.log and the notify hook.
 func UnacknowledgedTerminalReport(homeDir, id string, cur ReportCursor) (bool, error) {
+	// So a terminal line still past that cursor has reached nobody (atqamz/secondhand#70). A cursor the
+	// file's content no longer supports covers nothing, so a rewritten channel is read whole - the
+	// length-preserving rewrite included, whose `done:` no watcher announced (atqamz/secondhand#149).
 	data, base, err := readReport(ReportPath(homeDir, id), cur)
 	if err != nil {
 		return false, err
 	}
+	// Only the last classified line of the unconsumed tail counts: a terminal report the worker has
+	// since superseded needs no acknowledging, and done is routinely followed by more work. It
+	// classifies its own tail so a line with no terminating newline counts - TailReport would defer it.
 	last, ok := LastReportedState(classifyReportBytes(data[base.Offset:]))
 	if !ok {
 		return false, nil
 	}
+	// A watcher denied the task lock announces a line and persists the cursor a tick later, so the
+	// transient error here is reporting an acknowledged terminal state, never hiding an unacknowledged one.
 	return TerminalReport(last.State), nil
 }

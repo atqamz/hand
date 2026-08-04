@@ -130,24 +130,19 @@ func List(homeDir string) ([]Task, error) {
 	return db.ListTasks()
 }
 
-// Delete removes a task's row along with its report channel at
-// state/<id>.status. The report file is the volatile wake log, not a
-// deliverable: a task respawned under a used ID starts at report_offset 0, so a
-// surviving log would replay the previous run's lines as if they were new -
-// re-raising resolved decisions, absorbing a genuine unexplained stop, and
-// auto-recording a PR URL out of an old done line onto a task nobody recorded it
-// for. The durable deliverables (data/<id>/) survive teardown as before.
-//
-// The report channel goes first, not last: that removal is the one that can
-// fail on a permissions or I/O fault, and doing it first means the fault leaves
-// nothing durable gone yet, so the whole command is simply retryable. Removing
-// the row first would let a report-removal failure strand the caller with the
-// state already gone and no way to retry (see cmd/teardown.go's guarded path).
+// Delete removes a task's row along with its report channel at state/<id>.status, leaving
+// the durable deliverables in data/<id>/. That file is the volatile wake log: a respawn
+// under a used ID starts at report_offset 0, so a surviving log replays as new lines.
 func Delete(homeDir, id string) error {
 	if err := ValidateID(id); err != nil {
 		return err
 	}
+	// A replayed log re-raises resolved decisions, absorbs a genuine unexplained stop, and
+	// auto-records a PR URL out of an old done line onto a task nobody recorded it for.
 	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
+		// Failing here leaves nothing durable gone yet, so the whole command is retryable.
+		// Removing the row first would strand the caller with the state gone and no way to
+		// retry (see cmd/teardown.go's guarded path).
 		return fmt.Errorf("remove report channel %q: %w", id, err)
 	}
 	db, err := store.Open(homeDir)
