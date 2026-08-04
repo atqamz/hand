@@ -46,7 +46,7 @@ Rule 2 will occasionally be wrong, because a genuinely subtle invariant sometime
 That is accepted: a rule that is right most of the time and mechanically enforced binds harder than one that is right always and enforced never.
 Prose that outgrows three lines belongs in one of two files, and which one depends on what it is.
 A rule a caller can depend on or be wrong about goes in SPECS.md.
-The reasoning for why a rule is shaped that way goes in a record under docs/adr/, per docs/adr/README.md - SPECS.md grew to 2831 lines by taking both.
+The reasoning for why a rule is shaped that way goes in a record under docs/adr/, whose README.md owns when one is worth writing and how SPECS.md points at it.
 
 `go run ./tools/commentlint .` runs the check alone and prints one `file:line:column` per violation.
 

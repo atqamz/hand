@@ -6,6 +6,7 @@ This checkout is the tool's own source, not a fleet home itself - there is no `s
 
 ## Rules
 
+- SPECS.md carries only the contract a caller can depend on; the reasoning behind a clause lives in a dated record under `docs/adr/`, reached from that section's `Why:` line. `docs/adr/README.md` owns when a record is written and the rule that a landed one is never rewritten to match a later change.
 - Comments obey two rules `make lint` enforces through `tools/commentlint`: a comment may not open with the identifier it documents, and a comment block may not exceed three lines. CONTRIBUTING.md's "Comments" section owns the bar for writing one at all, the exemptions, and the reasoning.
 - Command output goes through `internal/axi` as TOON and every failure through `cmd/root.go`'s error document; `hand watch`'s event stream is the one exception, and SPECS.md's "Output shape" section owns the contract.
 - Harness/herdr syntax, exit-code enforcement, watch's stdout/errOut split, and first-run prompt handling are commented at point of use (`internal/herdr`, `internal/harness`, `cmd/root.go`, `cmd/precondition.go`, `internal/watcher`, `cmd/teardown.go`, `cmd/prdetect.go`, `cmd/merge.go`, `cmd/launch.go`); SPECS.md's "Exit codes" and each command's spec section own the authoritative tables.
