@@ -58,9 +58,10 @@ func TestPRIsMergedReportsExitStatusWithoutStderr(t *testing.T) {
 	}
 }
 
-// writeFakeGHPRList fakes `gh pr list --json number,url,state`, emitting a stderr
-// line ahead of the JSON array payload for the same reason writeFakeGHPRView
-// does: a CombinedOutput regression at the call site must fail the parse.
+// writeFakeGHPRList fakes `gh pr list --json number,url,state,headRepository`,
+// emitting a stderr line ahead of the JSON array payload for the same reason
+// writeFakeGHPRView does: a CombinedOutput regression at the call site must
+// fail the parse.
 func writeFakeGHPRList(t *testing.T, body string, exitCode int, stderrLine string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -81,7 +82,7 @@ func writeFakeGHPRList(t *testing.T, body string, exitCode int, stderrLine strin
 
 func TestFindPRByBranchReturnsMatch(t *testing.T) {
 	writeFakeGHPRList(t, `[{"url":"https://github.com/owner/repo/pull/5","state":"MERGED"}]`, 0, "Warning: gh version 2.40.0 is out of date")
-	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	url, merged, found, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +98,7 @@ func TestFindPRByBranchReturnsMatch(t *testing.T) {
 func TestFindPRByBranchPrefersMergedOverClosedUnmerged(t *testing.T) {
 	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"},`+
 		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"}]`, 0, "")
-	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	url, merged, found, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestFindPRByBranchPrefersMergedOverClosedUnmerged(t *testing.T) {
 // as requiring a merged candidate to exist.
 func TestFindPRByBranchReturnsSoleClosedUnmergedPR(t *testing.T) {
 	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"}]`, 0, "")
-	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	url, merged, found, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestFindPRByBranchReturnsSoleClosedUnmergedPR(t *testing.T) {
 func TestFindPRByBranchRefusesTwoMergedPRs(t *testing.T) {
 	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"MERGED"},`+
 		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"}]`, 0, "")
-	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	_, _, _, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	var ambiguous *AmbiguousPRError
 	if !errors.As(err, &ambiguous) {
 		t.Fatalf("got %v, want an AmbiguousPRError", err)
@@ -146,7 +147,7 @@ func TestFindPRByBranchRefusesTwoMergedPRsNamesClosedCandidateToo(t *testing.T) 
 	writeFakeGHPRList(t, `[{"number":7,"url":"https://github.com/owner/repo/pull/7","state":"MERGED"},`+
 		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
 		`{"number":3,"url":"https://github.com/owner/repo/pull/3","state":"CLOSED"}]`, 0, "")
-	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	_, _, _, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	var ambiguous *AmbiguousPRError
 	if !errors.As(err, &ambiguous) {
 		t.Fatalf("got %v, want an AmbiguousPRError", err)
@@ -165,7 +166,7 @@ func TestFindPRByBranchRefusesTwoMergedPRsNamesClosedCandidateToo(t *testing.T) 
 func TestFindPRByBranchRefusesMergedAndOpenPR(t *testing.T) {
 	writeFakeGHPRList(t, `[{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
 		`{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"OPEN"}]`, 0, "")
-	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	_, _, _, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	var ambiguous *AmbiguousPRError
 	if !errors.As(err, &ambiguous) {
 		t.Fatalf("got %v, want an AmbiguousPRError", err)
@@ -185,7 +186,7 @@ func TestFindPRByBranchRefusesMergedAndOpenPRNamesClosedCandidateToo(t *testing.
 	writeFakeGHPRList(t, `[{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"MERGED"},`+
 		`{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"OPEN"},`+
 		`{"number":3,"url":"https://github.com/owner/repo/pull/3","state":"CLOSED"}]`, 0, "")
-	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	_, _, _, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	var ambiguous *AmbiguousPRError
 	if !errors.As(err, &ambiguous) {
 		t.Fatalf("got %v, want an AmbiguousPRError", err)
@@ -204,7 +205,7 @@ func TestFindPRByBranchRefusesMergedAndOpenPRNamesClosedCandidateToo(t *testing.
 func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
 	writeFakeGHPRList(t, `[{"number":9,"url":"https://github.com/owner/repo/pull/9","state":"CLOSED"},`+
 		`{"number":5,"url":"https://github.com/owner/repo/pull/5","state":"OPEN"}]`, 0, "")
-	url, merged, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	url, merged, found, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,9 +214,102 @@ func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
 	}
 }
 
+// writeFakeGHPRListPerRepo fakes `gh pr list` for a fork search, dispatching on
+// the --repo argument the old single-body fake ignored: without that, no test can
+// express "the PR is on repo B while the project's repo is A" and a fork test
+// would pass against a shape gh never returns (atqamz/secondhand#40). It also
+// refuses a qualified owner:branch --head value, which real gh silently answers
+// with an empty list - verified against gh 2.97 on a live cross-repo PR - so the
+// mistake surfaces as a failure here instead of as "no PR found" in production.
+func writeFakeGHPRListPerRepo(t *testing.T, bodies map[string]string) {
+	t.Helper()
+	bin := t.TempDir()
+
+	script := "#!/bin/sh\n" +
+		"[ \"$1 $2\" = \"pr list\" ] || { echo \"unexpected gh args: $@\" >&2; exit 1; }\n" +
+		"[ \"$3\" = \"--repo\" ] && [ \"$5\" = \"--head\" ] || { echo \"unexpected gh args: $@\" >&2; exit 1; }\n" +
+		"case \"$6\" in *:*) echo \"qualified head ref matches nothing in real gh: $6\" >&2; exit 1 ;; esac\n" +
+		"case \"$4\" in\n"
+	for repo, body := range bodies {
+		script += fmt.Sprintf("%q) printf '%s' ;;\n", repo, body)
+	}
+	script += "*) printf '[]' ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+}
+
+// forkTargets is the target pair a fork project searches with: its own repo,
+// where hand pushes the branch, plus the declared upstream the PR is opened on.
+func forkTargets() []PRSearchTarget {
+	return []PRSearchTarget{{Repo: "me/repo"}, {Repo: "up/repo", HeadRepo: "me/repo"}}
+}
+
+// TestFindPRByBranchFindsUpstreamPRForFork is the atqamz/secondhand#134
+// regression: a fork contribution's PR lives on the declared upstream, so
+// searching the project's own repo alone finds nothing.
+func TestFindPRByBranchFindsUpstreamPRForFork(t *testing.T) {
+	writeFakeGHPRListPerRepo(t, map[string]string{
+		"me/repo": `[]`,
+		"up/repo": `[{"number":7,"url":"https://github.com/up/repo/pull/7","state":"MERGED",` +
+			`"headRepository":{"nameWithOwner":"me/repo"}}]`,
+	})
+	url, merged, found, err := FindPRByBranch(context.Background(), "task-1-branch", forkTargets()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || !merged || url != "https://github.com/up/repo/pull/7" {
+		t.Fatalf("got (%q, %v, %v), want the upstream PR merged", url, merged, found)
+	}
+}
+
+// TestFindPRByBranchIgnoresUpstreamPRFromAnotherFork pins the head-repo filter:
+// an upstream carries head refs from every contributor's fork, and gh matches
+// --head on the branch name alone, so a same-named branch from a stranger's fork
+// comes back from the same search and must not be recorded as this task's PR.
+func TestFindPRByBranchIgnoresUpstreamPRFromAnotherFork(t *testing.T) {
+	writeFakeGHPRListPerRepo(t, map[string]string{
+		"me/repo": `[]`,
+		"up/repo": `[{"number":7,"url":"https://github.com/up/repo/pull/7","state":"OPEN",` +
+			`"headRepository":{"nameWithOwner":"someone/repo"}}]`,
+	})
+	_, _, found, err := FindPRByBranch(context.Background(), "task-1-branch", forkTargets()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatal("want found=false for a PR whose head ref lives in another fork")
+	}
+}
+
+// TestFindPRByBranchRefusesPRsInTwoRepos proves matches from two searched repos
+// resolve through the same tier rule as two in one repo - a fork whose upstream
+// also has a branch of that name is where guessing costs the most - and that the
+// refusal names the repos, not just PR numbers an operator would have to hunt for.
+func TestFindPRByBranchRefusesPRsInTwoRepos(t *testing.T) {
+	writeFakeGHPRListPerRepo(t, map[string]string{
+		"me/repo": `[{"number":3,"url":"https://github.com/me/repo/pull/3","state":"OPEN",` +
+			`"headRepository":{"nameWithOwner":"me/repo"}}]`,
+		"up/repo": `[{"number":7,"url":"https://github.com/up/repo/pull/7","state":"OPEN",` +
+			`"headRepository":{"nameWithOwner":"me/repo"}}]`,
+	})
+	_, _, _, err := FindPRByBranch(context.Background(), "task-1-branch", forkTargets()...)
+	var ambiguous *AmbiguousPRError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("got %v, want an AmbiguousPRError", err)
+	}
+	if len(ambiguous.Candidates) != 2 {
+		t.Fatalf("Candidates = %+v, want both PRs named", ambiguous.Candidates)
+	}
+	if !strings.Contains(err.Error(), "me/repo#3") || !strings.Contains(err.Error(), "up/repo#7") {
+		t.Fatalf("got %q, want each candidate named with its repo", err.Error())
+	}
+}
+
 func TestFindPRByBranchNoMatch(t *testing.T) {
 	writeFakeGHPRList(t, `[]`, 0, "")
-	_, _, found, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	_, _, found, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +320,7 @@ func TestFindPRByBranchNoMatch(t *testing.T) {
 
 func TestFindPRByBranchReportsExitStatusWithoutStderr(t *testing.T) {
 	writeFakeGHPRList(t, "", 1, "")
-	_, _, _, err := FindPRByBranch(context.Background(), "owner/repo", "task-1-branch")
+	_, _, _, err := FindPRByBranch(context.Background(), "task-1-branch", PRSearchTarget{Repo: "owner/repo"})
 	if err == nil {
 		t.Fatal("want error when gh exits non-zero")
 	}

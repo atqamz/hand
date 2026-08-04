@@ -34,9 +34,20 @@ func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	return body.State == "MERGED", nil
 }
 
+// PRSearchTarget names one repo FindPRByBranch searches for a head ref.
+type PRSearchTarget struct {
+	Repo string
+	// HeadRepo, when set, keeps only PRs whose head branch lives in that repo.
+	// A fork project's upstream carries head refs from every contributor's fork,
+	// so a branch name alone can match a stranger's PR there; the fork project
+	// knows which repo its own branch is pushed to.
+	HeadRepo string
+}
+
 // PRCandidate names one PR under consideration by FindPRByBranch, for use in
 // an AmbiguousPRError message.
 type PRCandidate struct {
+	Repo   string
 	Number int
 	State  string
 }
@@ -45,8 +56,9 @@ type PRCandidate struct {
 // winner: either no preference tier yields a single match (two merged, two
 // open, ...), or a merged PR coexists with an open one, which refuses by rule
 // even though the merged tier has a lone match. Candidates names every PR on
-// the head ref, whatever its state, not just the tier that triggered the
-// refusal. FindPRByBranch returns this instead of guessing; the caller decides.
+// the head ref, whatever its state and whichever searched repo it came from,
+// not just the tier that triggered the refusal. FindPRByBranch returns this
+// instead of guessing; the caller decides.
 type AmbiguousPRError struct {
 	Branch     string
 	Candidates []PRCandidate
@@ -55,16 +67,24 @@ type AmbiguousPRError struct {
 func (e *AmbiguousPRError) Error() string {
 	parts := make([]string, len(e.Candidates))
 	for i, c := range e.Candidates {
-		parts[i] = fmt.Sprintf("#%d (%s)", c.Number, c.State)
+		parts[i] = fmt.Sprintf("%s#%d (%s)", c.Repo, c.Number, c.State)
 	}
 	return fmt.Sprintf("ambiguous PR for branch %s: %s", e.Branch, strings.Join(parts, ", "))
 }
 
-// FindPRByBranch reports the PR on repoSlug whose head ref is exactly branch -
+// FindPRByBranch reports the PR across targets whose head ref is exactly branch -
 // the only rule hand uses to associate a PR with a task, never a title, issue
 // number or task id. --state all is required because gh pr list defaults to
 // open only, and a gate-opened PR may already be merged or closed by the time
 // hand looks for it; found is false when no PR has that head ref.
+//
+// More than one target is how a fork project finds its PR: the branch is pushed
+// to the fork while the PR is opened on the declared upstream, so both repos are
+// searched. gh's --head takes the plain branch name even for a cross-repo PR
+// (the qualified owner:branch form matches nothing), so the upstream target
+// carries a HeadRepo to keep a same-named branch from another fork out. Matches
+// from every target resolve through one tier pass, so a PR on the fork and one
+// on the upstream are ambiguous exactly like two in one repo.
 //
 // A branch can carry more than one PR (a closed-unmerged one plus a reopened
 // replacement, say), so results are resolved by preference tier rather than
@@ -80,17 +100,14 @@ func (e *AmbiguousPRError) Error() string {
 // left on gh pr list's implicit 30: the cap is set far above any realistic
 // count for one branch, so a same-tier duplicate cannot be truncated out of
 // the page and silently resolve as a single winner.
-func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, merged bool, found bool, err error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", repoSlug, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", false, false, fmt.Errorf("gh pr list failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
+func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarget) (url string, merged bool, found bool, err error) {
 	var results []prListItem
-	if err := json.Unmarshal(out, &results); err != nil {
-		return "", false, false, fmt.Errorf("parse gh pr list output: %w", err)
+	for _, target := range targets {
+		found, err := listPRsByBranch(ctx, target, branch)
+		if err != nil {
+			return "", false, false, err
+		}
+		results = append(results, found...)
 	}
 	if len(results) == 0 {
 		return "", false, false, nil
@@ -125,19 +142,48 @@ func FindPRByBranch(ctx context.Context, repoSlug, branch string) (url string, m
 	return "", false, false, fmt.Errorf("gh pr list returned no PR in a recognized state for branch %s", branch)
 }
 
+func listPRsByBranch(ctx context.Context, target PRSearchTarget, branch string) ([]prListItem, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", target.Repo, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state,headRepository")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh pr list failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	var results []prListItem
+	if err := json.Unmarshal(out, &results); err != nil {
+		return nil, fmt.Errorf("parse gh pr list output: %w", err)
+	}
+	kept := make([]prListItem, 0, len(results))
+	for _, r := range results {
+		if target.HeadRepo != "" && r.HeadRepository.NameWithOwner != target.HeadRepo {
+			continue
+		}
+		r.Repo = target.Repo
+		kept = append(kept, r)
+	}
+	return kept, nil
+}
+
 func ambiguousPRError(branch string, matches []prListItem) *AmbiguousPRError {
 	candidates := make([]PRCandidate, len(matches))
 	for i, m := range matches {
-		candidates[i] = PRCandidate{Number: m.Number, State: m.State}
+		candidates[i] = PRCandidate{Repo: m.Repo, Number: m.Number, State: m.State}
 	}
 	return &AmbiguousPRError{Branch: branch, Candidates: candidates}
 }
 
-// prListItem is one entry of `gh pr list --json number,url,state`.
+// prListItem is one entry of `gh pr list --json number,url,state,headRepository`.
+// Repo is the searched repo, not part of gh's payload: a match's own repo has to
+// survive into an AmbiguousPRError naming PRs from two repos at once.
 type prListItem struct {
-	Number int    `json:"number"`
-	URL    string `json:"url"`
-	State  string `json:"state"`
+	Number         int    `json:"number"`
+	URL            string `json:"url"`
+	State          string `json:"state"`
+	HeadRepository struct {
+		NameWithOwner string `json:"nameWithOwner"`
+	} `json:"headRepository"`
+	Repo string `json:"-"`
 }
 
 // RepoSlugFromRemote extracts "owner/repo" from a GitHub origin remote URL in
