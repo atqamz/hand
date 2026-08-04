@@ -7,9 +7,9 @@ import (
 	"github.com/atqamz/secondhand/internal/agentsmd"
 )
 
-// quotedPrompt is the shell-quoted first message a harness launches with. The
-// operator-decision rule is a paragraph of prose owned by internal/agentsmd, so
-// exact-match wants build the prompt from it instead of restating it here.
+// The shell-quoted first message a harness launches with. The operator-decision rule is a paragraph
+// of prose owned by internal/agentsmd, so exact-match wants build the prompt from it instead of
+// restating it here.
 func quotedPrompt(brief string) string {
 	return shellQuote("Read the brief at " + brief + " and carry out the task it describes. " + agentsmd.OperatorDecisionRule)
 }
@@ -65,8 +65,8 @@ func TestBuildClaudeWithModelAndEffort(t *testing.T) {
 	}
 }
 
-// TestBuildClaudeNeverHeadless guards against a silent regression to --print,
-// which would strand hand send and hand watch with no running pane to steer.
+// Guards against a silent regression to --print, which would strand hand send and hand watch with
+// no running pane to steer.
 func TestBuildClaudeNeverHeadless(t *testing.T) {
 	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
 	if err != nil {
@@ -154,8 +154,8 @@ func TestBuildOpenCodeWithModel(t *testing.T) {
 	}
 }
 
-// TestBuildOpenCodeNeverHeadless guards against a silent regression to
-// `opencode run`, which exits after one reply and leaves no pane to steer.
+// Guards against a silent regression to `opencode run`, which exits after one reply and leaves no
+// pane to steer.
 func TestBuildOpenCodeNeverHeadless(t *testing.T) {
 	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
 	if err != nil {
@@ -179,13 +179,13 @@ func TestBuildOpenCodeFrontMatterDisclaimer(t *testing.T) {
 	}
 }
 
-// TestBuildCarriesOperatorDecisionRule pins the only channel that rule has: a
-// worker's worktree is never under the fleet home, so the AGENTS.md copy of it
-// never reaches the worker. Codex, Grok, and Pi launch with a bare --file and
-// no inline prompt, so they are out of reach until one of them is verified.
+// Pins the only channel that rule has: a worker's worktree is never under the fleet home, so the
+// AGENTS.md copy of it never reaches the worker.
 func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
 	quoted := shellQuote(agentsmd.OperatorDecisionRule)
 	escaped := quoted[1 : len(quoted)-1]
+	// Codex, Grok and Pi launch with a bare --file and no inline prompt, so they are out of reach
+	// until one of them is verified.
 	for _, name := range []string{Claude, OpenCode} {
 		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
 		if err != nil {
@@ -261,9 +261,9 @@ func TestShellQuoteEscapesSingleQuotes(t *testing.T) {
 	}
 }
 
-// TestFirstRunPromptsClaude pins the shape confirmLaunch depends on: a startup signature for
-// each frame claude settles into, answerable dialogs carrying keys, and the managed-settings
-// dialog catalogued as recognized-but-refused so it fails fast instead of looking uncatalogued.
+// Pins the shape confirmLaunch depends on: a startup signature for each frame claude settles into,
+// answerable dialogs carrying keys, and the managed-settings dialog catalogued as
+// recognized-but-refused so it fails fast instead of looking uncatalogued.
 func TestFirstRunPromptsClaude(t *testing.T) {
 	prompts := FirstRunPromptsFor(Claude)
 	if prompts.Ready == nil || prompts.Unrecognized == nil {
@@ -305,8 +305,8 @@ func TestFirstRunPromptsClaude(t *testing.T) {
 	}
 }
 
-// TestAgentDetectionVerified pins the two harnesses actually run in a real pane and observed
-// being labeled by herdr; the rest must stay false until each is exercised the same way.
+// Pins the two harnesses actually run in a real pane and observed being labeled by herdr; the rest
+// must stay false until each is exercised the same way.
 func TestAgentDetectionVerified(t *testing.T) {
 	for _, name := range []string{Claude, OpenCode} {
 		if !AgentDetectionVerified(name) {

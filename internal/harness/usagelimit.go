@@ -7,34 +7,24 @@ import (
 	"time"
 )
 
-// usageLimit is a harness's signature for its own usage-limit stop: the harness has
-// refused the turn because the account is out of quota, and the pane goes quiet with
-// the refusal on screen. Match recognizes that refusal; Reset reads the instant the
-// harness predicts the quota returns out of the text from the freshest refusal
-// onwards, and reports false when that refusal names none.
-//
-// A reset instant is only ever a prediction, so nothing decides from it whether the
-// limit is over - it decides only when to start trying. See internal/watcher's
-// usagelimit.go for what does the deciding.
+// A harness's signature for its own usage-limit stop: the harness has refused the turn because the
+// account is out of quota, and the pane goes quiet with the refusal on screen.
 type usageLimit struct {
 	Match *regexp.Regexp
+	// Reads the instant the harness predicts the quota returns, out of the text from the freshest
+	// refusal onwards, and reports false when that refusal names none. Only ever a prediction, so
+	// nothing decides the limit is over from it - see internal/watcher's usagelimit.go for that.
 	Reset func(text string, now time.Time) (time.Time, bool)
 }
 
-// usageLimits is the per-harness catalogue, and the reason adding a harness here is
-// an implementation rather than one more branch in the poll loop. Only claude has a
-// signature: its wordings below are the ones its own limit paths emit, and every
-// other harness declines the capability until someone catalogues its refusal against
-// a real limited run - the same bar firstRunPrompts holds.
+// The per-harness catalogue, and the reason adding a harness here is an implementation rather than one
+// more branch in the poll loop. Only claude has a signature; every other harness declines the
+// capability until someone catalogues its refusal against a real limited run, the bar firstRunPrompts holds.
 var usageLimits = map[string]usageLimit{
 	Claude: {
-		// Three wordings, all of which claude has shipped: the interactive REPL's
-		// "Claude usage limit reached. Your limit will reset at 3pm (UTC).", the
-		// machine-readable "Claude AI usage limit reached|<epoch>", and the
-		// per-window forms ("5-hour limit reached", "you've reached your weekly
-		// limit for Opus"). Deliberately anchored on the quota being *reached*, never
-		// on the word "limit" alone, so claude's own approaching-your-limit warning -
-		// which does not stop the turn - cannot be read as a stop.
+		// Three wordings claude has shipped: the REPL's "limit will reset at 3pm (UTC)", the
+		// machine-readable "usage limit reached|<epoch>", and the per-window "5-hour limit reached".
+		// Anchored on *reached*, never "limit" alone, so an approaching-your-limit warning cannot read as a stop.
 		Match: regexp.MustCompile(`(?i)usage limit reached|\d+-hour limit reached|reached your (?:\w+ )*limit`),
 		Reset: parseClaudeReset,
 	},
@@ -47,14 +37,9 @@ func SupportsUsageLimit(name string) bool {
 	return usageLimits[name].Match != nil
 }
 
-// DetectUsageLimit reports whether text - a pane's recent scrollback - shows name's
-// harness stopped on a usage limit, plus the reset instant the message names if it
-// names one at all. A harness with no catalogued signature never reports a limit.
-//
-// Scrollback holds every refusal the harness has printed, not only the one that
-// stopped the current turn, so the reset is read from the last match onwards: an
-// earlier refusal names a reset that has already come and gone, and reading it would
-// schedule the next attempt off a prediction the harness has itself superseded.
+// DetectUsageLimit reports whether text - a pane's recent scrollback - shows name's harness stopped on
+// a usage limit, plus the reset instant the message names if it names one at all. A harness with no
+// catalogued signature never reports a limit.
 func DetectUsageLimit(name, text string, now time.Time) (time.Time, bool) {
 	limit := usageLimits[name]
 	if limit.Match == nil {
@@ -67,6 +52,9 @@ func DetectUsageLimit(name, text string, now time.Time) (time.Time, bool) {
 	if limit.Reset == nil {
 		return time.Time{}, true
 	}
+	// Scrollback holds every refusal the harness has printed, not only the one that stopped this turn,
+	// so the reset is read from the last match onwards: an earlier refusal names a reset already come
+	// and gone, and reading it would schedule off a prediction the harness has itself superseded.
 	reset, ok := limit.Reset(text[found[len(found)-1][0]:], now)
 	if !ok {
 		return time.Time{}, true
@@ -79,14 +67,9 @@ var (
 	claudeResetClock = regexp.MustCompile(`(?i)reset(?:s|ting)?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([^)\n]{1,40})\))?`)
 )
 
-// parseClaudeReset reads the reset instant out of whichever wording carried it. The
-// epoch form is unambiguous and is tried first; the clock form names an hour in a
-// zone that may or may not be this host's, and resolves to the next occurrence of
-// that clock time, since a limit's reset is always ahead of the message announcing
-// it. An unparseable or unloadable zone falls back to this host's rather than
-// failing: a wait computed in the wrong zone is still a bounded wait, and the
-// attempt-and-observe loop is what decides the limit is actually over.
+// Reads the reset instant out of whichever wording carried it.
 func parseClaudeReset(text string, now time.Time) (time.Time, bool) {
+	// The epoch form is unambiguous, so it is tried first.
 	if m := claudeResetEpoch.FindStringSubmatch(text); m != nil {
 		secs, err := strconv.ParseInt(m[1], 10, 64)
 		if err != nil {
@@ -123,6 +106,9 @@ func parseClaudeReset(text string, now time.Time) (time.Time, bool) {
 		return time.Time{}, false
 	}
 
+	// The clock form names an hour in a zone that may or may not be this host's, and an unparseable or
+	// unloadable one falls back to this host's rather than failing: a wait computed in the wrong zone is
+	// still a bounded wait, and the attempt-and-observe loop is what decides the limit is really over.
 	loc := now.Location()
 	if m[4] != "" {
 		if named, err := time.LoadLocation(strings.TrimSpace(m[4])); err == nil {
@@ -131,6 +117,8 @@ func parseClaudeReset(text string, now time.Time) (time.Time, bool) {
 	}
 	local := now.In(loc)
 	reset := time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, loc)
+	// A limit's reset is always ahead of the message announcing it, so an hour already past today
+	// resolves to the next occurrence of that clock time.
 	if !reset.After(now) {
 		reset = reset.AddDate(0, 0, 1)
 	}
