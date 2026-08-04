@@ -32,6 +32,8 @@ jobs:
           # action fetch a remote version mapping that fails the job on any
           # network blip. Keep in sync with nixpkgs' golangci-lint in flake.nix.
           version: v2.12.2
+      - name: Comments
+        run: go run ./tools/commentlint .
 
   test:
     name: Test (${{ matrix.os }})

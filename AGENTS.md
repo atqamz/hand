@@ -6,7 +6,7 @@ This checkout is the tool's own source, not a fleet home itself - there is no `s
 
 ## Rules
 
-- Zero comments by default. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug. Never restate code, narrate what, add banners, or docstring the obvious.
+- Comments obey two rules `make lint` enforces through `tools/commentlint`: a comment may not open with the identifier it documents, and a comment block may not exceed three lines. CONTRIBUTING.md's "Comments" section owns the exemptions and the reasoning.
 - Command output goes through `internal/axi` as TOON and every failure through `cmd/root.go`'s error document; `hand watch`'s event stream is the one exception, and SPECS.md's "Output shape" section owns the contract.
 - Harness/herdr syntax, exit-code enforcement, watch's stdout/errOut split, and first-run prompt handling are commented at point of use (`internal/herdr`, `internal/harness`, `cmd/root.go`, `cmd/precondition.go`, `internal/watcher`, `cmd/teardown.go`, `cmd/prdetect.go`, `cmd/merge.go`, `cmd/launch.go`); SPECS.md's "Exit codes" and each command's spec section own the authoritative tables.
 - `herdr`, `treehouse` and `gh` are faked once, in `internal/faketool`, for every suite; a test declares the fleet it wants rather than writing sh. `internal/faketool/FIDELITY.md` records what the real tools do and `tests/contract` (`make contract`) rechecks that record against them. Extend the shared fake, never hand-write another; SPECS.md's "Testing strategy" owns the rule behind it.
