@@ -295,7 +295,11 @@ func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 func TestWatchDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
-	writeConfig(t, home, "parked-done-bound", "2")
+	// Wider than the streaming sibling's bound: --until-event arms with a probe
+	// and two stdout-discarding baseline ticks, and the bound has to outlast all
+	// of them under -race, or the parked line lands in the log while stdout is
+	// still discarded and the first run exits 4 with nothing delivered.
+	writeConfig(t, home, "parked-done-bound", "6")
 
 	spawnedAt := time.Now().UTC().Format(time.RFC3339)
 	if err := state.Write(home, state.Task{
