@@ -204,9 +204,8 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
 	return doc.Render(cmd.OutOrStdout())
 }
 
-// prChecksGreen parses `gh pr checks --json bucket` rather than trusting the
-// process exit code, since gh's exit codes (0 pass, 8 pending, 1 fail) are
-// harder to distinguish reliably across gh versions than the JSON payload.
+// Parses `gh pr checks --json bucket` rather than trusting the process exit code, since gh's exit codes
+// (0 pass, 8 pending, 1 fail) are harder to distinguish reliably across gh versions than the JSON payload.
 func prChecksGreen(pr string) (bool, error) {
 	var stdout, stderr bytes.Buffer
 	c := exec.Command("gh", "pr", "checks", pr, "--json", "bucket")

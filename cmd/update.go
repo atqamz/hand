@@ -50,20 +50,18 @@ func newUpdateCmd(version string) *cobra.Command {
 				return err
 			}
 
-			// The binary is already replaced by this point, so a failed
-			// AGENTS.md refresh or skeleton seed is reported as a warning
-			// rather than an error: exiting nonzero here reads as "the update
-			// failed" and invites a pointless re-run.
+			// The binary is already replaced by this point, so a failed AGENTS.md refresh or skeleton seed is
+			// reported as a warning rather than an error: exiting nonzero here reads as "the update failed" and
+			// invites a pointless re-run.
 			var refreshed, hooked bool
 			var seedErr, hookErr error
 			fleetHome, refreshErr := home.Resolve()
 			switch {
 			case refreshErr == nil:
 				refreshed, refreshErr = agentsmd.Refresh(fleetHome)
-				// The refreshed template directs the agent at data files an
-				// older home never had, so the command that installs it also
-				// leaves those files in place - directories included, since a
-				// home resolves as one on its state/hand.db marker alone.
+				// The refreshed template directs the agent at data files an older home never had, so the command
+				// that installs it also leaves those files in place - directories included, since a home resolves
+				// as one on its state/hand.db marker alone.
 				seedErr = initLayout(fleetHome)
 				// An install that moved leaves the session hook pointing at a
 				// path with no binary behind it any more.

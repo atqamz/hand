@@ -59,10 +59,9 @@ func newPRCmd() *cobra.Command {
 	return cmd
 }
 
-// recordPR is hand pr's own recording logic, factored out so detectPR (cmd/prdetect.go)
-// can route a forge-discovered PR through the same conflict guard and reconciliation
-// rather than a second, divergent copy of it. reconcile reports whether url matched
-// what was already on t.PR (a no-op on t, since it was already correct).
+// hand pr's own recording logic, factored out so detectPR (cmd/prdetect.go) can route a forge-discovered
+// PR through the same conflict guard and reconciliation rather than a second, divergent copy of it. The
+// bool reports whether url matched what was already on t.PR (a no-op on t, since it was already correct).
 func recordPR(ctx context.Context, home string, t state.Task, url string) (state.Task, bool, error) {
 	if t.PR != "" && t.PR != url {
 		return t, false, &ExitError{Err: fmt.Errorf("task %s already has a different PR recorded: %s", t.ID, t.PR), Code: 3}

@@ -9,9 +9,8 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// taskView is one task as both status renderers see it: the durable row plus
-// everything derived for display, so the fleet table and the single-task detail
-// can never disagree about what a task is doing.
+// One task as both status renderers see it: the durable row plus everything derived for display, so the
+// fleet table and the single-task detail can never disagree about what a task is doing.
 type taskView struct {
 	task          state.Task
 	agentState    string
@@ -47,9 +46,8 @@ func unreportedStop(v taskView) bool {
 	return herdr.Status(v.agentState).NotBusy()
 }
 
-// taskFlags packs the markers the plain-text fleet view used to append to the
-// state column as parenthetical suffixes, one token each so a caller can test
-// for one without parsing prose.
+// Packs the markers the plain-text fleet view used to append to the state column as parenthetical
+// suffixes, one token each so a caller can test for one without parsing prose.
 func taskFlags(v taskView) []string {
 	var flags []string
 	if v.unreadable {
@@ -77,9 +75,8 @@ func taskFlags(v taskView) []string {
 	return flags
 }
 
-// needsAttention is the predicate behind the fleet view's attention aggregate:
-// a supervisor reading only the count knows whether any row is asking for
-// something without reading the rows.
+// The predicate behind the fleet view's attention aggregate: a supervisor reading only the count knows
+// whether any row is asking for something without reading the rows.
 func needsAttention(v taskView) bool {
 	if v.unreadable || v.unacked || v.gateIssue != "" {
 		return true
@@ -91,9 +88,8 @@ func needsAttention(v taskView) bool {
 	return unreportedStop(v)
 }
 
-// taskFields is the vocabulary --fields draws from, for both status views. One
-// registry rather than one per view: a field means the same thing wherever it
-// is asked for.
+// The vocabulary --fields draws from, for both status views. One registry rather than one per view: a
+// field means the same thing wherever it is asked for.
 var taskFields = []axi.Column[taskView]{
 	{Name: "id", Value: func(v taskView) string { return v.task.ID }},
 	{Name: "project", Value: func(v taskView) string { return v.task.Project }},

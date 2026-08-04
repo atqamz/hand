@@ -23,8 +23,8 @@ func runGitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// setupSyncProject creates a bare-ish remote repo and a clone of it, with the
-// clone's origin/HEAD already resolvable (as a normal `git clone` sets up).
+// Creates a bare-ish remote repo and a clone of it, with the clone's origin/HEAD already resolvable (as a
+// normal `git clone` sets up).
 func setupSyncProject(t *testing.T) (clonePath, remotePath string) {
 	t.Helper()
 	remotePath = filepath.Join(t.TempDir(), "remote")

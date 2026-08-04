@@ -72,10 +72,9 @@ func newHoldSetCmd() *cobra.Command {
 	return cmd
 }
 
-// The limit kind is refused with its own message rather than falling through to
-// the generic one: it is a real kind hand status renders and hand spawn honors,
-// so an operator who names it deserves to be told who owns it instead of that it
-// does not exist.
+// The limit kind is refused with its own message rather than falling through to the generic one: it is a
+// real kind hand status renders and hand spawn honors, so an operator who names it deserves to be told
+// who owns it instead of that it does not exist.
 func validateHoldKind(kind string) error {
 	switch kind {
 	case state.HoldKindOperator, state.HoldKindBlocked:

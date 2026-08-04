@@ -58,16 +58,15 @@ func newSpawnCmd() *cobra.Command {
 			}
 			defer releaseClaim()
 
-			// A hold outlives the task row it was set on, by design, so a torn-down
-			// task's open question stays visible. Reusing the id for new work would
-			// silently reattach that question to an unrelated task, so refuse here
-			// rather than clearing it: an operator hold records a question answering it
-			// is an acknowledgement hand has no business making, and a limit hold means
-			// a worker is still on this id, merely out of quota.
+			// A hold outlives the task row it was set on, by design, so a torn-down task's open question stays
+			// visible, and reusing the id would silently reattach it to unrelated work. Refused rather than
+			// cleared: answering an operator hold is not hand's, and a limit hold means a worker is still here.
 			held, hasHold, err := state.ReadHold(home, id)
 			if err != nil {
 				return asPrecondition(err)
 			}
+			// Refused rather than cleared: the hold is operator-authored, and answering it is an
+			// acknowledgement hand has no business making on the operator's behalf.
 			if hasHold {
 				return &ExitError{Err: fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", id, held.Kind, held.Reason, id), Code: 3}
 			}
@@ -119,9 +118,8 @@ func newSpawnCmd() *cobra.Command {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 
-			// spawned disarms the rollback below once state.Write has durably recorded the
-			// task: from that point its workspace and tab are owned by the running task, not
-			// by this call.
+			// Disarms the rollback below once state.Write has durably recorded the task: from that point
+			// its workspace and tab are owned by the running task, not by this call.
 			spawned := false
 			defer func() {
 				if spawned {
@@ -202,22 +200,22 @@ func newSpawnCmd() *cobra.Command {
 	return cmd
 }
 
-// gatePreflight refuses to dispatch into a no-mistakes project whose gate is not initialized,
-// rather than letting the worker discover it mid-run with nothing obliged to report it. It asks
-// the no-mistakes binary rather than reading its private state.sqlite, so a stale or missing gate
-// registration (renamed working_path, never-initialized repo) is caught here instead of silently
-// producing an ungated "done". skipGateCheck is the escape hatch for a project mid-migration; it
-// still prints so bypassing it is visible, not silent.
+// Refuses to dispatch into a no-mistakes project whose gate is not initialized, rather than letting
+// the worker discover it mid-run with nothing obliged to report it.
 func gatePreflight(cmd *cobra.Command, proj project.Project, clonePath string, skipGateCheck bool) error {
 	if proj.Mode != project.ModeNoMistakes {
 		return nil
 	}
+	// The escape hatch for a project mid-migration; it still prints so bypassing it stays visible.
 	if skipGateCheck {
 		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: --skip-gate-check bypassing the no-mistakes gate check for project %q\n", proj.Name); err != nil {
 			return err
 		}
 		return nil
 	}
+	// Asks the no-mistakes binary rather than reading its private state.sqlite, so a stale or missing
+	// gate registration (renamed working_path, never-initialized repo) is caught here instead of
+	// silently producing an ungated "done".
 	gateState, err := project.GateStatus(clonePath)
 	if err != nil {
 		return fmt.Errorf("check no-mistakes gate for project %q: %w", proj.Name, err)
@@ -228,14 +226,13 @@ func gatePreflight(cmd *cobra.Command, proj project.Project, clonePath string, s
 	return nil
 }
 
-// herdrWorkspaceLabel is the label hand gives, and searches for, a project's shared workspace.
-// A bare project name is not a safe search key: herdr derives a workspace's label from its root
-// directory's basename, so any workspace a human opens under a directory named after the project
-// carries the same label and would otherwise be a candidate (atqamz/secondhand#118). Prefixing it
-// the same way worktree.Get's pool name already does ("hand:"+id) makes the label one only hand
-// itself would ever set, so a same-labelled workspace hand did not create can never match, no
-// matter how the herdr's workspace list happens to be ordered.
+// The label hand gives, and searches for, a project's shared workspace. A bare project name is not a
+// safe search key: herdr derives a workspace's label from its root directory's basename, so any
+// workspace a human opens under a directory named after the project carries it (atqamz/secondhand#118).
 func herdrWorkspaceLabel(projName string) string {
+	// Prefixed the same way worktree.Get's pool name already does ("hand:"+id), so the label is one only
+	// hand itself would ever set and a same-labelled workspace hand did not create can never match, no
+	// matter how the herdr's workspace list happens to be ordered.
 	return "hand:" + projName
 }
 
@@ -269,18 +266,18 @@ func acquireTaskWorkspace(client *herdr.Client, wt, id, projName string) (herdr.
 	return ws, tab, pane, rollback, nil
 }
 
-// acquireTaskTab returns the tab and pane a spawn-shaped lifecycle should use for the task. herdr
-// has no way to create an empty workspace: workspace create always creates a root tab and pane at
-// its cwd too, so a task that just created the workspace reuses that root tab (renamed to id)
-// instead of creating a second one, which would leave the root tab behind as an orphan shell. A
-// task landing in an already-existing workspace still creates its own tab.
+// Returns the tab and pane a spawn-shaped lifecycle should use for the task.
 func acquireTaskTab(client *herdr.Client, createdWorkspace bool, workspaceID, wt, id string, rootTab herdr.Tab, rootPane herdr.Pane) (herdr.Tab, herdr.Pane, error) {
+	// herdr has no way to create an empty workspace: workspace create always creates a root tab and pane
+	// at its cwd too, so a task that just created the workspace reuses that root tab (renamed to id)
+	// rather than creating a second one, which would leave the root tab behind as an orphan shell.
 	if createdWorkspace {
 		if err := client.TabRename(rootTab.TabID, id); err != nil {
 			return herdr.Tab{}, herdr.Pane{}, fmt.Errorf("herdr tab rename failed: %w", err)
 		}
 		return rootTab, rootPane, nil
 	}
+	// A task landing in an already-existing workspace still creates its own tab.
 	tab, pane, err := client.TabCreate(workspaceID, wt, id)
 	if err != nil {
 		return herdr.Tab{}, herdr.Pane{}, fmt.Errorf("herdr tab create failed: %w", err)
@@ -288,17 +285,17 @@ func acquireTaskTab(client *herdr.Client, createdWorkspace bool, workspaceID, wt
 	return tab, pane, nil
 }
 
-// rollbackHerdr undoes the herdr side of a failed spawn-shaped lifecycle: a workspace this call
-// created goes away whole, because its only tab is the root tab acquireTaskTab renames into the
-// task's, and a failure before that rename leaves no tabID to close it by. A pre-existing
-// workspace is shared with other tasks and only loses the tab this call added to it.
+// Undoes the herdr side of a failed spawn-shaped lifecycle.
 func rollbackHerdr(client *herdr.Client, createdWorkspace bool, workspaceID, tabID string) error {
+	// A workspace this call created goes away whole, because its only tab is the root tab acquireTaskTab
+	// renames into the task's, and a failure before that rename leaves no tabID to close it by.
 	if createdWorkspace {
 		return client.WorkspaceClose(workspaceID)
 	}
 	if tabID == "" {
 		return nil
 	}
+	// A pre-existing workspace is shared with other tasks and only loses the tab this call added to it.
 	return closeTaskTab(client, workspaceID, tabID)
 }
 

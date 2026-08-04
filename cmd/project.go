@@ -241,14 +241,12 @@ func treehouseInitIfNeeded(clonePath string) error {
 	return excludeLocally(clonePath, "treehouse.toml")
 }
 
-// Excluding the pool config is hand's job because writing it was: treehouse init
-// leaves treehouse.toml untracked and ignores it nowhere (internal/faketool/FIDELITY.md),
-// so a project whose repo does not list it reads as a dirty clone from then on and
-// every later project sync skips it.
-//
-// info/exclude rather than .gitignore: it is per-clone and never committed, so
-// hand cannot leave a change of its own in the operator's repo.
+// Excluding the pool config is hand's job because writing it was: treehouse init leaves
+// treehouse.toml untracked and ignores it nowhere (internal/faketool/FIDELITY.md), so a project whose
+// repo does not list it reads as a dirty clone from then on and every later project sync skips it.
 func excludeLocally(clonePath, pattern string) error {
+	// info/exclude rather than .gitignore: it is per-clone and never committed, so hand cannot leave a
+	// change of its own in the operator's repo.
 	c := exec.Command("git", "-C", clonePath, "rev-parse", "--git-path", "info/exclude")
 	var stderr strings.Builder
 	c.Stderr = &stderr
@@ -279,8 +277,8 @@ func excludeLocally(clonePath, pattern string) error {
 	return atomicfile.Write(path, "exclude-", []byte(body+pattern+"\n"), 0o644)
 }
 
-// projectView is one registry row plus the gate check the row is worth
-// reading for, so the column reader never re-runs no-mistakes per field.
+// One registry row plus the gate check the row is worth reading for, so the column reader never re-runs
+// no-mistakes per field.
 type projectView struct {
 	project   project.Project
 	gateIssue string
@@ -374,7 +372,7 @@ func projectListHelp(count, ungated int) []string {
 	return help
 }
 
-// gateIssue reports why a no-mistakes project's recorded mode cannot currently be honoured, so
+// Reports why a no-mistakes project's recorded mode cannot currently be honoured, so
 // hand project list is the surface an operator catches a stale or missing gate registration on,
 // instead of a worker discovering it mid-dispatch with nothing obliging it to say so.
 func gateIssue(home string, p project.Project) string {
@@ -526,9 +524,8 @@ func skippedSync(name, detail string) (syncOutcome, error) {
 	return syncOutcome{Name: name, Result: "skipped", Detail: detail}, nil
 }
 
-// syncOneProject fetches and, when eligible, fast-forwards a single project clone.
-// It never errors on a benign skip (dirty, wrong branch, diverged, no remote) -
-// those come back as a skipped outcome, per SPECS.md's fail-open policy.
+// Fetches and, when eligible, fast-forwards a single project clone. Never errors on a benign skip (dirty,
+// wrong branch, diverged, no remote) - those come back as a skipped outcome, per SPECS.md's fail-open policy.
 func syncOneProject(home string, p project.Project) (syncOutcome, error) {
 	clonePath := filepath.Join(home, "projects", p.Name)
 
@@ -617,9 +614,8 @@ func commitCount(clonePath, revRange string) (int, error) {
 	return n, nil
 }
 
-// pruneGoneBranches best-effort deletes local branches whose upstream tracking
-// branch is gone. Branches still checked out in a worktree refuse deletion;
-// that failure is ignored since pruning must never block a sync.
+// Best-effort deletes local branches whose upstream tracking branch is gone. Branches still checked out
+// in a worktree refuse deletion; that failure is ignored since pruning must never block a sync.
 func pruneGoneBranches(clonePath string) {
 	c := exec.Command("git", "for-each-ref", "--format=%(refname:short)|%(upstream:track)", "refs/heads/")
 	c.Dir = clonePath

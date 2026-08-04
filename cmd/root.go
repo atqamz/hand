@@ -64,15 +64,14 @@ func newRootCmd(version string) *cobra.Command {
 	return root
 }
 
-// guardSubcommandGroups makes every subcommand-only group below c reject an
-// unknown subcommand with exit code 2. A group with no RunE trips cobra's
-// Runnable() check, which short-circuits to a help dump and a zero exit before
-// the group's Args validator ever runs, so the group needs both. Root is left
-// alone: cobra's Find() already reports its unknown commands, and giving it a
-// non-nil Args would suppress that.
+// Makes every subcommand-only group below c reject an unknown subcommand with exit code 2.
 func guardSubcommandGroups(c *cobra.Command) {
+	// Root itself is left alone: cobra's Find() already reports its unknown commands, and giving it a
+	// non-nil Args would suppress that.
 	for _, sub := range c.Commands() {
 		if sub.HasSubCommands() && !sub.Runnable() {
+			// A group with no RunE trips cobra's Runnable() check, which short-circuits to a help dump and a
+			// zero exit before the group's Args validator ever runs, so the group needs both.
 			sub.Args = usageArgs(cobra.NoArgs)
 			sub.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
 		}
@@ -133,9 +132,8 @@ func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
 	}
 }
 
-// usageValue tags a rejected input value as exit code 2 only when it came from
-// the command line. The same value read from a config/ default is a general
-// error (code 1): nothing the invocation said was wrong.
+// Tags a rejected input value as exit code 2 only when it came from the command line. The same value read
+// from a config/ default is a general error (code 1): nothing the invocation said was wrong.
 func usageValue(fromFlag bool, err error) error {
 	if fromFlag {
 		return &ExitError{Err: err, Code: 2}
@@ -209,13 +207,13 @@ func errorHelp(code int, path string) []string {
 	return nil
 }
 
-// ExitError carries a non-default exit code that SPECS.md requires: 2 for a
-// usage error (bad arg count, unknown flag, unknown subcommand, invalid
-// argument or flag value) and 3 for a precondition failure like red CI or
-// uncommitted changes, both distinct from the general-error code (1) cobra
-// otherwise produces for any RunE error.
+// ExitError carries a non-default exit code SPECS.md's "Exit codes" table defines, distinct from the
+// general-error code (1) cobra otherwise produces for any RunE error. Usage (2) is a bad arg count or an
+// unknown flag, subcommand, or value; precondition (3) is state like red CI or uncommitted changes.
 type ExitError struct {
-	Err  error
+	Err error
+	// 2 for a usage error (bad arg count, unknown flag, unknown subcommand, invalid argument or flag
+	// value) and 3 for a precondition failure like red CI or uncommitted changes.
 	Code int
 }
 

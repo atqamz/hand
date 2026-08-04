@@ -63,10 +63,9 @@ func writeFakeGHPRState(t *testing.T, prState string) {
 	}}.Install(t, faketool.Bin(t))
 }
 
-// The two tools teardown shells out to, both from internal/faketool so each keeps
-// the state its own commands change: the returned worktree's slot stops being
-// leasable and the closed tab stops being listed. worktree need not exist yet,
-// only be the path the pool will be asked for.
+// The two tools teardown shells out to, both from internal/faketool so each keeps the state its own
+// commands change: the returned worktree's slot stops being leasable and the closed tab stops being
+// listed. worktree need not exist yet, only be the path the pool will be asked for.
 func writeFakeTreehouseReturn(t *testing.T, worktree string) {
 	t.Helper()
 	bin := faketool.Bin(t)
@@ -93,18 +92,16 @@ func readInvocations(t *testing.T, worktree string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
-// ghFakePR is one PR on the task branch, in the project's own repo.
+// One PR on the task branch, in the project's own repo.
 type ghFakePR struct {
 	Number int
 	URL    string
 	State  string
 }
 
-// The PRs a gate-opened-PR detection finds: `gh pr list --repo <repo> --head
-// <branch>` (FindPRByBranch) then `gh pr view <url> --json state`
-// (project.ValidatePR's existence check, then checkLandedWork's own merged check).
-// Several of them is what exercises FindPRByBranch's preference-tier rule
-// (atqamz/secondhand#77) rather than only its single-result path.
+// The two calls gate-opened-PR detection makes: `gh pr list --repo <repo> --head <branch>`
+// (FindPRByBranch) then `gh pr view <url> --json state` (project.ValidatePR, then checkLandedWork).
+// Several PRs exercise FindPRByBranch's preference tier (atqamz/secondhand#77), not its single result.
 func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	t.Helper()
 	g := faketool.GH{}
@@ -117,18 +114,17 @@ func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	g.Install(t, faketool.Bin(t))
 }
 
-// setupTeardownGateProject registers a non-local-only project whose clone has a
-// GitHub origin remote (RepoSlug reads it) and re-points worktree's checked-out
-// branch to branch, so FindPRByBranch's --head argument matches it.
+// Registers a non-local-only project whose clone has a GitHub origin remote (RepoSlug reads it) and
+// re-points worktree's checked-out branch to branch, so FindPRByBranch's --head argument matches it.
 func setupTeardownGateProject(t *testing.T, home, worktree, branch string) {
 	t.Helper()
 	runGitIn(t, worktree, "checkout", "-q", "-b", branch)
 	registerGateProject(t, home)
 }
 
-// registerGateProject is setupTeardownGateProject's clone-and-register half only,
-// for tests that need to control the worktree's branch checkout themselves (e.g.
-// to leave a diverging commit on main before switching to the task branch).
+// setupTeardownGateProject's clone-and-register half only, for tests that need to control the
+// worktree's branch checkout themselves (to leave a diverging commit on main before switching to the
+// task branch, say).
 func registerGateProject(t *testing.T, home string) {
 	t.Helper()
 	clonePath := filepath.Join(home, "projects", "myproj")
@@ -140,10 +136,9 @@ func registerGateProject(t *testing.T, home string) {
 	}
 }
 
-// writeFakeGHPRListAndView for a fork project: the PR lives on the upstream while
-// the branch lives in headRepo, so a search of the project's own repo comes back
-// empty and the fork filter has a headRepository to read. Without a fake that
-// narrows on --repo no test can express the atqamz/secondhand#134 shape at all.
+// The fork variant: the PR lives on the upstream while the branch lives in headRepo, so a search of
+// the project's own repo comes back empty and the fork filter has a headRepository to read. Without a
+// fake that narrows on --repo no test can express the atqamz/secondhand#134 shape at all.
 func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr ghFakePR) {
 	t.Helper()
 	faketool.GH{PRs: []faketool.GHPR{{
@@ -152,10 +147,9 @@ func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr gh
 	}}}.Install(t, faketool.Bin(t))
 }
 
-// TestTeardownDetectsGateOpenedPRonDeclaredUpstream is the atqamz/secondhand#134
-// regression: a fork project's gate opens its PR on the declared upstream, so
-// detection that searches the project's own repo alone finds nothing and teardown
-// refuses landed work as unlanded.
+// The atqamz/secondhand#134 regression: a fork project's gate opens its PR on the declared upstream,
+// so detection that searches the project's own repo alone finds nothing and teardown refuses landed
+// work as unlanded.
 func TestTeardownDetectsGateOpenedPRonDeclaredUpstream(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -180,11 +174,9 @@ func TestTeardownDetectsGateOpenedPRonDeclaredUpstream(t *testing.T) {
 	}
 }
 
-// TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing covers the
-// self-declared upstream: GitHub slugs are case-insensitive, so an upstream naming
-// the project's own repo in different casing must not be searched as a second repo -
-// every PR would come back twice and refuse as its own same-tier duplicate, the
-// failure this detection exists to remove.
+// Covers the self-declared upstream: GitHub slugs are case-insensitive, so an upstream naming the
+// project's own repo in different casing must not be searched as a second repo - every PR would come
+// back twice and refuse as its own same-tier duplicate, the failure this detection exists to remove.
 func TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -209,11 +201,9 @@ func TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing(t *testing.
 	}
 }
 
-// TestTeardownDetectsAndTearsDownGateOpenedMergedPR is the first of the two
-// regression cases atqamz/secondhand#69 requires: a no-mistakes gate's own `pr`
-// step opens a PR directly, bypassing `hand pr`, so t.PR is empty even though the
-// PR is merged and the work is landed. Teardown must detect it by branch and
-// tear down without --force, not just refuse until someone passes it.
+// First of the two regression cases atqamz/secondhand#69 requires: a no-mistakes gate's own `pr` step
+// opens a PR directly, bypassing `hand pr`, so t.PR is empty even though the PR is merged and the work
+// landed. Teardown must detect it by branch and tear down without --force, not refuse until forced.
 func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -234,9 +224,8 @@ func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
 	}
 }
 
-// TestTeardownRefusesGateOpenedClosedUnmergedPR is the second regression case:
-// a detected PR that is closed without merging is not landed work, and the guard
-// must still refuse it exactly as it would a `hand pr`-recorded one.
+// The second regression case: a detected PR that is closed without merging is not landed work, and the
+// guard must still refuse it exactly as it would a `hand pr`-recorded one.
 func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -267,11 +256,9 @@ func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {
 	}
 }
 
-// TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR is the
-// atqamz/secondhand#77 landed case: a branch carrying a closed-unmerged PR
-// alongside a merged one (a duplicate opened by mistake, say) must tear down
-// on the merged PR, not fall to an arbitrary pick that could land on the
-// unmerged one instead.
+// The atqamz/secondhand#77 landed case: a branch carrying a closed-unmerged PR alongside a merged one
+// (a duplicate opened by mistake, say) must tear down on the merged PR, not fall to an arbitrary pick
+// that could land on the unmerged one instead.
 func TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -294,10 +281,9 @@ func TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR(t *testing.T) {
 	}
 }
 
-// TestTeardownRefusesAmbiguousBranch is atqamz/secondhand#77's refusal case:
-// two merged PRs on the same branch do not resolve to a winner, and teardown
-// must refuse naming both rather than guess which one to trust - the exact
-// guess that could wave through unlanded work.
+// atqamz/secondhand#77's refusal case: two merged PRs on the same branch do not resolve to a winner,
+// and teardown must refuse naming both rather than guess which one to trust - the exact guess that
+// could wave through unlanded work.
 func TestTeardownRefusesAmbiguousBranch(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -334,9 +320,8 @@ func TestTeardownRefusesAmbiguousBranch(t *testing.T) {
 	}
 }
 
-// TestTeardownRefusesMergedAndOpenPR proves a branch carrying both a merged PR
-// and a still-open one refuses instead of tearing down on the merged PR: the
-// open PR is live evidence the branch may carry unlanded work.
+// A branch carrying both a merged PR and a still-open one refuses instead of tearing down on the
+// merged PR: the open PR is live evidence the branch may carry unlanded work.
 func TestTeardownRefusesMergedAndOpenPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
@@ -377,7 +362,7 @@ func setupTeardownHome(t *testing.T) (home, worktree string) {
 	return home, worktree
 }
 
-// writeScoutReport puts the scout deliverable on disk for id.
+// Puts the scout deliverable on disk for id.
 func writeScoutReport(t *testing.T, home, id string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(home, "data", id), 0o755); err != nil {
@@ -442,14 +427,9 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	}
 }
 
-// TestTeardownRetriesAfterReportRemovalFails proves teardown survives a fault in
-// its last step, which takes both halves of "retryable". state.Delete's removal
-// order (report channel before the task row) leaves the task row untouched, so
-// there is something left to retry; and the retry then re-runs the cleanup steps
-// the first call already completed, which have to treat an already-closed tab and
-// an already-returned worktree as success. Reverting either half fails this test:
-// the ordering leaves nothing to retry, the idempotency leaves the retry dying on
-// a tab herdr no longer lists.
+// Teardown must survive a fault in its last step, which takes both halves of "retryable". Reverting
+// either half fails this test: the ordering leaves nothing to retry, the idempotency leaves the retry
+// dying on a tab herdr no longer lists.
 func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
@@ -473,6 +453,8 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "remove report channel") {
 		t.Fatalf("got err %v, want a remove report channel failure", err)
 	}
+	// state.Delete's removal order - report channel before the task row - leaves the task row untouched,
+	// so there is something left to retry at all.
 	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
 		t.Fatalf("state gone after failed teardown, want it retryable: %v %v", exists, err)
 	}
@@ -481,6 +463,8 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The retry re-runs the cleanup steps the first call already completed, which have to treat an
+	// already-closed tab and an already-returned worktree as success.
 	cmd = newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
@@ -537,11 +521,9 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 	}
 }
 
-// TestTeardownCompletionAppendFailureLeavesStateIntact proves the ordering in
-// cmd/teardown.go survives a fault in completion.Append the same way
-// TestTeardownRetriesAfterReportRemovalFails proves it for state.Delete's report
-// removal: state.Delete never runs, so the task stays retryable, and the retry
-// succeeds without leaving a second, duplicate record behind a failed first line.
+// The ordering in cmd/teardown.go must survive a fault in completion.Append the same way
+// TestTeardownRetriesAfterReportRemovalFails covers state.Delete's report removal: state.Delete never
+// runs, so the task stays retryable, and the retry leaves no duplicate record behind a failed line.
 func TestTeardownCompletionAppendFailureLeavesStateIntact(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
@@ -780,11 +762,9 @@ func TestTeardownScoutSucceedsWhenReportPresent(t *testing.T) {
 	}
 }
 
-// TestTeardownAcceptsAShipRowThatDeliveredAScoutReport is atqamz/secondhand#129:
-// a scout spawned without --scout is recorded as a ship task and nothing can
-// correct the record, so its report-and-no-PR shape hits the landed-work refusal
-// and --force plus a respawn was the only way out. Teardown reads the work
-// instead, and the permanent record says scout.
+// atqamz/secondhand#129: a scout spawned without --scout is recorded as a ship task and nothing can
+// correct the record, so its report-and-no-PR shape hits the landed-work refusal and --force plus a
+// respawn was the only way out. Teardown reads the work instead, and the permanent record says scout.
 func TestTeardownAcceptsAShipRowThatDeliveredAScoutReport(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
@@ -813,11 +793,9 @@ func TestTeardownAcceptsAShipRowThatDeliveredAScoutReport(t *testing.T) {
 	}
 }
 
-// TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened is the half of
-// atqamz/secondhand#129's fix that matters: the scout-deliverable path must not
-// become "no PR and some file exists". This task carries a report next to a commit
-// nobody landed, and the commit is what keeps the refusal. A guard that only
-// checked for the report would accept it and throw the commit away.
+// The half of atqamz/secondhand#129's fix that matters: the scout-deliverable path must not become "no PR
+// and some file exists". This task carries a report next to a commit nobody landed, and the commit is
+// what keeps the refusal. A guard that only checked for the report would throw the commit away.
 func TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
@@ -845,11 +823,9 @@ func TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened(t *testing.T) {
 	}
 }
 
-// A promoted scout keeps its report on disk while its row turns into a ship, so a
-// task that then merged locally has every shape the scout-deliverable path reads:
-// report present, no PR, and a branch fast-forwarded into the default branch, which
-// adds no commit of its own. It landed as a merge and the permanent record has to
-// say merged, not scout - the inverse of the atqamz/secondhand#78 accuracy rule.
+// A promoted scout keeps its report on disk while its row turns into a ship, so a task that then merged
+// locally has every shape the scout-deliverable path reads: report present, no PR, and a branch that was
+// fast-forwarded in and so adds no commit. It landed as a merge - the inverse of atqamz/secondhand#78.
 func TestTeardownRecordsMergedWhenALocallyMergedShipRowKeptItsScoutReport(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -890,10 +866,9 @@ func TestTeardownRecordsMergedWhenALocallyMergedShipRowKeptItsScoutReport(t *tes
 	}
 }
 
-// Merge evidence excludes the scout-deliverable path on its own, wherever the row
-// came from: a task hand merged is not a report, so it never reaches the completion
-// store as one. Nothing else can confirm this landing without a PR, so the ordinary
-// refusal stands and the row survives for the operator to resolve.
+// Merge evidence excludes the scout-deliverable path on its own, wherever the row came from: a task hand
+// merged is not a report, so it never reaches the completion store as one. Nothing else can confirm this
+// landing without a PR, so the ordinary refusal stands and the row survives for the operator to resolve.
 func TestTeardownStillRefusesAMergedShipRowWithNoPRToConfirm(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
@@ -917,12 +892,9 @@ func TestTeardownStillRefusesAMergedShipRowWithNoPRToConfirm(t *testing.T) {
 	}
 }
 
-// The central case for atqamz/secondhand#78: a contribution offered to a repo
-// this fleet does not control. Landing it is the upstream maintainer's decision,
-// so the PR stays open indefinitely, and the fake gh here reports exactly that.
-// Teardown has to accept it without --force, and the permanent record has to say
-// delivered rather than merged - claiming a merge nobody made is the failure this
-// state exists to prevent.
+// The central case for atqamz/secondhand#78: a contribution offered to a repo this fleet does not control.
+// Landing it is the upstream maintainer's decision, so the PR stays open indefinitely and the fake gh
+// reports that. Teardown accepts it without --force and records delivered - a merge nobody made is the risk.
 func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "OPEN")
@@ -950,6 +922,7 @@ func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("completions = %+v, want exactly one", records)
 	}
+	// Claiming a merge nobody made is the failure the delivered state exists to prevent.
 	if records[0].Outcome != "delivered" {
 		t.Fatalf("outcome = %q, want delivered and never merged", records[0].Outcome)
 	}
@@ -958,10 +931,9 @@ func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
 	}
 }
 
-// A task filed as a ship whose deliverable was a report, no branch and no commit
-// behind it - the shape a misfiled kind produces (atqamz/secondhand#129). The
-// delivered state is keyed off the delivery, not off Kind, so this tears down
-// cleanly without anyone having to correct the kind first.
+// A task filed as a ship whose deliverable was a report, no branch and no commit behind it - the shape
+// a misfiled kind produces (atqamz/secondhand#129). The delivered state keys off the delivery, not off
+// Kind, so this tears down cleanly without anyone having to correct the kind first.
 func TestTeardownAcceptsDeliveredWorkWithNoPRRegardlessOfKind(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
@@ -1119,11 +1091,9 @@ func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 
 	marker := filepath.Join(t.TempDir(), "herdr-called")
 	bin := t.TempDir()
-	// This and the herdr fakes further down this file all return a non-null
-	// object result for "tab list"/"tab close"/"workspace close", which is
-	// exactly what call() requires for success (client.go); these three are
-	// query commands, not the void pane commands callVoid documents, so there
-	// is no exit-code-vs-envelope split to reproduce here.
+	// This and the herdr fakes further down this file all return a non-null object result for "tab
+	// list"/"tab close"/"workspace close", exactly what call() requires for success (client.go). All
+	// three are query commands, not callVoid's void pane commands, so no exit-code split to reproduce.
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\ntouch '"+marker+"'\nprintf '{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\"}]}}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1259,10 +1229,9 @@ func writeAndCommit(t *testing.T, dir, name, content, message string) {
 	runGitIn(t, dir, "commit", "-q", "-m", message)
 }
 
-// diverge creates task-1-branch off the worktree's current HEAD, then advances
-// main past it with a further commit to readmeContent - simulating the gate
-// fix landing on main after the task branch forked - and leaves the worktree
-// checked out on task-1-branch, still at the pre-fix commit.
+// Creates task-1-branch off the worktree's current HEAD, then advances main past it with a further
+// commit to readmeContent - the gate fix landing on main after the task branch forked - and leaves the
+// worktree checked out on task-1-branch, still at the pre-fix commit.
 func diverge(t *testing.T, worktree, readmeContent string) {
 	t.Helper()
 	runGitIn(t, worktree, "branch", "task-1-branch")
@@ -1270,10 +1239,9 @@ func diverge(t *testing.T, worktree, readmeContent string) {
 	runGitIn(t, worktree, "checkout", "-q", "task-1-branch")
 }
 
-// TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase is atqamz/secondhand#79's
-// safe case: the worktree's uncommitted edit to README.md reproduces byte-for-byte
-// content main already carries (the no-mistakes gate's own re-edit of a file its
-// merged fix already covers), so discarding it on teardown loses nothing.
+// atqamz/secondhand#79's safe case: the worktree's uncommitted edit to README.md reproduces
+// byte-for-byte content main already carries (the no-mistakes gate's own re-edit of a file its merged
+// fix already covers), so discarding it on teardown loses nothing.
 func TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	diverge(t, worktree, "fixed")
@@ -1351,12 +1319,9 @@ func readTreehouseReturnArgs(t *testing.T, worktree string) []string {
 	return args
 }
 
-// TestTeardownForcesWorktreeReturnPastSafeDirt covers the step that follows the
-// safe-dirt decision: treehouse will not clean a dirty worktree unprompted, and
-// nothing here can answer its prompt, so a worktree teardown itself judged safe to
-// discard has to be returned with --force even though the operator passed no
-// --force flag. Without it the pool slot goes back dirty, or the return aborts
-// after the task's tab is already closed.
+// The step that follows the safe-dirt decision: treehouse will not clean a dirty worktree unprompted,
+// and nothing here can answer its prompt, so a worktree teardown itself judged safe to discard has to
+// be returned with --force even though the operator passed no --force flag.
 func TestTeardownForcesWorktreeReturnPastSafeDirt(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	diverge(t, worktree, "fixed")
@@ -1376,16 +1341,16 @@ func TestTeardownForcesWorktreeReturnPastSafeDirt(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to force the return of a worktree it judged safe", err)
 	}
+	// Without it the pool slot goes back dirty, or the return aborts after the task's tab is closed.
 	args := readTreehouseReturnArgs(t, worktree)
 	if !slices.Contains(args, "--force") {
 		t.Fatalf("treehouse return args = %v, want --force so the safe dirt is actually cleaned", args)
 	}
 }
 
-// TestTeardownReturnsCleanWorktreeUnforced is the counterpart: --force is the
-// safe-dirt path's own doing, not something every teardown hands treehouse. A
-// clean worktree keeps the ordinary unforced return, so treehouse's own guard
-// still stands between teardown and any dirt this command never inspected.
+// The counterpart: --force is the safe-dirt path's own doing, not something every teardown hands
+// treehouse. A clean worktree keeps the ordinary unforced return, so treehouse's own guard still
+// stands between teardown and any dirt this command never inspected.
 func TestTeardownReturnsCleanWorktreeUnforced(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
@@ -1406,11 +1371,9 @@ func TestTeardownReturnsCleanWorktreeUnforced(t *testing.T) {
 	}
 }
 
-// TestTeardownProceedsWhenDirtMatchesOriginDefaultBranchTip pins the ref
-// resolution a real treehouse worktree actually takes: it has
-// refs/remotes/origin/HEAD, so the base is origin's tip and not whatever the
-// local default branch head happens to point at. Here local main has moved past
-// origin/main, and only reading origin/main makes the dirt safe.
+// Pins the ref resolution a real treehouse worktree takes: it has refs/remotes/origin/HEAD, so the
+// base is origin's tip and not whatever the local default branch head points at. Here local main has
+// moved past origin/main, and only reading origin/main makes the dirt safe.
 func TestTeardownProceedsWhenDirtMatchesOriginDefaultBranchTip(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	runGitIn(t, worktree, "branch", "task-1-branch")
@@ -1440,10 +1403,9 @@ func TestTeardownProceedsWhenDirtMatchesOriginDefaultBranchTip(t *testing.T) {
 	}
 }
 
-// TestTeardownRefusesDirtWhenStagedContentDiffersFromBase is the index half of the
-// safety check: an "MM" path carries a third version in the index, and a working
-// copy that matches the base says nothing about it. Comparing only the file on
-// disk would discard that staged content.
+// The index half of the safety check: an "MM" path carries a third version in the index, and a working
+// copy that matches the base says nothing about it. Comparing only the file on disk would discard that
+// staged content.
 func TestTeardownRefusesDirtWhenStagedContentDiffersFromBase(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	diverge(t, worktree, "fixed")
@@ -1470,10 +1432,9 @@ func TestTeardownRefusesDirtWhenStagedContentDiffersFromBase(t *testing.T) {
 	}
 }
 
-// TestTeardownRefusesDirtWhenContentDiffersFromBase is the counter-proof the brief
-// asks for: README.md exists in base under the same path (both weaker checks -
-// "the file exists in the base" and "the paths match" - would pass this), but its
-// content differs from the worktree's uncommitted edit, so it must still refuse.
+// The counter-proof the brief asks for: README.md exists in base under the same path (both weaker
+// checks - "the file exists in the base" and "the paths match" - would pass this), but its content
+// differs from the worktree's uncommitted edit, so it must still refuse.
 func TestTeardownRefusesDirtWhenContentDiffersFromBase(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	diverge(t, worktree, "fixed")
@@ -1496,10 +1457,8 @@ func TestTeardownRefusesDirtWhenContentDiffersFromBase(t *testing.T) {
 	}
 }
 
-// TestTeardownRefusesDirtWithUntrackedFileEvenWhenTrackedChangeMatchesBase proves
-// an untracked file blocks on its own even when every tracked change is safe:
-// there is nothing in the base to compare an untracked file against, so its mere
-// presence must refuse, and the refusal must name it.
+// An untracked file blocks on its own even when every tracked change is safe: there is nothing in the
+// base to compare an untracked file against, so its mere presence must refuse, and name it.
 func TestTeardownRefusesDirtWithUntrackedFileEvenWhenTrackedChangeMatchesBase(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	diverge(t, worktree, "fixed")
@@ -1525,9 +1484,8 @@ func TestTeardownRefusesDirtWithUntrackedFileEvenWhenTrackedChangeMatchesBase(t 
 	}
 }
 
-// TestTeardownRefusalCapsGitStatusOutput proves the refusal's git status dump is
-// bounded (atqamz/secondhand#65 is the same lesson for report rendering):
-// the first 20 entries print, the rest collapse to a count.
+// The refusal's git status dump is bounded (atqamz/secondhand#65 is the same lesson for report
+// rendering): the first 20 entries print, the rest collapse to a count.
 func TestTeardownRefusalCapsGitStatusOutput(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	for i := 0; i < 25; i++ {

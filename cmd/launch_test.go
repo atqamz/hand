@@ -11,33 +11,32 @@ import (
 	"github.com/atqamz/secondhand/internal/herdr"
 )
 
-// useFastLaunchPolling shrinks confirmLaunch's poll window for the rest of the test, so a
-// command test costs milliseconds instead of sleeping through the real settle window. The
-// deadline stays generous because a pane that confirms returns on its own poll and never reaches
-// it: every poll here is two real subprocess round-trips into the herdr fake, so a deadline sized
-// to a few of them is a race against machine speed rather than a test. Tests that assert the
-// deadline itself call expectLaunchTimeout to narrow it back down.
+// Shrinks confirmLaunch's poll window for the rest of the test, so a command test costs milliseconds
+// instead of sleeping through the real settle window.
 func useFastLaunchPolling(t *testing.T) {
 	t.Helper()
 	previous := launchPolling
 	launchPolling = launchPoll{
 		Interval:   time.Millisecond,
 		QuietReads: 3,
-		Timeout:    10 * time.Second,
-		KeySettle:  time.Millisecond,
-		ReadLines:  60,
+		// Stays generous because a pane that confirms returns on its own poll and never reaches it: every
+		// poll here is two real subprocess round-trips into the herdr fake, so a deadline sized to a few
+		// of them is a race against machine speed rather than a test.
+		Timeout:   10 * time.Second,
+		KeySettle: time.Millisecond,
+		ReadLines: 60,
 	}
 	t.Cleanup(func() { launchPolling = previous })
 }
 
-// expectLaunchTimeout narrows the deadline set by an earlier useFastLaunchPolling, whose cleanup
-// restores it, for a pane that never confirms and so has to run its deadline out.
+// Narrows the deadline set by an earlier useFastLaunchPolling, whose cleanup restores it, for a pane
+// that never confirms and so has to run its deadline out.
 func expectLaunchTimeout() {
 	launchPolling.Timeout = 150 * time.Millisecond
 }
 
-// launchFrame is one poll's worth of pane state: what "pane read" shows and what agent, if any,
-// "pane get" reports running there. An empty agent is a pane holding no harness process.
+// One poll's worth of pane state: what "pane read" shows and what agent, if any, "pane get" reports
+// running there. An empty agent is a pane holding no harness process.
 type launchFrame struct {
 	text  string
 	agent string
@@ -46,10 +45,8 @@ type launchFrame struct {
 func live(text string) launchFrame   { return launchFrame{text: text, agent: "claude"} }
 func exited(text string) launchFrame { return launchFrame{text: text} }
 
-// fakeLaunchPane installs a herdr fake that replays frames as successive polls, repeating the
-// last one once they run out, and appends every key sent to a log the test reads back. A poll is
-// a "pane get" followed by a "pane read", so the get arm advances the frame and the read arm
-// serves whatever the get arm landed on.
+// Installs a herdr fake that replays frames as successive polls, repeating the last one once they run
+// out, and appends every key sent to a log the test reads back.
 func fakeLaunchPane(t *testing.T, frames ...launchFrame) (keyLog string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -67,6 +64,8 @@ func fakeLaunchPane(t *testing.T, frames ...launchFrame) (keyLog string) {
 		}
 	}
 	keyLog = filepath.Join(dir, "keys.log")
+	// A poll is a "pane get" followed by a "pane read", so the get arm advances the frame and the read
+	// arm serves whatever the get arm landed on.
 	script := `#!/bin/sh
 last=$(($LAUNCH_FRAME_COUNT - 1))
 case "$1 $2" in
@@ -214,12 +213,12 @@ func TestConfirmLaunch(t *testing.T) {
 			wantKeys: "Enter\nDown\nEnter\n",
 		},
 		{
-			// Issue #28's actual timeline: the pane starts as a bash prompt echoing the launch
-			// command, claude comes up a beat later on the trust dialog, then settles. pane.Agent
-			// is tested before the answer branch, so a regression there stops dialog-answering
+			// atqamz/secondhand#28's actual timeline: the pane starts as a bash prompt echoing the launch
+			// command, claude comes up a beat later on the trust dialog, then settles.
+			name:    "a dialog that appears after a cold start is still answered",
+			harness: "claude",
+			// pane.Agent is tested before the answer branch, so a regression there stops dialog-answering
 			// while every single-frame case above still passes.
-			name:     "a dialog that appears after a cold start is still answered",
-			harness:  "claude",
 			frames:   []launchFrame{exited(launchEchoFrame), live(launchTrustFrame), live(launchReadyFrame)},
 			wantKeys: "Enter\n",
 		},

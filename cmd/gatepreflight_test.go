@@ -12,24 +12,23 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// fakeNoMistakesPath writes a fake no-mistakes binary that answers every subcommand with the same
-// text, mirroring the real binary's observed behavior documented in internal/project.GateStatus:
-// `no-mistakes status` exits 0 whether or not the repo is initialized, so the outcome is read from
-// stdout text rather than the exit code. Returns a PATH with the fake binary's directory prepended
-// ahead of the real PATH: the script's own "cat" still needs to resolve, and the fake must win the
-// lookup over any real no-mistakes already on this machine.
+// Writes a fake no-mistakes binary that answers every subcommand with the same text, mirroring the
+// real behavior internal/project.GateStatus documents: `no-mistakes status` exits 0 whether or not the
+// repo is initialized, so the outcome is read from stdout text rather than the exit code.
 func fakeNoMistakesPath(t *testing.T, stdout string) string {
+	// Prepended ahead of the real PATH, not replacing it: the script's own "cat" still needs to resolve,
+	// and the fake must win the lookup over any real no-mistakes already on this machine.
 	return fakeNoMistakesPathExit(t, stdout, 0)
 }
 
-// fakeNoMistakesPathExit is fakeNoMistakesPath with an explicit exit code, for the invocations the
-// real binary refuses non-zero: `no-mistakes runs` exits 1 on both "repo not initialized" and "not
-// in a git repository", where `no-mistakes status` exits 0 printing the same text. GateRunPRs reads
-// the refusal from the text either way, so the fake reproduces the exit code rather than flattening
-// every refusal to 0.
+// fakeNoMistakesPath with an explicit exit code, for the invocations the real binary refuses non-zero:
+// `no-mistakes runs` exits 1 on both "repo not initialized" and "not in a git repository", where
+// `no-mistakes status` exits 0 printing the same text.
 func fakeNoMistakesPathExit(t *testing.T, stdout string, code int) string {
 	t.Helper()
 	bin := t.TempDir()
+	// GateRunPRs reads the refusal from the text either way, so the fake reproduces the exit code rather
+	// than flattening every refusal to 0.
 	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", stdout, code)
 	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -37,9 +36,9 @@ func fakeNoMistakesPathExit(t *testing.T, stdout string, code int) string {
 	return bin + string(os.PathListSeparator) + os.Getenv("PATH")
 }
 
-// fakeHerdrPaneDone fakes only "pane get", answering the pane as done (not busy), enough for
-// promote's precondition check to pass through to gatePreflight without needing the rest of a
-// clean promote's herdr calls, which gatePreflight's refusal preempts.
+// Fakes only "pane get", answering the pane as done (not busy), enough for promote's precondition
+// check to pass through to gatePreflight without needing the rest of a clean promote's herdr calls,
+// which gatePreflight's refusal preempts.
 const fakeHerdrPaneDone = `#!/bin/sh
 cmd="$1 $2"
 case "$cmd" in
@@ -53,10 +52,9 @@ case "$cmd" in
 esac
 `
 
-// setupSpawnHomeGate registers a no-mistakes-mode project and nothing else: gatePreflight fires
-// in spawn before state.Claim, the brief check, or any herdr/treehouse call, so none of those need
-// to exist for these tests. noMistakesPath becomes PATH verbatim, letting each test control
-// exactly whether a fake no-mistakes binary is reachable.
+// Registers a no-mistakes-mode project and nothing else: gatePreflight fires in spawn before
+// state.Claim, the brief check, or any herdr/treehouse call, so none of those need to exist here.
+// noMistakesPath becomes PATH verbatim, letting each test control whether the fake is reachable.
 func setupSpawnHomeGate(t *testing.T, noMistakesPath string) string {
 	t.Helper()
 	home := t.TempDir()
@@ -75,12 +73,9 @@ func setupSpawnHomeGate(t *testing.T, noMistakesPath string) string {
 	return home
 }
 
-// setupPromoteHomeGate mirrors setupPromoteHome but registers a no-mistakes-mode project and
-// skips the worktree/treehouse setup: gatePreflight fires in promote after the report, pane-busy,
-// and brief checks but before worktree.Get, so those three preconditions must be satisfied while
-// nothing past gatePreflight needs to exist. noMistakesPath becomes PATH verbatim except for the
-// fake herdr binary this helper always adds, letting each test control whether no-mistakes is
-// reachable.
+// Mirrors setupPromoteHome but registers a no-mistakes-mode project and skips the worktree/treehouse
+// setup: gatePreflight fires in promote after the report, pane-busy, and brief checks but before
+// worktree.Get, so those three must be satisfied while nothing past gatePreflight needs to exist.
 func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 	t.Helper()
 	useFastLaunchPolling(t)
@@ -110,6 +105,8 @@ func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 		t.Fatal(err)
 	}
 
+	// noMistakesPath becomes PATH verbatim except for the fake herdr binary this helper always adds,
+	// letting each test control whether no-mistakes is reachable.
 	herdrBin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(herdrBin, "herdr"), []byte(fakeHerdrPaneDone), 0o755); err != nil {
 		t.Fatal(err)
@@ -120,10 +117,9 @@ func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 	return home
 }
 
-// TestSpawnRefusesWhenNoMistakesGateNotInitialized stands in for both real histories from
-// atqamz/secondhand#60 (never-initialized project, and a project whose working_path went stale
-// after the fleet home was renamed): both were checked against the real binary and emit the same
-// status text, so one refusal test here covers both.
+// Stands in for both real histories from atqamz/secondhand#60 (a never-initialized project, and one
+// whose working_path went stale after the fleet home was renamed): both were checked against the real
+// binary and emit the same status text, so one refusal test covers both.
 func TestSpawnRefusesWhenNoMistakesGateNotInitialized(t *testing.T) {
 	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")
 	home := setupSpawnHomeGate(t, path)
@@ -169,9 +165,9 @@ func TestSpawnProceedsWhenNoMistakesGateReady(t *testing.T) {
 	}
 }
 
-// TestSpawnSkipGateCheckBypassesRefusalAndWarns pairs the two halves of the escape hatch: the
-// not-initialized gate no longer refuses, and the bypass still announces itself on stderr, which
-// is the only thing that keeps it visible in a transcript.
+// Pairs the two halves of the escape hatch: the not-initialized gate no longer refuses, and the
+// bypass still announces itself on stderr, which is the only thing that keeps it visible in a
+// transcript.
 func TestSpawnSkipGateCheckBypassesRefusalAndWarns(t *testing.T) {
 	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")
 	setupSpawnHomeGate(t, path)
