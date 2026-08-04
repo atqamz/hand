@@ -197,14 +197,56 @@ func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
 	}
 }
 
-func TestSupportsEffort(t *testing.T) {
-	if !SupportsEffort(Claude) {
-		t.Error("SupportsEffort(claude) = false, want true")
-	}
-	for _, name := range []string{Codex, Grok, Pi, OpenCode, "nonexistent"} {
-		if SupportsEffort(name) {
-			t.Errorf("SupportsEffort(%q) = true, want false", name)
+// Pinned against the builders rather than restating the map: a harness reporting true while its
+// command carries no --model is exactly the silent drop being fixed here.
+func TestSupportsModel(t *testing.T) {
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "some-model"})
+		if err != nil {
+			t.Fatalf("Build(%q) error: %v", name, err)
 		}
+		if emits := strings.Contains(got, "--model 'some-model'"); emits != SupportsModel(name) {
+			t.Errorf("SupportsModel(%q) = %v but Build(%q) = %q", name, SupportsModel(name), name, got)
+		}
+	}
+	if SupportsModel("nonexistent") {
+		t.Error("SupportsModel(nonexistent) = true, want false")
+	}
+}
+
+// Pinned against the builders for the same reason as TestSupportsModel: a harness reporting true
+// while its command carries no --effort is the silent drop this predicate exists to prevent.
+func TestSupportsEffort(t *testing.T) {
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "some-effort"})
+		if err != nil {
+			t.Fatalf("Build(%q) error: %v", name, err)
+		}
+		if emits := strings.Contains(got, "--effort 'some-effort'"); emits != SupportsEffort(name) {
+			t.Errorf("SupportsEffort(%q) = %v but Build(%q) = %q", name, SupportsEffort(name), name, got)
+		}
+	}
+	if SupportsEffort("nonexistent") {
+		t.Error("SupportsEffort(nonexistent) = true, want false")
+	}
+}
+
+// Pinned against the builders for the same reason as TestSupportsModel: a harness reporting true
+// while its command carries no prompt text drops the operator-decision rule in silence.
+func TestCarriesPrompt(t *testing.T) {
+	quoted := shellQuote(agentsmd.OperatorDecisionRule)
+	escaped := quoted[1 : len(quoted)-1]
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+		if err != nil {
+			t.Fatalf("Build(%q) error: %v", name, err)
+		}
+		if carries := strings.Contains(got, escaped); carries != CarriesPrompt(name) {
+			t.Errorf("CarriesPrompt(%q) = %v but Build(%q) = %q", name, CarriesPrompt(name), name, got)
+		}
+	}
+	if CarriesPrompt("nonexistent") {
+		t.Error("CarriesPrompt(nonexistent) = true, want false")
 	}
 }
 

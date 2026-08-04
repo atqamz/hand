@@ -3,6 +3,7 @@ package cmd
 import (
 	"cmp"
 	"fmt"
+	"strings"
 
 	"github.com/atqamz/secondhand/internal/brief"
 	"github.com/atqamz/secondhand/internal/harness"
@@ -18,8 +19,24 @@ func resolveTier(cmd *cobra.Command, home, briefAbs, harnessName, model, effort 
 	resolvedModel = cmp.Or(model, decl.Model, configDefault(home, "model", ""))
 	resolvedEffort = cmp.Or(effort, decl.Effort, configDefault(home, "effort", ""))
 
+	var dropped []string
+	if resolvedModel != "" && !harness.SupportsModel(harnessName) {
+		dropped = append(dropped, fmt.Sprintf("model %q", resolvedModel))
+	}
 	if resolvedEffort != "" && !harness.SupportsEffort(harnessName) {
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: harness %q has no effort flag, ignoring effort %q\n", harnessName, resolvedEffort); err != nil {
+		dropped = append(dropped, fmt.Sprintf("effort %q", resolvedEffort))
+	}
+	if !harness.CarriesPrompt(harnessName) {
+		dropped = append(dropped, "the operator-decision rule")
+		if frontMatter {
+			dropped = append(dropped, "the front-matter disclaimer")
+		}
+	}
+
+	// One line per launch rather than one per dropped value: consecutive warnings all naming the
+	// same harness read as separate problems (atqamz/secondhand#151).
+	if len(dropped) > 0 {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: harness %q cannot carry %s; launching anyway\n", harnessName, strings.Join(dropped, ", ")); err != nil {
 			return "", "", false, err
 		}
 	}
