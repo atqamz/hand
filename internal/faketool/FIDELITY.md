@@ -9,6 +9,12 @@ A behaviour no test exercises does not belong here.
 Every entry was observed by running the real binary, not read off its documentation.
 Versions probed: `treehouse v2.1.0`, `herdr 0.7.5`, `gh 2.97.0`.
 
+`tests/contract` re-runs these calls against the real tools under the `contract` build tag, skipping where a binary is absent, so a record that has gone stale against a newer tool is discoverable by running them.
+It covers no call that would change anything an operator owns: a scratch treehouse pool and a scratch herdr workspace are created and destroyed, and every `gh` call is read-only.
+
+Decorative glyphs appear in several stderr lines below and are omitted from the transcripts.
+No matcher may depend on one.
+
 The rule these records serve is SPECS.md's "Testing strategy": a fake that answers a state-changing command identically before and after that command cannot test anything about the state change.
 So each record notes what the call leaves behind, not only what it prints.
 
@@ -22,10 +28,12 @@ Exit 0.
 A version banner goes to **stderr**, the JSON payload to **stdout**, which is why `worktree.Get` reads stdout alone - `CombinedOutput` here corrupts every parse.
 
 ```
-{"path":"/home/atqa/.treehouse/secondhand-fcde6a/3/secondhand","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8","lease_holder":"hand:task-1","leased_at":"2026-08-04T09:12:31Z"}
+{"path":"/tmp/pool/.treehouse/pool-52a8ff/1/pool","lease_id":"def81bb8adcc86f4c5d50233cf3ba0c7","lease_holder":"hand:task-1","leased_at":"2026-08-04T17:35:19.869690786+07:00"}
 ```
 
 `lease_id` is fresh on every acquisition, including a slot that was just returned and handed straight back out.
+`lease_holder` and `leased_at` are read by nothing in `hand`, so only `path` and `lease_id` are load-bearing.
+An update-available notice shares stderr with the banner when one is due, which is the second reason nothing may read this call's output as a whole.
 A treehouse older than v2.1.0 reports `path` alone with no identity, which stays a usable lease: `worktree.CheckCollision` falls back to comparing paths for it.
 
 State left behind: the slot is leased and is not handed out again until it is returned.
@@ -86,7 +94,7 @@ The changes are discarded, the slot is freed, and the directory is left clean.
 
 ### `treehouse init`
 
-Creates `treehouse.toml` in the working directory and reports the path it wrote on stdout.
+Creates `treehouse.toml` in the working directory, reporting `Created <path>` on **stderr** with nothing on stdout.
 Exit 1 with `treehouse.toml already exists` on stderr when one is already there.
 
 State left behind: `treehouse.toml` is **untracked and excluded nowhere**.
@@ -118,6 +126,7 @@ A command naming something that does not exist answers an error envelope on **st
 The codes observed are `workspace_not_found`, `tab_not_found` and `pane_not_found`.
 
 `pane run`, `pane send-text` and `pane send-keys` are void: empty stdout on success, and the same error envelope on stderr with exit 1 for a pane that is gone.
+A void command's error envelope carries `"id":"cli:request"` rather than a per-command id, so nothing may key on the id.
 `pane read` is the one command whose success is bare text on stdout rather than an envelope.
 
 Identifiers are assigned by herdr: workspaces `wX`, their tabs `wX:t1`, their panes `wX:p1`.
@@ -165,14 +174,24 @@ Exit 0, with the new tab and its root pane.
 Exit 0, and the new label is what `tab list` reports from then on.
 `tab_not_found` with exit 1 for a tab that has been closed.
 
+### `herdr pane read <id> --source recent --lines <n>`
+
+Exit 0 with bare text, and **empty for a pane whose own shell has not painted yet** - a read taken immediately after `workspace create` returns nothing at all.
+The two sources also disagree in that window: `visible` can carry the screen while `recent` is still empty.
+So a single read proves nothing about a pane, which is why `confirmLaunch` polls rather than reading once, and why the fake answering the same text on every read is only ever the settled case.
+
+Text `pane run` typed into the pane appears in a later read, so a read reflects what herdr sent as well as what the command produced.
+
 ## gh
 
 Driven by `internal/ghutil`, and through it by teardown's landed-work check and the gate's PR detection.
 
-### `gh pr list --head <branch> --json number,url,state,headRepository`
+### `gh pr list --repo <slug> --head <branch> --state all --limit 200 --json number,url,state,headRepository`
 
 Exit 0 with a JSON array on stdout, `[]` when nothing matches - an empty result is not an error.
 `headRepository` carries `id`, `name` and `nameWithOwner`.
+
+`--state all` is what makes a merged PR findable at all, and `--repo` narrows the search independently of `--head`: a fork project searches the upstream and its own fork for one branch and has to see a different answer from each.
 
 ### `gh pr view <url-or-number> --json state`
 
@@ -205,7 +224,12 @@ This is the transition `hand merge` and `hand teardown` are sequenced around - m
 So the exit status cannot say whether a merge happened, and a rerun of `hand merge` would report success for a merge it did not perform.
 `runPRMerge` checks `PRIsMerged` before the merge for that reason, and `TestMergeRefusesAPRAnEarlierRunAlreadyMerged` is the check that fails without it.
 
+Both merge entries were observed on a throwaway PR and are the one part of this file `tests/contract` does not re-run: merging is not reversible, and no contract run may land a real PR.
+
 ### Slug case
 
-Repository slugs from `gh` do not agree with git remotes on case, and `FindPRByBranch` folds case when comparing them.
-That behaviour is covered by `internal/ghutil/pr_test.go` and `tests/e2e/slug_case_test.go`, whose own `gh` fake is the one place a fake's fidelity had already been thought about; it is deliberately left as it is.
+GitHub serves a repo under any casing of its slug and answers with the canonical one: `--repo AtqaMZ/SecondHand` succeeds and reports `"nameWithOwner":"atqamz/secondhand"`.
+So `FindPRByBranch` folds case when comparing a `gh` answer against a git remote, and the fake matches `--repo` case-insensitively - a case-sensitive fake would answer a double search of one repo with one hit and hide the duplicate the real `gh` returns.
+
+`internal/ghutil/pr_test.go` and `tests/e2e/slug_case_test.go` cover the comparison itself.
+The latter's own `gh` fake is the one place a fake's fidelity had already been thought about; it is deliberately left as it is.

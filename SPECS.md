@@ -2516,10 +2516,20 @@ A non-zero exit does not retract what a command already printed: `hand doctor`'s
 
 ## Testing strategy
 
-Every faked `herdr`, `gh`, `treehouse` or harness invocation, in unit and end-to-end tests alike, carries a comment recording the fake-fidelity contract: what the real tool does on success and on failure - exit code, stream, response shape - and whether the fake mirrors that or deliberately diverges.
+`herdr`, `treehouse` and `gh` are faked once, in `internal/faketool`, shared by the unit and end-to-end suites alike.
+A test declares the fleet it wants - which pool slots exist, which workspaces are already open, which PRs are on which branch - and the package generates the POSIX-sh script for it.
+Hand-writing a fake per test is what let the same vacuous shape through repeatedly, so a new test extends the shared fake rather than writing its own.
 
-A fake of a *state-changing* command carries a second obligation, because the first one alone has let vacuous tests through repeatedly: **a fake that answers a state-changing command identically before and after that command cannot test anything about the state change.**
-Such a fake must model the state its own commands leave behind, and its fidelity note must say what that state is - a closed herdr tab stops being listed; a returned treehouse worktree keeps its pool slot directory and returns again as a no-op success, while a path no pool manages exits 1.
+The rule that governs it: **a fake that answers a state-changing command identically before and after that command cannot test anything about the state change.**
+So every fake models the state its own commands leave behind.
+Returning a treehouse worktree frees its pool slot for the next `get` while leaving the directory in place; closing a herdr tab does not merely unlist it, every later command naming that tab or its pane answers `*_not_found` on stderr with exit 1; merging a PR moves it to `MERGED` for every later `pr view` and `pr list`.
+
+`internal/faketool/FIDELITY.md` records what the real tool does for each call the suite depends on - exit code, stream, response shape, and what the call leaves behind - observed by running the real binary, not read off its documentation.
+Only calls `hand` makes are recorded; behaviour no test exercises does not belong there.
+A fidelity claim that is load-bearing names the test that fails without it, so the record and the check cannot drift apart silently.
+
+The contract tests under `tests/contract` close the loop the other direction: built only under the `contract` tag and skipped where the real binary is absent, each one runs the recorded calls against the real tool in scratch state of its own and asserts the shape `FIDELITY.md` claims.
+They are opt-in because CI installs no real `herdr` or `treehouse`; they exist so a fake that has quietly gone stale against a newer tool is discoverable by running them, rather than by a defect reaching an operator.
 
 ### Unit tests
 

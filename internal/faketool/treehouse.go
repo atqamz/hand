@@ -102,7 +102,7 @@ func (th Treehouse) Install(t *testing.T, bin string) {
       exit 1
     fi
     echo 'max_trees = 16' > treehouse.toml
-    echo "Created $(pwd)/treehouse.toml"
+    echo "Created $(pwd)/treehouse.toml" >&2
     ;;`, quote(banner), acquire.String(), len(th.Slots), resolve.String())
 
 	install(t, bin, "treehouse", th.Log, "", "$1", body)

@@ -18,8 +18,9 @@ Without Nix, install those yourself.
 3. Make changes.
 4. make lint && make test
 5. make e2e if you changed CLI behavior (end-to-end suite, excluded from make test).
-6. nix build .#default if you changed Go dependencies (CI builds the flake, and a stale vendorHash in flake.nix fails it).
-7. Open a PR whose body carries a closing keyword (Closes, Fixes, or Resolves) directly preceding a fully qualified atqamz/secondhand#N, on its own line. A bare #N links but reads ambiguously outside the repo, and a reference without the keyword links the issue without ever closing it.
+6. make contract if you changed how hand calls herdr, treehouse or gh, and you have those installed. It checks the records in internal/faketool/FIDELITY.md against the real tools, skipping whichever is absent, so CI never runs it.
+7. nix build .#default if you changed Go dependencies (CI builds the flake, and a stale vendorHash in flake.nix fails it).
+8. Open a PR whose body carries a closing keyword (Closes, Fixes, or Resolves) directly preceding a fully qualified atqamz/secondhand#N, on its own line. A bare #N links but reads ambiguously outside the repo, and a reference without the keyword links the issue without ever closing it.
 
 Commits use conventional commits: feat:, fix:, chore:, etc.
 release-please handles versioning and changelogs from these.

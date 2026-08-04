@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint e2e install clean
+.PHONY: build test fmt lint e2e contract install clean
 
 VERSION ?= dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -19,6 +19,10 @@ lint:
 
 e2e:
 	go test -tags=e2e -timeout=10m ./tests/e2e/...
+
+# Runs against the real herdr, treehouse and gh, skipping whichever is absent.
+contract:
+	go test -tags=contract -count=1 -timeout=10m ./tests/contract/...
 
 install: build
 	cp hand $(GOPATH)/bin/ 2>/dev/null || cp hand ~/.local/bin/
