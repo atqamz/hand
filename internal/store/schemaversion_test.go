@@ -457,3 +457,68 @@ func TestProjectUpstreamColumnMigratesOntoAnExistingDatabase(t *testing.T) {
 		t.Fatalf("upstream = %q, wanted it declared on the migrated row", projects[0].Upstream)
 	}
 }
+
+// Exercises the real report_digest entry against a database holding a task row
+// whose worker has already reported - a live fleet home's shape. The column
+// arrives empty rather than backfilled on purpose: the digest of the prefix
+// that offset already consumed cannot be recovered from a file that may have
+// been rewritten since, and empty is what state.ReportCursor falls back to the
+// newline boundary for. The offset itself has to survive, or the upgrade
+// replays every line the previous run already surfaced.
+func TestReportDigestColumnMigratesOntoAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+
+	restore := migrations
+	own := migrationsContaining("report_digest")
+	t.Cleanup(func() { migrations = restore })
+
+	migrations = []string{}
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN report_digest`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`INSERT INTO task (id, report_offset, last_report_state, last_report_note)
+		VALUES ('t1', 61, 'working', 'rebasing onto main before the last two commits land')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrations = own
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen replaying the real report_digest migration: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	got, found, err := reopened.ReadTask("t1")
+	if err != nil || !found {
+		t.Fatalf("ReadTask = %v, %v", found, err)
+	}
+	if got.ReportDigest != "" {
+		t.Fatalf("report_digest = %q, want empty: the migration carries no backfill", got.ReportDigest)
+	}
+	if got.ReportOffset != 61 {
+		t.Fatalf("report_offset = %d, want the pre-migration row's 61 intact", got.ReportOffset)
+	}
+	if got.LastReportState != "working" {
+		t.Fatalf("migration lost the pre-existing row's report state: %+v", got)
+	}
+
+	got.ReportDigest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+	if err := reopened.WriteTask(got); err != nil {
+		t.Fatal(err)
+	}
+	reread, _, err := reopened.ReadTask("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.ReportDigest != got.ReportDigest {
+		t.Fatalf("digest did not survive a write to the migrated row: %+v", reread)
+	}
+}
