@@ -19,7 +19,9 @@ type Treehouse struct {
 	Held []string
 	// Models a treehouse older than v2.1.0, which reports no lease identity.
 	NoLeaseIdentity bool
-	Log             string
+	// Version banner, defaulting to TreehouseBanner.
+	Banner string
+	Log    string
 }
 
 // Writes the fake into bin, which Bin has put on PATH.
@@ -27,6 +29,10 @@ func (th Treehouse) Install(t *testing.T, bin string) {
 	t.Helper()
 	state := stateDir(t, bin, "treehouse")
 	counter := quote(state + "/leases")
+	banner := th.Banner
+	if banner == "" {
+		banner = TreehouseBanner
+	}
 
 	marker := func(slot string) string { return quote(state + "/slot-" + key(slot)) }
 
@@ -97,7 +103,7 @@ func (th Treehouse) Install(t *testing.T, bin string) {
     fi
     echo 'max_trees = 16' > treehouse.toml
     echo "Created $(pwd)/treehouse.toml"
-    ;;`, quote(TreehouseBanner), acquire.String(), len(th.Slots), resolve.String())
+    ;;`, quote(banner), acquire.String(), len(th.Slots), resolve.String())
 
 	install(t, bin, "treehouse", th.Log, "", "$1", body)
 

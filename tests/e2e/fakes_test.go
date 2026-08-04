@@ -3,13 +3,14 @@
 package e2e
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/secondhand/internal/faketool"
 )
 
 // realBinsOnPath are the only real executables this suite needs to resolve:
@@ -85,15 +86,6 @@ func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func herdrOK(t *testing.T, result any) string {
-	t.Helper()
-	data, err := json.Marshal(map[string]any{"result": result})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
-}
-
 // herdrIDs is the fixed set of workspace/tab/pane identifiers a static fake
 // herdr hands back for a single spawn/promote + teardown lifecycle.
 type herdrIDs struct {
@@ -104,60 +96,40 @@ type herdrIDs struct {
 	PaneStatus  string // agent_status reported by "pane get"; defaults to "working" if empty
 }
 
-// writeFakeHerdrStatic writes a herdr fake that always reports the same
-// workspace/tab/pane identifiers, suitable for a spawn (or promote) followed
-// by a teardown within one test: workspace list reports none so a fresh
-// workspace is created, and workspace create's own response carries the root
-// tab/pane herdr always creates alongside it - the ones the task then renames
-// (via "tab rename") and reuses instead of creating a second tab. tab list
-// reports exactly the one tab so teardown closes the whole workspace
-// (mirroring closeTaskTab's sole-tab behavior).
+// The herdr fake for a spawn (or promote) followed by a teardown within one test:
+// no workspace exists yet, so the command creates one, and the create's response
+// carries the root tab and pane herdr makes alongside it - the ones the task
+// renames and reuses instead of creating a second tab. A test needing a workspace
+// already open declares faketool.Herdr itself.
 func writeFakeHerdrStatic(t *testing.T, dir string, ids herdrIDs) {
 	t.Helper()
 	writeFakeHerdrStaticLogged(t, dir, "", ids)
 }
 
-// writeFakeHerdrStaticLogged is writeFakeHerdrStatic plus an invocation log, for tests that need
-// to assert which herdr calls were actually made (e.g. that spawn reuses the workspace's own root
-// tab instead of creating a second one, and that teardown of that sole tab closes the workspace).
+// writeFakeHerdrStatic plus an invocation log, for tests that assert which herdr
+// calls were made: that spawn reuses the workspace's own root tab rather than
+// creating a second one, and that tearing that sole tab down closes the workspace.
 func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs) {
 	t.Helper()
-	status := ids.PaneStatus
-	if status == "" {
-		status = "working"
+	// Real herdr creates a tab whenever it is asked to, but a generated fake has to
+	// know the identifiers up front, so a few spares stand ready for the second and
+	// later task spawned into the workspace the first one created. Running out is a
+	// loud failure, never a silent reuse of the first task's tab.
+	spares := make([]faketool.HerdrTab, 4)
+	for i := range spares {
+		spares[i] = faketool.HerdrTab{
+			ID:   fmt.Sprintf("%s-%d", ids.TabID, i+2),
+			Pane: fmt.Sprintf("%s-%d", ids.PaneID, i+2),
+		}
 	}
-
-	workspaceList := herdrOK(t, map[string]any{"workspaces": []any{}})
-	workspaceCreate := herdrOK(t, map[string]any{
-		"workspace": map[string]any{"workspace_id": ids.WorkspaceID, "label": ids.Label, "tab_count": 1},
-		"tab":       map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": "1"},
-		"root_pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent_status": status},
-	})
-	tabRename := herdrOK(t, map[string]any{"tab": map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}})
-	tabList := herdrOK(t, map[string]any{"tabs": []any{map[string]any{"tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "label": ids.Label}}})
-	tabClose := herdrOK(t, map[string]any{"type": "ok"})
-	workspaceClose := herdrOK(t, map[string]any{"type": "ok"})
-	paneGet := herdrOK(t, map[string]any{"pane": map[string]any{"pane_id": ids.PaneID, "tab_id": ids.TabID, "workspace_id": ids.WorkspaceID, "agent": "claude", "agent_status": status}})
-
-	// "pane run"/"send-text"/"send-keys" are void commands: real herdr writes
-	// nothing to stdout on success, unlike every query command above. "pane get" reports claude
-	// running in the pane and "pane read" a startup frame with no first-run dialog on it, which
-	// is what confirmLaunch's poll loop needs to confirm the launch.
-	body := fmt.Sprintf(`  "workspace list") echo %s ;;
-  "workspace create") echo %s ;;
-  "tab rename") echo %s ;;
-  "pane run") ;;
-  "pane send-text") ;;
-  "pane send-keys") ;;
-  "pane read") printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n' ;;
-  "tab list") echo %s ;;
-  "tab close") echo %s ;;
-  "workspace close") echo %s ;;
-  "pane get") echo %s ;;`,
-		shellSingleQuote(workspaceList), shellSingleQuote(workspaceCreate), shellSingleQuote(tabRename),
-		shellSingleQuote(tabList), shellSingleQuote(tabClose),
-		shellSingleQuote(workspaceClose), shellSingleQuote(paneGet))
-	writeFakeDispatch(t, dir, "herdr", logPath, "$1 $2", body)
+	faketool.Herdr{
+		Creates: []faketool.HerdrWorkspace{{ID: ids.WorkspaceID, Label: ids.Label, Tabs: []faketool.HerdrTab{
+			{ID: ids.TabID, Label: "1", Pane: ids.PaneID},
+		}}},
+		TabCreates: spares,
+		PaneStatus: ids.PaneStatus,
+		Log:        logPath,
+	}.Install(t, dir)
 }
 
 // writeFakeHerdrWatch writes a herdr fake for the watch scenario: workspace
@@ -269,73 +241,30 @@ func publishPaneFile(t *testing.T, statusDir, name, content string) {
 	}
 }
 
-// writeFakeTreehouse writes a treehouse fake managing a one-slot pool at
-// worktreePath and no-oping on init, matching worktree.Get/Return and
-// treehouseInitIfNeeded's invocation shapes ("get"/"return"/"init" as $1).
-// "get" writes a banner line to stderr before its JSON, mirroring real
-// treehouse's documented "all banners go to stderr" behavior, so a
-// CombinedOutput regression at the call site fails the suite.
+// A one-slot treehouse pool at worktreePath, plus any paths it leased out before
+// the test began - a scout's worktree a promote hands back, say, which the real
+// pool would refuse as unmanaged if it were never declared.
 //
-// The slot is leased exclusively, the way real treehouse's pool lock holds it: a
-// "get" while it is still out fails instead of handing one path to two holders,
-// and only a "return" of that path frees it again. Without that a test could
-// build the one fixture the real backend cannot produce - two live tasks on one
-// slot - and prove the collision guard against a state that never occurs.
-// Returning any other path stays a no-op success, which is what lets promote
-// hand back a scout worktree this pool never owned.
-//
-// Every "get" mints a fresh lease_id off a counter file, because that is the
-// one thing real treehouse (v2.1.0 and up) guarantees is never reused: a pool
-// slot handed back out keeps its path and gets a new identity, which is exactly
-// what worktree.CheckCollision keys on. A fake reusing one identity across
-// acquisitions could not tell the collision guard's two branches apart. The
-// counter and the held marker live beside the fake rather than in a fresh temp
-// dir so that a test reinstalling this fake - a subtest pointing it at its own
-// worktree - keeps counting up instead of reissuing an identity it already
-// handed out, and keeps each slot's held state separate.
-func writeFakeTreehouse(t *testing.T, dir, worktreePath string) {
+// internal/faketool holds the pool: the slot is leased exclusively the way real
+// treehouse's pool lock holds it, so a test cannot build the one fixture the real
+// backend never produces - two live tasks on one slot - and prove the collision
+// guard against a state that never occurs.
+func writeFakeTreehouse(t *testing.T, dir, worktreePath string, alreadyLeased ...string) {
 	t.Helper()
-	writeFakeTreehousePool(t, dir, worktreePath, "treehouse 2.1.0", true)
+	faketool.Treehouse{Slots: []string{worktreePath}, Held: alreadyLeased}.Install(t, dir)
 }
 
-// writeFakeTreehouseWithoutLeaseIdentity is the same one-slot pool as a
-// treehouse older than v2.1.0: it leases and frees the slot identically but
-// reports no lease_id at all, which is what drives worktree.CheckCollision down
-// its path-comparison fallback - the same branch a task row written before the
-// lease_id column existed takes.
+// The same one-slot pool as a treehouse older than v2.1.0: it leases and frees
+// the slot identically but reports no lease_id at all, which is what drives
+// worktree.CheckCollision down its path-comparison fallback - the same branch a
+// task row written before the lease_id column existed takes.
 func writeFakeTreehouseWithoutLeaseIdentity(t *testing.T, dir, worktreePath string) {
 	t.Helper()
-	writeFakeTreehousePool(t, dir, worktreePath, "treehouse 0.7.4", false)
-}
-
-func writeFakeTreehousePool(t *testing.T, dir, worktreePath, banner string, leaseIdentity bool) {
-	t.Helper()
-	counter := shellSingleQuote(filepath.Join(dir, ".treehouse-leases"))
-	held := shellSingleQuote(filepath.Join(dir, ".treehouse-held-"+strings.ReplaceAll(strings.Trim(worktreePath, "/"), "/", "_")))
-	path := shellSingleQuote(worktreePath)
-	payload := `'{"path":"%s","lease_id":"lease-%s"}\n' ` + path + ` "$n"`
-	if !leaseIdentity {
-		payload = `'{"path":"%s"}\n' ` + path
-	}
-	// Truncated rather than removed to free the slot, and tested with -s rather
-	// than -e: rm is not on this suite's hermetic PATH, and redirection is a shell
-	// builtin.
-	body := fmt.Sprintf(`  get)
-    echo %[1]s >&2
-    if [ -s %[2]s ]; then
-      printf 'treehouse: pool slot %%s is already leased\n' %[3]s >&2
-      exit 1
-    fi
-    n=$(cat %[4]s 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > %[4]s
-    echo "$n" > %[2]s
-    printf %[5]s
-    ;;
-  return)
-    if [ "$2" = %[3]s ]; then : > %[2]s; fi
-    echo ok
-    ;;
-  init) echo ok ;;`, shellSingleQuote(banner), held, path, counter, payload)
-	writeFakeDispatch(t, dir, "treehouse", "", "$1", body)
+	faketool.Treehouse{
+		Slots:           []string{worktreePath},
+		Banner:          "treehouse 0.7.4",
+		NoLeaseIdentity: true,
+	}.Install(t, dir)
 }
 
 // returnFakeWorktree frees a leased pool slot through the fake treehouse's own
