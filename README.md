@@ -9,30 +9,28 @@ It was born from [firstmate](https://github.com/kunchenguid/firstmate), an agent
 
 ## Quick start
 
+Install `hand` (see "Installation" below for every option), then create a fleet home and register a project:
+
 ```sh
-git clone https://github.com/atqamz/secondhand
-cd secondhand
-make build
-./hand init --setup
-./hand project add https://github.com/org/repo
+mkdir ~/fleet
+cd ~/fleet
+hand init
+hand project add https://github.com/org/repo
 ```
+
+`hand init` asks nothing.
+It creates runtime directories, skeleton files, `AGENTS.md` and a `.claude/settings.json` session hook under the current directory, and reports which worker defaults are still unset.
+Those defaults are settled in the first supervising session you open in the home: it reads the same report at session start and asks you for each missing value, then persists your answer with `hand config set <key> <value>`.
+Nothing is guessed on your behalf, so a fleet home is never configured with a value you did not choose.
+
+A fleet home is a plain directory, anywhere on disk, unrelated to any project's own repo.
+`hand init` never places a `hand` binary in it, so install `hand` on `PATH` first.
 
 The worker lifecycle commands are available, including `hand spawn`, `hand status`, `hand send`, and `hand teardown`.
 
 ## Set up a fleet home
 
-The quick start above dogfoods a fleet home inside the secondhand repo checkout itself, which is how the maintainers run it.
-Most users instead want a standalone fleet home: a plain directory, anywhere on disk, unrelated to any project's own repo.
-
-```sh
-mkdir ~/fleet
-cd ~/fleet
-hand init --setup
-hand project add https://github.com/org/repo
-```
-
-`hand init` only writes runtime directories, skeleton files and a `.claude/settings.json` session hook under the current directory; it never places a `hand` binary there.
-Install `hand` from one of the options under "Installation" below and make sure it is on `PATH` before running any command.
+The maintainers dogfood a fleet home inside the secondhand checkout itself; see [CONTRIBUTING.md](CONTRIBUTING.md) for that setup.
 
 Every `hand` command resolves its fleet home the same way: the `HAND_HOME` environment variable if set, otherwise the current directory or the nearest ancestor holding `state/hand.db`.
 `state/hand.db` is the marker because only `hand` ever writes it, so a project clone under `projects/` carrying its own generic top-level `data/` and `state/` never captures the walk up.
@@ -57,7 +55,8 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 | Command | Description | Status |
 | --- | --- | --- |
 | `hand` | With no subcommand: name the binary that answered, its version and the fleet home it resolved, followed by the fleet overview `hand status` prints | Available |
-| `hand init` | Initialize runtime directories, skeleton files and the session hook; `--setup` runs interactive first-time configuration | Available |
+| `hand init` | Initialize runtime directories, skeleton files and the session hook; asks nothing and chooses no worker default | Available |
+| `hand config` | Report the fleet's worker defaults and which of them are still missing; `hand config set <key> <value>` validates and persists one | Available |
 | `hand project add` | Clone and register a repository | Available |
 | `hand project list` | List registered projects | Available |
 | `hand project remove` | Unregister a project, keeping its clone | Available |
@@ -98,15 +97,19 @@ flowchart TD
 
 ## Requirements
 
-- Go 1.26.5 or newer (build only)
-- [herdr](https://github.com/ogulcancelik/herdr) - terminal multiplexer with semantic agent state
-- [treehouse](https://github.com/kunchenguid/treehouse) v2.1.0 or newer - git worktree pool manager
-- [gh](https://github.com/cli/cli) - GitHub CLI, used for PR and release operations
+`hand` itself is a static binary with no runtime dependencies.
+It shells out to these tools, and reports the ones it cannot find on `PATH` when you run `hand init` or `hand doctor`:
 
-Optional:
+- [herdr](https://github.com/ogulcancelik/herdr) - terminal multiplexer with semantic agent state; every worker runs in a herdr pane, so spawning needs it
+- [treehouse](https://github.com/kunchenguid/treehouse) v2.1.0 or newer - git worktree pool manager; workers are given worktrees leased from it
+- [gh](https://github.com/cli/cli) - GitHub CLI, used for every PR and release operation
+- [no-mistakes](https://github.com/yes2games/no-mistakes) - validation pipeline, needed only by projects registered in `no-mistakes` mode
+- [qmd](https://github.com/tobi/qmd) - semantic search over historical task data, beyond `hand search`'s keyword matching; optional
 
-- [no-mistakes](https://github.com/yes2games/no-mistakes) - validation pipeline for projects in `no-mistakes` mode
-- [qmd](https://github.com/tobi/qmd) - semantic search over historical task data, beyond `hand search`'s keyword matching
+A worker also needs its own agent harness installed - `claude`, `codex`, `grok`, `pi` or `opencode`.
+`hand config` lists the supported ones, which of them are on `PATH`, and which accept a model or effort at launch.
+
+Building from source additionally needs Go 1.26.5 or newer.
 
 `hand` never installs or configures qmd, and every command works without it.
 To point it at a fleet home's corpus by hand:
@@ -122,28 +125,37 @@ qmd vsearch "how did we handle the deploy failure" -c secondhand
 
 ## Installation
 
-From source:
+From a release, the way most installs should go:
 
 ```sh
-make build
+curl -fsSLO https://github.com/atqamz/secondhand/releases/latest/download/hand-linux-amd64.tar.gz
+tar xzf hand-linux-amd64.tar.gz
+install -m755 hand ~/.local/bin/hand
 ```
 
-Set `VERSION` to embed a release version in the binary:
+Releases carry `hand-linux-amd64`, `hand-linux-arm64`, `hand-darwin-amd64` and `hand-darwin-arm64` as `.tar.gz`, alongside a `checksums.txt` to verify against.
+The [releases page](https://github.com/atqamz/secondhand/releases) lists every asset.
+
+From nix, either into your profile or for a single command:
 
 ```sh
-make build VERSION=0.1.0
+nix profile install github:atqamz/secondhand
+nix shell github:atqamz/secondhand -c hand --version
 ```
 
-From nix:
+The flake covers `aarch64-darwin`, `aarch64-linux` and `x86_64-linux`.
+On Intel macOS, use a release binary or `go install`.
+
+From Go:
 
 ```sh
-nix build
+go install github.com/atqamz/secondhand@latest
 ```
 
-The flake covers `aarch64-darwin`, `aarch64-linux`, and `x86_64-linux`.
-On Intel macOS, use `make build` or a release binary.
+That produces a binary named `secondhand`, not `hand`, and embeds no version, so it prints `dev` and never reports available updates.
+Rename it or prefer a release asset.
 
-From releases: download the binary for your platform from the [releases page](https://github.com/atqamz/secondhand/releases).
+To build a checkout - the path for working on secondhand itself - see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 To update an installed binary, run `hand update`.
 It downloads the release asset for the current OS and architecture, verifies its SHA256 checksum, and replaces the running binary in place.
@@ -154,8 +166,22 @@ Builds without an embedded version never print the notice.
 
 ## Configuration
 
-Preferences live as plain files under `config/`, one value per file - default worker harness, model, and effort among them; SPECS.md's "Directory layout" section lists every key `hand` reads.
-Run `hand init --setup` to discover installed harnesses and tools and write the defaults interactively.
+Preferences live as plain files under `config/`, one value per file; SPECS.md's "Directory layout" section lists every key `hand` reads.
+
+The three worker defaults - `harness`, `model` and `effort` - are owned by `hand config`, which validates a value and writes it atomically:
+
+```sh
+hand config                             # what is set, what is missing, what each harness can carry
+hand config set harness claude
+hand config set model claude-opus-5
+```
+
+The harness comes first because it decides whether the other two exist at all: `hand config` reports `model` and `effort` as `pending-harness` until one is chosen, then as `unsupported` for a harness that takes no such launch flag, and `hand config set` refuses to write one rather than storing a value nothing can dispatch.
+`model` and `effort` are stored per harness (`config/model.claude`), so switching harnesses re-asks instead of handing a worker an identifier chosen for a different tool.
+
+Nothing sets these for you.
+`hand init` reports them as missing, every supervising session's opening document repeats the report, and the answer is yours to give in that session - the fleet home's own `AGENTS.md` carries the instructions the agent follows to ask.
+
 A brief can declare its own `model` and `effort` for one task, which win over these defaults and lose only to a `hand spawn`/`hand promote` flag - see SPECS.md's "Brief format" section.
 
 Workers run their harness interactively so they can be steered and watched.

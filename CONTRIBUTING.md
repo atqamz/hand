@@ -11,6 +11,14 @@ make test
 `nix develop` is optional and provides the full toolchain: Go, golangci-lint, gopls, gotools, and gcc (gcc is required because `make test` runs with `-race`, which needs CGO).
 Without Nix, install those yourself.
 
+To dogfood the tool from its own checkout, initialize a fleet home there and run the binary you just built:
+
+    ./hand init
+    ./hand project add https://github.com/org/repo
+
+Every directory `hand init` creates at the checkout root is gitignored, so the fleet home lives alongside the source without ever being committed.
+`hand init` asks nothing; open a supervising session in the checkout and answer the worker defaults it reports missing.
+
 ## Making changes
 
 1. Open an issue describing the intent, design, or proposal, and get agreement there before writing code. This applies to any contribution, no matter the size. See "Reporting issues" below for what to include.
