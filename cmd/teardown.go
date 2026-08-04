@@ -163,6 +163,20 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		dirtWasSafe = true
 	}
 
+	// kind is the one field spawn records that nothing can correct afterwards
+	// (atqamz/secondhand#129), so a scout spawned without --scout arrives here as a
+	// ship row and refuses on a PR it was never going to open. The guard reads the
+	// work rather than the record for that case: a report deliverable on disk and a
+	// branch carrying no commits of its own is a completed scout whatever the row
+	// says, and it is recorded as one.
+	//
+	// Narrow on purpose. A ship task whose PR was never opened still has its commits,
+	// so it still refuses - which is the half of this guard that is load-bearing.
+	if t.PR == "" && t.DeliveredAt == "" && isCompletedScout(home, t) {
+		t.Kind = state.KindScout
+		return t, dirtWasSafe, nil
+	}
+
 	// Every check below asks "did this land", which for a contribution offered to
 	// someone else's repo is a question hand cannot answer and the fleet does not
 	// decide. A recorded delivery answers the question teardown actually needs
@@ -230,6 +244,31 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		return t, false, &ExitError{Err: fmt.Errorf("PR %s is not merged", t.PR), Code: 3}
 	}
 	return t, dirtWasSafe, nil
+}
+
+// isCompletedScout reports whether a task's work is a delivered scout report and
+// nothing else: the report exists under data/<id>/ and the worktree's branch adds
+// no commit to the local default branch. Both halves are required - a report alone
+// says nothing about code sitting unlanded on the branch beside it.
+//
+// Resolution failures fail closed, and the branch comparison is local-only like
+// dirtIsSafeToDiscard's: a stale local ref only misses a real case, it never
+// accepts an unlanded one.
+func isCompletedScout(home string, t state.Task) bool {
+	if _, err := os.Stat(filepath.Join(home, "data", t.ID, "report.md")); err != nil {
+		return false
+	}
+	baseRef, err := localDefaultBranchRef(t.Worktree)
+	if err != nil {
+		return false
+	}
+	c := exec.Command("git", "rev-list", "--count", baseRef+"..HEAD")
+	c.Dir = t.Worktree
+	out, err := c.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "0"
 }
 
 func gitStatusPorcelain(worktreePath string) (string, error) {
