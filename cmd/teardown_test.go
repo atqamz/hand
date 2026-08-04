@@ -465,6 +465,17 @@ func setupTeardownHome(t *testing.T) (home, worktree string) {
 	return home, worktree
 }
 
+// writeScoutReport puts the scout deliverable on disk for id.
+func writeScoutReport(t *testing.T, home, id string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(home, "data", id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", id, "report.md"), []byte("findings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTeardownShipFailsOnUncommittedChanges(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	if err := os.WriteFile(filepath.Join(worktree, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
@@ -804,12 +815,7 @@ func TestTeardownScoutFailsWhenReportMissing(t *testing.T) {
 
 func TestTeardownScoutSucceedsWhenReportPresent(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
-	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("done"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeScoutReport(t, home, "task-1")
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout, Worktree: worktree,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -819,6 +825,143 @@ func TestTeardownScoutSucceedsWhenReportPresent(t *testing.T) {
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestTeardownAcceptsAShipRowThatDeliveredAScoutReport is atqamz/secondhand#129:
+// a scout spawned without --scout is recorded as a ship task and nothing can
+// correct the record, so its report-and-no-PR shape hits the landed-work refusal
+// and --force plus a respawn was the only way out. Teardown reads the work
+// instead, and the permanent record says scout.
+func TestTeardownAcceptsAShipRowThatDeliveredAScoutReport(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
+	writeScoutReport(t, home, "task-1")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("completions = %+v, want one record", records)
+	}
+	if records[0].Kind != state.KindScout || records[0].Outcome != "done" {
+		t.Fatalf("completion = %+v, want kind scout outcome done", records[0])
+	}
+}
+
+// TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened is the half of
+// atqamz/secondhand#129's fix that matters: the scout-deliverable path must not
+// become "no PR and some file exists". This task carries a report next to a commit
+// nobody landed, and the commit is what keeps the refusal. A guard that only
+// checked for the report would accept it and throw the commit away.
+func TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
+	if err := os.WriteFile(filepath.Join(worktree, "feature.txt"), []byte("unlanded"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitIn(t, worktree, "add", "feature.txt")
+	runGitIn(t, worktree, "commit", "-q", "-m", "feature")
+	writeScoutReport(t, home, "task-1")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "work may not be landed") {
+		t.Fatalf("got err %v, want the landed-work refusal", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after a refused teardown: %v %v", exists, err)
+	}
+}
+
+// A promoted scout keeps its report on disk while its row turns into a ship, so a
+// task that then merged locally has every shape the scout-deliverable path reads:
+// report present, no PR, and a branch fast-forwarded into the default branch, which
+// adds no commit of its own. It landed as a merge and the permanent record has to
+// say merged, not scout - the inverse of the atqamz/secondhand#78 accuracy rule.
+func TestTeardownRecordsMergedWhenALocallyMergedShipRowKeptItsScoutReport(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeTreehouseReturn(t)
+
+	clonePath := filepath.Join(home, "projects", "myproj")
+	initGitRepo(t, clonePath)
+	worktree := filepath.Join(t.TempDir(), "wt")
+	runGitIn(t, clonePath, "branch", "task-1-branch")
+	runGitIn(t, clonePath, "worktree", "add", "-q", worktree, "task-1-branch")
+	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/myproj.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	writeScoutReport(t, home, "task-1")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("completions = %+v, want one record", records)
+	}
+	if records[0].Kind != state.KindShip || records[0].Outcome != "merged" {
+		t.Fatalf("completion = %+v, want kind ship outcome merged", records[0])
+	}
+}
+
+// Merge evidence excludes the scout-deliverable path on its own, wherever the row
+// came from: a task hand merged is not a report, so it never reaches the completion
+// store as one. Nothing else can confirm this landing without a PR, so the ordinary
+// refusal stands and the row survives for the operator to resolve.
+func TestTeardownStillRefusesAMergedShipRowWithNoPRToConfirm(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
+	writeScoutReport(t, home, "task-1")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "work may not be landed") {
+		t.Fatalf("got err %v, want the landed-work refusal", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state gone after a refused teardown: %v %v", exists, err)
 	}
 }
 
@@ -1016,12 +1159,7 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 
 func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
-	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("done"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeScoutReport(t, home, "task-1")
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout, Worktree: worktree,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -1103,12 +1241,7 @@ esac
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("done"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeScoutReport(t, home, "task-1")
 
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
