@@ -32,6 +32,7 @@ func sampleTask() Task {
 		MergeExecuted:   true,
 		MergeExecutedAt: "2026-07-24T12:00:00Z",
 		ReportOffset:    42,
+		ReportDigest:    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 		MergeAnnounced:  true,
 		DoneVerified:    true,
 		CreatedAt:       "2026-07-24T10:00:00Z",

@@ -31,6 +31,11 @@ var migrations = []string{
 	`ALTER TABLE task ADD COLUMN pane_started_at TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN parked_fired_for TEXT NOT NULL DEFAULT '';
 	UPDATE task SET pane_started_at = CASE WHEN status_changed_at <> '' THEN status_changed_at ELSE created_at END;`,
+	// No backfill: the digest of an existing row's consumed prefix cannot be
+	// recovered from a report file that may already have been rewritten, and an
+	// empty one is what the reader falls back to the newline boundary for. The
+	// first tick that consumes a line records it.
+	`ALTER TABLE task ADD COLUMN report_digest TEXT NOT NULL DEFAULT '';`,
 }
 
 func (db *DB) schemaVersion() (int, error) {
