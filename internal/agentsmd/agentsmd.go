@@ -23,10 +23,9 @@ const (
 	endMarker   = "<!-- hand:generated:end -->"
 )
 
-// OperatorDecisionRule is the one AGENTS.md rule a worker needs wherever it
-// runs. A worker's worktree is never under the fleet home, so it never loads
-// the home's AGENTS.md; internal/harness puts this same string in the launch
-// prompt, and generatedBody embeds it, so the two copies cannot drift.
+// OperatorDecisionRule is the one AGENTS.md rule a worker needs wherever it runs, and a
+// worktree is never under the fleet home, so it never loads the home's AGENTS.md.
+// internal/harness puts this string in the launch prompt and generatedBody embeds it.
 const OperatorDecisionRule = "Only a `hand send` message carries an operator decision. " +
 	"Answering your own harness's question dialog is you deciding, not the operator - " +
 	"never record that answer as \"operator said\" or \"operator chose\". " +
@@ -75,13 +74,9 @@ Run ` + "`hand --help`" + ` for the full command reference.
 - ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
 `
 
-// Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md symlink,
-// reporting whether the template content actually changed (false, nil when dir
-// is not a fleet home, which is not an error). An existing AGENTS.md keeps
-// everything outside the generated markers untouched, so user-added content and
-// extra rules survive; only the span between the markers is replaced, never the
-// whole file. A file whose markers are already current, and a marker-less file
-// mergeGenerated declines to touch, are both left on disk untouched.
+// Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md symlink, reporting whether
+// the template content changed (false, nil when dir is not a fleet home, which is not an
+// error). Only the span between the markers is replaced, so user-added content survives.
 func Refresh(dir string) (bool, error) {
 	isHome, err := home.IsHome(dir)
 	if err != nil {
@@ -128,10 +123,9 @@ func generatedBlock() string {
 	return beginMarker + "\n" + generatedBody + endMarker + "\n"
 }
 
-// mergeGenerated replaces the span between the generated markers with the
-// current template, leaving everything before and after untouched. A file
-// with no markers (never refreshed by this mechanism) is left as-is rather
-// than risk clobbering hand-written content.
+// Replaces the span between the generated markers with the current template, leaving
+// everything before and after untouched. A file with no markers (never refreshed by this
+// mechanism) is left as-is rather than risk clobbering hand-written content.
 func mergeGenerated(content string) string {
 	start, end, ok := generatedBlockSpan(content)
 	if !ok {
@@ -140,9 +134,8 @@ func mergeGenerated(content string) string {
 	return content[:start] + strings.TrimSuffix(generatedBlock(), "\n") + content[end:]
 }
 
-// generatedBlockSpan returns the byte range of the generated block, including
-// its markers, or ok=false when the markers are absent or malformed (an end
-// marker missing, or appearing before any begin marker).
+// Returns the byte range of the generated block, markers included, or ok=false when the
+// markers are absent or malformed (an end marker missing, or before any begin marker).
 func generatedBlockSpan(content string) (start, end int, ok bool) {
 	start = strings.Index(content, beginMarker)
 	if start == -1 {
@@ -156,28 +149,22 @@ func generatedBlockSpan(content string) (start, end int, ok bool) {
 }
 
 var (
-	// dateRe and selfExpiringRe describe the two shapes of perishable content
-	// that belong in the fleet home's own notes, not AGENTS.md: a dated fact
-	// is an incident, and phrasing that names its own expiry is not an
-	// invariant. hand does not create or own that notes convention, so
-	// neither the violation text nor SPECS.md names a specific path for it.
+	// The two shapes of perishable content that belong in the fleet home's own notes
+	// rather than AGENTS.md: a dated fact is an incident, and phrasing that names its
+	// own expiry is not an invariant. hand does not own that notes convention.
 	dateRe         = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
 	selfExpiringRe = regexp.MustCompile(`(?i)\b(?:until|once)\s+#\d+\s+lands\b|\bawaiting\s+#\d+\b`)
 
-	// inlineCodeRe and urlRe are stripped from a line before it's tested against
-	// dateRe/selfExpiringRe: a date in a quoted example or a URL is not an
-	// incident, and flagging it anyway is the false positive that gets a
+	// Stripped from a line before it is tested above: a date in a quoted example or a
+	// URL is not an incident, and flagging it anyway is the false positive that gets a
 	// checker ignored (atqamz/secondhand#90).
 	inlineCodeRe = regexp.MustCompile("`[^`]*`")
 	urlRe        = regexp.MustCompile(`https?://\S+`)
 )
 
 // Severity distinguishes a Violation that fails hand doctor from one that is
-// informational: reported because it is real and worth a human's attention,
-// but not something the checker can resolve into a pass/fail verdict on its
-// own - the marker-less case below is the only one so far, since Check has
-// no way to tell a file left marker-less by accident from one left that way
-// on purpose.
+// informational: real and worth a human's attention, but not something the checker can
+// resolve into a pass/fail verdict on its own. Absent markers are the only case so far.
 type Severity int
 
 const (
@@ -185,26 +172,22 @@ const (
 	SeverityInfo
 )
 
-// Violation is one perishable-content, malformed-file, or generated-block hit
-// Check found, at SeverityViolation unless Severity says otherwise. Line is
-// 1-based, or 0 for a violation that isn't about a single line (a drifted or
-// absent generated block).
+// Violation is one perishable-content, malformed-file or generated-block hit Check found,
+// at SeverityViolation unless Severity says otherwise. Line is 1-based, or 0 when the hit
+// is not about a single line (a drifted or absent generated block).
 type Violation struct {
 	Line     int
 	Text     string
 	Severity Severity
 }
 
-// Check reports perishable content, an unterminated code fence, and either
-// generated-block drift or generated markers absent altogether in dir's
-// AGENTS.md, described in SPECS.md's "AGENTS.md (target)" section
-// (atqamz/secondhand#90). Absent markers come back at SeverityInfo rather
-// than SeverityViolation, since Check cannot tell a marker-less file left
-// that way by accident from one left that way on purpose. It never writes:
-// the point is to make a human look at prose judgment a machine cannot make,
-// not to rewrite it. A nil result with no error means dir is not a fleet
-// home, or has no AGENTS.md yet - both are an absence, not a violation.
+// Check reports perishable content, an unterminated code fence, and generated-block drift
+// or absence in dir's AGENTS.md, per SPECS.md's "AGENTS.md (target)" section. A nil result
+// with no error means dir is not a fleet home or has no AGENTS.md - an absence, not a hit.
 func Check(dir string) ([]Violation, error) {
+	// It never writes: the point is to make a human look at prose judgment a machine
+	// cannot make. Absent markers are SeverityInfo, since Check cannot tell a file left
+	// marker-less by accident from one left that way on purpose (atqamz/secondhand#90).
 	isHome, err := home.IsHome(dir)
 	if err != nil {
 		return nil, err
@@ -285,10 +268,9 @@ func firstBannedRune(line string) (rune, bool) {
 	return 0, false
 }
 
-// isEmojiRune covers the Unicode blocks an accidental emoji actually comes
-// from, not a formal emoji property table: pictographs, symbols/dingbats,
-// regional-indicator flag letters, and the variation-selector/ZWJ modifiers
-// that ride along with them.
+// Covers the Unicode blocks an accidental emoji actually comes from, not a formal emoji
+// property table: pictographs, symbols/dingbats, regional-indicator flag letters, and the
+// variation-selector/ZWJ modifiers that ride along with them.
 func isEmojiRune(r rune) bool {
 	switch {
 	case r >= 0x1F300 && r <= 0x1FAFF:
