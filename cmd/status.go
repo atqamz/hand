@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"text/tabwriter"
+	"strings"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/age"
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
@@ -18,12 +19,16 @@ import (
 
 func newStatusCmd() *cobra.Command {
 	var asJSON, full bool
+	var fields []string
 
 	cmd := &cobra.Command{
 		Use:   "status [id]",
 		Short: "Show fleet overview or single-task detail",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := rejectFieldsWithJSON(fields, asJSON); err != nil {
+				return err
+			}
 			home, err := home.Resolve()
 			if err != nil {
 				return asPrecondition(err)
@@ -31,14 +36,15 @@ func newStatusCmd() *cobra.Command {
 			client := herdr.NewClient()
 
 			if len(args) == 1 {
-				return runStatusSingle(cmd, home, client, args[0], asJSON, full)
+				return runStatusSingle(cmd, home, client, args[0], asJSON, full, fields)
 			}
-			return runStatusFleet(cmd, home, client, asJSON)
+			return runStatusFleet(cmd, home, client, asJSON, fields)
 		},
 	}
 
-	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON instead of TOON")
 	cmd.Flags().BoolVar(&full, "full", false, "show the reported line and history untruncated, with no history dedup (single task only)")
+	cmd.Flags().StringSliceVar(&fields, "fields", nil, fieldsFlagUsage(fleetDefaultFields))
 	return cmd
 }
 
@@ -51,25 +57,38 @@ func newStatusCmd() *cobra.Command {
 // machine consumer needs the whole field and --full is the explicit opt-out.
 const reportSummaryBudget = 200
 
-// truncateReportLine renders line the same way reportLineText does, then caps
-// it to budget runes. The state-vocabulary prefix ("done: ", "blocked: ", ...)
-// is never part of what gets cut - it is the highest-value part of the line -
-// and a cut line always carries a visible marker naming how much was dropped,
-// so a short report can never be mistaken for a truncated one.
-func truncateReportLine(line state.ReportLine, budget int) string {
-	full := reportLineText(line)
-	runes := []rune(full)
-	if len(runes) <= budget {
-		return full
-	}
+// The state-vocabulary prefix ("done: ", "blocked: ", ...) is never part of
+// what gets cut - it is the highest-value part of the line - and a cut line
+// always names its full size and the command that recovers it.
+func truncateReportLine(line state.ReportLine, budget int, id string) string {
 	prefixLen := 0
 	if !line.Malformed {
 		prefixLen = len(line.State) + len(": ")
 	}
-	if budget < prefixLen {
-		budget = prefixLen
+	return axi.Truncate(reportLineText(line), max(budget, prefixLen), "hand status "+id+" --full")
+}
+
+// reportSummary renders the last report line the way both status views show
+// it: an unreadable channel named as such, and the unacknowledged clause on the
+// classified line the fleet view flags rather than on trailing free text.
+func reportSummary(id string, lines []state.ReportLine, readErr error, unacked, full bool) string {
+	if readErr != nil {
+		return fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
 	}
-	return fmt.Sprintf("%s... [+%d chars]", string(runes[:budget]), len(runes)-budget)
+	if len(lines) == 0 {
+		return ""
+	}
+	line := lines[len(lines)-1]
+	suffix := ""
+	if unacked {
+		if classified, ok := state.LastReportedState(lines); ok {
+			line, suffix = classified, " (unacknowledged)"
+		}
+	}
+	if full {
+		return reportLineText(line) + suffix
+	}
+	return truncateReportLine(line, reportSummaryBudget, id) + suffix
 }
 
 // paneAgentStatus degrades gracefully to "unknown" when herdr is unreachable or the
@@ -191,29 +210,6 @@ func holdDetail(h state.Hold) string {
 	return h.Reason
 }
 
-// deliveredSuffix marks work that is handed off with its landing left to
-// someone outside the fleet. Unlike mergeSuffix it does not hang off a recorded
-// PR: a delivered task's deliverable can be a report rather than a PR at all.
-func deliveredSuffix(t state.Task) string {
-	if t.DeliveredAt == "" {
-		return ""
-	}
-	return " (delivered)"
-}
-
-func mergeSuffix(t state.Task) string {
-	switch {
-	case t.PR == "":
-		return ""
-	case t.MergeExecuted:
-		return " (merged)"
-	case t.MergeAnnounced:
-		return " (merged, external)"
-	default:
-		return ""
-	}
-}
-
 // gateRunApplies is the single predicate for whether the gate-run check has anything to say about a
 // task: only a done ship task with a recorded PR does. Everything the check needs - the project
 // lookup above all, whose failure the single-task view propagates - hangs off this, so a task the
@@ -270,14 +266,7 @@ func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Projec
 	return ""
 }
 
-func gateRunSuffix(issue string) string {
-	if issue == "" {
-		return ""
-	}
-	return " (gate: " + issue + ")"
-}
-
-func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool) error {
+func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, fields []string) error {
 	tasks, err := state.List(home)
 	if err != nil {
 		return err
@@ -306,33 +295,19 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 	runPRs := newGateRunReader()
 
-	rows := make([]statusJSON, 0, len(tasks))
-	suffixes := make([]string, 0, len(tasks))
+	views := make([]taskView, 0, len(tasks))
 	for _, t := range tasks {
-		agentState := paneAgentStatus(client, t.Herdr.PaneID)
-		lines, readErr := state.ReadReportLines(home, t.ID)
-		var last state.ReportLine
-		if len(lines) > 0 {
-			last = lines[len(lines)-1]
-		}
-		reported, reportedOK := state.LastReportedState(lines)
-		unacked, readErr := unacknowledged(home, t, reported, reportedOK, readErr)
+		v, _ := buildTaskView(home, client, t, false)
 		p, registered := projectByName[t.Project]
-		runIssue := gateRunIssue(home, t, reportedOK && reported.State == state.ReportDone, p, registered, runPRs)
-		rows = append(rows, statusJSON{
-			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
-			AgentState: agentState,
-			Worktree:   t.Worktree, Herdr: t.Herdr, PR: t.PR,
-			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced,
-			DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason, CreatedAt: t.CreatedAt,
-			LastReportAt: lastReportAt(home, t.ID),
-			Reported:     reportedFrom(last, len(lines) > 0, readErr),
-			GateRunIssue: runIssue, Unacknowledged: unacked,
-		})
-		suffixes = append(suffixes, reportSuffix(agentState, reported, reportedOK, readErr, unacked)+deliveredSuffix(t)+mergeSuffix(t)+gateRunSuffix(runIssue))
+		v.gateIssue = gateRunIssue(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
+		views = append(views, v)
 	}
 
 	if asJSON {
+		rows := make([]statusJSON, 0, len(views))
+		for _, v := range views {
+			rows = append(rows, v.json())
+		}
 		holdRows := make([]holdJSON, 0, len(holds))
 		for _, h := range holds {
 			holdRows = append(holdRows, holdToJSON(h))
@@ -342,44 +317,39 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		return enc.Encode(fleetJSON{TaskCount: len(rows), Tasks: rows, Holds: holdRows})
 	}
 
-	if len(rows) == 0 {
-		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "no tasks (0)"); err != nil {
-			return err
+	cols, err := selectFields(fields, fleetDefaultFields)
+	if err != nil {
+		return err
+	}
+	attention := 0
+	for _, v := range views {
+		if needsAttention(v) {
+			attention++
 		}
-		return printHeldBlock(cmd, holds)
 	}
 
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(w, "id\tproject\tkind\tstate\tage\tlast report"); err != nil {
-		return err
-	}
-	for i, r := range rows {
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Project, r.Kind, r.AgentState+suffixes[i], formatAge(r.CreatedAt), formatReportAge(r.LastReportAt)); err != nil {
-			return err
-		}
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	return printHeldBlock(cmd, holds)
+	var doc axi.Doc
+	doc.Int("count", len(views))
+	doc.Int("attention", attention)
+	doc.Int("held", len(holds))
+	axi.Table(&doc, "tasks", views, cols)
+	axi.Table(&doc, "holds", holds, holdFields)
+	doc.Help(fleetHelp(views, attention)...)
+	return doc.Render(cmd.OutOrStdout())
 }
 
-// printHeldBlock is skipped entirely when holds is empty, so a fleet with
-// nothing waiting prints exactly what it did before this feature existed.
-func printHeldBlock(cmd *cobra.Command, holds []state.Hold) error {
-	if len(holds) == 0 {
-		return nil
-	}
-	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "\nheld:"); err != nil {
-		return err
-	}
-	hw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	for _, h := range holds {
-		if _, err := fmt.Fprintf(hw, "  %s\t%s\t%s\t%s\n", h.ID, h.Kind, holdDetail(h), formatAge(h.SetAt)); err != nil {
-			return err
+func fleetHelp(views []taskView, attention int) []string {
+	if len(views) == 0 {
+		return []string{
+			"Run `hand project list` to see which projects are registered",
+			"Run `hand spawn <id> <project>` to start a worker",
 		}
 	}
-	return hw.Flush()
+	help := []string{"Run `hand status <id>` for one task's detail and report history"}
+	if attention > 0 {
+		help = append(help, "A flagged row is waiting on you: `hand send <id> <message>` to steer it, `hand hold set <id> --kind operator --reason <text>` to park it")
+	}
+	return append(help, "Run `hand status --fields <a,b>` to pick columns, `hand status --help` for every field name")
 }
 
 // A stat fault reads the same as no report at all: the column is a staleness
@@ -418,29 +388,44 @@ func unacknowledged(home string, t state.Task, reported state.ReportLine, report
 	return state.UnacknowledgedTerminalReport(home, t.ID, state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest})
 }
 
-// A pane state and a report answer different questions, so both print. This
-// used to speak only for a not-busy pane, which rendered a worker that appended
-// `paused:` with its harness still running as a bare `working`.
-//
-// unacked rides the reported clause rather than a clause of its own because it
-// qualifies exactly that state: it is only ever set for a terminal report, which
-// is the one branch below that names the reported state at all.
-func reportSuffix(agentState string, reported state.ReportLine, ok bool, readErr error, unacked bool) string {
-	if readErr != nil {
-		return fmt.Sprintf(" (report %s)", reportUnreadable)
+// buildTaskView reads everything both status views derive from one task, and
+// returns the report lines alongside so the detail view's history block and the
+// summary line above it can never come from two different reads of the file.
+func buildTaskView(home string, client *herdr.Client, t state.Task, full bool) (taskView, []state.ReportLine) {
+	agentState := paneAgentStatus(client, t.Herdr.PaneID)
+	lines, readErr := state.ReadReportLines(home, t.ID)
+	reported, reportedOK := state.LastReportedState(lines)
+	unacked, readErr := unacknowledged(home, t, reported, reportedOK, readErr)
+
+	var last state.ReportLine
+	if len(lines) > 0 {
+		last = lines[len(lines)-1]
 	}
-	// `working` is what the column already says, and a busy pane that has not
-	// reported yet is not a stop anyone has to explain.
-	if !ok || reported.State == "" || reported.State == state.ReportWorking {
-		if herdr.Status(agentState).NotBusy() {
-			return " (unreported)"
-		}
-		return ""
+	v := taskView{
+		task:         t,
+		agentState:   agentState,
+		reportedLine: reportSummary(t.ID, lines, readErr, unacked, full),
+		lastReportAt: lastReportAt(home, t.ID),
+		reportFile:   state.ReportPath(home, t.ID),
+		unreadable:   readErr != nil,
+		unacked:      unacked,
+		reported:     reportedFrom(last, len(lines) > 0, readErr),
 	}
-	if unacked {
-		return fmt.Sprintf(" (reported: %s, unacknowledged)", reported.State)
+	if reportedOK {
+		v.reportedState = reported.State
 	}
-	return fmt.Sprintf(" (reported: %s)", reported.State)
+	return v, lines
+}
+
+func (v taskView) json() statusJSON {
+	return statusJSON{
+		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, Harness: v.task.Harness,
+		AgentState: v.agentState, Worktree: v.task.Worktree, Herdr: v.task.Herdr, PR: v.task.PR,
+		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
+		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
+		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
+		Reported: v.reported, GateRunIssue: v.gateIssue, Unacknowledged: v.unacked,
+	}
 }
 
 func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
@@ -456,112 +441,87 @@ func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
 	return &reportedJSON{State: last.State, Note: last.Note}
 }
 
-func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool) error {
+func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool, fields []string) error {
 	t, err := state.Read(home, id)
 	if err != nil {
 		return asPrecondition(err)
 	}
 	t = detectPRForStatus(cmd.Context(), home, t)
-	agentState := paneAgentStatus(client, t.Herdr.PaneID)
+
+	// An unreadable report degrades exactly as it does in the fleet view: the
+	// fault is named on the report field and the rest of the detail view still
+	// prints, rather than the whole command failing over one bad read.
+	v, reportLines := buildTaskView(home, client, t, full)
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
 	hold, held, err := state.ReadHold(home, id)
 	if err != nil {
 		return err
 	}
-
-	// An unreadable report degrades exactly as it does in the fleet view: the
-	// fault is named on the Reported line and the rest of the detail view still
-	// prints, rather than the whole command failing over one bad read.
-	const historyLen = 5
-	// The whole file, sliced afterwards: deriving the flag from the 5-line
-	// history window instead would let five trailing free-text lines hide a
-	// completion the fleet view flags, and the two views must never disagree.
-	reportLines, readErr := state.ReadReportLines(home, id)
-	lastReported, lastReportedOK := state.LastReportedState(reportLines)
-	unacked, readErr := unacknowledged(home, t, lastReported, lastReportedOK, readErr)
-
-	tail := reportLines
-	if len(tail) > historyLen {
-		tail = tail[len(tail)-historyLen:]
-	}
-	history := make([]string, len(tail))
-	for i, line := range tail {
-		history[i] = reportLineText(line)
-	}
-
-	var last state.ReportLine
-	if len(tail) > 0 {
-		last = tail[len(tail)-1]
-	}
-
-	var heldJSON *holdJSON
-	if held {
-		j := holdToJSON(hold)
-		heldJSON = &j
-	}
+	v.hold, v.held = hold, held
 
 	// Looked up only when the check applies, so a registry this id's detail view
 	// does not need can never fail the command. When it does apply the failure is
 	// propagated, not degraded: a single task's own project is the one fact this
 	// check is about, unlike the fleet view's best-effort lookup across every
 	// task's project at once.
-	reportedDone := lastReportedOK && lastReported.State == state.ReportDone
-	var runIssue string
+	reportedDone := v.reportedState == state.ReportDone
 	if gateRunApplies(t, reportedDone) {
 		p, registered, err := project.Find(home, t.Project)
 		if err != nil {
 			return err
 		}
-		runIssue = gateRunIssue(home, t, reportedDone, p, registered, newGateRunReader())
+		v.gateIssue = gateRunIssue(home, t, reportedDone, p, registered, newGateRunReader())
+	}
+
+	// The whole file, sliced afterwards: deriving the flag from the 5-line
+	// history window instead would let five trailing free-text lines hide a
+	// completion the fleet view flags, and the two views must never disagree.
+	const historyLen = 5
+	tail := reportLines
+	if len(tail) > historyLen {
+		tail = tail[len(tail)-historyLen:]
 	}
 
 	if asJSON {
-		out := statusJSON{
-			ID: t.ID, Project: t.Project, Kind: t.Kind, Harness: t.Harness,
-			AgentState: agentState, Worktree: t.Worktree, Herdr: t.Herdr, PR: t.PR,
-			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced,
-			DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason, CreatedAt: t.CreatedAt,
-			LastReportAt: lastReportAt(home, id),
-			Reported:     reportedFrom(last, len(reportLines) > 0, readErr), ReportHistory: history,
-			Held: heldJSON, GateRunIssue: runIssue, Unacknowledged: unacked,
+		history := make([]string, len(tail))
+		for i, line := range tail {
+			history[i] = reportLineText(line)
+		}
+		out := v.json()
+		out.ReportHistory = history
+		if held {
+			j := holdToJSON(hold)
+			out.Held = &j
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
 	}
 
-	pr := t.PR
-	if pr == "" {
-		pr = "(none)"
-	} else {
-		pr += mergeSuffix(t)
-	}
-	// One render choice drives both the Reported line and every history entry,
-	// so a change to the budget can never reach one of them and miss the other.
-	render := reportLineText
-	if !full {
-		render = func(line state.ReportLine) string { return truncateReportLine(line, reportSummaryBudget) }
+	cols, err := selectFields(fields, detailDefaultFields)
+	if err != nil {
+		return err
 	}
 
-	reported := "(none)"
-	switch {
-	case readErr != nil:
-		reported = fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
-	// Same clause the fleet view appends, so neither view can call a completion
-	// acknowledged that the other flags - and on the same classified line the
-	// fleet view names, not whatever free text the worker appended after it.
-	case unacked:
-		reported = render(lastReported) + " (unacknowledged)"
-	case len(tail) > 0:
-		reported = render(last)
+	var doc axi.Doc
+	for _, c := range cols {
+		doc.Field(c.Name, c.Value(v))
 	}
-	// Which history entry the Reported line above already shows. Found rather
-	// than assumed last: with the flag applied that line is the classified
-	// terminal report, which the worker may have followed with free text, or
-	// pushed out of the history window entirely.
+	doc.List("report_history", historyBlock(v, tail, full))
+	doc.Help(detailHelp(v, full)...)
+	return doc.Render(cmd.OutOrStdout())
+}
+
+// historyBlock is the report tail with the entry the report field already
+// shows dropped - repeating it was the core of atqamz/secondhand#65, doubling
+// the cost of every terminal report. --full keeps the tail whole.
+func historyBlock(v taskView, tail []state.ReportLine, full bool) []string {
+	// Which entry the report field shows. Found rather than assumed last: with
+	// the unacknowledged flag applied that line is the classified terminal
+	// report, which the worker may have followed with free text.
 	reportedIdx := len(tail) - 1
-	if unacked {
+	if v.unacked {
 		reportedIdx = -1
 		for i := len(tail) - 1; i >= 0; i-- {
 			if !tail[i].Malformed {
@@ -570,60 +530,38 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			}
 		}
 	}
-
-	w := cmd.OutOrStdout()
-	lines := []string{
-		fmt.Sprintf("Task:        %s", t.ID),
-		fmt.Sprintf("Project:     %s", t.Project),
-		fmt.Sprintf("Kind:        %s", t.Kind),
-		fmt.Sprintf("Harness:     %s", t.Harness),
-		fmt.Sprintf("Model:       %s", t.Model),
-		fmt.Sprintf("State:       %s", agentState),
-		fmt.Sprintf("Worktree:    %s", t.Worktree),
-		fmt.Sprintf("Herdr:       %s / %s", t.Herdr.Session, t.Herdr.TabID),
-		fmt.Sprintf("Created:     %s", formatAge(t.CreatedAt)),
-		fmt.Sprintf("Last report: %s", formatReportAge(lastReportAt(home, id))),
-		fmt.Sprintf("PR:          %s", pr),
-		fmt.Sprintf("Reported:    %s", reported),
-	}
-	if t.DeliveredAt != "" {
-		lines = append(lines, fmt.Sprintf("Delivered:   %s (%s)", t.DeliveredReason, t.DeliveredAt))
-	}
-	if held {
-		lines = append(lines, fmt.Sprintf("Held:        %s", holdDetail(hold)))
-	}
-	if runIssue != "" {
-		lines = append(lines, fmt.Sprintf("Gate run:    %s", runIssue))
-	}
-	if !full && (len(tail) > 0 || readErr != nil) {
-		lines = append(lines, fmt.Sprintf("Report file: %s", state.ReportPath(home, id)))
-	}
-	for _, line := range lines {
-		if _, err := fmt.Fprintln(w, line); err != nil {
-			return err
-		}
-	}
-
-	// In the default view, the entry already shown on the Reported line above
-	// is dropped from the history block below it - repeating it there was the
-	// core of atqamz/secondhand#65, doubling the cost of every terminal report.
-	// --full restores the exact previous shape: the full tail, untruncated,
-	// duplicate entry included.
-	historyTail := tail
 	if !full && reportedIdx >= 0 {
-		historyTail = slices.Concat(tail[:reportedIdx], tail[reportedIdx+1:])
+		tail = slices.Concat(tail[:reportedIdx], tail[reportedIdx+1:])
 	}
-	if len(historyTail) > 0 {
-		if _, err := fmt.Fprintln(w, "\nReport history (reported by worker, not verified current truth):"); err != nil {
-			return err
-		}
-		for _, line := range historyTail {
-			if _, err := fmt.Fprintf(w, "  %s\n", render(line)); err != nil {
-				return err
-			}
+	lines := make([]string, len(tail))
+	for i, line := range tail {
+		lines[i] = reportLineText(line)
+		if !full {
+			lines[i] = truncateReportLine(line, reportSummaryBudget, v.task.ID)
 		}
 	}
-	return nil
+	return lines
+}
+
+// detailHelp names the one command this task's current state calls for, so a
+// caller reading the detail view does not have to work out what comes next
+// from the state vocabulary.
+func detailHelp(v taskView, full bool) []string {
+	var help []string
+	if !full && strings.Contains(v.reportedLine, "(truncated,") {
+		help = append(help, "Run `hand status "+v.task.ID+" --full` for the untruncated report and history")
+	}
+	switch {
+	case v.task.DeliveredAt != "" || v.task.MergeExecuted || v.task.MergeAnnounced:
+		help = append(help, "Run `hand teardown "+v.task.ID+"` to clean up this task")
+	case v.reportedState == state.ReportDone && v.task.PR != "":
+		help = append(help, "Run `hand merge "+v.task.ID+"` once merging is authorized, or `hand deliver "+v.task.ID+" --reason <text>` if landing it is someone else's call")
+	case v.reportedState == state.ReportNeedsDecision || v.reportedState == state.ReportBlocked:
+		help = append(help, "Run `hand send "+v.task.ID+" <message>` to answer this worker")
+	default:
+		help = append(help, "Run `hand send "+v.task.ID+" <message>` to steer this worker")
+	}
+	return help
 }
 
 func reportLineText(line state.ReportLine) string {
@@ -643,7 +581,7 @@ func formatAge(createdAt string) string {
 
 func formatReportAge(at string) string {
 	if at == "" {
-		return "(none)"
+		return "none"
 	}
 	return formatAge(at)
 }

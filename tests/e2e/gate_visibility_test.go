@@ -42,8 +42,8 @@ func TestStatusEmptyFleetStatesItsCount(t *testing.T) {
 	if empty.code != 0 {
 		t.Fatalf("status: exit %d, stderr %q", empty.code, empty.stderr)
 	}
-	if strings.TrimSpace(empty.stdout) != "no tasks (0)" {
-		t.Fatalf("status stdout = %q, want an explicit no-tasks count and nothing else", empty.stdout)
+	if !strings.HasPrefix(empty.stdout, "count: 0\n") || !strings.Contains(empty.stdout, "tasks[0]{") {
+		t.Fatalf("status stdout = %q, want an explicit zero count and an empty tasks block", empty.stdout)
 	}
 
 	emptyJSON := runHand(t, home, "status", "--json")
@@ -62,7 +62,7 @@ func TestStatusEmptyFleetStatesItsCount(t *testing.T) {
 	if withHold.code != 0 {
 		t.Fatalf("status: exit %d, stderr %q", withHold.code, withHold.stderr)
 	}
-	if !strings.Contains(withHold.stdout, "no tasks (0)") ||
+	if !strings.Contains(withHold.stdout, "count: 0\n") ||
 		!strings.Contains(withHold.stdout, "torn-down-task") ||
 		!strings.Contains(withHold.stdout, "two ways to do this, needs a call") {
 		t.Fatalf("status stdout = %q, want the no-tasks count alongside the still-open hold", withHold.stdout)
@@ -115,13 +115,13 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	if fleet.code != 0 {
 		t.Fatalf("status: exit %d, stderr %q", fleet.code, fleet.stderr)
 	}
-	if !strings.Contains(fleet.stdout, "(gate: no run found)") {
+	if !strings.Contains(fleet.stdout, " gate-no-run-found\n") {
 		t.Fatalf("status stdout = %q, want the shipped PR flagged as never having run through the gate", fleet.stdout)
 	}
 
 	single := runHand(t, home, "status", "ship-login-fix")
-	if single.code != 0 || !strings.Contains(single.stdout, "Gate run:    no run found") {
-		t.Fatalf("status ship-login-fix stdout = %q (exit %d), want the Gate run line", single.stdout, single.code)
+	if single.code != 0 || !strings.Contains(single.stdout, "\ngate: no run found\n") {
+		t.Fatalf("status ship-login-fix stdout = %q (exit %d), want the gate field naming it", single.stdout, single.code)
 	}
 
 	singleJSON := runHand(t, home, "status", "ship-login-fix", "--json")
@@ -136,7 +136,7 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	if gated.code != 0 {
 		t.Fatalf("status: exit %d, stderr %q", gated.code, gated.stderr)
 	}
-	if strings.Contains(gated.stdout, "(gate:") {
+	if strings.Contains(gated.stdout, "gate-") {
 		t.Fatalf("status stdout = %q, want no gate marker once a completed run recorded this PR", gated.stdout)
 	}
 }
