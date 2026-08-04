@@ -54,6 +54,7 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 
 | Command | Description | Status |
 | --- | --- | --- |
+| `hand` | With no subcommand: name the binary that answered, its version and the fleet home it resolved, followed by the fleet overview `hand status` prints | Available |
 | `hand init` | Initialize runtime directories and skeleton files; `--setup` runs interactive first-time configuration | Available |
 | `hand project add` | Clone and register a repository | Available |
 | `hand project list` | List registered projects | Available |

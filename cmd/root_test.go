@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/secondhand/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -107,17 +108,57 @@ func TestRootRejectsUnknownFlag(t *testing.T) {
 	}
 }
 
-func TestRootBareInvocationShowsHelpWithoutError(t *testing.T) {
+func runBareRoot(t *testing.T) string {
+	t.Helper()
 	root := newRootCmd("test")
 	root.SetArgs([]string{})
 	var out strings.Builder
 	root.SetOut(&out)
 	root.SetErr(new(strings.Builder))
 	if _, err := root.ExecuteC(); err != nil {
-		t.Fatalf("got %v, want nil (bare invocation shows help)", err)
+		t.Fatalf("got %v, want nil (the bare command reports, it does not refuse)", err)
 	}
-	if !strings.Contains(out.String(), "Usage:") {
-		t.Fatalf("out = %q, want usage text", out.String())
+	return out.String()
+}
+
+func TestBareInvocationLeadsWithTheFleetItManages(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runBareRoot(t)
+	for _, want := range []string{
+		"tool: hand\n",
+		"version: test\n",
+		"count: 1\n",
+		"held: 0\n",
+		"  task-1,",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out = %q, want it to contain %q", out, want)
+		}
+	}
+	if strings.Contains(out, "Usage:") {
+		t.Fatalf("out = %q, want the fleet rather than a help dump", out)
+	}
+}
+
+func TestBareInvocationOutsideAFleetHomeSaysSoAndNamesTheWayIn(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("HAND_HOME", "")
+
+	out := runBareRoot(t)
+	if !strings.Contains(out, "home: none\n") {
+		t.Fatalf("out = %q, want it to state that there is no fleet home", out)
+	}
+	if !strings.Contains(out, "`hand init`") {
+		t.Fatalf("out = %q, want it to name hand init", out)
+	}
+	if strings.Contains(out, "count:") {
+		t.Fatalf("out = %q, want no fleet blocks with no fleet to report", out)
 	}
 }
 

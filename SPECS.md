@@ -249,6 +249,47 @@ The rules that hold across every command:
 
 ## CLI specification
 
+### `hand`
+
+The bare command introduces the binary and reports the fleet in one document, rather than printing the help screen cobra defaults to.
+What a caller with nothing to go on needs first is the state; `hand --help` is one word away for the command reference.
+
+```
+tool: hand
+purpose: manages a fleet of coding agents - one worker per task in its own worktree and herdr pane
+version: 0.1.4
+exec: ~/.local/bin/hand
+home: ~/secondhand
+count: 2
+attention: 1
+held: 0
+tasks[2]{id,project,kind,agent,reported,age}:
+  fix-login,demo,ship,working,"working: wiring the session store",2 hours ago
+  audit-deps,demo,scout,idle,"done: 3 stale pins",20 minutes ago
+holds[0]{id,kind,detail,age}:
+help[2]:
+  - Run `hand status <id>` for one task's detail and report history
+  - Run `hand status --fields <a,b>` to pick columns, `hand status --help` for every field name
+```
+
+`exec` names the executable that answered, with the user's home abbreviated to `~`, so a caller who has more than one `hand` on `PATH` can tell which one it reached.
+Everything from `count` down is `hand status`'s fleet overview with its default fields, built by the same code, so the two can never disagree.
+
+Outside a fleet home the identity fields still print, `home` is `none`, and the help block names the way in:
+
+```
+tool: hand
+purpose: manages a fleet of coding agents - one worker per task in its own worktree and herdr pane
+version: 0.1.4
+exec: ~/.local/bin/hand
+home: none
+help[2]:
+  - Run `hand init` in the directory that should become the fleet home, or point HAND_HOME at one that already exists
+  - Run `hand --help` for the command reference
+```
+
+Exit `0`, unlike every other command's `3` for an unresolvable home: this is the one surface whose job is to introduce the tool, and a caller who has not set a home up yet is exactly who runs it.
+
 ### `hand init [path] [flags]`
 
 Initialize secondhand runtime directories in the current working directory.

@@ -267,40 +267,9 @@ func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Projec
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, fields []string) error {
-	tasks, err := state.List(home)
+	views, holds, err := fleetViews(cmd, home, client)
 	if err != nil {
 		return err
-	}
-	// Propagated rather than degraded to an empty list: a store fault reading
-	// as no holds is exactly the false all-clear this feature exists to avoid.
-	holds, err := state.ListHolds(home)
-	if err != nil {
-		return err
-	}
-
-	// Best-effort, like project.List elsewhere in this fleet view: a registry
-	// read fault degrades every task's gate-run check to silent rather than
-	// failing the whole fleet overview over it. Named on stderr all the same -
-	// silently dropping every (gate: ...) marker fleet-wide would render an
-	// ungated PR as clean, the false all-clear this feature exists to avoid.
-	projects, projectsErr := project.List(home)
-	if projectsErr != nil {
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project registry unreadable, gate-run checks skipped: %v\n", projectsErr); err != nil {
-			return err
-		}
-	}
-	projectByName := make(map[string]project.Project, len(projects))
-	for _, p := range projects {
-		projectByName[p.Name] = p
-	}
-	runPRs := newGateRunReader()
-
-	views := make([]taskView, 0, len(tasks))
-	for _, t := range tasks {
-		v, _ := buildTaskView(home, client, t, false)
-		p, registered := projectByName[t.Project]
-		v.gateIssue = gateRunIssue(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
-		views = append(views, v)
 	}
 
 	if asJSON {
@@ -317,6 +286,16 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		return enc.Encode(fleetJSON{TaskCount: len(rows), Tasks: rows, Holds: holdRows})
 	}
 
+	var doc axi.Doc
+	if err := appendFleet(&doc, views, holds, fields); err != nil {
+		return err
+	}
+	return doc.Render(cmd.OutOrStdout())
+}
+
+// appendFleet writes the fleet blocks onto doc rather than a writer, so the
+// bare command can put its identity fields above the same overview.
+func appendFleet(doc *axi.Doc, views []taskView, holds []state.Hold, fields []string) error {
 	cols, err := pickFields(taskFields, fields, fleetDefaultFields)
 	if err != nil {
 		return err
@@ -328,14 +307,52 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		}
 	}
 
-	var doc axi.Doc
 	doc.Int("count", len(views))
 	doc.Int("attention", attention)
 	doc.Int("held", len(holds))
-	axi.Table(&doc, "tasks", views, cols)
-	axi.Table(&doc, "holds", holds, holdFields)
+	axi.Table(doc, "tasks", views, cols)
+	axi.Table(doc, "holds", holds, holdFields)
 	doc.Help(fleetHelp(views, attention)...)
-	return doc.Render(cmd.OutOrStdout())
+	return nil
+}
+
+func fleetViews(cmd *cobra.Command, home string, client *herdr.Client) ([]taskView, []state.Hold, error) {
+	tasks, err := state.List(home)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Propagated rather than degraded to an empty list: a store fault reading
+	// as no holds is exactly the false all-clear this feature exists to avoid.
+	holds, err := state.ListHolds(home)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Best-effort, like project.List elsewhere in this fleet view: a registry
+	// read fault degrades every task's gate-run check to silent rather than
+	// failing the whole fleet overview over it. Named on stderr all the same -
+	// silently dropping every (gate: ...) marker fleet-wide would render an
+	// ungated PR as clean, the false all-clear this feature exists to avoid.
+	projects, projectsErr := project.List(home)
+	if projectsErr != nil {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project registry unreadable, gate-run checks skipped: %v\n", projectsErr); err != nil {
+			return nil, nil, err
+		}
+	}
+	projectByName := make(map[string]project.Project, len(projects))
+	for _, p := range projects {
+		projectByName[p.Name] = p
+	}
+	runPRs := newGateRunReader()
+
+	views := make([]taskView, 0, len(tasks))
+	for _, t := range tasks {
+		v, _ := buildTaskView(home, client, t, false)
+		p, registered := projectByName[t.Project]
+		v.gateIssue = gateRunIssue(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
+		views = append(views, v)
+	}
+	return views, holds, nil
 }
 
 func fleetHelp(views []taskView, attention int) []string {

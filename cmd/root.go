@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/atqamz/secondhand/internal/axi"
+	"github.com/atqamz/secondhand/internal/herdr"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
@@ -28,10 +30,13 @@ func newRootCmd(version string) *cobra.Command {
 			}
 			return nil
 		},
-		// Cobra's own error/usage printing is disabled; Execute prints exactly
-		// one line to stderr and picks the exit code, so nothing else should.
+		// Cobra's own error/usage printing is disabled; Execute renders exactly
+		// one error document on stderr and picks the exit code.
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRootOverview(cmd, version)
+		},
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
@@ -73,6 +78,48 @@ func guardSubcommandGroups(c *cobra.Command) {
 		}
 		guardSubcommandGroups(sub)
 	}
+}
+
+// The bare command answers with the fleet it manages rather than a help dump:
+// what a caller with nothing to go on needs first is the state, and `hand
+// --help` is still one word away for the reference.
+func runRootOverview(cmd *cobra.Command, version string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "unknown"
+	}
+
+	var doc axi.Doc
+	doc.Field("tool", "hand")
+	doc.Field("purpose", "manages a fleet of coding agents - one worker per task in its own worktree and herdr pane")
+	doc.Field("version", version)
+	doc.Field("exec", tildePath(exe))
+
+	fleetHome, err := home.Resolve()
+	if err != nil {
+		doc.Field("home", "none")
+		doc.Help("Run `hand init` in the directory that should become the fleet home, or point HAND_HOME at one that already exists",
+			"Run `hand --help` for the command reference")
+		return doc.Render(cmd.OutOrStdout())
+	}
+	doc.Field("home", tildePath(fleetHome))
+
+	views, holds, err := fleetViews(cmd, fleetHome, herdr.NewClient())
+	if err != nil {
+		return err
+	}
+	if err := appendFleet(&doc, views, holds, nil); err != nil {
+		return err
+	}
+	return doc.Render(cmd.OutOrStdout())
+}
+
+func tildePath(path string) string {
+	dir, err := os.UserHomeDir()
+	if err != nil || dir == "" || !strings.HasPrefix(path, dir+string(os.PathSeparator)) {
+		return path
+	}
+	return "~" + strings.TrimPrefix(path, dir)
 }
 
 func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {

@@ -363,6 +363,25 @@ func TestExitCodeZeroOnSuccess(t *testing.T) {
 	}
 }
 
+// The bare command is the one surface that has to introduce the binary and
+// report the fleet at once, and only the real binary can say which executable
+// answered.
+func TestBareCommandNamesItselfAndReportsTheFleet(t *testing.T) {
+	home := newHome(t)
+	got := runHand(t, home)
+	if got.code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", got.code, got.stderr)
+	}
+	for _, want := range []string{"tool: hand\n", "version: ", "exec: ", "home: ", "count: 0\n", "tasks[0]{"} {
+		if !strings.Contains(got.stdout, want) {
+			t.Fatalf("stdout = %q, want it to contain %q", got.stdout, want)
+		}
+	}
+	if !strings.Contains(got.stdout, handBin) {
+		t.Fatalf("stdout = %q, want it to name the executable that answered (%s)", got.stdout, handBin)
+	}
+}
+
 func TestExitCodeTwoOnUsageError(t *testing.T) {
 	home := newHome(t)
 
