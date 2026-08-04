@@ -20,16 +20,13 @@ type versionCache struct {
 	Latest    string    `json:"latest"`
 }
 
-// CheckNotice returns a one-line stderr notice when a newer hand release is
-// available, or "" when up to date or when the check can't be completed. It
-// is bounded by checkTimeout and never fails the caller: startup version
-// checks must be non-blocking and non-fatal per SPECS.md.
-//
-// A currentVersion that isn't semver (a build without ldflags, defaulting to
-// "dev") never gets a notice: there is no released version to compare against,
-// so nagging a from-source build would be noise. `hand update` still resolves
-// and installs the latest release for such builds.
+// CheckNotice returns a one-line stderr notice when a newer hand release is available, or
+// "" when up to date or when the check can't be completed. Bounded by checkTimeout and
+// never fails the caller: startup version checks are non-blocking and non-fatal per SPECS.
 func CheckNotice(home, repo, currentVersion string) string {
+	// A version that isn't semver (a build without ldflags, defaulting to "dev") has no
+	// released version to compare against, so nagging a from-source build would be noise.
+	// `hand update` still resolves and installs the latest release for such builds.
 	if _, _, _, err := parseSemver(currentVersion); err != nil {
 		return ""
 	}

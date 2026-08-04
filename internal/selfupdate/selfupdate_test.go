@@ -43,13 +43,9 @@ func TestIsNewerRejectsInvalidLatest(t *testing.T) {
 	}
 }
 
-// writeFakeGH fakes the two gh calls an update makes. Real `gh release view
-// --json ... --jq` prints the extracted field alone on stdout with exit 0, and
-// `gh release download --dir` writes the assets into that directory while its
-// progress goes to stderr; runGH (selfupdate.go) reads stdout only, so this
-// fake mirrors both by keeping stdout to the payload. On failure real gh exits
-// nonzero with the reason on stderr, which the unexpected-invocation arm below
-// mirrors.
+// Fakes the two gh calls an update makes, mirroring where real gh puts its output: the
+// extracted field alone on stdout, download progress on stderr, and a nonzero exit with
+// the reason on stderr for a failure. runGH reads stdout only, so that split matters.
 func writeFakeGH(t *testing.T, tag, fixtureDir string) {
 	t.Helper()
 	bin := t.TempDir()

@@ -40,10 +40,9 @@ func latestTag(ctx context.Context, repo string) (string, error) {
 	return out, nil
 }
 
-// ReleaseNotes returns the release body for tag, describing what changed.
-// Callers should treat a returned error as "no notes available" rather than
-// fail the update over it: the version replacement already succeeded, and
-// missing or empty notes shouldn't undo that.
+// ReleaseNotes returns the release body for tag. Callers should treat an error as "no
+// notes available" rather than fail the update over it: the version replacement already
+// succeeded, and missing or empty notes shouldn't undo that.
 func ReleaseNotes(repo, tag string) (string, error) {
 	return releaseNotes(context.Background(), repo, tag)
 }
@@ -98,11 +97,9 @@ func parseSemver(s string) (major, minor, patch int, err error) {
 // the real test binary produced by `go test`.
 var ExecutableOverride = os.Executable
 
-// Apply downloads the release tagged tag from repo, verifies its checksum, and
-// replaces the running binary in place. The replacement is atomic: the new
-// binary is written to a temp file in the same directory as the running
-// binary, then renamed over it, so a crash mid-update never leaves a partial
-// binary at the real path.
+// Apply downloads the release tagged tag from repo, verifies its checksum, and replaces
+// the running binary in place. The replacement is atomic - temp file in the same directory,
+// renamed over it - so a crash mid-update never leaves a partial binary at the real path.
 func Apply(repo, tag string) error {
 	execPath, err := ExecutableOverride()
 	if err != nil {
