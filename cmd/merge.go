@@ -93,9 +93,9 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		return &ExitError{Err: fmt.Errorf("no PR recorded for %s", t.ID), Code: 3}
 	}
 
-	// A gate-opened PR (issue #69) can populate t.PR without hand having merged it,
-	// so t.PR no longer implies hand hasn't seen it merged yet; check before running
-	// CI checks against a PR gh already closed.
+	// A gate-opened PR (atqamz/secondhand#69) can populate t.PR without hand having merged it, so t.PR no
+	// longer implies hand hasn't seen it merged yet; check before running CI checks against a PR gh
+	// already closed.
 	merged, err := ghutil.PRIsMerged(cmd.Context(), t.PR)
 	if err != nil {
 		return err

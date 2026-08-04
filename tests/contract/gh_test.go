@@ -36,7 +36,7 @@ func TestGHPRListAnswersAnEmptyArrayForABranchWithNoPR(t *testing.T) {
 	}
 }
 
-// The slug case #147 fixed: gh serves a repo under any casing and answers with
+// The slug case atqamz/secondhand#147 fixed: gh serves a repo under any casing and answers with
 // the canonical one, so a comparison against a git remote has to fold case.
 func TestGHServesARepoUnderAnyCasingAndAnswersCanonically(t *testing.T) {
 	requireGH(t)

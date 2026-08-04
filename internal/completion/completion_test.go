@@ -104,9 +104,9 @@ func TestListSkipsDamagedLine(t *testing.T) {
 	}
 }
 
-// The concurrency guarantee the brief for #61 requires explaining: two Append calls
-// racing must never lose either line, unlike state/events.log's read-modify-write
-// pattern over the whole file.
+// The concurrency guarantee the brief for atqamz/secondhand#61 requires explaining: two Append calls
+// racing must never lose either line, unlike state/events.log's read-modify-write pattern over the
+// whole file.
 func TestAppendConcurrent(t *testing.T) {
 	dir := t.TempDir()
 	const n = 50

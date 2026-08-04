@@ -14,9 +14,9 @@ import (
 	"strings"
 )
 
-// PRIsMerged reports whether the PR is merged. gh writes warnings to stderr ahead of
-// the JSON, so the payload must be read from stdout alone; CombinedOutput here corrupts
-// the parse (issue #21).
+// PRIsMerged reports whether the PR is merged. gh writes warnings to stderr ahead of the JSON, so the
+// payload must be read from stdout alone; CombinedOutput here corrupts the parse
+// (atqamz/secondhand#21).
 func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "state")
 	var stderr bytes.Buffer

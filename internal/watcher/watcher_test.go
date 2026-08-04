@@ -174,9 +174,9 @@ func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
 	return home
 }
 
-// Proves the fix for #30/#32/#33's working->idle bug against the spelling hand's headless polling
-// actually observes: herdr renders a working/blocked->idle transition as "done", not "idle", unless a
-// live OS-focused client has that pane's tab active at the instant of it (see herdr.Status's doc).
+// Proves the working->idle fix (atqamz/secondhand#30, atqamz/secondhand#32, atqamz/secondhand#33)
+// against the spelling hand's headless polling observes: herdr renders working/blocked->idle as "done",
+// not "idle", unless a live OS-focused client has that tab active then (see herdr.Status's doc).
 func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2012,9 +2012,9 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	}
 }
 
-// Covers #85: a caller that only wants to wake on blocked must not be woken by a routine
-// idle-unreported transition, but the filtered-out event still has to reach events.log exactly like a
-// baseline tick's events already do - the filter gates the wake, not the record.
+// Covers atqamz/secondhand#85: a caller that only wants to wake on blocked must not be woken by a
+// routine idle-unreported transition, but the filtered-out event still has to reach events.log exactly
+// like a baseline tick's events already do - the filter gates the wake, not the record.
 func TestRunUntilEventFiltersWakesToTheRequestedKinds(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -2407,9 +2407,9 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	}
 }
 
-// Covers #81's hard part: a task whose very first sighting finds its pane unreachable must not be
-// dropped (the old !tracked branch's bare continue), but a probe failure that clears before the dwell
-// matures - a blink - must produce nothing at all.
+// Covers atqamz/secondhand#81's hard part: a task whose very first sighting finds its pane unreachable
+// must not be dropped (the old !tracked branch's bare continue), but a probe failure that clears before
+// the dwell matures - a blink - must produce nothing at all.
 func TestTickStaysSilentOnABlinkAtFirstSighting(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, paneGoneStatus)
