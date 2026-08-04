@@ -285,6 +285,70 @@ func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 	}
 }
 
+// The bug atqamz/secondhand#127 tracks, exercised through a real restart rather than
+// through the latch alone: a done task's report file never grows again, so the
+// silence parked fired against stays frozen, and a re-derived latch re-announces it
+// on every re-arm. state/events.log is capped at 200 lines, so those duplicates
+// evict real history - which is why the assertion counts lines in the log rather
+// than only checking stdout, where the second run's duplicate would never have
+// appeared anyway.
+func TestWatchDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	// Wider than the streaming sibling's bound: --until-event arms with a probe
+	// and two stdout-discarding baseline ticks, and the bound has to outlast all
+	// of them under -race, or the parked line lands in the log while stdout is
+	// still discarded and the first run exits 4 with nothing delivered.
+	writeConfig(t, home, "parked-done-bound", "6")
+
+	spawnedAt := time.Now().UTC().Format(time.RFC3339)
+	if err := state.Write(home, state.Task{
+		ID: "shipped-task", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+		CreatedAt: spawnedAt, PaneStartedAt: spawnedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "shipped-task"), []byte("done: shipped the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "working")
+	writeFakeHerdrWatch(t, binDir(t), statusDir, filepath.Join(t.TempDir(), "herdr-invocations.log"))
+
+	first := runHand(t, home, "watch", "--until-event", "--event", "parked", "--poll", "30ms", "--timeout", "30s")
+	if first.code != 0 {
+		t.Fatalf("first watch exit = %d, want 0 for a delivered parked event (stdout %q, stderr %q)", first.code, first.stdout, first.stderr)
+	}
+	if got := countEventLogLines(t, home, "parked shipped-task"); got != 1 {
+		t.Fatalf("events.log holds %d parked lines after the first run, want 1", got)
+	}
+
+	second := runHand(t, home, "watch", "--until-event", "--event", "parked", "--poll", "30ms", "--timeout", "3s")
+	if second.code != 4 {
+		t.Fatalf("second watch exit = %d, want 4: the only silence it could wake on was already announced (stdout %q, stderr %q)", second.code, second.stdout, second.stderr)
+	}
+	if got := countEventLogLines(t, home, "parked shipped-task"); got != 1 {
+		t.Fatalf("events.log holds %d parked lines after the restart, want 1: the report file never grew, so this is the same silence", got)
+	}
+}
+
+func countEventLogLines(t *testing.T, home, substr string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
+	if err != nil {
+		t.Fatalf("read events.log: %v", err)
+	}
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, substr) {
+			count++
+		}
+	}
+	return count
+}
+
 // The report channel produces a wake (`report-done`) long before the parked bound
 // matures, so exiting on `parked` at all is the filter's doing: an unfiltered
 // --until-event would have delivered that earlier wake and exited on it. The

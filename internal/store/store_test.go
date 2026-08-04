@@ -39,6 +39,9 @@ func sampleTask() Task {
 		StatusChangedAt: "2026-07-24T11:00:00Z", StatusChangedFor: "working",
 		LastReportState: "working", LastReportNote: "on it",
 
+		PaneStartedAt:  "2026-07-24T10:30:00Z",
+		ParkedFiredFor: "2026-07-24T11:30:00.123456789Z",
+
 		SendUndeliveredMessage: "stop and wait for review",
 		SendUndeliveredAt:      "2026-07-24T13:00:00Z",
 
@@ -191,6 +194,44 @@ func TestOpenImportsLegacyTaskFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(LegacyDir(home), want.ID+".json")); err != nil {
 		t.Fatalf("legacy file not preserved under state/migrated: %v", err)
+	}
+}
+
+// A legacy file written before pane_started_at existed must land the value the
+// schema migration's backfill would have given it: the import is an INSERT, so
+// the backfill never runs over it, and an empty pane start slides parked's floor
+// back to the row's creation - the scout's, for a task promoted before either
+// mechanism existed.
+func TestLegacyImportBackfillsThePaneStart(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		statusChangedAt string
+		want            string
+	}{
+		{"from the last observed status change", "2026-07-24T11:00:00Z", "2026-07-24T11:00:00Z"},
+		{"from creation when no status was ever observed", "", "2026-07-24T10:00:00Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			legacy := sampleTask()
+			legacy.PaneStartedAt = ""
+			legacy.StatusChangedAt = tc.statusChangedAt
+			writeLegacyTask(t, home, legacy)
+
+			db, err := Open(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+
+			got, found, err := db.ReadTask(legacy.ID)
+			if err != nil || !found {
+				t.Fatalf("ReadTask = %v, %v", found, err)
+			}
+			if got.PaneStartedAt != tc.want {
+				t.Fatalf("PaneStartedAt = %q, want %q", got.PaneStartedAt, tc.want)
+			}
+		})
 	}
 }
 

@@ -23,6 +23,14 @@ var migrations = []string{
 	`ALTER TABLE project ADD COLUMN upstream TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE task ADD COLUMN delivered_at TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN delivered_reason TEXT NOT NULL DEFAULT '';`,
+	// The backfill freezes each existing row's pane start at the value the
+	// pre-migration floor was already computing for it. Backfilling from
+	// created_at instead would hand a task promoted before this migration its
+	// scout's creation instant, which is the false `parked` this floor exists to
+	// prevent; the stamp only ever overstates the floor, which delays a true one.
+	`ALTER TABLE task ADD COLUMN pane_started_at TEXT NOT NULL DEFAULT '';
+	ALTER TABLE task ADD COLUMN parked_fired_for TEXT NOT NULL DEFAULT '';
+	UPDATE task SET pane_started_at = CASE WHEN status_changed_at <> '' THEN status_changed_at ELSE created_at END;`,
 }
 
 func (db *DB) schemaVersion() (int, error) {

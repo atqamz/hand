@@ -154,8 +154,15 @@ type TaskState struct {
 	// DoneVerified makes the verified-done announcement idempotent across ticks,
 	// and is persisted after the announcement so it stays idempotent across a
 	// restart too.
-	DoneVerified   bool
-	ParkedFiredFor time.Time
+	DoneVerified bool
+	// ParkedFiredFor is persisted, unlike the stale and unreachable latches: what
+	// makes re-deriving those safe is that their dwell clocks keep moving, so a
+	// restart costs one duplicate at most. A done or failed task's report file
+	// never grows again, so its silence instant is frozen and every restart
+	// re-fires against it - and state/events.log is capped, so those duplicates
+	// evict real history rather than merely repeating themselves.
+	ParkedFiredFor          time.Time
+	PersistedParkedFiredFor time.Time
 	// UnreachableFired claims an outage episode the same way Stale claims a
 	// silence episode: re-derived, never persisted. A restart mid-outage loses it
 	// and ClassifyUnreachable simply re-evaluates the dwell against durable

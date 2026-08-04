@@ -340,6 +340,69 @@ func TestDeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
 	}
 }
 
+// Exercises the real pane_started_at/parked_fired_for entry against a database
+// holding rows written before those columns existed. pane_started_at is
+// backfilled rather than left empty: the pre-migration `parked` floor read
+// status_changed_at and fell back to created_at, so freezing that same value is
+// what stops the migration from either sliding a live task's floor or handing a
+// task promoted before the migration its scout's whole accumulated silence.
+func TestPaneStartColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+
+	restore := migrations
+	own := migrationsContaining("pane_started_at")
+	t.Cleanup(func() { migrations = restore })
+
+	migrations = []string{}
+	existing, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN pane_started_at`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN parked_fired_for`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`INSERT INTO task (id, created_at, status_changed_at, status_changed_for)
+		VALUES ('promoted', '2026-07-01T00:00:00Z', '2026-08-01T00:00:00Z', 'working')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existing.sql.Exec(`INSERT INTO task (id, created_at) VALUES ('never-observed', '2026-07-02T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrations = own
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen replaying the real pane-start migration: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	promoted, found, err := reopened.ReadTask("promoted")
+	if err != nil || !found {
+		t.Fatalf("ReadTask = %v, %v", found, err)
+	}
+	if promoted.PaneStartedAt != "2026-08-01T00:00:00Z" {
+		t.Fatalf("pane_started_at = %q, want the row's status_changed_at frozen as its pane start", promoted.PaneStartedAt)
+	}
+	if promoted.ParkedFiredFor != "" {
+		t.Fatalf("parked_fired_for = %q, want empty: no fire has been recorded for this row", promoted.ParkedFiredFor)
+	}
+
+	never, _, err := reopened.ReadTask("never-observed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if never.PaneStartedAt != "2026-07-02T00:00:00Z" {
+		t.Fatalf("pane_started_at = %q, want created_at for a row with no observed transition", never.PaneStartedAt)
+	}
+}
+
 // Exercises the real project.upstream entry against a database holding a
 // project row written before that column existed - the live fleet home's
 // shape - so a project registered long ago stays readable and gains the

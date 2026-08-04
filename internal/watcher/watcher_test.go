@@ -958,20 +958,69 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
-// The floor reads status_changed_at whatever status the stamp was taken for, so an
-// outage stamp only ever delays parked. Falling back to created_at for such a stamp
-// instead - as an outage-aware floor would have to - reopens the hazard the floor
-// exists to close, because after a promote created_at is the scout's own creation and
-// the ship inherits its whole accumulated silence. Separating the two needs a durable
-// pane-start fact; see atqamz/secondhand#128.
-func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
+// A done worker's report file never grows again, so the silence instant parked
+// fired against is frozen: a re-derived latch fires against that same instant on
+// every restart, and state/events.log is capped, so the duplicates evict real
+// history. The whole point of persisting the latch is this second run staying
+// quiet.
+func TestTickDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	started := time.Now().Add(-2 * time.Hour)
+	home := setupWatcherHome(t, state.Task{
+		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
+		CreatedAt:     started.UTC().Format(time.RFC3339),
+		PaneStartedAt: started.UTC().Format(time.RFC3339),
+	})
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(reportPath, []byte("done: shipped the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		Home:           home,
+		PollInterval:   time.Hour,
+		StaleThreshold: time.Hour,
+		ParkedBounds:   ParkedBounds{Paused: 3 * time.Hour, Done: 30 * time.Minute, Other: 3 * time.Hour},
+	}
+	client := herdr.NewClient()
+
+	var buf bytes.Buffer
+	states := make(map[string]*TaskState)
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "parked task-1") {
+		t.Fatalf("output = %q, want parked task-1 from the first run: the done-tier bound is already crossed", buf.String())
+	}
+
+	buf.Reset()
+	restarted := make(map[string]*TaskState)
+	tick(context.Background(), cfg, client, restarted, &buf, io.Discard)
+	tick(context.Background(), cfg, client, restarted, &buf, io.Discard)
+	if strings.Contains(buf.String(), "parked task-1") {
+		t.Fatalf("output = %q, want no second parked line: the report file has not grown, so this is the same silence the first run already announced", buf.String())
+	}
+}
+
+// The two facts the floor has to keep apart. An outage restamps status_changed_at
+// for a pane the watcher could not reach, which must not move the floor at all;
+// a promote restamps pane_started_at, which must move it past the scout's whole
+// accumulated silence. Reading either field for both jobs gets one of them wrong.
+func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 	now := time.Now()
 	home := t.TempDir()
-	stamped := now.Add(-time.Minute)
+	paneStart := now.Add(-3 * time.Hour)
 	task := state.Task{
 		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
 		CreatedAt:        now.Add(-4 * time.Hour).UTC().Format(time.RFC3339),
-		StatusChangedAt:  stamped.UTC().Format(time.RFC3339),
+		PaneStartedAt:    paneStart.UTC().Format(time.RFC3339),
+		StatusChangedAt:  now.Add(-time.Minute).UTC().Format(time.RFC3339),
 		StatusChangedFor: string(herdr.StatusUnknown),
 	}
 	if err := state.Write(home, task); err != nil {
@@ -981,8 +1030,8 @@ func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
 	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	scoutSilence := now.Add(-2 * time.Hour)
-	if err := os.Chtimes(reportPath, scoutSilence, scoutSilence); err != nil {
+	silentSince := now.Add(-2 * time.Hour)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
 		t.Fatal(err)
 	}
 
@@ -990,8 +1039,18 @@ func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Before(stamped.Add(-time.Second)) {
-		t.Fatalf("evidence time = %s, want no earlier than the stamp %s: the floor must never collapse to the scout's created_at", got, stamped)
+	if !got.Equal(silentSince.Truncate(time.Second)) && !got.Equal(silentSince) {
+		t.Fatalf("evidence time = %s, want the report's own mtime %s: an outage stamp must not forget two hours of real silence", got, silentSince)
+	}
+
+	promoted := task
+	promoted.PaneStartedAt = now.Add(-time.Minute).UTC().Format(time.RFC3339)
+	got, err = reportEvidenceTime(home, promoted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Before(now.Add(-2 * time.Minute)) {
+		t.Fatalf("evidence time = %s, want the promotion instant: a pane a minute old cannot have been silent for two hours", got)
 	}
 }
 
@@ -1383,25 +1442,26 @@ func TestForgetPaneScopedCacheGivesTheShipsFirstProbeFailureADwell(t *testing.T)
 // fails it automatically by staying equal to its deliberately-stale "before" value.
 func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	before := TaskState{
-		CreatedAt:             "created-marker",
-		Status:                herdr.Status("scout-status"),
-		Probed:                true,
-		ChangedAt:             time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
-		Blocked:               true,
-		Stale:                 true,
-		PRMerged:              true,
-		ReportOffset:          42,
-		PersistedOffset:       43,
-		PersistedPRMerged:     true,
-		PersistedDoneVerified: true,
-		PersistedPaneID:       "scout-pane",
-		PersistedChangedAt:    time.Date(2002, 2, 2, 0, 0, 0, 0, time.UTC),
-		PersistedChangedFor:   "scout-status-for",
-		LastReportState:       "scout-report-state",
-		LastReportNote:        "scout-report-note",
-		DoneVerified:          true,
-		ParkedFiredFor:        time.Date(2003, 3, 3, 0, 0, 0, 0, time.UTC),
-		UnreachableFired:      true,
+		CreatedAt:               "created-marker",
+		Status:                  herdr.Status("scout-status"),
+		Probed:                  true,
+		ChangedAt:               time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
+		Blocked:                 true,
+		Stale:                   true,
+		PRMerged:                true,
+		ReportOffset:            42,
+		PersistedOffset:         43,
+		PersistedPRMerged:       true,
+		PersistedDoneVerified:   true,
+		PersistedPaneID:         "scout-pane",
+		PersistedChangedAt:      time.Date(2002, 2, 2, 0, 0, 0, 0, time.UTC),
+		PersistedChangedFor:     "scout-status-for",
+		LastReportState:         "scout-report-state",
+		LastReportNote:          "scout-report-note",
+		DoneVerified:            true,
+		ParkedFiredFor:          time.Date(2003, 3, 3, 0, 0, 0, 0, time.UTC),
+		PersistedParkedFiredFor: time.Date(2004, 4, 4, 0, 0, 0, 0, time.UTC),
+		UnreachableFired:        true,
 	}
 	promoted := state.Task{
 		Herdr:            state.Herdr{PaneID: "ship-pane"},
@@ -1417,16 +1477,18 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	// untouched: identity (CreatedAt), PR facts (PRMerged), report-file position
 	// (ReportOffset/PersistedOffset, PersistedPRMerged mirrors the same PR fact),
 	// and the parked latch (ParkedFiredFor is keyed to the report mtime, not the
-	// pane). Anything else added to TaskState later needs an entry here with a
-	// reason, or forgetPaneScopedCache needs to handle it - this test does not
-	// care which, only that the decision was made on purpose.
+	// pane, and PersistedParkedFiredFor mirrors that same fact). Anything else
+	// added to TaskState later needs an entry here with a reason, or
+	// forgetPaneScopedCache needs to handle it - this test does not care which,
+	// only that the decision was made on purpose.
 	carried := map[string]bool{
-		"CreatedAt":         true,
-		"PRMerged":          true,
-		"ReportOffset":      true,
-		"PersistedOffset":   true,
-		"PersistedPRMerged": true,
-		"ParkedFiredFor":    true,
+		"CreatedAt":               true,
+		"PRMerged":                true,
+		"ReportOffset":            true,
+		"PersistedOffset":         true,
+		"PersistedPRMerged":       true,
+		"ParkedFiredFor":          true,
+		"PersistedParkedFiredFor": true,
 	}
 
 	ts := before

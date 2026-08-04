@@ -154,6 +154,7 @@ func newSpawnCmd() *cobra.Command {
 				kind = state.KindScout
 			}
 
+			spawnedAt := time.Now().UTC().Format(time.RFC3339)
 			task := state.Task{
 				ID:       id,
 				Project:  proj.Name,
@@ -170,7 +171,8 @@ func newSpawnCmd() *cobra.Command {
 					TabID:       tab.TabID,
 					PaneID:      pane.PaneID,
 				},
-				CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				CreatedAt:     spawnedAt,
+				PaneStartedAt: spawnedAt,
 			}
 			if err := state.Write(home, task); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
