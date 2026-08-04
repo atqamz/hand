@@ -1757,6 +1757,100 @@ func TestStatusSingleTaskFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	}
 }
 
+// Free text appended after a real report is expected traffic that must never
+// erase it, and enough of it used to push the terminal line out of the detail
+// view's 5-line history window - the one view deriving the flag from that
+// window instead of the whole file, so it alone called the completion
+// acknowledged.
+func TestStatusSingleTaskFlagsATerminalReportBeyondTheHistoryWindow(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	report := "done: PR up\nstill tidying\nand more\nand more\nand more\nand more\n"
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "done: PR up (unacknowledged)") {
+		t.Fatalf("got %q, want the unread completion flagged however much free text follows it", out.String())
+	}
+}
+
+// The clause has to qualify the state it describes: the flag comes from the
+// last line that classified, so the line it decorates must be that one and not
+// whatever the worker appended after it.
+func TestStatusSingleTaskFlagsTheClassifiedLineNotTrailingFreeText(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR up\nstill tidying\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Reported:    done: PR up (unacknowledged)") {
+		t.Fatalf("got %q, want the clause on the terminal report it describes", out.String())
+	}
+	if !strings.Contains(out.String(), "  still tidying") {
+		t.Fatalf("got %q, want the worker's trailing free text still in the history block", out.String())
+	}
+}
+
+// Without the flag the Reported line stays the worker's literal last line, free
+// text included.
+func TestStatusSingleTaskShowsTrailingFreeTextWhenAcknowledged(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	report := "done: PR up\nstill tidying\n"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+		ReportOffset: int64(len(report))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Reported:    still tidying") {
+		t.Fatalf("got %q, want the literal last line when no clause applies", out.String())
+	}
+}
+
 func TestStatusSingleTaskJSONOmitsUnacknowledgedWhenAcknowledged(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

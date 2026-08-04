@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"text/tabwriter"
 	"time"
 
@@ -467,7 +468,17 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// fault is named on the Reported line and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
 	const historyLen = 5
-	tail, readErr := state.ReportTail(home, id, historyLen)
+	// The whole file, sliced afterwards: deriving the flag from the 5-line
+	// history window instead would let five trailing free-text lines hide a
+	// completion the fleet view flags, and the two views must never disagree.
+	reportLines, readErr := state.ReadReportLines(home, id)
+	lastReported, lastReportedOK := state.LastReportedState(reportLines)
+	unacked, readErr := unacknowledged(home, t, lastReported, lastReportedOK, readErr)
+
+	tail := reportLines
+	if len(tail) > historyLen {
+		tail = tail[len(tail)-historyLen:]
+	}
 	history := make([]string, len(tail))
 	for i, line := range tail {
 		history[i] = reportLineText(line)
@@ -477,8 +488,6 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if len(tail) > 0 {
 		last = tail[len(tail)-1]
 	}
-	lastReported, lastReportedOK := state.LastReportedState(tail)
-	unacked, readErr := unacknowledged(home, t, lastReported, lastReportedOK, readErr)
 
 	var heldJSON *holdJSON
 	if held {
@@ -508,7 +517,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			MergeExecuted: t.MergeExecuted, MergeAnnounced: t.MergeAnnounced,
 			DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason, CreatedAt: t.CreatedAt,
 			LastReportAt: lastReportAt(home, id),
-			Reported:     reportedFrom(last, len(tail) > 0, readErr), ReportHistory: history,
+			Reported:     reportedFrom(last, len(reportLines) > 0, readErr), ReportHistory: history,
 			Held: heldJSON, GateRunIssue: runIssue, Unacknowledged: unacked,
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
@@ -533,12 +542,26 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	switch {
 	case readErr != nil:
 		reported = fmt.Sprintf("report %s: %v", reportUnreadable, readErr)
+	// Same clause the fleet view appends, so neither view can call a completion
+	// acknowledged that the other flags - and on the same classified line the
+	// fleet view names, not whatever free text the worker appended after it.
+	case unacked:
+		reported = render(lastReported) + " (unacknowledged)"
 	case len(tail) > 0:
 		reported = render(last)
-		// Same clause the fleet view appends, so neither view can call a completion
-		// acknowledged that the other flags.
-		if unacked {
-			reported += " (unacknowledged)"
+	}
+	// Which history entry the Reported line above already shows. Found rather
+	// than assumed last: with the flag applied that line is the classified
+	// terminal report, which the worker may have followed with free text, or
+	// pushed out of the history window entirely.
+	reportedIdx := len(tail) - 1
+	if unacked {
+		reportedIdx = -1
+		for i := len(tail) - 1; i >= 0; i-- {
+			if !tail[i].Malformed {
+				reportedIdx = i
+				break
+			}
 		}
 	}
 
@@ -581,8 +604,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// --full restores the exact previous shape: the full tail, untruncated,
 	// duplicate entry included.
 	historyTail := tail
-	if !full && len(tail) > 0 {
-		historyTail = tail[:len(tail)-1]
+	if !full && reportedIdx >= 0 {
+		historyTail = slices.Concat(tail[:reportedIdx], tail[reportedIdx+1:])
 	}
 	if len(historyTail) > 0 {
 		if _, err := fmt.Fprintln(w, "\nReport history (reported by worker, not verified current truth):"); err != nil {

@@ -138,7 +138,7 @@ func TestTailReportRestartsFromZeroWhenFileShrinks(t *testing.T) {
 	}
 }
 
-func TestReadReportLinesAndReportTail(t *testing.T) {
+func TestReadReportLines(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
 		t.Fatal(err)
@@ -150,11 +150,6 @@ func TestReadReportLinesAndReportTail(t *testing.T) {
 	lines, err := ReadReportLines(home, "task-1")
 	if err != nil || len(lines) != 3 || lines[2].State != ReportDone {
 		t.Fatalf("got %+v err=%v, want 3 lines ending in done", lines, err)
-	}
-
-	tail, err := ReportTail(home, "task-1", 2)
-	if err != nil || len(tail) != 2 || tail[0].State != ReportNeedsDecision || tail[1].State != ReportDone {
-		t.Fatalf("got %+v err=%v, want the last 2 lines", tail, err)
 	}
 }
 

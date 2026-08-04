@@ -228,14 +228,3 @@ func UnacknowledgedTerminalReport(homeDir, id string, offset int64) (bool, error
 	}
 	return TerminalReport(last.State), nil
 }
-
-func ReportTail(homeDir, id string, n int) ([]ReportLine, error) {
-	lines, err := ReadReportLines(homeDir, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return lines, nil
-}
