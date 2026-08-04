@@ -214,14 +214,20 @@ func TestSupportsModel(t *testing.T) {
 	}
 }
 
+// Pinned against the builders for the same reason as TestSupportsModel: a harness reporting true
+// while its command carries no --effort is the silent drop this predicate exists to prevent.
 func TestSupportsEffort(t *testing.T) {
-	if !SupportsEffort(Claude) {
-		t.Error("SupportsEffort(claude) = false, want true")
-	}
-	for _, name := range []string{Codex, Grok, Pi, OpenCode, "nonexistent"} {
-		if SupportsEffort(name) {
-			t.Errorf("SupportsEffort(%q) = true, want false", name)
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "some-effort"})
+		if err != nil {
+			t.Fatalf("Build(%q) error: %v", name, err)
 		}
+		if emits := strings.Contains(got, "--effort 'some-effort'"); emits != SupportsEffort(name) {
+			t.Errorf("SupportsEffort(%q) = %v but Build(%q) = %q", name, SupportsEffort(name), name, got)
+		}
+	}
+	if SupportsEffort("nonexistent") {
+		t.Error("SupportsEffort(nonexistent) = true, want false")
 	}
 }
 

@@ -1956,7 +1956,10 @@ brief on disk is never rewritten or stripped. Only the prompt-bearing harnesses 
 sentence: `codex`, `grok` and `pi` are handed the brief as a file with no prompt at all, so a
 declaring brief reaches them undisclaimed.
 
-A declared effort under a harness that cannot apply one warns on stderr (see `hand spawn`).
+A declared effort under a harness that cannot apply one warns on stderr, as does a declared model
+under `codex`, `grok` or `pi`, and so does the operator-decision rule and the front-matter
+disclaimer those same three cannot carry. Whatever a given launch drops is named on one combined
+line, never one line per dropped value (see `hand spawn`).
 
 ## Backlog format
 
