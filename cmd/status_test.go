@@ -1784,3 +1784,69 @@ func TestStatusSingleTaskJSONOmitsUnacknowledgedWhenAcknowledged(t *testing.T) {
 		t.Fatalf("got %q, want the field absent for a consumer that predates it", out.String())
 	}
 }
+
+// A worker whose append lands between the row's own read and the flag's read is
+// the one way the two can disagree, and it cannot be staged through the command
+// itself - so the guard is exercised where it lives. A --json row saying
+// "unacknowledged" next to a "working" it reported in the same breath is
+// contradictory on the interface the supervisor reads on every check.
+func TestUnacknowledgedAnswersForTheStateTheRowPrints(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR up\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	task := state.Task{ID: "task-1"}
+
+	cases := []struct {
+		name     string
+		reported state.ReportLine
+		ok       bool
+		want     bool
+	}{
+		{name: "row prints the terminal state", reported: state.ReportLine{State: state.ReportDone}, ok: true, want: true},
+		{name: "row prints work that supersedes it", reported: state.ReportLine{State: state.ReportWorking}, ok: true},
+		{name: "row prints nothing classified", reported: state.ReportLine{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := unacknowledged(home, task, c.reported, c.ok, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.want {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// The watcher leaves an unterminated line for its next tick, so a done written
+// without a trailing newline has been announced to nobody. Flagging it is the
+// whole of atqamz/secondhand#70; skipping it would let the same silent completion
+// back in through the newline.
+func TestStatusFleetFlagsATerminalReportWithNoTrailingNewline(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR up"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "idle (reported: done, unacknowledged)") {
+		t.Fatalf("got %q, want an unterminated done flagged like any other unread completion", out.String())
+	}
+}

@@ -309,7 +309,7 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 			last = lines[len(lines)-1]
 		}
 		reported, reportedOK := state.LastReportedState(lines)
-		unacked, readErr := unacknowledged(home, t, readErr)
+		unacked, readErr := unacknowledged(home, t, reported, reportedOK, readErr)
 		p, registered := projectByName[t.Project]
 		runIssue := gateRunIssue(home, t, reportedOK && reported.State == state.ReportDone, p, registered, runPRs)
 		rows = append(rows, statusJSON{
@@ -395,15 +395,20 @@ const reportUnreadable = "unreadable"
 // file was readable a moment ago and is not now, which is what that error already
 // says, and swallowing it would render an unread completion as an acknowledged
 // one.
-func unacknowledged(home string, t state.Task, readErr error) (bool, error) {
+//
+// It takes the state the caller already derived and answers false for anything
+// but a terminal one, so the flag can only ever qualify the state this row
+// prints. Reading the file a second time is a second snapshot, and a worker
+// appending between the two would otherwise put "unacknowledged" next to a
+// "working" this command reported in the same breath.
+func unacknowledged(home string, t state.Task, reported state.ReportLine, reportedOK bool, readErr error) (bool, error) {
 	if readErr != nil {
 		return false, readErr
 	}
-	unacked, err := state.UnacknowledgedTerminalReport(home, t.ID, t.ReportOffset)
-	if err != nil {
-		return false, err
+	if !reportedOK || !state.TerminalReport(reported.State) {
+		return false, nil
 	}
-	return unacked, nil
+	return state.UnacknowledgedTerminalReport(home, t.ID, t.ReportOffset)
 }
 
 // A pane state and a report answer different questions, so both print. This
@@ -463,7 +468,6 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// prints, rather than the whole command failing over one bad read.
 	const historyLen = 5
 	tail, readErr := state.ReportTail(home, id, historyLen)
-	unacked, readErr := unacknowledged(home, t, readErr)
 	history := make([]string, len(tail))
 	for i, line := range tail {
 		history[i] = reportLineText(line)
@@ -474,6 +478,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		last = tail[len(tail)-1]
 	}
 	lastReported, lastReportedOK := state.LastReportedState(tail)
+	unacked, readErr := unacknowledged(home, t, lastReported, lastReportedOK, readErr)
 
 	var heldJSON *holdJSON
 	if held {
