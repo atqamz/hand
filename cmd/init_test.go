@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/secondhand/internal/home"
 )
@@ -135,6 +136,96 @@ func TestInitIsIdempotentAboutTheHandDbMarker(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(dir, "state", "hand.db")); err != nil {
 		t.Fatalf("state/hand.db missing after repeat init: %v", err)
+	}
+}
+
+// Bootstrap answers nothing on the operator's behalf, so a fresh home leaves every worker default
+// unwritten and hands the questions to the session that reads this document.
+func TestInitWritesNoWorkerDefaultAndReportsWhatIsMissing(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	cmd := newInitCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(dir, "config"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		t.Fatalf("init wrote config/%s, want no worker default chosen for the operator", e.Name())
+	}
+	for _, want := range []string{
+		"config_missing: 1\n",
+		"harness,missing,none",
+		"model,pending-harness,none",
+		"hand config set <key> <value>",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("init output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+}
+
+// The retired flag has to fail loudly rather than be silently accepted, so a script still passing it
+// is told the configuration moved instead of appearing to have set something.
+func TestInitRefusesTheRetiredSetupFlag(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	t.Chdir(t.TempDir())
+
+	root := newRootCmd("test")
+	root.SetOut(new(bytes.Buffer))
+	root.SetErr(new(bytes.Buffer))
+	root.SetArgs([]string{"init", "--setup"})
+	_, err := root.ExecuteC()
+	if code := exitCodeFor(t, err); code != 2 {
+		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("err = %v, want it to name the flag as unknown", err)
+	}
+}
+
+// Init runs in scripts and in CI, where stdin is closed or never written to. An open pipe nothing
+// writes to is the shape that hangs, so the read has to be absent rather than merely unreached.
+func TestInitNeverReadsStdin(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	t.Chdir(t.TempDir())
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+	stdin := os.Stdin
+	os.Stdin = reader
+	t.Cleanup(func() { os.Stdin = stdin })
+
+	done := make(chan error, 1)
+	go func() {
+		cmd := newInitCmd()
+		cmd.SetIn(reader)
+		cmd.SetOut(new(bytes.Buffer))
+		cmd.SetArgs([]string{})
+		done <- cmd.Execute()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("init did not finish with nothing to read, want it never to block on stdin")
 	}
 }
 

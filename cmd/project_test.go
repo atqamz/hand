@@ -555,13 +555,3 @@ func TestWarnHandHomeMismatch(t *testing.T) {
 		t.Fatalf("got %q, want %q", relative.String(), want)
 	}
 }
-
-func TestReadSetupChoice(t *testing.T) {
-	choice, err := readSetupChoice(strings.NewReader("2\n"), []string{"claude", "codex"}, "harness")
-	if err != nil || choice != "codex" {
-		t.Fatalf("readSetupChoice = %q, %v", choice, err)
-	}
-	if _, err := readSetupChoice(strings.NewReader("3\n"), []string{"claude", "codex"}, "harness"); err == nil {
-		t.Fatal("expected out-of-range setup choice to fail")
-	}
-}
