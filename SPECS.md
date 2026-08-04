@@ -1064,6 +1064,8 @@ Behavior (ship task):
      It is decided here, last, so it can only answer the case nothing else claims: a delivery, a local-only merge, and a gate-opened PR all stop above it, so reaching it means no PR exists for it to shadow. Merge evidence excludes it outright for the same reason - `hand promote` keeps the report on disk while turning the row into a ship, so a promoted scout that then merged locally has every shape this case reads, and it landed as a merge. Recording it as a report would claim a merge never happened, the inverse of the atqamz/secondhand#78 accuracy rule.
 4. Close the herdr tab.
 5. Return the worktree to treehouse: `treehouse return <path>`. `--force` is added whenever step 1 proceeded past dirt it judged safe, as well as under the command's own `--force`: treehouse refuses to clean a dirty worktree without it and there is nothing here to answer its prompt, so an unforced return would either abort after the tab is already closed or hand the pool a slot that is still dirty.
+   That abort is the one treehouse failure its exit status does not report - it prints the abort and still exits 0 with the slot leased - so the return is judged on the output and refused, never taken for a returned worktree.
+   A scout is the path that reaches it: its checks read the report on disk and never the worktree, so dirt is still in place when the return runs.
 6. Append a completion record to `state/completions.jsonl` (see "Completion store" below).
 7. Remove the task's row and the task's report channel `state/<id>.status`.
 8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
@@ -1128,7 +1130,7 @@ Errors:
 - PR not merged (without `--force`).
 - Ambiguous PR head ref: the task's branch carries several PRs that do not resolve to a single usable winner - no preference tier holds exactly one match, or a merged PR coexists with an open one (without `--force`).
 - Report not found for scout task (without `--force`).
-- Treehouse return failed (worktree locked, path no pool manages).
+- Treehouse return failed (worktree locked, path no pool manages), or an unforced return aborted on a dirty worktree and left the slot leased. The task's row is kept either way, since it is the only record of the leased slot.
 - Herdr tab close failed (graceful: warn and continue).
 - Completion record append failed (lock or I/O fault): task state is left untouched, so a retry is safe.
 
@@ -1524,8 +1526,9 @@ hand project sync nsr
 Behavior:
 1. For each project (or named project):
    - `git fetch origin` in the clone.
-   - List `treehouse.toml` in the clone's `info/exclude` if it is not already, which is what keeps a
-     project registered before hand excluded it from skipping as dirty on every sync from then on.
+   - List `treehouse.toml` in the clone's `info/exclude` if it is not already, which repairs a clone
+     registered before `hand project add` started excluding it: without that, its untracked pool
+     config reads as dirt and every sync from then on skips the project.
    - If on default branch and clean: fast-forward to `origin/<default>`.
    - If dirty, on non-default branch, or diverged: skip with warning.
 2. Prune local branches whose remote tracking branch is gone.
