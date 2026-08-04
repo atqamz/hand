@@ -34,13 +34,15 @@ func TestPromoteScoutToShip(t *testing.T) {
 	}
 
 	createdAt := time.Now().UTC().Format(time.RFC3339)
+	scoutPaneStart := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	oldWorktree := filepath.Join(home, "wt-scout-old")
 	if err := state.Write(home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindScout,
-		Worktree:  oldWorktree,
-		LeaseID:   "lease-old",
-		Herdr:     state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"},
-		CreatedAt: createdAt,
+		Worktree:      oldWorktree,
+		LeaseID:       "lease-old",
+		Herdr:         state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"},
+		CreatedAt:     createdAt,
+		PaneStartedAt: scoutPaneStart,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +112,9 @@ func TestPromoteScoutToShip(t *testing.T) {
 	}
 	if task.Harness != "claude" {
 		t.Fatalf("task.Harness = %q, want the default harness recorded", task.Harness)
+	}
+	if task.PaneStartedAt == "" || task.PaneStartedAt == scoutPaneStart {
+		t.Fatalf("task.PaneStartedAt = %q, want it restamped off the scout's %q: parked's silence floor is anchored to it", task.PaneStartedAt, scoutPaneStart)
 	}
 
 	logData, err := os.ReadFile(invocationLog)

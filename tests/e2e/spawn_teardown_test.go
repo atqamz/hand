@@ -46,6 +46,9 @@ func TestSpawnTeardownCycle(t *testing.T) {
 		task.Harness == "" || task.Herdr.WorkspaceID != "ws-1" || task.Herdr.TabID != "tab-1" || task.Herdr.PaneID != "pane-1" {
 		t.Fatalf("spawned task state = %+v, want project=demo kind=ship worktree=%s herdr ids populated", task, worktree)
 	}
+	if task.PaneStartedAt != task.CreatedAt || task.PaneStartedAt == "" {
+		t.Fatalf("spawned task PaneStartedAt = %q, CreatedAt = %q, want the spawn instant recorded as both: a task's first pane starts when it is created", task.PaneStartedAt, task.CreatedAt)
+	}
 
 	// The regression this cycle exists to catch: a first spawn into a fresh workspace must reuse
 	// the workspace's own root tab (renamed to the task id) rather than creating a second one,

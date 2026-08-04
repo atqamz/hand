@@ -174,7 +174,9 @@ func newPromoteCmd() *cobra.Command {
 			// delivery nobody made for its code.
 			t.DeliveredAt = ""
 			t.DeliveredReason = ""
-			t.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
+			promotedAt := time.Now().UTC().Format(time.RFC3339)
+			t.PaneStartedAt = promotedAt
+			t.StatusChangedAt = promotedAt
 			t.StatusChangedFor = ""
 			t.LastReportState = ""
 			t.LastReportNote = ""
