@@ -40,7 +40,9 @@ type PRSearchTarget struct {
 	// HeadRepo, when set, keeps only PRs whose head branch lives in that repo.
 	// A fork project's upstream carries head refs from every contributor's fork,
 	// so a branch name alone can match a stranger's PR there; the fork project
-	// knows which repo its own branch is pushed to.
+	// knows which repo its own branch is pushed to. Compared case-insensitively:
+	// gh reports a repo in its canonical casing while this value is derived from
+	// whatever casing the clone's origin remote was written in.
 	HeadRepo string
 }
 
@@ -156,7 +158,7 @@ func listPRsByBranch(ctx context.Context, target PRSearchTarget, branch string) 
 	}
 	kept := make([]prListItem, 0, len(results))
 	for _, r := range results {
-		if target.HeadRepo != "" && r.HeadRepository.NameWithOwner != target.HeadRepo {
+		if target.HeadRepo != "" && !strings.EqualFold(r.HeadRepository.NameWithOwner, target.HeadRepo) {
 			continue
 		}
 		r.Repo = target.Repo

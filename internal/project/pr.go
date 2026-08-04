@@ -30,7 +30,11 @@ func ValidatePR(ctx context.Context, homeDir string, p Project, url string) erro
 		return fmt.Errorf("invalid PR URL %q", url)
 	}
 	// urlSlug is never empty here, so an undeclared upstream cannot match it.
-	if urlSlug != repoSlug && urlSlug != p.Upstream {
+	// EqualFold, not ==: a GitHub slug is case-insensitive and unique only up to
+	// casing, so folding cannot admit a foreign repo, while comparing exactly
+	// refuses a landed PR whose canonical casing (what gh reports, what the URL
+	// carries) differs from the clone's origin remote or the declared upstream.
+	if !strings.EqualFold(urlSlug, repoSlug) && !strings.EqualFold(urlSlug, p.Upstream) {
 		return fmt.Errorf("PR %s belongs to %s, not project %s's repo (%s)%s", url, urlSlug, p.Name, repoSlug, upstreamNote(p))
 	}
 	if _, err := ghutil.PRIsMerged(ctx, url); err != nil {

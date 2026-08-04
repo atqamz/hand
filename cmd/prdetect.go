@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/atqamz/secondhand/internal/ghutil"
@@ -36,7 +37,10 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 		return t, err
 	}
 	targets := []ghutil.PRSearchTarget{{Repo: repoSlug}}
-	if proj.Upstream != "" && proj.Upstream != repoSlug {
+	// EqualFold, not ==: GitHub slugs are case-insensitive, so an upstream declared
+	// as the project's own repo in different casing would otherwise be searched
+	// twice and make every PR its own same-tier duplicate.
+	if proj.Upstream != "" && !strings.EqualFold(proj.Upstream, repoSlug) {
 		targets = append(targets, ghutil.PRSearchTarget{Repo: proj.Upstream, HeadRepo: repoSlug})
 	}
 	url, merged, found, err := ghutil.FindPRByBranch(ctx, branch, targets...)

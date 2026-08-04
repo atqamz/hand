@@ -206,6 +206,58 @@ func TestPRAcceptsTheDeclaredUpstreamAndStillRefusesAnyOtherRepo(t *testing.T) {
 	}
 }
 
+// A GitHub slug is case-insensitive, so the repo guard has to fold: a PR URL
+// carries GitHub's canonical casing while the slug it is checked against comes
+// from whatever casing the clone's origin remote and the declared upstream were
+// written in. Comparing exactly refuses landed work as a foreign repo, and on
+// hand teardown's detection path that surfaces as "no PR recorded" - unlanded,
+// the opposite of what happened. Both sides of the guard are covered in one test
+// so the fold is pinned for the project's own repo and its upstream alike.
+func TestPRAcceptsCanonicalCasingForDifferentlyCasedRemoteAndUpstream(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/Atqamz/No-Mistakes.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/Atqamz/No-Mistakes.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.SetUpstream(home, "demo", "KunchenGUID/No-Mistakes"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"task-1", "task-2"} {
+		if err := state.Write(home, state.Task{ID: id, Project: "demo"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFakeGhPRView(t, 0)
+
+	own := "https://github.com/atqamz/no-mistakes/pull/31"
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", own})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want the project's own repo accepted in GitHub's canonical casing", err)
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != own {
+		t.Fatalf("task.PR = %q, want %q", task.PR, own)
+	}
+
+	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
+	up := newPRCmd()
+	up.SetArgs([]string{"task-2", upstreamPR})
+	if err := up.Execute(); err != nil {
+		t.Fatalf("got %v, want the declared upstream accepted in GitHub's canonical casing", err)
+	}
+	other, err := state.Read(home, "task-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.PR != upstreamPR {
+		t.Fatalf("task.PR = %q, want %q", other.PR, upstreamPR)
+	}
+}
+
 func TestPRRefusesWhenGhReportsNotFound(t *testing.T) {
 	home, clonePath := setupPRHome(t)
 	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")

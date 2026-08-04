@@ -216,7 +216,9 @@ func registerGateProject(t *testing.T, home string) {
 // search of the project's own repo comes back empty, and it reports the
 // headRepository field the fork filter reads. Without the --repo dispatch no test
 // can express the atqamz/secondhand#134 shape at all (atqamz/secondhand#40 is why
-// that matters).
+// that matters). The dispatch case-folds --repo because GitHub serves a repo under
+// any casing of its slug, so a fake matching case-sensitively would answer a
+// double search of one repo with one hit and hide the duplicate it really returns.
 func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr ghFakePR) {
 	t.Helper()
 	bin := t.TempDir()
@@ -224,8 +226,8 @@ func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr gh
 	item := fmt.Sprintf(`{"number":%d,"url":%q,"state":%q,"headRepository":{"nameWithOwner":%q}}`,
 		pr.Number, pr.URL, pr.State, headRepo)
 	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
-		"\"pr list\") case \"$4\" in\n" +
-		fmt.Sprintf("%q) printf '[%s]' ;;\n", upstream, item) +
+		"\"pr list\") case \"$(printf '%s' \"$4\" | tr 'A-Z' 'a-z')\" in\n" +
+		fmt.Sprintf("%q) printf '[%s]' ;;\n", strings.ToLower(upstream), item) +
 		"*) printf '[]' ;;\nesac ;;\n" +
 		"\"pr view\") case \"$3\" in\n" +
 		fmt.Sprintf("%q) printf '{\"state\":%q}' ;;\n", pr.URL, pr.State) +
@@ -260,6 +262,35 @@ func TestTeardownDetectsGateOpenedPRonDeclaredUpstream(t *testing.T) {
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to detect the upstream PR and succeed", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	}
+}
+
+// TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing covers the
+// self-declared upstream: GitHub slugs are case-insensitive, so an upstream naming
+// the project's own repo in different casing must not be searched as a second repo -
+// every PR would come back twice and refuse as its own same-tier duplicate, the
+// failure this detection exists to remove.
+func TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	if err := project.SetUpstream(home, "myproj", "Owner/Repo"); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGHForkPRListAndView(t, "owner/repo", "owner/repo",
+		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
+
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want the differently-cased self-upstream to be searched once", err)
 	}
 	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
 		t.Fatalf("state still exists after teardown: %v %v", exists, err)
