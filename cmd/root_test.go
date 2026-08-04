@@ -146,6 +146,44 @@ func TestBareInvocationLeadsWithTheFleetItManages(t *testing.T) {
 	}
 }
 
+// The bare command is the session hook, so it is the only place a supervising agent learns that the
+// fleet is not configured yet, and the only place the question can be put in front of the operator.
+func TestBareInvocationReportsConfigurationStateAndAsksTheOperator(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	out := runBareRoot(t)
+	for _, want := range []string{
+		"config_missing: 1\n",
+		"config[3]{key,state,value}:\n",
+		"harness,missing,none",
+		"Ask the operator which harness",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out = %q, want it to contain %q", out, want)
+		}
+	}
+
+	if _, err := runConfigSet(t, settingHarness, "codex"); err != nil {
+		t.Fatal(err)
+	}
+	out = runBareRoot(t)
+	for _, want := range []string{
+		"config_missing: 0\n",
+		"harness,configured,codex",
+		"model,unsupported,none",
+		"effort,unsupported,none",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out = %q, want it to contain %q", out, want)
+		}
+	}
+	if strings.Contains(out, "Ask the operator") {
+		t.Fatalf("out = %q, want no configuration question once nothing applicable is missing", out)
+	}
+}
+
 func TestBareInvocationOutsideAFleetHomeSaysSoAndNamesTheWayIn(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("HAND_HOME", "")

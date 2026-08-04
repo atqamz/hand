@@ -104,6 +104,11 @@ func runRootOverview(cmd *cobra.Command, version string) error {
 	}
 	doc.Field("home", tildePath(fleetHome))
 
+	// This command is the session hook, so the fleet's configuration state reaches a supervising agent
+	// here or not at all: the questions it asks the operator are the ones this block reports missing.
+	cfg := readWorkerConfig(fleetHome)
+	appendWorkerConfig(&doc, cfg)
+
 	cols, err := pickFields(taskFields, nil, fleetDefaultFields)
 	if err != nil {
 		return err
@@ -112,7 +117,7 @@ func runRootOverview(cmd *cobra.Command, version string) error {
 	if err != nil {
 		return err
 	}
-	appendFleet(&doc, views, holds, cols)
+	appendFleet(&doc, views, holds, cols, workerConfigHelp(cfg)...)
 	return doc.Render(cmd.OutOrStdout())
 }
 
