@@ -27,7 +27,11 @@ release-please handles versioning and changelogs from these.
 
 ## Comments
 
-Two rules, enforced by `make lint` rather than by a reviewer reading a diff:
+The default is no comment.
+Add one only for a why the code cannot show: a hidden constraint, a subtle invariant, a workaround for a specific bug.
+Restating code, narrating what, banners, and doc comments on the obvious are noise no linter can catch, so they stay a reviewer's call.
+
+Two rules bound the comments that clear that bar, enforced by `make lint` rather than by a reviewer reading a diff:
 
 1. A comment may not open with the identifier it documents.
 2. A comment block may not exceed three lines.
@@ -41,7 +45,7 @@ Rule 2 will occasionally be wrong, because a genuinely subtle invariant sometime
 That is accepted: a rule that is right most of the time and mechanically enforced binds harder than one that is right always and enforced never.
 Prose that outgrows three lines belongs in SPECS.md, which is where it is read.
 
-`go run ./tools/commentlint .` runs the check alone and prints one `file:line` per violation.
+`go run ./tools/commentlint .` runs the check alone and prints one `file:line:column` per violation.
 
 ## Reporting issues
 
