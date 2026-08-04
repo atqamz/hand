@@ -3,22 +3,18 @@
 // SPECS.md's herdr examples should match this code, not the other way around.
 package herdr
 
-// Status is herdr's agent_status value for a pane. herdr's real vocabulary has
-// five values, not four: idle, working, blocked, done, unknown.
-//
-// done is not a task-outcome signal. herdr derives it from its own seen/notification
-// bookkeeping: a working-or-blocked pane that goes idle is reported as idle only if a
-// live, OS-focused herdr client currently has that pane's tab active at the instant of
-// the transition; otherwise it's reported as done. hand polls the API and never
-// focuses a client on worker panes, so it observes done, essentially always, for this
-// transition - never idle. Treat idle and done as the same signal ("pane stopped being
-// busy") and use NotBusy to test for either.
+// Status is herdr's agent_status value for a pane. The real vocabulary has five values, not four:
+// idle, working, blocked, done, unknown - and idle and done are one signal, "the pane stopped
+// being busy", which NotBusy is the way to test for.
 type Status string
 
 const (
 	StatusIdle    Status = "idle"
 	StatusWorking Status = "working"
 	StatusBlocked Status = "blocked"
+	// Not a task outcome: herdr derives it from its own seen/notification bookkeeping, reporting a
+	// working-or-blocked pane that goes idle as idle only while a live, OS-focused client has that
+	// pane's tab active. hand polls headlessly, so it observes done for that transition, not idle.
 	StatusDone    Status = "done"
 	StatusUnknown Status = "unknown"
 )
@@ -42,10 +38,9 @@ type Tab struct {
 	Label       string `json:"label"`
 }
 
-// Agent names the harness herdr detects running in the pane, and is empty when the pane holds
-// no agent - a bare shell, or one whose harness has exited. AgentStatus is "unknown" in that
-// case, but it is also "unknown" for a pane herdr has not classified yet, so Agent is the field
-// to test for a running harness.
+// Agent names the harness herdr detects in the pane, empty when the pane holds no agent - a bare
+// shell, or one whose harness exited. AgentStatus is "unknown" then, but also for a pane herdr has
+// not classified yet, so Agent is the field to test for a running harness.
 type Pane struct {
 	PaneID      string `json:"pane_id"`
 	TabID       string `json:"tab_id"`
