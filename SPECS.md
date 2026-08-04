@@ -425,9 +425,9 @@ Model and effort resolve most-specific-first: the flag, then the brief's `---` d
 "Brief format"), then the config default, then unset.
 
 Anything the chosen harness cannot carry is a warning on stderr, not a failure: the spawn proceeds,
-with a resolved model or effort recorded in state and ignored by the launch command. Three things
-can be dropped, and all of them are named on one line per launch rather than one line each, since
-consecutive warnings all naming the same harness read as separate problems:
+with a resolved model or effort recorded in state and ignored by the launch command. Everything a
+launch drops is named on one line rather than one line each, since consecutive warnings all naming
+the same harness read as separate problems. What can be dropped:
 
 - a resolved effort under anything but claude (`harness.SupportsEffort`)
 - a resolved model under `codex`, `grok` or `pi` (`harness.SupportsModel`)
