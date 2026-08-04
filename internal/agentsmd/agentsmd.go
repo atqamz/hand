@@ -56,6 +56,7 @@ Run ` + "`hand --help`" + ` for the full command reference.
 
 - Every command prints TOON on stdout: ` + "`key: value`" + ` lines, ` + "`name[N]{f1,f2}:`" + ` blocks with one comma-joined row per line, and a ` + "`help[N]:`" + ` list of next steps worth taking. A count of ` + "`0`" + ` and an empty block are an answer, not a failure.
 - A failure prints nothing on stdout and one document on stderr: ` + "`error`" + `, ` + "`kind`" + ` (general, usage, precondition, no-event, arm-failed, send-undelivered) and ` + "`exit`" + `. Branch on ` + "`kind`" + ` rather than matching the message text.
+- The fleet overview at the top of this session is a ` + "`hand`" + ` session hook, so it is a snapshot taken before you did anything. Re-read it with ` + "`hand status`" + ` once you have acted.
 - Never edit files under ` + "`projects/`" + `. Workers do that in worktrees.
 - Never merge without explicit authorization.
 - Never force-teardown without explicit authorization. ` + "`--force`" + ` is for work nobody delivered; ` + "`hand deliver`" + ` is the answer for work that is delivered and not landed.

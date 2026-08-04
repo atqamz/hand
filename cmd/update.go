@@ -3,12 +3,14 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
 	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
+	"github.com/atqamz/secondhand/internal/sessionhook"
 	"github.com/spf13/cobra"
 )
 
@@ -36,6 +38,7 @@ func newUpdateCmd(version string) *cobra.Command {
 				doc.Bool("update_available", newer)
 				doc.Bool("updated", false)
 				doc.Field("agents_md", "not-applicable")
+				doc.Field("session_hook", "not-applicable")
 				doc.List("notes", nil)
 				if newer {
 					doc.Help("Run `hand update` to install " + latest + ", which also refreshes this home's AGENTS.md template")
@@ -51,8 +54,8 @@ func newUpdateCmd(version string) *cobra.Command {
 			// AGENTS.md refresh or skeleton seed is reported as a warning
 			// rather than an error: exiting nonzero here reads as "the update
 			// failed" and invites a pointless re-run.
-			var refreshed bool
-			var seedErr error
+			var refreshed, hooked bool
+			var seedErr, hookErr error
 			fleetHome, refreshErr := home.Resolve()
 			switch {
 			case refreshErr == nil:
@@ -62,12 +65,23 @@ func newUpdateCmd(version string) *cobra.Command {
 				// leaves those files in place - directories included, since a
 				// home resolves as one on its state/hand.db marker alone.
 				seedErr = initLayout(fleetHome)
+				// An install that moved leaves the session hook pointing at a
+				// path with no binary behind it any more.
+				var exe string
+				if exe, hookErr = os.Executable(); hookErr == nil {
+					hooked, hookErr = sessionhook.Refresh(fleetHome, exe)
+				}
 			case errors.Is(refreshErr, home.ErrNotFound):
 				refreshErr = nil
 			}
 
 			if refreshErr != nil {
 				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: refresh AGENTS.md: %v\n", refreshErr); err != nil {
+					return err
+				}
+			}
+			if hookErr != nil {
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: refresh the session hook: %v\n", hookErr); err != nil {
 					return err
 				}
 			}
@@ -84,7 +98,8 @@ func newUpdateCmd(version string) *cobra.Command {
 			doc.Field("latest", latest)
 			doc.Bool("update_available", true)
 			doc.Bool("updated", true)
-			doc.Field("agents_md", agentsMdOutcome(fleetHome, refreshed, refreshErr))
+			doc.Field("agents_md", refreshOutcome(fleetHome, refreshed, refreshErr))
+			doc.Field("session_hook", refreshOutcome(fleetHome, hooked, hookErr))
 			doc.List("notes", releaseNoteLines(notes))
 			doc.Help("Run `hand doctor` to check this home's AGENTS.md against the template " + latest + " installed")
 			return doc.Render(cmd.OutOrStdout())
@@ -97,13 +112,13 @@ func newUpdateCmd(version string) *cobra.Command {
 
 // The binary is replaced whatever this says, so every outcome is a value of
 // one field rather than a line that appears or does not.
-func agentsMdOutcome(fleetHome string, refreshed bool, refreshErr error) string {
+func refreshOutcome(fleetHome string, changed bool, err error) string {
 	switch {
-	case refreshErr != nil:
+	case err != nil:
 		return "failed"
 	case fleetHome == "":
 		return "no-fleet-home"
-	case refreshed:
+	case changed:
 		return "refreshed"
 	default:
 		return "unchanged"

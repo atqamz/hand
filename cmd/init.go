@@ -12,6 +12,7 @@ import (
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
 	"github.com/atqamz/secondhand/internal/axi"
+	"github.com/atqamz/secondhand/internal/sessionhook"
 	"github.com/atqamz/secondhand/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -78,6 +79,14 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			exe, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("resolve the hand executable: %w", err)
+			}
+			hooked, err := sessionhook.Refresh(home, exe)
+			if err != nil {
+				return err
+			}
 
 			var chosen setupChoice
 			if setup {
@@ -91,26 +100,30 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 
-			agentsMD := "unchanged"
-			if refreshed {
-				agentsMD = "written"
-			}
-
 			var doc axi.Doc
 			doc.Field("result", "initialized")
 			doc.Field("home", home)
-			doc.Field("agents_md", agentsMD)
+			doc.Field("agents_md", writtenOrUnchanged(refreshed))
+			doc.Field("session_hook", writtenOrUnchanged(hooked))
 			doc.Field("harness", orNone(chosen.harness))
 			doc.Field("model", orNone(chosen.model))
 			doc.Field("effort", orNone(chosen.effort))
 			doc.Help("Run `hand project add <repo-url>` to register the first project",
-				"Read AGENTS.md in this home for how a supervising agent is meant to drive it")
+				"Read AGENTS.md in this home for how a supervising agent is meant to drive it",
+				"A Claude Code session started in this home now opens with the fleet already in context")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
 	cmd.Flags().BoolVar(&setup, "setup", false, "run interactive first-time setup")
 	return cmd
+}
+
+func writtenOrUnchanged(changed bool) string {
+	if changed {
+		return "written"
+	}
+	return "unchanged"
 }
 
 func initLayout(home string) error {

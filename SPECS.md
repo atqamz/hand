@@ -174,6 +174,8 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       age.go                # FormatAge, FormatDuration
     atomicfile/             # shared write-to-temp-then-rename helper
       atomicfile.go         # atomic file replacement
+    sessionhook/            # ambient context for a supervising session (see "Ambient context")
+      sessionhook.go        # install, repoint and report the SessionStart hook entry
   go.mod
   go.sum
   AGENTS.md                 # agent instructions (~25 lines of rules)
@@ -213,6 +215,8 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     parked-paused-bound     # seconds a paused-and-silent task may sit before it's parked (default: 3600)
     parked-done-bound       # seconds a done-or-failed-and-silent task may sit before it's parked (default: 5400)
     parked-other-bound      # seconds a silent task in any other state may sit before it's parked (default: 1200)
+  .claude/
+    settings.json           # merged, never overwritten: hand owns one SessionStart entry in it
 ```
 
 Who writes a file for whom is what decides whether it belongs under `data/` at all.
@@ -222,6 +226,24 @@ The direction `data/` does not carry is a file maintained by hand for the operat
 `hand init` seeds `operator.md`, `learnings.md`, `done-archive.md` and `note-archive.md` and no command ever overwrites one that exists (atqamz/secondhand#47); `hand update` seeds whichever of them the home is missing, so a home refreshed to a template that names them is never pointed at absent files (see "Self-update: `hand update`").
 `learnings.md`, `done-archive.md` and `note-archive.md` are plain agent-edited markdown with no schema, no subcommand and no validation, the same treatment `backlog.md` already gets.
 `operator.md` gets that same treatment minus the editing: it is the operator's file, which the agent reads at session start and never rewrites, and that one-way ownership is what lets its constraints outrank the agent's judgment at all.
+
+## Ambient context
+
+A supervising agent that has to ask for the fleet before it can reason about it spends a turn on
+what the session could have opened with. `hand init` and `hand update` install `hand` as a Claude
+Code `SessionStart` hook in the home's `.claude/settings.json`, so every conversation starts with
+the bare command's overview - identity, home, counts and the task table - already in context.
+`data/dashboard.md` was the file-based answer to the same need and was removed with atqamz/secondhand#62;
+the hook replaces it with output generated at the moment it is read, which no file can be.
+
+The file is merged, never overwritten. An operator's permissions, other events and other
+`SessionStart` entries are carried through untouched, and a `settings.json` hand cannot parse is an
+error rather than a clobber. Hand owns at most one entry: the first whose command runs this binary
+or any binary named `hand`. Refreshing repoints that entry's path, which is what an install that
+moved needs, and leaves any arguments the operator added to it alone.
+
+Installing is confined to a fleet home. A directory with no `state/hand.db` gets no `.claude/`
+directory at all, because nothing there runs a supervising session.
 
 ## Output shape
 
@@ -297,6 +319,7 @@ Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
 Creates `data/backlog.md`, `data/projects.md`, `data/operator.md`, `data/learnings.md`, `data/done-archive.md` and `data/note-archive.md` with skeleton content, and creates `state/hand.db` if it does not already exist - the fleet-home marker `IsHome` checks for (see "Core principles").
 A skeleton is written only when the file is absent, so re-running `hand init` in an existing home is how it picks up a file the layout gained since it was initialized, and never how it loses what is in one.
 `hand update` seeds the same skeletons the same way, so an existing home picks a new layout file up whether it is re-initialized or updated.
+Also installs the ambient-context session hook described below.
 Idempotent: safe to run multiple times.
 This is the one command that does not resolve its home: it creates the one its argument or the working directory names.
 When `HAND_HOME` is set and names some other directory it still initializes the requested target, and warns on stderr that every other command will use `HAND_HOME` instead, naming it as the absolute path those commands resolve it to so a relative `HAND_HOME` is not mistaken for a second home.
@@ -314,13 +337,18 @@ Output:
 result: initialized
 home: /path/to/secondhand
 agents_md: written
+session_hook: written
 harness: none
 model: none
 effort: none
-help[2]:
+help[3]:
   - Run `hand project add <repo-url>` to register the first project
   - Read AGENTS.md in this home for how a supervising agent is meant to drive it
+  - A Claude Code session started in this home now opens with the fleet already in context
 ```
+
+`agents_md` and `session_hook` are each `written` or `unchanged`, so a re-run says which of the two
+it had to touch rather than going silent about both.
 
 `--setup` is a dialog with whoever is at the terminal, so its discovery lines and prompts stay plain
 lines (`found harnesses: ...`, `found tools: ...`, a numbered harness menu, then a prompt per value).
@@ -2598,10 +2626,11 @@ Behavior:
 2. Compare against the running binary's embedded version.
 3. If newer: download the binary for the current OS/arch, verify checksum, replace the running binary in place.
 4. After update, refresh the generated AGENTS.md template in the resolved fleet home to the latest version, preserving user edits (see "AGENTS.md (target)"), and seed whichever `data/` skeleton files that home is missing, on the same absent-only terms as `hand init` (see "Directory layout"): the refreshed template directs the agent at those files, so the command that installs it leaves them in place rather than pointing at nothing. Outside any fleet home both are skipped silently; a `HAND_HOME` that names no fleet home is a warning, not a silent skip, since that is a misconfiguration rather than an absence. Seeding creates the runtime directories first, exactly as `hand init` does: a home resolves as one on its `state/hand.db` marker alone, so the `data/` directory it seeds into is not guaranteed to be there. A refresh or a seed that fails is likewise a warning on stderr, not a failed update, since the binary is already replaced. The seed warning names every file that could not be written, in the layout's own order, so two runs against the same broken home say the same thing.
-5. Emit old version, new version, whether the binary was replaced, what became of the AGENTS.md template, and what changed (from the installed release's notes).
+5. Refresh the session hook too, on the same warning-not-error terms: an install that moved leaves the hook pointing at a path with no binary behind it any more (see "Ambient context").
+6. Emit old version, new version, whether the binary was replaced, what became of the AGENTS.md template and the session hook, and what changed (from the installed release's notes).
 
-Every run emits the same six fields whatever happened, so a caller reads one schema rather than a set
-of lines that appear or do not:
+Every run emits the same seven fields whatever happened, so a caller reads one schema rather than a
+set of lines that appear or do not:
 
 ```
 hand update
@@ -2610,19 +2639,21 @@ latest: v0.4.0
 update_available: true
 updated: true
 agents_md: refreshed
+session_hook: refreshed
 notes[1]:
   - fix: teardown no longer strands worktrees
 help[1]:
   - Run `hand doctor` to check this home's AGENTS.md against the template v0.4.0 installed
 ```
 
-`agents_md` is one of `refreshed`, `unchanged`, `no-fleet-home`, `failed`, or `not-applicable` when
-nothing was installed. The stderr warnings of step 4 stay on stderr: they name a fault in the world
+`agents_md` and `session_hook` are each one of `refreshed`, `unchanged`, `no-fleet-home`, `failed`,
+or `not-applicable` when nothing was installed. They are reported separately because they fail
+separately. The stderr warnings of steps 4 and 5 stay on stderr: they name a fault in the world
 around a successful update, not a field of its result.
 
 `--check`, and a `hand update` that finds nothing newer, emit the same document with
-`updated: false`, `agents_md: not-applicable` and `notes[0]:`. An available update adds a `help[]`
-line naming `hand update`; up to date adds none, since there is nothing to do:
+`updated: false`, both outcome fields `not-applicable` and `notes[0]:`. An available update adds a
+`help[]` line naming `hand update`; up to date adds none, since there is nothing to do:
 
 ```
 hand update --check
@@ -2631,6 +2662,7 @@ latest: v0.4.0
 update_available: true
 updated: false
 agents_md: not-applicable
+session_hook: not-applicable
 notes[0]:
 help[1]:
   - Run `hand update` to install v0.4.0, which also refreshes this home's AGENTS.md template

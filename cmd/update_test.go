@@ -113,14 +113,15 @@ func setFakeExecutable(t *testing.T) string {
 	return execPath
 }
 
-// Every outcome renders the same six fields, so a reader parses one schema
+// Every outcome renders the same seven fields, so a reader parses one schema
 // rather than a set of lines that appear or do not.
-func appliedUpdateDoc(agentsMD string, notes ...string) string {
+func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
 	doc := "current: v0.1.0\n" +
 		"latest: v0.5.0\n" +
 		"update_available: true\n" +
 		"updated: true\n" +
 		"agents_md: " + agentsMD + "\n" +
+		"session_hook: " + sessionHook + "\n" +
 		fmt.Sprintf("notes[%d]:\n", len(notes))
 	for _, note := range notes {
 		doc += "  - " + note + "\n"
@@ -150,7 +151,7 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("refreshed", "fixed the frobnicator"); got != want {
+	if want := appliedUpdateDoc("refreshed", "refreshed", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 
@@ -300,7 +301,7 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("refreshed", "fixed the frobnicator"); got != want {
+	if want := appliedUpdateDoc("refreshed", "refreshed", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 
@@ -334,7 +335,7 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("no-fleet-home", "fixed the frobnicator"); got != want {
+	if want := appliedUpdateDoc("no-fleet-home", "no-fleet-home", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !os.IsNotExist(err) {
@@ -368,7 +369,7 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("failed", "fixed the frobnicator"); got != want {
+	if want := appliedUpdateDoc("failed", "no-fleet-home", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), notAHome) {
@@ -397,7 +398,7 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("refreshed"); got != want {
+	if want := appliedUpdateDoc("refreshed", "refreshed"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
@@ -429,7 +430,7 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("failed", "fixed the frobnicator"); got != want {
+	if want := appliedUpdateDoc("failed", "refreshed", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") {
@@ -443,6 +444,7 @@ func checkedUpdateDoc(current, latest string, available bool) string {
 		fmt.Sprintf("update_available: %t\n", available) +
 		"updated: false\n" +
 		"agents_md: not-applicable\n" +
+		"session_hook: not-applicable\n" +
 		"notes[0]:\n"
 	if !available {
 		return doc
