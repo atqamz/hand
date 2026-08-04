@@ -275,7 +275,32 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 	ts.PersistedDoneVerified = t.DoneVerified
 	ts.LastReportState = t.LastReportState
 	ts.LastReportNote = t.LastReportNote
+	ts.ParkedFiredFor = parkedFiredSeed(t)
+	ts.PersistedParkedFiredFor = ts.ParkedFiredFor
 	return ts
+}
+
+// parkedFiredSeed reads back the silence instant parked last fired against. An
+// unparseable stamp seeds unfired rather than failing the resume: one duplicate
+// event is the same failure direction the whole classifier already prefers over a
+// suppressed one.
+func parkedFiredSeed(t state.Task) time.Time {
+	parsed, err := time.Parse(time.RFC3339Nano, t.ParkedFiredFor)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+// parkedFiredStamp is nanosecond-precision because the value is a report file's
+// mtime compared for exact equality, and RFC3339's whole seconds would round it
+// down into an instant no later mtime ever matches - re-firing on every restart,
+// which is the bug.
+func parkedFiredStamp(fired time.Time) string {
+	if fired.IsZero() {
+		return ""
+	}
+	return fired.UTC().Format(time.RFC3339Nano)
 }
 
 // forgetPaneScopedCache drops the cached facts hand promote invalidated: it gives
@@ -562,7 +587,7 @@ func recordedByLockHolder(home, id, url string) error {
 func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writer) {
 	if ts.ReportOffset == ts.PersistedOffset && ts.PRMerged == ts.PersistedPRMerged &&
 		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) &&
-		ts.PersistedChangedFor == string(ts.Status) {
+		ts.PersistedChangedFor == string(ts.Status) && ts.ParkedFiredFor.Equal(ts.PersistedParkedFiredFor) {
 		return
 	}
 
@@ -592,6 +617,7 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	t.StatusChangedFor = string(ts.Status)
 	t.LastReportState = ts.LastReportState
 	t.LastReportNote = ts.LastReportNote
+	t.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
 	if err := state.Write(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
@@ -601,6 +627,7 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedDoneVerified = ts.DoneVerified
 	ts.PersistedChangedAt = ts.ChangedAt
 	ts.PersistedChangedFor = string(ts.Status)
+	ts.PersistedParkedFiredFor = ts.ParkedFiredFor
 }
 
 // EventFilter gates only the out write - events.log and the notify hook both
