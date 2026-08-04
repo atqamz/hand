@@ -181,13 +181,10 @@ type Violation struct {
 	Severity Severity
 }
 
-// Check reports perishable content, an unterminated code fence, and generated-block drift
-// or absence in dir's AGENTS.md, per SPECS.md's "AGENTS.md (target)" section. A nil result
-// with no error means dir is not a fleet home or has no AGENTS.md - an absence, not a hit.
+// Check reports perishable content, an unterminated code fence, and generated-block drift or absence in
+// dir's AGENTS.md without fixing any of it, so a human looks at the prose judgment a machine cannot make
+// (SPECS.md's "AGENTS.md (target)"). A nil result with no error is an absence - no fleet home, or no file.
 func Check(dir string) ([]Violation, error) {
-	// It never writes: the point is to make a human look at prose judgment a machine
-	// cannot make. Absent markers are SeverityInfo, since Check cannot tell a file left
-	// marker-less by accident from one left that way on purpose (atqamz/secondhand#90).
 	isHome, err := home.IsHome(dir)
 	if err != nil {
 		return nil, err
@@ -248,6 +245,8 @@ func Check(dir string) ([]Violation, error) {
 
 	switch {
 	case !hasBlock:
+		// Info rather than a failure: a file left marker-less by accident is indistinguishable from one
+		// left that way on purpose (atqamz/secondhand#90).
 		violations = append(violations, Violation{
 			Text:     "no hand:generated markers: hand init and hand update leave a marker-less file alone, so this template can never refresh itself here - paste the current generated block back in if that is unintended, or ignore this finding if the file is deliberately hand-authored (see SPECS.md's \"AGENTS.md (target)\" section)",
 			Severity: SeverityInfo,

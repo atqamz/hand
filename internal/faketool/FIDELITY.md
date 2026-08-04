@@ -136,6 +136,7 @@ Identifiers are assigned by herdr: workspaces `wX`, their tabs `wX:t1`, their pa
 Exit 0.
 The result carries the workspace, the root tab herdr creates with it, and that tab's root pane, all three in one response.
 The root tab's label is `1`, not the label the workspace was given, which is why `hand spawn` renames it.
+A workspace a human opens instead gets its label from its root directory's basename, so a directory named after a project produces a workspace whose bare label is the key `hand` searches on.
 
 State left behind: the workspace is listed by `workspace list` from this point on.
 
@@ -178,6 +179,7 @@ Exit 0, and the new label is what `tab list` reports from then on.
 
 Exit 0 with bare text, and **empty for a pane whose own shell has not painted yet** - a read taken immediately after `workspace create` returns nothing at all.
 The two sources also disagree in that window: `visible` can carry the screen while `recent` is still empty.
+They disagree on height too: `visible` answers the current viewport, 23 rows in an unattached session against 61 in an attached one, so anything painted above that window is absent from it while `recent` still carries it.
 So a single read proves nothing about a pane, which is why `confirmLaunch` polls rather than reading once, and why the fake answering the same text on every read is only ever the settled case.
 
 Text `pane run` typed into the pane appears in a later read, so a read reflects what herdr sent as well as what the command produced.

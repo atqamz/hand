@@ -299,17 +299,14 @@ func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 	return c.callVoid(args...)
 }
 
-// PaneRead returns the pane's recent scrollback as plain text, and a failure as an error: read as
-// pane text, one would confirm a worker nobody observed. Re-answering a dialog whose text lingers
-// in scrollback is prevented in cmd/launch.go, by answering each dialog at most once per launch.
+// PaneRead returns the pane's recent scrollback as plain text, and a failure as an error rather than as
+// text, since a failure read as pane text would confirm a worker nobody observed. Re-answering a dialog
+// that lingers in scrollback is prevented in cmd/launch.go, by answering each one once per launch.
 func (c *Client) PaneRead(paneID string, lines int) (string, error) {
-	// The one caller matches first-run dialogs on their lower half - claude's trust dialog by its
-	// "Yes, I trust this folder" option, the generic fallback by its "Enter to confirm" footer - so
-	// a viewport too short for the whole dialog clips exactly the text that has to match.
+	// The one caller matches first-run dialogs on their lower half, so a viewport too short for the whole
+	// dialog clips exactly the text that has to match, and an unmatched dialog under a live agent reads as
+	// started. Hence recent, not visible's 23-row unattached viewport (internal/faketool/FIDELITY.md).
 	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
-	// Hence recent, not visible: a pane measures 23 rows in an unattached herdr session against 61
-	// in an attached one, and hand spawns headlessly. visible was tried and reverted, because a
-	// clipped dialog matches nothing and an unmatched dialog under a live agent reads as started.
 	stdout, stderr, runErr := c.run(args...)
 	// Unlike every command above, herdr's contract for pane read is a third shape: raw text on
 	// success, on failure a bare {"code","message"} object, not the {"error":{...}} envelope. Read
