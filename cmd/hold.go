@@ -107,6 +107,7 @@ func newHoldClearCmd() *cobra.Command {
 			var doc axi.Doc
 			doc.Field("id", id)
 			doc.Field("result", "released")
+			doc.Help("Run `hand status " + id + "` for where that task stands now that nothing holds it")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}

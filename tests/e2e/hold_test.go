@@ -150,6 +150,9 @@ func TestHoldLifecycle(t *testing.T) {
 	if cleared.code != 0 || !strings.Contains(cleared.stdout, "result: released\n") {
 		t.Fatalf("hold clear = %q (exit %d), stderr %q", cleared.stdout, cleared.code, cleared.stderr)
 	}
+	if !strings.Contains(cleared.stdout, "hand status fix-login") {
+		t.Fatalf("hold clear = %q, want a help line naming the task it released", cleared.stdout)
+	}
 	assertInvocation(t, runHand(t, home, "hold", "clear", "fix-login"), 3, `hold "fix-login" not found`)
 
 	if got := runHand(t, home, "hold", "clear", "unqueued-work"); got.code != 0 {

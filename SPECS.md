@@ -983,6 +983,8 @@ Output:
 ```
 id: fix-login
 result: released
+help[1]:
+  - Run `hand status fix-login` for where that task stands now that nothing holds it
 ```
 
 Errors:
