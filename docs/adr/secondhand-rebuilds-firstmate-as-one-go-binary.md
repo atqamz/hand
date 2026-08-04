@@ -64,6 +64,13 @@ It removes the noise from the session and adds a process that must be running, s
 Every command being short-lived is what keeps a fleet home a directory that ordinary tools can copy, back up and inspect.
 See `believe-the-status-file-and-ship-no-hand-dump.md`.
 
+**Port the firstmate feature surface across, minus the shell.**
+Much of it exists for a scale nobody has hit, or for a problem the rebuild dissolves.
+Multi-home federation coordinates ten or more projects, and starts by making a single home harder to reason about.
+Dispatch profiles are a config format and a selection skill wrapped around what `--harness`, `--model` and `--effort` say at the call site, or a brief declares.
+A durable wake queue is a second copy of what the watcher already prints to stdout and appends to `state/events.log`, with its own staleness to reason about.
+Each one is reachable the day its absence hurts, and principle 5 is what keeps that day the trigger rather than a promise.
+
 **Keep the hook, guard and continuity machinery, fixed.**
 The trap was not that the hooks had bugs.
 It was that a guard which blocks a command is a guard that blocks the recovery for the condition it detected.

@@ -25,14 +25,17 @@ Each record is one file, `docs/adr/<slug>.md`, with this shape:
 
 - Date: <YYYY-MM-DD>
 - Status: accepted | superseded by <slug>.md
-- Issues: <fully qualified issue references, or none>
-- PRs: <fully qualified PR references, or none>
+- Issues: <fully qualified issue references, none, or none single>
+- PRs: <fully qualified PR references, none, or none single>
 
 ## Context
 ## Decision
 ## Rejected alternatives
 ## Consequences
 ```
+
+`none single` is not `none`.
+It says the decision accreted across more work than one reference carries, so naming one would credit that one wrongly; `none` says no issue or PR exists.
 
 There is no template to install, no numbering scheme, and no index file that has to be kept correct.
 The filename is the slug alone: it is an identifier a `SPECS.md` clause links to and a reader recognizes, and a date prefix on it would be metadata the linker has to remember and the reader has to ignore.

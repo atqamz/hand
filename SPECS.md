@@ -29,6 +29,8 @@ Why: `docs/adr/secondhand-rebuilds-firstmate-as-one-go-binary.md`.
 7. **`hand status` is the memory.** It is computed from the store and the report channel at the moment it is asked for, never a file the agent or the user reads out of band. No session digests, no bootstrap scripts, no 187-line status dumps, and no rendering that can disagree with the state behind it (atqamz/secondhand#62).
 8. **No hooks, no guards, no callbacks.** The CLI fails closed on bad operations. Errors are CLI output, not injected hook messages. The agent reads errors and decides. No magic. The one hook `hand` installs is the opposite of a guard: a `SessionStart` entry that runs the bare command so a session opens with the fleet in context, policing nothing and refusing nothing (see "Ambient context").
 
+Why: `docs/adr/secondhand-rebuilds-firstmate-as-one-go-binary.md`, which also names the firstmate features principle 5 cut and what replaces each.
+
 ## Architecture overview
 
 ```
@@ -470,6 +472,8 @@ Behavior:
    `data/projects.md` projection cannot carry (see "Project registry format").
 2. Write it onto the project's row and rewrite the `data/projects.md` projection, under the project
    lock.
+
+Why: `docs/adr/a-fork-projects-upstream-is-declared-never-inferred.md`.
 
 Output:
 ```

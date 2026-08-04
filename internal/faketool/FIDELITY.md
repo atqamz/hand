@@ -180,9 +180,8 @@ Exit 0, and the new label is what `tab list` reports from then on.
 Exit 0 with the pane, carrying `agent` (the detected harness name, empty when no harness runs in it) and `agent_status`, one of `working`, `idle`, `blocked`, `done`, `unknown`.
 `pane_not_found` with exit 1 for a pane whose tab has been closed.
 
-`idle` and `done` are one transition, not two states: when a pane goes from `working` or `blocked` to not-busy, herdr reports `idle` only if a live OS-focused client had that pane's tab active at the instant of the transition (its internal `seen` flag), and `done` otherwise.
-`hand` polls the API and never focuses a client on a worker's pane, so it observes `done` essentially always for this transition and `idle` essentially never.
-Neither value carries task-outcome information for a headless fleet.
+A pane that stops being busy answers `done`, not `idle`, for a fleet `hand` drives: herdr reports `idle` only where a client was focused on that pane's tab as it stopped, and polling never is.
+So a fleet declaring `idle` for a finished worker models a case `hand` cannot reach, and neither value carries task-outcome information anyway - see `docs/adr/the-report-channel-is-the-only-outcome-signal.md`.
 
 ### `herdr pane read <id> --source recent --lines <n>`
 
