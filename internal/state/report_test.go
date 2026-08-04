@@ -138,6 +138,105 @@ func TestTailReportRestartsFromZeroWhenFileShrinks(t *testing.T) {
 	}
 }
 
+// Three reports captured off this fleet's live report files, each rewritten in
+// place over a shorter earlier report the watcher had already consumed. Every one
+// of them was announced as "malformed report" with a mid-word fragment of itself
+// as the event text (atqamz/secondhand#140), because the consumed offset survived
+// the rewrite and landed inside the longer new line.
+func TestTailReportAfterInPlaceRewrite(t *testing.T) {
+	cases := []struct {
+		name     string
+		consumed string
+		rewrite  string
+		state    string
+		note     string
+	}{
+		{
+			name:     "paused report carrying a PR URL",
+			consumed: "paused: gate slot requested, PR opening next\n",
+			rewrite:  "paused: PR https://github.com/atqamz/secondhand/pull/139 open and ready, waiting on gate slot go\n",
+			state:    ReportPaused,
+			note:     "PR https://github.com/atqamz/secondhand/pull/139 open and ready, waiting on gate slot go",
+		},
+		{
+			name:     "working report carrying owner:branch",
+			consumed: "working: reading the ghutil call sites for --head\n",
+			rewrite:  "working: gh confirmed --head takes plain branch name (qualified owner:branch returns nothing); implementing multi-repo search in ghutil\n",
+			state:    ReportWorking,
+			note:     "gh confirmed --head takes plain branch name (qualified owner:branch returns nothing); implementing multi-repo search in ghutil",
+		},
+		{
+			name:     "working report with no second colon at all",
+			consumed: "working: mapping the parked latch across watcher and store\n",
+			rewrite:  "working: adding durable pane_started_at and parked_fired_for columns to internal/store\n",
+			state:    ReportWorking,
+			note:     "adding durable pane_started_at and parked_fired_for columns to internal/store",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "task-1.status")
+			if err := os.WriteFile(path, []byte(c.consumed), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, offset, err := TailReport(path, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := os.WriteFile(path, []byte(c.rewrite), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			lines, offset, err := TailReport(path, offset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lines) != 1 {
+				t.Fatalf("got %+v, want exactly the rewritten report", lines)
+			}
+			if lines[0].Malformed || lines[0].State != c.state || lines[0].Note != c.note {
+				t.Fatalf("got %+v, want state %q note %q", lines[0], c.state, c.note)
+			}
+			if offset != int64(len(c.rewrite)) {
+				t.Fatalf("got offset %d, want %d", offset, len(c.rewrite))
+			}
+
+			lines, _, err = TailReport(path, offset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lines) != 0 {
+				t.Fatalf("got %+v, want the rewritten report announced once", lines)
+			}
+		})
+	}
+}
+
+// The same rewrite must not cost a silent completion either: a done report read
+// from a stale offset is a fragment, and a fragment classifies as nothing.
+func TestUnacknowledgedTerminalReportAfterInPlaceRewrite(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	consumed := "working: gate green, merging\n"
+	if err := os.WriteFile(ReportPath(home, "task-1"), []byte(consumed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/secondhand/pull/139 merged and issue closed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := UnacknowledgedTerminalReport(home, "task-1", int64(len(consumed)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("got false, want the rewritten done report still unacknowledged")
+	}
+}
+
 func TestReadReportLines(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(Dir(home), 0o755); err != nil {

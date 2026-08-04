@@ -3,7 +3,6 @@ package state
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,35 +75,26 @@ func ParseReportLine(line string) ReportLine {
 }
 
 // tailReportBytes reads whatever a task's report file holds past offset, and
-// returns the offset it actually read from. Rotation/truncation aren't
-// supported; if the file has shrunk below offset, reading restarts from the
-// beginning.
+// returns the offset it actually read from. A worker that reports with a
+// truncating redirect rewrites the file in place rather than appending to it, so
+// an offset is only still a position in this file's history while it sits just
+// past a newline, the only place a consumed line can end. Anywhere else it
+// points into the middle of a rewritten line, and reading from there yields a
+// mid-word fragment of a well-formed report that classifies as malformed
+// (atqamz/secondhand#140). That and a file shorter than offset both restart from
+// the beginning: re-announcing a report costs less than inventing a broken one.
 func tailReportBytes(path string, offset int64) ([]byte, int64, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, 0, nil
 	}
 	if err != nil {
-		return nil, offset, fmt.Errorf("open report %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	info, err := f.Stat()
-	if err != nil {
-		return nil, offset, fmt.Errorf("stat report %s: %w", path, err)
-	}
-	if info.Size() < offset {
-		offset = 0
-	}
-
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, offset, fmt.Errorf("seek report %s: %w", path, err)
-	}
-	data, err := io.ReadAll(f)
-	if err != nil {
 		return nil, offset, fmt.Errorf("read report %s: %w", path, err)
 	}
-	return data, offset, nil
+	if offset < 0 || offset > int64(len(data)) || (offset > 0 && data[offset-1] != '\n') {
+		offset = 0
+	}
+	return data[offset:], offset, nil
 }
 
 // TailReport reads whatever complete lines have been appended to a task's

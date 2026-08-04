@@ -112,3 +112,59 @@ func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 		t.Fatalf("LastReportState = %q, want nothing recorded for a worker that reported nothing", task.LastReportState)
 	}
 }
+
+// Workers report with a truncating redirect, so every report after the first
+// rewrites the file in place over a line hand watch has already consumed. Two
+// live samples from atqamz/secondhand#140, verbatim: both were announced as
+// "malformed report" carrying a mid-word fragment of themselves, and neither
+// contains anything a parser could object to.
+func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := state.Write(home, state.Task{
+		ID: "task-1", Project: "demo", Kind: state.KindShip,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "working")
+
+	dir := binDir(t)
+	herdrLog := filepath.Join(t.TempDir(), "herdr-invocations.log")
+	writeFakeHerdrWatch(t, dir, statusDir, herdrLog)
+
+	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
+	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
+
+	notes := []string{
+		"reading the ghutil call sites for --head",
+		"gh confirmed --head takes plain branch name (qualified owner:branch returns nothing); implementing multi-repo search in ghutil",
+		"adding durable pane_started_at and parked_fired_for columns to internal/store",
+	}
+	for _, note := range notes {
+		if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: "+note+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		watch.waitForStdout(t, "working task-1: "+note, 5*time.Second)
+	}
+
+	result := watch.stop(t, 3*time.Second)
+	if result.code != 0 {
+		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
+	}
+	if stdout := watch.stdout.String(); strings.Contains(stdout, "malformed report") {
+		t.Fatalf("stdout = %q, want no malformed report for a report rewritten in place", stdout)
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.LastReportNote != notes[len(notes)-1] {
+		t.Fatalf("LastReportNote = %q, want %q", task.LastReportNote, notes[len(notes)-1])
+	}
+}
