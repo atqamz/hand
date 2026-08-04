@@ -1161,7 +1161,7 @@ Anything added to `TaskState` belongs in this table before it ships.
 
 `hand promote` keeps the task's `id` and `created_at` but hands it a **new herdr pane**.
 Every cached fact anchored to the old pane is invalidated at that moment, so the governing question for each one is not "is it durable" but "was it anchored to the pane".
-Both halves have to be dealt with, because neither is sufficient alone: promote clears the durable fields itself rather than leaving it to `hand watch`, since a watcher may not be running at all; and a watcher that *is* running holds an in-memory `TaskState` that passes the `created_at` identity check untouched and would write its cached copy straight back onto the freshly-rewritten JSON on the very next tick.
+Both halves have to be dealt with, because neither is sufficient alone: promote clears the durable fields itself rather than leaving it to `hand watch`, since a watcher may not be running at all; and a watcher that *is* running holds an in-memory `TaskState` that passes the `created_at` identity check untouched and would write its cached copy straight back onto the freshly-rewritten row on the very next tick.
 `forgetPaneScopedCache` is the single place that drops those cached copies.
 
 Pane-anchored, and reset:
