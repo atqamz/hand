@@ -284,6 +284,15 @@ func writeConfig(t *testing.T, home, name, value string) {
 	}
 }
 
+// A worker default is keyed by the harness it was chosen for, so a test declares one the way an operator
+// does rather than writing config/ by hand and getting a file nothing reads.
+func handConfigSet(t *testing.T, home, key, value string) {
+	t.Helper()
+	if got := runHand(t, home, "config", "set", key, value); got.code != 0 {
+		t.Fatalf("hand config set %s %s: exit %d, stderr %q", key, value, got.code, got.stderr)
+	}
+}
+
 func writeBrief(t *testing.T, home, id string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(home, "data", id), 0o755); err != nil {

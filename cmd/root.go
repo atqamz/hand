@@ -43,6 +43,7 @@ func newRootCmd(version string) *cobra.Command {
 		return &ExitError{Err: err, Code: 2}
 	})
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newConfigCmd())
 	root.AddCommand(newProjectCmd())
 	root.AddCommand(newSpawnCmd())
 	root.AddCommand(newStatusCmd())

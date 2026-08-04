@@ -21,6 +21,21 @@ func writeTierBrief(t *testing.T, home, content string) string {
 	return path
 }
 
+// Worker defaults are keyed by the harness they were chosen for, so a fixture that writes the bare
+// config/model a pre-0.2.0 home carried would be read by nothing.
+func writeTierConfig(t *testing.T, home, harnessName string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{"model": "config-model", "effort": "config-effort"} {
+		path := filepath.Join(home, "config", key+"."+harnessName)
+		if err := os.WriteFile(path, []byte(value+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func newTierTestCmd() (*cobra.Command, *bytes.Buffer) {
 	cmd := &cobra.Command{}
 	stderr := &bytes.Buffer{}
@@ -33,15 +48,7 @@ const declaredBrief = "---\nmodel: brief-model\neffort: brief-effort\n---\n# Tit
 func TestResolveTierFlagOverridesEverything(t *testing.T) {
 	home := t.TempDir()
 	briefAbs := writeTierBrief(t, home, declaredBrief)
-	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "model"), []byte("config-model\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "effort"), []byte("config-effort\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTierConfig(t, home, harness.Claude)
 
 	cmd, _ := newTierTestCmd()
 	model, effort, frontMatter, err := resolveTier(cmd, home, briefAbs, harness.Claude, "flag-model", "flag-effort")
@@ -59,15 +66,7 @@ func TestResolveTierFlagOverridesEverything(t *testing.T) {
 func TestResolveTierBriefOverridesConfig(t *testing.T) {
 	home := t.TempDir()
 	briefAbs := writeTierBrief(t, home, declaredBrief)
-	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "model"), []byte("config-model\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "effort"), []byte("config-effort\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTierConfig(t, home, harness.Claude)
 
 	cmd, _ := newTierTestCmd()
 	model, effort, frontMatter, err := resolveTier(cmd, home, briefAbs, harness.Claude, "", "")
@@ -85,15 +84,7 @@ func TestResolveTierBriefOverridesConfig(t *testing.T) {
 func TestResolveTierConfigAlone(t *testing.T) {
 	home := t.TempDir()
 	briefAbs := writeTierBrief(t, home, "# Title\n\nno declaration here\n")
-	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "model"), []byte("config-model\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "effort"), []byte("config-effort\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTierConfig(t, home, harness.Claude)
 
 	cmd, _ := newTierTestCmd()
 	model, effort, frontMatter, err := resolveTier(cmd, home, briefAbs, harness.Claude, "", "")
