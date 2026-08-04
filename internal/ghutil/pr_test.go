@@ -283,6 +283,24 @@ func TestFindPRByBranchIgnoresUpstreamPRFromAnotherFork(t *testing.T) {
 	}
 }
 
+// TestFindPRByBranchMatchesHeadRepoCaseInsensitively pins the fold: GitHub slugs
+// are case-insensitive, and this filter compares gh's canonical casing against a
+// slug read from a clone's origin remote, so a differently-cased remote must not
+// drop the project's own PR.
+func TestFindPRByBranchMatchesHeadRepoCaseInsensitively(t *testing.T) {
+	writeFakeGHPRListPerRepo(t, map[string]string{
+		"up/repo": `[{"number":7,"url":"https://github.com/up/repo/pull/7","state":"OPEN",` +
+			`"headRepository":{"nameWithOwner":"Me/Repo"}}]`,
+	})
+	url, _, found, err := FindPRByBranch(context.Background(), "task-1-branch", forkTargets()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || url != "https://github.com/up/repo/pull/7" {
+		t.Fatalf("got (%q, %v), want the PR whose head repo differs only in casing", url, found)
+	}
+}
+
 // TestFindPRByBranchRefusesPRsInTwoRepos proves matches from two searched repos
 // resolve through the same tier rule as two in one repo - a fork whose upstream
 // also has a branch of that name is where guessing costs the most - and that the
