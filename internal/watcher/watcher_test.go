@@ -958,20 +958,19 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 }
 
-// The floor reads status_changed_at whatever status the stamp was taken for, so an
-// outage stamp only ever delays parked. Falling back to created_at for such a stamp
-// instead - as an outage-aware floor would have to - reopens the hazard the floor
-// exists to close, because after a promote created_at is the scout's own creation and
-// the ship inherits its whole accumulated silence. Separating the two needs a durable
-// pane-start fact; see atqamz/secondhand#128.
-func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
+// The two facts the floor has to keep apart. An outage restamps status_changed_at
+// for a pane the watcher could not reach, which must not move the floor at all;
+// a promote restamps pane_started_at, which must move it past the scout's whole
+// accumulated silence. Reading either field for both jobs gets one of them wrong.
+func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 	now := time.Now()
 	home := t.TempDir()
-	stamped := now.Add(-time.Minute)
+	paneStart := now.Add(-3 * time.Hour)
 	task := state.Task{
 		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
 		CreatedAt:        now.Add(-4 * time.Hour).UTC().Format(time.RFC3339),
-		StatusChangedAt:  stamped.UTC().Format(time.RFC3339),
+		PaneStartedAt:    paneStart.UTC().Format(time.RFC3339),
+		StatusChangedAt:  now.Add(-time.Minute).UTC().Format(time.RFC3339),
 		StatusChangedFor: string(herdr.StatusUnknown),
 	}
 	if err := state.Write(home, task); err != nil {
@@ -981,8 +980,8 @@ func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
 	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	scoutSilence := now.Add(-2 * time.Hour)
-	if err := os.Chtimes(reportPath, scoutSilence, scoutSilence); err != nil {
+	silentSince := now.Add(-2 * time.Hour)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
 		t.Fatal(err)
 	}
 
@@ -990,8 +989,18 @@ func TestReportEvidenceTimeNeverFallsBehindAnOutageStamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Before(stamped.Add(-time.Second)) {
-		t.Fatalf("evidence time = %s, want no earlier than the stamp %s: the floor must never collapse to the scout's created_at", got, stamped)
+	if !got.Equal(silentSince.Truncate(time.Second)) && !got.Equal(silentSince) {
+		t.Fatalf("evidence time = %s, want the report's own mtime %s: an outage stamp must not forget two hours of real silence", got, silentSince)
+	}
+
+	promoted := task
+	promoted.PaneStartedAt = now.Add(-time.Minute).UTC().Format(time.RFC3339)
+	got, err = reportEvidenceTime(home, promoted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Before(now.Add(-2 * time.Minute)) {
+		t.Fatalf("evidence time = %s, want the promotion instant: a pane a minute old cannot have been silent for two hours", got)
 	}
 }
 

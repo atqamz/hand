@@ -502,8 +502,10 @@ Task row written to the `task` table in `state/hand.db`, one column per field be
   "pr_merged_observed": false,
   "done_verified": false,
   "created_at": "2026-07-24T10:00:00Z",
+  "pane_started_at": "2026-07-24T10:00:00Z",
   "status_changed_at": "",
   "status_changed_for": "",
+  "parked_fired_for": "",
   "last_report_state": "",
   "last_report_note": "",
   "send_undelivered_message": "",
@@ -1166,6 +1168,7 @@ Pane-anchored, and reset:
 |---|---|
 | `done_verified` | The marker belongs to the scout's own verified `done`. The ship has not earned one, and carrying it would leave the ship run unable to ever announce its own, since the write-back only ORs the marker to true. |
 | `status_changed_at` / `status_changed_for` | The scout's last observed transition happened in a pane the task no longer has. Carrying it would hand the ship a dwell already grown past `stale`'s threshold before its worker had run for a second. Promote restamps the timestamp to the promotion time and clears the status it was stamped for, which is what makes the ship's first observed status a fresh dwell rather than a resumed one. |
+| `pane_started_at` | The whole point of the field: the ship's pane started at the promotion, not when the scout's did. Promote restamps it to the same instant it restamps `status_changed_at`, but it is a separate fact - nothing that merely observes the pane ever writes it, which is what keeps `parked`'s silence floor free of the outage restamps `status_changed_at` carries. |
 | `last_report_state` / `last_report_note` | The scout's last report describes work in that pane. It selects `parked`'s bound and feeds the scout's deferred-`done` bookkeeping, so an inherited one both mis-bounds the ship's silence and can hand it a `done` it never reported. |
 | `delivered_at` / `delivered_reason` | The delivery described the scout's deliverable, a report, and not a line of the ship's code. Carried, it would let `hand teardown` accept the ship task as terminal with no PR recorded and no merge check run at all - the landed-work guard bypassed without `--force` for work nobody delivered, which is the one meaning `--force` keeps. |
 | The `stale` and `blocked` fired latches | Each is what makes its announcement fire only once. A latch surviving the promote silences that announcement for the ship's own pane - the `stale` one until the ship transitions at least once, which a genuinely stuck ship never does. |
@@ -1181,12 +1184,13 @@ Genuinely pane-independent, and carried:
 | `pr`, `merged`, `pr_merged_observed` | Facts about the branch and its PR, not about any pane. |
 | `created_at` | The task's identity, which promote deliberately preserves - this is one task's lifecycle, not two. |
 | The `parked` fired latch | Keyed to the report mtime it fired for, not to a pane, and the report channel is itself carried. The ship's own silence is a new episode against a new mtime, so the latch cannot suppress it. |
-| The report mtime `parked` measures silence from | Carried with the report channel, but *floored* at the pane-start instant: `status_changed_at`, or `created_at` before any status has ever been recorded. Promote leaves the scout's last append - and so its mtime - untouched while clearing the `last_report_state` that had the scout's silence bounded by the long done/failed tier, so an unfloored mtime would hand a pane seconds old the scout's whole accumulated silence, now measured against the short bound, and fire `parked` on it immediately. |
+| The report mtime `parked` measures silence from | Carried with the report channel, but *floored* at the pane-start instant `pane_started_at` records (`created_at` for a row written before that column existed, whose one pane started when it did). Promote leaves the scout's last append - and so its mtime - untouched while clearing the `last_report_state` that had the scout's silence bounded by the long done/failed tier, so an unfloored mtime would hand a pane seconds old the scout's whole accumulated silence, now measured against the short bound, and fire `parked` on it immediately. |
 
-**Known limitation, not fixed here: the floor reads `status_changed_at` whatever status it was stamped for.**
-A watcher tracking an unreachable pane persists `status_changed_for = unknown` with the stamp restamped to the outage-detection time, so an outage - or a blink that raises no event at all - slides the floor forward and can forget up to a full bound of real report silence before `parked` fires.
-Reading `created_at` instead when the stamp is an outage one is not the remedy: after a promote `created_at` is the *scout's* creation, which reopens exactly the hazard the floor exists to close.
-The honest fix is a durable pane-start fact of its own, written by spawn and promote and never conflated with the herdr dwell clock, tracked as atqamz/secondhand#128 alongside atqamz/secondhand#127 - the same root cause, no durable per-task state for `parked`.
+**The floor reads `pane_started_at`, never `status_changed_at`.**
+The two answer different questions and cannot share a field.
+A watcher tracking an unreachable pane persists `status_changed_for = unknown` with `status_changed_at` restamped to the outage-detection time, so a floor reading that field let an outage - or a blink that raises no event at all - slide it forward and forget up to a full bound of real report silence.
+Reading `created_at` instead is not the remedy either: after a promote `created_at` is the *scout's* creation, which reopens exactly the hazard the floor exists to close.
+Only a fact written by spawn and by `hand promote`, and by nothing that merely observes the pane, answers "when did this pane start" without also trying to answer "when was the last herdr transition seen" (atqamz/secondhand#128).
 
 Two properties of the forget rule are load-bearing:
 
@@ -1275,7 +1279,7 @@ Behavior:
 4. Acquire a fresh treehouse worktree (with collision guard).
 5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 8, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
-7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` and `delivered_at` / `delivered_reason` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
+7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `pane_started_at` and `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` and `delivered_at` / `delivered_reason` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
