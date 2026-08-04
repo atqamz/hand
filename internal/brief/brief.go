@@ -13,10 +13,9 @@ type Declaration struct {
 	Effort string
 }
 
-// Parse ignores unknown keys inside the block, and reports "no declaration" for a brief it
-// cannot scan (an unterminated fence, a line past bufio's token cap), by choice rather than
-// oversight: a brief is prose carrying two optional settings, not a config file, so nothing
-// about its shape may fail a spawn.
+// Parse ignores unknown keys inside the block and reports "no declaration" for a brief it
+// cannot scan (an unterminated fence, a line past bufio's token cap) by choice: a brief is
+// prose carrying two optional settings, not a config file, so its shape may not fail a spawn.
 func Parse(path string) (Declaration, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
