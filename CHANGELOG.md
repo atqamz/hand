@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.4](https://github.com/atqamz/secondhand/compare/v0.1.3...v0.1.4) (2026-08-04)
+
+
+### Features
+
+* **cmd:** detect gate-opened PRs on a project's declared upstream ([#142](https://github.com/atqamz/secondhand/issues/142)) ([63bfe31](https://github.com/atqamz/secondhand/commit/63bfe31c0de80b901a2f687381ef10b996dcb44a))
+* **cmd:** make hand watch a singleton and flag unread terminal reports ([#138](https://github.com/atqamz/secondhand/issues/138)) ([4eb6932](https://github.com/atqamz/secondhand/commit/4eb6932d5c138a1105fa55e43992cc4f0999d47a))
+* **cmd:** record delivered-not-landed work and accept a PR on a project's declared upstream ([#135](https://github.com/atqamz/secondhand/issues/135)) ([9bccfb1](https://github.com/atqamz/secondhand/commit/9bccfb17bd2f2ee1c381ae9e22c8b6f83555bc93))
+* **cmd:** seed operator context, learnings and backlog archive files ([#133](https://github.com/atqamz/secondhand/issues/133)) ([95e22b3](https://github.com/atqamz/secondhand/commit/95e22b398e9996cbe9bf205c51836c941d986576))
+* deliver the operator-decision rule to workers and add hand doctor ([341b151](https://github.com/atqamz/secondhand/commit/341b151fd984a63616872754ac0829f11363984d))
+* **store:** gate schema changes on PRAGMA user_version ([#115](https://github.com/atqamz/secondhand/issues/115)) ([5c6f237](https://github.com/atqamz/secondhand/commit/5c6f23764acd8cecca4392532739d7b906259366))
+* **watcher:** notify a supervisory agent when no session is watching ([#131](https://github.com/atqamz/secondhand/issues/131)) ([d135901](https://github.com/atqamz/secondhand/commit/d1359010412cbd543f699804516d59f1f2d8f9dc))
+
+
+### Bug Fixes
+
+* **cmd:** create the data directory update seeds into and report every seed failure ([#139](https://github.com/atqamz/secondhand/issues/139)) ([f6f58cc](https://github.com/atqamz/secondhand/commit/f6f58cc9de15fd87c529914b34349b09b1fa3500))
+* **cmd:** print HAND_HOME mismatch warning as an absolute path ([#126](https://github.com/atqamz/secondhand/issues/126)) ([d045762](https://github.com/atqamz/secondhand/commit/d045762bb2dc2f7b26098e9f84da7310487c215b))
+* **herdr:** close the workspace herdr created when workspace create returns an unusable response ([#112](https://github.com/atqamz/secondhand/issues/112)) ([21fb575](https://github.com/atqamz/secondhand/commit/21fb5756e87c5ad5db88f026f07a2c658d6ebea6))
+* **herdr:** sanitize inherited harness-identity env on pane creation and document holds in the fleet-home template ([#130](https://github.com/atqamz/secondhand/issues/130)) ([78f94dc](https://github.com/atqamz/secondhand/commit/78f94dca1f43626f2274ee4a4e8f74ee133191ea))
+* make hand send survive a busy composer and stop herdr lookups matching foreign state ([a285913](https://github.com/atqamz/secondhand/commit/a285913c74e3e3a4d284719cdbc269ecfa86e267))
+* **state:** tolerate a report channel rewritten in place ([#144](https://github.com/atqamz/secondhand/issues/144)) ([aaa112f](https://github.com/atqamz/secondhand/commit/aaa112ff0c9e078f273b989420d220a912bb4186))
+* **watcher:** anchor parked on durable pane-start and fired-for stamps ([#143](https://github.com/atqamz/secondhand/issues/143)) ([ddb57dc](https://github.com/atqamz/secondhand/commit/ddb57dc364aa6f1b765200fa21f488867407348a))
+* **worktree:** key the collision guard on the treehouse lease id ([#132](https://github.com/atqamz/secondhand/issues/132)) ([56c52b3](https://github.com/atqamz/secondhand/commit/56c52b3845cfb87fe093b9e4d50eec706de326e3))
+
 ## [0.1.3](https://github.com/atqamz/secondhand/compare/v0.1.2...v0.1.3) (2026-08-02)
 
 
