@@ -25,16 +25,14 @@ import (
 
 var handBin string
 
-// backendsThisSuiteFakes are the tools hand shells out to that this suite
-// never runs for real. None of them may resolve on the hermetic PATH: a real
-// one would silently answer in place of a test's fake, so the affected test
-// would pass against reality instead of failing.
+// The tools hand shells out to that this suite never runs for real. None of them may resolve on the
+// hermetic PATH: a real one would silently answer in place of a test's fake, so the affected test would
+// pass against reality instead of failing.
 var backendsThisSuiteFakes = []string{"herdr", "treehouse", "gh", "no-mistakes"}
 
-// assertNoAmbientBackends checks that invariant once, after TestMain has
-// narrowed PATH to the fixture PATH and before any test runs, so a change that
-// widens realBinsOnPath (or hands a whole directory to buildHermeticPath) fails
-// the run loudly instead of quietly re-admitting a real backend.
+// Checks that invariant once, after TestMain has narrowed PATH to the fixture PATH and before any test
+// runs, so a change that widens realBinsOnPath (or hands a whole directory to buildHermeticPath) fails the
+// run loudly instead of quietly re-admitting a real backend.
 func assertNoAmbientBackends() error {
 	for _, name := range backendsThisSuiteFakes {
 		if path, err := exec.LookPath(name); err == nil {
@@ -45,13 +43,9 @@ func assertNoAmbientBackends() error {
 	return nil
 }
 
-// TestMain builds the hand binary once for the whole package, then replaces
-// PATH with a hermetic one (see fakes_test.go's buildHermeticPath) so neither
-// the tests nor the hand processes they drive can reach a real herdr,
-// treehouse or gh that happens to be installed. go test's result cache is
-// keyed on this package's own inputs, not on this nested go build, so changing
-// production code alone will not invalidate a cached e2e run - pass -count=1
-// when checking red/green behavior after a production-code-only edit.
+// Builds the hand binary once for the whole package, then replaces PATH with a hermetic one (see
+// fakes_test.go's buildHermeticPath) so neither the tests nor the hand processes they drive can reach a
+// real herdr, treehouse or gh that happens to be installed.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "hand-e2e-")
 	if err != nil {
@@ -59,6 +53,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	handBin = filepath.Join(dir, "hand")
+	// go test's result cache is keyed on this package's own inputs, not on this nested go build, so changing
+	// production code alone will not invalidate a cached e2e run - pass -count=1 when checking red/green
+	// behavior after a production-code-only edit.
 	build := exec.Command("go", "build", "-o", handBin, ".")
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -79,10 +76,9 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	// Every hand process this suite drives inherits this environment and
-	// resolves HAND_HOME ahead of its working directory, so a developer who
-	// exported one would otherwise have the suite spawn, merge and tear down
-	// against their real fleet.
+	// Every hand process this suite drives inherits this environment and resolves HAND_HOME ahead of its
+	// working directory, so a developer who exported one would otherwise have the suite spawn, merge and tear
+	// down against their real fleet.
 	if err := os.Unsetenv("HAND_HOME"); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -104,8 +100,8 @@ func runHand(t *testing.T, home string, args ...string) invocation {
 	return runHandEnv(t, home, nil, args...)
 }
 
-// runHandEnv is runHand for the cases that need one extra environment entry,
-// appended to the suite's own (already HAND_HOME-free) environment.
+// runHand for the cases that need one extra environment entry, appended to the suite's own (already
+// HAND_HOME-free) environment.
 func runHandEnv(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
 	cmd := exec.Command(handBin, args...)
@@ -130,8 +126,7 @@ func runHandEnv(t *testing.T, home string, extraEnv []string, args ...string) in
 	return invocation{code: code, stdout: stdout.String(), stderr: stderr.String()}
 }
 
-// syncBuffer lets a test goroutine poll a background hand process's output
-// while the process is still writing to it.
+// Lets a test goroutine poll a background hand process's output while the process is still writing to it.
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -149,10 +144,9 @@ func (s *syncBuffer) String() string {
 	return s.buf.String()
 }
 
-// backgroundHand drives a long-running hand command (only `watch` today)
-// so a test can observe its streaming output and stop it with the same
-// SIGTERM signal.NotifyContext listens for in cmd/watch.go, rather than
-// waiting for it to exit on its own.
+// Drives a long-running hand command (only `watch` today) so a test can observe its streaming output and
+// stop it with the same SIGTERM signal.NotifyContext listens for in cmd/watch.go, rather than waiting for
+// it to exit on its own.
 type backgroundHand struct {
 	cmd     *exec.Cmd
 	args    []string
@@ -195,9 +189,8 @@ func (b *backgroundHand) waitForStdout(t *testing.T, substr string, timeout time
 	t.Fatalf("timed out waiting for %q on stdout; stdout=%q stderr=%q", substr, b.stdout.String(), b.stderr.String())
 }
 
-// stop sends SIGTERM (the signal cmd/watch.go's signal.NotifyContext listens
-// for) and waits for a clean exit, failing the test if the process doesn't
-// exit within timeout.
+// Sends SIGTERM (the signal cmd/watch.go's signal.NotifyContext listens for) and waits for a clean exit,
+// failing the test if the process doesn't exit within timeout.
 func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 	t.Helper()
 	if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil {
@@ -206,9 +199,8 @@ func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
 	return b.waitForExit(t, timeout, "SIGTERM")
 }
 
-// waitForExit reaps a process expected to exit on its own, unlike stop: that exit
-// is the whole delivery mechanism of `hand watch --until-event`, so it has to be
-// observed rather than caused by a signal.
+// Reaps a process expected to exit on its own, unlike stop: that exit is the whole delivery mechanism of
+// `hand watch --until-event`, so it has to be observed rather than caused by a signal.
 func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, because string) invocation {
 	t.Helper()
 	b.reaping = true
@@ -235,9 +227,8 @@ func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, becaus
 	}
 }
 
-// waitForInvocation blocks until a fake binary's invocation log contains
-// substr, giving a test a positive signal that a background process has
-// actually reached a given call instead of guessing with a sleep.
+// Blocks until a fake binary's invocation log contains substr, giving a test a positive signal that a
+// background process has actually reached a given call instead of guessing with a sleep.
 func waitForInvocation(t *testing.T, logPath, substr string, timeout time.Duration) {
 	t.Helper()
 	waitForInvocations(t, logPath, substr, 1, timeout)
@@ -590,16 +581,13 @@ func TestExitCodeOneOnGeneralError(t *testing.T) {
 	}
 }
 
-// gitConfigIsolated marks the current test as already pointed at a scratch git
-// config, so the helpers below can each demand isolation without clobbering an
-// earlier setup (redirectGitRemote's insteadOf rules in particular).
+// Marks the current test as already pointed at a scratch git config, so the helpers below can each demand
+// isolation without clobbering an earlier setup (redirectGitRemote's insteadOf rules in particular).
 const gitConfigIsolated = "HAND_E2E_GIT_CONFIG_ISOLATED"
 
-// isolateGitConfig points every git invocation in this test - the test's own
-// and the ones hand shells out to - at a scratch config file, so the
-// developer's real ~/.gitconfig (commit.gpgsign above all, which would drag
-// gpg-agent into every commit these tests make) can never reach them. It
-// returns the config path so callers can add their own rules to it.
+// Points every git invocation in this test - the test's own and the ones hand shells out to - at a scratch
+// config file, so the developer's real ~/.gitconfig (commit.gpgsign above all, which would drag gpg-agent
+// into every commit these tests make) can never reach them.
 func isolateGitConfig(t *testing.T) string {
 	t.Helper()
 	if os.Getenv(gitConfigIsolated) == "1" {
@@ -614,6 +602,7 @@ func isolateGitConfig(t *testing.T) string {
 	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv(gitConfigIsolated, "1")
+	// Returned rather than kept private so a caller can add its own rules to the same file.
 	return cfg
 }
 

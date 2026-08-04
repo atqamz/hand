@@ -12,11 +12,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestPromoteScoutToShip drives `hand promote` through the built binary: the
-// brief-missing failure path first, then a clean promotion asserting the
-// scout's old worktree/herdr identifiers are actually released (not just
-// replaced) and the task's identity (ID, project, CreatedAt) carries over
-// unchanged while its role fields (Kind, Worktree, Herdr) are fully replaced.
+// Drives `hand promote` through the built binary: the brief-missing failure path first, then a clean
+// promotion asserting the scout's old worktree/herdr identifiers are actually released (not just replaced)
+// and that identity fields carry over unchanged while role fields are fully replaced.
 func TestPromoteScoutToShip(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -50,11 +48,9 @@ func TestPromoteScoutToShip(t *testing.T) {
 	dir := binDir(t)
 	newWorktree := filepath.Join(home, "wt-ship-new")
 	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
-	// Return (worktree.go) only checks CombinedOutput's error, never its
-	// content, on success, so the "ok" line stands in harmlessly for real
-	// treehouse return's actual (silent) output; "pane run" below is a void
-	// command whose real success is empty stdout (callVoid doc, client.go) -
-	// callVoid only checks env.Error, so the extra envelope body is harmless.
+	// Return (worktree.go) only checks CombinedOutput's error on success, never its content, so the "ok" line
+	// stands in harmlessly for real treehouse return's actual (silent) output; likewise "pane run" below is a
+	// void command whose real success is empty stdout (callVoid doc, client.go), and it checks only env.Error.
 	writeFakeDispatch(t, dir, "treehouse", invocationLog, "$1", `  get) printf '{"path":"%s","lease_id":"lease-new"}\n' `+shellSingleQuote(newWorktree)+` ;;
   return) echo ok ;;`)
 	// The scout's old workspace holds a second tab, so releasing the scout is a

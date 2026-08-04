@@ -12,13 +12,8 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestWatchEventStream drives `hand watch` as a background process against
-// two seeded tasks and asserts on its actual contract: a task's status at
-// watch startup never retroactively fires an event (only a later transition
-// does), events for distinct tasks appear on stdout in the order they
-// occurred, and state/events.log durably records them so a consumer that
-// starts reading only after the fact - the "late-starting consumer" case -
-// still sees everything a live stdout reader saw.
+// Drives `hand watch` as a background process against two seeded tasks and asserts on its actual contract:
+// a task's status at watch startup never retroactively fires an event, only a later transition does.
 func TestWatchEventStream(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -43,22 +38,19 @@ func TestWatchEventStream(t *testing.T) {
 
 	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
 
-	// Both panes appearing in the invocation log proves the seeding tick -
-	// which per watcher.go only records status, never emits - has covered both
-	// tasks. Only after that can a status change be a genuine transition
-	// rather than a different seed value.
+	// Both panes appearing in the invocation log proves the seeding tick - which per watcher.go only records
+	// status, never emits - has covered both tasks. Only after that can a status change be a genuine
+	// transition rather than a different seed value.
 	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
 	waitForInvocation(t, herdrLog, "herdr pane get pane-2", 5*time.Second)
 
-	// task-1's working -> not-busy transition is the liveness signal: seeing
-	// its event proves the watcher has run a post-seed tick over both tasks,
-	// so the absence of any task-2 output is a real suppression of task-2's
-	// pre-existing "blocked" status rather than a watcher that hasn't polled.
-	// Real herdr renders this transition as "done" - see herdr.Status's doc
-	// comment - and with no report on file it's unexplained, so it fires
-	// idle-unreported, not done.
+	// Real herdr renders task-1's working -> not-busy transition as "done" - see herdr.Status's doc comment -
+	// and with no report on file it is unexplained, so it fires idle-unreported rather than done.
 	setPaneStatus(t, statusDir, "pane-1", "done")
 	watch.waitForStdout(t, "idle-unreported task-1", 5*time.Second)
+	// task-1's event is the liveness signal: it proves the watcher has run a post-seed tick over both tasks,
+	// so the absence of any task-2 output is a real suppression of task-2's pre-existing "blocked" status
+	// rather than a watcher that has not polled yet.
 	if strings.Contains(watch.stdout.String(), "task-2") {
 		t.Fatalf("watch fired an event for task-2's pre-existing status before any transition: stdout=%q", watch.stdout.String())
 	}
@@ -71,6 +63,7 @@ func TestWatchEventStream(t *testing.T) {
 	setPaneStatus(t, statusDir, "pane-2", "blocked")
 	watch.waitForStdout(t, "blocked task-2: agent needs help", 5*time.Second)
 
+	// Events for distinct tasks have to appear on stdout in the order they occurred.
 	stdout := watch.stdout.String()
 	idleUnreportedAt := strings.Index(stdout, "idle-unreported task-1")
 	blockedAt := strings.Index(stdout, "blocked task-2")
@@ -83,6 +76,8 @@ func TestWatchEventStream(t *testing.T) {
 		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
 	}
 
+	// The log has to hold them durably too, so a consumer that starts reading only after the fact still sees
+	// everything a live stdout reader saw.
 	logData, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
 	if err != nil {
 		t.Fatalf("read events.log: %v", err)
@@ -245,11 +240,9 @@ func TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent(t *testing.
 	}
 }
 
-// A done worker still attached to its pane is silence like any other: what severs
-// a task from steering is the status file being torn down, not the worker's own
-// last word, so done/failed are bounded under their own tier rather than exempt.
-// The pane stays "working" throughout, so no herdr transition can produce this
-// line - only the done-tier bound can.
+// A done worker still attached to its pane is silence like any other: what severs a task from steering is
+// the status file being torn down, not the worker's own last word, so done/failed are bounded under their
+// own tier rather than exempt.
 func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -268,6 +261,8 @@ func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 	}
 
 	statusDir := t.TempDir()
+	// The pane stays "working" throughout, so no herdr transition can produce the parked line below - only
+	// the done-tier bound can.
 	setPaneStatus(t, statusDir, "pane-1", "working")
 	writeFakeHerdrWatch(t, binDir(t), statusDir, filepath.Join(t.TempDir(), "herdr-invocations.log"))
 
@@ -285,20 +280,15 @@ func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 	}
 }
 
-// The bug atqamz/secondhand#127 tracks, exercised through a real restart rather than
-// through the latch alone: a done task's report file never grows again, so the
-// silence parked fired against stays frozen, and a re-derived latch re-announces it
-// on every re-arm. state/events.log is capped at 200 lines, so those duplicates
-// evict real history - which is why the assertion counts lines in the log rather
-// than only checking stdout, where the second run's duplicate would never have
-// appeared anyway.
+// The bug atqamz/secondhand#127 tracks, exercised through a real restart rather than through the latch
+// alone: a done task's report file never grows again, so the silence parked fired against stays frozen, and
+// a re-derived latch re-announces it on every re-arm.
 func TestWatchDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
-	// Wider than the streaming sibling's bound: --until-event arms with a probe
-	// and two stdout-discarding baseline ticks, and the bound has to outlast all
-	// of them under -race, or the parked line lands in the log while stdout is
-	// still discarded and the first run exits 4 with nothing delivered.
+	// Wider than the streaming sibling's bound: --until-event arms with a probe and two stdout-discarding
+	// baseline ticks, and the bound has to outlast all of them under -race, or the parked line lands in the
+	// log while stdout is still discarded and the first run exits 4 with nothing delivered.
 	writeConfig(t, home, "parked-done-bound", "6")
 
 	spawnedAt := time.Now().UTC().Format(time.RFC3339)
@@ -321,6 +311,8 @@ func TestWatchDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	if first.code != 0 {
 		t.Fatalf("first watch exit = %d, want 0 for a delivered parked event (stdout %q, stderr %q)", first.code, first.stdout, first.stderr)
 	}
+	// Counted in the log rather than only on stdout because state/events.log is capped at 200 lines, so a
+	// duplicate evicts real history; on stdout the second run's duplicate would never have appeared anyway.
 	if got := countEventLogLines(t, home, "parked shipped-task"); got != 1 {
 		t.Fatalf("events.log holds %d parked lines after the first run, want 1", got)
 	}
@@ -349,10 +341,9 @@ func countEventLogLines(t *testing.T, home, substr string) int {
 	return count
 }
 
-// The report channel produces a wake (`report-done`) long before the parked bound
-// matures, so exiting on `parked` at all is the filter's doing: an unfiltered
-// --until-event would have delivered that earlier wake and exited on it. The
-// filter is stdout-only, so events.log still has to carry the wake it suppressed.
+// The report channel produces a wake (`report-done`) long before the parked bound matures, so exiting on
+// `parked` at all is the filter's doing: an unfiltered --until-event would have delivered that earlier wake
+// and exited on it.
 func TestWatchUntilEventWakesOnlyOnTheFilteredKind(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -384,6 +375,7 @@ func TestWatchUntilEventWakesOnlyOnTheFilteredKind(t *testing.T) {
 		t.Fatalf("stdout = %q, want the report-done wake filtered out: the caller named parked only", got.stdout)
 	}
 
+	// The filter is stdout-only, so events.log still has to carry the wake it suppressed.
 	logData, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
 	if err != nil {
 		t.Fatalf("read events.log: %v", err)
@@ -393,10 +385,9 @@ func TestWatchUntilEventWakesOnlyOnTheFilteredKind(t *testing.T) {
 	}
 }
 
-// The notify template writes $HAND_MESSAGE straight to a marker file with no
-// wrapper script of any kind, so a marker that ends up holding the exact event
-// text is only possible if hand watch invoked config/notify in-process itself -
-// the two hard requirements the wiring exists to satisfy.
+// The notify template writes $HAND_MESSAGE straight to a marker file with no wrapper script of any kind, so
+// a marker that ends up holding the exact event text is only possible if hand watch invoked config/notify
+// in-process itself - the two hard requirements the wiring exists to satisfy.
 func TestWatchNotifiesInProcessForABlockedEvent(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -443,10 +434,9 @@ func TestWatchNotifiesInProcessForABlockedEvent(t *testing.T) {
 	}
 }
 
-// A task first sighted with its pane already unreachable - a re-scan picking up a
-// fresh spawn - has no probed-to-unprobed edge to fire `failed` on, and used to be
-// dropped from tracking entirely. The blink task is the other half of the contract:
-// it answers again before the dwell matures and must produce nothing at all.
+// A task first sighted with its pane already unreachable - a re-scan picking up a fresh spawn - has no
+// probed-to-unprobed edge to fire `failed` on, and used to be dropped from tracking entirely. The blink
+// task is the other half: it answers again before the dwell matures and must produce nothing at all.
 func TestWatchTracksATaskFirstSightedUnreachable(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -502,19 +492,9 @@ func TestWatchTracksATaskFirstSightedUnreachable(t *testing.T) {
 	}
 }
 
-// TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone is the full-stack half of
-// internal/watcher's usage-limit tests: a real `hand watch` process, a real sqlite
-// state file, a real hold, and a fake herdr whose panes it reads and types into.
-//
-// Both tasks stop the same way and only one of them has a limit refusal on screen, so
-// the untouched task is the control: it proves the resume is driven by what the harness
-// printed rather than by the stop itself.
-//
-// The resume is split across two watch runs because the first attempt is deliberately
-// never due within a test's lifetime - the floor is ten minutes. Moving the durable
-// stamp into the past between runs is exactly the restart the schedule is persisted
-// for, so this covers the durability too: a watcher that came up fresh still knows this
-// worker is limited and when it may be poked.
+// The full-stack half of internal/watcher's usage-limit tests: a real `hand watch` process, a real sqlite
+// state file, a real hold, and a fake herdr whose panes it reads and types into. The resume is split
+// across two watch runs because the first attempt is never due within a test's lifetime.
 func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -534,6 +514,8 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 		setPaneAgent(t, statusDir, pane, "claude")
 		setPaneStatus(t, statusDir, pane, "working")
 	}
+	// Both tasks stop the same way and only one has a limit refusal on screen, so the untouched task is the
+	// control: it proves the resume is driven by what the harness printed rather than by the stop itself.
 	setPaneText(t, statusDir, "pane-limited", "> resume\n\nClaude usage limit reached. Your limit will reset at 3pm (UTC).\n")
 	setPaneText(t, statusDir, "pane-plain", "> resume\n\nI have finished the refactor.\n")
 
@@ -589,8 +571,9 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 		t.Fatalf("herdr log = %q, want no pane steered before any attempt was due", data)
 	}
 
-	// The restart: the stamp the first run wrote moved into the past, which is the one
-	// thing that makes an attempt due without waiting out the floor.
+	// The restart: the stamp the first run wrote moved into the past, which is the one thing that makes an
+	// attempt due without waiting out the ten-minute floor. It covers the durability too - a watcher that
+	// came up fresh still knows this worker is limited and when it may be poked.
 	limited.UsageLimitRetryAt = time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 	if err := state.Write(home, limited); err != nil {
 		t.Fatal(err)

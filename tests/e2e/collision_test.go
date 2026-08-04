@@ -11,9 +11,8 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// setupCollisionHome builds the two-task, one-pool-slot fixture both tests below
-// spawn into, and returns the fake bin directory so each can install the
-// treehouse fake whose lease behavior it is about.
+// Builds the two-task, one-pool-slot fixture both tests below spawn into, and returns the fake bin
+// directory so each can install the treehouse fake whose lease behavior it is about.
 func setupCollisionHome(t *testing.T) (string, string) {
 	t.Helper()
 	home := newHome(t)
@@ -31,20 +30,15 @@ func setupCollisionHome(t *testing.T) (string, string) {
 	return home, dir
 }
 
-// TestSpawnDetectsWorktreeCollision proves worktree.CheckCollision is actually
-// wired into the built spawn command, not just unit-tested in isolation: a
-// second spawn onto a slot a surviving task row still names must be refused
-// before it ever reaches herdr, and must leave no trace of task-2.
-//
-// The fake here is a treehouse older than v2.1.0, reporting no lease identity at
-// all, which is what drives the guard down its path-comparison fallback - the
-// same branch a task row written before the lease_id column existed takes. With
-// nothing to key on but the path, the fallback cannot tell task-1's row from a
-// live holder, so it refuses; that conservatism is the whole point of keeping it.
+// Proves worktree.CheckCollision is actually wired into the built spawn command, not just unit-tested in
+// isolation: a second spawn onto a slot a surviving task row still names must be refused before it ever
+// reaches herdr, and must leave no trace of task-2.
 func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 	home, dir := setupCollisionHome(t)
 
 	sharedWorktree := filepath.Join(home, "wt-shared")
+	// With nothing to key on but the path, the fallback this fake drives cannot tell task-1's row from a live
+	// holder, so it refuses; that conservatism is the whole point of keeping it.
 	writeFakeTreehouseWithoutLeaseIdentity(t, dir, sharedWorktree)
 
 	first := runHand(t, home, "spawn", "task-1", "demo")
@@ -71,12 +65,9 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 	}
 }
 
-// The other branch, end to end: a real treehouse recycles a returned pool slot's
-// path under a brand-new lease identity, and a task row still naming that path -
-// left behind by a teardown whose state.Delete failed - must not abort the spawn
-// that legitimately acquired it. The slot is genuinely back in the pool before
-// task-2 asks for it, because that is the only way the real backend hands one
-// path out twice.
+// The other branch, end to end: a real treehouse recycles a returned pool slot's path under a brand-new
+// lease identity, and a task row still naming that path - left behind by a teardown whose state.Delete
+// failed - must not abort the spawn that legitimately acquired it.
 func TestSpawnAllowsARecycledWorktreePathUnderAFreshLease(t *testing.T) {
 	home, dir := setupCollisionHome(t)
 	sharedWorktree := filepath.Join(home, "wt-shared")
@@ -86,6 +77,8 @@ func TestSpawnAllowsARecycledWorktreePathUnderAFreshLease(t *testing.T) {
 	if first.code != 0 {
 		t.Fatalf("spawn task-1: exit %d, stderr %q", first.code, first.stderr)
 	}
+	// Genuinely back in the pool before task-2 asks for it, because that is the only way the real backend
+	// hands one path out twice.
 	returnFakeWorktree(t, sharedWorktree)
 
 	second := runHand(t, home, "spawn", "task-2", "demo")

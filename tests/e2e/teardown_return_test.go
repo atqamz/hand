@@ -14,22 +14,17 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestTeardownRefusesAnAbortedWorktreeReturn covers the one treehouse failure its
-// exit status does not report: an unforced return of a dirty worktree prints the
-// abort, exits 0, and leaves the slot leased (internal/faketool/FIDELITY.md). A
-// scout reaches that return with dirt in place - its landed-work check reads the
-// report on disk and never the worktree - so taking the abort for success would
-// delete the row naming the leased slot and strand it in the pool for good.
-//
-// The forced retry is the second half: the first run already closed the task's tab,
-// so the rerun must treat a tab herdr no longer lists as closed rather than reading
-// the one tab left as this workspace's last and closing another task's workspace.
+// The one treehouse failure its exit status does not report: an unforced return of a dirty worktree
+// prints the abort, exits 0, and leaves the slot leased (internal/faketool/FIDELITY.md).
 func TestTeardownRefusesAnAbortedWorktreeReturn(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
 
 	worktree := filepath.Join(home, "wt-scout-1")
 	initGitRepo(t, worktree)
+	// A scout reaches that return with dirt in place, because its landed-work check reads the report on
+	// disk and never the worktree. Taking the abort for success would delete the row naming the leased
+	// slot and strand it in the pool for good.
 	if err := os.WriteFile(filepath.Join(worktree, "scratch.txt"), []byte("uncommitted\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +59,9 @@ func TestTeardownRefusesAnAbortedWorktreeReturn(t *testing.T) {
 		t.Fatal("the pool leased the slot out again, so the return did happen and this proves nothing")
 	}
 
+	// The second half: the first run already closed the task's tab, so this rerun has to treat a tab herdr
+	// no longer lists as closed rather than reading the one tab left as this workspace's last and closing
+	// another task's workspace.
 	forced := runHand(t, home, "teardown", "scout-1", "--force")
 	if forced.code != 0 {
 		t.Fatalf("teardown --force: exit %d, stderr %q", forced.code, forced.stderr)

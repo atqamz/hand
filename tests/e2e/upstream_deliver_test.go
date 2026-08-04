@@ -10,17 +10,11 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestForkContributionDeliveredNotLanded drives the whole case atqamz/secondhand#78
-// describes through the built binary: work pushed to a fork, its PR opened on an
-// upstream repo the fleet does not control, and a maintainer who has not merged it.
-// The upstream repo here is a fixture, never the live one - the real contribution
-// is offered to a project Atqa only has read access to, so the case is
-// constructed rather than reproduced.
-//
-// The two refusals in the middle are the point: hand pr rejects a repo nobody
-// declared, and teardown rejects the still-open PR until the delivery is recorded.
-// Reverting either half of the change turns one of them into a pass.
+// Drives the whole case atqamz/secondhand#78 describes through the built binary: work pushed to a fork, its
+// PR opened on an upstream repo the fleet does not control, and a maintainer who has not merged it.
 func TestForkContributionDeliveredNotLanded(t *testing.T) {
+	// The upstream repo here is a fixture, never the live one: the real contribution is offered to a project
+	// Atqa only has read access to, so the case is constructed rather than reproduced.
 	remote := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remote)
 	redirectGitRemote(t, "https://github.com/atqamz/no-mistakes.git", remote)
@@ -50,6 +44,8 @@ func TestForkContributionDeliveredNotLanded(t *testing.T) {
 	}
 	runGitIn(t, worktree, "commit", "--allow-empty", "-q", "-m", "fix the flake")
 
+	// The two refusals below are the point: hand pr rejects a repo nobody declared, and teardown rejects the
+	// still-open PR until the delivery is recorded. Reverting either half of the change turns one into a pass.
 	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
 	undeclared := runHand(t, home, "pr", "task-1", upstreamPR)
 	assertInvocation(t, undeclared, 3, "no upstream is declared for it")

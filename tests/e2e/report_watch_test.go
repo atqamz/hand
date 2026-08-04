@@ -12,16 +12,9 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// TestWatchIdleAfterReportedNeedsDecisionIsNotDone proves the bug #30/#32 set
-// out to kill: herdr's idle and done are the same "pane stopped being busy"
-// signal (see herdr.Status's doc comment for why), and a worker's last
-// reported state before that is what actually explains why. A working -> idle
-// transition right after a "needs-decision" report must never be classified
-// as done. This drives the fake to "done", not "idle": real herdr renders a
-// working-or-blocked -> idle transition as "done" for a headless poller like
-// hand, never "idle" (hand never focuses a client on a worker's pane, and only
-// a focused client's active tab keeps herdr's own notification bookkeeping
-// from collapsing that transition into "done").
+// Proves the bug atqamz/secondhand#30 and atqamz/secondhand#32 set out to kill: herdr's idle and done are
+// the same "pane stopped being busy" signal (see herdr.Status's doc comment for why), so a working -> idle
+// transition right after a "needs-decision" report must never be classified as done.
 func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -47,6 +40,9 @@ func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: waiting on review\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Driven to "done", not "idle": real herdr renders a working-or-blocked -> idle transition as "done" for a
+	// headless poller like hand, never "idle" (hand never focuses a client on a worker's pane, and only a
+	// focused client's active tab keeps herdr from collapsing that transition into "done").
 	setPaneStatus(t, statusDir, "pane-1", "done")
 	watch.waitForStdout(t, "needs-decision task-1: waiting on review", 5*time.Second)
 
@@ -113,11 +109,8 @@ func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 	}
 }
 
-// Workers report with a truncating redirect, so every report after the first
-// rewrites the file in place over a line hand watch has already consumed. Two
-// live samples from atqamz/secondhand#140, verbatim: both were announced as
-// "malformed report" carrying a mid-word fragment of themselves, and neither
-// contains anything a parser could object to.
+// Workers report with a truncating redirect, so every report after the first rewrites the file in place
+// over a line hand watch has already consumed.
 func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -140,6 +133,8 @@ func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
 	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
 
+	// Two live samples from atqamz/secondhand#140, verbatim: both were announced as "malformed report"
+	// carrying a mid-word fragment of themselves, and neither contains anything a parser could object to.
 	notes := []string{
 		"reading the ghutil call sites for --head",
 		"gh confirmed --head takes plain branch name (qualified owner:branch returns nothing); implementing multi-repo search in ghutil",
@@ -169,13 +164,9 @@ func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 	}
 }
 
-// Reports are one line of house-style prose, so a rewrite landing on exactly the
-// byte count of the report it replaces is a matter of time rather than a contrived
-// input - and it was skipped silently, because an offset at the end of the file
-// with a newline behind it is what "nothing new" looks like too. The `done:`
-// variant is the one that costs a completion: the deferred verification is gated
-// on the last recorded report state, so a skipped done means a scout that finished
-// is never announced as finished (atqamz/secondhand#149).
+// Reports are one line of house-style prose, so a rewrite landing on exactly the byte count of the report
+// it replaces is a matter of time rather than a contrived input - and it was skipped silently, because an
+// offset at the end of the file with a newline behind it is what "nothing new" looks like too.
 func TestWatchDoneRewrittenToTheSameLengthReachesVerifiedDone(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -209,6 +200,9 @@ func TestWatchDoneRewrittenToTheSameLengthReachesVerifiedDone(t *testing.T) {
 	}
 	watch.waitForStdout(t, "working task-1: finishing the findings section", 5*time.Second)
 
+	// The `done:` variant is the one that costs a completion: the deferred verification is gated on the last
+	// recorded report state, so a skipped done means a scout that finished is never announced as finished
+	// (atqamz/secondhand#149).
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(done), 0o644); err != nil {
 		t.Fatal(err)
 	}

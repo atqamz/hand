@@ -12,15 +12,14 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// writeFakeNoMistakes writes a fake no-mistakes that answers `status` and `runs` with fixed text.
-// `status` always exits 0, which is what the real binary does for every outcome hand reads from it -
-// an uninitialized repo, a non-git directory and a healthy gate all print their answer behind exit 0
-// (verified against no-mistakes itself), so hand reads the text. `runs` carries its own exit code,
-// since the real binary exits 1 on those same two refusals while printing the identical text.
-// `init` is answered too, since `hand project add --mode no-mistakes` initializes the fresh clone's
-// gate before anything can be dispatched into it.
+// Writes a fake no-mistakes that answers `status` and `runs` with fixed text. `init` is answered too, since
+// `hand project add --mode no-mistakes` initializes the fresh clone's gate before anything can be
+// dispatched into it.
 func writeFakeNoMistakes(t *testing.T, dir, statusOut, runsOut string, runsExit int) {
 	t.Helper()
+	// `status` always exits 0, which is what the real binary does for every outcome hand reads from it - an
+	// uninitialized repo, a non-git directory and a healthy gate all print their answer behind exit 0
+	// (verified against no-mistakes itself), so hand reads the text.
 	body := fmt.Sprintf(`  status) printf '%%s\n' %s ;;
   runs) printf '%%s\n' %s; exit %d ;;
   init) echo 'gate initialized' ;;`, shellSingleQuote(statusOut), shellSingleQuote(runsOut), runsExit)
@@ -32,9 +31,8 @@ const gateReadyStatus = "    repo:  /home/atqa/secondhand/projects/demo\n" +
 	"    gate:  /home/atqa/.no-mistakes/repos/0b474f2021dd.git\n" +
 	"  daemon:  running\n\n  no active run"
 
-// TestStatusEmptyFleetStatesItsCount covers atqamz/secondhand#100 on the real binary: an empty
-// fleet must say so, and must still surface a hold left open on a torn-down task's id rather than
-// reading as nothing to see.
+// Covers atqamz/secondhand#100 on the real binary: an empty fleet must say so, and must still surface a
+// hold left open on a torn-down task's id rather than reading as nothing to see.
 func TestStatusEmptyFleetStatesItsCount(t *testing.T) {
 	home := newHome(t)
 
@@ -69,11 +67,8 @@ func TestStatusEmptyFleetStatesItsCount(t *testing.T) {
 	}
 }
 
-// TestStatusFlagsAShippedPRThatNeverRanThroughTheGate covers atqamz/secondhand#92 through the
-// operator's own sequence: spawn a ship task into a no-mistakes project, record its PR, let the
-// worker report done, then read `hand status`. The gate holds no completed run for that PR, so
-// both the fleet overview and the task's own detail view have to say so - and stop saying it the
-// moment a completed run records that exact URL.
+// Covers atqamz/secondhand#92 through the operator's own sequence: spawn a ship task into a no-mistakes
+// project, record its PR, let the worker report done, then read `hand status`.
 func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	prURL := "https://github.com/owner/demo/pull/7"
 
@@ -111,6 +106,8 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The gate holds no completed run for that PR, so both the fleet overview and the task's own detail view
+	// have to say so.
 	fleet := runHand(t, home, "status")
 	if fleet.code != 0 {
 		t.Fatalf("status: exit %d, stderr %q", fleet.code, fleet.stderr)
@@ -129,6 +126,7 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 		t.Fatalf("status --json stdout = %q (exit %d), want gate_run_issue", singleJSON.stdout, singleJSON.code)
 	}
 
+	// And both have to stop saying it the moment a completed run records that exact URL.
 	writeFakeNoMistakes(t, dir, gateReadyStatus,
 		"  completed    ship-login-fix  758d72bf  2026-08-03 04:29  "+prURL, 0)
 
@@ -141,11 +139,9 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	}
 }
 
-// TestGateCheckNamesAMissingOrNonGitClonePath covers atqamz/secondhand#97 on both operator
-// surfaces. A clone path that is missing, and one that exists but is not a git repository, are
-// different failures from a gate that was never initialized: `no-mistakes init` repairs neither,
-// so neither may be reported as "not initialized" nor - the worse outcome - pass as ready and let
-// a worker be dispatched into a project the gate cannot cover.
+// Covers atqamz/secondhand#97 on both operator surfaces. A clone path that is missing, and one that exists
+// but is not a git repository, are different failures from a gate that was never initialized: `no-mistakes
+// init` repairs neither.
 func TestGateCheckNamesAMissingOrNonGitClonePath(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "no-mistakes")
@@ -156,6 +152,8 @@ func TestGateCheckNamesAMissingOrNonGitClonePath(t *testing.T) {
 	writeFakeHerdrStatic(t, dir, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
 	writeFakeNoMistakes(t, dir, "not in a git repository", "not in a git repository", 1)
 
+	// So neither may be reported as "not initialized" nor - the worse outcome - pass as ready and let a worker
+	// be dispatched into a project the gate cannot cover.
 	clonePath := filepath.Join(home, "projects", "demo")
 
 	// The clone directory does not exist at all: the chdir fails before no-mistakes ever runs, and
