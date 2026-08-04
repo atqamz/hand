@@ -156,6 +156,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     watcher/                # fleet supervision
       watcher.go            # poll/push event loop
       events.go             # event classification
+      ownership.go          # flock on state/watch.pid (see "One watcher per fleet home")
     notify/                 # out-of-band delivery
       notify.go             # config/notify template execution, shared by hand notify and the watcher's in-process hook
     project/                # project registry
@@ -186,6 +187,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     migrated/               # pre-sqlite state/<id>.json files, moved aside once imported
     <id>.status             # worker-to-supervisor report channel, worker-written, hand-read-only
     events.log              # recent watcher events, bounded rotating log
+    watch.pid               # the flock the fleet home's single watcher holds (see "One watcher per fleet home")
     completions.jsonl       # durable teardown completion records, one JSON object per line, uncapped
   data/
     operator.md             # standing operator constraints and preferences, read at session start
