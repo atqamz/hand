@@ -44,7 +44,9 @@ Exempt from both rules: the package doc comment, directives (`//go:build`, `//go
 
 Rule 2 will occasionally be wrong, because a genuinely subtle invariant sometimes needs a fourth line.
 That is accepted: a rule that is right most of the time and mechanically enforced binds harder than one that is right always and enforced never.
-Prose that outgrows three lines belongs in SPECS.md, which is where it is read.
+Prose that outgrows three lines belongs in one of two files, and which one depends on what it is.
+A rule a caller can depend on or be wrong about goes in SPECS.md.
+The reasoning for why a rule is shaped that way goes in a record under docs/adr/, per docs/adr/README.md - SPECS.md grew to 2831 lines by taking both.
 
 `go run ./tools/commentlint .` runs the check alone and prints one `file:line:column` per violation.
 

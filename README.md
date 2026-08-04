@@ -108,6 +108,18 @@ Optional:
 - [no-mistakes](https://github.com/yes2games/no-mistakes) - validation pipeline for projects in `no-mistakes` mode
 - [qmd](https://github.com/tobi/qmd) - semantic search over historical task data, beyond `hand search`'s keyword matching
 
+`hand` never installs or configures qmd, and every command works without it.
+To point it at a fleet home's corpus by hand:
+
+```sh
+qmd collection add data/ --name secondhand
+qmd context add qmd://secondhand "Task briefs, scout reports, decisions, and backlog history"
+qmd embed
+
+qmd search "login auth decision" --json
+qmd vsearch "how did we handle the deploy failure" -c secondhand
+```
+
 ## Installation
 
 From source:

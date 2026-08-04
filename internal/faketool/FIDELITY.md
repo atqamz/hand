@@ -175,6 +175,15 @@ Exit 0, with the new tab and its root pane.
 Exit 0, and the new label is what `tab list` reports from then on.
 `tab_not_found` with exit 1 for a tab that has been closed.
 
+### `herdr pane get <id>`
+
+Exit 0 with the pane, carrying `agent` (the detected harness name, empty when no harness runs in it) and `agent_status`, one of `working`, `idle`, `blocked`, `done`, `unknown`.
+`pane_not_found` with exit 1 for a pane whose tab has been closed.
+
+`idle` and `done` are one transition, not two states: when a pane goes from `working` or `blocked` to not-busy, herdr reports `idle` only if a live OS-focused client had that pane's tab active at the instant of the transition (its internal `seen` flag), and `done` otherwise.
+`hand` polls the API and never focuses a client on a worker's pane, so it observes `done` essentially always for this transition and `idle` essentially never.
+Neither value carries task-outcome information for a headless fleet.
+
 ### `herdr pane read <id> --source recent --lines <n>`
 
 Exit 0 with bare text, and **empty for a pane whose own shell has not painted yet** - a read taken immediately after `workspace create` returns nothing at all.

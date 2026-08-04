@@ -33,8 +33,13 @@ Each describes a transition the poll loop is already tracking toward one of the 
 `handleEvent` calls `internal/notify.Send` in-process for every match, never by shelling out to the `hand notify` subcommand, so the wiring reaches every caller of `hand watch` with no shell wrapper.
 Both modes call it, whether or not the event also reached stdout, so a transition discovered on a restart's baseline tick reaches the operator the same way a live one does.
 
-An unconfigured `config/notify` produces no diagnostic, the same silent fallback every other `config/` default gets.
+An unconfigured `config/notify` produces no diagnostic in the hook, the same silent fallback every other `config/` default gets.
 A configured template that fails, or hangs past its timeout, writes one diagnostic to the watcher's stderr and the poll loop carries on.
+
+The `hand notify` subcommand is the opposite: an absent config, an empty one, a failed template and a timed-out template are all exit 1 there.
+It used to print `notified:` and exit 0 with no config at all, which made "not configured" and "delivered" the same observable outcome on the one path meant to reach an operator with nothing watching.
+An empty file is the same case in a different shape, since `sh -c ""` succeeds and would claim a delivery just as wrongly, so an empty template is unconfigured rather than a template.
+All four mean nothing reached the channel, which is one fact and so one error rather than four codes.
 
 ## Rejected alternatives
 
@@ -53,6 +58,14 @@ Every caller of `hand watch` would need the wrapper, and a caller that forgot it
 
 **Diagnose an unconfigured `config/notify`.**
 Most fleets do not configure it, so the diagnostic would be permanent noise on the watcher's stderr for a default that is working as intended.
+
+**Let `hand notify` stay quiet about an unconfigured channel too, for consistency with the hook.**
+The hook is one of many things a tick does and its silence is a default.
+The subcommand does exactly one thing, so its silence is a false report of having done it.
+
+**Warn about an unconfigured channel and still exit 0.**
+Exit 0 is what a caller branches on.
+A warning behind a success is a delivery claim with a footnote.
 
 **Let a failed or hanging send end the run.**
 The send runs inline in the poll loop, so an unbounded one wedges polling, `--timeout` and shutdown alike.

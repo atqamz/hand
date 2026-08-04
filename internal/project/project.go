@@ -1,6 +1,6 @@
 // Package project manages the registry of git projects: a table in hand's
 // sqlite database, with data/projects.md kept in step as the human-readable
-// projection. SPECS.md's "Which one to believe" covers a disagreement.
+// projection. SPECS.md's "Which to believe when they disagree" covers a conflict.
 package project
 
 import (
