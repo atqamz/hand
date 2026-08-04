@@ -153,32 +153,3 @@ var holdFields = []axi.Column[state.Hold]{
 	{Name: "detail", Value: func(h state.Hold) string { return holdDetail(h) }},
 	{Name: "age", Value: func(h state.Hold) string { return formatAge(h.SetAt) }},
 }
-
-// selectFields resolves --fields against taskFields, defaulting to def. An
-// unknown name is a usage error, not a silently narrower schema header.
-func selectFields(fields, def []string) ([]axi.Column[taskView], error) {
-	want := fields
-	if len(want) == 0 {
-		want = def
-	}
-	cols, err := axi.Select(taskFields, want)
-	if err != nil {
-		return nil, &ExitError{Err: err, Code: 2}
-	}
-	return cols, nil
-}
-
-// rejectFieldsWithJSON keeps --fields honest: it narrows the TOON schema
-// header, and silently ignoring it next to --json would hand a caller the full
-// object it asked to narrow.
-func rejectFieldsWithJSON(fields []string, asJSON bool) error {
-	if len(fields) > 0 && asJSON {
-		return &ExitError{Err: fmt.Errorf("--fields applies to the default TOON output, not --json"), Code: 2}
-	}
-	return nil
-}
-
-func fieldsFlagUsage(def []string) string {
-	return fmt.Sprintf("columns to emit, comma-separated (default %s; any of %s)",
-		strings.Join(def, ","), strings.Join(axi.Names(taskFields), ","))
-}

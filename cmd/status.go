@@ -44,7 +44,7 @@ func newStatusCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON instead of TOON")
 	cmd.Flags().BoolVar(&full, "full", false, "show the reported line and history untruncated, with no history dedup (single task only)")
-	cmd.Flags().StringSliceVar(&fields, "fields", nil, fieldsFlagUsage(fleetDefaultFields))
+	cmd.Flags().StringSliceVar(&fields, "fields", nil, fieldsFlagUsage(taskFields, fleetDefaultFields))
 	return cmd
 }
 
@@ -317,7 +317,7 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		return enc.Encode(fleetJSON{TaskCount: len(rows), Tasks: rows, Holds: holdRows})
 	}
 
-	cols, err := selectFields(fields, fleetDefaultFields)
+	cols, err := pickFields(taskFields, fields, fleetDefaultFields)
 	if err != nil {
 		return err
 	}
@@ -499,7 +499,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		return enc.Encode(out)
 	}
 
-	cols, err := selectFields(fields, detailDefaultFields)
+	cols, err := pickFields(taskFields, fields, detailDefaultFields)
 	if err != nil {
 		return err
 	}

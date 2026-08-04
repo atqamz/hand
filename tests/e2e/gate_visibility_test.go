@@ -195,7 +195,7 @@ func TestGateCheckNamesAMissingOrNonGitClonePath(t *testing.T) {
 	if listed.code != 0 {
 		t.Fatalf("project list: exit %d, stderr %q", listed.code, listed.stderr)
 	}
-	if !strings.Contains(listed.stdout, "(gate: unreachable)") || strings.Contains(listed.stdout, "(gate: not initialized)") {
+	if !strings.Contains(listed.stdout, ",unreachable\n") || strings.Contains(listed.stdout, "not initialized") {
 		t.Fatalf("project list stdout = %q, want the non-git clone reported as unreachable", listed.stdout)
 	}
 }

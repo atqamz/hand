@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/store"
 	"github.com/spf13/cobra"
@@ -13,15 +13,27 @@ import (
 
 const searchDefaultLimit = 20
 
+var searchFields = []axi.Column[store.Hit]{
+	{Name: "path", Value: func(h store.Hit) string { return h.Path }},
+	{Name: "title", Value: func(h store.Hit) string { return h.Title }},
+	{Name: "snippet", Value: func(h store.Hit) string { return h.Snippet }},
+}
+
+var searchDefaultFields = []string{"path", "title", "snippet"}
+
 func newSearchCmd() *cobra.Command {
 	var asJSON, rebuild bool
 	var limit int
+	var fields []string
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Full-text search the prose corpus under data/",
 		Args:  usageArgs(cobra.MinimumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := rejectFieldsWithJSON(fields, asJSON); err != nil {
+				return err
+			}
 			homeDir, err := home.Resolve()
 			if err != nil {
 				return asPrecondition(err)
@@ -58,14 +70,6 @@ func newSearchCmd() *cobra.Command {
 				return err
 			}
 
-			// An empty stdout is the honest answer for a pipeline, but on its own
-			// it cannot be told from a search that failed to run, so the "nothing
-			// matched" goes to stderr where it costs the pipeline nothing.
-			if len(hits) == 0 && !asJSON {
-				_, err := fmt.Fprintf(cmd.ErrOrStderr(), "no matches for %q\n", query)
-				return err
-			}
-
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -75,18 +79,40 @@ func newSearchCmd() *cobra.Command {
 				return enc.Encode(hits)
 			}
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			for _, h := range hits {
-				if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", h.Path, h.Title, h.Snippet); err != nil {
-					return err
-				}
+			cols, err := pickFields(searchFields, fields, searchDefaultFields)
+			if err != nil {
+				return err
 			}
-			return w.Flush()
+
+			var doc axi.Doc
+			doc.Field("query", query)
+			doc.Int("count", len(hits))
+			axi.Table(&doc, "hits", hits, cols)
+			doc.Help(searchHelp(query, len(hits), limit)...)
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
-	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON instead of TOON")
 	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "discard and re-derive the index before searching")
 	cmd.Flags().IntVar(&limit, "limit", searchDefaultLimit, "maximum number of hits")
+	cmd.Flags().StringSliceVar(&fields, "fields", nil, fieldsFlagUsage(searchFields, searchDefaultFields))
 	return cmd
+}
+
+// A query that matched nothing and a corpus the index never caught up with
+// look identical from the outside, so the empty answer names the one flag that
+// tells them apart.
+func searchHelp(query string, hits, limit int) []string {
+	if hits == 0 {
+		return []string{
+			"Every token has to match: drop one to widen the query",
+			"Run `hand search --rebuild " + query + "` if the corpus changed but the index did not",
+		}
+	}
+	help := []string{"Read a hit's path for the whole document; the snippet is a window, not the match in full"}
+	if hits == limit {
+		help = append(help, fmt.Sprintf("This is the --limit cap, so there may be more: run `hand search --limit %d %s`", limit*2, query))
+	}
+	return help
 }

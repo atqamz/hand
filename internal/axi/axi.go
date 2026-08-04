@@ -41,6 +41,10 @@ func (d *Doc) Int(key string, n int) {
 	d.Field(key, strconv.Itoa(n))
 }
 
+func (d *Doc) Bool(key string, v bool) {
+	d.Field(key, strconv.FormatBool(v))
+}
+
 // Rows emits the `name[N]{f1,f2}:` header even when rows is empty, which is
 // what makes an empty result a positive statement rather than the silence a
 // broken command also produces.

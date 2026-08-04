@@ -331,14 +331,25 @@ List registered projects from the store.
 
 ```
 hand project list
+hand project list --fields name,mode
 hand project list --json
 ```
 
-Output (human):
+Flags:
+- `--fields <a,b,c>`: which columns the `projects` block emits, in the order given. Any of `name`, `mode`, `url`, `upstream`, `gate`; all five by default. An unknown name is a usage error (`2`) naming the known ones.
+- `--json`: the raw registry objects, unchanged from earlier versions. Rejects `--fields` as a usage error (`2`) rather than silently handing back the full object the caller asked to narrow.
+
+Output:
 ```
-nsr           https://github.com/yes2games/nsr          direct-pr
-yes2infra     https://github.com/yes2games/yes2infra    no-mistakes  (gate: not initialized)
-no-mistakes   https://github.com/atqamz/no-mistakes     direct-pr    (upstream: kunchenguid/no-mistakes)
+count: 3
+gate_issues: 1
+projects[3]{name,mode,url,upstream,gate}:
+  nsr,direct-pr,https://github.com/yes2games/nsr,none,none
+  yes2infra,no-mistakes,https://github.com/yes2games/yes2infra,none,not initialized
+  no-mistakes,direct-pr,https://github.com/atqamz/no-mistakes,kunchenguid/no-mistakes,none
+help[2]:
+  - Run `hand spawn <id> <project>` to dispatch a worker into one of these
+  - A project with a gate value cannot honour its no-mistakes mode until that is fixed; `hand doctor` and the project's own clone are where to look
 ```
 
 Output (JSON):
@@ -350,17 +361,20 @@ Output (JSON):
 ]
 ```
 
-A project with a declared upstream gets an `upstream: <owner/repo>` annotation in human output and an
-`upstream` field in JSON output (omitted when there is none). Annotations share one trailing column
-rather than taking one each, so a project carrying an upstream and no gate issue does not print its
-upstream under the gate issue of the row above it.
+Every column carries a value on every row: a project with no declared upstream reads `none` rather
+than dropping the cell, so the row stays aligned with the schema header. JSON keeps its
+omit-when-absent shape (`upstream`, `gate_issue`).
 
 A `no-mistakes`-mode project whose gate cannot currently be honoured (not initialized, or
 `unreachable` - the binary itself missing, the clone path missing on disk, or the clone path
-existing but not a git repository; see "Gate preflight") gets a `(gate: <issue>)` suffix in human
-output and a `gate_issue` field in JSON output (omitted when there is no issue). Every
-`no-mistakes`-mode project pays one `no-mistakes status` call per `hand project list` invocation;
-other modes pay nothing.
+existing but not a git repository; see "Gate preflight") carries that text in its `gate` column and
+its `gate_issue` field in JSON. `gate_issues` counts them, so a caller learns whether any project is
+unspawnable without reading every row; a nonzero count adds the `help[]` line above saying where to
+look. Every `no-mistakes`-mode project pays one `no-mistakes status` call per
+`hand project list` invocation; other modes pay nothing.
+
+An empty registry is `count: 0` with the schema header and a `help[]` line naming
+`hand project add`, never silence.
 
 ---
 
@@ -1484,14 +1498,31 @@ hand search --rebuild deploy failure
 ```
 
 Flags:
-- `--json`: output as JSON, one object per hit with `Path`, `Title` and `Snippet`. An empty result is `[]`, never `null`, so a caller can iterate without special-casing it.
+- `--fields <a,b,c>`: which columns the `hits` block emits, in the order given. Any of `path`, `title`, `snippet`; all three by default. An unknown name is a usage error (`2`) naming the known ones.
+- `--json`: output as JSON, one object per hit with `Path`, `Title` and `Snippet`. An empty result is `[]`, never `null`, so a caller can iterate without special-casing it. Rejects `--fields` as a usage error (`2`).
 - `--rebuild`: discard and re-derive the index before searching. The recovery for an index that is present but wrong; an index that is simply *missing* needs no flag.
 - `--limit <n>`: maximum hits, default 20.
 
+Output:
+```
+query: gate preflight
+count: 2
+hits[2]{path,title,snippet}:
+  data/task-12/brief.md,Rework the gate preflight,... the gate preflight runs before ...
+  data/learnings.md,Learnings,... a gate preflight that cannot reach ...
+help[1]:
+  - Read a hit's path for the whole document; the snippet is a window, not the match in full
+```
+
 Behavior:
 1. Scan `data/` for markdown files, comparing each against the index by mtime and size, and index what changed. Refreshing on every query rather than on a schedule keeps every other command free of the index entirely: the index is derived, so a stale answer is always settled by the corpus, and nothing else in `hand` has to know the index exists.
-2. Match against the FTS5 index, ranked by bm25, and print `path`, `title` and a snippet per hit.
-3. With no hits, print nothing to stdout and say `no matches for "<query>"` on stderr, so an empty result reads differently from a search that never ran while a pipeline still reads nothing.
+2. Match against the FTS5 index, ranked by bm25, and emit `path`, `title` and a snippet per hit.
+3. With no hits, stdout still carries the query, `count: 0` and the schema header, plus `help[]` lines naming the two things that produce an empty answer: a query too narrow to match, and a corpus the index never caught up with (`--rebuild`). Silence is what a search that never ran also produces, so the zero is stated rather than implied.
+4. A result that came in exactly at `--limit` says so in `help[]`, naming the doubled limit that would widen it: the capped rows and a corpus that genuinely holds no more are identical from the outside.
+
+Snippets are not truncated by `hand`: FTS5's own snippet window already bounds them to a fixed token
+count, so the `--full` recovery shape `hand status` carries has nothing to recover here (see "Output
+shape").
 
 Every whitespace-separated token in the query is quoted before it reaches FTS5, so a query a supervisor would actually type - `no-mistakes gate`, `atqamz/secondhand#53` - is matched as the literal text it looks like rather than parsed as query operators.
 
@@ -1524,7 +1555,32 @@ Behavior:
    - a code fence that is never closed, since it silences the date and self-expiring checks for every line after it,
    - the generated span's content having drifted from `internal/agentsmd`'s `generatedBody`, a violation,
    - the `hand:generated` markers being absent altogether - the same `generatedBlockSpan` result `agentsmd.mergeGenerated` uses to decide whether to touch the file at all, so this finding states exactly the fact a refresh already acts on: nothing in `hand` will ever update this file's template. It is informational rather than a violation (see `agentsmd.Severity`), since a marker-less file can be an accident or a deliberate choice and nothing in the file tells the two apart.
-3. Print one line per hit to stdout, prefixed with the resolved fleet home's absolute path to `AGENTS.md` (`generatedBody`'s absolute-path rule applies to the checker's own output too - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope) - `<path>:<line>: <finding>` for a line-anchored finding, `<path>: <finding>` for the whole-file block checks - and exit `1` if any violation-severity finding was found, `0` if the file is clean or every finding present is informational.
+3. Emit one row per hit under a `file` field carrying the resolved fleet home's absolute path to `AGENTS.md` (`generatedBody`'s absolute-path rule applies to the checker's own output too - a bare `AGENTS.md:12:` is ambiguous once more than one fleet home is in scope), and exit `1` if any violation-severity finding was found, `0` if the file is clean or every finding present is informational.
+
+Output:
+```
+file: /home/you/fleet/AGENTS.md
+count: 2
+violations: 1
+findings[2]{line,severity,finding}:
+  12,violation,"a date (2026-07-29) outside the generated block goes stale"
+  none,info,no hand:generated markers - nothing in hand will ever refresh this file's template
+help[2]:
+  - Edit AGENTS.md to resolve each finding; hand doctor reports and never rewrites
+  - Run `hand update` if the finding is generated-block drift, since that block is refreshed rather than hand-edited
+```
+
+`count` is every finding and `violations` only the exit-failing ones, so a reader learns which
+verdict they got without classifying rows themselves. A whole-file finding has no line to anchor to
+and reads `none` there rather than `0`, which would read as line one.
+
+Flags:
+- `--fields <a,b,c>`: which columns the `findings` block emits, in the order given. Any of `line`, `severity`, `finding`; all three by default.
+
+A clean file is `count: 0`, `violations: 0` and the schema header, with no `help[]`: there is nothing
+to act on, and silence would be indistinguishable from a checker that never ran. A run whose findings
+are all informational passed, and says so in `help[]` rather than leaving a reader to infer it from
+`violations: 0`.
 
 A remedy naming a command that takes a path spells that path out: `hand init` with no argument targets the working directory, which is a new nested fleet home whenever the operator ran `hand doctor` from anywhere but the home itself.
 
@@ -1532,7 +1588,7 @@ The missing-markers finding stays informational rather than becoming a violation
 
 A date or self-expiring phrase inside inline code (`` `...` ``) or a URL is not flagged: a changelog entry or an example command legitimately names a date or says "awaiting #12" without going stale, since it is documenting a fixed past event or literal text rather than making a claim about the present.
 
-A missing `AGENTS.md` is not an error: same as a directory that is not a fleet home at all, `hand doctor` finds nothing to flag and exits `0` silently, leaving `hand init` to be the one place that complains about an incomplete fleet home.
+A missing `AGENTS.md` is not an error: `hand doctor` finds nothing to flag and reports its zero count and exits `0`, leaving `hand init` to be the one place that complains about an incomplete fleet home.
 
 ---
 
@@ -1904,10 +1960,10 @@ Escape hatch: `--skip-gate-check` on both `hand spawn` and `hand promote` bypass
 and prints a warning to stderr naming the project, so bypassing it is visible in the transcript
 rather than a silent env var.
 
-`hand project list` runs the same check for every `no-mistakes`-mode project and appends `(gate:
-not initialized)` or `(gate: unreachable)` to its output line (and `"gate_issue"` in `--json`
-output) when the check doesn't come back clean, so a stale or never-initialized gate is visible
-without waiting for a spawn or promote to refuse.
+`hand project list` runs the same check for every `no-mistakes`-mode project and carries `not
+initialized` or `unreachable` in that project's `gate` column (and `"gate_issue"` in `--json`
+output) when the check doesn't come back clean, counting them in `gate_issues`, so a stale or
+never-initialized gate is visible without waiting for a spawn or promote to refuse.
 
 ### Gate-run visibility
 
@@ -2394,16 +2450,42 @@ Behavior:
 2. Compare against the running binary's embedded version.
 3. If newer: download the binary for the current OS/arch, verify checksum, replace the running binary in place.
 4. After update, refresh the generated AGENTS.md template in the resolved fleet home to the latest version, preserving user edits (see "AGENTS.md (target)"), and seed whichever `data/` skeleton files that home is missing, on the same absent-only terms as `hand init` (see "Directory layout"): the refreshed template directs the agent at those files, so the command that installs it leaves them in place rather than pointing at nothing. Outside any fleet home both are skipped silently; a `HAND_HOME` that names no fleet home is a warning, not a silent skip, since that is a misconfiguration rather than an absence. Seeding creates the runtime directories first, exactly as `hand init` does: a home resolves as one on its `state/hand.db` marker alone, so the `data/` directory it seeds into is not guaranteed to be there. A refresh or a seed that fails is likewise a warning on stderr, not a failed update, since the binary is already replaced. The seed warning names every file that could not be written, in the layout's own order, so two runs against the same broken home say the same thing.
-5. Print old version, new version, and what changed (from the installed release's notes). The AGENTS.md line appears only when the template actually changed, and the `changed:` block only when the release has notes.
+5. Emit old version, new version, whether the binary was replaced, what became of the AGENTS.md template, and what changed (from the installed release's notes).
+
+Every run emits the same six fields whatever happened, so a caller reads one schema rather than a set
+of lines that appear or do not:
 
 ```
 hand update
 current: v0.3.1
-latest:  v0.4.0
-updated hand to v0.4.0
-updated AGENTS.md template
-changed:
-- fix: teardown no longer strands worktrees
+latest: v0.4.0
+update_available: true
+updated: true
+agents_md: refreshed
+notes[1]:
+  - fix: teardown no longer strands worktrees
+help[1]:
+  - Run `hand doctor` to check this home's AGENTS.md against the template v0.4.0 installed
+```
+
+`agents_md` is one of `refreshed`, `unchanged`, `no-fleet-home`, `failed`, or `not-applicable` when
+nothing was installed. The stderr warnings of step 4 stay on stderr: they name a fault in the world
+around a successful update, not a field of its result.
+
+`--check`, and a `hand update` that finds nothing newer, emit the same document with
+`updated: false`, `agents_md: not-applicable` and `notes[0]:`. An available update adds a `help[]`
+line naming `hand update`; up to date adds none, since there is nothing to do:
+
+```
+hand update --check
+current: v0.3.1
+latest: v0.4.0
+update_available: true
+updated: false
+agents_md: not-applicable
+notes[0]:
+help[1]:
+  - Run `hand update` to install v0.4.0, which also refreshes this home's AGENTS.md template
 ```
 
 Same pattern as `no-mistakes update`, `treehouse update`, and `herdr update`.

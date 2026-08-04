@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
@@ -28,15 +29,18 @@ func newUpdateCmd(version string) *cobra.Command {
 				return err
 			}
 
-			out := cmd.OutOrStdout()
-			if !newer {
-				_, err := fmt.Fprintf(out, "hand %s is up to date\n", version)
-				return err
-			}
-
-			if checkOnly {
-				_, err := fmt.Fprintf(out, "update available: %s -> %s\n", version, latest)
-				return err
+			if !newer || checkOnly {
+				var doc axi.Doc
+				doc.Field("current", version)
+				doc.Field("latest", latest)
+				doc.Bool("update_available", newer)
+				doc.Bool("updated", false)
+				doc.Field("agents_md", "not-applicable")
+				doc.List("notes", nil)
+				if newer {
+					doc.Help("Run `hand update` to install " + latest + ", which also refreshes this home's AGENTS.md template")
+				}
+				return doc.Render(cmd.OutOrStdout())
 			}
 
 			if err := selfupdate.Apply(selfupdate.Repo, latest); err != nil {
@@ -62,23 +66,6 @@ func newUpdateCmd(version string) *cobra.Command {
 				refreshErr = nil
 			}
 
-			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)
-			notes = strings.TrimSpace(notes)
-
-			if _, err := fmt.Fprintf(out, "current: %s\n", version); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintf(out, "latest:  %s\n", latest); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintf(out, "updated hand to %s\n", latest); err != nil {
-				return err
-			}
-			if refreshed {
-				if _, err := fmt.Fprintln(out, "updated AGENTS.md template"); err != nil {
-					return err
-				}
-			}
 			if refreshErr != nil {
 				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: refresh AGENTS.md: %v\n", refreshErr); err != nil {
 					return err
@@ -89,15 +76,46 @@ func newUpdateCmd(version string) *cobra.Command {
 					return err
 				}
 			}
-			if notes != "" {
-				if _, err := fmt.Fprintf(out, "changed:\n%s\n", notes); err != nil {
-					return err
-				}
-			}
-			return nil
+
+			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)
+
+			var doc axi.Doc
+			doc.Field("current", version)
+			doc.Field("latest", latest)
+			doc.Bool("update_available", true)
+			doc.Bool("updated", true)
+			doc.Field("agents_md", agentsMdOutcome(fleetHome, refreshed, refreshErr))
+			doc.List("notes", releaseNoteLines(notes))
+			doc.Help("Run `hand doctor` to check this home's AGENTS.md against the template " + latest + " installed")
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "check whether an update is available without installing")
 	return cmd
+}
+
+// The binary is replaced whatever this says, so every outcome is a value of
+// one field rather than a line that appears or does not.
+func agentsMdOutcome(fleetHome string, refreshed bool, refreshErr error) string {
+	switch {
+	case refreshErr != nil:
+		return "failed"
+	case fleetHome == "":
+		return "no-fleet-home"
+	case refreshed:
+		return "refreshed"
+	default:
+		return "unchanged"
+	}
+}
+
+func releaseNoteLines(notes string) []string {
+	var lines []string
+	for _, line := range strings.Split(notes, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
 }

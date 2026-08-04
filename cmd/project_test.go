@@ -306,8 +306,8 @@ func TestProjectListShowsUpstreamAlongsideAGateMarker(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "(upstream: kunchenguid/no-mistakes, gate: not initialized)") {
-		t.Fatalf("project list output = %q, want both annotations in one column", out.String())
+	if !strings.Contains(out.String(), ",kunchenguid/no-mistakes,not initialized\n") {
+		t.Fatalf("project list output = %q, want the upstream and the gate issue in their own columns", out.String())
 	}
 
 	jsonCmd := newProjectListCmd()
@@ -322,7 +322,9 @@ func TestProjectListShowsUpstreamAlongsideAGateMarker(t *testing.T) {
 	}
 }
 
-func TestProjectListColumnsDoNotMergeAtFieldWidth(t *testing.T) {
+// A repo URL carries the two characters a TOON row would otherwise read as
+// structure, so it has to come back quoted rather than splitting its own cell.
+func TestProjectListQuotesAURLRatherThanLettingItSplitTheRow(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
@@ -336,17 +338,30 @@ func TestProjectListColumnsDoNotMergeAtFieldWidth(t *testing.T) {
 	}
 
 	cmd := newProjectListCmd()
+	cmd.SetArgs([]string{"--fields", "name,url,mode"})
 	var out strings.Builder
 	cmd.SetOut(&out)
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(out.String(), url+" ") {
-		t.Fatalf("project list output = %q, want %q followed by a column separator before the mode", out.String(), url)
+	want := "projects[1]{name,url,mode}:\n  secondhand,\"" + url + "\",no-mistakes\n"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("project list output = %q, want %q", out.String(), want)
 	}
-	if strings.Contains(out.String(), url+"no-mistakes") {
-		t.Fatalf("project list output = %q, URL and mode columns merged", out.String())
+}
+
+func TestProjectListFieldsRejectsAnUnknownName(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	cmd := newProjectListCmd()
+	cmd.SetArgs([]string{"--fields", "nope"})
+	cmd.SetOut(&strings.Builder{})
+	cmd.SetErr(&strings.Builder{})
+	if got := exitCodeFor(t, cmd.Execute()); got != 2 {
+		t.Fatalf("exit code = %d, want 2 for an unknown field", got)
 	}
 }
 
@@ -371,8 +386,8 @@ func TestProjectListMarksGateNotInitialized(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "(gate: not initialized)") {
-		t.Fatalf("project list output = %q, want a not-initialized gate marker", out.String())
+	if !strings.Contains(out.String(), "gate_issues: 1\n") || !strings.Contains(out.String(), ",not initialized\n") {
+		t.Fatalf("project list output = %q, want a not-initialized gate marker and the aggregate counting it", out.String())
 	}
 }
 
@@ -403,7 +418,7 @@ func TestProjectListJSONIncludesGateIssue(t *testing.T) {
 	}
 }
 
-func TestProjectListOmitsGateMarkerWhenGateReady(t *testing.T) {
+func TestProjectListStatesNoGateIssueWhenGateReady(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
@@ -424,8 +439,8 @@ func TestProjectListOmitsGateMarkerWhenGateReady(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "(gate:") {
-		t.Fatalf("project list output = %q, want no gate marker for a ready gate", out.String())
+	if !strings.Contains(out.String(), "gate_issues: 0\n") || !strings.Contains(out.String(), ",none\n") {
+		t.Fatalf("project list output = %q, want a ready gate stated as no issue rather than as an absent marker", out.String())
 	}
 }
 

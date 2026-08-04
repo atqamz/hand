@@ -38,6 +38,17 @@ func TestEmptyRowsBlockKeepsCountAndSchema(t *testing.T) {
 	}
 }
 
+func TestBoolRendersUnquoted(t *testing.T) {
+	var d Doc
+	d.Bool("update_available", true)
+	d.Bool("updated", false)
+
+	want := "update_available: true\nupdated: false\n"
+	if got := d.String(); got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
 func TestHelpWithNoLinesEmitsNothing(t *testing.T) {
 	var d Doc
 	d.Help()

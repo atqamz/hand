@@ -74,21 +74,80 @@ func TestSearchTreatsPunctuationInAQueryAsLiteralText(t *testing.T) {
 	}
 }
 
-func TestSearchReportsNoMatchesOnStderrAndLeavesStdoutEmpty(t *testing.T) {
+// A search that matched nothing states its zero on stdout: silence there is
+// the one answer a search that never ran also produces.
+func TestSearchStatesAZeroCountOnStdout(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	writeCorpusFile(t, home, "data/task-1/brief.md", "# Gate\n\nDrive the gate.\n")
 
-	out, errOut, err := runSearch(t, "nothing", "matches", "this")
+	out, _, err := runSearch(t, "nothing", "matches", "this")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "" {
-		t.Fatalf("got stdout %q, want it empty so a pipeline reads nothing", out)
+	want := "query: nothing matches this\n" +
+		"count: 0\n" +
+		"hits[0]{path,title,snippet}:\n" +
+		"help[2]:\n" +
+		"  - Every token has to match: drop one to widen the query\n" +
+		"  - Run `hand search --rebuild nothing matches this` if the corpus changed but the index did not\n"
+	if out != want {
+		t.Fatalf("got stdout %q, want %q", out, want)
 	}
-	if !strings.Contains(errOut, "no matches") {
-		t.Fatalf("got stderr %q, want an empty result told apart from a search that never ran", errOut)
+}
+
+// The --limit cap and a corpus that genuinely holds no more look identical in
+// the rows, so the capped run has to say which one it was.
+func TestSearchAtTheLimitSaysThereMayBeMore(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	for _, id := range []string{"task-1", "task-2", "task-3"} {
+		writeCorpusFile(t, home, filepath.Join("data", id, "brief.md"), "# "+id+"\n\nThe queue drains under load.\n")
+	}
+
+	capped, _, err := runSearch(t, "--limit", "2", "queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(capped, "count: 2\n") || !strings.Contains(capped, "`hand search --limit 4 queue`") {
+		t.Fatalf("got %q, want the cap named alongside the wider query that lifts it", capped)
+	}
+
+	under, _, err := runSearch(t, "--limit", "9", "queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(under, "--limit 18") {
+		t.Fatalf("got %q, want no cap warning when the result came in under the limit", under)
+	}
+}
+
+func TestSearchFieldsNarrowsTheSchemaHeaderWithTheRows(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeCorpusFile(t, home, "data/task-1/brief.md", "# Rework the merge queue\n\nThe queue drains under load.\n")
+
+	out, _, err := runSearch(t, "--fields", "path", "drains")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "hits[1]{path}:\n  " + filepath.Join("data", "task-1", "brief.md") + "\n"
+	if !strings.Contains(out, want) {
+		t.Fatalf("got %q, want %q", out, want)
+	}
+}
+
+func TestSearchFieldsWithJSONIsAUsageError(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	_, _, err := runSearch(t, "--json", "--fields", "path", "drains")
+	if got := exitCodeFor(t, err); got != 2 {
+		t.Fatalf("exit code = %d, want 2 for --fields alongside --json", got)
 	}
 }
 

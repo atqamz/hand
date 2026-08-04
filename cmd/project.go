@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/atqamz/secondhand/internal/axi"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/project"
 	"github.com/atqamz/secondhand/internal/state"
@@ -233,14 +233,35 @@ func treehouseInitIfNeeded(clonePath string) error {
 	return nil
 }
 
+// projectView is one registry row plus the gate check the row is worth
+// reading for, so the column reader never re-runs no-mistakes per field.
+type projectView struct {
+	project   project.Project
+	gateIssue string
+}
+
+var projectFields = []axi.Column[projectView]{
+	{Name: "name", Value: func(v projectView) string { return v.project.Name }},
+	{Name: "mode", Value: func(v projectView) string { return v.project.Mode }},
+	{Name: "url", Value: func(v projectView) string { return orNone(v.project.URL) }},
+	{Name: "upstream", Value: func(v projectView) string { return orNone(v.project.Upstream) }},
+	{Name: "gate", Value: func(v projectView) string { return orNone(v.gateIssue) }},
+}
+
+var projectDefaultFields = []string{"name", "mode", "url", "upstream", "gate"}
+
 func newProjectListCmd() *cobra.Command {
 	var asJSON bool
+	var fields []string
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List registered projects",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := rejectFieldsWithJSON(fields, asJSON); err != nil {
+				return err
+			}
 			home, err := home.Resolve()
 			if err != nil {
 				return asPrecondition(err)
@@ -268,32 +289,43 @@ func newProjectListCmd() *cobra.Command {
 				return enc.Encode(out)
 			}
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			for _, p := range projects {
-				line := fmt.Sprintf("%s\t%s\t%s", p.Name, p.URL, p.Mode)
-				// One annotation column, not one per annotation: a project with an
-				// upstream and no gate issue would otherwise print its upstream in
-				// the column a gate issue occupies on the row above it.
-				var notes []string
-				if p.Upstream != "" {
-					notes = append(notes, "upstream: "+p.Upstream)
-				}
-				if issue := gateIssue(home, p); issue != "" {
-					notes = append(notes, "gate: "+issue)
-				}
-				if len(notes) > 0 {
-					line += "\t(" + strings.Join(notes, ", ") + ")"
-				}
-				if _, err := fmt.Fprintln(w, line); err != nil {
-					return err
-				}
+			cols, err := pickFields(projectFields, fields, projectDefaultFields)
+			if err != nil {
+				return err
 			}
-			return w.Flush()
+			views := make([]projectView, 0, len(projects))
+			ungated := 0
+			for _, p := range projects {
+				v := projectView{project: p, gateIssue: gateIssue(home, p)}
+				if v.gateIssue != "" {
+					ungated++
+				}
+				views = append(views, v)
+			}
+
+			var doc axi.Doc
+			doc.Int("count", len(views))
+			doc.Int("gate_issues", ungated)
+			axi.Table(&doc, "projects", views, cols)
+			doc.Help(projectListHelp(len(views), ungated)...)
+			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
-	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output as JSON instead of TOON")
+	cmd.Flags().StringSliceVar(&fields, "fields", nil, fieldsFlagUsage(projectFields, projectDefaultFields))
 	return cmd
+}
+
+func projectListHelp(count, ungated int) []string {
+	if count == 0 {
+		return []string{"Run `hand project add <repo-url>` to register the first project"}
+	}
+	help := []string{"Run `hand spawn <id> <project>` to dispatch a worker into one of these"}
+	if ungated > 0 {
+		help = append(help, "A project with a gate value cannot honour its no-mistakes mode until that is fixed; `hand doctor` and the project's own clone are where to look")
+	}
+	return help
 }
 
 // gateIssue reports why a no-mistakes project's recorded mode cannot currently be honoured, so

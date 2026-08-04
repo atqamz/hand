@@ -11,7 +11,9 @@ import (
 	"github.com/atqamz/secondhand/internal/agentsmd"
 )
 
-func TestDoctorCleanFleetHomeExitsZeroSilently(t *testing.T) {
+// A clean file is the one answer silence used to be indistinguishable from a
+// checker that never ran, so it states its zero rather than printing nothing.
+func TestDoctorCleanFleetHomeStatesItsZeroCount(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -26,8 +28,12 @@ func TestDoctorCleanFleetHomeExitsZeroSilently(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got error %v, want nil for a clean AGENTS.md", err)
 	}
-	if out.String() != "" {
-		t.Fatalf("stdout = %q, want empty", out.String())
+	want := "file: " + filepath.Join(home, "AGENTS.md") + "\n" +
+		"count: 0\n" +
+		"violations: 0\n" +
+		"findings[0]{line,severity,finding}:\n"
+	if out.String() != want {
+		t.Fatalf("stdout = %q, want %q", out.String(), want)
 	}
 }
 
@@ -58,9 +64,38 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("got nil error, want a non-nil error for a perishable-content hit")
 	}
-	want := filepath.Join(home, "AGENTS.md") + ":"
+	want := "file: " + filepath.Join(home, "AGENTS.md") + "\n"
 	if !strings.Contains(out.String(), want) {
-		t.Fatalf("stdout = %q, want a violation anchored at the resolved home's absolute path %q", out.String(), want)
+		t.Fatalf("stdout = %q, want the findings anchored at the resolved home's absolute path %q", out.String(), want)
+	}
+	if !strings.Contains(out.String(), "violations: 1\n") || !strings.Contains(out.String(), ",violation,") {
+		t.Fatalf("stdout = %q, want one finding counted and marked at violation severity", out.String())
+	}
+}
+
+// Only a violation fails the command, so the aggregate has to separate the two
+// rather than leave a reader counting rows to work out which kind they got.
+func TestDoctorSeparatesInformationalFindingsFromViolations(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"),
+		[]byte("# Hand-authored, no generated markers\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newDoctorCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "count: 1\n") || !strings.Contains(out.String(), "violations: 0\n") {
+		t.Fatalf("stdout = %q, want the informational finding counted but not as a violation", out.String())
+	}
+	if !strings.Contains(out.String(), "  none,info,") {
+		t.Fatalf("stdout = %q, want a whole-file finding to carry no line number", out.String())
 	}
 }
 
