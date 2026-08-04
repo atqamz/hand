@@ -385,6 +385,8 @@ Behavior:
 4. `git clone` into `projects/<name>`.
 5. If `--mode no-mistakes`, run `no-mistakes init` inside the clone.
 6. Initialize treehouse for the project: `treehouse init` inside the clone if no `treehouse.toml` exists.
+   Then list `treehouse.toml` in the clone's `info/exclude`, since treehouse leaves it untracked and
+   an untracked pool config makes the clone read dirty to every later `hand project sync`.
 7. Add the project to the store and rewrite the `data/projects.md` projection.
 8. If clone or init fails, clean up partial state (remove the clone dir, don't append to registry).
 
@@ -1522,6 +1524,8 @@ hand project sync nsr
 Behavior:
 1. For each project (or named project):
    - `git fetch origin` in the clone.
+   - List `treehouse.toml` in the clone's `info/exclude` if it is not already, which is what keeps a
+     project registered before hand excluded it from skipping as dirty on every sync from then on.
    - If on default branch and clean: fast-forward to `origin/<default>`.
    - If dirty, on non-default branch, or diverged: skip with warning.
 2. Prune local branches whose remote tracking branch is gone.

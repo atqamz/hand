@@ -249,9 +249,12 @@ func treehouseInitIfNeeded(clonePath string) error {
 // info/exclude rather than .gitignore: it is per-clone and never committed, so
 // hand cannot leave a change of its own in the operator's repo.
 func excludeLocally(clonePath, pattern string) error {
-	out, err := exec.Command("git", "-C", clonePath, "rev-parse", "--git-path", "info/exclude").Output()
+	c := exec.Command("git", "-C", clonePath, "rev-parse", "--git-path", "info/exclude")
+	var stderr strings.Builder
+	c.Stderr = &stderr
+	out, err := c.Output()
 	if err != nil {
-		return fmt.Errorf("resolve info/exclude in %s: %w", clonePath, err)
+		return fmt.Errorf("resolve info/exclude in %s: %w: %s", clonePath, err, strings.TrimSpace(stderr.String()))
 	}
 	path := strings.TrimSpace(string(out))
 	if !filepath.IsAbs(path) {
@@ -551,6 +554,12 @@ func syncOneProject(home string, p project.Project) (syncOutcome, error) {
 	}
 	if currentBr != defaultBr {
 		return skippedSync(p.Name, fmt.Sprintf("on branch %s, not %s", currentBr, defaultBr))
+	}
+	// A clone registered before hand started excluding the pool config still has it
+	// untracked, and registration is the one place that would have excluded it, so
+	// without repairing it here such a clone reads dirty and skips every sync forever.
+	if err := excludeLocally(clonePath, "treehouse.toml"); err != nil {
+		return syncOutcome{}, fmt.Errorf("%s: %w", p.Name, err)
 	}
 	dirty, err := hasUncommittedChanges(clonePath)
 	if err != nil {

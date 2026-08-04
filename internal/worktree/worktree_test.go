@@ -24,25 +24,6 @@ func writeFakeTreehouse(t *testing.T, script string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// A real repo at path is what lets the pool fake tell a clean slot from a dirty
-// one the way treehouse does.
-func initWorktreeRepo(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{
-		{"init", "-q", "-b", "main"},
-		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "initial"},
-	} {
-		c := exec.Command("git", args...)
-		c.Dir = path
-		if out, err := c.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
-}
-
 func TestGetParsesLeasePathAndIdentity(t *testing.T) {
 	writeFakeTreehouse(t, `printf '{"path":"/tmp/wt-1","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8"}'`)
 	got, err := Get(t.TempDir(), "hand:task-1")
@@ -121,7 +102,7 @@ func TestReturnFailsOnNonZeroExit(t *testing.T) {
 // "already returned" from the path being gone.
 func TestReturnIsIdempotentOnAnAlreadyReturnedWorktree(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	initWorktreeRepo(t, wt)
+	faketool.InitRepo(t, wt)
 	faketool.Treehouse{Held: []string{wt}}.Install(t, faketool.Bin(t))
 
 	if err := Return(wt, false); err != nil {
@@ -148,7 +129,7 @@ func TestReturnFailsOnAWorktreeNoPoolManages(t *testing.T) {
 // the caller deletes the task row that is the only remaining record of the holder.
 func TestReturnFailsWhenAnUnforcedDirtyReturnAborts(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	initWorktreeRepo(t, wt)
+	faketool.InitRepo(t, wt)
 	faketool.Treehouse{Held: []string{wt}}.Install(t, faketool.Bin(t))
 	if err := os.WriteFile(filepath.Join(wt, "dirt.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)

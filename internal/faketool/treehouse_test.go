@@ -82,7 +82,7 @@ func TestTreehouseReturnsIdempotentlyAndRefusesAnUnmanagedPath(t *testing.T) {
 func TestTreehouseAbortsAnUnforcedDirtyReturnWithExitZero(t *testing.T) {
 	bin := Bin(t)
 	slot := filepath.Join(t.TempDir(), "wt")
-	initRepo(t, slot)
+	InitRepo(t, slot)
 	Treehouse{Slots: []string{slot}}.Install(t, bin)
 
 	if _, _, code := runTreehouse(t, t.TempDir(), "get", "--lease", "--json"); code != 0 {
@@ -118,22 +118,5 @@ func TestTreehouseHeldSlotStartsLeasedAndIsReturnable(t *testing.T) {
 
 	if _, _, code := runTreehouse(t, t.TempDir(), "return", held); code != 0 {
 		t.Fatalf("return of a seeded lease exit %d, want 0", code)
-	}
-}
-
-func initRepo(t *testing.T, dir string) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{
-		{"init", "-q", "-b", "main"},
-		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "initial"},
-	} {
-		c := exec.Command("git", args...)
-		c.Dir = dir
-		if out, err := c.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
 	}
 }

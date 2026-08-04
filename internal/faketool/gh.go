@@ -37,14 +37,13 @@ func (g GH) Install(t *testing.T, bin string) {
 	stateFile := func(i int) string { return quote(fmt.Sprintf("%s/pr%d", state, i)) }
 
 	// gh takes a URL or a number here, either of which resolves to the same PR.
-	var view, merge, checks strings.Builder
+	var byRef, checks strings.Builder
 	for i, pr := range g.PRs {
 		for _, ref := range []string{pr.URL, fmt.Sprintf("%d", pr.Number)} {
 			if ref == "" || ref == "0" {
 				continue
 			}
-			fmt.Fprintf(&view, "    %s) f=%s ;;\n", quote(ref), stateFile(i))
-			fmt.Fprintf(&merge, "    %s) f=%s ;;\n", quote(ref), stateFile(i))
+			fmt.Fprintf(&byRef, "    %s) f=%s ;;\n", quote(ref), stateFile(i))
 			fmt.Fprintf(&checks, "    %s) printf '%s\\n' ;;\n", quote(ref), ghBuckets(pr.Checks))
 		}
 	}
@@ -101,7 +100,7 @@ func (g GH) Install(t *testing.T, bin string) {
   "pr merge")
     f=""
     case "$3" in
-%[4]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
+%[1]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
     esac
     read s < "$f"
     if [ "$s" = MERGED ]; then
@@ -110,7 +109,7 @@ func (g GH) Install(t *testing.T, bin string) {
     fi
     echo MERGED > "$f"
     printf '%%s merged\n' "$3"
-    ;;`, view.String(), list.String(), checks.String(), merge.String())
+    ;;`, byRef.String(), list.String(), checks.String())
 
 	install(t, bin, "gh", g.Log, prelude, "$1 $2", body)
 

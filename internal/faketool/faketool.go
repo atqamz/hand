@@ -6,10 +6,40 @@ package faketool
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// A real git repo at path, which is what lets the pool fake tell a clean slot
+// from a dirty one the way treehouse does. Its commits run on a scratch global
+// config, so the operator's commit.gpgsign never drags gpg-agent into a test.
+func InitRepo(t *testing.T, path string) {
+	t.Helper()
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	content := "[user]\n\tname = faketool\n\temail = faketool@example.invalid\n" +
+		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+	if err := os.WriteFile(cfg, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"commit", "-q", "--allow-empty", "-m", "initial"},
+	} {
+		c := exec.Command("git", args...)
+		c.Dir = path
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+}
 
 // Returns a directory prepended to PATH for the rest of the test, so fakes
 // installed there are found ahead of any real tool. Prepending rather than
