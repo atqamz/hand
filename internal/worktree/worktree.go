@@ -49,14 +49,9 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	return Lease{Path: payload.Path, ID: payload.LeaseID}, nil
 }
 
-// Return releases a worktree back to its treehouse pool. Returning a worktree
-// that is already back in the pool is a no-op success, so teardown - which
-// returns the worktree before it removes the task's state - stays retryable after
-// a fault in a later step. That idempotency is treehouse's own, not something
-// checked here: a returned worktree keeps its pool slot directory (the path still
-// exists, the slot just flips to available), so no path-existence test can tell a
-// returned worktree from a leased one. A path treehouse does not manage at all is
-// still an error.
+// Return releases a worktree back to its treehouse pool. A repeated return is a
+// no-op success; an aborted one exits 0 with the slot still leased, so the exit
+// status alone cannot say a return happened. See internal/faketool/FIDELITY.md.
 func Return(worktreePath string, force bool) error {
 	args := []string{"return", worktreePath}
 	if force {
@@ -65,6 +60,9 @@ func Return(worktreePath string, force bool) error {
 	out, err := exec.Command("treehouse", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("treehouse return failed: %s", strings.TrimSpace(string(out)))
+	}
+	if !force && strings.Contains(string(out), "Aborted") {
+		return fmt.Errorf("treehouse return aborted, worktree %s is still leased: %s", worktreePath, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
