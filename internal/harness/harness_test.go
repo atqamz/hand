@@ -197,6 +197,23 @@ func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
 	}
 }
 
+// TestSupportsModel pins the capability against the builders: exactly the harnesses whose build
+// function emits --model may report true, or a caller that trusts it drops the model in silence.
+func TestSupportsModel(t *testing.T) {
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "some-model"})
+		if err != nil {
+			t.Fatalf("Build(%q) error: %v", name, err)
+		}
+		if emits := strings.Contains(got, "--model 'some-model'"); emits != SupportsModel(name) {
+			t.Errorf("SupportsModel(%q) = %v but Build(%q) = %q", name, SupportsModel(name), name, got)
+		}
+	}
+	if SupportsModel("nonexistent") {
+		t.Error("SupportsModel(nonexistent) = true, want false")
+	}
+}
+
 func TestSupportsEffort(t *testing.T) {
 	if !SupportsEffort(Claude) {
 		t.Error("SupportsEffort(claude) = false, want true")

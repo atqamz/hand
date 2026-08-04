@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -149,6 +150,63 @@ func TestResolveTierWarnsWhenHarnessCannotApplyEffort(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "opencode") || !strings.Contains(stderr.String(), "effort") {
 		t.Fatalf("stderr = %q, want a warning naming the harness and effort", stderr.String())
+	}
+}
+
+// TestResolveTierWarnsWhenHarnessCannotApplyModel covers all three model-less harnesses because
+// their launch builders are near-copies: a test that only proves codex warns lets grok or pi
+// regress in silence.
+func TestResolveTierWarnsWhenHarnessCannotApplyModel(t *testing.T) {
+	for _, harnessName := range []string{harness.Codex, harness.Grok, harness.Pi} {
+		t.Run(harnessName, func(t *testing.T) {
+			home := t.TempDir()
+			briefAbs := writeTierBrief(t, home, declaredBrief)
+
+			cmd, stderr := newTierTestCmd()
+			model, _, _, err := resolveTier(cmd, home, briefAbs, harnessName, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if model != "brief-model" {
+				t.Fatalf("got model=%q, want it still resolved even though %s cannot apply it", model, harnessName)
+			}
+			want := "warning: harness " + strconv.Quote(harnessName) + " has no model flag, ignoring model \"brief-model\"\n"
+			if !strings.Contains(stderr.String(), want) {
+				t.Fatalf("stderr = %q, want it to contain %q", stderr.String(), want)
+			}
+			if !strings.Contains(stderr.String(), "no effort flag") {
+				t.Fatalf("stderr = %q, want the effort warning alongside the model one", stderr.String())
+			}
+		})
+	}
+}
+
+func TestResolveTierNoModelWarningUnderOpenCode(t *testing.T) {
+	home := t.TempDir()
+	briefAbs := writeTierBrief(t, home, declaredBrief)
+
+	cmd, stderr := newTierTestCmd()
+	if _, _, _, err := resolveTier(cmd, home, briefAbs, harness.OpenCode, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr.String(), "model") {
+		t.Fatalf("stderr = %q, want no model warning under a harness that takes --model", stderr.String())
+	}
+}
+
+func TestResolveTierNoWarningWhenNoModelResolved(t *testing.T) {
+	home := t.TempDir()
+	briefAbs := writeTierBrief(t, home, "---\neffort: brief-effort\n---\n# Title\n")
+
+	cmd, stderr := newTierTestCmd()
+	if _, _, _, err := resolveTier(cmd, home, briefAbs, harness.Codex, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr.String(), "model") {
+		t.Fatalf("stderr = %q, want no model warning when no model was resolved at all", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "no effort flag") {
+		t.Fatalf("stderr = %q, want the effort warning still reported", stderr.String())
 	}
 }
 

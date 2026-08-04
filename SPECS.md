@@ -422,9 +422,11 @@ Flags:
   clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
 Model and effort resolve most-specific-first: the flag, then the brief's `---` declaration (see
-"Brief format"), then the config default, then unset. A resolved effort under a harness with no
-effort flag (anything but claude) is a warning on stderr, not a failure: the spawn proceeds with
-the effort recorded in state and ignored by the launch command.
+"Brief format"), then the config default, then unset. A resolved value the harness has no flag for
+is a warning on stderr, not a failure: the spawn proceeds with the value recorded in state and
+ignored by the launch command. This covers a resolved effort under anything but claude
+(`harness.SupportsEffort`) and a resolved model under `codex`, `grok` or `pi`
+(`harness.SupportsModel`).
 
 Behavior:
 1. Validate project exists in registry.
@@ -1525,7 +1527,9 @@ The brief path is included in the prompt because Claude Code takes prompt text, 
 `<operator-decision-rule>` is `agentsmd.OperatorDecisionRule` verbatim (see "AGENTS.md (target)"), appended to every prompt-carrying template because the worktree is outside the fleet home and the worker never reads the home's `AGENTS.md`.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
 Claude is the only harness with an effort flag: `opencode` takes `--model` but no effort, and
-`codex`, `grok` and `pi` take neither (`harness.SupportsEffort`).
+`codex`, `grok` and `pi` take neither (`harness.SupportsEffort`, `harness.SupportsModel`).
+A declared value a harness has no flag for is warned about on stderr rather than dropped in
+silence (see `hand spawn`).
 When the brief carries a `---` declaration, the prompt gains a sentence disclaiming it as dispatch
 metadata (see "Brief format").
 `--dangerously-skip-permissions` is required so the unattended worker does not stall on a

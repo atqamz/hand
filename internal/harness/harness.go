@@ -123,8 +123,18 @@ type Options struct {
 	BriefHasFrontMatter bool
 }
 
+var modelCapable = map[string]bool{
+	Claude:   true,
+	OpenCode: true,
+}
+
 var effortCapable = map[string]bool{
 	Claude: true,
+}
+
+// SupportsModel: false means the caller must warn instead of silently dropping the model.
+func SupportsModel(name string) bool {
+	return modelCapable[name]
 }
 
 // SupportsEffort: false means the caller must warn instead of silently dropping the effort.

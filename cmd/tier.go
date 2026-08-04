@@ -18,8 +18,18 @@ func resolveTier(cmd *cobra.Command, home, briefAbs, harnessName, model, effort 
 	resolvedModel = cmp.Or(model, decl.Model, configDefault(home, "model", ""))
 	resolvedEffort = cmp.Or(effort, decl.Effort, configDefault(home, "effort", ""))
 
-	if resolvedEffort != "" && !harness.SupportsEffort(harnessName) {
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: harness %q has no effort flag, ignoring effort %q\n", harnessName, resolvedEffort); err != nil {
+	for _, dropped := range []struct {
+		kind      string
+		value     string
+		supported bool
+	}{
+		{"model", resolvedModel, harness.SupportsModel(harnessName)},
+		{"effort", resolvedEffort, harness.SupportsEffort(harnessName)},
+	} {
+		if dropped.value == "" || dropped.supported {
+			continue
+		}
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: harness %q has no %s flag, ignoring %s %q\n", harnessName, dropped.kind, dropped.kind, dropped.value); err != nil {
 			return "", "", false, err
 		}
 	}
