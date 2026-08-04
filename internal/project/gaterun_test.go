@@ -22,9 +22,8 @@ func TestGateRunPRsCollectsCompletedRunPRs(t *testing.T) {
 	}
 }
 
-// TestGateRunPRsIgnoresNonCompletedRuns covers a run that recorded a PR URL but never reached
-// completed - running or failed both leave the gate un-cleared for that commit, so neither should
-// count as evidence a run happened.
+// Covers a run that recorded a PR URL but never reached completed - running or failed both leave
+// the gate un-cleared for that commit, so neither should count as evidence a run happened.
 func TestGateRunPRsIgnoresNonCompletedRuns(t *testing.T) {
 	fakeNoMistakes(t, "  failed       97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/120\n")
 
@@ -61,10 +60,9 @@ func TestGateRunPRsMissingBinary(t *testing.T) {
 	}
 }
 
-// TestGateRunPRsNotInitializedIsAnError covers the uninitialized gate and the stale renamed
-// working_path from atqamz/secondhand#60, which print this text identically. An empty run set here
-// would render as the far stronger claim that the PR never went through a gate run, when in truth
-// no-mistakes was never asked - the state it would have answered from still holds those runs.
+// Covers the uninitialized gate and #60's stale renamed working_path, which print this text
+// identically. An empty run set would claim the PR never went through a gate run, when in truth
+// no-mistakes was never asked - the state it answers from still holds those runs.
 func TestGateRunPRsNotInitializedIsAnError(t *testing.T) {
 	fakeNoMistakesExit(t, "repo not initialized (run 'no-mistakes init' first)", 1)
 
