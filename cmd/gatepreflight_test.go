@@ -208,6 +208,24 @@ func TestPromoteRefusesWhenNoMistakesGateNotInitialized(t *testing.T) {
 	}
 }
 
+// Pins the ordering from atqamz/secondhand#156. Codex carries no prompt, so resolveTier always
+// has something to warn about here, and a gate refusal must preempt that warning.
+func TestPromoteGateRefusalWarnsNothingAboutTheLaunch(t *testing.T) {
+	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")
+	setupPromoteHomeGate(t, path)
+
+	var errOut bytes.Buffer
+	cmd := newPromoteCmd()
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"task-1", "--harness", "codex"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+
+	if strings.Contains(errOut.String(), "cannot carry") {
+		t.Fatalf("stderr = %q, want no launch warning on a promote that never launches", errOut.String())
+	}
+}
+
 func TestPromoteRefusesDistinctlyWhenNoMistakesBinaryMissing(t *testing.T) {
 	setupPromoteHomeGate(t, t.TempDir())
 

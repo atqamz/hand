@@ -565,6 +565,11 @@ The line reads `warning: harness "codex" cannot carry model "opus", effort "high
 operator-decision rule, the front-matter disclaimer; launching anyway`, listing only what that
 launch actually drops.
 
+The warning belongs to a launch that is about to happen, so the tier resolves only after the
+project, gate preflight and brief checks have passed. A run that refuses names its refusal and
+nothing about a launch it never performs; `hand promote` resolves the tier in that same position
+(atqamz/secondhand#156).
+
 Behavior:
 1. Validate project exists in registry.
 2. If the project's mode is `no-mistakes`, run the gate preflight check (see "Gate preflight");

@@ -70,12 +70,6 @@ func newPromoteCmd() *cobra.Command {
 			if !harness.IsSupported(harnessName) {
 				return usageValue(harnessFromFlag, fmt.Errorf("harness %q not recognized", harnessName))
 			}
-			var briefHasFrontMatter bool
-			model, effort, briefHasFrontMatter, err = resolveTier(cmd, home, briefAbs, harnessName, model, effort)
-			if err != nil {
-				return err
-			}
-
 			proj, exists, err := project.Find(home, t.Project)
 			if err != nil {
 				return err
@@ -86,6 +80,12 @@ func newPromoteCmd() *cobra.Command {
 
 			clonePath := filepath.Join(home, "projects", proj.Name)
 			if err := gatePreflight(cmd, proj, clonePath, skipGateCheck); err != nil {
+				return err
+			}
+
+			var briefHasFrontMatter bool
+			model, effort, briefHasFrontMatter, err = resolveTier(cmd, home, briefAbs, harnessName, model, effort)
+			if err != nil {
 				return err
 			}
 
