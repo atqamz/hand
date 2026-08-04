@@ -177,18 +177,34 @@ func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs)
 // the Nth poll before publishing would otherwise still be racing that poll's read.
 // The failing branch logs too, so waiting on the Nth probe works for a dark pane
 // exactly as it does for a healthy one.
+//
+// The reported agent comes from statusDir/<id>.agent and is empty unless a test
+// calls setPaneAgent, which is what keeps a scenario that never mentions an agent
+// out of every harness-capability path. "pane read" answers with the raw text in
+// statusDir/<id>.text - herdr's one command whose success shape is bare text on
+// stdout rather than a result envelope, per client.go's PaneRead doc comment - and
+// "pane send-text"/"pane send-keys" answer with the empty stdout of a void command.
 func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	t.Helper()
+	quotedStatusDir, quotedLog := shellSingleQuote(statusDir), shellSingleQuote(logPath)
 	body := fmt.Sprintf(`  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "pane get")
     status=$(cat %s/"$3" 2>/dev/null || echo idle)
+    agent=$(cat %s/"$3".agent 2>/dev/null || echo "")
     echo "herdr pane get $3" >> %s
     if [ "$status" = unreachable ]; then
       echo "herdr: pane $3 not found" >&2
       exit 1
     fi
-    printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent_status":"%%s"}}}\n' "$3" "$status"
-    ;;`, shellSingleQuote(statusDir), shellSingleQuote(logPath))
+    printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent":"%%s","agent_status":"%%s"}}}\n' "$3" "$agent" "$status"
+    ;;
+  "pane read")
+    echo "herdr pane read $3" >> %s
+    cat %s/"$3".text 2>/dev/null
+    ;;
+  "pane send-text") echo "herdr pane send-text $3 $4" >> %s ;;
+  "pane send-keys") echo "herdr pane send-keys $3 $4" >> %s ;;`,
+		quotedStatusDir, quotedStatusDir, quotedLog, quotedLog, quotedStatusDir, quotedLog, quotedLog)
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 
@@ -226,11 +242,29 @@ func writeFakeHerdrUnprobeablePanes(t *testing.T, dir string) {
 // in-place write would let it read a phantom empty status mid-update.
 func setPaneStatus(t *testing.T, statusDir, paneID, status string) {
 	t.Helper()
-	tmp := filepath.Join(statusDir, paneID+".tmp")
-	if err := os.WriteFile(tmp, []byte(status), 0o644); err != nil {
+	publishPaneFile(t, statusDir, paneID, status)
+}
+
+// setPaneAgent publishes which agent the fake reports running in a pane, driving
+// every harness-capability path the watcher takes.
+func setPaneAgent(t *testing.T, statusDir, paneID, agent string) {
+	t.Helper()
+	publishPaneFile(t, statusDir, paneID+".agent", agent)
+}
+
+// setPaneText publishes the scrollback the fake answers `pane read` with.
+func setPaneText(t *testing.T, statusDir, paneID, text string) {
+	t.Helper()
+	publishPaneFile(t, statusDir, paneID+".text", text)
+}
+
+func publishPaneFile(t *testing.T, statusDir, name, content string) {
+	t.Helper()
+	tmp := filepath.Join(statusDir, name+".tmp")
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(tmp, filepath.Join(statusDir, paneID)); err != nil {
+	if err := os.Rename(tmp, filepath.Join(statusDir, name)); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -705,6 +705,46 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 	}
 }
 
+// An operator hold outliving its task row is the point of a hold. A limit hold is the
+// opposite: with the row gone nothing will ever resume the worker and no watcher will
+// clear the hold, so left behind it refuses hand spawn on this id forever.
+func TestTeardownRetiresAMachineSetLimitHoldButNotAnOperatorsOwn(t *testing.T) {
+	for _, tt := range []struct {
+		kind      string
+		wantAfter bool
+	}{
+		{kind: state.HoldKindLimit, wantAfter: false},
+		{kind: state.HoldKindOperator, wantAfter: true},
+	} {
+		t.Run(tt.kind, func(t *testing.T) {
+			home, worktree := setupTeardownHome(t)
+			writeFakeGHPRState(t, "MERGED")
+
+			if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+				PR: "https://example.com/pr/1", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: tt.kind, Reason: "held"}); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := newTeardownCmd()
+			cmd.SetArgs([]string{"task-1"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+
+			_, found, err := state.ReadHold(home, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found != tt.wantAfter {
+				t.Fatalf("hold present after teardown = %v, want %v for a %s hold", found, tt.wantAfter, tt.kind)
+			}
+		})
+	}
+}
+
 func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

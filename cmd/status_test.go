@@ -1000,6 +1000,37 @@ func TestStatusFleetFlagsInconsistentHold(t *testing.T) {
 	}
 }
 
+// hand watch writes limit holds, so hand status has to render one as the ordinary fact
+// it is. Left out of holdInconsistency it would come out flagged inconsistent, turning
+// every routine usage limit into a report that something outside hand corrupted the
+// database.
+func TestStatusFleetRendersAMachineSetLimitHold(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	if err := state.SetHold(home, state.Hold{
+		ID: "fix-login", Kind: state.HoldKindLimit,
+		Reason: "harness stopped on a usage limit; 1 attempt made, next try 2026-08-04T15:01:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "inconsistent") {
+		t.Fatalf("got %q, want a limit hold rendered as a real kind", out.String())
+	}
+	if !strings.Contains(out.String(), "limit") || !strings.Contains(out.String(), "next try 2026-08-04T15:01:00Z") {
+		t.Fatalf("got %q, want the limit hold's kind and reason in the held block", out.String())
+	}
+}
+
 func TestStatusFleetJSONFlagsInconsistentHold(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

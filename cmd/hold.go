@@ -67,10 +67,16 @@ func newHoldSetCmd() *cobra.Command {
 	return cmd
 }
 
+// The limit kind is refused with its own message rather than falling through to
+// the generic one: it is a real kind hand status renders and hand spawn honors,
+// so an operator who names it deserves to be told who owns it instead of that it
+// does not exist.
 func validateHoldKind(kind string) error {
 	switch kind {
 	case state.HoldKindOperator, state.HoldKindBlocked:
 		return nil
+	case state.HoldKindLimit:
+		return &ExitError{Err: fmt.Errorf("hold kind %s is set by hand watch when a worker's harness stops on a usage limit, and cleared when it runs again", state.HoldKindLimit), Code: 2}
 	default:
 		return &ExitError{Err: fmt.Errorf("invalid hold kind %q: must be %s or %s", kind, state.HoldKindOperator, state.HoldKindBlocked), Code: 2}
 	}

@@ -501,3 +501,129 @@ func TestWatchTracksATaskFirstSightedUnreachable(t *testing.T) {
 		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
 	}
 }
+
+// TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone is the full-stack half of
+// internal/watcher's usage-limit tests: a real `hand watch` process, a real sqlite
+// state file, a real hold, and a fake herdr whose panes it reads and types into.
+//
+// Both tasks stop the same way and only one of them has a limit refusal on screen, so
+// the untouched task is the control: it proves the resume is driven by what the harness
+// printed rather than by the stop itself.
+//
+// The resume is split across two watch runs because the first attempt is deliberately
+// never due within a test's lifetime - the floor is ten minutes. Moving the durable
+// stamp into the past between runs is exactly the restart the schedule is persisted
+// for, so this covers the durability too: a watcher that came up fresh still knows this
+// worker is limited and when it may be poked.
+func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, task := range []state.Task{
+		{ID: "limited", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-limited"), Herdr: state.Herdr{PaneID: "pane-limited"}, CreatedAt: now},
+		{ID: "plain", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-plain"), Herdr: state.Herdr{PaneID: "pane-plain"}, CreatedAt: now},
+	} {
+		if err := state.Write(home, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	statusDir := t.TempDir()
+	for _, pane := range []string{"pane-limited", "pane-plain"} {
+		setPaneAgent(t, statusDir, pane, "claude")
+		setPaneStatus(t, statusDir, pane, "working")
+	}
+	setPaneText(t, statusDir, "pane-limited", "> resume\n\nClaude usage limit reached. Your limit will reset at 3pm (UTC).\n")
+	setPaneText(t, statusDir, "pane-plain", "> resume\n\nI have finished the refactor.\n")
+
+	dir := binDir(t)
+	detectLog := filepath.Join(t.TempDir(), "detect.log")
+	writeFakeHerdrWatch(t, dir, statusDir, detectLog)
+
+	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
+	waitForInvocation(t, detectLog, "herdr pane get pane-limited", 5*time.Second)
+	waitForInvocation(t, detectLog, "herdr pane get pane-plain", 5*time.Second)
+
+	setPaneStatus(t, statusDir, "pane-limited", "done")
+	setPaneStatus(t, statusDir, "pane-plain", "done")
+
+	watch.waitForStdout(t, "usage-limit limited:", 5*time.Second)
+	// The plain task's own stop event is the liveness signal: once it has fired, the
+	// watcher has read that pane and decided against it, so the absence of a steer
+	// below is a real decision rather than a poll that has not happened yet.
+	watch.waitForStdout(t, "idle-unreported plain", 5*time.Second)
+
+	hold, found, err := state.ReadHold(home, "limited")
+	if err != nil || !found {
+		t.Fatalf("ReadHold(limited) = %v, %v, want a hold recording the limit", found, err)
+	}
+	if hold.Kind != state.HoldKindLimit {
+		t.Fatalf("hold kind = %q, want %q", hold.Kind, state.HoldKindLimit)
+	}
+	if _, found, err := state.ReadHold(home, "plain"); found || err != nil {
+		t.Fatalf("ReadHold(plain) = %v, %v, want no hold for a worker that stopped for another reason", found, err)
+	}
+
+	limited, err := state.Read(home, "limited")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limited.UsageLimitRetryAt == "" {
+		t.Fatalf("limited task = %+v, want a durable retry stamp", limited)
+	}
+	plain, err := state.Read(home, "plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.UsageLimitRetryAt != "" || plain.UsageLimitAttempts != 0 {
+		t.Fatalf("plain task = %+v, want no usage-limit schedule", plain)
+	}
+
+	if result := watch.stop(t, 3*time.Second); result.code != 0 {
+		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
+	}
+	if data, err := os.ReadFile(detectLog); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(string(data), "send-text") {
+		t.Fatalf("herdr log = %q, want no pane steered before any attempt was due", data)
+	}
+
+	// The restart: the stamp the first run wrote moved into the past, which is the one
+	// thing that makes an attempt due without waiting out the floor.
+	limited.UsageLimitRetryAt = time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	if err := state.Write(home, limited); err != nil {
+		t.Fatal(err)
+	}
+
+	resumeLog := filepath.Join(t.TempDir(), "resume.log")
+	writeFakeHerdrWatch(t, dir, statusDir, resumeLog)
+	resumed := startHandBackground(t, home, "watch", "--poll", "30ms")
+
+	waitForInvocation(t, resumeLog, "herdr pane send-text pane-limited", 10*time.Second)
+	waitForInvocation(t, resumeLog, "herdr pane send-keys pane-limited Enter", 10*time.Second)
+
+	// The steer is only an attempt; the pane running again is what ends the limit.
+	setPaneStatus(t, statusDir, "pane-limited", "working")
+	resumed.waitForStdout(t, "usage-limit-resumed limited: running again after 1 attempt", 10*time.Second)
+
+	if _, found, err := state.ReadHold(home, "limited"); found || err != nil {
+		t.Fatalf("ReadHold(limited) after resume = %v, %v, want the hold released", found, err)
+	}
+	after, err := state.Read(home, "limited")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UsageLimitRetryAt != "" || after.UsageLimitAttempts != 0 {
+		t.Fatalf("limited task after resume = %+v, want the schedule cleared", after)
+	}
+
+	if result := resumed.stop(t, 3*time.Second); result.code != 0 {
+		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
+	}
+	if data, err := os.ReadFile(resumeLog); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(string(data), "send-text pane-plain") {
+		t.Fatalf("herdr log = %q, want the unlimited worker never steered", data)
+	}
+}

@@ -45,6 +45,13 @@ const (
 	KindReportFailed        = "report-failed"
 	KindReportMalformed     = "report-malformed"
 	KindParked              = "parked"
+	// Three kinds for the usage-limit lifecycle, split by what an operator can do
+	// about each: the limit itself and the resume that ends it are bookkeeping a
+	// human has no part in, while `usage-limit-stuck` is the one that says the
+	// mechanism has run out of its own answers and needs someone.
+	KindUsageLimit        = "usage-limit"
+	KindUsageLimitResumed = "usage-limit-resumed"
+	KindUsageLimitStuck   = "usage-limit-stuck"
 )
 
 // KnownKinds lists every Kind a caller can name in an EventFilter, so cmd/watch.go
@@ -56,6 +63,7 @@ func KnownKinds() []string {
 		KindPRNotRecorded, KindPRRecordUnknown, KindReportWorking, KindReportPaused,
 		KindReportBlocked, KindReportNeedsDecision, KindReportDone, KindReportFailed,
 		KindReportMalformed, KindParked,
+		KindUsageLimit, KindUsageLimitResumed, KindUsageLimitStuck,
 	}
 }
 
@@ -66,9 +74,15 @@ func KnownKinds() []string {
 // declaration that it is stuck, not the herdr transition, and ClassifyStatus
 // suppresses idle-unreported once LastReportState is set - so a worker that
 // reports blocked and then goes idle would otherwise notify no one.
+//
+// Of the three usage-limit kinds only usage-limit-stuck is here. A limit that clears
+// on its own wakes nobody, by design: the resume needs no human, and notifying on
+// every limit would make the fleet's loudest channel the one carrying its most
+// routine event.
 func NotifyFilter() EventFilter {
 	return NewEventFilter([]string{
 		KindBlocked, KindReportBlocked, KindFailed, KindReportFailed, KindReportNeedsDecision, KindReportDone,
+		KindUsageLimitStuck,
 	})
 }
 
@@ -163,6 +177,22 @@ type TaskState struct {
 	// evict real history rather than merely repeating themselves.
 	ParkedFiredFor          time.Time
 	PersistedParkedFiredFor time.Time
+	// LimitRetryAt and LimitAttempts mirror the task's durable usage-limit schedule:
+	// non-zero LimitRetryAt is what makes the task limited, and the attempt count is
+	// what the backoff and the stuck bound are measured in. Both are persisted for the
+	// same reason ParkedFiredFor is, only sharper - a re-derived schedule would let
+	// every watcher restart attempt a resume immediately, against an account the last
+	// attempt just found still limited.
+	LimitRetryAt           time.Time
+	LimitAttempts          int
+	PersistedLimitRetryAt  time.Time
+	PersistedLimitAttempts int
+	// LimitProbed records that this watcher has read the pane looking for a limit
+	// message at least once for this task. Deliberately not persisted, and the reason
+	// a watcher that starts up against an already-limited worker still finds it: the
+	// stop that stranded the worker happened before this process existed, so there is
+	// no transition left to detect on and the first sighting has to do it instead.
+	LimitProbed bool
 	// UnreachableFired claims an outage episode the same way Stale claims a
 	// silence episode: re-derived, never persisted. A restart mid-outage loses it
 	// and ClassifyUnreachable simply re-evaluates the dwell against durable

@@ -1,6 +1,10 @@
 package state
 
-import "github.com/atqamz/secondhand/internal/store"
+import (
+	"errors"
+
+	"github.com/atqamz/secondhand/internal/store"
+)
 
 // ErrHoldNotFound is wrapped into errors returned by ClearHold when no hold
 // row exists for the given ID, rendering as `hold "<id>" not found`.
@@ -33,6 +37,20 @@ func ClearHold(homeDir, id string) error {
 	}
 	defer func() { _ = db.Close() }()
 	return db.ClearHold(id)
+}
+
+// ClearHoldIfKind drops the hold on id only when it is of kind, so a caller that
+// invalidated one machine-set hold decides nothing about an operator's own hold on the
+// same id. A missing hold is the ordinary case, not a failure.
+func ClearHoldIfKind(homeDir, id, kind string) error {
+	h, exists, err := ReadHold(homeDir, id)
+	if err != nil || !exists || h.Kind != kind {
+		return err
+	}
+	if err := ClearHold(homeDir, id); err != nil && !errors.Is(err, ErrHoldNotFound) {
+		return err
+	}
+	return nil
 }
 
 func ReadHold(homeDir, id string) (Hold, bool, error) {

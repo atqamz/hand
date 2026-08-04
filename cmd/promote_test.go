@@ -158,7 +158,12 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	scout.LastReportNote = "scout findings"
 	scout.DeliveredAt = "2026-08-03T00:00:00Z"
 	scout.DeliveredReason = "report at data/task-1/report.md, no code to land"
+	scout.UsageLimitRetryAt = "2026-08-03T01:00:00Z"
+	scout.UsageLimitAttempts = 2
 	if err := state.Write(home, scout); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindLimit, Reason: "out of quota"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,6 +208,15 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	// on a delivery that only ever described the scout's report.
 	if got.DeliveredAt != "" || got.DeliveredReason != "" {
 		t.Fatalf("DeliveredAt/Reason = %q/%q, want the scout's delivery cleared for the ship run", got.DeliveredAt, got.DeliveredReason)
+	}
+	// The scout's harness process is gone with its pane. Carried forward, the schedule
+	// would steer the ship's fresh pane on a clock the scout's refusal set, and the
+	// hold would refuse a spawn over quota the ship is not short of.
+	if got.UsageLimitRetryAt != "" || got.UsageLimitAttempts != 0 {
+		t.Fatalf("usage-limit columns = %q/%d, want the scout's limit schedule cleared", got.UsageLimitRetryAt, got.UsageLimitAttempts)
+	}
+	if _, found, err := state.ReadHold(home, "task-1"); err != nil || found {
+		t.Fatalf("ReadHold = %v, %v, want the scout's limit hold cleared", found, err)
 	}
 }
 

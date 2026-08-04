@@ -36,6 +36,10 @@ var migrations = []string{
 	// empty one is what the reader falls back to the newline boundary for. The
 	// first tick that consumes a line records it.
 	`ALTER TABLE task ADD COLUMN report_digest TEXT NOT NULL DEFAULT '';`,
+	// No backfill: an empty retry stamp is exactly "this task is not limited", which
+	// is the honest reading of every row written before hand could detect a limit.
+	`ALTER TABLE task ADD COLUMN usage_limit_retry_at TEXT NOT NULL DEFAULT '';
+	ALTER TABLE task ADD COLUMN usage_limit_attempts INTEGER NOT NULL DEFAULT 0;`,
 }
 
 func (db *DB) schemaVersion() (int, error) {

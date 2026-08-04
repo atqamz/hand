@@ -156,6 +156,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
     watcher/                # fleet supervision
       watcher.go            # poll/push event loop
       events.go             # event classification
+      usagelimit.go         # detect, resume and release a quota-limited worker (see "Resuming a usage-limited worker")
       ownership.go          # flock on state/watch.pid (see "One watcher per fleet home")
     notify/                 # out-of-band delivery
       notify.go             # config/notify template execution, shared by hand notify and the watcher's in-process hook
@@ -164,6 +165,7 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
       pr.go                 # shared PR validation: repo-slug match, gh existence check
     harness/                # agent launch templates
       harness.go            # per-harness launch command construction
+      usagelimit.go         # per-harness usage-limit signatures and reset parsing (claude only)
     completion/             # durable teardown completion record
       completion.go         # append/list state/completions.jsonl
     agentsmd/               # generated AGENTS.md template
@@ -507,6 +509,8 @@ Task row written to the `task` table in `state/hand.db`, one column per field be
   "status_changed_at": "",
   "status_changed_for": "",
   "parked_fired_for": "",
+  "usage_limit_retry_at": "",
+  "usage_limit_attempts": 0,
   "last_report_state": "",
   "last_report_note": "",
   "send_undelivered_message": "",
@@ -565,7 +569,7 @@ held:
   torn-down-task    operator  question never answered                    1d ago
 ```
 
-A hold row that can't be trusted at face value - an unrecognized kind, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one - is still printed, never dropped, with `inconsistent: <why>` in place of its detail: an external write to `state/hand.db` is the only way such a row exists, since `hand hold set` validates before writing, and filtering it out here would silently drop the row most worth seeing.
+A hold row that can't be trusted at face value - an unrecognized kind, a `blocked` hold with no `blocked_on`, or an `operator` or `limit` hold carrying one - is still printed, never dropped, with `inconsistent: <why>` in place of its detail: an external write to `state/hand.db` is the only way such a row exists, since `hand hold set` validates before writing, and filtering it out here would silently drop the row most worth seeing.
 
 Output (fleet overview, empty):
 ```
@@ -605,7 +609,7 @@ Report history (reported by worker, not verified current truth):
 
 The `PR:` line reads `(none)` with no PR recorded, and otherwise carries the same merge suffix the fleet overview appends: `PR:          https://github.com/org/repo/pull/42 (merged, external)`.
 
-The `Held:` line is present only when this id has a hold, and reads the reason alone for an `operator` hold or `waiting on <blocked_on>: <reason>` for a `blocked` one; an inconsistent row (see the fleet overview above) prints `inconsistent: <why>` instead.
+The `Held:` line is present only when this id has a hold, and reads the reason alone for an `operator` or `limit` hold or `waiting on <blocked_on>: <reason>` for a `blocked` one; an inconsistent row (see the fleet overview above) prints `inconsistent: <why>` instead. A `limit` hold's reason is written by `hand watch` and says which resume attempt it is on and when it next tries (see "Resuming a usage-limited worker").
 
 A `Gate run:` line (`Gate run:    no run found`, printed below the `Held:` line) is present only for a `done` `ship` task with a recorded PR on a registered `no-mistakes` project whose gate-run check (see "Gate-run visibility" below) did not come back clean - `no run found` or `unreachable`. It is absent for every other task, including one where the check came back clean, so the example above - which has no PR recorded - never carries it.
 
@@ -749,7 +753,7 @@ hand hold set fix-login --kind blocked --reason "waiting on the migration task" 
 `<id>` is any id, not only a live task's - see "Holds" for why. It is validated with the same charset as a task id (`state.ValidateID`), never read back against the task table.
 
 Flags:
-- `--kind`: `operator` (waiting on a human) or `blocked` (waiting on another id). Required.
+- `--kind`: `operator` (waiting on a human) or `blocked` (waiting on another id). Required. `limit` is a valid hold kind but not a valid value here - it is `hand watch`'s (see "Holds").
 - `--reason`: why the id is waiting. Required.
 - `--blocked-on`: the id being waited on. Required for `--kind blocked`, refused for `--kind operator`.
 
@@ -764,6 +768,7 @@ hold set on fix-login (kind=operator)
 
 Errors:
 - Invalid `--kind` (exit 2).
+- `--kind limit` (exit 2). Refused with its own message rather than the generic one: the kind exists and an operator may well have seen one in `hand status`, so the error says who sets it and when it clears instead of claiming it is not a kind at all.
 - Missing `--reason` (exit 2).
 - `--blocked-on` missing for a `blocked` hold, or given for an `operator` hold (exit 2).
 
@@ -779,6 +784,8 @@ hand hold clear fix-login
 
 Behavior:
 1. Delete the hold row. Leaves no residue - a subsequent `hand status` shows nothing held for this id.
+
+Every kind is clearable, `limit` included: it is the operator's way out of a hold `hand watch` set on their behalf (see "Holds"). Clearing one does not cancel the resume schedule behind it, which lives on the task row - the next `hand watch` tick that attempts or ends the limit writes the hold back or leaves it gone accordingly.
 
 Output:
 ```
@@ -852,7 +859,7 @@ Behavior (ship task):
 8. Keep `data/<id>/brief.md` for history (the agent can prune old briefs).
 
 The report channel goes because it is the volatile wake log, not a deliverable: a task respawned under a used ID starts at `report_offset` 0, so a surviving log would be replayed as this run's - re-raising decisions already resolved, absorbing a genuine unexplained stop as one already seen, and auto-recording a PR URL out of the previous run's `done` line onto a task nobody recorded it for. The durable deliverables under `data/<id>/` survive teardown, as before; keeping a torn-down task's wake history would be its own feature with its own reason, not a side effect of cleanup.
-A hold on the id is not removed either, deliberately - it is not task-scoped, so it outlives the row and keeps an unanswered question visible, which is also why `hand spawn` then refuses the id until `hand hold clear` (see "Holds" under "State management").
+A hold on the id is not removed either, deliberately - it is not task-scoped, so it outlives the row and keeps an unanswered question visible, which is also why `hand spawn` then refuses the id until `hand hold clear` (see "Holds" under "State management"). One kind is the exception: a `limit` hold is released, since nothing is left to resume and no watcher will ever clear it, so left behind it would refuse `hand spawn` on that id forever. Only that kind, and a failure to release it is a warning rather than an error - the delete has already happened and re-running teardown cannot undo it.
 
 Behavior (scout task):
 1. Check `data/<id>/report.md` exists (the report is the deliverable).
@@ -1034,6 +1041,9 @@ Behavior:
    - `failed <id>`: herdr pane died unexpectedly. For a task already tracked, this fires the moment a probe that used to succeed starts failing - no dwell, since a pane that was just fine is itself the evidence. A task first sighted with its very first probe already failing (a re-scan picking up a fresh spawn between arm and its first successful probe) gets a dwell instead, measured against `config/stale-threshold`, before it fires: a pane can blink through a probe or two while herdr catches up to a just-spawned worker, and a blink must produce no event, only a pane that stays dark past the dwell earns one. Either path fires once per outage and stays quiet until the pane is next seen healthy.
    - `stale <id>`: agent hasn't changed state for longer than the stale threshold (default 300s, configurable via `config/stale-threshold`).
    - `parked <id>: <last-report-line> (silent <age>)`: the report channel itself has stopped growing for longer than its bound - independent of `stale`, which only ever watches herdr transitions and has nothing to fire on when herdr registers no transition at all (a pane can sit healthy and quiet forever without one). The bound is chosen by the last classified report line, and `done`/`failed` are bounded rather than exempt: the status file being torn down is what actually severs a task from steering, not the worker's own last word on the matter, so a done/failed worker still attached to a pane is silence like any other. Three tiers, three keys, rather than one tier reused for two of them: `paused` gets the long bound (`config/parked-paused-bound`, default 3600s) since naming what it's waiting on already explains the quiet; `done`/`failed` get their own bound (`config/parked-done-bound`, default 5400s), longer still, since a finished worker's pane lingering is expected and unhurried; everything else - `working`, `blocked`, `needs-decision`, or no report at all - gets the short one (`config/parked-other-bound`, default 1200s) since that silence is unexplained. Edge-triggered like every other trigger: fires once per silence episode and only refires once the report file actually grows past the mtime it fired for - a bound that holds across `hand watch` restarts, since the instant fired for is persisted as `parked_fired_for` rather than re-derived. A parked worker and a crashed one are indistinguishable from the status file alone - both are a report line that stopped moving - so the event carries only the last line and its age and leaves the process check itself to the caller (`hand status <id>`, or the session directly).
+   - `usage-limit <id>: harness stopped on a usage limit; <n> attempts made, next try <instant>`: the worker's harness stopped because its account ran out of quota, and a resume is now scheduled (see "Resuming a usage-limited worker" below). Also recorded as a hold of kind `limit`, so the wait is visible in `hand status` and `hand spawn` will not hand the id to new work while a worker still sits on it.
+   - `usage-limit-resumed <id>: running again after <n> attempts`: a task that was waiting on quota is running again, however that happened - a resume attempt that landed, an operator `hand send`, a human typing in the pane. The `limit` hold is released with it.
+   - `usage-limit-stuck <id>: ...`: the resume mechanism has spent six attempts on one limit and is out of its own answers. Fired once per limit, and attempts continue afterwards - a week-long limit is real and does eventually lift - but no longer quietly. This is the only one of the three that notifies (see "Notifying a supervisory agent with no session watching").
    - `pr-merged <id>`: a recorded PR has been merged (checked periodically via `gh pr view`). Announced once ever: the observation is recorded as `pr_merged_observed` on the task after the line is printed, so a restart neither repeats it nor loses it to a crash between the two. The same marker is set outside the watcher when gate-opened-PR detection records a PR that is already merged (see `hand status`), so a watcher that first sees the task after that stays quiet about a merge it never observed.
    - `pr-not-recorded <id>: <url> (<reason>)`: a PR URL a worker embedded in a report line was attempted and the recording did not complete. The token says only that much, for any cause - refused validation, an unregistered or unresolvable project, an unreadable task record, a failed state write - and `<reason>` is the underlying error, which is what says which. The whole cause is kept; only its line breaks are not, since `gh`'s multi-line stderr reaches these errors verbatim and an event is one line on stdout and one entry in `state/events.log` (continuation lines would parse back as separate events in both). The fix in every case is a human running `hand pr <id> <url>`: it either records the URL or fails with the real underlying reason. The kind is deliberately not split by cause, since an enumeration of causes is forgotten the next time a new one appears.
    - `pr-record-unknown <id>: <url> (<reason>)`: the same URL was never attempted, because another command held the task lock at that moment. Whether it ended up recorded is genuinely unknown - the holder may be the `hand pr` recording that very URL - so this event asserts nothing about the outcome and points at `hand status <id>` to confirm, except when the task's own state can't be read, where it names that read failure instead of a remedy that would hit it too. Nothing is announced at all when the lock holder is found to have already recorded that same URL.
@@ -1108,14 +1118,18 @@ The notify hook is its own filtered consumer of the same classified event stream
 stdout, not a severity test hardcoded into `handleEvent`: `internal/watcher.NotifyFilter` builds an `EventFilter` -
 the identical `EventFilter`/`Matches` mechanism `--event` uses - with its own fixed membership, and `handleEvent`
 checks it the same way it checks `cfg.EventFilter`. Its membership names the event kinds worth waking someone for
-with no session watching: `blocked`, `report-blocked`, `failed`, `report-failed`, `report-needs-decision`, and
-`report-done`. `report-blocked` - the worker's own `blocked: <reason>` report line, per "Report channel" - is in the
+with no session watching: `blocked`, `report-blocked`, `failed`, `report-failed`, `report-needs-decision`,
+`report-done`, and `usage-limit-stuck`. `report-blocked` - the worker's own `blocked: <reason>` report line, per "Report channel" - is in the
 set alongside the herdr-transition `blocked` because the two are independent signals, and a worker that reports
 blocked and then goes idle fires no other notifiable kind: `ClassifyStatus` suppresses `idle-unreported` precisely
 because `LastReportState` is set.
 `idle-unreported`, `stale`, `parked`, `pr-merged` and the `pr-record-*` kinds are left out - each describes a
 transition the poll loop is already tracking toward one of the six above, or one that resolves on its own without a
 human, so notifying on it too would either double up the same fact or wake someone for nothing actionable.
+`usage-limit` and `usage-limit-resumed` are left out for that second reason exactly: a limit that the mechanism is
+already scheduled to resume from, and a worker that is running again, are both bookkeeping a human has no part in.
+`usage-limit-stuck` is in the set because it is the one of the three that says the mechanism has run out of its own
+answers (see "Resuming a usage-limited worker").
 
 `handleEvent` calls `internal/notify.Send` directly for every event `NotifyFilter` matches, never by shelling out to
 the `hand notify` subcommand, so wiring reaches every caller of `hand watch` with no shell wrapper required. An unconfigured
@@ -1138,6 +1152,30 @@ make the same tradeoff: its latch is persisted as `parked_fired_for`, because a 
 never grows again and the duplicates evicted real history from the capped `state/events.log`
 (atqamz/secondhand#127). It is not a notifiable kind either way.
 
+#### Resuming a usage-limited worker
+
+A worker whose harness runs out of quota stops mid-task with the reason on screen and nothing else (atqamz/secondhand#136).
+The stop looks like any other stop to the rest of the poll loop, so without this the task sits dead until a human notices.
+Detection, a recorded state, and a resume trigger are one mechanism; any one of them alone leaves the task exactly as dead with a better label on it.
+
+**Detection is a harness capability, not another condition on the poll loop.** `internal/harness` owns a catalogue of usage-limit signatures - which wordings mean "out of quota", and how to read a reset instant out of them - and exposes `SupportsUsageLimit` and `DetectUsageLimit`. Only `claude` is in it. Every other harness declines: one map lookup, no pane read, no steer, and no way for a bare shell pane to be typed into. Teaching `hand` about a second harness is an entry in that catalogue, not a branch in the watcher. This is the shape atqamz/secondhand#81, #84 and #85 got wrong by growing the poll loop one conditional at a time, and #128 was the bill for it.
+
+**The state is a durable pair of task columns, with the `limit` hold as its operator-visible projection.** `usage_limit_retry_at` and `usage_limit_attempts` sit alongside `report_offset` and `parked_fired_for` as watcher bookkeeping: a non-empty retry stamp *is* what makes a task limited. The hold (kind `limit`, see "Holds" under "State management") is what makes the wait visible in `hand status` and keeps `hand spawn` from handing the id to new work while a worker still sits on it. Neither substitutes for the other - a hold carries no schedule, and a column is not rendered anywhere an operator looks - and the schedule is the authority: the retry path reads the columns, never the hold.
+
+**"The limit lifted" is an observation, never a deadline that elapsed.** No attempt waits out a timestamp and then declares the quota back. An attempt is the same two-call steer `hand send` performs - a plain instruction into the composer, then Enter - and what it produces is either a pane that starts working (the next tick's clear check sees that and fires `usage-limit-resumed`) or a fresh refusal on screen, which is the observation the *next* attempt is scheduled from. A reset instant parsed out of the refusal only ever decides when to start trying.
+
+**The failure mode designed against is a retry storm against an account that is still limited**, and five things bound it:
+
+- The first attempt waits until the instant the harness itself named, plus a minute of skew, or ten minutes when it named none. Ten minutes is also the floor: no attempt is ever sooner.
+- Later attempts back off by doubling, capped at hourly.
+- Every wait is capped at 24 hours, so a misparsed or absurd prediction cannot strand the worker.
+- Exactly one attempt per due window, and the schedule is durable, so a watcher restart cannot reset the clock into an immediate retry - which is the one thing that would turn a restart loop into a storm. A steer that fails keeps its schedule too: rolling the stamp back would leave the task due on every tick.
+- A genuinely long limit is therefore not probed hourly for a week: each attempt re-reads the harness's own fresh refusal and reschedules from the reset it names, so the pattern settles at roughly one attempt a day. After six attempts on one limit, `usage-limit-stuck` says so once on the notify channel; attempts continue, but no longer quietly.
+
+**A pane is read only on an edge, never per tick.** The edges are the transition into a not-busy status, and the first sighting of an already-stopped worker - which is the case no transition can cover, since the stop that stranded the worker happened before this watcher existed. A worker whose report channel already says `done` or `failed` is left alone entirely: it is not waiting on quota, and steering it would restart work that is over. Recognition matches on the quota being *reached*, so the harness's own "approaching your limit" warning is not a stop.
+
+The limit is released the moment the pane is observed working or blocked again, whatever caused it - a landed resume attempt, an operator `hand send`, a human typing in the pane - and `hand hold clear` stays available as the operator's way out of a hold `hand` set on their behalf.
+
 #### What survives a `hand watch` restart
 
 **Anything the watcher announces is persisted at the moment it announces it, never re-derived on restart.** Re-deriving is how an announcement gets silently skipped: evidence that lands while the watcher is down makes the restarted process conclude the line already went out. Every fact the poll loop carries across a restart, and which side of that rule it is on:
@@ -1157,6 +1195,8 @@ never grows again and the duplicates evicted real history from the capped `state
 | Which status that dwell clock describes | Persisted alongside it as `status_changed_for`, and the timestamp is trusted only while the two agree. A timestamp on its own cannot prove the dwell it describes is still running: a status observed in a different pane is a new dwell even when it spells the same word, so a mismatch means the transition into the observed status happened at an unknown point since and the dwell can only honestly start now. Without this a restart after a `hand promote` read the restamped `status_changed_at` as the ship's own dwell in whatever status the ship happened to be in. |
 | The stale timer's fired latch, as opposed to its dwell above | Re-derived, safely: cleared on every observed transition and reset to unfired on resume, so the worst a restart causes is one duplicate `stale <id>` after a further full threshold past a dwell that already fired once - it never suppresses a genuine re-announcement. The dwell it is measured against is not re-derived; see the row above. A restart is the safe direction, but a `hand promote` in a *live* watcher is not, and the latch is cleared there explicitly; see below. |
 | Which silence episode `parked` already fired for | Persisted as `parked_fired_for`, written after the `parked` line is announced. It is the one fired latch that is *not* re-derived, because what makes re-deriving the `stale` and outage latches safe does not hold here: those dwell clocks keep moving, so a restart costs one duplicate and then the condition has to genuinely re-mature. A done or failed task's report file never grows again, so its silence instant is frozen and every restart re-fires against that same instant - and `state/events.log` is capped at 200 lines, so the duplicates evict real history rather than merely repeating themselves (atqamz/secondhand#127). Stored to nanosecond precision, because the value is a report file's mtime compared for exact equality and whole seconds would round it into an instant no later mtime ever matches. An unparseable stamp resumes unfired: one duplicate is the failure direction this whole table prefers. What the bound is measured against - the report file's own mtime, floored at `pane_started_at` - is untouched by a restart because neither one is process state to begin with; see "Delivering an event to a supervisory agent". |
+| That a task is waiting on quota, and when it may next be poked | Persisted as `usage_limit_retry_at` and `usage_limit_attempts`, written after `usage-limit <id>` is announced (see "Resuming a usage-limited worker"). Not re-derived, and for a sharper reason than `parked_fired_for`: a re-derived schedule would let every watcher restart attempt a resume immediately, against an account the last attempt just found still limited, which is the retry storm the bounds exist to prevent. The attempt count is durable with it, since it is what the backoff and the stuck bound are both measured in. An unparseable stamp resumes *unlimited* - the one place this table prefers silence to a duplicate, because the duplicate here is a steer sent into a live pane rather than a line on stdout. |
+| That this watcher has already looked for a limit on this task | Re-derived, deliberately: `LimitProbed` starts false on resume, which is what makes a watcher coming up against an already-stranded worker read its pane once and find the limit. There is no transition left to detect on in that case, so the first sighting has to do it. It costs one pane read per task per watcher lifetime for tasks that are stopped and unexplained. |
 | The first-sighting outage's fired latch, as opposed to its dwell | Re-derived, safely, the same way the stale latch above is: `UnreachableFired` is not persisted and starts unfired on resume. The dwell it guards is not re-derived from scratch, though - a task first sighted unreachable is seeded through the same `status_changed_at`/`status_changed_for` path as any other status, with `herdr.StatusUnknown` standing in for "no real status yet", so a restart mid-outage resumes the outage's true start rather than a fresh clock, and the worst a restart causes is one duplicate `failed <id>` past a dwell that already fired once. |
 
 Anything added to `TaskState` belongs in this table before it ships.
@@ -1180,6 +1220,7 @@ Pane-anchored, and reset:
 | The `stale` and `blocked` fired latches | Each is what makes its announcement fire only once. A latch surviving the promote silences that announcement for the ship's own pane - the `stale` one until the ship transitions at least once, which a genuinely stuck ship never does. |
 | Whether the last probe of the pane succeeded | It gates the once-only `failed` latch and gates `stale` detection off entirely until some probe succeeds, and either value inherited from the scout's pane is a claim about a pane the task no longer has. It is reset to false, matching the seed a fresh spawn gets before its own first probe has succeeded: the ship's first probe of its new pane is a first sighting, so an unreachable one is announced through that sighting's dwell rather than firing `failed` on sight. Resetting it to true instead - the previous behavior - fired a no-dwell `failed` off a single blink, on the strength of a probe that only ever described the scout's pane. |
 | The first-sighting outage's fired latch | A latch claiming the scout's outage has nothing to say about the ship's new pane. Left true it would sit inert until the next probe failure reset it anyway, but a fresh pane deserves a fresh episode on purpose, not by accident of that ordering, so it is reset to unfired alongside the probe-succeeded flag above. |
+| The usage-limit schedule (`usage_limit_retry_at`, `usage_limit_attempts`) and the `limit` hold | A usage limit belongs to the harness process that hit it, and the ship's pane runs a new one against whatever quota exists now. Carried, the schedule would steer the fresh pane on a clock the scout's refusal set, and the stale hold would keep saying the ship is out of quota. Promote clears both columns with the other pane-scoped fields and releases a `limit` hold on the id - only that kind, so an operator's own hold on the same id is left standing (see "Holds"). |
 | The cached herdr status the next probe is diffed against | The status a transition is measured *from*, so an inherited one invents or erases transitions in both directions: a scout cached as `working` turns the ship's first not-busy probe into `idle-unreported` for a pane never observed working, and a scout cached as `blocked` makes the ship's own `blocked` probe compare equal and never fire at all. It is reset to herdr's `unknown`, which matches neither branch, so the ship's first probe is the baseline a first sighting always is. This is not self-correcting in the same-status case, as was once assumed: equality is exactly what suppresses the announcement. |
 
 Genuinely pane-independent, and carried:
@@ -1285,7 +1326,7 @@ Behavior:
 4. Acquire a fresh treehouse worktree (with collision guard).
 5. Acquire the task's herdr tab in the project's workspace - same workspace-create-vs-reuse logic as `hand spawn` step 8, including reusing a freshly created workspace's own root tab instead of leaving it as an orphan.
 6. Launch the worker and confirm it started (same as `hand spawn`).
-7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `pane_started_at` and `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, and `last_report_state` / `last_report_note` and `delivered_at` / `delivered_reason` emptied. Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` / `report_digest` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
+7. Rewrite the task's row in place: `kind` changes from `scout` to `ship`, and `harness`, `model`, `effort`, `worktree`, `lease_id` and the `herdr` coordinates describe the new worker. Every field anchored to the scout's pane is reset: `done_verified` to false, `pane_started_at` and `status_changed_at` restamped to the promotion time with `status_changed_for` cleared, `usage_limit_retry_at` / `usage_limit_attempts` cleared, and `last_report_state` / `last_report_note` and `delivered_at` / `delivered_reason` emptied. A `limit` hold on the id is released alongside those columns (only that kind, and a failure to is a warning - the promotion itself has landed). Every pane-independent field is carried, including `created_at` and the watcher's `report_offset` / `report_digest` - see "Pane-anchored facts across `hand promote`", which classifies each of them and covers the matching in-memory cache a live `hand watch` has to drop.
 8. Only now tear down the scout's herdr tab and return its worktree; a failure here is a warning, not an error.
 
 The scout side is torn down last on purpose: the same rollback contract as `hand spawn` applies up
@@ -2035,13 +2076,18 @@ A hold (atqamz/secondhand#63) records that an id is waiting on something, so "wh
 
 A second, independent reason favored the same answer at the time: before atqamz/secondhand#111, `Open` had no schema-version mechanism - it applied `schema` with `CREATE TABLE IF NOT EXISTS`, which is a correct create against a table that does not exist yet but a silent no-op against one that exists and is merely missing a new column, with no error and no column added. Adding a `blocked_on`-style column to the existing `task` table would have passed every test (which build fresh databases) and silently failed to apply to any already-migrated `state/hand.db` on disk. A brand-new `hold` table sidestepped the gap entirely: every existing database was missing the whole table, so `CREATE TABLE IF NOT EXISTS` took the create branch, not the no-op one, on both a fresh database and a migrated one. See "Schema versioning" below for the mechanism atqamz/secondhand#111 added; an ordinary column addition no longer needs a workaround like this one.
 
-Two kinds, no others invented without a new issue:
+Three kinds, no others invented without a new issue:
 - `operator`: waiting on a human. `reason` says what for.
 - `blocked`: waiting on another id. `reason` says what for, `blocked_on` names the id.
+- `limit`: waiting on the harness's own quota. Set and cleared by `hand watch`, never by an operator (atqamz/secondhand#136).
 
 Set with `hand hold set`, which upserts - a second call on the same id replaces its kind, reason, and blocked-on, so narrowing down a reason is a re-run, not a clear-then-set. Cleared with `hand hold clear`, which deletes the row outright: no residue survives a clear for `hand status` to find later.
 
-**Surviving teardown makes id reuse a hazard, so `hand spawn` refuses a held id.** The same standalone row that keeps a torn-down task's question visible would otherwise reattach it to whatever new work claimed the id next, which is the replay hazard `Delete` already guards against for the report channel by removing `state/<id>.status` (see "Report channel"). The report channel is a volatile wake log and can simply be discarded; a hold is operator-authored, so `hand spawn` refuses with exit 3 and names `hand hold clear <id>` rather than clearing it silently - answering the question is an acknowledgement `hand` has no business making on the operator's behalf. Clearing the hold is therefore the explicit step that says the question is settled, and it is the only escape hatch, since a `--force`-style flag would be the silent clear wearing a different name.
+**`limit` is the one machine-set kind, and it is a projection rather than a record.** `hand watch` sets it when a worker's harness stops on a usage limit and clears it when that worker runs again; the durable schedule that actually resumes the worker lives on the task row, not here (see "Resuming a usage-limited worker" under `hand watch`). Being a projection is what makes its rules differ from the other two in both directions: `hand hold set --kind limit` is refused with exit 2, since a hold an operator authored by hand would be a claim about a quota `hand` never observed and nothing would ever clear it; but `hand hold clear` accepts it, because refusing that would make the one hold set on the operator's behalf the one hold they cannot undo. `hand watch` and `hand promote` clear it only when the hold on that id actually is of kind `limit`, so a machine clear never silently answers an operator's own question on the same id.
+
+**Surviving teardown makes id reuse a hazard, so `hand spawn` refuses a held id.** The same standalone row that keeps a torn-down task's question visible would otherwise reattach it to whatever new work claimed the id next, which is the replay hazard `Delete` already guards against for the report channel by removing `state/<id>.status` (see "Report channel"). The report channel is a volatile wake log and can simply be discarded; a hold is either an operator's open question or a live worker's quota wait, so `hand spawn` refuses with exit 3 and names `hand hold clear <id>` rather than clearing it silently - answering the question is an acknowledgement `hand` has no business making on the operator's behalf. Clearing the hold is therefore the explicit step that says the question is settled, and it is the only escape hatch, since a `--force`-style flag would be the silent clear wearing a different name.
+
+`limit` is the one kind that does *not* outlive the task it was set on, and `hand teardown` releases it (again, only when the hold really is of that kind). The reasoning that keeps an operator hold alive past teardown inverts here: there is no question left open, no worker left to resume, and no watcher that will ever clear it, so left behind it would refuse `hand spawn` on that id forever.
 
 **A hold that cannot be read must never read as nothing waiting.** `ListHolds`/`ReadHold` surface every row exactly as stored, inconsistent ones included - filtering here is what would let an external write's mistake silently disappear from "what is held" - and `hand status` flags an inconsistent row (an unrecognized `kind`, a `blocked` hold with no `blocked_on`, or an `operator` hold carrying one) rather than rendering it as if it were valid. A store-level failure to read holds at all - not a single bad row, the whole read - propagates as a hard error out of `hand status`, fleet or single-task, rather than degrading to an empty list: this is the one place in `hand status` that does not fail open on a read, because an empty `held:` block and "the store couldn't be read" look identical unless the second one is a fatal error instead.
 
@@ -2107,7 +2153,7 @@ An existing fleet home has live state on disk, and the import has to meet it wit
 `Open` gates every other statement on `PRAGMA user_version`, sqlite's own built-in counter for exactly this: no extra table, free to read, and part of the database file itself rather than a `meta` row a stray write could get out of sync with the tables it describes.
 
 - **Version 0 is the schema the `schema` constant in store.go builds** - the one every existing `state/hand.db` already carries, since sqlite defaults an unset `user_version` to 0 and the one real fleet home predates this mechanism entirely. 0 means "the baseline schema this commit ships", not "unknown, refuse to proceed"; the latter reading would stop the one home that exists from opening the moment this merged.
-- `migrations` in schemaversion.go is an ordered list of SQL statements, one per schema change since that baseline, each moving `user_version` from its index to index+1. An ordinary column addition - atqamz/secondhand#48's `lease_id`, or atqamz/secondhand#78's `project.upstream` and `task.delivered_at`/`delivered_reason` - is two edits that stay in step: the column goes into the `schema` constant, so every database created from then on is built with it, and the matching `ALTER TABLE` is appended to `migrations`, so every database that already exists gains it on its next open. Nothing else in the package needs hand-written detection logic for it. A column whose empty default would be wrong for a row that already exists - atqamz/secondhand#128's `task.pane_started_at` - takes a third edit: the entry carries a backfill `UPDATE` alongside its `ALTER TABLE`, and `readLegacyTask` computes the same value, since a legacy `state/<id>.json` import lands as an `INSERT` no migration step ever runs over.
+- `migrations` in schemaversion.go is an ordered list of SQL statements, one per schema change since that baseline, each moving `user_version` from its index to index+1. An ordinary column addition - atqamz/secondhand#48's `lease_id`, or atqamz/secondhand#78's `project.upstream` and `task.delivered_at`/`delivered_reason` - is two edits that stay in step: the column goes into the `schema` constant, so every database created from then on is built with it, and the matching `ALTER TABLE` is appended to `migrations`, so every database that already exists gains it on its next open. Nothing else in the package needs hand-written detection logic for it. atqamz/secondhand#136's `task.usage_limit_retry_at`/`usage_limit_attempts` are that ordinary two-edit case and deliberately take no backfill: an empty retry stamp is exactly "this task is not waiting on quota", which is the honest reading of every row written before `hand` could detect a limit at all. A column whose empty default would be wrong for a row that already exists - atqamz/secondhand#128's `task.pane_started_at` - takes a third edit: the entry carries a backfill `UPDATE` alongside its `ALTER TABLE`, and `readLegacyTask` computes the same value, since a legacy `state/<id>.json` import lands as an `INSERT` no migration step ever runs over.
 - **A brand-new database never replays migrations.** `migrateSchema` checks for the `task` table before running `schema` - absent means the file has never had a schema at all - and on that path creates the tables and stamps `user_version` straight to `len(migrations)`, both in one transaction so a crash cannot leave a home carrying the migrated columns while still reading as version 0, which every later open would answer by replaying those migrations against columns that are already there. Without that check, keeping `schema` and `migrations` in step would break every fresh `hand init` with "duplicate column name" while the already-migrated homes kept working: the tests-pass, production-fails asymmetry inverted, which is the exact failure mode atqamz/secondhand#111 exists to remove. The alternative - freezing `schema` at the baseline forever and reading every column addition out of `migrations` - would leave the constant lying about the current layout, and nothing but prose to stop the next reader from adding a column to it.
 - **A database newer than the binary is refused, not guessed at.** If `user_version` exceeds `len(migrations)`, `Open` fails wrapping `ErrSchemaNewer` before running a single statement against the tables - an old `hand` opening a new database and writing malformed rows into it would be worse than refusing to run.
 - **Applying pending migrations takes a lock**, `SchemaLock` in lock.go, because sqlite's per-statement locking cannot make "add this column, then bump `user_version`" atomic across a whole `Open`. Two `hand` processes opening the same freshly-upgraded home both re-check the version after acquiring the lock, so whichever loses the race finds the version already caught up and applies nothing, rather than re-running `ALTER TABLE ADD COLUMN` against a column the winner already added.
@@ -2156,6 +2202,7 @@ Such a fake must model the state its own commands leave behind, and its fidelity
 - Project registry parsing.
 - Harness launch command construction.
 - Event classification logic.
+- Usage-limit detection and resume: that the harness catalogue recognizes every wording it claims to and reads a reset instant out of each, that an uncatalogued harness declines, and - the behavior that actually matters, not merely that a message is recognized - that a limited worker is steered and released while a worker that stopped for any other reason is never read from, steered, or held.
 - Brief validation.
 - Worktree collision detection.
 
@@ -2174,6 +2221,7 @@ CI therefore installs no real herdr or treehouse.
 - Promote scout-to-ship cycle.
 - Collision guard with concurrent tasks.
 - Hold lifecycle: set, every `hand status` surface, surviving the teardown of the task it was set on, the spawn refusal on the reused id, and clear.
+- Usage-limit resume end to end: a live `hand watch` finding the refusal on a stopped worker's pane, the `limit` hold and the durable schedule it writes, a restarted watcher steering that pane once its stamp comes due, the release when the pane runs again, and a second worker that stopped without a refusal on screen never being steered at all.
 
 ### No test categories from firstmate
 

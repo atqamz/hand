@@ -60,8 +60,9 @@ func newSpawnCmd() *cobra.Command {
 			// A hold outlives the task row it was set on, by design, so a torn-down
 			// task's open question stays visible. Reusing the id for new work would
 			// silently reattach that question to an unrelated task, so refuse here
-			// rather than clearing it: the hold is operator-authored, and answering it
-			// is an acknowledgement hand has no business making on the operator's behalf.
+			// rather than clearing it: an operator hold records a question answering it
+			// is an acknowledgement hand has no business making, and a limit hold means
+			// a worker is still on this id, merely out of quota.
 			held, hasHold, err := state.ReadHold(home, id)
 			if err != nil {
 				return asPrecondition(err)
