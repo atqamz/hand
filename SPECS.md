@@ -13,7 +13,8 @@ No persona, no role-play. Pure functionality.
 A supervisory agent records tasks in a markdown backlog and calls `hand` to spawn autonomous workers into isolated git worktrees.
 
 This file is the contract: what a caller can depend on and be wrong about.
-The reasoning behind it lives in dated records under `docs/adr/`, and each section below ends with a `Why:` line naming the ones behind it.
+The reasoning behind it lives in dated records under `docs/adr/`, and a section with a record behind it ends with a `Why:` line naming it.
+A section with no `Why:` line is one nothing was decided about: a file format, or a layout that is what it is.
 `docs/adr/README.md` states when a record is written and that a landed one is never edited.
 
 Why: `docs/adr/secondhand-rebuilds-firstmate-as-one-go-binary.md`.
@@ -58,6 +59,8 @@ Why: `docs/adr/secondhand-rebuilds-firstmate-as-one-go-binary.md`, whose rejecte
 
 The supervisory agent is any supported harness (claude, codex, pi, grok, opencode) launched inside a fleet home.
 Workers are autonomous agents launched by `hand spawn` into herdr tabs with treehouse worktrees; they follow the brief and report through `state/<id>.status` (see "Report channel").
+
+Why: `docs/adr/secondhand-rebuilds-firstmate-as-one-go-binary.md`, `docs/adr/believe-the-status-file-and-ship-no-hand-dump.md`.
 
 ## Machine state and the prose corpus
 
@@ -221,6 +224,8 @@ The direction `data/` does not carry is a file maintained by hand for the operat
 `hand init` seeds `operator.md`, `learnings.md`, `done-archive.md` and `note-archive.md` and no command ever overwrites one that exists; `hand update` seeds whichever of them the home is missing (see "Self-update: `hand update`").
 `learnings.md`, `done-archive.md` and `note-archive.md` are plain agent-edited markdown with no schema, no subcommand and no validation, the same treatment `backlog.md` already gets.
 `operator.md` gets that same treatment minus the editing: it is the operator's file, which the agent reads at session start and never rewrites.
+
+Why: `docs/adr/believe-the-status-file-and-ship-no-hand-dump.md`.
 
 ## Ambient context
 
