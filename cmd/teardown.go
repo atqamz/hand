@@ -163,20 +163,6 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		dirtWasSafe = true
 	}
 
-	// kind is the one field spawn records that nothing can correct afterwards
-	// (atqamz/secondhand#129), so a scout spawned without --scout arrives here as a
-	// ship row and refuses on a PR it was never going to open. The guard reads the
-	// work rather than the record for that case: a report deliverable on disk and a
-	// branch carrying no commits of its own is a completed scout whatever the row
-	// says, and it is recorded as one.
-	//
-	// Narrow on purpose. A ship task whose PR was never opened still has its commits,
-	// so it still refuses - which is the half of this guard that is load-bearing.
-	if t.PR == "" && t.DeliveredAt == "" && isCompletedScout(home, t) {
-		t.Kind = state.KindScout
-		return t, dirtWasSafe, nil
-	}
-
 	// Every check below asks "did this land", which for a contribution offered to
 	// someone else's repo is a question hand cannot answer and the fleet does not
 	// decide. A recorded delivery answers the question teardown actually needs
@@ -232,6 +218,25 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		}
 
 		if t.PR == "" {
+			// kind is the one field spawn records that nothing can correct afterwards
+			// (atqamz/secondhand#129), so a scout spawned without --scout arrives here as
+			// a ship row and refuses on a PR it was never going to open. The guard reads
+			// the work rather than the record for that case: a report deliverable on disk
+			// and a branch carrying no commits of its own is a completed scout whatever
+			// the row says, and it is recorded as one.
+			//
+			// Here rather than earlier so it can only decide the case nothing else claims:
+			// a delivery, a local-only merge, and a gate-opened PR all return above it, so
+			// reaching this line means no PR exists to shadow. Merge evidence on the row
+			// excludes the path outright - work hand merged or watched merge landed as a
+			// merge, and the permanent record has to say so (atqamz/secondhand#78).
+			//
+			// Narrow on purpose. A ship task whose PR was never opened still has its
+			// commits, so it still refuses - the half of this guard that is load-bearing.
+			if !t.MergeExecuted && !t.MergeAnnounced && isCompletedScout(home, t) {
+				t.Kind = state.KindScout
+				return t, dirtWasSafe, nil
+			}
 			return t, false, &ExitError{Err: fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID), Code: 3}
 		}
 	}
