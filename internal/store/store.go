@@ -100,6 +100,17 @@ type Task struct {
 	// says what was delivered and to whom rather than only that something was.
 	DeliveredAt     string `json:"delivered_at"`
 	DeliveredReason string `json:"delivered_reason"`
+	// When the pane this task currently occupies began, written by spawn and
+	// restamped by hand promote. A separate fact from StatusChangedAt, which the
+	// outage-dwell clock restamps for a pane it could not even reach: one field
+	// cannot mean both "this pane started here" and "the last herdr transition
+	// was observed here" (atqamz/secondhand#128).
+	PaneStartedAt string `json:"pane_started_at"`
+	// The silence instant hand watch last fired `parked` against. Durable because
+	// a done or failed task's report file never grows again, so a re-derived latch
+	// lets every watcher restart re-fire against that same frozen instant and
+	// evict real history from the capped state/events.log (atqamz/secondhand#127).
+	ParkedFiredFor string `json:"parked_fired_for"`
 }
 
 // Upstream is the "owner/repo" a fork project opens its PRs against, empty for
@@ -173,7 +184,9 @@ CREATE TABLE IF NOT EXISTS task (
 	send_undelivered_at      TEXT NOT NULL DEFAULT '',
 	lease_id                 TEXT NOT NULL DEFAULT '',
 	delivered_at             TEXT NOT NULL DEFAULT '',
-	delivered_reason         TEXT NOT NULL DEFAULT ''
+	delivered_reason         TEXT NOT NULL DEFAULT '',
+	pane_started_at          TEXT NOT NULL DEFAULT '',
+	parked_fired_for         TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
@@ -270,6 +283,7 @@ var taskColumnNames = []string{
 	"created_at", "status_changed_at", "status_changed_for", "last_report_state", "last_report_note",
 	"send_undelivered_message", "send_undelivered_at", "lease_id",
 	"delivered_at", "delivered_reason",
+	"pane_started_at", "parked_fired_for",
 }
 
 var (
@@ -297,6 +311,7 @@ func taskValues(t Task) []any {
 		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
 		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID,
 		t.DeliveredAt, t.DeliveredReason,
+		t.PaneStartedAt, t.ParkedFiredFor,
 	}
 }
 
@@ -307,7 +322,8 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.MergeExecuted, &t.MergeExecutedAt, &t.ReportOffset, &t.MergeAnnounced, &t.DoneVerified,
 		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
 		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID,
-		&t.DeliveredAt, &t.DeliveredReason)
+		&t.DeliveredAt, &t.DeliveredReason,
+		&t.PaneStartedAt, &t.ParkedFiredFor)
 	return t, err
 }
 
