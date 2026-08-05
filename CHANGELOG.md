@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0](https://github.com/atqamz/secondhand/compare/v0.1.4...v0.2.0) (2026-08-05)
+
+
+### Features
+
+* **cmd:** move worker setup out of init ([#164](https://github.com/atqamz/secondhand/issues/164)) ([48327af](https://github.com/atqamz/secondhand/commit/48327afae04409931e81c1413435aaaa4d2f1bef))
+* **cmd:** render every command as a TOON document with aggregates, --fields and next steps ([#155](https://github.com/atqamz/secondhand/issues/155)) ([a69e405](https://github.com/atqamz/secondhand/commit/a69e405278b54d292c5b4c3d7f024d7a030e2f1a))
+* **watcher:** resume a worker whose harness stopped on a usage limit ([#154](https://github.com/atqamz/secondhand/issues/154)) ([ab2db52](https://github.com/atqamz/secondhand/commit/ab2db5296633bcda28745884eaf4802521fd6f7f))
+
+
+### Bug Fixes
+
+* **cmd:** accept a completed scout deliverable on a ship-recorded task ([#148](https://github.com/atqamz/secondhand/issues/148)) ([120f92e](https://github.com/atqamz/secondhand/commit/120f92e5d638a85c078ee029b8b7f6ce6cc570bf))
+* **cmd:** fold case in repo slug comparisons for PR detection ([#147](https://github.com/atqamz/secondhand/issues/147)) ([8db4770](https://github.com/atqamz/secondhand/commit/8db4770b219ba0a69678a78404ecce259fc181ac))
+* **cmd:** resolve promote's tier after task and gate checks ([#157](https://github.com/atqamz/secondhand/issues/157)) ([fa212bf](https://github.com/atqamz/secondhand/commit/fa212bf0f8f57f2be7fe0f7d4cd10aaf937e9e99))
+* detect an aborted worktree return and keep a registered project syncable ([#158](https://github.com/atqamz/secondhand/issues/158)) ([46415fb](https://github.com/atqamz/secondhand/commit/46415fbc511b5f29c405a6eaf5909eae77483ddb))
+* **harness:** launch Codex as an interactive worker ([#165](https://github.com/atqamz/secondhand/issues/165)) ([e257e2f](https://github.com/atqamz/secondhand/commit/e257e2f78cda4b5f94a5529edf3f272f4fdd2b3d))
+* **harness:** warn when a harness cannot carry a declared model or prompt ([#152](https://github.com/atqamz/secondhand/issues/152)) ([d6ce20a](https://github.com/atqamz/secondhand/commit/d6ce20a9b1918a64a0213ee8cfe44351c7d99932))
+* **release:** allow pre-1.0 minor bumps ([#168](https://github.com/atqamz/secondhand/issues/168)) ([8dbddc6](https://github.com/atqamz/secondhand/commit/8dbddc6bc2b6ee031fde9cd0174f7858d4eccf40))
+* **state:** discard the report offset when a same-length rewrite invalidates it ([#150](https://github.com/atqamz/secondhand/issues/150)) ([c2fc402](https://github.com/atqamz/secondhand/commit/c2fc402d6c20d37b75269e34f5f1551a53928264))
+
 ## [0.1.4](https://github.com/atqamz/secondhand/compare/v0.1.3...v0.1.4) (2026-08-04)
 
 
