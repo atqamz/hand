@@ -100,7 +100,7 @@ func TestConfigApplicabilityFollowsTheHarnessContract(t *testing.T) {
 	}{
 		{harness.Claude, stateMissing, stateMissing},
 		{harness.OpenCode, stateMissing, stateUnsupported},
-		{harness.Codex, stateUnsupported, stateUnsupported},
+		{harness.Codex, stateMissing, stateMissing},
 		{harness.Grok, stateUnsupported, stateUnsupported},
 		{harness.Pi, stateUnsupported, stateUnsupported},
 	} {
@@ -174,11 +174,9 @@ func TestConfigSetRefusesModelBeforeAHarnessIsChosen(t *testing.T) {
 	}
 }
 
-// Codex takes no model and no effort flag, so neither is a value to hold: writing one anyway produces a
-// configured-looking fleet whose defaults can only ever warn at dispatch.
 func TestConfigSetRefusesWhatTheHarnessCannotCarry(t *testing.T) {
 	home := setupConfigHome(t)
-	mustConfigSet(t, settingHarness, harness.Codex)
+	mustConfigSet(t, settingHarness, harness.Grok)
 
 	for _, key := range []string{settingModel, settingEffort} {
 		_, err := runConfigSet(t, key, "whatever")
@@ -189,7 +187,7 @@ func TestConfigSetRefusesWhatTheHarnessCannotCarry(t *testing.T) {
 		}
 		for _, e := range entries {
 			if strings.HasPrefix(e.Name(), key) {
-				t.Fatalf("%s was written for codex, which cannot use it", e.Name())
+				t.Fatalf("%s was written for grok, which cannot use it", e.Name())
 			}
 		}
 	}

@@ -165,13 +165,13 @@ func TestBareInvocationReportsConfigurationStateAndAsksTheOperator(t *testing.T)
 		}
 	}
 
-	if _, err := runConfigSet(t, settingHarness, "codex"); err != nil {
+	if _, err := runConfigSet(t, settingHarness, "grok"); err != nil {
 		t.Fatal(err)
 	}
 	out = runBareRoot(t)
 	for _, want := range []string{
 		"config_missing: 0\n",
-		"harness,configured,codex",
+		"harness,configured,grok",
 		"model,unsupported,none",
 		"effort,unsupported,none",
 	} {

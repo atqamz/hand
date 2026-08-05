@@ -120,23 +120,23 @@ func TestFirstRunConfigurationHappensAfterBootstrap(t *testing.T) {
 		}
 	}
 
-	handConfigSet(t, home, "harness", "codex")
+	handConfigSet(t, home, "harness", "grok")
 	after := runHand(t, home)
-	for _, want := range []string{"config_missing: 0", "harness,configured,codex", "model,unsupported,none", "effort,unsupported,none"} {
+	for _, want := range []string{"config_missing: 0", "harness,configured,grok", "model,unsupported,none", "effort,unsupported,none"} {
 		if !strings.Contains(after.stdout, want) {
 			t.Fatalf("session document = %q, want it to contain %q", after.stdout, want)
 		}
 	}
 	if strings.Contains(after.stdout, "Ask the operator") {
-		t.Fatalf("session document = %q, want nothing left to ask about under codex", after.stdout)
+		t.Fatalf("session document = %q, want nothing left to ask about under grok", after.stdout)
 	}
 
 	refused := runHand(t, home, "config", "set", "model", "gpt-5")
 	if refused.code != 2 {
-		t.Fatalf("config set model under codex: exit %d, want 2", refused.code)
+		t.Fatalf("config set model under grok: exit %d, want 2", refused.code)
 	}
-	if _, err := os.Stat(filepath.Join(home, "config", "model.codex")); err == nil {
-		t.Fatal("config/model.codex was written for a harness that takes no model flag")
+	if _, err := os.Stat(filepath.Join(home, "config", "model.grok")); err == nil {
+		t.Fatal("config/model.grok was written for a harness that takes no model flag")
 	}
 }
 
