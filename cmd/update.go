@@ -54,7 +54,7 @@ func newUpdateCmd(version string) *cobra.Command {
 			// reported as a warning rather than an error: exiting nonzero here reads as "the update failed" and
 			// invites a pointless re-run.
 			var refreshed, hooked bool
-			var seedErr, hookErr, migrateErr error
+			var seedErr, hookErr error
 			fleetHome, refreshErr := home.Resolve()
 			switch {
 			case refreshErr == nil:
@@ -63,9 +63,6 @@ func newUpdateCmd(version string) *cobra.Command {
 				// that installs it also leaves those files in place - directories included, since a home resolves
 				// as one on its state/hand.db marker alone.
 				seedErr = initLayout(fleetHome)
-				// An older home's unkeyed worker defaults would otherwise stop being read at all by the binary
-				// this command just installed.
-				_, migrateErr = migrateWorkerSettings(fleetHome)
 				// An install that moved leaves the session hook pointing at a
 				// path with no binary behind it any more.
 				var exe string
@@ -91,12 +88,6 @@ func newUpdateCmd(version string) *cobra.Command {
 					return err
 				}
 			}
-			if migrateErr != nil {
-				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: key worker defaults by harness: %v\n", migrateErr); err != nil {
-					return err
-				}
-			}
-
 			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)
 
 			var doc axi.Doc

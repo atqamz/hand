@@ -317,3 +317,45 @@ func TestMigrateWorkerSettingsKeysToClaudeWhenNoHarnessIsConfigured(t *testing.T
 		t.Fatalf("config/model.claude = %q", got)
 	}
 }
+
+func TestCommandStartupMigratesOlderWorkerDefaultsBeforeReportingConfig(t *testing.T) {
+	home := setupConfigHome(t)
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{
+		"harness": harness.Claude,
+		"model":   "claude-sonnet-5",
+		"effort":  "high",
+	} {
+		if err := os.WriteFile(filepath.Join(home, "config", name), []byte(value+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	root := newRootCmd("test")
+	root.SetArgs([]string{"config"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		"model,configured,claude-sonnet-5",
+		"effort,configured,high",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("config output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+	for _, name := range []string{"model", "effort"} {
+		if _, err := os.Stat(filepath.Join(home, "config", name+".claude")); err != nil {
+			t.Fatalf("migrated config/%s.claude: %v", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(home, "config", name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("legacy config/%s still exists: %v", name, err)
+		}
+	}
+}

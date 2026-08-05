@@ -20,12 +20,16 @@ func newRootCmd(version string) *cobra.Command {
 		Short:   "Talk to one agent. Ship with a crew.",
 		Version: version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.Name() == "update" {
-				return nil
-			}
-			if home, err := home.Resolve(); err == nil {
-				if notice := selfupdate.CheckNotice(home, selfupdate.Repo, version); notice != "" {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
+			if fleetHome, err := home.Resolve(); err == nil {
+				if cmd.Name() != "init" {
+					if _, err := migrateWorkerSettings(fleetHome); err != nil {
+						return err
+					}
+				}
+				if cmd.Name() != "update" {
+					if notice := selfupdate.CheckNotice(fleetHome, selfupdate.Repo, version); notice != "" {
+						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
+					}
 				}
 			}
 			return nil
