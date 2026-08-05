@@ -87,7 +87,7 @@ func confirmLaunch(client *herdr.Client, paneID, harnessName string) error {
 			return fmt.Errorf("worker is waiting on the %s prompt: %s", prompt.Name, prompt.Refuse)
 		// Pane text has exactly one job here, spotting dialogs. Matching it is safe because claude erases
 		// an answered first-run dialog in place rather than leaving it behind in scrollback, measured
-		// against a real spawned worker pane (see SPECS.md).
+		// against a real spawned worker pane.
 		case known:
 			if !answered[prompt.Name] {
 				if err := answerFirstRunPrompt(client, paneID, prompt); err != nil {

@@ -183,8 +183,7 @@ func renderError(w io.Writer, err error, code int, path string) error {
 	return doc.Render(w)
 }
 
-// The vocabulary is SPECS.md's "Exit codes" table, so a caller can branch on a
-// name instead of memorizing which number means what.
+// These names let callers branch without memorizing exit numbers.
 var errorKinds = map[int]string{
 	1: "general",
 	2: "usage",
@@ -217,8 +216,8 @@ func errorHelp(code int, path string) []string {
 	return nil
 }
 
-// ExitError carries a non-default exit code SPECS.md's "Exit codes" table defines, distinct from the
-// general-error code (1) cobra otherwise produces for any RunE error.
+// ExitError carries a non-default exit code, distinct from the general-error code
+// cobra otherwise produces for a RunE error.
 type ExitError struct {
 	Err error
 	// 2 for a usage error (bad arg count, unknown flag, unknown subcommand, invalid argument or flag

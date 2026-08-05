@@ -99,8 +99,7 @@ func reportSummary(id string, lines []state.ReportLine, readErr error, unacked, 
 	return truncateReportLine(line, reportSummaryBudget, id) + suffix
 }
 
-// Degrades gracefully to "unknown" when herdr is unreachable or the pane cannot be queried, per
-// SPECS.md's fail-open policy for read operations.
+// Read-only status degrades to "unknown" when herdr or the pane cannot be queried.
 func paneAgentStatus(client *herdr.Client, paneID string) string {
 	if paneID == "" {
 		return string(herdr.StatusUnknown)

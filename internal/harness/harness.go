@@ -57,7 +57,7 @@ type FirstRunPrompts struct {
 // alone even if it parks on a dialog.
 var firstRunPrompts = map[string]FirstRunPrompts{
 	// Interactive claude gates on first-run dialogs --print skipped, and a fresh worktree path means
-	// the trust one appears on every spawn, not just a fresh host (SPECS.md, launch templates).
+	// the trust one appears on every spawn, not just a fresh host.
 	// cmd/launch.go's confirmLaunch clears them per spawn, not leaving them for an operator to notice.
 	Claude: {
 		// claude's own startup paint: the splash banner, or either composer footer hint once the REPL

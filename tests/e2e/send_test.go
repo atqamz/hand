@@ -85,7 +85,7 @@ func TestConcurrentSendsToTheSameTaskSerialize(t *testing.T) {
 
 // Covers the outcome an operator or a calling agent actually sees when a composer never frees: the
 // documented exit code off the real process, and a trace of the abandoned message that outlives the process
-// that tried to send it (SPECS.md, `hand send`).
+// that tried to send it.
 func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")

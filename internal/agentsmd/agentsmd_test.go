@@ -67,6 +67,31 @@ func TestRefreshWritesAgentsMdAndClaudeSymlinkWhenMissing(t *testing.T) {
 	}
 }
 
+func TestRefreshWritesReportVocabularyIntoFleetWorkflow(t *testing.T) {
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"state/<id>.status",
+		"working:",
+		"paused:",
+		"blocked:",
+		"needs-decision:",
+		"done:",
+		"failed:",
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("got generated AGENTS.md %q, want report contract %q", got, want)
+		}
+	}
+}
+
 // This is the requirement most likely to regress silently: a refresh must
 // never wipe out rules or sections the user appended by hand.
 func TestRefreshPreservesUserAddedContentAcrossRefresh(t *testing.T) {

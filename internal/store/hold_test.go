@@ -134,9 +134,8 @@ func TestListHoldsSortedAndEmpty(t *testing.T) {
 	}
 }
 
-// Pins the read side of the design decision in SPECS.md: a row an external write left
-// inconsistent (here, an unrecognized kind) must still come back from ListHolds, or "what
-// is held" silently drops exactly the row most worth seeing.
+// An inconsistent row from an external write must still come back from ListHolds,
+// or "what is held" silently drops the row most worth seeing.
 func TestListHoldsSurfacesEveryRowRegardlessOfKind(t *testing.T) {
 	db, _ := openTemp(t)
 	if err := db.SetHold(Hold{ID: "weird", Kind: "not-a-real-kind", Reason: "who knows"}); err != nil {

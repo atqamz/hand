@@ -45,7 +45,7 @@ var ErrArmFailed = errors.New("could not arm")
 
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is canceled, returning nil on
 // clean cancellation or an error if herdr is unreachable at startup. out receives the actionable
-// event stream SPECS.md documents, errOut internal diagnostics, per the stdout/stderr split.
+// event stream, while errOut receives internal diagnostics.
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect(ctx)
 	if err != nil {
@@ -258,9 +258,8 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 }
 
-// Every fact restored here comes from durable state, never re-derived from current evidence: what
-// landed while the watcher was down (hand merge writing merged, say) would otherwise look like an
-// announcement that already went out. SPECS.md's "What survives a hand watch restart" owns the rest.
+// Every restored fact comes from durable state: re-deriving what landed while the watcher was down
+// would make new evidence look like an announcement that already went out.
 func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskState {
 	changedAt := statusChangeSeed(t, status, now)
 	ts := NewTaskState(status, changedAt)
@@ -655,9 +654,8 @@ func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 	notifyEvent(cfg.Home, e, errOut)
 }
 
-// NotifyFilter's own consumer of the classified event stream - see SPECS.md's "Notifying a
-// supervisory agent with no session watching" for why an unconfigured config/notify stays silent
-// while a failed send is loud.
+// The unattended hook treats an absent config as disabled, while a configured
+// channel that fails is a diagnostic worth surfacing.
 func notifyEvent(home string, e *Event, errOut io.Writer) {
 	if !NotifyFilter().Matches(e.Kind) {
 		return

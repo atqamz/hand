@@ -56,9 +56,8 @@ func KnownKinds() []string {
 	}
 }
 
-// NotifyFilter is the EventFilter for the watcher's in-process notify hook - see SPECS.md's
-// "Notifying a supervisory agent with no session watching" for why its membership differs from
-// --event's.
+// NotifyFilter is the fixed subset of events worth sending through the
+// watcher's unattended notification channel.
 func NotifyFilter() EventFilter {
 	// report-blocked is listed even though blocked already is: it is the worker's own report-channel
 	// declaration that it is stuck, not the herdr transition, and ClassifyStatus suppresses
@@ -177,9 +176,8 @@ func NewTaskState(status herdr.Status, now time.Time) *TaskState {
 	return &TaskState{Status: status, Probed: true, ChangedAt: now}
 }
 
-// ClassifyStatus compares a freshly probed status against ts and returns an actionable event for the
-// transitions SPECS.md calls out (idle-unreported, blocked, failed). Benign transitions - into
-// working, repeated not-busy or blocked - update ts in place and return nil.
+// ClassifyStatus compares a fresh probe with tracked state. Actionable transitions return an event;
+// working and repeated not-busy or blocked states update ts and return nil.
 func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr error, now time.Time) *Event {
 	if probeErr != nil {
 		wasProbed := ts.Probed

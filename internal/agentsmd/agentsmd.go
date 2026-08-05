@@ -1,7 +1,6 @@
 // Package agentsmd generates and refreshes the AGENTS.md workflow/rules
-// template that hand init writes into a fleet home, and checks an existing
-// one for perishable content and generated-block drift, the checks SPECS.md
-// specifies under "hand doctor". generatedBody is the template itself.
+// template that hand init writes into a fleet home, and checks an existing one
+// for perishable content and generated-block drift.
 package agentsmd
 
 import (
@@ -82,7 +81,7 @@ The session overview's ` + "`config`" + ` block is what this fleet dispatches wi
 - Nothing under ` + "`data/`" + ` is written for the operator to read. Report to them in the session; ` + "`hand status`" + ` and the issue tracker are their view of the fleet, so a decision taken under a standing grant belongs on the PR or issue it concerns, not in a fleet file.
 - For no-mistakes projects, workers use ` + "`no-mistakes axi`" + ` directly in the worktree.
 - Use ` + "`hand search <query>`" + ` to find historical context in data/. ` + "`qmd search`" + ` adds semantic matching when installed.
-- ` + "`hand status <id>`" + ` shows a worker's reported state; see SPECS.md's state management section for the report vocabulary (working/paused/blocked/needs-decision/done/failed).
+- ` + "`hand status <id>`" + ` shows a worker's reported state. Workers report with ` + "`working:`" + `, ` + "`paused:`" + `, ` + "`blocked:`" + `, ` + "`needs-decision:`" + `, ` + "`done:`" + `, or ` + "`failed:`" + `.
 `
 
 // Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md symlink, reporting whether
@@ -192,9 +191,8 @@ type Violation struct {
 	Severity Severity
 }
 
-// Check reports perishable content, an unterminated code fence, and generated-block drift or absence in
-// dir's AGENTS.md without fixing any of it, so a human looks at the prose judgment a machine cannot make
-// (SPECS.md's "hand doctor"). A nil result with no error is an absence - no fleet home, or no file.
+// Check reports perishable content, malformed fences, and generated-block drift or absence without
+// fixing any of it. A nil result with no error means no fleet home or no file.
 func Check(dir string) ([]Violation, error) {
 	isHome, err := home.IsHome(dir)
 	if err != nil {
@@ -259,7 +257,7 @@ func Check(dir string) ([]Violation, error) {
 		// Info rather than a failure: a file left marker-less by accident is indistinguishable from one
 		// left that way on purpose (atqamz/secondhand#90).
 		violations = append(violations, Violation{
-			Text:     "no hand:generated markers: hand init and hand update leave a marker-less file alone, so this template can never refresh itself here - paste the current generated block back in if that is unintended, or ignore this finding if the file is deliberately hand-authored (see SPECS.md's \"hand doctor\" section)",
+			Text:     "no hand:generated markers: hand init and hand update leave a marker-less file alone, so this template can never refresh itself here - paste the current generated block back in if that is unintended, or ignore this finding if the file is deliberately hand-authored",
 			Severity: SeverityInfo,
 		})
 	case content[blockStart:blockEnd] != strings.TrimSuffix(generatedBlock(), "\n"):

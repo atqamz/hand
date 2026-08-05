@@ -15,8 +15,8 @@ It covers no call that would change anything an operator owns: a scratch treehou
 Decorative glyphs appear in several stderr lines below and are omitted from the transcripts.
 No matcher may depend on one.
 
-The rule these records serve is SPECS.md's "Testing strategy": a fake that answers a state-changing command identically before and after that command cannot test anything about the state change.
-So each record notes what the call leaves behind, not only what it prints.
+A fake that answers a state-changing command identically before and after that command cannot test anything about the state change.
+Each record therefore notes what the call leaves behind, not only what it prints.
 
 ## treehouse
 
