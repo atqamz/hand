@@ -104,13 +104,14 @@ esac
 }
 
 const (
-	launchEchoFrame     = "$ cd '/tmp/wt' && claude --dangerously-skip-permissions 'Read the brief'"
-	launchReadyFrame    = "Welcome to Claude Code\n\n> \n  ? for shortcuts"
-	launchBypassOnFrame = "> \n  secondhand (fm/x)\n  bypass permissions on (shift+tab to cycle)"
-	launchTrustFrame    = "Do you trust the files in this folder?\n> 1. Yes, I trust this folder\n  2. No\n\nEnter to confirm"
-	launchBypassFrame   = "WARNING: Bypass Permissions mode\n  1. Yes, I accept\n> 2. No, exit\n\nEnter to confirm"
-	launchSettingsFrame = "Managed settings require approval\n\nSettings requiring approval:\n  hooks\n> 1. Yes, I trust these settings\n  2. No, exit Claude Code\n\nEnter to confirm"
-	launchUnknownFrame  = "Some brand new dialog\n> 1. Sure\n  2. Nope\n\nEnter to confirm"
+	launchEchoFrame       = "$ cd '/tmp/wt' && claude --dangerously-skip-permissions 'Read the brief'"
+	launchReadyFrame      = "Welcome to Claude Code\n\n> \n  ? for shortcuts"
+	launchBypassOnFrame   = "> \n  secondhand (fm/x)\n  bypass permissions on (shift+tab to cycle)"
+	launchTrustFrame      = "Do you trust the files in this folder?\n> 1. Yes, I trust this folder\n  2. No\n\nEnter to confirm"
+	launchBypassFrame     = "WARNING: Bypass Permissions mode\n  1. Yes, I accept\n> 2. No, exit\n\nEnter to confirm"
+	launchSettingsFrame   = "Managed settings require approval\n\nSettings requiring approval:\n  hooks\n> 1. Yes, I trust these settings\n  2. No, exit Claude Code\n\nEnter to confirm"
+	launchCodexTrustFrame = "Do you trust the contents of this directory?\n\nTrusting enables project-local config, hooks, and exec policies.\n> 1. Yes, continue\n  2. No, quit\n\nPress enter to continue"
+	launchUnknownFrame    = "Some brand new dialog\n> 1. Sure\n  2. Nope\n\nEnter to confirm"
 )
 
 func TestConfirmLaunch(t *testing.T) {
@@ -180,6 +181,12 @@ func TestConfirmLaunch(t *testing.T) {
 			wantErr: "waiting on the managed settings prompt",
 		},
 		{
+			name:    "refuses the codex directory trust prompt instead of answering it",
+			harness: "codex",
+			frames:  []launchFrame{{text: launchCodexTrustFrame, agent: "codex"}},
+			wantErr: "waiting on the directory trust prompt",
+		},
+		{
 			// The refused signature is catalogued after the answerable one, so answering by list
 			// order would send keys into a dialog hand has decided not to answer.
 			name:    "a refused prompt wins over an answerable one on the same screen",
@@ -223,12 +230,12 @@ func TestConfirmLaunch(t *testing.T) {
 			wantKeys: "Enter\n",
 		},
 		{
-			// codex has no verified agent detection, so "no agent" cannot be blamed on the harness
+			// grok has no verified agent detection, so "no agent" cannot be blamed on the harness
 			// without also naming the thing hand has not checked.
 			name:    "an unverified harness that is never labeled names the unexercised detection",
-			harness: "codex",
-			frames:  []launchFrame{exited("$ cd '/tmp/wt' && codex --file '/tmp/brief.md'")},
-			wantErr: "no agent detected in pane; herdr agent detection for harness codex has not been exercised",
+			harness: "grok",
+			frames:  []launchFrame{exited("$ cd '/tmp/wt' && grok --trust --file '/tmp/brief.md'")},
+			wantErr: "no agent detected in pane; herdr agent detection for harness grok has not been exercised",
 		},
 	}
 

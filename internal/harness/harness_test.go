@@ -85,9 +85,34 @@ func TestBuildCodex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "cd '/tmp/wt' && codex --file '/tmp/brief.md'"
+	want := "cd '/tmp/wt' && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' " + quotedPrompt("/tmp/brief.md")
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildCodexWithModelAndEffort(t *testing.T) {
+	got, err := Build(Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "gpt-5.6-codex", Effort: "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "cd '/tmp/wt' && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' --model 'gpt-5.6-codex' -c 'model_reasoning_effort=\"high\"' " + quotedPrompt("/tmp/brief.md")
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildCodexOmitsAutoEffort(t *testing.T) {
+	got, err := Build(Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "cd '/tmp/wt' && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' " + quotedPrompt("/tmp/brief.md")
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if !SupportsEffort(Codex) {
+		t.Fatal("SupportsEffort(Codex) = false, want true for explicit non-auto efforts")
 	}
 }
 
@@ -179,14 +204,22 @@ func TestBuildOpenCodeFrontMatterDisclaimer(t *testing.T) {
 	}
 }
 
+func TestBuildCodexFrontMatterDisclaimer(t *testing.T) {
+	got, err := Build(Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "dispatch metadata") {
+		t.Fatalf("got %q, want the front matter disclaimed", got)
+	}
+}
+
 // Pins the only channel that rule has: a worker's worktree is never under the fleet home, so the
 // AGENTS.md copy of it never reaches the worker.
 func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
 	quoted := shellQuote(agentsmd.OperatorDecisionRule)
 	escaped := quoted[1 : len(quoted)-1]
-	// Codex, Grok and Pi launch with a bare --file and no inline prompt, so they are out of reach
-	// until one of them is verified.
-	for _, name := range []string{Claude, OpenCode} {
+	for _, name := range []string{Claude, Codex, OpenCode} {
 		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
 		if err != nil {
 			t.Fatalf("Build(%q) error: %v", name, err)
@@ -222,7 +255,8 @@ func TestSupportsEffort(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Build(%q) error: %v", name, err)
 		}
-		if emits := strings.Contains(got, "--effort 'some-effort'"); emits != SupportsEffort(name) {
+		emits := strings.Contains(got, "--effort 'some-effort'") || strings.Contains(got, `model_reasoning_effort="some-effort"`)
+		if emits != SupportsEffort(name) {
 			t.Errorf("SupportsEffort(%q) = %v but Build(%q) = %q", name, SupportsEffort(name), name, got)
 		}
 	}
@@ -305,23 +339,23 @@ func TestFirstRunPromptsClaude(t *testing.T) {
 	}
 }
 
-// Pins the two harnesses actually run in a real pane and observed being labeled by herdr; the rest
-// must stay false until each is exercised the same way.
+// Pins the harnesses actually run in a real pane and observed being labeled by herdr; the rest must
+// stay false until each is exercised the same way.
 func TestAgentDetectionVerified(t *testing.T) {
-	for _, name := range []string{Claude, OpenCode} {
+	for _, name := range []string{Claude, Codex, OpenCode} {
 		if !AgentDetectionVerified(name) {
 			t.Errorf("AgentDetectionVerified(%q) = false, want true", name)
 		}
 	}
-	for _, name := range []string{Codex, Grok, Pi, "nonexistent"} {
+	for _, name := range []string{Grok, Pi, "nonexistent"} {
 		if AgentDetectionVerified(name) {
 			t.Errorf("AgentDetectionVerified(%q) = true, want false until herdr detection is exercised against it", name)
 		}
 	}
 }
 
-func TestFirstRunPromptsUnverifiedHarness(t *testing.T) {
-	for _, name := range []string{Codex, Grok, Pi, OpenCode, "nonexistent"} {
+func TestFirstRunPromptsWithoutVerifiedSignatures(t *testing.T) {
+	for _, name := range []string{Grok, Pi, OpenCode, "nonexistent"} {
 		if got := FirstRunPromptsFor(name); got.Ready != nil || got.Known != nil || got.Unrecognized != nil {
 			t.Errorf("FirstRunPromptsFor(%q) = %+v, want no unverified signatures", name, got)
 		}

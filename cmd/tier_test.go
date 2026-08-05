@@ -153,11 +153,11 @@ func TestResolveTierWarnsWhenHarnessCannotApplyEffort(t *testing.T) {
 	}
 }
 
-// All three prompt-less builders are near-copies, so proving only codex warns is what lets grok or
-// pi regress. Exact-match rather than Contains because the single combined line is the point: the
+// Both prompt-less builders are near-copies, so proving only one warns lets the other regress.
+// Exact-match rather than Contains because the single combined line is the point: the
 // alternative was three warnings per launch all naming the same harness.
 func TestResolveTierWarnsOnceForEverythingAHarnessCannotCarry(t *testing.T) {
-	for _, harnessName := range []string{harness.Codex, harness.Grok, harness.Pi} {
+	for _, harnessName := range []string{harness.Grok, harness.Pi} {
 		t.Run(harnessName, func(t *testing.T) {
 			home := t.TempDir()
 			briefAbs := writeTierBrief(t, home, declaredBrief)
@@ -181,7 +181,7 @@ func TestResolveTierWarnsOnceForEverythingAHarnessCannotCarry(t *testing.T) {
 // A brief with no front matter has no disclaimer to drop, so the operator-decision rule is the
 // only thing left and the line must not claim otherwise.
 func TestResolveTierWarnsOnPromptDropWithNothingDeclared(t *testing.T) {
-	for _, harnessName := range []string{harness.Codex, harness.Grok, harness.Pi} {
+	for _, harnessName := range []string{harness.Grok, harness.Pi} {
 		t.Run(harnessName, func(t *testing.T) {
 			home := t.TempDir()
 			briefAbs := writeTierBrief(t, home, "# Title\n\nno declaration here\n")
@@ -216,10 +216,10 @@ func TestResolveTierNoWarningWhenNoModelResolved(t *testing.T) {
 	briefAbs := writeTierBrief(t, home, "---\neffort: brief-effort\n---\n# Title\n")
 
 	cmd, stderr := newTierTestCmd()
-	if _, _, _, err := resolveTier(cmd, home, briefAbs, harness.Codex, "", ""); err != nil {
+	if _, _, _, err := resolveTier(cmd, home, briefAbs, harness.Grok, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	want := `warning: harness "codex" cannot carry effort "brief-effort", the operator-decision rule, the front-matter disclaimer; launching anyway` + "\n"
+	want := `warning: harness "grok" cannot carry effort "brief-effort", the operator-decision rule, the front-matter disclaimer; launching anyway` + "\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr = %q, want exactly %q (no model named, none was resolved)", stderr.String(), want)
 	}

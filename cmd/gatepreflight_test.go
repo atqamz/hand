@@ -204,8 +204,8 @@ func TestPromoteRefusesWhenNoMistakesGateNotInitialized(t *testing.T) {
 	}
 }
 
-// Pins the ordering from atqamz/secondhand#156. Codex carries no prompt, so resolveTier always
-// has something to warn about here, and a gate refusal must preempt that warning.
+// Pins the ordering from atqamz/secondhand#156: a gate refusal must preempt launch warnings because
+// no launch will occur.
 func TestPromoteGateRefusalWarnsNothingAboutTheLaunch(t *testing.T) {
 	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")
 	setupPromoteHomeGate(t, path)
