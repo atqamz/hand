@@ -22,9 +22,8 @@ func newNotifyCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 
-			// config/notify absent/empty and a failed send are both exit 1, never
-			// the old exit-0 "notified" line - see SPECS.md's hand notify "Errors"
-			// for why.
+			// Absence and send failure both mean nothing reached the only channel,
+			// so neither may retain the old exit-0 delivery claim.
 			if err := notify.Send(home, message); err != nil {
 				if errors.Is(err, notify.ErrNotConfigured) {
 					return fmt.Errorf("config/notify not set up, nothing delivered: %s", message)

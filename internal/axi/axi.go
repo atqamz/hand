@@ -1,6 +1,5 @@
 // Package axi renders command output as TOON: scalar fields, count-prefixed
-// row blocks with a schema header, and help[] next-step lines. SPECS.md's
-// "Output shape" section owns the contract; https://axi.md owns the principles.
+// row blocks with a schema header, and help[] next-step lines.
 package axi
 
 import (

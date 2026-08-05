@@ -525,7 +525,7 @@ func skippedSync(name, detail string) (syncOutcome, error) {
 }
 
 // Fetches and, when eligible, fast-forwards a single project clone. Never errors on a benign skip (dirty,
-// wrong branch, diverged, no remote) - those come back as a skipped outcome, per SPECS.md's fail-open policy.
+// wrong branch, diverged, no remote); those return a skipped outcome.
 func syncOneProject(home string, p project.Project) (syncOutcome, error) {
 	clonePath := filepath.Join(home, "projects", p.Name)
 

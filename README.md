@@ -41,14 +41,14 @@ Set `HAND_HOME` to run `hand` from outside the fleet home, for example from a sc
 - **Projects**: git repositories cloned under `projects/`, registered in `hand`'s machine state and projected to `data/projects.md`. Each has a delivery mode: `no-mistakes`, `direct-pr`, or `local-only`.
 - **Tasks**: units of work identified by a unique ID. Ship tasks produce a branch and PR; scout tasks investigate and produce `data/<id>/report.md`.
 - **Briefs**: task instructions at `data/<id>/brief.md`, written by the supervisory agent before spawning a worker.
-- **herdr tabs**: each worker runs in its own herdr tab. herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events, so no terminal scraping. herdr's state says whether a pane is busy, not whether a task finished - see SPECS.md's "Agent state" section.
-- **Report channel**: `state/<id>.status` is an append-only file the worker writes and `hand` only reads. It carries the task outcome herdr cannot (working/paused/blocked/needs-decision/done/failed), surfaces in `hand status` and `hand watch`, and auto-records a PR URL the worker reports - see SPECS.md's "Report channel" section.
+- **herdr tabs**: each worker runs in its own herdr tab. herdr provides semantic agent state (working/idle/blocked/done/unknown) and push events, so no terminal scraping. Herdr state says whether a pane is busy, not whether a task finished.
+- **Report channel**: `state/<id>.status` is an append-only file the worker writes and `hand` only reads. It carries the task outcome herdr cannot (working/paused/blocked/needs-decision/done/failed), surfaces in `hand status` and `hand watch`, and auto-records a PR URL the worker reports.
 - **treehouse worktrees**: workers operate in isolated git checkouts acquired from a treehouse pool, never in the project clone itself.
 - **Backlog**: `data/backlog.md` is a plain markdown task queue, read and edited directly by the supervisory agent. Finished entries roll off into `data/done-archive.md`, dropped ones into `data/note-archive.md`.
 - **Operator context and learnings**: `data/operator.md` is written by the operator for the agent to read first - identity, authority, hard constraints - and `data/learnings.md` is the agent's own curated record of operational facts that cost real time to discover. The agent reads `data/operator.md` and never rewrites it, which is what lets its constraints outrank the agent's judgment. `hand init` seeds both, `hand update` seeds whichever an older home is missing, and neither ever overwrites one that exists; nothing under `data/` is maintained by hand for the operator to read, since `hand status` and the issue tracker are their view of the fleet.
-- **Ambient context**: `hand init` and `hand update` install `hand` as a Claude Code `SessionStart` hook in the home's `.claude/settings.json`, so a supervising session opens with the fleet overview already in context instead of spending a turn asking for it. The file is merged, never overwritten: an operator's own hooks and permissions survive every refresh, and hand owns at most one entry - see SPECS.md's "Ambient context" section.
-- **Agent-shaped output**: every command prints TOON on stdout - `key: value` fields, `name[N]{f1,f2}:` row blocks with pre-computed aggregates above them, and a `help[N]:` list of what to run next - because the consumer is an LLM agent rather than a human terminal, with `hand watch`'s per-line event stream as the one exception. `--fields` narrows a row block to the columns you name, `--json` still returns the same object it always did, and a failure renders its own document on stderr carrying `error`, `kind` and `exit` so a caller branches on a word instead of a number - see SPECS.md's "Output shape" section.
-- **Machine state vs. the prose corpus**: machine state - tasks, PR state, pane ids, the project registry, holds - is authoritative in sqlite at `state/hand.db`. The prose under `data/` stays authoritative in files, with a derived full-text index at `state/index.db` that `hand search` reads and that is safe to delete at any time. When the database and a `state/<id>.status` file disagree about what a worker said, believe the file: it is readable without a working `hand`, which is what recovery has actually needed - see SPECS.md's "Machine state and the prose corpus" section.
+- **Ambient context**: `hand init` and `hand update` install `hand` as a Claude Code `SessionStart` hook in the home's `.claude/settings.json`, so a supervising session opens with the fleet overview already in context instead of spending a turn asking for it. The file is merged, never overwritten: an operator's own hooks and permissions survive every refresh, and hand owns at most one entry.
+- **Agent-shaped output**: every command prints TOON on stdout - `key: value` fields, `name[N]{f1,f2}:` row blocks with pre-computed aggregates above them, and a `help[N]:` list of what to run next - because the consumer is an LLM agent rather than a human terminal, with `hand watch`'s per-line event stream as the one exception. `--fields` narrows a row block to the columns you name, `--json` retains its existing object, and a failure renders its own document on stderr carrying `error`, `kind` and `exit` so a caller branches on a word instead of a number.
+- **Machine state vs. the prose corpus**: machine state - tasks, PR state, pane ids, the project registry, holds - is authoritative in sqlite at `state/hand.db`. The prose under `data/` stays authoritative in files, with a derived full-text index at `state/index.db` that `hand search` reads and that is safe to delete at any time. When the database and a `state/<id>.status` file disagree about what a worker said, believe the file: it is readable without a working `hand`, which is what recovery has actually needed.
 
 ## CLI overview
 
@@ -166,7 +166,7 @@ Builds without an embedded version never print the notice.
 
 ## Configuration
 
-Preferences live as plain files under `config/`, one value per file; SPECS.md's "Directory layout" section lists every key `hand` reads.
+Preferences live as plain files under `config/`, one value per file.
 
 The three worker defaults - `harness`, `model` and `effort` - are owned by `hand config`, which validates a value and writes it atomically:
 
@@ -182,7 +182,17 @@ The harness comes first because it decides whether the other two exist at all: `
 Nothing sets these for you.
 `hand init` reports their state, every supervising session's opening document repeats the report, and the answer is yours to give in that session - the fleet home's own `AGENTS.md` carries the instructions the agent follows to ask.
 
-A brief can declare its own `model` and `effort` for one task, which win over these defaults and lose only to a `hand spawn`/`hand promote` flag - see SPECS.md's "Brief format" section.
+A brief can start with a `---` fenced block declaring `model` and `effort` for one task. Those values win over fleet defaults and lose only to a `hand spawn` or `hand promote` flag.
+
+Other optional files tune supervision:
+
+- `notify`: shell command template run with `HAND_MESSAGE` set; `hand notify` reports an error when it is absent.
+- `send-wait`: how long `hand send` waits for a busy composer, as a Go duration (default `2m`).
+- `watch-interval`: watcher poll interval, as a Go duration (default `5s`).
+- `stale-threshold`: seconds without an agent-state transition before `stale` (default `300`).
+- `parked-paused-bound`: seconds of report-channel silence after `paused` (default `3600`).
+- `parked-done-bound`: seconds of silence after `done` or `failed` (default `5400`).
+- `parked-other-bound`: seconds of silence in every other report state (default `1200`).
 
 Workers run their harness interactively so they can be steered and watched.
 For Claude Code that means first-run dialogs, and `hand spawn` and `hand promote` answer the workspace-trust and bypass-permissions ones for you, then confirm the worker is actually running before reporting success.

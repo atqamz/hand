@@ -1,6 +1,5 @@
-// Package herdr wraps the herdr CLI's verified syntax for workspace, tab, and
-// pane operations. client.go is the source of truth for that syntax, so
-// SPECS.md's herdr examples should match this code, not the other way around.
+// Package herdr wraps the herdr CLI's verified workspace, tab, and pane syntax.
+// client.go and internal/faketool/FIDELITY.md own the calls and observed shapes.
 package herdr
 
 // Status is herdr's agent_status value for a pane. The real vocabulary has five values, not four:

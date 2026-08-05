@@ -8,9 +8,8 @@ import (
 	"github.com/atqamz/secondhand/internal/state"
 )
 
-// Errors from internal/state, internal/project, and internal/home that SPECS.md classifies as precondition
-// failures (exit code 3) rather than general errors (exit code 1). Those packages are imported by cmd, so
-// they cannot construct ExitError themselves and signal via these sentinels instead.
+// These package errors are precondition failures rather than general errors. The imported packages
+// cannot construct cmd.ExitError themselves, so they signal through sentinels.
 var preconditionSentinels = []error{
 	state.ErrTaskNotFound,
 	state.ErrTaskActive,

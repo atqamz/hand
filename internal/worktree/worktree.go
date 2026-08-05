@@ -68,8 +68,7 @@ func Return(worktreePath string, force bool) error {
 }
 
 // CheckCollision cross-checks a freshly acquired lease against every other task's recorded one,
-// returning the ID of the conflicting task or "" for no collision. SPECS.md's "Collision guard"
-// owns the rest.
+// returning the ID of the conflicting task or "" for no collision.
 func CheckCollision(homeDir string, lease Lease, excludeID string) (string, error) {
 	tasks, err := state.List(homeDir)
 	if err != nil {

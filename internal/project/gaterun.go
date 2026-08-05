@@ -40,7 +40,7 @@ func GateRunPRs(clonePath string) (map[string]bool, error) {
 	}
 	// Membership establishes only that the `pr` step opened that exact PR from a run that
 	// reached completed, not a per-commit answer: no-mistakes keys its state on working_path
-	// (SPECS.md's "Gate preflight") and hand records no head commit to compare against.
+	// and hand records no head commit to compare against.
 	prs := make(map[string]bool)
 	for _, line := range strings.Split(text, "\n") {
 		fields := strings.Fields(line)
