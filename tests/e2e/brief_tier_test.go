@@ -54,7 +54,8 @@ func readLaunchLog(t *testing.T, path string) []string {
 func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
-	writeConfig(t, home, "model", "claude-sonnet-5\n")
+	handConfigSet(t, home, "harness", "claude")
+	handConfigSet(t, home, "model", "claude-sonnet-5")
 
 	clonePath := filepath.Join(home, "projects", "demo")
 	initGitRepo(t, clonePath)
@@ -154,7 +155,8 @@ func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
-	writeConfig(t, home, "model", "claude-sonnet-5\n")
+	handConfigSet(t, home, "harness", "claude")
+	handConfigSet(t, home, "model", "claude-sonnet-5")
 	writeBriefWith(t, home, "task-1", "---\nmodel: claude-opus-5\neffort: max\n---\n\n# promoted scout\n")
 	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("# report\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -214,7 +216,7 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 func TestSpawnWarnsOnEffortIncapableHarness(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
-	writeConfig(t, home, "harness", "opencode\n")
+	handConfigSet(t, home, "harness", "opencode")
 	writeBriefWith(t, home, "task-1", "---\nmodel: grok-code\neffort: high\n---\n\n# opencode task\n")
 
 	clonePath := filepath.Join(home, "projects", "demo")

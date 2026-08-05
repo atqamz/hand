@@ -204,8 +204,8 @@ secondhand/                 # maintainer's in-repo fleet home = repo checkout
   projects/                 # git clones, read-only to supervisory agent
   config/                   # local user preferences (optional)
     harness                 # default harness for workers (default: claude)
-    model                   # default model for workers (optional)
-    effort                  # default effort for workers (optional)
+    model.<harness>         # default model for workers under that harness (optional)
+    effort.<harness>        # default effort for workers under that harness (optional)
     notify                  # notification command template (optional)
     stale-threshold         # seconds before a task is considered stale (default: 300)
     watch-interval          # poll interval for `hand watch` (default: 5s)
@@ -241,6 +241,19 @@ operator added to it alone.
 
 Installing is confined to a fleet home. A directory with no `state/hand.db` gets no `.claude/`
 directory at all.
+
+### First-run configuration
+
+The generated AGENTS.md workflow settles any worker default the session overview's `config` block reports
+`missing` before dispatching anything. Its first-run contract is:
+
+The session overview's `config` block is what this fleet dispatches with, and every value in it is the operator's to choose.
+
+- A setting reported `missing` is a question the supervisor asks the operator in conversation, in plain words, offering what `hand config` lists as supported and installed. It persists the answer with `hand config set <key> <value>`, which validates and writes atomically; it never writes under `config/` itself.
+- The supervisor never answers one of these for the operator. A value it picked, or one its own harness dialog accepted, configures the fleet with a guess that afterwards looks exactly like the operator's decision.
+- `hand config set` reprints the block, so the supervisor reads what it returns and keeps asking until nothing is `missing`. `hand config` re-reads it at any time.
+- `unsupported` means the selected harness takes no such launch flag, so it is not a question and not a gap. `pending-harness` means applicability is unknown until the harness is chosen, so that is chosen first.
+- An operator who declines to answer has answered: the supervisor leaves it missing, says so, and carries on with everything that does not need it. The next session asks again.
 
 Why: `docs/adr/ambient-context-is-a-session-hook-not-a-file.md`.
 
@@ -283,6 +296,11 @@ purpose: manages a fleet of coding agents - one worker per task in its own workt
 version: 0.1.4
 exec: ~/.local/bin/hand
 home: ~/secondhand
+config_missing: 1
+config[3]{key,state,value}:
+  harness,configured,claude
+  model,missing,none
+  effort,missing,none
 count: 2
 attention: 1
 held: 0
@@ -290,13 +308,16 @@ tasks[2]{id,state,reported,age,flags}:
   fix-login,working,working,2h ago,none
   audit-deps,done,done,20m ago,unacknowledged
 holds[0]{id,kind,detail,age}:
-help[3]:
+help[5]:
+  - Ask the operator for the default model for claude workers, then run `hand config set model <value>`
+  - Ask the operator for the default effort for claude workers, then run `hand config set effort <value>`
   - Run `hand status <id>` for one task's detail and report history
   - A flagged row is waiting on you: `hand send <id> <message>` to steer it, `hand hold set <id> --kind operator --reason <text>` to park it
   - Run `hand status --fields <a,b>` to pick columns, `hand status --help` for every field name
 ```
 
 `exec` names the executable that answered, with the user's home abbreviated to `~`.
+The configuration block precedes the fleet overview and leads `help` with one question per applicable missing value.
 Everything from `count` down is `hand status`'s fleet overview with its default fields, built by the same code, so the two can never disagree.
 
 Outside a fleet home the identity fields still print, `home` is `none`, and the help block names the way in:
@@ -314,7 +335,7 @@ help[2]:
 
 Exit `0`, unlike every other command's `3` for an unresolvable home.
 
-### `hand init [path] [flags]`
+### `hand init [path]`
 
 Initialize secondhand runtime directories in the current working directory.
 Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
@@ -328,38 +349,105 @@ When `HAND_HOME` is set and names some other directory it still initializes the 
 
 ```
 hand init
-hand init --setup
 ```
 
-Flags:
-- `--setup`: run interactive first-time setup. Discovers available harnesses on PATH (claude, codex, pi, grok, opencode) and available tools (treehouse, herdr, no-mistakes, gh), then asks the user for the default worker harness, model, and effort and writes `config/harness`, `config/model`, and `config/effort`.
+Flags: none.
+
+`hand init` asks nothing and reads no stdin, so it behaves the same in a terminal, in a script, and with
+stdin closed. It writes no worker default either: what the fleet dispatches with is the operator's
+choice, and a value invented at bootstrap time is indistinguishable afterwards from one they made. The
+document reports which defaults are still missing, and the first supervising session asks for them
+(see "`hand config`").
 
 Output:
 ```
 result: initialized
-home: /path/to/secondhand
+home: /path/to/fleet
 agents_md: written
 session_hook: written
-harness: none
-model: none
-effort: none
-help[3]:
-  - Run `hand project add <repo-url>` to register the first project
+migrated[0]:
+config_missing: 1
+config[3]{key,state,value}:
+  harness,missing,none
+  model,pending-harness,none
+  effort,pending-harness,none
+missing_tools[4]:
+  - treehouse
+  - herdr
+  - no-mistakes
+  - gh
+help[4]:
+  - Start a supervising session in this home; it reports the worker defaults still missing and asks you for each one (`hand config set <key> <value>`)
   - Read AGENTS.md in this home for how a supervising agent is meant to drive it
-  - A Claude Code session started in this home now opens with the fleet already in context
+  - Run `hand project add <repo-url>` to register the first project
+  - The session integration installed here is a Claude Code `SessionStart` hook, so a session opened with another harness reads AGENTS.md itself
 ```
 
 `agents_md` and `session_hook` are each `written` or `unchanged`, so a re-run says which of the two
 it had to touch rather than going silent about both.
 
-`--setup` is a dialog with whoever is at the terminal, so its discovery lines and prompts stay plain
-lines (`found harnesses: ...`, `found tools: ...`, a numbered harness menu, then a prompt per value).
-Only the answers reach the document, which follows the dialog with `harness: claude`, `model: sonnet`
-and `effort: low` in place of the three `none`s above. Without `--setup` nothing was chosen, so all
-three read `none` rather than being dropped: the schema is the same either way.
+`missing_tools` lists the tools from `treehouse`, `herdr`, `no-mistakes` and `gh` that are not on PATH.
+It is a diagnostic, not a gate: init reports them and succeeds, because which of them a home needs
+depends on the delivery mode of projects it does not have yet.
+
+`migrated` names the worker defaults an older home carried unkeyed (`config/model`) that were moved under
+the harness they were chosen for (`config/model.claude`); it is empty for a new home and for one already
+keyed.
+
+The `config` block is the same one `hand config` and the bare command print (see "`hand config`").
 
 Errors:
 - Filesystem permission errors.
+
+---
+
+### `hand config [set <key> <value>]`
+
+Report the fleet's worker defaults and which of them are still missing, or validate and persist one.
+
+```
+hand config
+hand config set harness claude
+hand config set model claude-opus-5
+```
+
+Bare output:
+```
+home: /path/to/fleet
+harness: none
+config_missing: 1
+config[3]{key,state,value}:
+  harness,missing,none
+  model,pending-harness,none
+  effort,pending-harness,none
+harnesses[5]{name,installed,model,effort}:
+  claude,true,true,true
+  codex,true,true,true
+  grok,false,false,false
+  pi,false,false,false
+  opencode,true,true,false
+help[1]:
+  - Ask the operator which harness this fleet's workers should default to, then run `hand config set harness <name>`; `hand config` lists the supported ones and which are installed
+```
+
+`set` output adds `result: set`, `key`, `value` and `file` (the repo-relative path written), then reprints
+the same block, so the answer's own document carries the recheck.
+
+States: `configured`, `missing` (a question still owed an answer), `unsupported` (the selected harness
+takes no such launch flag, so there is nothing to configure), `pending-harness` (applicability is unknown
+until a harness is chosen).
+
+The `harnesses` block's `model` and `effort` columns are read from the harness contract the launch path
+uses, never restated, so a second table can never claim a capability `hand spawn` disagrees with.
+
+`help` carries one line per `missing` setting and names the operator as the one who answers: a supervising
+agent that resolves the question itself has configured the fleet with its own guess.
+
+Errors:
+- Unknown key, unrecognized harness name, a value that is not a single word, or a `model`/`effort` the
+  configured harness cannot carry: exit 2.
+- `model` or `effort` before any harness is configured: exit 3, since the setting does not apply to
+  anything yet.
 
 ---
 
@@ -537,8 +625,8 @@ hand spawn investigate-crash nsr --scout
 Flags:
 - `--scout`: mark as scout task (deliverable is a report, not a PR).
 - `--harness <name>`: agent harness to launch. Default: value from `config/harness`, or `claude`.
-- `--model <name>`: model override for harnesses that support it. Default: the brief's declared `model`, else `config/model`.
-- `--effort <level>`: effort level for harnesses that support it. Default: the brief's declared `effort`, else `config/effort`.
+- `--model <name>`: model override for harnesses that support it. Default: the brief's declared `model`, else `config/model.<harness>`.
+- `--effort <level>`: effort level for harnesses that support it. Default: the brief's declared `effort`, else `config/effort.<harness>`.
 - `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized, its
   clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
@@ -549,12 +637,12 @@ Anything the chosen harness cannot carry is a warning on stderr, not a failure: 
 with a resolved model or effort recorded in state and ignored by the launch command. Everything a
 launch drops is named on one line rather than one line each. What can be dropped:
 
-- a resolved effort under anything but claude (`harness.SupportsEffort`)
-- a resolved model under `codex`, `grok` or `pi` (`harness.SupportsModel`)
+- a resolved effort under `grok`, `pi` or `opencode` (`harness.SupportsEffort`)
+- a resolved model under `grok` or `pi` (`harness.SupportsModel`)
 - the operator-decision rule, and the front-matter disclaimer when the brief has front matter,
-  under `codex`, `grok` or `pi` (`harness.CarriesPrompt`, see "Harness launch templates")
+  under `grok` or `pi` (`harness.CarriesPrompt`, see "Harness launch templates")
 
-The line reads `warning: harness "codex" cannot carry model "opus", effort "high", the
+The line reads `warning: harness "grok" cannot carry model "opus", effort "high", the
 operator-decision rule, the front-matter disclaimer; launching anyway`, listing only what that
 launch actually drops.
 
@@ -1512,8 +1600,8 @@ hand promote investigate-crash --harness codex
 
 Flags:
 - `--harness <name>`: harness for the new ship worker. Default: value from `config/harness`.
-- `--model <name>`: model override. Default: the brief's declared `model`, else `config/model`.
-- `--effort <level>`: effort override. Default: the brief's declared `effort`, else `config/effort`.
+- `--model <name>`: model override. Default: the brief's declared `model`, else `config/model.<harness>`.
+- `--effort <level>`: effort override. Default: the brief's declared `effort`, else `config/effort.<harness>`.
 - `--skip-gate-check`: dispatch into a `no-mistakes` project even if its gate is not initialized, its
   clone path is missing from disk, or that path is not a git repository (see "Gate preflight").
 
@@ -1590,7 +1678,7 @@ Or for macOS:
 osascript -e "display notification \"$HAND_MESSAGE\" with title \"secondhand\""
 ```
 
-`hand init --setup` does not write `config/notify` - it covers `harness`, `model` and `effort` only - so a fresh fleet
+`hand config` does not cover `config/notify` - it owns `harness`, `model` and `effort` only - so a fresh fleet
 home leaves the channel unconfigured. That absence is quiet in the watcher's hook (see "Notifying a supervisory agent
 with no session watching") and loud here, per the exit code below.
 
@@ -1713,7 +1801,7 @@ A missing `AGENTS.md` is not an error: `hand doctor` reports its zero count and 
 ### Optional: qmd for semantic search
 
 [qmd](https://github.com/tobi/qmd) adds what `hand search` deliberately does not do: semantic and hybrid search over embeddings.
-It is never a dependency. `hand init --setup` does not require or configure it, nothing in `hand` reads it, and every command works without it.
+It is never a dependency. `hand init` and `hand config` do not require or configure it, nothing in `hand` reads it, and every command works without it.
 `generatedBody` names `qmd search` alongside `hand search` as a way to find historical context, and README carries the indexing commands.
 
 ## Harness launch templates
@@ -1739,8 +1827,8 @@ cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously
 The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
 `<operator-decision-rule>` is `agentsmd.OperatorDecisionRule` verbatim, one exported constant rather than two copies that drift, appended to every prompt-carrying template because the worktree is outside the fleet home and the worker never reads the home's `AGENTS.md`.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
-Claude is the only harness with an effort flag: `opencode` takes `--model` but no effort, and
-`codex`, `grok` and `pi` take neither (`harness.SupportsEffort`, `harness.SupportsModel`).
+Claude and Codex take both model and effort; OpenCode takes a model but no effort; Grok and Pi take
+neither (`harness.SupportsEffort`, `harness.SupportsModel`).
 A declared value a harness has no flag for is warned about on stderr rather than dropped in
 silence (see `hand spawn`).
 When the brief carries a `---` declaration, the prompt gains a sentence disclaiming it as dispatch
@@ -1781,12 +1869,12 @@ the reason the catalogue matters for every harness added rather than only for cl
 ### Codex
 
 ```sh
-cd <worktree> && codex --file "<brief-path>"
+cd <worktree> && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' --model <name> -c 'model_reasoning_effort="<level>"' "Read the brief at <brief-path> and carry out the task it describes. <operator-decision-rule>"
 ```
 
-Unverified: no `codex` binary was available to check `--help` against.
-Confirm this launches interactively (not one-shot) before relying on it; the template above
-predates that requirement and may need an autonomy flag and a different invocation shape.
+The template was verified against Codex CLI 0.146.0. `--model` and the reasoning-effort override
+are omitted when unset; effort `auto` also omits the override so Codex inherits its own default.
+Disabling paste-burst buffering keeps an immediate Enter from `hand send` from being absorbed.
 
 ### Grok
 
@@ -1794,15 +1882,11 @@ predates that requirement and may need an autonomy flag and a different invocati
 cd <worktree> && grok --trust --file "<brief-path>"
 ```
 
-Unverified, same caveat as Codex above.
-
 ### Pi
 
 ```sh
 cd <worktree> && pi "<brief-path>"
 ```
-
-Unverified, same caveat as Codex above.
 
 ### OpenCode
 
@@ -1819,11 +1903,11 @@ When configured, `--model <name>` is inserted; the bare command has no effort/va
 The bare command also has no `--file` flag, so the brief path is embedded in the prompt text
 instead of attached.
 
-The Claude and OpenCode forms above were verified against the installed CLI versions.
-Codex, Grok, and Pi retain unverified templates until those binaries are installable; whoever
+The Claude, Codex and OpenCode forms above were verified against the installed CLI versions.
+Grok and Pi retain unverified templates until those binaries are installable; whoever
 verifies them must confirm interactive (not headless) launch, not just flag names.
 `internal/harness` is the single place that constructs these commands.
-A template that hands the brief over as a file rather than as prompt text (Codex, Grok, Pi) has no
+A template that hands the brief over as a file rather than as prompt text (Grok, Pi) has no
 prompt to append to, so `agentsmd.OperatorDecisionRule` and the front-matter disclaimer never reach
 those workers: the brief is all they read. `harness.CarriesPrompt` reports this, and `hand spawn`
 warns on stderr rather than dropping it in silence.
@@ -2072,7 +2156,7 @@ Both keys are optional, and the block is only recognized when `---` is the brief
 line. `hand spawn` and `hand promote` read it (`internal/brief`) and resolve model and effort as
 flag, then declaration, then config default, then unset. The brief is the durable statement of
 scope, so a respawn or a promote picks the declaration up again instead of falling back to
-`config/model`.
+`config/model.<harness>`.
 
 The parser is deliberately forgiving, unlike `data/projects.md`'s registry parser: unknown keys
 inside the block are ignored, a value written as a YAML quoted scalar (`model: "claude-opus-5"`)
@@ -2082,13 +2166,13 @@ are not validated against a list, which would rot the first time a model ships.
 
 The declaration is dispatch metadata, not task content. The launch prompt gains one sentence marking
 the block's `model` and `effort` keys as such when a block is present; anything else the block
-carries is left to the worker to read, and the brief on disk is never rewritten or stripped. Only
-the prompt-bearing harnesses carry that sentence: `codex`, `grok` and `pi` are handed the brief as a
-file with no prompt at all, so a declaring brief reaches them undisclaimed.
+carries is left to the worker to read, and the brief on disk is never rewritten or stripped. `grok`
+and `pi` are handed the brief as a file with no prompt at all, so a declaring brief reaches them
+undisclaimed; every other harness carries the sentence in its launch prompt.
 
 A declared effort under a harness that cannot apply one warns on stderr, as does a declared model
-under `codex`, `grok` or `pi`, and so does the operator-decision rule and the front-matter
-disclaimer those same three cannot carry. Whatever a given launch drops is named on one combined
+under `grok` or `pi`, and so does the operator-decision rule and the front-matter disclaimer those
+same two cannot carry. Whatever a given launch drops is named on one combined
 line, never one line per dropped value (see `hand spawn`).
 
 ## Backlog format
@@ -2416,24 +2500,32 @@ Why: `docs/adr/one-stateful-fake-per-external-tool.md`.
 
 **Pre-built binary (recommended):**
 ```sh
-# installer script (detects OS/arch, downloads from GitHub Releases)
-curl -fsSL https://secondhand.dev/install.sh | bash
-
-# or via Go
-go install github.com/atqamz/secondhand@latest
+# release tarball for this OS/arch, from GitHub Releases
+curl -fsSLO https://github.com/atqamz/secondhand/releases/latest/download/hand-linux-amd64.tar.gz
+tar xzf hand-linux-amd64.tar.gz
+install -m755 hand ~/.local/bin/hand
 
 # or via Nix
 nix profile install github:atqamz/secondhand
-# or one-shot: nix shell github:atqamz/secondhand -c hand init --setup
+# or one-shot: nix shell github:atqamz/secondhand -c hand --version
+
+# or via Go: builds a binary named secondhand, with no embedded version
+go install github.com/atqamz/secondhand@latest
 ```
+
+Releases carry `hand-linux-amd64`, `hand-linux-arm64`, `hand-darwin-amd64` and `hand-darwin-arm64` as `.tar.gz`, alongside `checksums.txt`.
+The flake covers `aarch64-darwin`, `aarch64-linux` and `x86_64-linux`; on Intel macOS use a release binary or `go install`.
+`go install` names the binary after the module (`secondhand`) and embeds no version, so it reports `dev` and never sees an available update.
 
 **From source (contributors):**
 ```sh
 git clone https://github.com/atqamz/secondhand
 cd secondhand
-go build -o hand .
+make build
 # optionally: cp hand ~/.local/bin/
 ```
+
+`make build` rather than `go build -o hand .`: the Makefile is what CONTRIBUTING.md documents and what carries the `VERSION` ldflag.
 
 The source repo is a development repo. End users install the binary and create fleet homes anywhere.
 
@@ -2442,15 +2534,17 @@ The source repo is a development repo. End users install the binary and create f
 ```sh
 # create a fleet home anywhere
 mkdir ~/fleet && cd ~/fleet
-hand init --setup
+hand init
 
 # or in one shot
-hand init ~/fleet --setup
+hand init ~/fleet
 ```
 
 `hand init` writes the runtime dirs (`data/`, `state/`, `config/`, `projects/`), creates whichever of the `data/` skeleton files are missing (see "Directory layout"), and creates `state/hand.db` if it is not already there.
 It also writes the generated AGENTS.md template and its CLAUDE.md symlink (`internal/agentsmd`'s `generatedBody` is the template).
 Other existing files are left unchanged, and an optional target path is accepted.
+`hand init` chooses no worker default. Open a supervising session in the home and answer the questions
+its opening document asks (see "`hand config`").
 
 ### Self-update: `hand update`
 

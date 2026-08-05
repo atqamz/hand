@@ -88,7 +88,6 @@ func newUpdateCmd(version string) *cobra.Command {
 					return err
 				}
 			}
-
 			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)
 
 			var doc axi.Doc

@@ -16,8 +16,8 @@ func resolveTier(cmd *cobra.Command, home, briefAbs, harnessName, model, effort 
 		return "", "", false, fmt.Errorf("parse brief %s: %w", briefAbs, err)
 	}
 
-	resolvedModel = cmp.Or(model, decl.Model, configDefault(home, "model", ""))
-	resolvedEffort = cmp.Or(effort, decl.Effort, configDefault(home, "effort", ""))
+	resolvedModel = cmp.Or(model, decl.Model, workerDefault(home, settingModel, harnessName))
+	resolvedEffort = cmp.Or(effort, decl.Effort, workerDefault(home, settingEffort, harnessName))
 
 	var dropped []string
 	if resolvedModel != "" && !harness.SupportsModel(harnessName) {

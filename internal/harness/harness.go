@@ -4,6 +4,7 @@ package harness
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
@@ -17,16 +18,16 @@ const (
 	OpenCode = "opencode"
 )
 
-var supported = map[string]bool{
-	Claude:   true,
-	Codex:    true,
-	Grok:     true,
-	Pi:       true,
-	OpenCode: true,
+// The one list of supported harnesses. Anything that offers a choice of harness derives it from here
+// rather than repeating the names, so a harness added below is offered everywhere at once.
+var names = []string{Claude, Codex, Grok, Pi, OpenCode}
+
+func Names() []string {
+	return slices.Clone(names)
 }
 
 func IsSupported(name string) bool {
-	return supported[name]
+	return slices.Contains(names, name)
 }
 
 // One interactive dialog a harness may show before it starts reading the brief; Match is checked

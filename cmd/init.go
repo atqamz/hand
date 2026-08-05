@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/agentsmd"
@@ -17,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var harnessCandidates = []string{"claude", "codex", "pi", "grok", "opencode"}
 var toolCandidates = []string{"treehouse", "herdr", "no-mistakes", "gh"}
 
 const backlogSkeleton = `# Backlog
@@ -52,12 +49,13 @@ const doneArchiveSkeleton = "# Done archive\n"
 
 const noteArchiveSkeleton = "# Note archive\n"
 
+// Bootstrap only: it asks nothing, reads no stdin, and writes no worker default. What the fleet should
+// dispatch is settled by the operator in the first supervising session (`hand config`), because a value
+// invented at bootstrap time is indistinguishable from one the operator chose.
 func newInitCmd() *cobra.Command {
-	var setup bool
-
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "init [path]",
-		Short: "Initialize secondhand runtime directories",
+		Short: "Create or refresh a fleet home; asks no questions",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
@@ -75,6 +73,10 @@ func newInitCmd() *cobra.Command {
 			if err := initMarker(home); err != nil {
 				return err
 			}
+			migrated, err := migrateWorkerSettings(home)
+			if err != nil {
+				return err
+			}
 			refreshed, err := agentsmd.Refresh(home)
 			if err != nil {
 				return err
@@ -88,14 +90,6 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 
-			var chosen setupChoice
-			if setup {
-				chosen, err = runInteractiveSetup(cmd, home)
-				if err != nil {
-					return err
-				}
-			}
-
 			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), home); err != nil {
 				return err
 			}
@@ -105,18 +99,28 @@ func newInitCmd() *cobra.Command {
 			doc.Field("home", home)
 			doc.Field("agents_md", writtenOrUnchanged(refreshed))
 			doc.Field("session_hook", writtenOrUnchanged(hooked))
-			doc.Field("harness", orNone(chosen.harness))
-			doc.Field("model", orNone(chosen.model))
-			doc.Field("effort", orNone(chosen.effort))
-			doc.Help("Run `hand project add <repo-url>` to register the first project",
+			doc.List("migrated", migrated)
+			appendWorkerConfig(&doc, readWorkerConfig(home))
+			doc.List("missing_tools", missingTools())
+			doc.Help("Start a supervising session in this home; it reports the worker defaults still missing and asks you for each one (`hand config set <key> <value>`)",
 				"Read AGENTS.md in this home for how a supervising agent is meant to drive it",
-				"A Claude Code session started in this home now opens with the fleet already in context")
+				"Run `hand project add <repo-url>` to register the first project",
+				"The session integration installed here is a Claude Code `SessionStart` hook, so a session opened with another harness reads AGENTS.md itself")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
+}
 
-	cmd.Flags().BoolVar(&setup, "setup", false, "run interactive first-time setup")
-	return cmd
+// Reported rather than resolved: a missing tool is a diagnostic the first session explains in context,
+// and turning bootstrap into a prerequisite wizard is what this command exists not to be.
+func missingTools() []string {
+	var missing []string
+	for _, t := range toolCandidates {
+		if !onPath(t) {
+			missing = append(missing, t)
+		}
+	}
+	return missing
 }
 
 func writtenOrUnchanged(changed bool) string {
@@ -186,78 +190,6 @@ func initMarker(home string) error {
 	return db.Close()
 }
 
-// The prompts stay plain lines: they are a dialog with whoever is at the
-// terminal, and only the answers are a result worth rendering.
-type setupChoice struct {
-	harness string
-	model   string
-	effort  string
-}
-
-func runInteractiveSetup(cmd *cobra.Command, home string) (setupChoice, error) {
-	out := cmd.OutOrStdout()
-
-	var foundHarnesses []string
-	for _, h := range harnessCandidates {
-		if _, err := exec.LookPath(h); err == nil {
-			foundHarnesses = append(foundHarnesses, h)
-		}
-	}
-
-	var foundTools []string
-	for _, t := range toolCandidates {
-		if _, err := exec.LookPath(t); err == nil {
-			foundTools = append(foundTools, t)
-		}
-	}
-
-	if _, err := fmt.Fprintf(out, "found harnesses: %s\n", strings.Join(foundHarnesses, " ")); err != nil {
-		return setupChoice{}, err
-	}
-	if _, err := fmt.Fprintf(out, "found tools: %s\n", strings.Join(foundTools, " ")); err != nil {
-		return setupChoice{}, err
-	}
-
-	if len(foundHarnesses) == 0 {
-		return setupChoice{}, fmt.Errorf("no supported harnesses found on PATH")
-	}
-
-	in := cmd.InOrStdin()
-	if _, err := fmt.Fprintln(out, "select default worker harness:"); err != nil {
-		return setupChoice{}, err
-	}
-	for i, h := range foundHarnesses {
-		if _, err := fmt.Fprintf(out, "%d) %s\n", i+1, h); err != nil {
-			return setupChoice{}, err
-		}
-	}
-	harness, err := readSetupChoice(in, foundHarnesses, "harness")
-	if err != nil {
-		return setupChoice{}, err
-	}
-
-	model, err := readSetupValue(in, out, "default worker model")
-	if err != nil {
-		return setupChoice{}, err
-	}
-	effort, err := readSetupValue(in, out, "worker effort")
-	if err != nil {
-		return setupChoice{}, err
-	}
-
-	if err := os.WriteFile(filepath.Join(home, "config", "harness"), []byte(harness+"\n"), 0o644); err != nil {
-		return setupChoice{}, fmt.Errorf("write config/harness: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "model"), []byte(model+"\n"), 0o644); err != nil {
-		return setupChoice{}, fmt.Errorf("write config/model: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "config", "effort"), []byte(effort+"\n"), 0o644); err != nil {
-		return setupChoice{}, fmt.Errorf("write config/effort: %w", err)
-	}
-
-	return setupChoice{harness: harness, model: model, effort: effort}, nil
-}
-
 func resolveInitHome(cwd string, args []string) (string, error) {
 	if len(args) > 1 {
 		return "", &ExitError{Err: fmt.Errorf("init accepts at most one target path"), Code: 2}
@@ -292,27 +224,4 @@ func warnHandHomeMismatch(w io.Writer, home string) error {
 	}
 	_, err := fmt.Fprintf(w, "warning: HAND_HOME is set to %s, so every other hand command will use that home, not %s\n", display, home)
 	return err
-}
-
-func readSetupChoice(in io.Reader, choices []string, label string) (string, error) {
-	var input string
-	if _, err := fmt.Fscan(in, &input); err != nil {
-		return "", fmt.Errorf("read %s choice: %w", label, err)
-	}
-	choice, err := strconv.Atoi(input)
-	if err != nil || choice < 1 || choice > len(choices) {
-		return "", fmt.Errorf("invalid %s choice", label)
-	}
-	return choices[choice-1], nil
-}
-
-func readSetupValue(in io.Reader, out io.Writer, label string) (string, error) {
-	if _, err := fmt.Fprintf(out, "%s: ", label); err != nil {
-		return "", err
-	}
-	var value string
-	if _, err := fmt.Fscan(in, &value); err != nil {
-		return "", fmt.Errorf("read %s: %w", label, err)
-	}
-	return value, nil
 }
