@@ -51,9 +51,9 @@ type FirstRunPrompts struct {
 	Unrecognized *regexp.Regexp
 }
 
-// Verified signatures per harness. Only claude has been verified against a real first run (see
-// cmd/launch.go); every other harness gets the zero value until one is, which leaves its launch
-// confirmed on agent presence alone - one parking on a dialog is still reported as started.
+// Verified signatures per harness. Claude and codex have been observed on real first runs; every
+// other harness gets the zero value until one is, leaving its launch confirmed on agent presence
+// alone even if it parks on a dialog.
 var firstRunPrompts = map[string]FirstRunPrompts{
 	// Interactive claude gates on first-run dialogs --print skipped, and a fresh worktree path means
 	// the trust one appears on every spawn, not just a fresh host (SPECS.md, launch templates).
@@ -90,6 +90,16 @@ var firstRunPrompts = map[string]FirstRunPrompts{
 		// the dialog for a started worker.
 		Unrecognized: regexp.MustCompile(`Enter\s+to\s+confirm`),
 	},
+	Codex: {
+		Known: []FirstRunPrompt{
+			{
+				Name:   "directory trust",
+				Match:  regexp.MustCompile(`Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?`),
+				Refuse: "trusting this directory enables project-local config, hooks, and exec policies; hand will not accept that security decision for you; run codex yourself in this checkout once and choose whether to trust it, then respawn",
+			},
+		},
+		Unrecognized: regexp.MustCompile(`Press\s+enter\s+to\s+continue`),
+	},
 }
 
 // FirstRunPromptsFor returns name's verified first-run signatures, or the zero value if name has
@@ -99,11 +109,12 @@ func FirstRunPromptsFor(name string) FirstRunPrompts {
 	return firstRunPrompts[name]
 }
 
-// The harnesses whose panes herdr has been observed labeling with an agent, by running the real
-// binary in a real pane. The others ship a detection manifest under herdr's agent-detection state
-// dir, read but never exercised here because no binary for them is installed on this host.
+// The harnesses whose panes herdr has been observed labeling with an agent. Codex CLI 0.146.0 was
+// launched through hand, reported as codex while resident, and cleared after /quit; the false
+// entries still rely only on herdr's shipped detection manifests.
 var agentDetectionVerified = map[string]bool{
 	Claude:   true,
+	Codex:    true,
 	OpenCode: true,
 }
 
@@ -124,15 +135,18 @@ type Options struct {
 
 var modelCapable = map[string]bool{
 	Claude:   true,
+	Codex:    true,
 	OpenCode: true,
 }
 
 var effortCapable = map[string]bool{
 	Claude: true,
+	Codex:  true,
 }
 
 var promptCapable = map[string]bool{
 	Claude:   true,
+	Codex:    true,
 	OpenCode: true,
 }
 
@@ -158,8 +172,8 @@ func CarriesPrompt(name string) bool {
 // watch classifies its lifecycle, and a no-mistakes pipeline drives many turns a one-shot cannot.
 func Build(name string, opts Options) (string, error) {
 	var launch string
-	// Flags for claude and opencode are verified against the installed CLI's own --help, and this file
-	// is the source of truth for those two.
+	// Flags for claude, codex, and opencode are verified against the installed CLI's own --help, and
+	// this file is the source of truth for those three.
 	switch name {
 	case Claude:
 		launch = buildClaude(opts)
@@ -195,11 +209,19 @@ func buildClaude(o Options) string {
 	return strings.Join(args, " ")
 }
 
-// No binary for codex, grok or pi exists on this host, so these three fall back to SPECS.md's
-// template syntax and need re-verifying for interactive launch, not just flag names, once one is
-// installable.
+// Launches Codex CLI 0.146.0 interactively with its positional prompt. Its help and config schema
+// expose the flags below; paste-burst buffering otherwise absorbs hand send's immediate Enter, and
+// auto effort means inherit Codex's default rather than pass a literal value.
 func buildCodex(o Options) string {
-	return fmt.Sprintf("codex --file %s", shellQuote(o.Brief))
+	args := []string{"codex", "--dangerously-bypass-approvals-and-sandbox", "-c", shellQuote("disable_paste_burst=true")}
+	if o.Model != "" {
+		args = append(args, "--model", shellQuote(o.Model))
+	}
+	if o.Effort != "" && o.Effort != "auto" {
+		args = append(args, "-c", shellQuote(fmt.Sprintf(`model_reasoning_effort="%s"`, o.Effort)))
+	}
+	args = append(args, shellQuote(briefPrompt(o)))
+	return strings.Join(args, " ")
 }
 
 func buildGrok(o Options) string {
