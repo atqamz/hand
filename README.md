@@ -149,7 +149,7 @@ A brief can declare its own `model` and `effort` for one task, which win over th
 Workers run their harness interactively so they can be steered and watched.
 For Claude Code that means first-run dialogs, and `hand spawn` and `hand promote` answer the workspace-trust and bypass-permissions ones for you, then confirm the worker is actually running before reporting success.
 A worker that never comes up fails the spawn instead of being reported as started.
-The exception is Claude Code's managed-settings approval prompt on hosts with organization-managed settings: accepting it is a host-wide trust decision, so `hand` refuses it and tells you to accept it yourself once and respawn.
+Claude Code's managed-settings approval prompt and Codex's directory-trust prompt are exceptions: each enables settings or policies that can run project or host code, so `hand` refuses to accept the security decision for you and tells you to run the harness yourself once before respawning.
 
 ## Contributing
 
