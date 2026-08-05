@@ -22,7 +22,7 @@ type versionCache struct {
 
 // CheckNotice returns a one-line stderr notice when a newer hand release is available, or
 // "" when up to date or when the check can't be completed. Bounded by checkTimeout and
-// never fails the caller: startup version checks are non-blocking and non-fatal per SPECS.
+// never fails the caller: startup version checks are non-blocking and non-fatal.
 func CheckNotice(home, repo, currentVersion string) string {
 	// A version that isn't semver (a build without ldflags, defaulting to "dev") has no
 	// released version to compare against, so nagging a from-source build would be noise.
