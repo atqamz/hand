@@ -335,7 +335,7 @@ help[2]:
 
 Exit `0`, unlike every other command's `3` for an unresolvable home.
 
-### `hand init [path] [flags]`
+### `hand init [path]`
 
 Initialize secondhand runtime directories in the current working directory.
 Creates `state/`, `data/`, `projects/`, `config/` if they don't exist.
@@ -637,12 +637,12 @@ Anything the chosen harness cannot carry is a warning on stderr, not a failure: 
 with a resolved model or effort recorded in state and ignored by the launch command. Everything a
 launch drops is named on one line rather than one line each. What can be dropped:
 
-- a resolved effort under anything but claude (`harness.SupportsEffort`)
-- a resolved model under `codex`, `grok` or `pi` (`harness.SupportsModel`)
+- a resolved effort under `grok`, `pi` or `opencode` (`harness.SupportsEffort`)
+- a resolved model under `grok` or `pi` (`harness.SupportsModel`)
 - the operator-decision rule, and the front-matter disclaimer when the brief has front matter,
-  under `codex`, `grok` or `pi` (`harness.CarriesPrompt`, see "Harness launch templates")
+  under `grok` or `pi` (`harness.CarriesPrompt`, see "Harness launch templates")
 
-The line reads `warning: harness "codex" cannot carry model "opus", effort "high", the
+The line reads `warning: harness "grok" cannot carry model "opus", effort "high", the
 operator-decision rule, the front-matter disclaimer; launching anyway`, listing only what that
 launch actually drops.
 
@@ -1827,8 +1827,8 @@ cd <worktree> && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously
 The brief path is included in the prompt because Claude Code takes prompt text, not a file path.
 `<operator-decision-rule>` is `agentsmd.OperatorDecisionRule` verbatim, one exported constant rather than two copies that drift, appended to every prompt-carrying template because the worktree is outside the fleet home and the worker never reads the home's `AGENTS.md`.
 When configured, `--model <name>` and `--effort <level>` are inserted before the prompt.
-Claude is the only harness with an effort flag: `opencode` takes `--model` but no effort, and
-`codex`, `grok` and `pi` take neither (`harness.SupportsEffort`, `harness.SupportsModel`).
+Claude and Codex take both model and effort; OpenCode takes a model but no effort; Grok and Pi take
+neither (`harness.SupportsEffort`, `harness.SupportsModel`).
 A declared value a harness has no flag for is warned about on stderr rather than dropped in
 silence (see `hand spawn`).
 When the brief carries a `---` declaration, the prompt gains a sentence disclaiming it as dispatch
@@ -1869,12 +1869,12 @@ the reason the catalogue matters for every harness added rather than only for cl
 ### Codex
 
 ```sh
-cd <worktree> && codex --file "<brief-path>"
+cd <worktree> && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' --model <name> -c 'model_reasoning_effort="<level>"' "Read the brief at <brief-path> and carry out the task it describes. <operator-decision-rule>"
 ```
 
-Unverified: no `codex` binary was available to check `--help` against.
-Confirm this launches interactively (not one-shot) before relying on it; the template above
-predates that requirement and may need an autonomy flag and a different invocation shape.
+The template was verified against Codex CLI 0.146.0. `--model` and the reasoning-effort override
+are omitted when unset; effort `auto` also omits the override so Codex inherits its own default.
+Disabling paste-burst buffering keeps an immediate Enter from `hand send` from being absorbed.
 
 ### Grok
 
@@ -1882,15 +1882,11 @@ predates that requirement and may need an autonomy flag and a different invocati
 cd <worktree> && grok --trust --file "<brief-path>"
 ```
 
-Unverified, same caveat as Codex above.
-
 ### Pi
 
 ```sh
 cd <worktree> && pi "<brief-path>"
 ```
-
-Unverified, same caveat as Codex above.
 
 ### OpenCode
 
@@ -1907,11 +1903,11 @@ When configured, `--model <name>` is inserted; the bare command has no effort/va
 The bare command also has no `--file` flag, so the brief path is embedded in the prompt text
 instead of attached.
 
-The Claude and OpenCode forms above were verified against the installed CLI versions.
-Codex, Grok, and Pi retain unverified templates until those binaries are installable; whoever
+The Claude, Codex and OpenCode forms above were verified against the installed CLI versions.
+Grok and Pi retain unverified templates until those binaries are installable; whoever
 verifies them must confirm interactive (not headless) launch, not just flag names.
 `internal/harness` is the single place that constructs these commands.
-A template that hands the brief over as a file rather than as prompt text (Codex, Grok, Pi) has no
+A template that hands the brief over as a file rather than as prompt text (Grok, Pi) has no
 prompt to append to, so `agentsmd.OperatorDecisionRule` and the front-matter disclaimer never reach
 those workers: the brief is all they read. `harness.CarriesPrompt` reports this, and `hand spawn`
 warns on stderr rather than dropping it in silence.
@@ -2170,13 +2166,13 @@ are not validated against a list, which would rot the first time a model ships.
 
 The declaration is dispatch metadata, not task content. The launch prompt gains one sentence marking
 the block's `model` and `effort` keys as such when a block is present; anything else the block
-carries is left to the worker to read, and the brief on disk is never rewritten or stripped. Only
-the prompt-bearing harnesses carry that sentence: `codex`, `grok` and `pi` are handed the brief as a
-file with no prompt at all, so a declaring brief reaches them undisclaimed.
+carries is left to the worker to read, and the brief on disk is never rewritten or stripped. `grok`
+and `pi` are handed the brief as a file with no prompt at all, so a declaring brief reaches them
+undisclaimed; every other harness carries the sentence in its launch prompt.
 
 A declared effort under a harness that cannot apply one warns on stderr, as does a declared model
-under `codex`, `grok` or `pi`, and so does the operator-decision rule and the front-matter
-disclaimer those same three cannot carry. Whatever a given launch drops is named on one combined
+under `grok` or `pi`, and so does the operator-decision rule and the front-matter disclaimer those
+same two cannot carry. Whatever a given launch drops is named on one combined
 line, never one line per dropped value (see `hand spawn`).
 
 ## Backlog format

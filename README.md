@@ -180,7 +180,7 @@ The harness comes first because it decides whether the other two exist at all: `
 `model` and `effort` are stored per harness (`config/model.claude`), so switching harnesses re-asks instead of handing a worker an identifier chosen for a different tool.
 
 Nothing sets these for you.
-`hand init` reports them as missing, every supervising session's opening document repeats the report, and the answer is yours to give in that session - the fleet home's own `AGENTS.md` carries the instructions the agent follows to ask.
+`hand init` reports their state, every supervising session's opening document repeats the report, and the answer is yours to give in that session - the fleet home's own `AGENTS.md` carries the instructions the agent follows to ask.
 
 A brief can declare its own `model` and `effort` for one task, which win over these defaults and lose only to a `hand spawn`/`hand promote` flag - see SPECS.md's "Brief format" section.
 
