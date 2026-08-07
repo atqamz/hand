@@ -17,7 +17,7 @@ import (
 func newRootCmd(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use:     "hand",
-		Short:   "Talk to one agent. Ship with a crew.",
+		Short:   "You lead. hand runs the crew.",
 		Version: version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if fleetHome, err := home.Resolve(); err == nil {
