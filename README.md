@@ -237,7 +237,7 @@ Optional:
 - [no-mistakes](https://github.com/yes2games/no-mistakes) - required only by projects using `no-mistakes` mode
 - [qmd](https://github.com/tobi/qmd) - semantic search over historical fleet context beyond `hand search`
 
-`hand init` reports required tools it cannot find on `PATH`. `hand doctor` checks the fleet home's generated agent instructions and related drift.
+`hand init` reports checked tools it cannot find on `PATH`. `hand doctor` checks the fleet home's generated agent instructions and related drift.
 
 Building from source additionally requires Go 1.26.5 or newer.
 
