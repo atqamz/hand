@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -189,6 +191,20 @@ func TestBareInvocationInHomeUsesTheSessionStartRenderer(t *testing.T) {
 	want := runSessionStartForTest(t)
 	if got := runBareRoot(t); got != want {
 		t.Fatalf("bare hand = %q, want the exact hand session start overview %q", got, want)
+	}
+}
+
+func TestBareInvocationRefusesWorkerRoleBeforeReadingContext(t *testing.T) {
+	home := setupSessionHome(t)
+	if err := os.Remove(filepath.Join(home, "data", "operator.md")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(harness.RoleEnv, harness.WorkerRole)
+
+	_, _, err := executeRootForTest(t, "test", nil)
+	assertExitCode(t, err, 3)
+	if want := "supervisor session bootstrap is unavailable when HAND_ROLE=worker"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %q, want %q", err, want)
 	}
 }
 

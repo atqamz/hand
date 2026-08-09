@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/secondhand/internal/axi"
+	"github.com/atqamz/secondhand/internal/harness"
 	"github.com/atqamz/secondhand/internal/home"
 	"github.com/atqamz/secondhand/internal/selfupdate"
 	"github.com/spf13/cobra"
@@ -89,6 +90,9 @@ func guardSubcommandGroups(c *cobra.Command) {
 // what a caller with nothing to go on needs first is the state, and `hand
 // --help` is still one word away for the reference.
 func runRootOverview(cmd *cobra.Command, version string) error {
+	if os.Getenv(harness.RoleEnv) == harness.WorkerRole {
+		return &ExitError{Err: fmt.Errorf("supervisor session bootstrap is unavailable when %s=%s", harness.RoleEnv, harness.WorkerRole), Code: 3}
+	}
 	fleetHome, err := home.Resolve()
 	if err == nil {
 		return renderSessionOverview(cmd, version, fleetHome)
