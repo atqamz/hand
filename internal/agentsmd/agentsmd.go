@@ -10,9 +10,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/atomicfile"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/shellquote"
+	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/shellquote"
 )
 
 const (

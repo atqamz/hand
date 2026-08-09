@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/store"
 )
 
 func TestDeriveName(t *testing.T) {

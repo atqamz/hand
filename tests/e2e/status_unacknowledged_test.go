@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Drives atqamz/secondhand#70 end to end: a worker that finished while no watcher was attached has to be

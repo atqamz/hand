@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/state"
 )
 
 const claudeLimitText = "Claude usage limit reached. Your limit will reset at 3pm (UTC)."
@@ -158,7 +158,7 @@ func TestTickLeavesAWorkerThatStoppedForAnotherReasonAlone(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
-	paneLog := paneScript(t, limitedPaneAgent, "$ go test -race ./...\nok  github.com/atqamz/secondhand/internal/watcher\n")
+	paneLog := paneScript(t, limitedPaneAgent, "$ go test -race ./...\nok  github.com/atqamz/hand/internal/watcher\n")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}

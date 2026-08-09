@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/store"
 )
 
 // A fleet home the way a pre-sqlite hand left one. Deliberately not built by

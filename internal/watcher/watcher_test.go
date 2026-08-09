@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 )
 
 // Drives the fake into herdr's failure shape for `pane get` - an error envelope on stdout with exit 0,

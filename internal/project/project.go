@@ -12,9 +12,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/atqamz/secondhand/internal/atomicfile"
-	"github.com/atqamz/secondhand/internal/ghutil"
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/store"
 )
 
 const (

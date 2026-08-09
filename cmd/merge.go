@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/ghutil"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
 

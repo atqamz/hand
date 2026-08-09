@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/store"
 )
 
 func TestWriteReadRoundTrip(t *testing.T) {

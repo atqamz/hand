@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/agentsmd"
 )
 
 // A clean file is the one answer silence used to be indistinguishable from a

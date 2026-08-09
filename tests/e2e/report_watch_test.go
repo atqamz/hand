@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Proves the bug atqamz/secondhand#30 and atqamz/secondhand#32 set out to kill: herdr's idle and done are

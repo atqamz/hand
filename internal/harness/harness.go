@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/agentsmd"
-	"github.com/atqamz/secondhand/internal/shellquote"
+	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/shellquote"
 )
 
 const (

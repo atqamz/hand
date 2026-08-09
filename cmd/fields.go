@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/axi"
+	"github.com/atqamz/hand/internal/axi"
 )
 
 // Resolves --fields against cols, defaulting to def. An unknown name is a usage error, not a silently

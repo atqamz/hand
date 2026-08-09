@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // ErrAttached is wrapped into Acquire's refusal so cmd can render it as a

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/faketool"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Writes a brief whose body the test controls, so a declaration block can be put in front of real prose.

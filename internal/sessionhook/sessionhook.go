@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/atomicfile"
 )
 
 const (

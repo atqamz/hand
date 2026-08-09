@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/faketool"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // The one treehouse failure its exit status does not report: an unforced return of a dirty worktree

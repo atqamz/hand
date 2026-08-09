@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/completion"
-	"github.com/atqamz/secondhand/internal/faketool"
-	"github.com/atqamz/secondhand/internal/ghutil"
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/completion"
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func assertExitCode3(t *testing.T, err error) {

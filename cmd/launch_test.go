@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/hand/internal/herdr"
 )
 
 // Shrinks confirmLaunch's poll window for the rest of the test, so a command test costs milliseconds

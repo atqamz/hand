@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // One task as both status renderers see it: the durable row plus everything derived for display, so the

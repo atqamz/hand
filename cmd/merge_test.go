@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/faketool"
-	"github.com/atqamz/secondhand/internal/ghutil"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestResolveMergeMethodDefaultsToSquash(t *testing.T) {

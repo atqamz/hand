@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Covers herdr's two spellings of "pane stopped being busy" - see herdr.Status's doc for why idle

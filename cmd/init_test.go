@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/harness"
-	"github.com/atqamz/secondhand/internal/home"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/home"
 )
 
 func TestInitCreatesTheHandDbMarker(t *testing.T) {

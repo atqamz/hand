@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/state"
-	"github.com/atqamz/secondhand/internal/watcher"
+	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
 // Drives atqamz/secondhand#73 end to end with real processes, which is the only way to prove the contract

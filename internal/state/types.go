@@ -3,7 +3,7 @@
 // state/<id>.status that hand only ever reads.
 package state
 
-import "github.com/atqamz/secondhand/internal/store"
+import "github.com/atqamz/hand/internal/store"
 
 const (
 	KindShip  = store.KindShip

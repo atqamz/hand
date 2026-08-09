@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/selfupdate"
 )
 
 // Fakes "release view --jq" as real gh's --jq flattens its JSON to the raw field value on stdout

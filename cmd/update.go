@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/agentsmd"
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/selfupdate"
-	"github.com/atqamz/secondhand/internal/sessionhook"
+	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/sessionhook"
 	"github.com/spf13/cobra"
 )
 

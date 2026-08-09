@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/completion"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/completion"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Drives the whole case atqamz/secondhand#78 describes through the built binary: work pushed to a fork, its

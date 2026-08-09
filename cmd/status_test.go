@@ -11,10 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 )
 
 // Fakes "pane get" as a query command per internal/herdr/client.go's call() doc: a non-null result

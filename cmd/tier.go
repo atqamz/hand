@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/brief"
-	"github.com/atqamz/secondhand/internal/harness"
+	"github.com/atqamz/hand/internal/brief"
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/spf13/cobra"
 )
 

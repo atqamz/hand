@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/shellquote"
+	"github.com/atqamz/hand/internal/shellquote"
 	_ "modernc.org/sqlite"
 )
 

@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/harness"
-	"github.com/atqamz/secondhand/internal/state"
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 )
 
 func setupSessionHome(t *testing.T) string {

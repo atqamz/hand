@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/faketool"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Drives `hand merge` through a faked gh, no real remote: all-green checks merge cleanly, a failing

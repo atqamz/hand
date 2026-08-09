@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/faketool"
+	"github.com/atqamz/hand/internal/faketool"
 )
 
 // Everything hand execs beyond these three is faked per test and left unreachable, so a missing fake fails

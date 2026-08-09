@@ -6,9 +6,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/harness"
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // The bounds on resuming a usage-limited worker. The failure mode designed against is a retry storm
