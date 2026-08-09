@@ -29,4 +29,5 @@ Thumbs.db
 treehouse.toml
 
 # etc
-.superpowers/
+docs/superpowers/*
+.superpowers/*
