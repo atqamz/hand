@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/atqamz/secondhand/compare/v0.2.0...v0.3.0) (2026-08-09)
+
+
+### Features
+
+* **session:** add supervisor session bootstrap ([#173](https://github.com/atqamz/secondhand/issues/173)) ([6b51061](https://github.com/atqamz/secondhand/commit/6b5106104faeb0d967d9911b965e94ab9a4901eb))
+
 ## [0.2.0](https://github.com/atqamz/secondhand/compare/v0.1.4...v0.2.0) (2026-08-05)
 
 
