@@ -134,7 +134,7 @@ func completionFor(t state.Task, forced bool) completion.Record {
 		c.Detail = "forced (landed-work checks skipped)"
 	// A task whose landing was never ours to decide has to stay distinguishable from a merged one in
 	// the permanent record, or the fleet's history claims upstream merges that never happened
-	// (atqamz/secondhand#78).
+	// (atqamz/hand#78).
 	case t.DeliveredAt != "" && !t.MergeExecuted && !t.MergeAnnounced:
 		c.Outcome = "delivered"
 		c.Detail = t.DeliveredReason
@@ -183,7 +183,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 	// instead - the work is out of this worktree and accounted for - so it is terminal here.
 
 	// Terminal without --force too, and recorded as delivered rather than merged
-	// (atqamz/secondhand#78). Placed after the dirt check and the scout report check deliberately:
+	// (atqamz/hand#78). Placed after the dirt check and the scout report check deliberately:
 	// --force keeps its one meaning of discarding work nobody delivered, so both of those still refuse.
 	if t.DeliveredAt != "" {
 		return t, dirtWasSafe, nil
@@ -205,7 +205,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			return t, dirtWasSafe, nil
 		}
 
-		// A gate-opened PR bypasses hand pr entirely (atqamz/secondhand#69), so t.PR can still be empty
+		// A gate-opened PR bypasses hand pr entirely (atqamz/hand#69), so t.PR can still be empty
 		// for landed work; detect it here rather than only refusing on it, so the merged check below
 		// reads the same PR state hand pr would have recorded.
 		if exists {
@@ -213,7 +213,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			var ambiguous *ghutil.AmbiguousPRError
 			// An ambiguous branch is a different failure and must not fall through the same way: "no PR
 			// recorded" reads as unlanded, but ambiguous means unknown, and picking either meaning here
-			// for the operator is the guess atqamz/secondhand#77 exists to remove.
+			// for the operator is the guess atqamz/hand#77 exists to remove.
 			if errors.As(err, &ambiguous) {
 				return t, false, &ExitError{Err: fmt.Errorf("PR for %s is ambiguous, refusing to guess: %w", t.ID, ambiguous), Code: 3}
 			}
@@ -227,7 +227,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 
 		if t.PR == "" {
 			// kind is the one field spawn records that nothing can correct afterwards
-			// (atqamz/secondhand#129), so a scout spawned without --scout arrives here as a ship row and
+			// (atqamz/hand#129), so a scout spawned without --scout arrives here as a ship row and
 			// refuses on a PR it was never going to open. The guard reads the work rather than the record.
 
 			// Here rather than earlier so it can only decide the case nothing else claims: a delivery, a
@@ -236,7 +236,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 
 			// A report deliverable on disk and a branch carrying no commits of its own is a completed scout
 			// whatever the row says, and is recorded as one. Merge evidence excludes the path outright - work
-			// hand merged or watched merge landed as a merge, and the record has to say so (atqamz/secondhand#78).
+			// hand merged or watched merge landed as a merge, and the record has to say so (atqamz/hand#78).
 			if !t.MergeExecuted && !t.MergeAnnounced && isCompletedScout(home, t) {
 				t.Kind = state.KindScout
 				return t, dirtWasSafe, nil
@@ -297,7 +297,7 @@ func hasUncommittedChanges(worktreePath string) (bool, error) {
 	return status != "", nil
 }
 
-// Bounds the refusal's git status dump (atqamz/secondhand#65 is the same lesson for report rendering):
+// Bounds the refusal's git status dump (atqamz/hand#65 is the same lesson for report rendering):
 // an unbounded dump into a session is its own problem, so this prints the first N entries and a count
 // of the rest.
 const maxDirtStatusLines = 20
@@ -317,7 +317,7 @@ func capStatusLines(status string) string {
 
 // Reports whether every uncommitted change in status - the worktree's `git status --porcelain` output -
 // is a tracked modification whose content already matches the local default branch's tip, byte for
-// byte: the gate re-editing a file to what its own merged fix carries (atqamz/secondhand#79).
+// byte: the gate re-editing a file to what its own merged fix carries (atqamz/hand#79).
 func dirtIsSafeToDiscard(worktreePath, status string) bool {
 	if status == "" {
 		return true

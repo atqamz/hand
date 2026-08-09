@@ -79,7 +79,7 @@ func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
 	}
 }
 
-// Pins the fix for atqamz/secondhand#109: a pane is a child of the herdr server, so it otherwise
+// Pins the fix for atqamz/hand#109: a pane is a child of the herdr server, so it otherwise
 // inherits any CLAUDE_CODE_CHILD_SESSION, CLAUDE_CODE_SESSION_ID, or CLAUDECODE the server was
 // started under, silently killing the worker's transcript. All three are blanked either way.
 func TestWorkspaceCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
@@ -114,7 +114,7 @@ func TestWorkspaceCreateRejectsMissingRootTabOrPane(t *testing.T) {
 	}
 }
 
-// Pins the fix for atqamz/secondhand#74: a workspace_created result missing tab or root_pane still
+// Pins the fix for atqamz/hand#74: a workspace_created result missing tab or root_pane still
 // means herdr created the workspace (a protocol predating those fields), so WorkspaceCreate closes
 // it before the parse error reaches the caller - nothing downstream learns the ID.
 func TestWorkspaceCreateClosesWorkspaceOnPartialResponse(t *testing.T) {
@@ -332,8 +332,8 @@ printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"ro
 	}
 }
 
-// Pins the fix for atqamz/secondhand#119: a tab-create result missing root_pane still means herdr
-// created the tab (same as atqamz/secondhand#74's WorkspaceCreate case), so TabCreate closes it
+// Pins the fix for atqamz/hand#119: a tab-create result missing root_pane still means herdr
+// created the tab (same as atqamz/hand#74's WorkspaceCreate case), so TabCreate closes it
 // before the parse error reaches the caller - nothing downstream learns the tab ID.
 func TestTabCreateClosesTabOnPartialResponse(t *testing.T) {
 	writeFakeHerdr(t, `

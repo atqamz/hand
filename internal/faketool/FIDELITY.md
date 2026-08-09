@@ -239,7 +239,7 @@ Both merge entries were observed on a throwaway PR and are the one part of this 
 
 ### Slug case
 
-GitHub serves a repo under any casing of its slug and answers with the canonical one: `--repo AtqaMZ/SecondHand` succeeds and reports `"nameWithOwner":"atqamz/secondhand"`.
+GitHub serves a repo under any casing of its slug and answers with the canonical one: `--repo AtqaMZ/Hand` succeeds and reports `"nameWithOwner":"atqamz/hand"`.
 So `FindPRByBranch` folds case when comparing a `gh` answer against a git remote, and the fake matches `--repo` case-insensitively - a case-sensitive fake would answer a double search of one repo with one hit and hide the duplicate the real `gh` returns.
 
 `internal/ghutil/pr_test.go` and `tests/e2e/slug_case_test.go` cover the comparison itself.

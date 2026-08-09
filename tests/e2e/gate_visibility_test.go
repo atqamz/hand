@@ -31,7 +31,7 @@ const gateReadyStatus = "    repo:  /home/atqa/secondhand/projects/demo\n" +
 	"    gate:  /home/atqa/.no-mistakes/repos/0b474f2021dd.git\n" +
 	"  daemon:  running\n\n  no active run"
 
-// Covers atqamz/secondhand#100 on the real binary: an empty fleet must say so, and must still surface a
+// Covers atqamz/hand#100 on the real binary: an empty fleet must say so, and must still surface a
 // hold left open on a torn-down task's id rather than reading as nothing to see.
 func TestStatusEmptyFleetStatesItsCount(t *testing.T) {
 	home := newHome(t)
@@ -67,7 +67,7 @@ func TestStatusEmptyFleetStatesItsCount(t *testing.T) {
 	}
 }
 
-// Covers atqamz/secondhand#92 through the operator's own sequence: spawn a ship task into a no-mistakes
+// Covers atqamz/hand#92 through the operator's own sequence: spawn a ship task into a no-mistakes
 // project, record its PR, let the worker report done, then read `hand status`.
 func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	prURL := "https://github.com/owner/demo/pull/7"
@@ -139,7 +139,7 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	}
 }
 
-// Covers atqamz/secondhand#97 on both operator surfaces. A clone path that is missing, and one that exists
+// Covers atqamz/hand#97 on both operator surfaces. A clone path that is missing, and one that exists
 // but is not a git repository, are different failures from a gate that was never initialized: `no-mistakes
 // init` repairs neither.
 func TestGateCheckNamesAMissingOrNonGitClonePath(t *testing.T) {

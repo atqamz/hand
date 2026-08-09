@@ -168,7 +168,7 @@ func SupportsEffort(name string) bool {
 
 // False means the builder hands the brief over as a file and has no prompt to append to, so
 // briefPrompt's operator-decision rule and front-matter disclaimer never reach the worker.
-// Carrying them properly needs flags verified against a real --help (atqamz/secondhand#36).
+// Carrying them properly needs flags verified against a real --help (atqamz/hand#36).
 func CarriesPrompt(name string) bool {
 	return promptCapable[name]
 }

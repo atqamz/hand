@@ -30,7 +30,7 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	// Banners land on stderr ahead of the JSON, so the payload has to be read from stdout alone -
-	// CombinedOutput here corrupts every parse (atqamz/secondhand#21).
+	// CombinedOutput here corrupts every parse (atqamz/hand#21).
 	out, err := cmd.Output()
 	if err != nil {
 		return Lease{}, fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))

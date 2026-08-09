@@ -101,7 +101,7 @@ type ghFakePR struct {
 
 // The two calls gate-opened-PR detection makes: `gh pr list --repo <repo> --head <branch>`
 // (FindPRByBranch) then `gh pr view <url> --json state` (project.ValidatePR, then checkLandedWork).
-// Several PRs exercise FindPRByBranch's preference tier (atqamz/secondhand#77), not its single result.
+// Several PRs exercise FindPRByBranch's preference tier (atqamz/hand#77), not its single result.
 func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	t.Helper()
 	g := faketool.GH{}
@@ -138,7 +138,7 @@ func registerGateProject(t *testing.T, home string) {
 
 // The fork variant: the PR lives on the upstream while the branch lives in headRepo, so a search of
 // the project's own repo comes back empty and the fork filter has a headRepository to read. Without a
-// fake that narrows on --repo no test can express the atqamz/secondhand#134 shape at all.
+// fake that narrows on --repo no test can express the atqamz/hand#134 shape at all.
 func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr ghFakePR) {
 	t.Helper()
 	faketool.GH{PRs: []faketool.GHPR{{
@@ -147,7 +147,7 @@ func writeFakeGHForkPRListAndView(t *testing.T, upstream, headRepo string, pr gh
 	}}}.Install(t, faketool.Bin(t))
 }
 
-// The atqamz/secondhand#134 regression: a fork project's gate opens its PR on the declared upstream,
+// The atqamz/hand#134 regression: a fork project's gate opens its PR on the declared upstream,
 // so detection that searches the project's own repo alone finds nothing and teardown refuses landed
 // work as unlanded.
 func TestTeardownDetectsGateOpenedPRonDeclaredUpstream(t *testing.T) {
@@ -201,7 +201,7 @@ func TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing(t *testing.
 	}
 }
 
-// First of the two regression cases atqamz/secondhand#69 requires: a no-mistakes gate's own `pr` step
+// First of the two regression cases atqamz/hand#69 requires: a no-mistakes gate's own `pr` step
 // opens a PR directly, bypassing `hand pr`, so t.PR is empty even though the PR is merged and the work
 // landed. Teardown must detect it by branch and tear down without --force, not refuse until forced.
 func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
@@ -256,7 +256,7 @@ func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {
 	}
 }
 
-// The atqamz/secondhand#77 landed case: a branch carrying a closed-unmerged PR alongside a merged one
+// The atqamz/hand#77 landed case: a branch carrying a closed-unmerged PR alongside a merged one
 // (a duplicate opened by mistake, say) must tear down on the merged PR, not fall to an arbitrary pick
 // that could land on the unmerged one instead.
 func TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR(t *testing.T) {
@@ -281,7 +281,7 @@ func TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#77's refusal case: two merged PRs on the same branch do not resolve to a winner,
+// atqamz/hand#77's refusal case: two merged PRs on the same branch do not resolve to a winner,
 // and teardown must refuse naming both rather than guess which one to trust - the exact guess that
 // could wave through unlanded work.
 func TestTeardownRefusesAmbiguousBranch(t *testing.T) {
@@ -762,7 +762,7 @@ func TestTeardownScoutSucceedsWhenReportPresent(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#129: a scout spawned without --scout is recorded as a ship task and nothing can
+// atqamz/hand#129: a scout spawned without --scout is recorded as a ship task and nothing can
 // correct the record, so its report-and-no-PR shape hits the landed-work refusal and --force plus a
 // respawn was the only way out. Teardown reads the work instead, and the permanent record says scout.
 func TestTeardownAcceptsAShipRowThatDeliveredAScoutReport(t *testing.T) {
@@ -793,7 +793,7 @@ func TestTeardownAcceptsAShipRowThatDeliveredAScoutReport(t *testing.T) {
 	}
 }
 
-// The half of atqamz/secondhand#129's fix that matters: the scout-deliverable path must not become "no PR
+// The half of atqamz/hand#129's fix that matters: the scout-deliverable path must not become "no PR
 // and some file exists". This task carries a report next to a commit nobody landed, and the commit is
 // what keeps the refusal. A guard that only checked for the report would throw the commit away.
 func TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened(t *testing.T) {
@@ -825,7 +825,7 @@ func TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened(t *testing.T) {
 
 // A promoted scout keeps its report on disk while its row turns into a ship, so a task that then merged
 // locally has every shape the scout-deliverable path reads: report present, no PR, and a branch that was
-// fast-forwarded in and so adds no commit. It landed as a merge - the inverse of atqamz/secondhand#78.
+// fast-forwarded in and so adds no commit. It landed as a merge - the inverse of atqamz/hand#78.
 func TestTeardownRecordsMergedWhenALocallyMergedShipRowKeptItsScoutReport(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -892,7 +892,7 @@ func TestTeardownStillRefusesAMergedShipRowWithNoPRToConfirm(t *testing.T) {
 	}
 }
 
-// The central case for atqamz/secondhand#78: a contribution offered to a repo this fleet does not control.
+// The central case for atqamz/hand#78: a contribution offered to a repo this fleet does not control.
 // Landing it is the upstream maintainer's decision, so the PR stays open indefinitely and the fake gh
 // reports that. Teardown accepts it without --force and records delivered - a merge nobody made is the risk.
 func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
@@ -932,7 +932,7 @@ func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
 }
 
 // A task filed as a ship whose deliverable was a report, no branch and no commit behind it - the shape
-// a misfiled kind produces (atqamz/secondhand#129). The delivered state keys off the delivery, not off
+// a misfiled kind produces (atqamz/hand#129). The delivered state keys off the delivery, not off
 // Kind, so this tears down cleanly without anyone having to correct the kind first.
 func TestTeardownAcceptsDeliveredWorkWithNoPRRegardlessOfKind(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
@@ -1239,7 +1239,7 @@ func diverge(t *testing.T, worktree, readmeContent string) {
 	runGitIn(t, worktree, "checkout", "-q", "task-1-branch")
 }
 
-// atqamz/secondhand#79's safe case: the worktree's uncommitted edit to README.md reproduces
+// atqamz/hand#79's safe case: the worktree's uncommitted edit to README.md reproduces
 // byte-for-byte content main already carries (the no-mistakes gate's own re-edit of a file its merged
 // fix already covers), so discarding it on teardown loses nothing.
 func TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase(t *testing.T) {
@@ -1484,7 +1484,7 @@ func TestTeardownRefusesDirtWithUntrackedFileEvenWhenTrackedChangeMatchesBase(t 
 	}
 }
 
-// The refusal's git status dump is bounded (atqamz/secondhand#65 is the same lesson for report
+// The refusal's git status dump is bounded (atqamz/hand#65 is the same lesson for report
 // rendering): the first 20 entries print, the rest collapse to a count.
 func TestTeardownRefusalCapsGitStatusOutput(t *testing.T) {
 	home, worktree := setupTeardownHome(t)

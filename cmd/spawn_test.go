@@ -213,7 +213,7 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 }
 
-// Pins atqamz/secondhand#118: the plain-labelled "myproj" workspace here sorts first in "workspace list"
+// Pins atqamz/hand#118: the plain-labelled "myproj" workspace here sorts first in "workspace list"
 // and would have won the old bare-label lookup, so hand must resolve to its own "hand:myproj" whatever
 // the order, never one it did not create (how a human's workspace collides: internal/faketool/FIDELITY.md).
 const fakeHerdrTwoWorkspacesOneLabelScript = `#!/bin/sh
@@ -583,7 +583,7 @@ func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {
 }
 
 // Answers "workspace create" as a herdr predating the tab/root_pane fields would, reporting the workspace
-// and omitting both - the partial-response shape atqamz/secondhand#74 fixes. It accepts and logs
+// and omitting both - the partial-response shape atqamz/hand#74 fixes. It accepts and logs
 // "workspace close" too, since the workspace exists by then and a test could otherwise pass unfixed.
 const fakeHerdrPartialWorkspaceCreateScript = `#!/bin/sh
 echo "$@" >> "$HERDR_CALL_LOG"

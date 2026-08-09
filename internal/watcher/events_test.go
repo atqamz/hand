@@ -342,7 +342,7 @@ func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
 		t.Fatalf("got %+v ts=%+v, want report-needs-decision", e, ts)
 	}
 
-	line = state.ParseReportLine("done: PR https://github.com/atqamz/secondhand/pull/31 checks green")
+	line = state.ParseReportLine("done: PR https://github.com/atqamz/hand/pull/31 checks green")
 	e = ClassifyReportLine(home, ts, task, line)
 	if e == nil || e.Kind != KindReportDone {
 		t.Fatalf("got %+v, want report-done", e)

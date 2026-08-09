@@ -17,7 +17,7 @@ const realBriefFixture = `You are a crewmate: an autonomous worker agent managed
 
 Record a minimum supported treehouse version in the README. This is a one-line documentation change. Do not expand it.
 
-Issue: https://github.com/atqamz/secondhand/issues/41. Read it, including the most recent comment, which narrows the issue to exactly this.
+Issue: https://github.com/atqamz/hand/issues/41. Read it, including the most recent comment, which narrows the issue to exactly this.
 
 ## Background (verified by the first mate)
 

@@ -76,7 +76,7 @@ func setLimitRetryAt(t *testing.T, home, id string, at time.Time) {
 	}
 }
 
-// The behavior atqamz/secondhand#136 asks for, end to end through tick: a worker whose harness stopped
+// The behavior atqamz/hand#136 asks for, end to end through tick: a worker whose harness stopped
 // on a usage limit is detected, recorded, steered once its schedule comes due, and released the moment
 // it is running again. Recognising the message is only the first of the four.
 func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {

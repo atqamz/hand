@@ -130,7 +130,7 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 // started working.
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
 	// The same `send:<id>` lock hand send holds, because two writers racing one composer is the lost
-	// steer atqamz/secondhand#102 traced. TryLock, never Lock: a tick must not block behind an operator's
+	// steer atqamz/hand#102 traced. TryLock, never Lock: a tick must not block behind an operator's
 	// whole --wait, and an operator send landing right now is itself the thing that ends the limit.
 	release, err := state.TryLock(cfg.Home, "send:"+t.ID)
 	if err != nil {

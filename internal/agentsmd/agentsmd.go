@@ -186,7 +186,7 @@ var (
 
 	// Stripped from a line before it is tested above: a date in a quoted example or a
 	// URL is not an incident, and flagging it anyway is the false positive that gets a
-	// checker ignored (atqamz/secondhand#90).
+	// checker ignored (atqamz/hand#90).
 	inlineCodeRe = regexp.MustCompile("`[^`]*`")
 	urlRe        = regexp.MustCompile(`https?://\S+`)
 )

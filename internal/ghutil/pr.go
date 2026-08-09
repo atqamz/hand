@@ -16,7 +16,7 @@ import (
 
 // PRIsMerged reports whether the PR is merged. gh writes warnings to stderr ahead of the JSON, so the
 // payload must be read from stdout alone; CombinedOutput here corrupts the parse
-// (atqamz/secondhand#21).
+// (atqamz/hand#21).
 func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "state")
 	var stderr bytes.Buffer
@@ -103,7 +103,7 @@ func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarge
 
 	// A merged PR coexisting with an open one refuses too: the open PR is live evidence the branch
 	// may still carry unlanded work. Guessing here is what let cmd/teardown.go's landed-work guard
-	// trust a merged PR while the branch's real state was closed-unmerged (atqamz/secondhand#77).
+	// trust a merged PR while the branch's real state was closed-unmerged (atqamz/hand#77).
 	if len(mergedPRs) > 0 && len(openPRs) > 0 {
 		return "", false, false, ambiguousPRError(branch, results)
 	}

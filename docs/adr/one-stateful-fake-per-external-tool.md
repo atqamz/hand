@@ -2,8 +2,8 @@
 
 - Date: 2026-08-04
 - Status: accepted
-- Issues: atqamz/secondhand#40
-- PRs: atqamz/secondhand#158
+- Issues: atqamz/hand#40
+- PRs: atqamz/hand#158
 
 ## Context
 

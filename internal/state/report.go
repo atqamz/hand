@@ -78,7 +78,7 @@ func ParseReportLine(line string) ReportLine {
 
 // How far a task's report channel has been consumed. A worker reporting with a truncating redirect
 // rewrites the file in place rather than appending, and a rewrite whose length happens to equal the
-// offset leaves every quantity the offset alone can offer identical (atqamz/secondhand#149).
+// offset leaves every quantity the offset alone can offer identical (atqamz/hand#149).
 type ReportCursor struct {
 	Offset int64
 	// What tells that same-length rewrite apart: it still sits just past a final newline with nothing
@@ -98,7 +98,7 @@ func (c ReportCursor) covers(data []byte) bool {
 	}
 	// An empty digest is a cursor persisted before hand recorded one, so the check falls back to the
 	// newline boundary every persisted offset sits on: an offset whose preceding byte is not a newline
-	// points into the middle of a line a longer rewrite replaced (atqamz/secondhand#140).
+	// points into the middle of a line a longer rewrite replaced (atqamz/hand#140).
 	return c.Offset == 0 || data[c.Offset-1] == '\n'
 }
 
@@ -222,9 +222,9 @@ func TerminalReport(s string) bool {
 // durable report cursor is the marker: the poll loop advances it only after a tick's events are
 // announced, and every announcement reaches state/events.log and the notify hook.
 func UnacknowledgedTerminalReport(homeDir, id string, cur ReportCursor) (bool, error) {
-	// So a terminal line still past that cursor has reached nobody (atqamz/secondhand#70). A cursor the
+	// So a terminal line still past that cursor has reached nobody (atqamz/hand#70). A cursor the
 	// file's content no longer supports covers nothing, so a rewritten channel is read whole - the
-	// length-preserving rewrite included, whose `done:` no watcher announced (atqamz/secondhand#149).
+	// length-preserving rewrite included, whose `done:` no watcher announced (atqamz/hand#149).
 	data, base, err := readReport(ReportPath(homeDir, id), cur)
 	if err != nil {
 		return false, err

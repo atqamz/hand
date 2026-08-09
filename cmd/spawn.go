@@ -234,7 +234,7 @@ func gatePreflight(cmd *cobra.Command, proj project.Project, clonePath string, s
 
 // The label hand gives, and searches for, a project's shared workspace. A bare project name is not a
 // safe search key: herdr derives a workspace's label from its root directory's basename, so any
-// workspace a human opens under a directory named after the project carries it (atqamz/secondhand#118).
+// workspace a human opens under a directory named after the project carries it (atqamz/hand#118).
 func herdrWorkspaceLabel(projName string) string {
 	// Prefixed the same way worktree.Get's pool name already does ("hand:"+id), so the label is one only
 	// hand itself would ever set and a same-labelled workspace hand did not create can never match, no

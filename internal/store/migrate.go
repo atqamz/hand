@@ -95,7 +95,7 @@ func readLegacyTask(path, id string) (Task, error) {
 	}
 	// A file predating the pane-start column carries no such key, so the import lands as an
 	// INSERT the backfill never sees. Same CASE as that backfill, so a task promoted before
-	// either existed gets its own pane's start, not atqamz/secondhand#128's false one.
+	// either existed gets its own pane's start, not atqamz/hand#128's false one.
 	if t.PaneStartedAt == "" {
 		t.PaneStartedAt = t.StatusChangedAt
 		if t.PaneStartedAt == "" {

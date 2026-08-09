@@ -2,7 +2,7 @@
 
 - Date: 2026-08-04
 - Status: accepted
-- Issues: atqamz/secondhand#92, atqamz/secondhand#97
+- Issues: atqamz/hand#92, atqamz/hand#97
 - PRs: none single
 
 ## Context

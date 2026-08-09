@@ -12,7 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// Proves the bug atqamz/secondhand#30 and atqamz/secondhand#32 set out to kill: herdr's idle and done are
+// Proves the bug atqamz/hand#30 and atqamz/hand#32 set out to kill: herdr's idle and done are
 // the same "pane stopped being busy" signal (see herdr.Status's doc comment for why), so a working -> idle
 // transition right after a "needs-decision" report must never be classified as done.
 func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
@@ -133,7 +133,7 @@ func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
 	waitForInvocation(t, herdrLog, "herdr pane get pane-1", 5*time.Second)
 
-	// Two live samples from atqamz/secondhand#140, verbatim: both were announced as "malformed report"
+	// Two live samples from atqamz/hand#140, verbatim: both were announced as "malformed report"
 	// carrying a mid-word fragment of themselves, and neither contains anything a parser could object to.
 	notes := []string{
 		"reading the ghutil call sites for --head",
@@ -202,7 +202,7 @@ func TestWatchDoneRewrittenToTheSameLengthReachesVerifiedDone(t *testing.T) {
 
 	// The `done:` variant is the one that costs a completion: the deferred verification is gated on the last
 	// recorded report state, so a skipped done means a scout that finished is never announced as finished
-	// (atqamz/secondhand#149).
+	// (atqamz/hand#149).
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(done), 0o644); err != nil {
 		t.Fatal(err)
 	}

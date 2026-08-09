@@ -523,7 +523,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 }
 
 // The report tail with the entry the report field already shows dropped - repeating it was the core of
-// atqamz/secondhand#65, doubling the cost of every terminal report. --full keeps the tail whole.
+// atqamz/hand#65, doubling the cost of every terminal report. --full keeps the tail whole.
 func historyBlock(v taskView, tail []state.ReportLine, full bool) []string {
 	// Which entry the report field shows. Found rather than assumed last: with the unacknowledged flag
 	// applied that line is the classified terminal report, which the worker may have followed with text.
