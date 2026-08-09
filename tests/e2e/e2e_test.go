@@ -274,6 +274,9 @@ func newHome(t *testing.T) string {
 	if got := runHand(t, home, "init"); got.code != 0 {
 		t.Fatalf("hand init: exit %d, stderr %q", got.code, got.stderr)
 	}
+	// E2E deliberately has no ambient supervisor harness. Ordinary dispatch
+	// scenarios choose their worker harness explicitly, as a real fleet does.
+	handConfigSet(t, home, "harness", "claude")
 	return home
 }
 

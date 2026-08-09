@@ -211,6 +211,9 @@ func TestSessionStartRefusesWorkerRole(t *testing.T) {
 // mutate external state.
 func TestSpawnWithUnknownHarnessRefusesBeforeAcquisition(t *testing.T) {
 	home := newHome(t)
+	if err := os.Remove(filepath.Join(home, "config", "harness")); err != nil {
+		t.Fatal(err)
+	}
 	registerProject(t, home, "demo", "local-only")
 	writeBrief(t, home, "task-1")
 	if err := os.MkdirAll(filepath.Join(home, "projects", "demo"), 0o755); err != nil {
