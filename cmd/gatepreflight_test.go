@@ -189,6 +189,7 @@ func TestSpawnSkipGateCheckBypassesRefusalAndWarns(t *testing.T) {
 }
 
 func TestPromoteRefusesWhenNoMistakesGateNotInitialized(t *testing.T) {
+	t.Setenv("HAND_HARNESS", "unknown")
 	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")
 	home := setupPromoteHomeGate(t, path)
 

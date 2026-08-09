@@ -63,6 +63,19 @@ func newPromoteCmd() *cobra.Command {
 				return &ExitError{Err: fmt.Errorf("brief not found at %s", briefRel), Code: 3}
 			}
 
+			proj, exists, err := project.Find(home, t.Project)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
+			}
+
+			clonePath := filepath.Join(home, "projects", proj.Name)
+			if err := gatePreflight(cmd, proj, clonePath, skipGateCheck); err != nil {
+				return err
+			}
+
 			harnessFromFlag := harnessName != ""
 			if !harnessFromFlag {
 				cfg, err := currentWorkerConfig(home)
@@ -76,18 +89,6 @@ func newPromoteCmd() *cobra.Command {
 			}
 			if !harness.IsSupported(harnessName) {
 				return usageValue(harnessFromFlag, fmt.Errorf("harness %q not recognized", harnessName))
-			}
-			proj, exists, err := project.Find(home, t.Project)
-			if err != nil {
-				return err
-			}
-			if !exists {
-				return &ExitError{Err: fmt.Errorf("project %q not registered", t.Project), Code: 3}
-			}
-
-			clonePath := filepath.Join(home, "projects", proj.Name)
-			if err := gatePreflight(cmd, proj, clonePath, skipGateCheck); err != nil {
-				return err
 			}
 
 			var briefHasFrontMatter bool
