@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func assertExitCode2(t *testing.T, err error) {

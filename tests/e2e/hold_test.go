@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/state"
 )
 
 type fleetStatus struct {

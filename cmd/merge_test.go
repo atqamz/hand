@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/faketool"
-	"github.com/atqamz/secondhand/internal/ghutil"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestResolveMergeMethodDefaultsToSquash(t *testing.T) {
@@ -142,7 +142,7 @@ func TestMergeRefusesWhenNoPRRecorded(t *testing.T) {
 	}
 }
 
-// Covers the gap noted in atqamz/secondhand#69: a gate-opened PR can populate t.PR without hand having
+// Covers the gap noted in atqamz/hand#69: a gate-opened PR can populate t.PR without hand having
 // merged it, so t.PR != "" no longer implies hand hasn't seen it land yet.
 func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 	home := t.TempDir()

@@ -14,15 +14,12 @@
       packages = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in {
           default = pkgs.buildGoModule {
-            pname = "secondhand";
+            pname = "hand";
             inherit version;
             src = ./.;
             vendorHash = "sha256-v84XwEQIPE8kqHDOhWcOS9pwk+ebjRJ/3XFuuwa0+aU=";
             ldflags = [ "-s" "-w" "-X main.version=v${version}" ];
             nativeCheckInputs = [ pkgs.git ]; # test suite execs git directly
-            # buildGoModule names the output after the module (secondhand);
-            # every other build path (Makefile, .gitignore) expects hand.
-            postInstall = "mv $out/bin/secondhand $out/bin/hand";
             meta.mainProgram = "hand";
           };
         }

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/ghutil"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // ValidatePR is the single gate every PR URL passes before it is recorded on a task, from

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/watcher"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
 // Fakes "workspace list" as a query command per internal/herdr/client.go's call() doc comment: a non-null

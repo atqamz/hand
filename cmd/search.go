@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/store"
 	"github.com/spf13/cobra"
 )
 

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 )
 
 // Drives the fake into herdr's failure shape for `pane get` - an error envelope on stdout with exit 0,
@@ -174,7 +174,7 @@ func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
 	return home
 }
 
-// Proves the working->idle fix (atqamz/secondhand#30, atqamz/secondhand#32, atqamz/secondhand#33)
+// Proves the working->idle fix (atqamz/hand#30, atqamz/hand#32, atqamz/hand#33)
 // against the spelling hand's headless polling observes: herdr renders working/blocked->idle as "done",
 // not "idle", unless a live OS-focused client has that tab active then (see herdr.Status's doc).
 func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testing.T) {
@@ -244,7 +244,7 @@ func TestTickRecordsVerifiedDoneOnlyOnceReportedDoneIsVerified(t *testing.T) {
 
 	home := setupWatcherHome(t, state.Task{
 		ID: "task-1", Project: "nsr", Kind: state.KindShip,
-		PR: "https://github.com/atqamz/secondhand/pull/1", MergeExecuted: true,
+		PR: "https://github.com/atqamz/hand/pull/1", MergeExecuted: true,
 		Herdr: state.Herdr{PaneID: "p1"},
 	})
 
@@ -256,7 +256,7 @@ func TestTickRecordsVerifiedDoneOnlyOnceReportedDoneIsVerified(t *testing.T) {
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/secondhand/pull/1 checks green\n"), 0o644); err != nil {
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/hand/pull/1 checks green\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	buf.Reset()
@@ -412,7 +412,7 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 	writeFakeGh(t, "OPEN")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -422,7 +422,7 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/secondhand/pull/31 checks green\n"), 0o644); err != nil {
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/hand/pull/31 checks green\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	buf.Reset()
@@ -436,7 +436,7 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.PR != "https://github.com/atqamz/secondhand/pull/31" {
+	if task.PR != "https://github.com/atqamz/hand/pull/31" {
 		t.Fatalf("task.PR = %q, want the embedded URL auto-recorded", task.PR)
 	}
 }
@@ -447,8 +447,8 @@ func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "OPEN")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/secondhand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -458,7 +458,7 @@ func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/secondhand/pull/99 checks green\n"), 0o644); err != nil {
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR https://github.com/atqamz/hand/pull/99 checks green\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	tick(ctx, cfg, client, states, &buf, io.Discard)
@@ -467,7 +467,7 @@ func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.PR != "https://github.com/atqamz/secondhand/pull/1" {
+	if task.PR != "https://github.com/atqamz/hand/pull/1" {
 		t.Fatalf("task.PR = %q, want the already-recorded PR left untouched", task.PR)
 	}
 }
@@ -481,7 +481,7 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 	writeFakeGh(t, "OPEN")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -529,7 +529,7 @@ func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
 	writeFakeGh(t, "OPEN")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -568,7 +568,7 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	writeFakeGh(t, "OPEN")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -578,7 +578,7 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	var buf, errBuf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, &errBuf)
 
-	url := "https://github.com/atqamz/secondhand/pull/7"
+	url := "https://github.com/atqamz/hand/pull/7"
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -628,9 +628,9 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
-	url := "https://github.com/atqamz/secondhand/pull/7"
+	url := "https://github.com/atqamz/hand/pull/7"
 	// The holder's write has to land after tick's own state.List snapshot, or the pre-existing "task
 	// already has a PR" guard absorbs the URL and the contention path under test is never reached -
 	// which is what made an earlier version of this test vacuous.
@@ -702,9 +702,9 @@ func TestTickReportsAnUnreadableTaskWhenTheLockIsContended(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
-	url := "https://github.com/atqamz/secondhand/pull/7"
+	url := "https://github.com/atqamz/hand/pull/7"
 	corrupt := filepath.Join(t.TempDir(), "corrupt.db")
 	if err := os.WriteFile(corrupt, []byte("this is not a database"), 0o644); err != nil {
 		t.Fatal(err)
@@ -752,7 +752,7 @@ func TestTickAnnouncesPRMergedBeforePersistingIt(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "MERGED")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/secondhand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -806,7 +806,7 @@ func TestTickDoesNotReannounceAPollObservedMergeAfterRestart(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "MERGED")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/secondhand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -904,7 +904,7 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 }
 
 // A `done:` rewrite landing on the byte count of the `working:` line before it was skipped outright
-// (atqamz/secondhand#149): the offset still sat just past the final newline with nothing after it, so
+// (atqamz/hand#149): the offset still sat just past the final newline with nothing after it, so
 // nothing was announced, LastReportState stayed `working`, and ClassifyDeferredDone - gated on it - never ran.
 func TestTickAnnouncesADoneRewrittenToTheSameLengthAcrossARestart(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
@@ -1686,7 +1686,7 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 	writeFakeGhFailingMultiline(t)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
-	registerProject(t, home, "nsr", "https://github.com/atqamz/secondhand.git")
+	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -1696,7 +1696,7 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 	var buf, errBuf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, &errBuf)
 
-	url := "https://github.com/atqamz/secondhand/pull/7"
+	url := "https://github.com/atqamz/hand/pull/7"
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: "+url+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2012,7 +2012,7 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	}
 }
 
-// Covers atqamz/secondhand#85: a caller that only wants to wake on blocked must not be woken by a
+// Covers atqamz/hand#85: a caller that only wants to wake on blocked must not be woken by a
 // routine idle-unreported transition, but the filtered-out event still has to reach events.log exactly
 // like a baseline tick's events already do - the filter gates the wake, not the record.
 func TestRunUntilEventFiltersWakesToTheRequestedKinds(t *testing.T) {
@@ -2407,7 +2407,7 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	}
 }
 
-// Covers atqamz/secondhand#81's hard part: a task whose very first sighting finds its pane unreachable
+// Covers atqamz/hand#81's hard part: a task whose very first sighting finds its pane unreachable
 // must not be dropped (the old !tracked branch's bare continue), but a probe failure that clears before
 // the dwell matures - a blink - must produce nothing at all.
 func TestTickStaysSilentOnABlinkAtFirstSighting(t *testing.T) {

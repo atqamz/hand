@@ -12,8 +12,8 @@ import (
 // call below is read-only: nothing in a contract run may open, close or merge a
 // real PR, so `pr merge` is recorded in FIDELITY.md and left unexercised here.
 const (
-	ghRepo      = "atqamz/secondhand"
-	ghRepoCased = "AtqaMZ/SecondHand"
+	ghRepo      = "atqamz/hand"
+	ghRepoCased = "AtqaMZ/Hand"
 	ghMergedPR  = "154"
 	ghMergedRef = "136-usage-limit-resume"
 )
@@ -36,7 +36,7 @@ func TestGHPRListAnswersAnEmptyArrayForABranchWithNoPR(t *testing.T) {
 	}
 }
 
-// The slug case atqamz/secondhand#147 fixed: gh serves a repo under any casing and answers with
+// The slug case atqamz/hand#147 fixed: gh serves a repo under any casing and answers with
 // the canonical one, so a comparison against a git remote has to fold case.
 func TestGHServesARepoUnderAnyCasingAndAnswersCanonically(t *testing.T) {
 	requireGH(t)

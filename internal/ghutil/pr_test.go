@@ -91,7 +91,7 @@ func TestFindPRByBranchReturnsMatch(t *testing.T) {
 	}
 }
 
-// The atqamz/secondhand#77 regression: a branch carrying a merged PR alongside a closed-unmerged
+// The atqamz/hand#77 regression: a branch carrying a merged PR alongside a closed-unmerged
 // one (a duplicate opened by mistake, say) must resolve to the merged PR rather than an arbitrary
 // pick.
 func TestFindPRByBranchPrefersMergedOverClosedUnmerged(t *testing.T) {
@@ -208,7 +208,7 @@ func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
 
 // Fakes `gh pr list` for a fork search, dispatching on the --repo argument the old single-body
 // fake ignored: without that, no test can express "the PR is on repo B while the project's repo is
-// A", and a fork test would pass against a shape gh never returns (atqamz/secondhand#40).
+// A", and a fork test would pass against a shape gh never returns (atqamz/hand#40).
 func writeFakeGHPRListPerRepo(t *testing.T, bodies map[string]string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -259,7 +259,7 @@ func forkTargets() []PRSearchTarget {
 	return []PRSearchTarget{{Repo: "me/repo"}, {Repo: "up/repo", HeadRepo: "me/repo"}}
 }
 
-// The atqamz/secondhand#134 regression: a fork contribution's PR lives on the declared upstream,
+// The atqamz/hand#134 regression: a fork contribution's PR lives on the declared upstream,
 // so searching the project's own repo alone finds nothing.
 func TestFindPRByBranchFindsUpstreamPRForFork(t *testing.T) {
 	writeFakeGHPRListPerRepo(t, map[string]string{
@@ -362,14 +362,14 @@ func TestRepoSlugFromRemote(t *testing.T) {
 		slug   string
 		ok     bool
 	}{
-		{"https://github.com/atqamz/secondhand", "atqamz/secondhand", true},
-		{"https://github.com/atqamz/secondhand.git", "atqamz/secondhand", true},
-		{"git@github.com:atqamz/secondhand.git", "atqamz/secondhand", true},
-		{"ssh://git@github.com/atqamz/secondhand.git", "atqamz/secondhand", true},
+		{"https://github.com/atqamz/hand", "atqamz/hand", true},
+		{"https://github.com/atqamz/hand.git", "atqamz/hand", true},
+		{"git@github.com:atqamz/hand.git", "atqamz/hand", true},
+		{"ssh://git@github.com/atqamz/hand.git", "atqamz/hand", true},
 		{"local", "", false},
-		{"https://gitlab.com/atqamz/secondhand", "", false},
+		{"https://gitlab.com/atqamz/hand", "", false},
 		{"https://github.com/atqamz", "", false},
-		{"https://github.com/atqamz/secondhand/extra", "", false},
+		{"https://github.com/atqamz/hand/extra", "", false},
 		{"", "", false},
 	}
 	for _, c := range cases {

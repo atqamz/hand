@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/age"
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/age"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -523,7 +523,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 }
 
 // The report tail with the entry the report field already shows dropped - repeating it was the core of
-// atqamz/secondhand#65, doubling the cost of every terminal report. --full keeps the tail whole.
+// atqamz/hand#65, doubling the cost of every terminal report. --full keeps the tail whole.
 func historyBlock(v taskView, tail []state.ReportLine, full bool) []string {
 	// Which entry the report field shows. Found rather than assumed last: with the unacknowledged flag
 	// applied that line is the classified terminal report, which the worker may have followed with text.

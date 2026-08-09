@@ -7,17 +7,17 @@ import (
 )
 
 func TestGateRunPRsCollectsCompletedRunPRs(t *testing.T) {
-	fakeNoMistakes(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/120\n"+
+	fakeNoMistakes(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/120\n"+
 		"  running      74-workspace-leak    b2f584f9  2026-08-03 04:20\n")
 
 	prs, err := GateRunPRs(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prs["https://github.com/atqamz/secondhand/pull/120"] {
+	if !prs["https://github.com/atqamz/hand/pull/120"] {
 		t.Fatal("expected a completed run's own recorded PR URL to be collected")
 	}
-	if prs["https://github.com/atqamz/secondhand/pull/999"] {
+	if prs["https://github.com/atqamz/hand/pull/999"] {
 		t.Fatal("expected no entry for a PR no completed run recorded")
 	}
 }
@@ -25,13 +25,13 @@ func TestGateRunPRsCollectsCompletedRunPRs(t *testing.T) {
 // Covers a run that recorded a PR URL but never reached completed - running or failed both leave
 // the gate un-cleared for that commit, so neither should count as evidence a run happened.
 func TestGateRunPRsIgnoresNonCompletedRuns(t *testing.T) {
-	fakeNoMistakes(t, "  failed       97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/120\n")
+	fakeNoMistakes(t, "  failed       97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/120\n")
 
 	prs, err := GateRunPRs(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prs["https://github.com/atqamz/secondhand/pull/120"] {
+	if prs["https://github.com/atqamz/hand/pull/120"] {
 		t.Fatal("a failed run must not count as gate coverage even though it recorded the PR URL")
 	}
 }
@@ -60,7 +60,7 @@ func TestGateRunPRsMissingBinary(t *testing.T) {
 	}
 }
 
-// Covers the uninitialized gate and atqamz/secondhand#60's stale renamed working_path, which print
+// Covers the uninitialized gate and atqamz/hand#60's stale renamed working_path, which print
 // this text identically. An empty run set would claim the PR never went through a gate run, when
 // in truth no-mistakes was never asked - the state it answers from still holds those runs.
 func TestGateRunPRsNotInitializedIsAnError(t *testing.T) {

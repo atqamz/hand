@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/selfupdate"
 )
 
 // Fakes "release view --jq" as real gh's --jq flattens its JSON to the raw field value on stdout
@@ -22,7 +22,13 @@ import (
 func writeFakeGHReleaseView(t *testing.T, tag string) {
 	t.Helper()
 	bin := t.TempDir()
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s' %q\n", tag)
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" != "release" ] || [ "$2" != "view" ] || [ "$3" != "--repo" ] || [ "$4" != "atqamz/hand" ]; then
+  echo "unexpected gh invocation: $@" >&2
+  exit 1
+fi
+printf '%%s' %q
+`, tag)
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

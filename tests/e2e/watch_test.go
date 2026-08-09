@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Drives `hand watch` as a background process against two seeded tasks and asserts on its actual contract:
@@ -280,7 +280,7 @@ func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 	}
 }
 
-// The bug atqamz/secondhand#127 tracks, exercised through a real restart rather than through the latch
+// The bug atqamz/hand#127 tracks, exercised through a real restart rather than through the latch
 // alone: a done task's report file never grows again, so the silence parked fired against stays frozen, and
 // a re-derived latch re-announces it on every re-arm.
 func TestWatchDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {

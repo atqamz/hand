@@ -3,13 +3,13 @@ package state
 import "testing"
 
 func TestValidatePRURLAcceptsCanonicalForm(t *testing.T) {
-	if !ValidatePRURL("https://github.com/atqamz/secondhand/pull/31") {
+	if !ValidatePRURL("https://github.com/atqamz/hand/pull/31") {
 		t.Fatal("want canonical PR URL to validate")
 	}
 }
 
 func TestValidatePRURLAgainstDogfoodDoneLine(t *testing.T) {
-	urls := FindPRURLs("done: PR https://github.com/atqamz/secondhand/pull/31 checks green")
+	urls := FindPRURLs("done: PR https://github.com/atqamz/hand/pull/31 checks green")
 	if len(urls) != 1 {
 		t.Fatalf("got %+v", urls)
 	}
@@ -20,15 +20,15 @@ func TestValidatePRURLAgainstDogfoodDoneLine(t *testing.T) {
 
 func TestValidatePRURLRejectsMalformed(t *testing.T) {
 	cases := []string{
-		"http://github.com/atqamz/secondhand/pull/31",
-		"https://github.com/atqamz/secondhand/pull/31/files",
-		"https://github.com/atqamz/secondhand/pull/",
-		"https://github.com/atqamz/secondhand/pull/31 ",
-		" https://github.com/atqamz/secondhand/pull/31",
-		"https://github.com/atqamz/secondhand/issues/31",
-		"https://not-github.com/atqamz/secondhand/pull/31",
-		"https://github.com.evil.com/atqamz/secondhand/pull/31",
-		"https://github.com/atqamz/secondhand/pull/31; rm -rf /",
+		"http://github.com/atqamz/hand/pull/31",
+		"https://github.com/atqamz/hand/pull/31/files",
+		"https://github.com/atqamz/hand/pull/",
+		"https://github.com/atqamz/hand/pull/31 ",
+		" https://github.com/atqamz/hand/pull/31",
+		"https://github.com/atqamz/hand/issues/31",
+		"https://not-github.com/atqamz/hand/pull/31",
+		"https://github.com.evil.com/atqamz/hand/pull/31",
+		"https://github.com/atqamz/hand/pull/31; rm -rf /",
 		"https://github.com/atqamz/pull/31",
 		"",
 	}
@@ -40,8 +40,8 @@ func TestValidatePRURLRejectsMalformed(t *testing.T) {
 }
 
 func TestParsePRURLExtractsSlug(t *testing.T) {
-	slug, ok := ParsePRURL("https://github.com/atqamz/secondhand/pull/31")
-	if !ok || slug != "atqamz/secondhand" {
+	slug, ok := ParsePRURL("https://github.com/atqamz/hand/pull/31")
+	if !ok || slug != "atqamz/hand" {
 		t.Fatalf("got slug=%q ok=%v", slug, ok)
 	}
 }
@@ -69,7 +69,7 @@ func TestFindPRURLsSkipsURLWithAdjacentPunctuation(t *testing.T) {
 func TestFindPRURLsAgainstDogfoodDoneLine(t *testing.T) {
 	lines := splitDogfoodLines(t)
 	urls := FindPRURLs(lines[2])
-	if len(urls) != 1 || urls[0] != "https://github.com/atqamz/secondhand/pull/31" {
+	if len(urls) != 1 || urls[0] != "https://github.com/atqamz/hand/pull/31" {
 		t.Fatalf("got %+v, want exactly the one embedded PR URL", urls)
 	}
 	if urls := FindPRURLs(lines[0]); len(urls) != 0 {

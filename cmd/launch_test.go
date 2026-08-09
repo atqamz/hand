@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/hand/internal/herdr"
 )
 
 // Shrinks confirmLaunch's poll window for the rest of the test, so a command test costs milliseconds
@@ -220,7 +220,7 @@ func TestConfirmLaunch(t *testing.T) {
 			wantKeys: "Enter\nDown\nEnter\n",
 		},
 		{
-			// atqamz/secondhand#28's actual timeline: the pane starts as a bash prompt echoing the launch
+			// atqamz/hand#28's actual timeline: the pane starts as a bash prompt echoing the launch
 			// command, claude comes up a beat later on the trust dialog, then settles.
 			name:    "a dialog that appears after a cold start is still answered",
 			harness: "claude",

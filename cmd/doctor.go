@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/atqamz/secondhand/internal/agentsmd"
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/home"
+	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/home"
 	"github.com/spf13/cobra"
 )
 

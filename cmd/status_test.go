@@ -11,10 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 )
 
 // Fakes "pane get" as a query command per internal/herdr/client.go's call() doc: a non-null result
@@ -255,7 +255,7 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 	}
 }
 
-// hand status's half of atqamz/secondhand#69: a task whose PR a no-mistakes gate opened directly
+// hand status's half of atqamz/hand#69: a task whose PR a no-mistakes gate opened directly
 // (bypassing hand pr) still shows the PR, once status looks it up by branch.
 func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
@@ -509,7 +509,7 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 
 // A worker that appends `paused:` and leaves its harness running used to render
 // as a bare `working`: the column showed the pane and hid the only party that
-// said why. One of the two live symptoms atqamz/secondhand#89 names.
+// said why. One of the two live symptoms atqamz/hand#89 names.
 func TestStatusFleetCarriesAPausedReportThroughABusyPane(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -536,7 +536,7 @@ func TestStatusFleetCarriesAPausedReportThroughABusyPane(t *testing.T) {
 	}
 }
 
-// The second live symptom in atqamz/secondhand#89: an hours-old figure sitting
+// The second live symptom in atqamz/hand#89: an hours-old figure sitting
 // next to a status file touched minutes earlier, which reads as a stalled
 // worker that is in fact reporting.
 func TestStatusFleetDwellTimeFollowsTheReportFileNotTheTaskAge(t *testing.T) {
@@ -706,7 +706,7 @@ func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#65: a worker's report prose has run 2.7-4.3 KB for a
+// atqamz/hand#65: a worker's report prose has run 2.7-4.3 KB for a
 // single task, and hand status rendered it in full - the point of this test.
 func TestTruncateReportLineKeepsVocabularyPrefixIntactUnderAnAdversarialBudget(t *testing.T) {
 	line := state.ParseReportLine("done: " + strings.Repeat("x", 500))
@@ -742,7 +742,7 @@ func TestTruncateReportLineDoesNotSplitAMultibyteRune(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#65's core complaint: hand status <id> printed the latest
+// atqamz/hand#65's core complaint: hand status <id> printed the latest
 // report twice, once under Reported: and again as the last entry of Report
 // history. This asserts the fix at the command level, not just the helper.
 func TestStatusSingleTaskTruncatesALongReportedLineAndPointsAtTheFile(t *testing.T) {
@@ -1442,7 +1442,7 @@ func TestStatusFleetEmptyJSONCarriesACount(t *testing.T) {
 }
 
 // An empty fleet must never read as "nothing to see" when a hold is still open on a torn-down
-// task's id - the exact false-all-clear atqamz/secondhand#63 guards against.
+// task's id - the exact false-all-clear atqamz/hand#63 guards against.
 func TestStatusFleetEmptyStillShowsHeldBlock(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1486,14 +1486,14 @@ func writeDoneReport(t *testing.T, home, id, note string) {
 	}
 }
 
-const gateRunTestPR = "https://github.com/atqamz/secondhand/pull/120"
+const gateRunTestPR = "https://github.com/atqamz/hand/pull/120"
 
 func TestStatusFleetFlagsShippedPRWithNoGateRun(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
-	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n"))
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
 		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -1518,7 +1518,7 @@ func TestStatusFleetJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
-	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n"))
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
 		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -1619,7 +1619,7 @@ func TestStatusSingleTaskFlagsShippedPRWithNoGateRun(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
-	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n"))
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
 		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -1644,7 +1644,7 @@ func TestStatusSingleTaskJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
-	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n"))
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n"))
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
 		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -1710,7 +1710,7 @@ func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
 	countFile := filepath.Join(t.TempDir(), "calls")
-	t.Setenv("PATH", countingNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/secondhand/pull/999\n", countFile))
+	t.Setenv("PATH", countingNoMistakesPath(t, "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n", countFile))
 
 	for _, id := range []string{"task-1", "task-2", "task-3"} {
 		if err := state.Write(home, state.Task{ID: id, Project: "gated", Kind: state.KindShip,
@@ -1850,7 +1850,7 @@ func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
 	}
 }
 
-// The whole point of atqamz/secondhand#70: a worker that finished while nobody was
+// The whole point of atqamz/hand#70: a worker that finished while nobody was
 // attached has to be visible in the next hand status, not only in the stream of the
 // watcher that was not running.
 func TestStatusFleetFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
@@ -2114,7 +2114,7 @@ func TestUnacknowledgedAnswersForTheStateTheRowPrints(t *testing.T) {
 }
 
 // The watcher leaves an unterminated line for its next tick, so a done written without a trailing
-// newline has been announced to nobody. Flagging it is the whole of atqamz/secondhand#70; skipping it
+// newline has been announced to nobody. Flagging it is the whole of atqamz/hand#70; skipping it
 // would let the same silent completion back in through the newline.
 func TestStatusFleetFlagsATerminalReportWithNoTrailingNewline(t *testing.T) {
 	home := t.TempDir()

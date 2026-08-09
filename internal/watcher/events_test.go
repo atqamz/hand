@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Covers herdr's two spellings of "pane stopped being busy" - see herdr.Status's doc for why idle
@@ -342,7 +342,7 @@ func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
 		t.Fatalf("got %+v ts=%+v, want report-needs-decision", e, ts)
 	}
 
-	line = state.ParseReportLine("done: PR https://github.com/atqamz/secondhand/pull/31 checks green")
+	line = state.ParseReportLine("done: PR https://github.com/atqamz/hand/pull/31 checks green")
 	e = ClassifyReportLine(home, ts, task, line)
 	if e == nil || e.Kind != KindReportDone {
 		t.Fatalf("got %+v, want report-done", e)

@@ -131,19 +131,19 @@ qmd vsearch "how did we handle the deploy failure" -c secondhand
 From a release, the way most installs should go:
 
 ```sh
-curl -fsSLO https://github.com/atqamz/secondhand/releases/latest/download/hand-linux-amd64.tar.gz
+curl -fsSLO https://github.com/atqamz/hand/releases/latest/download/hand-linux-amd64.tar.gz
 tar xzf hand-linux-amd64.tar.gz
 install -m755 hand ~/.local/bin/hand
 ```
 
 Releases carry `hand-linux-amd64`, `hand-linux-arm64`, `hand-darwin-amd64` and `hand-darwin-arm64` as `.tar.gz`, alongside a `checksums.txt` to verify against.
-The [releases page](https://github.com/atqamz/secondhand/releases) lists every asset.
+The [releases page](https://github.com/atqamz/hand/releases) lists every asset.
 
 From nix, either into your profile or for a single command:
 
 ```sh
-nix profile install github:atqamz/secondhand
-nix shell github:atqamz/secondhand -c hand --version
+nix profile install github:atqamz/hand
+nix shell github:atqamz/hand -c hand --version
 ```
 
 The flake covers `aarch64-darwin`, `aarch64-linux` and `x86_64-linux`.
@@ -152,11 +152,11 @@ On Intel macOS, use a release binary or `go install`.
 From Go:
 
 ```sh
-go install github.com/atqamz/secondhand@latest
+go install github.com/atqamz/hand@latest
 ```
 
-That produces a binary named `secondhand`, not `hand`, and embeds no version, so it prints `dev` and never reports available updates.
-Rename it or prefer a release asset.
+That embeds no version, so it prints `dev` and never reports available updates.
+Prefer a release asset for a versioned build.
 
 To build a checkout - the path for working on secondhand itself - see [CONTRIBUTING.md](CONTRIBUTING.md).
 

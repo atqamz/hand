@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/agentsmd"
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/harness"
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/shellquote"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/shellquote"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
 

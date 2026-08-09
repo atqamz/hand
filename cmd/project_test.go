@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestValidateProjectName(t *testing.T) {
@@ -332,7 +332,7 @@ func TestProjectListQuotesAURLRatherThanLettingItSplitTheRow(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
-	url := "https://github.com/atqamz/secondhand.git"
+	url := "https://github.com/atqamz/hand.git"
 	if err := project.Add(home, project.Project{Name: "secondhand", URL: url, Mode: project.ModeNoMistakes}); err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // The clone is redirected to a GitHub URL via git's insteadOf mechanism, so

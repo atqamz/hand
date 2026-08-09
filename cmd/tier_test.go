@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/harness"
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/spf13/cobra"
 )
 

@@ -10,9 +10,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/atomicfile"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/shellquote"
+	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/shellquote"
 )
 
 const (
@@ -186,7 +186,7 @@ var (
 
 	// Stripped from a line before it is tested above: a date in a quoted example or a
 	// URL is not an incident, and flagging it anyway is the false positive that gets a
-	// checker ignored (atqamz/secondhand#90).
+	// checker ignored (atqamz/hand#90).
 	inlineCodeRe = regexp.MustCompile("`[^`]*`")
 	urlRe        = regexp.MustCompile(`https?://\S+`)
 )

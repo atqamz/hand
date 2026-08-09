@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/agentsmd"
 )
 
 // The shell-quoted first message a harness launches with. The operator-decision rule is a paragraph

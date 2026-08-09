@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/ghutil"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Looks for a PR whose head ref is t's current branch, for a task whose PR was never recorded because a
-// no-mistakes gate opened it directly instead of going through hand pr (atqamz/secondhand#69). Called only
+// no-mistakes gate opened it directly instead of going through hand pr (atqamz/hand#69). Called only
 // where t.PR == "" already, so a task with a PR on record never reaches here.
 func detectPR(ctx context.Context, home string, t state.Task, proj project.Project) (state.Task, error) {
 	branch, err := currentBranch(t.Worktree)
@@ -28,7 +28,7 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 	// twice and make every PR its own same-tier duplicate.
 	if proj.Upstream != "" && !strings.EqualFold(proj.Upstream, repoSlug) {
 		// A fork project's PR lives on the upstream while hand pushes the branch to the fork
-		// (atqamz/secondhand#78), so the upstream is searched too, restricted to head refs in the fork - it
+		// (atqamz/hand#78), so the upstream is searched too, restricted to head refs in the fork - it
 		// also carries same-named branches from every other contributor's fork.
 		targets = append(targets, ghutil.PRSearchTarget{Repo: proj.Upstream, HeadRepo: repoSlug})
 	}

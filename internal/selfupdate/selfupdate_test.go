@@ -107,7 +107,7 @@ func buildFixture(t *testing.T, binaryContent []byte) string {
 
 func TestLatestTag(t *testing.T) {
 	writeFakeGH(t, "v0.5.0", t.TempDir())
-	tag, err := LatestTag("atqamz/secondhand")
+	tag, err := LatestTag("atqamz/hand")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestApplyReplacesRunningBinary(t *testing.T) {
 	ExecutableOverride = func() (string, error) { return execPath, nil }
 	defer func() { ExecutableOverride = restore }()
 
-	if err := Apply("atqamz/secondhand", "v0.5.0"); err != nil {
+	if err := Apply("atqamz/hand", "v0.5.0"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -191,7 +191,7 @@ func TestApplyLeavesNoStagedFileWhenExtractionFails(t *testing.T) {
 	ExecutableOverride = func() (string, error) { return execPath, nil }
 	defer func() { ExecutableOverride = restore }()
 
-	if err := Apply("atqamz/secondhand", "v0.5.0"); err == nil {
+	if err := Apply("atqamz/hand", "v0.5.0"); err == nil {
 		t.Fatal("want error when the asset is not a valid archive")
 	}
 

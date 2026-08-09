@@ -4,7 +4,7 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 build:
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o hand .
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" .
 
 test:
 	go test -race ./...

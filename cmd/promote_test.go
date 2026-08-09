@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/harness"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Covers the herdr calls a clean promote makes, same void-command-as-envelope simplification as

@@ -11,7 +11,7 @@ func TestCheckNoticeSkipsWithoutStateDir(t *testing.T) {
 	home := t.TempDir()
 	writeFakeGH(t, "v0.5.0", t.TempDir())
 
-	if notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0"); notice != "" {
+	if notice := CheckNotice(home, "atqamz/hand", "v0.1.0"); notice != "" {
 		t.Fatalf("got %q, want empty notice without state dir", notice)
 	}
 }
@@ -23,7 +23,7 @@ func TestCheckNoticeReturnsMessageWhenNewer(t *testing.T) {
 	}
 	writeFakeGH(t, "v0.5.0", t.TempDir())
 
-	notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0")
+	notice := CheckNotice(home, "atqamz/hand", "v0.1.0")
 	want := "A new version of hand is available: v0.1.0 -> v0.5.0\nRun \"hand update\" to update"
 	if notice != want {
 		t.Fatalf("got %q, want %q", notice, want)
@@ -37,7 +37,7 @@ func TestCheckNoticeEmptyWhenUpToDate(t *testing.T) {
 	}
 	writeFakeGH(t, "v0.1.0", t.TempDir())
 
-	if notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0"); notice != "" {
+	if notice := CheckNotice(home, "atqamz/hand", "v0.1.0"); notice != "" {
 		t.Fatalf("got %q, want empty notice when up to date", notice)
 	}
 }
@@ -64,7 +64,7 @@ func TestCheckNoticeUsesFreshCacheWithoutCallingGH(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0")
+	notice := CheckNotice(home, "atqamz/hand", "v0.1.0")
 	want := "A new version of hand is available: v0.1.0 -> v0.5.0\nRun \"hand update\" to update"
 	if notice != want {
 		t.Fatalf("got %q, want %q", notice, want)
@@ -85,7 +85,7 @@ func TestCheckNoticeRefreshesStaleCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0")
+	notice := CheckNotice(home, "atqamz/hand", "v0.1.0")
 	want := "A new version of hand is available: v0.1.0 -> v0.6.0\nRun \"hand update\" to update"
 	if notice != want {
 		t.Fatalf("got %q, want %q", notice, want)
@@ -99,7 +99,7 @@ func TestCheckNoticeEmptyWhenGHUnreachable(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 
-	if notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0"); notice != "" {
+	if notice := CheckNotice(home, "atqamz/hand", "v0.1.0"); notice != "" {
 		t.Fatalf("got %q, want empty notice when gh unreachable", notice)
 	}
 }
@@ -111,7 +111,7 @@ func TestCheckNoticeCachesFailedCheck(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 
-	if notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0"); notice != "" {
+	if notice := CheckNotice(home, "atqamz/hand", "v0.1.0"); notice != "" {
 		t.Fatalf("got %q, want empty notice when gh unreachable", notice)
 	}
 
@@ -127,7 +127,7 @@ func TestCheckNoticeCachesFailedCheck(t *testing.T) {
 	}
 
 	writeFakeGH(t, "v0.5.0", t.TempDir())
-	if notice := CheckNotice(home, "atqamz/secondhand", "v0.1.0"); notice != "" {
+	if notice := CheckNotice(home, "atqamz/hand", "v0.1.0"); notice != "" {
 		t.Fatalf("got %q, want empty notice while the failed check is still cached", notice)
 	}
 }
@@ -147,7 +147,7 @@ func TestCheckNoticeSkipsUnparseableCurrentVersion(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	if notice := CheckNotice(home, "atqamz/secondhand", "dev"); notice != "" {
+	if notice := CheckNotice(home, "atqamz/hand", "dev"); notice != "" {
 		t.Fatalf("got %q, want empty notice for an unversioned build", notice)
 	}
 	if _, err := os.Stat(filepath.Join(home, "state", cacheFile)); err == nil {

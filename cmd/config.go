@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/atomicfile"
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/harness"
-	"github.com/atqamz/secondhand/internal/home"
+	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/home"
 	"github.com/spf13/cobra"
 )
 

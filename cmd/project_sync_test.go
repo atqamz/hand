@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/project"
+	"github.com/atqamz/hand/internal/project"
 )
 
 func runGitIn(t *testing.T, dir string, args ...string) {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/brief"
-	"github.com/atqamz/secondhand/internal/harness"
+	"github.com/atqamz/hand/internal/brief"
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +34,7 @@ func resolveTier(cmd *cobra.Command, home, briefAbs, harnessName, model, effort 
 	}
 
 	// One line per launch rather than one per dropped value: consecutive warnings all naming the
-	// same harness read as separate problems (atqamz/secondhand#151).
+	// same harness read as separate problems (atqamz/hand#151).
 	if len(dropped) > 0 {
 		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: harness %q cannot carry %s; launching anyway\n", harnessName, strings.Join(dropped, ", ")); err != nil {
 			return "", "", false, err

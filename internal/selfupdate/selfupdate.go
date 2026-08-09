@@ -17,7 +17,7 @@ import (
 	"strings"
 )
 
-const Repo = "atqamz/secondhand"
+const Repo = "atqamz/hand"
 
 const binaryName = "hand"
 

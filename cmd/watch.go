@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/watcher"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/watcher"
 	"github.com/spf13/cobra"
 )
 

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/notify"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/notify"
 	"github.com/spf13/cobra"
 )
 

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/atqamz/secondhand/internal/shellquote"
+	"github.com/atqamz/hand/internal/shellquote"
 	_ "modernc.org/sqlite"
 )
 
@@ -26,7 +26,7 @@ const (
 	HoldKindBlocked  = "blocked"
 	// HoldKindLimit is the one machine-set kind: hand watch sets it when a worker's
 	// harness stops on a usage limit and clears it when the worker runs again, so
-	// `hand hold set` refuses it (atqamz/secondhand#136).
+	// `hand hold set` refuses it (atqamz/hand#136).
 	HoldKindLimit = "limit"
 )
 
@@ -98,16 +98,16 @@ type Task struct {
 	LeaseID string `json:"lease_id"`
 	// Set when landing the work belongs outside the fleet - an upstream maintainer, or a
 	// deliverable that is a report, not a commit. Terminal without MergeExecuted's claim that
-	// it landed (atqamz/secondhand#78). Reason required, so the record says what and to whom.
+	// it landed (atqamz/hand#78). Reason required, so the record says what and to whom.
 	DeliveredAt     string `json:"delivered_at"`
 	DeliveredReason string `json:"delivered_reason"`
 	// When this task's pane began, written by spawn and restamped by hand promote. Unlike
 	// StatusChangedAt, which the outage-dwell clock restamps for an unreachable pane, one field
-	// cannot mean both pane-start and last-observed transition (atqamz/secondhand#128).
+	// cannot mean both pane-start and last-observed transition (atqamz/hand#128).
 	PaneStartedAt string `json:"pane_started_at"`
 	// The silence instant hand watch last fired `parked` against. Durable: a terminal task's
 	// report file never grows, so a re-derived latch would re-fire that frozen instant every
-	// restart and evict real history from events.log (atqamz/secondhand#127).
+	// restart and evict real history from events.log (atqamz/hand#127).
 	ParkedFiredFor string `json:"parked_fired_for"`
 	// The earliest instant hand watch may next try to resume a worker its harness stopped on a usage
 	// limit. Non-empty is what makes a task limited; the `limit` hold is the operator-visible
@@ -115,13 +115,13 @@ type Task struct {
 	UsageLimitRetryAt string `json:"usage_limit_retry_at"`
 	// How many such attempts have been made. Both are durable because a re-derived schedule lets every
 	// watcher restart attempt immediately against an account still limited - the retry storm this is
-	// bounded to avoid - and a restart that forgot it never resumes at all (atqamz/secondhand#136).
+	// bounded to avoid - and a restart that forgot it never resumes at all (atqamz/hand#136).
 	UsageLimitAttempts int `json:"usage_limit_attempts"`
 }
 
 // Upstream is the "owner/repo" a fork project opens its PRs against, empty when it contributes to
 // its own repo. A fork has two repos, the one URL names and the one its PRs live on, and only a
-// declared upstream tells that pair from an unauthorized one (atqamz/secondhand#78).
+// declared upstream tells that pair from an unauthorized one (atqamz/hand#78).
 type Project struct {
 	Name     string
 	URL      string

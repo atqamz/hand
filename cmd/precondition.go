@@ -3,9 +3,9 @@ package cmd
 import (
 	"errors"
 
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // These package errors are precondition failures rather than general errors. The imported packages

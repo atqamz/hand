@@ -3,7 +3,7 @@ package state
 import (
 	"errors"
 
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/store"
 )
 
 // ErrHoldNotFound is wrapped into errors returned by ClearHold when no hold

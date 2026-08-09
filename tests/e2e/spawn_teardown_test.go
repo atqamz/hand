@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/completion"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/completion"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Drives a full spawn -> refused teardown -> local merge -> successful teardown cycle through the built

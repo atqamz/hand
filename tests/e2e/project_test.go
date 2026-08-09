@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/project"
+	"github.com/atqamz/hand/internal/project"
 )
 
 // Drives add -> list -> sync (fast-forward) -> remove through the built binary against a real local git

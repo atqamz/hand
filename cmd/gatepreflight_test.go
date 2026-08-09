@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/project"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Writes a fake no-mistakes binary that answers every subcommand with the same text, mirroring the
@@ -117,7 +117,7 @@ func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 	return home
 }
 
-// Stands in for both real histories from atqamz/secondhand#60 (a never-initialized project, and one
+// Stands in for both real histories from atqamz/hand#60 (a never-initialized project, and one
 // whose working_path went stale after the fleet home was renamed): both were checked against the real
 // binary and emit the same status text, so one refusal test covers both.
 func TestSpawnRefusesWhenNoMistakesGateNotInitialized(t *testing.T) {
@@ -205,7 +205,7 @@ func TestPromoteRefusesWhenNoMistakesGateNotInitialized(t *testing.T) {
 	}
 }
 
-// Pins the ordering from atqamz/secondhand#156: a gate refusal must preempt launch warnings because
+// Pins the ordering from atqamz/hand#156: a gate refusal must preempt launch warnings because
 // no launch will occur.
 func TestPromoteGateRefusalWarnsNothingAboutTheLaunch(t *testing.T) {
 	path := fakeNoMistakesPath(t, "repo not initialized (run 'no-mistakes init' first)")

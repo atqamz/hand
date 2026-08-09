@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/store"
 )
 
 func TestDeriveName(t *testing.T) {
@@ -407,7 +407,7 @@ func fakeNoMistakesExit(t *testing.T, stdout string, code int) {
 }
 
 func TestGateStatusReady(t *testing.T) {
-	fakeNoMistakes(t, "    repo:  /home/atqa/secondhand/projects/secondhand\n  remote:  git@github.com:atqamz/secondhand.git\n    gate:  /home/atqa/.no-mistakes/repos/0b474f2021dd.git\n  daemon:  running\n\n  no active run")
+	fakeNoMistakes(t, "    repo:  /home/atqa/secondhand/projects/secondhand\n  remote:  git@github.com:atqamz/hand.git\n    gate:  /home/atqa/.no-mistakes/repos/0b474f2021dd.git\n  daemon:  running\n\n  no active run")
 
 	got, err := GateStatus(t.TempDir())
 	if err != nil {
@@ -418,7 +418,7 @@ func TestGateStatusReady(t *testing.T) {
 	}
 }
 
-// Covers both real histories from atqamz/secondhand#60 at once: a project never given a
+// Covers both real histories from atqamz/hand#60 at once: a project never given a
 // no-mistakes init, and one whose working_path went stale when the fleet home was renamed. Both
 // print this text byte-for-byte, so a second test on the same literal asserts nothing.
 func TestGateStatusNotInitialized(t *testing.T) {
@@ -448,7 +448,7 @@ func TestGateStatusMissingBinaryIsDistinctFromNotInitialized(t *testing.T) {
 	}
 }
 
-// Covers atqamz/secondhand#97's first clone-path outcome: clonePath exists but isn't a git
+// Covers atqamz/hand#97's first clone-path outcome: clonePath exists but isn't a git
 // repository. no-mistakes status still exits 0 printing this text verbatim, so without the branch
 // GateStatus falls through to GateReady and lets a caller dispatch into an uncovered project.
 func TestGateStatusNotGitRepo(t *testing.T) {
@@ -467,7 +467,7 @@ func TestGateStatusNotGitRepo(t *testing.T) {
 	}
 }
 
-// Covers atqamz/secondhand#97's second clone-path outcome: clonePath does not exist, so
+// Covers atqamz/hand#97's second clone-path outcome: clonePath does not exist, so
 // exec.Command's chdir fails before the binary runs. Without the os.Stat check this read as "binary
 // not found or not runnable" - true in the letter, misleading in substance.
 func TestGateStatusMissingClonePath(t *testing.T) {

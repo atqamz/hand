@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/store"
 )
 
 func writeCorpusFile(t *testing.T, home, rel, body string) {

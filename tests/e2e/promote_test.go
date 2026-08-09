@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Drives `hand promote` through the built binary: the brief-missing failure path first, then a clean

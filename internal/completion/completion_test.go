@@ -44,7 +44,7 @@ func TestListMissingStore(t *testing.T) {
 	}
 }
 
-// The storage half of atqamz/secondhand#61's "uncapped, or capped somewhere other
+// The storage half of atqamz/hand#61's "uncapped, or capped somewhere other
 // than the display layer" requirement.
 func TestAppendUncapped(t *testing.T) {
 	dir := t.TempDir()
@@ -104,7 +104,7 @@ func TestListSkipsDamagedLine(t *testing.T) {
 	}
 }
 
-// The concurrency guarantee the brief for atqamz/secondhand#61 requires explaining: two Append calls
+// The concurrency guarantee the brief for atqamz/hand#61 requires explaining: two Append calls
 // racing must never lose either line, unlike state/events.log's read-modify-write pattern over the
 // whole file.
 func TestAppendConcurrent(t *testing.T) {

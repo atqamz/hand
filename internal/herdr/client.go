@@ -23,7 +23,7 @@ func NewClient() *Client {
 }
 
 // The harness-identity variables a pane must never inherit from the herdr server it is a child of
-// (atqamz/secondhand#109). A server inside a Claude Code session passes its own session identity
+// (atqamz/hand#109). A server inside a Claude Code session passes its own session identity
 // down, and CLAUDE_CODE_CHILD_SESSION disables the pane's transcript - a worker's only record.
 var sanitizedEnvKeys = []string{"CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE"}
 

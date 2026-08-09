@@ -2,7 +2,7 @@
 
 - Date: 2026-08-04
 - Status: accepted
-- Issues: atqamz/secondhand#111, atqamz/secondhand#48, atqamz/secondhand#78, atqamz/secondhand#128, atqamz/secondhand#136
+- Issues: atqamz/hand#111, atqamz/hand#48, atqamz/hand#78, atqamz/hand#128, atqamz/hand#136
 - PRs: none single
 
 ## Context

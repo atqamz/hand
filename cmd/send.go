@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/axi"
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/home"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +60,7 @@ func newSendCmd() *cobra.Command {
 			}
 
 			// Serializes concurrent sends to the same task: two retry loops racing against the same busy
-			// composer is the exact hazard atqamz/secondhand#102 traced a lost steer to. A second send waits
+			// composer is the exact hazard atqamz/hand#102 traced a lost steer to. A second send waits
 			// behind the first, its own --wait clock starting only once it holds this lock.
 			release, err := state.Lock(home, "send:"+id)
 			if err != nil {

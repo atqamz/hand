@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/atqamz/secondhand/internal/store"
+	"github.com/atqamz/hand/internal/store"
 )
 
 // ErrTaskNotFound is wrapped into errors returned by Read and Delete when no

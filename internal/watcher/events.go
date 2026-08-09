@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/age"
-	"github.com/atqamz/secondhand/internal/herdr"
-	"github.com/atqamz/secondhand/internal/state"
+	"github.com/atqamz/hand/internal/age"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/state"
 )
 
 // Kind values classify an Event for stdout/log routing. There is deliberately no bare "done" kind -

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/state"
-	"github.com/atqamz/secondhand/internal/watcher"
+	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
-// Drives atqamz/secondhand#73 end to end with real processes, which is the only way to prove the contract
+// Drives atqamz/hand#73 end to end with real processes, which is the only way to prove the contract
 // that matters: a second watcher is refused rather than added to the fleet's pool of pollers, and
 // --takeover replaces a genuinely live incumbent that has to be signaled and reaped.
 func TestWatchIsASingletonPerFleetHome(t *testing.T) {

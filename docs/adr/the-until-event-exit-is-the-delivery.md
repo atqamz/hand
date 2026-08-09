@@ -3,7 +3,7 @@
 - Date: 2026-08-04
 - Status: accepted
 - Issues: none
-- PRs: atqamz/secondhand#125
+- PRs: atqamz/hand#125
 
 ## Context
 

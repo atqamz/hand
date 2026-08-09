@@ -2,8 +2,8 @@
 
 - Date: 2026-08-04
 - Status: superseded by [Supervisor bootstrap is an AGENTS.md contract](supervisor-bootstrap-is-an-agents-md-contract.md)
-- Issues: atqamz/secondhand#62, atqamz/secondhand#64
-- PRs: atqamz/secondhand#122
+- Issues: atqamz/hand#62, atqamz/hand#64
+- PRs: atqamz/hand#122
 
 ## Context
 

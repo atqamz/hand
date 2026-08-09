@@ -1,6 +1,6 @@
 package main
 
-import "github.com/atqamz/secondhand/cmd"
+import "github.com/atqamz/hand/cmd"
 
 var version = "dev"
 

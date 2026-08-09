@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/atqamz/secondhand/internal/harness"
-	"github.com/atqamz/secondhand/internal/herdr"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
 )
 
 // Holds confirmLaunch's timings. They are a package var rather than consts so tests can shrink the

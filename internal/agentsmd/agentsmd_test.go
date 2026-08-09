@@ -267,7 +267,7 @@ func TestThisRepoAgentsMdIsCurrentForDogfood(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#87's fix has to reach every worker without a new report-vocabulary word, since the
+// atqamz/hand#87's fix has to reach every worker without a new report-vocabulary word, since the
 // watcher's classifier and hand status's renderer were outside that change's scope: the working: prefix
 // plus a first-person convention was the only lever available.
 func TestGeneratedRulesCoverSelfDecidedCallsInFirstPerson(t *testing.T) {
@@ -280,7 +280,7 @@ func TestGeneratedRulesCoverSelfDecidedCallsInFirstPerson(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#114: a fleet agent following the template had no reason
+// atqamz/hand#114: a fleet agent following the template had no reason
 // to reach for hand hold, since every "waiting on" case routed through
 // data/backlog.md and hand send.
 func TestGeneratedRulesCoverHolds(t *testing.T) {
@@ -290,8 +290,8 @@ func TestGeneratedRulesCoverHolds(t *testing.T) {
 	}
 }
 
-// atqamz/secondhand#47: the four files hand init seeds are inert unless the template says
-// who reads each one and when. atqamz/secondhand#64: the one direction data/ does not carry
+// atqamz/hand#47: the four files hand init seeds are inert unless the template says
+// who reads each one and when. atqamz/hand#64: the one direction data/ does not carry
 // has to be stated, or the agent invents a hand-written operator channel again.
 func TestGeneratedRulesCoverOperatorContextLearningsAndArchives(t *testing.T) {
 	instructions := strings.Join(SupervisorInstructions(), "\n")
