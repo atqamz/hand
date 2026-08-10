@@ -3,10 +3,8 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/home"
@@ -97,7 +95,7 @@ func newWatchCmd() *cobra.Command {
 			}
 			defer release()
 
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(cmd.Context(), watchSignals()...)
 			defer stop()
 
 			cfg := watcher.Config{
