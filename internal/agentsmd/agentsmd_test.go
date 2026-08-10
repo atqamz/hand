@@ -4,9 +4,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func withWindows(t *testing.T) {
+	t.Helper()
+	restore := isWindows
+	isWindows = func() bool { return true }
+	t.Cleanup(func() { isWindows = restore })
+}
 
 func makeWorkspace(t *testing.T) string {
 	t.Helper()
@@ -337,6 +345,50 @@ func TestRefreshDoesNotOverwriteExistingClaudeSymlink(t *testing.T) {
 	}
 }
 
+func TestRefreshWritesWindowsClaudeFileWhenMissing(t *testing.T) {
+	withWindows(t)
+	dir := makeWorkspace(t)
+
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Lstat(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("got CLAUDE.md as a symlink, want a regular file on Windows")
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != windowsClaudeContent {
+		t.Fatalf("got CLAUDE.md content %q, want %q", got, windowsClaudeContent)
+	}
+}
+
+func TestRefreshDoesNotOverwriteExistingWindowsClaudeFile(t *testing.T) {
+	withWindows(t)
+	dir := makeWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("custom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "custom\n" {
+		t.Fatalf("got CLAUDE.md content %q, want unchanged %q", got, "custom\n")
+	}
+}
+
 func hasViolation(violations []Violation, substr string) bool {
 	for _, v := range violations {
 		if strings.Contains(v.Text, substr) {
@@ -381,6 +433,60 @@ func TestCheckCleanRightAfterRefresh(t *testing.T) {
 	}
 	if len(violations) != 0 {
 		t.Fatalf("got %v, want no violations right after Refresh", violations)
+	}
+}
+
+func TestCheckCleanForWindowsClaudeFileRightAfterRefresh(t *testing.T) {
+	withWindows(t)
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	violations, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) != 0 {
+		t.Fatalf("got %v, want no violations for a correct Windows CLAUDE.md", violations)
+	}
+}
+
+func TestCheckFlagsMissingWindowsClaudeFile(t *testing.T) {
+	withWindows(t)
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	violations, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasViolation(violations, "CLAUDE.md is missing") {
+		t.Fatalf("got %v, want a missing CLAUDE.md violation", violations)
+	}
+}
+
+func TestCheckFlagsDriftedWindowsClaudeFile(t *testing.T) {
+	withWindows(t)
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("something else\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	violations, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasViolation(violations, "CLAUDE.md is not the Windows") {
+		t.Fatalf("got %v, want a drifted CLAUDE.md violation", violations)
 	}
 }
 
@@ -570,6 +676,9 @@ func TestCheckFlagsMissingGeneratedMarkers(t *testing.T) {
 }
 
 func TestCheckRemediationCommandsQuoteFleetHomeForPOSIXShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake hand is a POSIX shell script, not supported on windows")
+	}
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
 	for _, subdir := range []string{"data", "state"} {

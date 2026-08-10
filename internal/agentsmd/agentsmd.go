@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/atqamz/hand/internal/atomicfile"
@@ -21,7 +22,17 @@ const (
 
 	beginMarker = "<!-- hand:generated:start -->"
 	endMarker   = "<!-- hand:generated:end -->"
+
+	// Creating a symlink on Windows needs a privilege hand cannot assume is present, so
+	// Windows gets a regular file that points at AGENTS.md by content instead of by inode.
+	windowsClaudeContent = "@AGENTS.md\n"
 )
+
+// Overridable so both the symlink and the Windows regular-file paths through
+// Refresh and Check get real test coverage on every platform that runs the suite.
+var isWindows = func() bool {
+	return runtime.GOOS == "windows"
+}
 
 // OperatorDecisionRule is the one supervisor rule a worker needs wherever it runs, and a
 // worktree is never under the fleet home, so it never loads the home's AGENTS.md.
@@ -104,6 +115,12 @@ func Refresh(dir string) (bool, error) {
 	}
 
 	symlinkPath := filepath.Join(dir, symlinkName)
+	if isWindows() {
+		if err := writeWindowsClaudeFile(symlinkPath); err != nil {
+			return false, err
+		}
+		return refreshed, nil
+	}
 	if _, err := os.Lstat(symlinkPath); os.IsNotExist(err) {
 		if err := os.Symlink(filename, symlinkPath); err != nil {
 			return false, fmt.Errorf("create %s symlink: %w", symlinkName, err)
@@ -113,6 +130,20 @@ func Refresh(dir string) (bool, error) {
 	}
 
 	return refreshed, nil
+}
+
+// A CLAUDE.md that already exists, in any form, is left alone: the same rule
+// Refresh applies to an existing CLAUDE.md symlink on every other platform.
+func writeWindowsClaudeFile(path string) error {
+	if _, err := os.Lstat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check %s: %w", symlinkName, err)
+	}
+	if err := atomicfile.Write(path, ".claude.md-", []byte(windowsClaudeContent), 0o644); err != nil {
+		return fmt.Errorf("create %s: %w", symlinkName, err)
+	}
+	return nil
 }
 
 func generatedBlock() string {
@@ -302,7 +333,27 @@ func Check(dir string) ([]Violation, error) {
 		violations = append(violations, Violation{Text: fmt.Sprintf("generated block has drifted from generatedBody: run hand init %s to refresh", shellquote.Quote(dir))})
 	}
 
+	if isWindows() {
+		violations = append(violations, checkWindowsClaudeFile(dir)...)
+	}
+
 	return violations, nil
+}
+
+// Unix's CLAUDE.md is a symlink the filesystem itself keeps honest, so Check has never
+// had to look at it; Windows's copy is ordinary file content that can drift or go missing.
+func checkWindowsClaudeFile(dir string) []Violation {
+	path := filepath.Join(dir, symlinkName)
+	data, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err):
+		return []Violation{{Text: fmt.Sprintf("CLAUDE.md is missing: run hand init %s to restore it", shellquote.Quote(dir))}}
+	case err != nil:
+		return []Violation{{Text: fmt.Sprintf("read %s: %v", symlinkName, err)}}
+	case string(data) != windowsClaudeContent:
+		return []Violation{{Text: fmt.Sprintf("CLAUDE.md is not the Windows @AGENTS.md pointer: run hand init %s to restore it", shellquote.Quote(dir))}}
+	}
+	return nil
 }
 
 func firstBannedRune(line string) (rune, bool) {
