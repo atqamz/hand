@@ -13,7 +13,7 @@ import (
 
 func writeMessageTemplate(marker string) string {
 	if runtime.GOOS == "windows" {
-		return `> "` + marker + `" <nul set /p "=%HAND_MESSAGE%"`
+		return `<nul set /p "=%HAND_MESSAGE%" > "` + marker + `"`
 	}
 	return "printf '%s' \"$HAND_MESSAGE\" > '" + marker + "'"
 }
