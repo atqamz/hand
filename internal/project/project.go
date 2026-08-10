@@ -9,10 +9,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/store"
 )
@@ -31,7 +32,7 @@ var ErrNotFound = errors.New("not registered")
 type Project = store.Project
 
 func RegistryPath(homeDir string) string {
-	return homeDir + "/data/projects.md"
+	return filepath.Join(homeDir, "data", "projects.md")
 }
 
 // DeriveName extracts a project name from a git URL: the last path segment minus ".git".
@@ -364,12 +365,12 @@ func lockRegistry(homeDir string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("lock project registry: %w", err)
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err := filelock.Lock(lock, true); err != nil {
 		_ = lock.Close()
 		return nil, fmt.Errorf("lock project registry: %w", err)
 	}
 	return func() {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = filelock.Unlock(lock)
 		_ = lock.Close()
 	}, nil
 }

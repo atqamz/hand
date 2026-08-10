@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -43,7 +43,7 @@ func Acquire(homeDir string, takeover bool) (func(), error) {
 	}
 
 	if err := lockOwner(file); err != nil {
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
+		if !errors.Is(err, filelock.ErrBusy) {
 			_ = file.Close()
 			return nil, fmt.Errorf("lock %s: %w", path, err)
 		}
@@ -73,7 +73,7 @@ func contend(file *os.File, takeover bool) error {
 	// Never this process: in production a watcher acquires once, but an
 	// in-process caller that acquired already would otherwise signal itself.
 	if pid > 0 && pid != os.Getpid() {
-		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		if err := signalTerminate(pid); err != nil {
 			return fmt.Errorf("signal watcher pid %d: %w", pid, err)
 		}
 	}
@@ -84,7 +84,7 @@ func contend(file *os.File, takeover bool) error {
 		if err == nil {
 			return nil
 		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
+		if !errors.Is(err, filelock.ErrBusy) {
 			return fmt.Errorf("lock %s: %w", file.Name(), err)
 		}
 		if time.Now().After(deadline) {
@@ -99,14 +99,14 @@ func contend(file *os.File, takeover bool) error {
 }
 
 func lockOwner(file *os.File) error {
-	return syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	return filelock.Lock(file, false)
 }
 
 // Clears the pid before dropping the lock, so an operator reading state/watch.pid on an unwatched
 // home finds nothing rather than the number of a process that has exited.
 func releaseOwner(file *os.File) {
 	_ = file.Truncate(0)
-	_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	_ = filelock.Unlock(file)
 	_ = file.Close()
 }
 
