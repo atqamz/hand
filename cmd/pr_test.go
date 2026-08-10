@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -33,6 +34,9 @@ func addOriginRemote(t *testing.T, dir, url string) {
 
 func writeFakeGhPRView(t *testing.T, exitCode int) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\n"
 	if exitCode != 0 {

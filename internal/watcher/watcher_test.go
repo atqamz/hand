@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,9 @@ const paneGoneStatus = "pane-gone"
 // internal/herdr/client.go's call doc. Those failure paths belong to internal/herdr/client_test.go.
 func writeFakeHerdr(t *testing.T, statusFile string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	// The unexpected-args arm deliberately diverges - a bare stderr line and exit 1 - so a call shape
 	// no test anticipated fails loudly instead of parsing. "pane get" reads its status from statusFile,
@@ -89,6 +93,9 @@ func writeFakeGh(t *testing.T, prState string) {
 // at the instant that matters: after tick's state.List snapshot, before the auto-record re-reads.
 func writeFakeGhWithHook(t *testing.T, prState, hook string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	// Real gh prefixes its own warnings on stderr and PRIsMerged reads stdout alone, so the fake emits
 	// a stderr line too: a CombinedOutput regression there must fail this watcher path as well, not
@@ -1738,6 +1745,9 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 // written to stdout, as with the real tool on this path.
 func writeFakeGhFailingMultiline(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\nprintf 'error connecting to api.github.com\\ncheck your internet connection or https://githubstatus.com\\n' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
@@ -1903,6 +1913,9 @@ func TestHandleEventReportsAFailingNotifyTemplateToErrOut(t *testing.T) {
 }
 
 func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	// exit 1 with empty stdout is the faithful crashed-or-missing-binary shape, which call()'s
 	// empty-stdout-plus-runErr branch handles. A distinct shape from herdr's ordinary failure (exit 0
 	// plus an error envelope), and only this one means "unreachable".
@@ -2147,6 +2160,9 @@ func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
 }
 
 func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2163,6 +2179,9 @@ func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
 }
 
 func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\nsleep 5\nprintf '{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
@@ -2189,6 +2208,9 @@ func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
 }
 
 func TestRunUntilEventReportsNoEventWhenTheArmProbeHangs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := `#!/bin/sh
 case "$1 $2" in

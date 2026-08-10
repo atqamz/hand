@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -1082,6 +1083,9 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 }
 
 func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	home, worktree := setupTeardownHome(t)
 	writeScoutReport(t, home, "task-1")
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout, Worktree: worktree,
@@ -1134,6 +1138,9 @@ func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 }
 
 func TestTeardownClosesWorkspaceWhenLastTab(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	home, worktree := setupTeardownHome(t)
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
@@ -1176,6 +1183,9 @@ esac
 // fail the command: teardown's later steps can fault, and the retry that follows
 // finds exactly this state.
 func TestCloseTaskTabTreatsAbsentTabAsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
 case "$1 $2" in
@@ -1197,6 +1207,9 @@ esac
 }
 
 func TestCloseTaskTabClosesWorkspaceForSoleTab(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
 case "$1 $2" in

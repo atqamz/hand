@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -26,6 +27,9 @@ func fakeNoMistakesPath(t *testing.T, stdout string) string {
 // `no-mistakes status` exits 0 printing the same text.
 func fakeNoMistakesPathExit(t *testing.T, stdout string, code int) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake no-mistakes is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	// GateRunPRs reads the refusal from the text either way, so the fake reproduces the exit code rather
 	// than flattening every refusal to 0.
@@ -78,6 +82,9 @@ func setupSpawnHomeGate(t *testing.T, noMistakesPath string) string {
 // worktree.Get, so those three must be satisfied while nothing past gatePreflight needs to exist.
 func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	useFastLaunchPolling(t)
 	home := t.TempDir()
 

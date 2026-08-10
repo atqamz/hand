@@ -21,6 +21,9 @@ import (
 // shape - no envelope to reproduce here, unlike herdr's call()/callVoid().
 func writeFakeGHReleaseView(t *testing.T, tag string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := fmt.Sprintf(`#!/bin/sh
 if [ "$1" != "release" ] || [ "$2" != "view" ] || [ "$3" != "--repo" ] || [ "$4" != "atqamz/hand" ]; then

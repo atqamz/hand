@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode"
@@ -16,6 +17,9 @@ import (
 // output does.
 func writeFakeGHPRView(t *testing.T, state string, exitCode int, stderrLine string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\n"
 	if stderrLine != "" {
@@ -64,6 +68,9 @@ func TestPRIsMergedReportsExitStatusWithoutStderr(t *testing.T) {
 // the call site must fail the parse.
 func writeFakeGHPRList(t *testing.T, body string, exitCode int, stderrLine string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\n"
 	if stderrLine != "" {
@@ -211,6 +218,9 @@ func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
 // A", and a fork test would pass against a shape gh never returns (atqamz/hand#40).
 func writeFakeGHPRListPerRepo(t *testing.T, bodies map[string]string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 
 	// A qualified owner:branch --head value is refused below because real gh silently answers it

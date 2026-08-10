@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -162,6 +163,9 @@ func TestSessionStartMissingRequiredContextNamesPathAndRecovery(t *testing.T) {
 }
 
 func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake hand is a POSIX shell script, not supported on windows")
+	}
 	parent := t.TempDir()
 	home := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
 	mkFleetDirs(t, home)

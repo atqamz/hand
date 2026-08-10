@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -64,6 +65,9 @@ func TestValidateProjectMode(t *testing.T) {
 }
 
 func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake git is a POSIX shell script, not supported on windows")
+	}
 	home := t.TempDir()
 	bin := t.TempDir()
 	gitPath := filepath.Join(bin, "git")
@@ -86,6 +90,9 @@ func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
 }
 
 func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake git is a POSIX shell script, not supported on windows")
+	}
 	home := t.TempDir()
 	dest := filepath.Join(home, "projects", "repo")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
