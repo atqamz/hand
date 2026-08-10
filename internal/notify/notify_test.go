@@ -5,18 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
-)
 
-func writeMessageTemplate(marker string) string {
-	if runtime.GOOS == "windows" {
-		return `<nul set /p "=%HAND_MESSAGE%" > "` + marker + `"`
-	}
-	return "printf '%s' \"$HAND_MESSAGE\" > '" + marker + "'"
-}
+	"github.com/atqamz/hand/internal/shellquote"
+)
 
 func TestSendReturnsErrNotConfiguredWithNoTemplate(t *testing.T) {
 	home := t.TempDir()
@@ -48,7 +42,7 @@ func TestSendRunsTheTemplateWithTheMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := writeMessageTemplate(marker)
+	template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker)
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -72,9 +66,6 @@ func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	template := "echo boom >&2; exit 1"
-	if runtime.GOOS == "windows" {
-		template = "echo boom 1>&2 & exit /b 1"
-	}
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -92,15 +83,12 @@ func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 }
 
 func TestSendCountsADeliveryWhoseTemplateBackgroundsAChildAsDelivered(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("cmd.exe has no shell child syntax equivalent to POSIX backgrounding")
-	}
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := writeMessageTemplate(marker) + "; sleep 3 &"
+	template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker) + "; sleep 3 &"
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -43,7 +43,7 @@ func Send(home, message string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
 	defer cancel()
-	run := commandContext(ctx, command)
+	run := exec.CommandContext(ctx, "sh", "-c", command)
 	run.Env = append(os.Environ(), "HAND_MESSAGE="+message)
 	// Without WaitDelay, a template that backgrounds a child holding the output
 	// pipe keeps CombinedOutput waiting past the kill, defeating the timeout.
