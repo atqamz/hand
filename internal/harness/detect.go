@@ -5,13 +5,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
 const maxAncestorDepth = 8
 
+// ps does not exist on native Windows, so the lookup fails without ever
+// starting a process that is guaranteed to fail; markerHarness still applies.
 var processLookup = func(pid int) ([]byte, error) {
+	if runtime.GOOS == "windows" {
+		return nil, fmt.Errorf("process ancestry lookup is not supported on windows")
+	}
 	return exec.Command("ps", "-o", "ppid=,comm=,args=", "-p", strconv.Itoa(pid)).Output()
 }
 

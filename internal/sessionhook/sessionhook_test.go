@@ -244,6 +244,22 @@ func TestRemoveRecognizesMovedHandAndCurrentExecutableNames(t *testing.T) {
 	}
 }
 
+func TestRemoveRecognizesHandExeSuffix(t *testing.T) {
+	dir := mkHome(t)
+	writeSettings(t, dir, map[string]any{"hooks": map[string]any{event: []any{map[string]any{"hooks": []any{
+		map[string]any{"type": "command", "command": "/old/path/hand.exe status"},
+		map[string]any{"type": "command", "command": "/usr/bin/custom"},
+	}}}}})
+
+	changed, err := Remove(dir, "/new/path/hand.exe")
+	if err != nil || !changed {
+		t.Fatalf("Remove = %v, %v, want the hand.exe hook removed", changed, err)
+	}
+	if got := hookCommands(t, readSettings(t, dir)); !reflect.DeepEqual(got, []string{"/usr/bin/custom"}) {
+		t.Fatalf("commands = %v, want only the unrelated hook", got)
+	}
+}
+
 func TestRemoveIsIdempotent(t *testing.T) {
 	dir := mkHome(t)
 	writeSettings(t, dir, map[string]any{"hooks": map[string]any{event: []any{map[string]any{"hooks": []any{

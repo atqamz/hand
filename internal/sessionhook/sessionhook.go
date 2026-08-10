@@ -18,6 +18,7 @@ const (
 	settingsFile = "settings.json"
 	event        = "SessionStart"
 	toolName     = "hand"
+	toolNameExe  = "hand.exe"
 )
 
 // Removes owned hooks from dir/.claude/settings.json and reports whether the
@@ -175,14 +176,15 @@ func array(m map[string]any, key, path string) ([]any, error) {
 }
 
 // Splits a hook command into whatever follows the binary it runs. An entry is
-// ours when it names this binary or any binary called hand.
+// ours when it names this binary, or any binary called hand or hand.exe.
 func handArgs(line, exe string) (string, bool) {
 	trimmed := strings.TrimLeft(line, " \t")
 	first := trimmed
 	if i := strings.IndexAny(trimmed, " \t"); i >= 0 {
 		first = trimmed[:i]
 	}
-	if first == "" || (first != exe && filepath.Base(first) != toolName) {
+	base := filepath.Base(first)
+	if first == "" || (first != exe && base != toolName && base != toolNameExe) {
 		return "", false
 	}
 	return strings.TrimPrefix(trimmed, first), true
