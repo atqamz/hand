@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,9 @@ func TestIsNewerRejectsInvalidLatest(t *testing.T) {
 // the reason on stderr for a failure. runGH reads stdout only, so that split matters.
 func writeFakeGH(t *testing.T, tag, fixtureDir string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := fmt.Sprintf(`#!/bin/sh
 if [ "$1" = "release" ] && [ "$2" = "view" ]; then
@@ -113,6 +117,38 @@ func TestLatestTag(t *testing.T) {
 	}
 	if tag != "v0.5.0" {
 		t.Fatalf("got %q, want v0.5.0", tag)
+	}
+}
+
+func TestApplyRefusesOnWindowsWithoutDownloadingOrTouchingTheBinary(t *testing.T) {
+	restore := isWindows
+	isWindows = func() bool { return true }
+	t.Cleanup(func() { isWindows = restore })
+	t.Setenv("PATH", t.TempDir())
+
+	execDir := t.TempDir()
+	execPath := filepath.Join(execDir, "hand")
+	if err := os.WriteFile(execPath, []byte("old binary contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restoreExec := ExecutableOverride
+	ExecutableOverride = func() (string, error) { return execPath, nil }
+	t.Cleanup(func() { ExecutableOverride = restoreExec })
+
+	err := Apply("atqamz/hand", "v0.5.0")
+	if err == nil {
+		t.Fatal("want an error refusing self-update on windows")
+	}
+	if got := err.Error(); !strings.Contains(got, "atqamz/hand#200") {
+		t.Fatalf("got %q, want it to reference the tracked design issue", got)
+	}
+
+	got, readErr := os.ReadFile(execPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != "old binary contents" {
+		t.Fatalf("got %q, want the running binary left untouched", got)
 	}
 }
 

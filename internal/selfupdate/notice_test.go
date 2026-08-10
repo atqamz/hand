@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -43,6 +44,9 @@ func TestCheckNoticeEmptyWhenUpToDate(t *testing.T) {
 }
 
 func TestCheckNoticeUsesFreshCacheWithoutCallingGH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
 		t.Fatal(err)
@@ -133,6 +137,9 @@ func TestCheckNoticeCachesFailedCheck(t *testing.T) {
 }
 
 func TestCheckNoticeSkipsUnparseableCurrentVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	}
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
 		t.Fatal(err)
