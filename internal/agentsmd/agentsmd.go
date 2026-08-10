@@ -78,9 +78,9 @@ func SupervisorInstructions() []string {
 	return append([]string(nil), supervisorInstructions...)
 }
 
-// Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md symlink, reporting whether
-// the template content changed (false, nil when dir is not a fleet home, which is not an
-// error). Only the span between the markers is replaced, so user-added content survives.
+// Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md reference. It returns whether template
+// content changed, or false, nil if dir is not a fleet home. The reference is a symlink on Unix and
+// an @AGENTS.md pointer on Windows; marked-span replacement preserves user-added content.
 func Refresh(dir string) (bool, error) {
 	isHome, err := home.IsHome(dir)
 	if err != nil {

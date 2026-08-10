@@ -71,7 +71,7 @@ cd ~/fleet
 hand init
 ```
 
-`hand init` is non-interactive. It creates the fleet structure and writes a managed block into `AGENTS.md` telling any supervising harness to run `hand session start` before acting, with a `CLAUDE.md` symlink to the same file when that name is otherwise absent.
+`hand init` is non-interactive. It creates the fleet structure and writes a managed block into `AGENTS.md` telling any supervising harness to run `hand session start` before acting, with a `CLAUDE.md` reference when that name is otherwise absent. This is a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
 
 ### 3. Add a project
 
@@ -199,7 +199,7 @@ A fleet home is deliberately separate from the repositories being worked on.
 ```text
 ~/fleet/
 ├── AGENTS.md
-├── CLAUDE.md -> AGENTS.md
+├── CLAUDE.md
 ├── config/
 ├── data/
 │   ├── backlog.md
@@ -245,13 +245,15 @@ Building from source additionally requires Go 1.26.5 or newer.
 
 ### Release binary
 
-Release archives are available for Linux and macOS on AMD64 and ARM64, with `checksums.txt` alongside the assets.
+Release tar archives are available for Linux and macOS on AMD64 and ARM64. A ZIP archive is available for Windows AMD64. Every release includes `checksums.txt`.
 
 ```sh
 curl -fsSLO https://github.com/atqamz/hand/releases/latest/download/hand-linux-amd64.tar.gz
 tar xzf hand-linux-amd64.tar.gz
 install -m755 hand ~/.local/bin/hand
 ```
+
+On Windows, download `hand-windows-amd64.zip`, extract `hand.exe`, and place it on `PATH`.
 
 See the [releases page](https://github.com/atqamz/hand/releases) for every asset.
 
@@ -305,7 +307,7 @@ Running bare `hand` returns the resolved fleet home, worker configuration, and l
 
 ## Updating
 
-Release installations can update themselves:
+Release installations on Linux and macOS can update themselves:
 
 ```sh
 hand update
@@ -318,6 +320,8 @@ hand update --check
 ```
 
 When run inside a fleet home, an update also refreshes the generated section of `AGENTS.md` without overwriting your own additions. Other commands check for a newer release at most once a day and print a one-line notice when one is available.
+
+Self-update is not yet supported on Windows. Download the matching release archive and replace `hand.exe` manually.
 
 ## Architecture
 
