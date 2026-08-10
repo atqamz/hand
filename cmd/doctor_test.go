@@ -78,6 +78,12 @@ func TestDoctorTreatsMissingManagedMarkersAsViolation(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
+	// Refresh first so CLAUDE.md (a plain file on Windows, checked separately from
+	// AGENTS.md's markers) is already correct: the overwrite below isolates the one
+	// violation under test rather than also tripping the Windows-only CLAUDE.md check.
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"),
 		[]byte("# Hand-authored, no generated markers\n"), 0o644); err != nil {
 		t.Fatal(err)
