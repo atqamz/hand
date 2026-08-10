@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -432,10 +433,19 @@ func TestPathsLiveUnderTheStateDirectory(t *testing.T) {
 	}
 }
 
+func uriSpecialHome(t *testing.T) string {
+	t.Helper()
+	name := "fleet 100%#a?b"
+	if runtime.GOOS == "windows" {
+		name = "fleet 100%#a"
+	}
+	return filepath.Join(t.TempDir(), name)
+}
+
 // A fleet home can sit anywhere an operator put it, and the pragmas require a
-// file: URI, where `%`, `#` and `?` are syntax rather than filename.
+// file URI where `%`, `#`, and `?` are syntax. The host chooses valid filename bytes.
 func TestOpenHandlesAHomePathWithURISyntaxInIt(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "fleet 100%#a?b")
+	home := uriSpecialHome(t)
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +569,7 @@ func TestOpenReadOnlyRefusesNewerSchemaWithoutMutation(t *testing.T) {
 }
 
 func TestOpenReadOnlyHandlesURISpecialFleetPathWithoutMutation(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "fleet 100%#a?b")
+	home := uriSpecialHome(t)
 	db, err := Open(home)
 	if err != nil {
 		t.Fatal(err)

@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,6 +50,9 @@ func exited(text string) launchFrame { return launchFrame{text: text} }
 // out, and appends every key sent to a log the test reads back.
 func fakeLaunchPane(t *testing.T, frames ...launchFrame) (keyLog string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	dir := t.TempDir()
 	framesDir := filepath.Join(dir, "frames")
 	if err := os.MkdirAll(framesDir, 0o755); err != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,9 @@ esac
 
 func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	useFastLaunchPolling(t)
 	t.Setenv("HAND_HARNESS", harness.Claude)
 	home := t.TempDir()

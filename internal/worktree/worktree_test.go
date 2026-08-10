@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -16,6 +17,9 @@ import (
 // faketool.Treehouse instead, the shared pool fake.
 func writeFakeTreehouse(t *testing.T, script string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake treehouse is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	path := filepath.Join(bin, "treehouse")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {

@@ -11,11 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
@@ -89,7 +91,7 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 		"tool: hand\n",
 		"version: test\n",
 		"exec:",
-		"home: " + home + "\n",
+		"home: " + axi.Value(home) + "\n",
 		"supervisor_harness: codex\n",
 		"supervisor_harness_source: override\n",
 		"harness,detected,codex",
@@ -162,6 +164,9 @@ func TestSessionStartMissingRequiredContextNamesPathAndRecovery(t *testing.T) {
 }
 
 func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake hand is a POSIX shell script, not supported on windows")
+	}
 	parent := t.TempDir()
 	home := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
 	mkFleetDirs(t, home)

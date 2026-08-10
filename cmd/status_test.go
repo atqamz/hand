@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +23,9 @@ import (
 // (no fake, empty PATH) by TestStatusFleetDegradesToUnknownWhenHerdrUnreachable below.
 func writeFakeHerdrPaneStatus(t *testing.T, status string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\nprintf '{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"" + status + "\"}}}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
@@ -1693,6 +1697,9 @@ func TestStatusSingleTaskNoGateLineWhenRunFound(t *testing.T) {
 // no-mistakes processes one render actually spawned.
 func countingNoMistakesPath(t *testing.T, stdout, countFile string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake no-mistakes is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\necho x >> " + countFile + "\ncat <<'EOF'\n" + stdout + "\nEOF\n"
 	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {

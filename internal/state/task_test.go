@@ -4,9 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 
+	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/store"
 )
 
@@ -189,8 +189,8 @@ func TestLockIsExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Lock(dir, "project:myproj", true); err != syscall.EWOULDBLOCK {
-		t.Fatalf("second lock error = %v, want EWOULDBLOCK", err)
+	if _, err := store.Lock(dir, "project:myproj", true); err != filelock.ErrBusy {
+		t.Fatalf("second lock error = %v, want filelock.ErrBusy", err)
 	}
 	release()
 	second, err := Lock(dir, "project:myproj")

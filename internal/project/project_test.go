@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -398,6 +399,9 @@ func fakeNoMistakes(t *testing.T, stdout string) {
 // `status` exits 0 on the same text. Flattening that to 0 would pass a real regression.
 func fakeNoMistakesExit(t *testing.T, stdout string, code int) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake no-mistakes is a POSIX shell script, not supported on windows")
+	}
 	bin := t.TempDir()
 	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", stdout, code)
 	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {

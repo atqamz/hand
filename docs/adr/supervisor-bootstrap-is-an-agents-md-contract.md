@@ -15,7 +15,7 @@ The source checkout also serves as a dogfood fleet home. Its project-owned instr
 
 This supersedes [Ambient fleet context is a session hook, not a rendered file](ambient-context-is-a-session-hook-not-a-file.md).
 
-`AGENTS.md` is the canonical supervisor-bootstrap integration. `hand` owns one marked block containing the stable instruction to run `hand session start`; content outside that block remains project or operator owned. Claude consumes the same contract through the existing `CLAUDE.md` symlink when that name is otherwise absent.
+`AGENTS.md` is the canonical supervisor-bootstrap integration. `hand` owns one marked block containing the stable instruction to run `hand session start`; content outside that block remains project or operator owned. Claude consumes the same contract through `CLAUDE.md` when that name is otherwise absent: a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
 
 Dynamic context stays in the command's bounded output rather than the instruction file. Mutating commands enforce their own prerequisites at command level, including refusing dispatch with an unknown harness before acquiring a worktree or herdr workspace.
 

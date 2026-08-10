@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/shellquote"
 )
 
 func TestSendReturnsErrNotConfiguredWithNoTemplate(t *testing.T) {
@@ -40,7 +42,7 @@ func TestSendRunsTheTemplateWithTheMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"$HAND_MESSAGE\" > " + marker
+	template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker)
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,8 @@ func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte("echo boom >&2; exit 1"), 0o644); err != nil {
+	template := "echo boom >&2; exit 1"
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,7 +88,7 @@ func TestSendCountsADeliveryWhoseTemplateBackgroundsAChildAsDelivered(t *testing
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"$HAND_MESSAGE\" > " + marker + "; sleep 3 &"
+	template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker) + "; sleep 3 &"
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}

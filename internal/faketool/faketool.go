@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -56,6 +57,9 @@ func Bin(t *testing.T) string {
 // invocation shape the fake does not model from passing as a silent success.
 func install(t *testing.T, bin, name, log, prelude, selector, body string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake " + name + " is a POSIX shell script, not supported on windows")
+	}
 	script := "#!/bin/sh\n" + prelude
 	if log != "" {
 		script += fmt.Sprintf("echo \"%s $@\" >> %s\n", name, quote(log))

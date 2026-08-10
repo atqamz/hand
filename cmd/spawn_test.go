@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -76,6 +77,9 @@ func writeFakeTreehouseGet(t *testing.T, bin, worktreePath string) {
 
 func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+	}
 	useFastLaunchPolling(t)
 	t.Setenv("HAND_HARNESS", harness.Claude)
 	home := t.TempDir()

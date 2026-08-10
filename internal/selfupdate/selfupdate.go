@@ -97,10 +97,22 @@ func parseSemver(s string) (major, minor, patch int, err error) {
 // the real test binary produced by `go test`.
 var ExecutableOverride = os.Executable
 
+// Overridable so the Windows refusal path in Apply gets real test coverage on
+// every platform that runs the suite, not only on a Windows CI runner.
+var isWindows = func() bool {
+	return runtime.GOOS == "windows"
+}
+
 // Apply downloads the release tagged tag from repo, verifies its checksum, and replaces
 // the running binary in place. The replacement is atomic - temp file in the same directory,
 // renamed over it - so a crash mid-update never leaves a partial binary at the real path.
 func Apply(repo, tag string) error {
+	// Windows cannot replace a file open for execution the way POSIX's rename-over-a-
+	// running-inode can; atqamz/hand#200 tracks a Windows-safe replacement design.
+	if isWindows() {
+		return fmt.Errorf("self-update is not supported on windows yet (atqamz/hand#200): download %s from https://github.com/%s/releases and replace the binary manually", tag, repo)
+	}
+
 	execPath, err := ExecutableOverride()
 	if err != nil {
 		return fmt.Errorf("locate running binary: %w", err)

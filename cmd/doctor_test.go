@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/axi"
 )
 
 // A clean file is the one answer silence used to be indistinguishable from a
@@ -28,7 +29,7 @@ func TestDoctorCleanFleetHomeStatesItsZeroCount(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got error %v, want nil for a clean AGENTS.md", err)
 	}
-	want := "file: " + filepath.Join(home, "AGENTS.md") + "\n" +
+	want := "file: " + axi.Value(filepath.Join(home, "AGENTS.md")) + "\n" +
 		"count: 0\n" +
 		"violations: 0\n" +
 		"findings[0]{line,severity,finding}:\n"
@@ -64,7 +65,7 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("got nil error, want a non-nil error for a perishable-content hit")
 	}
-	want := "file: " + filepath.Join(home, "AGENTS.md") + "\n"
+	want := "file: " + axi.Value(filepath.Join(home, "AGENTS.md")) + "\n"
 	if !strings.Contains(out.String(), want) {
 		t.Fatalf("stdout = %q, want the findings anchored at the resolved home's absolute path %q", out.String(), want)
 	}
@@ -77,6 +78,12 @@ func TestDoctorTreatsMissingManagedMarkersAsViolation(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
+	// Refresh first so CLAUDE.md (a plain file on Windows, checked separately from
+	// AGENTS.md's markers) is already correct: the overwrite below isolates the one
+	// violation under test rather than also tripping the Windows-only CLAUDE.md check.
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"),
 		[]byte("# Hand-authored, no generated markers\n"), 0o644); err != nil {
 		t.Fatal(err)

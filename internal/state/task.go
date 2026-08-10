@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 
+	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/store"
 )
 
@@ -45,7 +45,7 @@ func Claim(homeDir, id string) (func(), error) {
 	}
 	release, err := store.Lock(homeDir, "task:"+id, true)
 	if err != nil {
-		if err == syscall.EWOULDBLOCK {
+		if err == filelock.ErrBusy {
 			return nil, fmt.Errorf("task %q %w", id, ErrTaskActive)
 		}
 		return nil, fmt.Errorf("lock task: %w", err)
@@ -71,7 +71,7 @@ func Lock(homeDir, name string) (func(), error) {
 // ErrLockBusy instead of blocking behind a holder that may be mid-network-call.
 func TryLock(homeDir, name string) (func(), error) {
 	release, err := store.Lock(homeDir, name, true)
-	if err == syscall.EWOULDBLOCK {
+	if err == filelock.ErrBusy {
 		return nil, ErrLockBusy
 	}
 	return release, err

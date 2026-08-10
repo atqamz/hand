@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
+
+	"github.com/atqamz/hand/internal/filelock"
 )
 
 // Serializes the one-way legacy import, whose readdir -> insert -> archive
@@ -29,18 +30,14 @@ func Lock(homeDir, name string, nonblock bool) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open lock: %w", err)
 	}
-	flags := syscall.LOCK_EX
-	if nonblock {
-		flags |= syscall.LOCK_NB
-	}
 	// Returned unwrapped: a nonblock caller distinguishes a busy lock from a
-	// real fault by comparing against syscall.EWOULDBLOCK.
-	if err := syscall.Flock(int(file.Fd()), flags); err != nil {
+	// real fault by comparing against filelock.ErrBusy.
+	if err := filelock.Lock(file, !nonblock); err != nil {
 		_ = file.Close()
 		return nil, err
 	}
 	return func() {
-		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		_ = filelock.Unlock(file)
 		_ = file.Close()
 	}, nil
 }
