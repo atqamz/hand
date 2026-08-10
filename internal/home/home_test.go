@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/axi"
 )
 
 // Builds a home carrying the marker IsHome checks, state/hand.db.
@@ -298,7 +300,7 @@ func TestResolveFailsLoudlyWhenHandHomeIsNotAHome(t *testing.T) {
 	if errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want it not to wrap ErrNotFound", err)
 	}
-	if !strings.Contains(err.Error(), notAHome) {
+	if !strings.Contains(err.Error(), axi.Value(notAHome)) {
 		t.Fatalf("got %q, want it to name HAND_HOME's value %q", err.Error(), notAHome)
 	}
 	if strings.Contains(err.Error(), ErrNotFound.Error()) {

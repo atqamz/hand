@@ -17,6 +17,7 @@ import (
 
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 )
@@ -1840,7 +1841,7 @@ func TestHandleEventRunsConfigNotifyInProcessForEveryNotifiableKind(t *testing.T
 				t.Fatal(err)
 			}
 			marker := filepath.Join(home, "marker.txt")
-			template := "printf '%s' \"$HAND_MESSAGE\" > " + marker
+			template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker)
 			if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 				t.Fatal(err)
 			}

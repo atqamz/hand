@@ -45,7 +45,7 @@ func TestRefreshSkipsSilentlyWhenNotAFleetHome(t *testing.T) {
 	}
 }
 
-func TestRefreshWritesAgentsMdAndClaudeSymlinkWhenMissing(t *testing.T) {
+func TestRefreshWritesAgentsMdAndClaudeReferenceWhenMissing(t *testing.T) {
 	dir := makeWorkspace(t)
 
 	refreshed, err := Refresh(dir)
@@ -72,12 +72,23 @@ func TestRefreshWritesAgentsMdAndClaudeSymlinkWhenMissing(t *testing.T) {
 		t.Fatalf("got %q, want no durable operating manual in the managed block", got)
 	}
 
-	link, err := os.Readlink(filepath.Join(dir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if link != "AGENTS.md" {
-		t.Fatalf("got CLAUDE.md -> %q, want AGENTS.md", link)
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+	if runtime.GOOS == "windows" {
+		got, err := os.ReadFile(claudePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != windowsClaudeContent {
+			t.Fatalf("got CLAUDE.md content %q, want %q", got, windowsClaudeContent)
+		}
+	} else {
+		link, err := os.Readlink(claudePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if link != "AGENTS.md" {
+			t.Fatalf("got CLAUDE.md -> %q, want AGENTS.md", link)
+		}
 	}
 }
 
@@ -251,7 +262,7 @@ func TestRefreshLeavesUpToDateFileOnDiskUntouched(t *testing.T) {
 	if !os.SameFile(before, after) {
 		t.Fatal("got AGENTS.md replaced, want the existing file left untouched")
 	}
-	if after.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && after.Mode().Perm() != 0o600 {
 		t.Fatalf("got mode %v, want the existing 0600 preserved", after.Mode().Perm())
 	}
 }
@@ -270,7 +281,7 @@ func TestThisRepoAgentsMdIsCurrentForDogfood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if merged != string(repoCopy) {
+	if merged != strings.ReplaceAll(string(repoCopy), "\r\n", "\n") {
 		t.Fatalf("got repo AGENTS.md %q, want its managed block already current", repoCopy)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
@@ -90,7 +91,7 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 		"tool: hand\n",
 		"version: test\n",
 		"exec:",
-		"home: " + home + "\n",
+		"home: " + axi.Value(home) + "\n",
 		"supervisor_harness: codex\n",
 		"supervisor_harness_source: override\n",
 		"harness,detected,codex",
