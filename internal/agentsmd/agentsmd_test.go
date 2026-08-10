@@ -281,7 +281,7 @@ func TestThisRepoAgentsMdIsCurrentForDogfood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if merged != strings.ReplaceAll(string(repoCopy), "\r\n", "\n") {
+	if strings.ReplaceAll(merged, "\r\n", "\n") != strings.ReplaceAll(string(repoCopy), "\r\n", "\n") {
 		t.Fatalf("got repo AGENTS.md %q, want its managed block already current", repoCopy)
 	}
 }

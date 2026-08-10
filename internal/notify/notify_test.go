@@ -5,12 +5,18 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/atqamz/hand/internal/shellquote"
 )
+
+func writeMessageTemplate(marker string) string {
+	if runtime.GOOS == "windows" {
+		return `> "` + marker + `" <nul set /p "=%HAND_MESSAGE%"`
+	}
+	return "printf '%s' \"$HAND_MESSAGE\" > '" + marker + "'"
+}
 
 func TestSendReturnsErrNotConfiguredWithNoTemplate(t *testing.T) {
 	home := t.TempDir()
@@ -42,7 +48,7 @@ func TestSendRunsTheTemplateWithTheMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker)
+	template := writeMessageTemplate(marker)
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +71,11 @@ func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte("echo boom >&2; exit 1"), 0o644); err != nil {
+	template := "echo boom >&2; exit 1"
+	if runtime.GOOS == "windows" {
+		template = "echo boom 1>&2 & exit /b 1"
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,12 +92,15 @@ func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 }
 
 func TestSendCountsADeliveryWhoseTemplateBackgroundsAChildAsDelivered(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("cmd.exe has no shell child syntax equivalent to POSIX backgrounding")
+	}
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker) + "; sleep 3 &"
+	template := writeMessageTemplate(marker) + "; sleep 3 &"
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}

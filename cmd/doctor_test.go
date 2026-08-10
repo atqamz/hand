@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/axi"
 )
 
 // A clean file is the one answer silence used to be indistinguishable from a
@@ -28,7 +29,7 @@ func TestDoctorCleanFleetHomeStatesItsZeroCount(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got error %v, want nil for a clean AGENTS.md", err)
 	}
-	want := "file: " + filepath.Join(home, "AGENTS.md") + "\n" +
+	want := "file: " + axi.Value(filepath.Join(home, "AGENTS.md")) + "\n" +
 		"count: 0\n" +
 		"violations: 0\n" +
 		"findings[0]{line,severity,finding}:\n"
@@ -64,7 +65,7 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("got nil error, want a non-nil error for a perishable-content hit")
 	}
-	want := "file: " + filepath.Join(home, "AGENTS.md") + "\n"
+	want := "file: " + axi.Value(filepath.Join(home, "AGENTS.md")) + "\n"
 	if !strings.Contains(out.String(), want) {
 		t.Fatalf("stdout = %q, want the findings anchored at the resolved home's absolute path %q", out.String(), want)
 	}

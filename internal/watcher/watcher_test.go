@@ -17,10 +17,16 @@ import (
 
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
-	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 )
+
+func notifyMessageTemplate(marker string) string {
+	if runtime.GOOS == "windows" {
+		return `> "` + marker + `" <nul set /p "=%HAND_MESSAGE%"`
+	}
+	return "printf '%s' \"$HAND_MESSAGE\" > '" + marker + "'"
+}
 
 // Drives the fake into herdr's failure shape for `pane get` - an error envelope on stdout with exit 0,
 // the shape the envelope check exists for. Exiting nonzero would reach ClassifyStatus's probeErr
@@ -1841,7 +1847,7 @@ func TestHandleEventRunsConfigNotifyInProcessForEveryNotifiableKind(t *testing.T
 				t.Fatal(err)
 			}
 			marker := filepath.Join(home, "marker.txt")
-			template := "printf '%s' \"$HAND_MESSAGE\" > " + shellquote.Quote(marker)
+			template := notifyMessageTemplate(marker)
 			if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -1869,7 +1875,7 @@ func TestHandleEventSkipsConfigNotifyForANonNotifiableKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"$HAND_MESSAGE\" > " + marker
+	template := notifyMessageTemplate(marker)
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}

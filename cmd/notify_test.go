@@ -5,9 +5,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func notifyMessageTemplate(marker string) string {
+	if runtime.GOOS == "windows" {
+		return `> "` + marker + `" <nul set /p "=%HAND_MESSAGE%"`
+	}
+	return "printf '%s' \"$HAND_MESSAGE\" > '" + marker + "'"
+}
 
 func TestNotifyWithoutConfigFailsRatherThanClaimingDelivery(t *testing.T) {
 	home := t.TempDir()
@@ -35,7 +43,7 @@ func TestNotifySubstitutesMessageAndExecutesTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "marker.txt")
-	template := "printf '%s' \"$HAND_MESSAGE\" > " + marker
+	template := notifyMessageTemplate(marker)
 	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}

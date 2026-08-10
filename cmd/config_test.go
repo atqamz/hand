@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
 )
 
@@ -157,7 +158,7 @@ func TestConfigSetPersistsUnderTheConfiguredHarness(t *testing.T) {
 		t.Fatal("an unkeyed config/model was written, which the next harness would inherit")
 	}
 	// The answer's own document carries the recheck, so a supervisor never has to guess what is left.
-	for _, want := range []string{"file: config/model.claude", "model,configured,claude-opus-5", "config_missing: 0\n"} {
+	for _, want := range []string{"file: " + axi.Value(filepath.Join("config", "model.claude")), "model,configured,claude-opus-5", "config_missing: 0\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("set output = %q, want it to contain %q", out, want)
 		}
@@ -204,7 +205,7 @@ func TestConfigSetPersistsUnderTheDetectedHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "gpt-5.6-codex\n" || !strings.Contains(out, "file: config/model.codex") {
+	if string(got) != "gpt-5.6-codex\n" || !strings.Contains(out, "file: "+axi.Value(filepath.Join("config", "model.codex"))) {
 		t.Fatalf("config/model.codex = %q, output = %q", got, out)
 	}
 }

@@ -303,7 +303,7 @@ func TestInitRemovesTheSessionHookAndSaysSoOnlyWhenItChangedSettings(t *testing.
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("run %d output = %q, want it to contain %q", i+1, out.String(), want)
 		}
-		if !strings.Contains(out.String(), "AGENTS.md and its CLAUDE.md symlink carry the startup integration across harnesses") {
+		if !strings.Contains(out.String(), "AGENTS.md and its CLAUDE.md reference carry the startup integration across harnesses") {
 			t.Fatalf("run %d output = %q, want cross-harness startup help", i+1, out.String())
 		}
 	}
