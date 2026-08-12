@@ -240,9 +240,6 @@ func TestVerifyChecksumMismatch(t *testing.T) {
 }
 
 func TestApplyLeavesBinaryUnchangedOnChecksumMismatch(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
 	fixture := t.TempDir()
 	assetName := AssetName()
 	if err := os.WriteFile(filepath.Join(fixture, assetName), []byte("payload"), 0o644); err != nil {
