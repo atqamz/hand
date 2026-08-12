@@ -208,3 +208,60 @@ func TestGHRefusesAPRItDoesNotKnow(t *testing.T) {
 		}
 	}
 }
+
+func TestGHReleaseRefusesUnexpectedInvocationShapes(t *testing.T) {
+	fixture := t.TempDir()
+	for _, name := range []string{"asset.tar.gz", "checksums.txt", "unexpected.txt"} {
+		if err := os.WriteFile(filepath.Join(fixture, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	GH{Release: GHRelease{
+		Tag:        "v1.2.3",
+		FixtureDir: fixture,
+		Patterns:   []string{"asset.tar.gz", "checksums.txt"},
+	}}.Install(t, Bin(t))
+
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"release", "view", "--json", "tagName", "--jq", ".tagName"},
+		{"release", "view", "wrong-tag", "--repo", "atqamz/hand", "--json", "body", "--jq", ".body"},
+		{"release", "view", "--repo", "atqamz/hand", "--json", "body", "--jq", ".tagName"},
+		{"release", "download", "v1.2.3", "--repo", "other/repo", "--dir", dir, "--clobber", "--pattern", "asset.tar.gz", "--pattern", "checksums.txt"},
+		{"release", "download", "v1.2.3", "--repo", "atqamz/hand", "--dir", dir, "--pattern", "asset.tar.gz", "--pattern", "checksums.txt"},
+		{"release", "download", "v1.2.3", "--repo", "atqamz/hand", "--dir", dir, "--clobber", "--pattern", "unexpected.txt", "--pattern", "checksums.txt"},
+	} {
+		_, errOut, code := runGH(t, args...)
+		if code == 0 || !strings.Contains(errOut, "unexpected gh invocation") {
+			t.Errorf("gh %v = %q (exit %d), want a loud refusal", args, errOut, code)
+		}
+	}
+}
+
+func TestGHReleaseDownloadCopiesOnlyRequestedPatterns(t *testing.T) {
+	fixture := t.TempDir()
+	for _, name := range []string{"asset.tar.gz", "checksums.txt", "unexpected.txt"} {
+		if err := os.WriteFile(filepath.Join(fixture, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	GH{Release: GHRelease{
+		Tag:        "v1.2.3",
+		FixtureDir: fixture,
+		Patterns:   []string{"asset.tar.gz", "checksums.txt"},
+	}}.Install(t, Bin(t))
+
+	dir := t.TempDir()
+	_, errOut, code := runGH(t, "release", "download", "v1.2.3", "--repo", "atqamz/hand", "--dir", dir, "--clobber", "--pattern", "asset.tar.gz", "--pattern", "checksums.txt")
+	if code != 0 {
+		t.Fatalf("gh release download = %q (exit %d), want success", errOut, code)
+	}
+	for _, name := range []string{"asset.tar.gz", "checksums.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("downloaded %s: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "unexpected.txt")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected asset stat error = %v, want file absent", err)
+	}
+}

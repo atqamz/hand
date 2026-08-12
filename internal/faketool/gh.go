@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -34,6 +35,8 @@ type GHRelease struct {
 	Tag        string
 	Notes      string
 	FixtureDir string
+	Repo       string
+	Patterns   []string
 }
 
 // GHResponse provides a deliberately fixed result for one modeled gh command.
@@ -260,8 +263,14 @@ func ghReleaseView(spec ghSpec, args []string) int {
 	jq := flagValue(args, "--jq")
 	switch jq {
 	case ".tagName":
+		if !sameArgs(args, []string{"release", "view", "--repo", ghReleaseRepo(spec.Release), "--json", "tagName", "--jq", ".tagName"}) {
+			return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+		}
 		_, _ = io.WriteString(os.Stdout, spec.Release.Tag)
 	case ".body":
+		if !sameArgs(args, []string{"release", "view", spec.Release.Tag, "--repo", ghReleaseRepo(spec.Release), "--json", "body", "--jq", ".body"}) {
+			return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+		}
 		_, _ = io.WriteString(os.Stdout, spec.Release.Notes)
 	default:
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
@@ -270,43 +279,66 @@ func ghReleaseView(spec ghSpec, args []string) int {
 }
 
 func ghReleaseDownload(spec ghSpec, args []string) int {
-	if spec.Release.FixtureDir == "" {
+	if spec.Release.Tag == "" || spec.Release.FixtureDir == "" {
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
 	}
-	dir := flagValue(args, "--dir")
-	if dir == "" {
+	dir, ok := ghReleaseDownloadDir(spec.Release, args)
+	if !ok {
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
-	}
-	entries, err := os.ReadDir(spec.Release.FixtureDir)
-	if err != nil {
-		return fail("read gh release fixture: %v", err)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fail("create gh release directory: %v", err)
 	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		source := filepath.Join(spec.Release.FixtureDir, entry.Name())
-		target := filepath.Join(dir, entry.Name())
-		in, err := os.Open(source)
+	for _, name := range ghReleasePatterns(spec.Release) {
+		data, err := os.ReadFile(filepath.Join(spec.Release.FixtureDir, name))
 		if err != nil {
-			return fail("open gh release fixture: %v", err)
+			return fail("read gh release fixture %s: %v", name, err)
 		}
-		out, err := os.Create(target)
-		if err != nil {
-			_ = in.Close()
-			return fail("create gh release asset: %v", err)
-		}
-		_, copyErr := io.Copy(out, in)
-		closeOutErr := out.Close()
-		closeInErr := in.Close()
-		if copyErr != nil || closeOutErr != nil || closeInErr != nil {
-			return fail("copy gh release asset: %v", firstError(copyErr, closeOutErr, closeInErr))
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			return fail("write gh release asset %s: %v", name, err)
 		}
 	}
 	return 0
+}
+
+const defaultGHReleaseRepo = "atqamz/hand"
+
+func ghReleaseRepo(release GHRelease) string {
+	if release.Repo != "" {
+		return release.Repo
+	}
+	return defaultGHReleaseRepo
+}
+
+func ghReleasePatterns(release GHRelease) []string {
+	if len(release.Patterns) > 0 {
+		return append([]string(nil), release.Patterns...)
+	}
+	return []string{fmt.Sprintf("hand-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH), "checksums.txt"}
+}
+
+func ghReleaseDownloadDir(release GHRelease, args []string) (string, bool) {
+	patterns := ghReleasePatterns(release)
+	if len(args) != 8+2*len(patterns) {
+		return "", false
+	}
+	expected := []string{"release", "download", release.Tag, "--repo", ghReleaseRepo(release), "--dir"}
+	for i, want := range expected {
+		if args[i] != want {
+			return "", false
+		}
+	}
+	dir := args[len(expected)]
+	if dir == "" || args[len(expected)+1] != "--clobber" {
+		return "", false
+	}
+	for i, pattern := range patterns {
+		index := len(expected) + 2 + 2*i
+		if args[index] != "--pattern" || args[index+1] != pattern {
+			return "", false
+		}
+	}
+	return dir, true
 }
 
 func ghPRIndex(prs []GHPR, ref string) (int, bool) {
