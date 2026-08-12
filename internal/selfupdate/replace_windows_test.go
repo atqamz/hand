@@ -45,7 +45,11 @@ func TestReplaceExecutableWhileTargetIsRunning(t *testing.T) {
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
+	waited := false
 	t.Cleanup(func() {
+		if waited {
+			return
+		}
 		if child.ProcessState == nil {
 			_ = child.Process.Kill()
 		}
@@ -94,8 +98,13 @@ func TestReplaceExecutableWhileTargetIsRunning(t *testing.T) {
 	if err := child.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
-	if err := child.Wait(); err != nil {
-		t.Fatal(err)
+	waitErr := child.Wait()
+	waited = true
+	if waitErr != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(waitErr, &exitErr) {
+			t.Fatal(waitErr)
+		}
 	}
 	cleanupStaleBackups(dir)
 	assertNoUpdaterBackups(t, dir)
