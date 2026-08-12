@@ -207,5 +207,5 @@ func writeFile(t *testing.T, path, content string) {
 // Encodes an identifier as a filename, so a fake's state can be one file per
 // entity. Only the separators matter: herdr tab ids carry a colon and treehouse slots are absolute paths.
 func key(id string) string {
-	return strings.NewReplacer("/", "_", ":", "-", ".", "_", " ", "_").Replace(strings.Trim(id, "/"))
+	return strings.NewReplacer("/", "_", "\\", "_", ":", "-", ".", "_", " ", "_").Replace(strings.Trim(id, "/\\"))
 }

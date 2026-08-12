@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,7 +51,11 @@ type envelope struct {
 // Execs herdr and returns its trimmed stdout and trimmed stderr alongside the process error,
 // letting call and callVoid share one invocation path.
 func (c *Client) run(args ...string) ([]byte, string, error) {
-	cmd := exec.Command("herdr", args...)
+	return c.runContext(context.Background(), args...)
+}
+
+func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string, error) {
+	cmd := exec.CommandContext(ctx, "herdr", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -69,7 +74,11 @@ func parseEnvelope(args []string, trimmed []byte) (envelope, error) {
 // For query commands, whose real herdr response is always a JSON envelope carrying a non-null
 // result object.
 func (c *Client) call(args ...string) (json.RawMessage, error) {
-	trimmed, stderr, runErr := c.run(args...)
+	return c.callContext(context.Background(), args...)
+}
+
+func (c *Client) callContext(ctx context.Context, args ...string) (json.RawMessage, error) {
+	trimmed, stderr, runErr := c.runContext(ctx, args...)
 
 	if len(trimmed) == 0 {
 		if runErr != nil {
@@ -128,7 +137,15 @@ func (c *Client) callVoid(args ...string) error {
 }
 
 func (c *Client) WorkspaceList() ([]Workspace, error) {
-	res, err := c.call("workspace", "list")
+	return c.workspaceList(context.Background())
+}
+
+func (c *Client) WorkspaceListContext(ctx context.Context) ([]Workspace, error) {
+	return c.workspaceList(ctx)
+}
+
+func (c *Client) workspaceList(ctx context.Context) ([]Workspace, error) {
+	res, err := c.callContext(ctx, "workspace", "list")
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +286,15 @@ func (c *Client) TabClose(tabID string) error {
 }
 
 func (c *Client) PaneGet(paneID string) (Pane, error) {
-	res, err := c.call("pane", "get", paneID)
+	return c.paneGet(context.Background(), paneID)
+}
+
+func (c *Client) PaneGetContext(ctx context.Context, paneID string) (Pane, error) {
+	return c.paneGet(ctx, paneID)
+}
+
+func (c *Client) paneGet(ctx context.Context, paneID string) (Pane, error) {
+	res, err := c.callContext(ctx, "pane", "get", paneID)
 	if err != nil {
 		return Pane{}, err
 	}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -19,10 +20,12 @@ func setupWatchHome(t *testing.T) string {
 	mkFleetDirs(t, home)
 
 	bin := faketool.Bin(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	t.Setenv("HERDR_CALL_LOG", callLog)
 	faketool.Herdr{Responses: []faketool.HerdrResponse{{
 		Command: "workspace list",
 		Stdout:  "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}",
-	}}}.Install(t, bin)
+	}}, Log: callLog}.Install(t, bin)
 	return home
 }
 
@@ -159,7 +162,17 @@ func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
 		done <- cmd.ExecuteContext(ctx)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		calls, err := os.ReadFile(os.Getenv("HERDR_CALL_LOG"))
+		if err == nil && bytes.Contains(calls, []byte("herdr workspace list\n")) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if time.Now().After(deadline) {
+		t.Fatal("watch did not reach herdr before cancellation")
+	}
 	cancel()
 
 	select {
