@@ -481,6 +481,19 @@ func (db *DB) SetProjectUpstream(name, upstream string) (bool, error) {
 	return affected > 0, nil
 }
 
+// Reports whether the named project's URL was updated.
+func (db *DB) SetProjectURL(name, url string) (bool, error) {
+	res, err := db.sql.Exec(`UPDATE project SET url = ? WHERE name = ?`, url, name)
+	if err != nil {
+		return false, fmt.Errorf("set URL for project %q: %w", name, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("set URL for project %q: %w", name, err)
+	}
+	return affected > 0, nil
+}
+
 // RemoveProject reports whether a row was actually removed, leaving the
 // not-registered wording to the caller that already owns it.
 func (db *DB) RemoveProject(name string) (bool, error) {

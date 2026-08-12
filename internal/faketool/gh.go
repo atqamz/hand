@@ -22,12 +22,20 @@ type GHPR struct {
 	Checks   []string
 }
 
+type GHRepo struct {
+	Requested     string
+	NameWithOwner string
+	URL           string
+	Raw           string
+}
+
 // A fake gh whose pull requests carry their own state, so `pr view` answers
 // MERGED after `pr merge` rather than repeating whatever it said before.
 // FIDELITY.md records this against the real tool.
 type GH struct {
-	PRs []GHPR
-	Log string
+	PRs   []GHPR
+	Repos []GHRepo
+	Log   string
 }
 
 // Writes the fake into bin, which Bin has put on PATH.
@@ -46,6 +54,18 @@ func (g GH) Install(t *testing.T, bin string) {
 			fmt.Fprintf(&byRef, "    %s) f=%s ;;\n", quote(ref), stateFile(i))
 			fmt.Fprintf(&checks, "    %s) printf '%s\\n' ;;\n", quote(ref), ghBuckets(pr.Checks))
 		}
+	}
+
+	var repoView strings.Builder
+	for _, repo := range g.Repos {
+		if repo.Requested == "" {
+			continue
+		}
+		body := repo.Raw
+		if body == "" {
+			body = fmt.Sprintf(`{"nameWithOwner":%s,"url":%s}`, jsonQuote(repo.NameWithOwner), jsonQuote(repo.URL))
+		}
+		fmt.Fprintf(&repoView, "    %s) printf '%%s\\n' %s ;;\n", quote(repo.Requested), quote(body))
 	}
 
 	// One block per PR rather than one per branch, because --repo narrows the search
@@ -82,25 +102,30 @@ func (g GH) Install(t *testing.T, bin string) {
 		// would answer a double search of one repo with one hit and hide the duplicate
 		// the real gh returns.
 		"anycase() { case \"$2\" in $1) return 0 ;; esac; return 1; }\n"
-	body := fmt.Sprintf(`  "pr view")
+	body := fmt.Sprintf(`  "repo view")
+    case "$3" in
+%[1]s    *) echo "repository not found: $3" >&2; exit 1 ;;
+    esac
+    ;;
+  "pr view")
     f=""
     case "$3" in
-%[1]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
+%[2]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
     esac
     read s < "$f"
     printf '{"state":"%%s"}\n' "$s"
     ;;
   "pr list")
-%[2]s    ;;
+%[3]s    ;;
   "pr checks")
     case "$3" in
-%[3]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
+%[4]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
     esac
     ;;
   "pr merge")
     f=""
     case "$3" in
-%[1]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
+%[2]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
     esac
     read s < "$f"
     if [ "$s" = MERGED ]; then
@@ -109,7 +134,7 @@ func (g GH) Install(t *testing.T, bin string) {
     fi
     echo MERGED > "$f"
     printf '%%s merged\n' "$3"
-    ;;`, byRef.String(), list.String(), checks.String())
+	    ;;`, repoView.String(), byRef.String(), list.String(), checks.String())
 
 	install(t, bin, "gh", g.Log, prelude, "$1 $2", body)
 

@@ -2,7 +2,9 @@ package faketool
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -155,6 +157,40 @@ func TestGHPRChecksReportsTheDeclaredBuckets(t *testing.T) {
 	out, _, code := runGH(t, "pr", "checks", "9", "--json", "bucket")
 	if code != 0 || out != "[{\"bucket\":\"pass\"},{\"bucket\":\"fail\"}]\n" {
 		t.Fatalf("pr checks = %q (exit %d), want the declared buckets", out, code)
+	}
+}
+
+func TestGHRepoViewReturnsCanonicalRepository(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "gh.log")
+	GH{Repos: []GHRepo{{
+		Requested:     "atqamz/secondhand",
+		NameWithOwner: "atqamz/hand",
+		URL:           "https://github.com/atqamz/hand",
+	}}, Log: log}.Install(t, Bin(t))
+
+	out, errOut, code := runGH(t, "repo", "view", "atqamz/secondhand", "--json", "nameWithOwner,url")
+	if code != 0 || errOut != "" {
+		t.Fatalf("gh repo view = %q, %q, exit %d, want JSON and exit 0", out, errOut, code)
+	}
+	want := `{"nameWithOwner":"atqamz/hand","url":"https://github.com/atqamz/hand"}` + "\n"
+	if out != want {
+		t.Fatalf("stdout = %q, want %q", out, want)
+	}
+	logData, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "gh repo view atqamz/secondhand --json nameWithOwner,url") {
+		t.Fatalf("log = %q, want canonical lookup invocation", logData)
+	}
+}
+
+func TestGHRepoViewRefusesUnknownRepository(t *testing.T) {
+	GH{}.Install(t, Bin(t))
+
+	_, errOut, code := runGH(t, "repo", "view", "owner/missing", "--json", "nameWithOwner,url")
+	if code == 0 || !strings.Contains(errOut, "repository not found") {
+		t.Fatalf("gh repo view = %q, exit %d, want repository failure", errOut, code)
 	}
 }
 

@@ -244,3 +244,11 @@ So `FindPRByBranch` folds case when comparing a `gh` answer against a git remote
 
 `internal/ghutil/pr_test.go` and `tests/e2e/slug_case_test.go` cover the comparison itself.
 The latter's own `gh` fake is the one place a fake's fidelity had already been thought about; it is deliberately left as it is.
+
+### `gh repo view <slug> --json nameWithOwner,url`
+
+Exit 0 with a JSON object on stdout containing the canonical `nameWithOwner` and `url` fields.
+The call follows a renamed repository: `atqamz/secondhand` answers `atqamz/hand` and `https://github.com/atqamz/hand`.
+
+An unknown or inaccessible repository exits nonzero and writes its diagnostic to stderr.
+`internal/ghutil` reads stdout separately from stderr so warnings cannot corrupt the JSON payload.

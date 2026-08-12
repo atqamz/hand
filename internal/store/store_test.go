@@ -138,6 +138,43 @@ func TestProjectsKeepRegistrationOrder(t *testing.T) {
 	}
 }
 
+func TestSetProjectURLPreservesProjectIdentityAndOrder(t *testing.T) {
+	db, _ := openTemp(t)
+	want := []Project{
+		{Name: "first", URL: "https://github.com/org/first", Mode: "direct-pr", Upstream: "up/first"},
+		{Name: "second", URL: "https://github.com/org/second-new", Mode: "no-mistakes", Upstream: "up/second"},
+		{Name: "third", URL: "https://github.com/org/third", Mode: "local-only", Upstream: "up/third"},
+	}
+	for _, p := range want {
+		if err := db.AddProject(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	updated, err := db.SetProjectURL("second", want[1].URL)
+	if err != nil || !updated {
+		t.Fatalf("SetProjectURL = %v, %v", updated, err)
+	}
+
+	got, err := db.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("ListProjects = %+v, want %d projects", got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("project %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	updated, err = db.SetProjectURL("missing", "https://github.com/org/missing")
+	if err != nil || updated {
+		t.Fatalf("missing SetProjectURL = %v, %v, want false and nil", updated, err)
+	}
+}
+
 func TestAddProjectRejectsADuplicateName(t *testing.T) {
 	db, _ := openTemp(t)
 	p := Project{Name: "nsr", URL: "git@github.com:o/nsr.git", Mode: "direct-pr"}

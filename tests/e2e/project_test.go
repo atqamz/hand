@@ -11,13 +11,15 @@ import (
 	"github.com/atqamz/hand/internal/project"
 )
 
-// Drives add -> list -> sync (fast-forward) -> remove through the built binary against a real local git
-// remote (redirected via git's insteadOf mechanism, never the network), plus the one failure path not
-// already covered by TestExitCodeThreeOnPreconditionFailure: sync against a project never cloned to disk.
+// Drives add -> set-url -> list -> sync (fast-forward) -> remove through the built binary against a real local
+// git remote (redirected via git's insteadOf mechanism, never the network), plus the missing-clone failure
+// path not already covered by TestExitCodeThreeOnPreconditionFailure.
 func TestProjectLifecycle(t *testing.T) {
 	remote := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remote)
 	redirectGitRemote(t, "https://example.com/demo.git", remote)
+	newURL := "https://example.com/renamed-demo.git"
+	redirectGitRemote(t, newURL, remote)
 
 	dir := binDir(t)
 	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
@@ -48,6 +50,24 @@ func TestProjectLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(listed.stdout, "demo") {
 		t.Fatalf("project list stdout = %q, want it to mention demo", listed.stdout)
+	}
+
+	repointed := runHand(t, home, "project", "set-url", "demo", newURL)
+	if repointed.code != 0 {
+		t.Fatalf("project set-url: exit %d, stderr %q", repointed.code, repointed.stderr)
+	}
+	if !strings.Contains(repointed.stdout, "result: url-set") || !strings.Contains(repointed.stdout, "old_origin") || !strings.Contains(repointed.stdout, "origin") {
+		t.Fatalf("project set-url stdout = %q, want both origin surfaces", repointed.stdout)
+	}
+	projects, err = project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "demo" || projects[0].URL != newURL || projects[0].Mode != "direct-pr" {
+		t.Fatalf("project.List after set-url = %+v, want stable demo with new URL and mode", projects)
+	}
+	if got := runGitIn(t, clonePath, "config", "--get", "remote.origin.url"); got != newURL+"\n" {
+		t.Fatalf("clone origin = %q, want %q", got, newURL)
 	}
 
 	runGitIn(t, remote, "commit", "--allow-empty", "-q", "-m", "new remote commit")

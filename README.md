@@ -170,6 +170,15 @@ For a fork, declare the upstream repository that receives pull requests:
 hand project upstream project-name upstream-owner/project
 ```
 
+If the repository is renamed or transferred, repoint the registered project without changing its local identity:
+
+```sh
+hand project set-url project-name https://github.com/you/renamed-project.git
+```
+
+This keeps the project name and `projects/<name>` clone path stable, updates both the registry URL and clone `origin`, and preserves tasks and completion history.
+`hand project sync` can also repair a recognized GitHub rename when GitHub reports the canonical repository.
+
 ## Worker harnesses
 
 Secondhand can launch workers through:
@@ -291,6 +300,7 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | --- | --- |
 | `hand init` | Create or refresh a fleet home. |
 | `hand project add` | Register a repository with the fleet. |
+| `hand project set-url <name> <repo-url>` | Recover a registered project after a repository rename or transfer while preserving its local identity and task history. |
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
 | `hand status` | Read fleet or task state. |
 | `hand watch` | Wait for actionable fleet events. |

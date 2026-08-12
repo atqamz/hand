@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -61,6 +62,255 @@ func TestValidateProjectMode(t *testing.T) {
 	}
 	if code := exitCodeFor(t, err); code != 2 {
 		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
+func setupRegisteredURLProject(t *testing.T, oldURL string) (home, clonePath string) {
+	t.Helper()
+	home = t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	cloneSource, _ := setupSyncProject(t)
+	clonePath = filepath.Join(home, "projects", "secondhand")
+	if err := os.MkdirAll(filepath.Dir(clonePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(cloneSource, clonePath); err != nil {
+		t.Fatal(err)
+	}
+	runGitIn(t, clonePath, "remote", "set-url", "origin", oldURL)
+	if err := project.Add(home, project.Project{
+		Name: "secondhand", URL: oldURL, Mode: project.ModeNoMistakes, Upstream: "atqamz/hand",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return home, clonePath
+}
+
+func TestProjectSetURLUpdatesRegistryAndOriginPreservingTask(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, clonePath := setupRegisteredURLProject(t, oldURL)
+	wantTask := state.Task{ID: "task-1", Project: "secondhand", Kind: state.KindShip, Brief: "data/task-1/brief.md"}
+	if err := state.Write(home, wantTask); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectSetURLCmd()
+	var output strings.Builder
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"secondhand", newURL})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0] != (project.Project{
+		Name: "secondhand", URL: newURL, Mode: project.ModeNoMistakes, Upstream: "atqamz/hand",
+	}) {
+		t.Fatalf("projects = %+v, want repointed project with preserved fields", projects)
+	}
+	origin := gitConfigOrigin(t, clonePath)
+	if origin != newURL {
+		t.Fatalf("origin = %q, want %q", origin, newURL)
+	}
+	if got, err := state.Read(home, wantTask.ID); err != nil || got != wantTask {
+		t.Fatalf("task = %+v, %v, want unchanged task %+v", got, err, wantTask)
+	}
+	if got, err := os.Stat(clonePath); err != nil || !got.IsDir() {
+		t.Fatalf("clone path = %s, %v, want same directory", clonePath, err)
+	}
+	for _, want := range []string{
+		"result: url-set", "old_url: \"" + oldURL + "\"", "url: \"" + newURL + "\"",
+		"old_origin: \"" + oldURL + "\"", "origin: \"" + newURL + "\"", "clone: " + clonePath,
+		"hand project upstream secondhand \"\"",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output = %q, want %q", output.String(), want)
+		}
+	}
+}
+
+func gitConfigOrigin(t *testing.T, clonePath string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", clonePath, "config", "--get", "remote.origin.url").Output()
+	if err != nil {
+		t.Fatalf("git config origin: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func executeProjectSetURL(t *testing.T, home, url string) error {
+	t.Helper()
+	t.Chdir(home)
+	cmd := newProjectSetURLCmd()
+	cmd.SetArgs([]string{"secondhand", url})
+	return cmd.Execute()
+}
+
+func TestProjectSetURLRejectsInvalidURLBeforeMutation(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	home, clonePath := setupRegisteredURLProject(t, oldURL)
+
+	err := executeProjectSetURL(t, home, "file:///tmp/renamed")
+	assertExitCode2(t, err)
+	projects, listErr := project.List(home)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if projects[0].URL != oldURL || gitConfigOrigin(t, clonePath) != oldURL {
+		t.Fatalf("after invalid URL, project = %+v and origin = %q, want both old", projects[0], gitConfigOrigin(t, clonePath))
+	}
+}
+
+func TestProjectSetURLRefusesMissingProject(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	err := executeProjectSetURL(t, home, "https://github.com/atqamz/hand.git")
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), `project "secondhand" not registered`) {
+		t.Fatalf("error = %v, want missing project", err)
+	}
+}
+
+func TestProjectSetURLRefusesMissingCloneAndOrigin(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+
+	t.Run("missing clone", func(t *testing.T) {
+		home, _ := setupRegisteredURLProject(t, oldURL)
+		if err := os.RemoveAll(filepath.Join(home, "projects", "secondhand")); err != nil {
+			t.Fatal(err)
+		}
+		if err := executeProjectSetURL(t, home, newURL); err == nil {
+			t.Fatal("set-url succeeded without a clone")
+		}
+		projects, err := project.List(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projects[0].URL != oldURL {
+			t.Fatalf("URL = %q, want %q", projects[0].URL, oldURL)
+		}
+	})
+
+	t.Run("missing origin", func(t *testing.T) {
+		home, clonePath := setupRegisteredURLProject(t, oldURL)
+		runGitIn(t, clonePath, "remote", "remove", "origin")
+		if err := executeProjectSetURL(t, home, newURL); err == nil {
+			t.Fatal("set-url succeeded without an origin")
+		}
+		projects, err := project.List(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projects[0].URL != oldURL {
+			t.Fatalf("URL = %q, want %q", projects[0].URL, oldURL)
+		}
+	})
+}
+
+func TestProjectSetURLConvergesAlreadyUpdatedSurfaces(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	for _, test := range []struct {
+		name          string
+		updateOrigin  bool
+		updateProject bool
+	}{
+		{name: "origin already new", updateOrigin: true},
+		{name: "registry already new", updateProject: true},
+		{name: "both already new", updateOrigin: true, updateProject: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home, clonePath := setupRegisteredURLProject(t, oldURL)
+			if test.updateOrigin {
+				runGitIn(t, clonePath, "remote", "set-url", "origin", newURL)
+			}
+			if test.updateProject {
+				if err := project.SetURL(home, "secondhand", newURL); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := executeProjectSetURL(t, home, newURL); err != nil {
+				t.Fatal(err)
+			}
+			projects, err := project.List(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if projects[0].URL != newURL || gitConfigOrigin(t, clonePath) != newURL {
+				t.Fatalf("project = %+v, origin = %q, want both new", projects[0], gitConfigOrigin(t, clonePath))
+			}
+		})
+	}
+}
+
+func TestRepointProjectLeavesRegistryWhenOriginMutationFails(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	home, clonePath := setupRegisteredURLProject(t, oldURL)
+	originalSetter := setProjectOrigin
+	t.Cleanup(func() { setProjectOrigin = originalSetter })
+	setProjectOrigin = func(string, string) error { return errors.New("origin mutation failed") }
+
+	if err := executeProjectSetURL(t, home, "https://github.com/atqamz/hand.git"); err == nil || !strings.Contains(err.Error(), "origin mutation failed") {
+		t.Fatalf("error = %v, want origin mutation failure", err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projects[0].URL != oldURL || gitConfigOrigin(t, clonePath) != oldURL {
+		t.Fatalf("after failed origin mutation, project = %+v and origin = %q, want old", projects[0], gitConfigOrigin(t, clonePath))
+	}
+}
+
+func TestRepointProjectRestoresOriginWhenRegistryProjectionFails(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, clonePath := setupRegisteredURLProject(t, oldURL)
+	originalSetter := setProjectURL
+	t.Cleanup(func() { setProjectURL = originalSetter })
+	setProjectURL = func(string, string, string) error { return errors.New("registry mutation failed") }
+
+	if err := executeProjectSetURL(t, home, newURL); err == nil || !strings.Contains(err.Error(), "registry mutation failed") {
+		t.Fatalf("error = %v, want registry mutation failure", err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projects[0].URL != oldURL || gitConfigOrigin(t, clonePath) != oldURL {
+		t.Fatalf("after rollback, project = %+v and origin = %q, want old", projects[0], gitConfigOrigin(t, clonePath))
+	}
+}
+
+func TestRepointProjectReportsOriginRestoreFailure(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, _ := setupRegisteredURLProject(t, oldURL)
+	originalProjectSetter := setProjectURL
+	t.Cleanup(func() { setProjectURL = originalProjectSetter })
+	setProjectURL = func(string, string, string) error { return errors.New("registry mutation failed") }
+	originalSetter := setProjectOrigin
+	t.Cleanup(func() { setProjectOrigin = originalSetter })
+	call := 0
+	setProjectOrigin = func(clonePath, url string) error {
+		call++
+		if call == 2 {
+			return errors.New("origin restore failed")
+		}
+		return originalSetter(clonePath, url)
+	}
+
+	err := executeProjectSetURL(t, home, newURL)
+	if err == nil || !strings.Contains(err.Error(), "registry mutation failed") || !strings.Contains(err.Error(), "origin restore failed") {
+		t.Fatalf("error = %v, want projection and restore failures", err)
 	}
 }
 

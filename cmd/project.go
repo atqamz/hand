@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,9 +10,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
@@ -28,7 +31,132 @@ func newProjectCmd() *cobra.Command {
 	cmd.AddCommand(newProjectRemoveCmd())
 	cmd.AddCommand(newProjectSyncCmd())
 	cmd.AddCommand(newProjectUpstreamCmd())
+	cmd.AddCommand(newProjectSetURLCmd())
 	return cmd
+}
+
+type repointResult struct {
+	Project   project.Project
+	OldURL    string
+	URL       string
+	OldOrigin string
+	Origin    string
+	Clone     string
+}
+
+var setProjectOrigin = setOriginURL
+
+var setProjectURL = project.SetURL
+
+func newProjectSetURLCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "set-url <name> <repo-url>",
+		Short: "Repoint a registered project at a new repository URL",
+		Long: "Repoint a registered project at a new repository URL. The project name and clone path remain unchanged;\n" +
+			"the registry URL and clone origin are updated together, while tasks and history are preserved.\n" +
+			"The command refuses rather than deliberately leaving a registry-only update.",
+		Args: usageArgs(cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name, url := args[0], args[1]
+			if err := validateProjectURL(url); err != nil {
+				return err
+			}
+			home, err := home.Resolve()
+			if err != nil {
+				return asPrecondition(err)
+			}
+			release, err := state.Lock(home, "project:"+name)
+			if err != nil {
+				return fmt.Errorf("lock project %q: %w", name, err)
+			}
+			defer release()
+
+			result, err := repointProject(home, name, url)
+			if err != nil {
+				return asPrecondition(err)
+			}
+
+			var doc axi.Doc
+			doc.Field("name", result.Project.Name)
+			doc.Field("result", "url-set")
+			doc.Field("old_url", result.OldURL)
+			doc.Field("url", result.URL)
+			doc.Field("old_origin", result.OldOrigin)
+			doc.Field("origin", result.Origin)
+			doc.Field("clone", result.Clone)
+			if slug, ok := project.ParseRepoRef(result.URL); ok && result.Project.Upstream != "" && strings.EqualFold(slug, result.Project.Upstream) {
+				doc.Help(fmt.Sprintf("Upstream %s is now the project's own repo; clear it with `hand project upstream %s \"\"` if redundant", result.Project.Upstream, result.Project.Name))
+			}
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	return cmd
+}
+
+func repointProject(homeDir, name, url string) (repointResult, error) {
+	p, exists, err := project.Find(homeDir, name)
+	if err != nil {
+		return repointResult{}, err
+	}
+	if !exists {
+		return repointResult{}, fmt.Errorf("project %q %w", name, project.ErrNotFound)
+	}
+	if err := validateProjectURL(url); err != nil {
+		return repointResult{}, err
+	}
+
+	clonePath := filepath.Join(homeDir, "projects", p.Name)
+	if info, err := os.Stat(clonePath); err != nil {
+		return repointResult{}, fmt.Errorf("project %q clone %q: %w", p.Name, clonePath, err)
+	} else if !info.IsDir() {
+		return repointResult{}, fmt.Errorf("project %q clone %q is not a directory", p.Name, clonePath)
+	}
+	oldOrigin, err := storedOriginURL(clonePath)
+	if err != nil {
+		return repointResult{}, fmt.Errorf("project %q: %w", p.Name, err)
+	}
+	if err := setProjectOrigin(clonePath, url); err != nil {
+		return repointResult{}, err
+	}
+	if err := setProjectURL(homeDir, p.Name, url); err != nil {
+		restoreErr := setProjectOrigin(clonePath, oldOrigin)
+		if restoreErr != nil {
+			return repointResult{}, errors.Join(err, fmt.Errorf("restore origin for project %q: %w", p.Name, restoreErr))
+		}
+		return repointResult{}, err
+	}
+	return repointResult{
+		Project:   p,
+		OldURL:    p.URL,
+		URL:       url,
+		OldOrigin: oldOrigin,
+		Origin:    url,
+		Clone:     clonePath,
+	}, nil
+}
+
+func storedOriginURL(clonePath string) (string, error) {
+	c := exec.Command("git", "config", "--get", "remote.origin.url")
+	c.Dir = clonePath
+	out, err := c.Output()
+	if err != nil {
+		return "", fmt.Errorf("read stored origin: %w", err)
+	}
+	origin := strings.TrimSpace(string(out))
+	if origin == "" {
+		return "", fmt.Errorf("origin remote is empty")
+	}
+	return origin, nil
+}
+
+func setOriginURL(clonePath, url string) error {
+	c := exec.Command("git", "remote", "set-url", "origin", url)
+	c.Dir = clonePath
+	out, err := c.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("set origin in %s: %s", clonePath, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func newProjectUpstreamCmd() *cobra.Command {
@@ -471,7 +599,7 @@ func newProjectSyncCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("lock project %q: %w", p.Name, err)
 				}
-				outcome, syncErr := syncOneProject(home, p)
+				outcome, syncErr := syncOneProjectContext(cmd.Context(), home, p)
 				releaseProject()
 
 				if syncErr != nil {
@@ -527,10 +655,19 @@ func skippedSync(name, detail string) (syncOutcome, error) {
 // Fetches and, when eligible, fast-forwards a single project clone. Never errors on a benign skip (dirty,
 // wrong branch, diverged, no remote); those return a skipped outcome.
 func syncOneProject(home string, p project.Project) (syncOutcome, error) {
+	return syncOneProjectContext(context.Background(), home, p)
+}
+
+func syncOneProjectContext(ctx context.Context, home string, p project.Project) (syncOutcome, error) {
 	clonePath := filepath.Join(home, "projects", p.Name)
 
-	if !hasOriginRemote(clonePath) {
+	origin, err := storedOriginURL(clonePath)
+	if err != nil {
 		return skippedSync(p.Name, "no origin remote")
+	}
+	repointDetail, err := repairProjectRename(ctx, home, p, origin)
+	if err != nil {
+		return syncOutcome{}, err
 	}
 
 	fetch := exec.Command("git", "fetch", "origin", "--prune")
@@ -572,7 +709,7 @@ func syncOneProject(home string, p project.Project) (syncOutcome, error) {
 		return syncOutcome{}, fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if behind == 0 {
-		return syncOutcome{Name: p.Name, Result: "up-to-date"}, nil
+		return syncOutcome{Name: p.Name, Result: "up-to-date", Detail: repointDetail}, nil
 	}
 	ahead, err := commitCount(clonePath, remoteRef+"..HEAD")
 	if err != nil {
@@ -587,17 +724,39 @@ func syncOneProject(home string, p project.Project) (syncOutcome, error) {
 	if out, err := merge.CombinedOutput(); err != nil {
 		return skippedSync(p.Name, "fast-forward failed: "+strings.TrimSpace(string(out)))
 	}
+	detail := fmt.Sprintf("%s, was %d behind", remoteRef, behind)
+	if repointDetail != "" {
+		detail = repointDetail + "; " + detail
+	}
 	return syncOutcome{
 		Name:   p.Name,
 		Result: "fast-forwarded",
-		Detail: fmt.Sprintf("%s, was %d behind", remoteRef, behind),
+		Detail: detail,
 	}, nil
 }
 
-func hasOriginRemote(clonePath string) bool {
-	c := exec.Command("git", "remote", "get-url", "origin")
-	c.Dir = clonePath
-	return c.Run() == nil
+func repairProjectRename(ctx context.Context, home string, p project.Project, origin string) (string, error) {
+	oldSlug, ok := ghutil.RepoSlugFromRemote(origin)
+	if !ok {
+		return "", nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	canonical, err := ghutil.ResolveCanonicalRepo(lookupCtx, oldSlug)
+	if err != nil {
+		return "", nil
+	}
+	if strings.EqualFold(oldSlug, canonical.NameWithOwner) {
+		return "", nil
+	}
+	newOrigin, ok := ghutil.RewriteGitHubRemote(origin, canonical.NameWithOwner)
+	if !ok {
+		return "", fmt.Errorf("%s: cannot rewrite GitHub origin %q to canonical repo %q", p.Name, origin, canonical.NameWithOwner)
+	}
+	if _, err := repointProject(home, p.Name, newOrigin); err != nil {
+		return "", fmt.Errorf("%s: repoint renamed repository: %w", p.Name, err)
+	}
+	return fmt.Sprintf("repointed %s -> %s", oldSlug, canonical.NameWithOwner), nil
 }
 
 func commitCount(clonePath, revRange string) (int, error) {

@@ -66,6 +66,22 @@ func TestGHServesARepoUnderAnyCasingAndAnswersCanonically(t *testing.T) {
 	}
 }
 
+func TestGHRepoViewFollowsTheSecondhandRename(t *testing.T) {
+	requireGH(t)
+
+	res := run(t, "", "gh", "repo", "view", "atqamz/secondhand", "--json", "nameWithOwner,url").requireCode(t, 0)
+	var repo struct {
+		NameWithOwner string `json:"nameWithOwner"`
+		URL           string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &repo); err != nil {
+		t.Fatalf("parse stdout %q: %v", res.stdout, err)
+	}
+	if repo.NameWithOwner != "atqamz/hand" || repo.URL != "https://github.com/atqamz/hand" {
+		t.Fatalf("repo = %+v, want canonical renamed repository", repo)
+	}
+}
+
 func TestGHPRViewFailsForAPRThatDoesNotExist(t *testing.T) {
 	requireGH(t)
 
