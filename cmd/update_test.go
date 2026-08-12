@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -78,27 +79,54 @@ func buildUpdateFixture(t *testing.T, binaryContent []byte) string {
 	t.Helper()
 	dir := t.TempDir()
 	assetName := selfupdate.AssetName()
+	archivePath := filepath.Join(dir, assetName)
+	if runtime.GOOS == "windows" {
+		file, err := os.Create(archivePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		zw := zip.NewWriter(file)
+		header := &zip.FileHeader{Name: "hand.exe", Method: zip.Deflate}
+		header.SetMode(0o755)
+		entry, err := zw.CreateHeader(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(binaryContent); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		var tarBuf bytes.Buffer
+		gz := gzip.NewWriter(&tarBuf)
+		tw := tar.NewWriter(gz)
+		if err := tw.WriteHeader(&tar.Header{Name: "hand", Mode: 0o755, Size: int64(len(binaryContent))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(binaryContent); err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := gz.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(archivePath, tarBuf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 
-	var tarBuf bytes.Buffer
-	gz := gzip.NewWriter(&tarBuf)
-	tw := tar.NewWriter(gz)
-	if err := tw.WriteHeader(&tar.Header{Name: "hand", Mode: 0o755, Size: int64(len(binaryContent))}); err != nil {
+	archiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tw.Write(binaryContent); err != nil {
-		t.Fatal(err)
-	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, assetName), tarBuf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	sum := sha256.Sum256(tarBuf.Bytes())
+	sum := sha256.Sum256(archiveBytes)
 	checksums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName)
 	if err := os.WriteFile(filepath.Join(dir, "checksums.txt"), []byte(checksums), 0o644); err != nil {
 		t.Fatal(err)
