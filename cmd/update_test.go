@@ -368,8 +368,9 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	if want := appliedUpdateDoc("failed", "no-fleet-home", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), notAHome) {
-		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), notAHome)
+	quotedHome := fmt.Sprintf("%q", notAHome)
+	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), quotedHome) {
+		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), quotedHome)
 	}
 }
 

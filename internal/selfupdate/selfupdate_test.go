@@ -161,7 +161,7 @@ func TestApplyReplacesRunningBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o755 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Fatalf("got mode %v, want 0755", info.Mode().Perm())
 	}
 
