@@ -238,6 +238,31 @@ func TestGHReleaseRefusesUnexpectedInvocationShapes(t *testing.T) {
 	}
 }
 
+func TestGHReleaseDefaultAssetNameMatchesSelfUpdateContract(t *testing.T) {
+	for _, tt := range []struct {
+		goos, goarch, want string
+	}{
+		{goos: "linux", goarch: "amd64", want: "hand-linux-amd64.tar.gz"},
+		{goos: "darwin", goarch: "arm64", want: "hand-darwin-arm64.tar.gz"},
+		{goos: "windows", goarch: "amd64", want: "hand-windows-amd64.zip"},
+	} {
+		if got := ghReleaseAssetName(tt.goos, tt.goarch); got != tt.want {
+			t.Errorf("ghReleaseAssetName(%q, %q) = %q, want %q", tt.goos, tt.goarch, got, tt.want)
+		}
+	}
+	for _, tt := range []struct {
+		goos, goarch string
+		want         []string
+	}{
+		{goos: "linux", goarch: "amd64", want: []string{"hand-linux-amd64.tar.gz", "checksums.txt"}},
+		{goos: "windows", goarch: "amd64", want: []string{"hand-windows-amd64.zip", "checksums.txt"}},
+	} {
+		if got := ghReleasePatternsFor(GHRelease{}, tt.goos, tt.goarch); !sameArgs(got, tt.want) {
+			t.Errorf("ghReleasePatternsFor(%q, %q) = %v, want %v", tt.goos, tt.goarch, got, tt.want)
+		}
+	}
+}
+
 func TestGHReleaseDownloadCopiesOnlyRequestedPatterns(t *testing.T) {
 	fixture := t.TempDir()
 	for _, name := range []string{"asset.tar.gz", "checksums.txt", "unexpected.txt"} {

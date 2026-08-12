@@ -139,9 +139,6 @@ func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
 }
 
 func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -183,9 +180,6 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 // The refreshed template directs the agent at data files a home initialized
 // before them never had, so update seeds whichever are missing.
 func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -228,9 +222,6 @@ func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
 // state/hand.db marker, so update has to create the directory it seeds into
 // rather than warning about six files it could not write.
 func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -262,9 +253,6 @@ func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
 }
 
 func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -296,9 +284,6 @@ func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
 }
 
 func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	fleetHome := t.TempDir()
 	mkFleetDirs(t, fleetHome)
@@ -332,9 +317,6 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 }
 
 func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	t.Setenv("HAND_HOME", "")
 	home := t.TempDir()
@@ -364,9 +346,6 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 // home" is a misconfiguration, and swallowing it would leave the operator with
 // an unrefreshed AGENTS.md and nothing on stderr saying why.
 func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -395,9 +374,6 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 }
 
 func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -423,9 +399,6 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 // The binary is already replaced before the refresh runs, so a refresh failure
 // must not turn a successful update into a nonzero exit.
 func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "AGENTS.md"), 0o755); err != nil {
@@ -456,9 +429,6 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 }
 
 func TestUpdatePreservesOwnedSessionHookWhenAgentsRefreshFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -507,9 +477,6 @@ func TestUpdatePreservesOwnedSessionHookWhenAgentsRefreshFails(t *testing.T) {
 // The binary is already replaced before retirement runs, so malformed operator
 // settings produce a warning and a failed field without changing update success.
 func TestUpdateReportsVersionsWhenSessionHookRetirementFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)

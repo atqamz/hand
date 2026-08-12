@@ -267,3 +267,4 @@ Exit 0 with the selected field as raw text on stdout and no JSON envelope.
 
 Exit 0 with the requested release assets copied into the directory.
 Download progress belongs on stderr and is ignored by `hand update`.
+The requested hand asset is `hand-<goos>-<goarch>.tar.gz` on Unix and `hand-windows-<goarch>.zip` on Windows, followed by `checksums.txt`.

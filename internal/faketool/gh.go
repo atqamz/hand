@@ -311,10 +311,22 @@ func ghReleaseRepo(release GHRelease) string {
 }
 
 func ghReleasePatterns(release GHRelease) []string {
+	return ghReleasePatternsFor(release, runtime.GOOS, runtime.GOARCH)
+}
+
+func ghReleasePatternsFor(release GHRelease, goos, goarch string) []string {
 	if len(release.Patterns) > 0 {
 		return append([]string(nil), release.Patterns...)
 	}
-	return []string{fmt.Sprintf("hand-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH), "checksums.txt"}
+	return []string{ghReleaseAssetName(goos, goarch), "checksums.txt"}
+}
+
+func ghReleaseAssetName(goos, goarch string) string {
+	suffix := ".tar.gz"
+	if goos == "windows" {
+		suffix = ".zip"
+	}
+	return fmt.Sprintf("hand-%s-%s%s", goos, goarch, suffix)
 }
 
 func ghReleaseDownloadDir(release GHRelease, args []string) (string, bool) {
