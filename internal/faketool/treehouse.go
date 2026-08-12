@@ -1,113 +1,230 @@
 package faketool
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// Version banner written to stderr ahead of a "get" payload, matching the
-// treehouse whose behaviour FIDELITY.md records.
+// Version banner written to stderr ahead of a get payload.
 const TreehouseBanner = "treehouse 2.1.0"
 
-// A fake treehouse pool: "get" leases slots in the order listed and "return"
-// frees them, so it answers differently before and after each command that
-// changes it, and every acquisition gets a lease identity of its own.
+// Treehouse models a pool whose slots are leased and returned across calls.
 type Treehouse struct {
-	Slots []string
-	// Leased before the test began, for a task whose row was seeded not spawned.
-	Held []string
-	// Models a treehouse older than v2.1.0, which reports no lease identity.
+	Slots           []string
+	Held            []string
 	NoLeaseIdentity bool
-	// Version banner, defaulting to TreehouseBanner.
-	Banner string
-	Log    string
+	Banner          string
+	Log             string
+	Responses       []TreehouseResponse
 }
 
-// Writes the fake into bin, which Bin has put on PATH.
+type TreehouseResponse struct {
+	Command string
+	Args    []string
+	Stdout  string
+	Stderr  string
+	Exit    int
+}
+
+type treehouseSpec struct {
+	Slots           []string
+	Held            []string
+	NoLeaseIdentity bool
+	Banner          string
+	StateDir        string
+	Log             string
+	Responses       []TreehouseResponse
+}
+
 func (th Treehouse) Install(t *testing.T, bin string) {
 	t.Helper()
 	state := stateDir(t, bin, "treehouse")
-	counter := quote(state + "/leases")
+	for _, slot := range th.Held {
+		ensureFile(t, treehouseMarker(state, slot), "leased\n")
+	}
 	banner := th.Banner
 	if banner == "" {
 		banner = TreehouseBanner
 	}
+	installConfig(t, bin, "treehouse", "treehouse", treehouseSpec{
+		Slots: th.Slots, Held: th.Held, NoLeaseIdentity: th.NoLeaseIdentity,
+		Banner: banner, StateDir: state, Log: th.Log, Responses: th.Responses,
+	})
+}
 
-	marker := func(slot string) string { return quote(state + "/slot-" + key(slot)) }
-
-	var acquire strings.Builder
-	for _, slot := range th.Slots {
-		payload := fmt.Sprintf(`'{"path":"%%s","lease_id":"lease-%%s","lease_holder":"","leased_at":"2026-01-01T00:00:00Z"}\n' %s "$n"`, quote(slot))
-		if th.NoLeaseIdentity {
-			payload = fmt.Sprintf(`'{"path":"%%s"}\n' %s`, quote(slot))
-		}
-		fmt.Fprintf(&acquire, `    if [ ! -s %[1]s ]; then
-      n=0; [ -f %[2]s ] && read n < %[2]s
-      n=$((n+1)); echo "$n" > %[2]s
-      echo leased > %[1]s
-      printf %[3]s
-      exit 0
-    fi
-`, marker(slot), counter, payload)
+func runTreehouseFromPayload(payload json.RawMessage, args []string) int {
+	var spec treehouseSpec
+	if err := json.Unmarshal(payload, &spec); err != nil {
+		return fail("decode treehouse config: %v", err)
 	}
-
-	var resolve strings.Builder
-	seen := map[string]bool{}
-	for _, slot := range append(append([]string{}, th.Slots...), th.Held...) {
-		if seen[slot] {
+	if spec.Log != "" {
+		if err := appendInvocation(spec.Log, "treehouse", args); err != nil {
+			return fail("log treehouse invocation: %v", err)
+		}
+	}
+	if len(args) == 0 {
+		return fail("unexpected treehouse invocation")
+	}
+	for _, response := range spec.Responses {
+		if response.Command != args[0] || (response.Args != nil && !sameArgs(response.Args, args[1:])) {
 			continue
 		}
-		seen[slot] = true
-		fmt.Fprintf(&resolve, "      %s) marker=%s ;;\n", quote(slot), marker(slot))
+		_, _ = io.WriteString(os.Stdout, response.Stdout)
+		_, _ = io.WriteString(os.Stderr, response.Stderr)
+		return response.Exit
 	}
-
-	// The abort exits 0, which is the whole reason this arm exists: with no answer
-	// to its prompt treehouse reports the abort on stderr and still exits 0, so an
-	// exit-code-only caller reads a return that never happened as success.
-	body := fmt.Sprintf(`  get)
-    echo %[1]s >&2
-%[2]s    printf 'all %[3]d worktrees are in use or dirty (max_trees = %[3]d). Run '"'"'treehouse status'"'"' to see details, or increase max_trees in treehouse.toml\n' >&2
-    exit 1
-    ;;
-  return)
-    path="$2"
-    forced=""
-    for arg in "$@"; do
-      if [ "$arg" = "--force" ]; then forced=1; fi
-    done
-    marker=""
-    case "$path" in
-%[4]s    esac
-    if [ -z "$marker" ]; then
-      echo "worktree $path is not managed by treehouse" >&2
-      exit 1
-    fi
-    dirty=""
-    if [ -e "$path/.git" ] && [ -n "$(git -C "$path" status --porcelain)" ]; then dirty=1; fi
-    if [ -n "$dirty" ] && [ -z "$forced" ]; then
-      echo 'Worktree has uncommitted changes. Clean and return? [Y/n] Aborted.' >&2
-      exit 0
-    fi
-    if [ -n "$dirty" ]; then
-      git -C "$path" reset -q --hard HEAD
-      git -C "$path" clean -qfd
-    fi
-    : > "$marker"
-    echo 'Worktree returned to pool.' >&2
-    ;;
-  init)
-    if [ -f treehouse.toml ]; then
-      echo 'treehouse.toml already exists' >&2
-      exit 1
-    fi
-    echo 'max_trees = 16' > treehouse.toml
-    echo "Created $(pwd)/treehouse.toml" >&2
-    ;;`, quote(banner), acquire.String(), len(th.Slots), resolve.String())
-
-	install(t, bin, "treehouse", th.Log, "", "$1", body)
-
-	for _, slot := range th.Held {
-		writeFile(t, state+"/slot-"+key(slot), "leased\n")
+	switch args[0] {
+	case "get":
+		return treehouseGet(spec)
+	case "return":
+		return treehouseReturn(spec, args)
+	case "init":
+		return treehouseInit()
+	default:
+		return fail("unexpected treehouse invocation: %s", strings.Join(args, " "))
 	}
+}
+
+func treehouseGet(spec treehouseSpec) int {
+	for _, slot := range spec.Slots {
+		marker := treehouseMarker(spec.StateDir, slot)
+		leased, err := treehouseLeased(marker)
+		if err != nil {
+			return fail("inspect treehouse slot: %v", err)
+		}
+		if leased {
+			continue
+		}
+		counter := treehouseCounter(spec.StateDir)
+		if err := atomicWrite(treehouseCounterPath(spec.StateDir), fmt.Sprintf("%d\n", counter+1)); err != nil {
+			return fail("write treehouse lease counter: %v", err)
+		}
+		if err := atomicWrite(marker, "leased\n"); err != nil {
+			return fail("lease treehouse slot: %v", err)
+		}
+		_, _ = fmt.Fprintln(os.Stderr, spec.Banner)
+		if spec.NoLeaseIdentity {
+			_, _ = fmt.Fprintf(os.Stdout, "{\"path\":%s}\n", jsonQuote(slot))
+		} else {
+			_, _ = fmt.Fprintf(os.Stdout, "{\"path\":%s,\"lease_id\":\"lease-%d\",\"lease_holder\":\"\",\"leased_at\":\"2026-01-01T00:00:00Z\"}\n", jsonQuote(slot), counter+1)
+		}
+		return 0
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "all %d worktrees are in use or dirty (max_trees = %d). Run 'treehouse status' to see details, or increase max_trees in treehouse.toml\n", len(spec.Slots), len(spec.Slots))
+	return 1
+}
+
+func treehouseReturn(spec treehouseSpec, args []string) int {
+	if len(args) < 2 {
+		return fail("unexpected treehouse invocation: %s", strings.Join(args, " "))
+	}
+	slot := args[1]
+	marker := ""
+	for _, managed := range append(append([]string{}, spec.Slots...), spec.Held...) {
+		if managed == slot {
+			marker = treehouseMarker(spec.StateDir, managed)
+			break
+		}
+	}
+	if marker == "" {
+		return fail("worktree %s is not managed by treehouse", slot)
+	}
+	forced := false
+	for _, arg := range args[2:] {
+		if arg == "--force" {
+			forced = true
+		}
+	}
+	dirty, err := treehouseDirty(slot)
+	if err != nil {
+		return fail("inspect dirty treehouse slot: %v", err)
+	}
+	if dirty && !forced {
+		_, _ = io.WriteString(os.Stderr, "Worktree has uncommitted changes. Clean and return? [Y/n] Aborted.\n")
+		return 0
+	}
+	if dirty {
+		if err := treehouseClean(slot); err != nil {
+			return fail("clean treehouse slot: %v", err)
+		}
+	}
+	if err := atomicWrite(marker, ""); err != nil {
+		return fail("return treehouse slot: %v", err)
+	}
+	_, _ = io.WriteString(os.Stderr, "Worktree returned to pool.\n")
+	return 0
+}
+
+func treehouseInit() int {
+	path, err := filepath.Abs("treehouse.toml")
+	if err != nil {
+		return fail("locate treehouse.toml: %v", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		_, _ = io.WriteString(os.Stderr, "treehouse.toml already exists\n")
+		return 1
+	} else if !os.IsNotExist(err) {
+		return fail("inspect treehouse.toml: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("max_trees = 16\n"), 0o644); err != nil {
+		return fail("create treehouse.toml: %v", err)
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "Created %s\n", path)
+	return 0
+}
+
+func treehouseDirty(path string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		return false, nil
+	}
+	out, err := exec.Command("git", "-C", path, "status", "--porcelain").Output()
+	if err != nil {
+		return false, err
+	}
+	return len(out) > 0, nil
+}
+
+func treehouseClean(path string) error {
+	if out, err := exec.Command("git", "-C", path, "reset", "-q", "--hard", "HEAD").CombinedOutput(); err != nil {
+		return fmt.Errorf("git reset: %w: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", path, "clean", "-qfd").CombinedOutput(); err != nil {
+		return fmt.Errorf("git clean: %w: %s", err, out)
+	}
+	return nil
+}
+
+func treehouseMarker(state, slot string) string {
+	return filepath.Join(state, "slot-"+key(slot))
+}
+
+func treehouseCounterPath(state string) string {
+	return filepath.Join(state, "leases")
+}
+
+func treehouseCounter(state string) int {
+	data, err := os.ReadFile(treehouseCounterPath(state))
+	if err != nil {
+		return 0
+	}
+	var counter int
+	_, _ = fmt.Sscanf(string(data), "%d", &counter)
+	return counter
+}
+
+func treehouseLeased(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(data)) != "", nil
 }

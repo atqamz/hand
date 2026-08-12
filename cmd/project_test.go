@@ -6,10 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -315,16 +315,16 @@ func TestRepointProjectReportsOriginRestoreFailure(t *testing.T) {
 }
 
 func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake git is a POSIX shell script, not supported on windows")
-	}
 	home := t.TempDir()
-	bin := t.TempDir()
-	gitPath := filepath.Join(bin, "git")
-	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\nmkdir -p \"$3\"\nprintf partial > \"$3/partial\"\necho clone failed >&2\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Command{
+		Name:   "git",
+		Stderr: "clone failed\n",
+		Exit:   1,
+		FileAction: &faketool.FileAction{
+			PathArg: 2, Relative: "partial", Content: "partial",
+		},
+	}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
@@ -340,9 +340,6 @@ func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
 }
 
 func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake git is a POSIX shell script, not supported on windows")
-	}
 	home := t.TempDir()
 	dest := filepath.Join(home, "projects", "repo")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
@@ -352,12 +349,9 @@ func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("user data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bin := t.TempDir()
-	gitPath := filepath.Join(bin, "git")
-	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\necho git clone should not run >&2\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	log := filepath.Join(t.TempDir(), "git.log")
+	faketool.Command{Name: "git", Stderr: "git clone should not run\n", Exit: 1, Log: log}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
@@ -368,6 +362,9 @@ func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
 	}
 	if got, err := os.ReadFile(marker); err != nil || string(got) != "user data" {
 		t.Fatalf("existing clone changed: %q, %v", got, err)
+	}
+	if data, err := os.ReadFile(log); err == nil && len(data) != 0 {
+		t.Fatalf("git invocation log = %q, want no invocation", data)
 	}
 }
 

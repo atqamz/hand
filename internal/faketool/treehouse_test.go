@@ -1,6 +1,7 @@
 package faketool
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -37,7 +38,10 @@ func TestTreehouseLeasesEachSlotOnceUntilItIsReturned(t *testing.T) {
 	Treehouse{Slots: []string{slot}}.Install(t, bin)
 
 	first, banner, code := runTreehouse(t, t.TempDir(), "get", "--lease", "--json")
-	if code != 0 || !strings.Contains(first, `"path":"`+slot+`"`) {
+	var lease struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(first), &lease); err != nil || code != 0 || lease.Path != slot {
 		t.Fatalf("get = %q (exit %d), want the slot leased", first, code)
 	}
 	if !strings.Contains(banner, TreehouseBanner) {

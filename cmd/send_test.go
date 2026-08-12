@@ -4,27 +4,26 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
-func setupSendHome(t *testing.T, herdrScript string) string {
+func setupSendHome(t *testing.T, h faketool.Herdr) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
-		t.Fatal(err)
+	if len(h.Workspaces) == 0 {
+		h.Workspaces = []faketool.HerdrWorkspace{{ID: "wA", Tabs: []faketool.HerdrTab{{
+			ID: "wA:tB", Pane: "wA:pB",
+		}}}}
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	h.Install(t, bin)
 	return home
 }
 
@@ -32,24 +31,7 @@ func TestSendHappyPathWhenIdle(t *testing.T) {
 	// "pane send-text"/"pane send-keys" are void commands: real success is empty stdout, not this envelope
 	// (callVoid's doc comment, client.go). callVoid only checks env.Error, which is nil here, so the extra
 	// body is harmless and this still exercises the real success path.
-	home := setupSendHome(t, `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
-	;;
-"pane send-text")
- printf '{"id":"cli:1","result":{}}'
-	;;
-"pane send-keys")
- printf '{"id":"cli:1","result":{}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,10 +47,11 @@ func TestSendFailsWhenPaneNotFound(t *testing.T) {
 	// "pane get" is a query command (call(), client.go); call() checks env.Error before runErr, so this fake
 	// would behave identically without the exit 1 - kept only because it is a plausible real exit status for
 	// a failed query, not because call() requires it.
-	home := setupSendHome(t, `#!/bin/sh
-printf '{"id":"cli:1","error":{"code":"pane_not_found","message":"no such pane"}}'
-exit 1
-`)
+	home := setupSendHome(t, faketool.Herdr{Responses: []faketool.HerdrResponse{{
+		Command: "pane get",
+		Stdout:  "{\"id\":\"cli:1\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"no such pane\"}}",
+		Exit:    1,
+	}}})
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:gone"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,33 +66,7 @@ exit 1
 func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 	// Same send-text/send-keys envelope simplification as
 	// TestSendHappyPathWhenIdle above.
-	counterFile := filepath.Join(t.TempDir(), "calls")
-	home := setupSendHome(t, `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	n=0
-	if [ -f "`+counterFile+`" ]; then n=$(cat "`+counterFile+`"); fi
-	n=$((n+1))
-	echo "$n" > "`+counterFile+`"
-	if [ "$n" -lt 2 ]; then
-		printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'
-	else
-		printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
-	fi
-	;;
-"pane send-text")
- printf '{"id":"cli:1","result":{}}'
-	;;
-"pane send-keys")
- printf '{"id":"cli:1","result":{}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
+	home := setupSendHome(t, faketool.Herdr{PaneStatusSequence: []string{"working", "idle"}})
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -123,25 +80,7 @@ esac
 
 func TestSendReadsMessageFromFile(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "sent.log")
-	home := setupSendHome(t, `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
-	;;
-"pane send-text")
-	printf '%s\n' "$4" >> "`+logPath+`"
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"pane send-keys")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -167,10 +106,7 @@ esac
 }
 
 func TestSendRejectsFileAndMessageTogether(t *testing.T) {
-	setupSendHome(t, `#!/bin/sh
-echo "unexpected herdr invocation: $@" >&2
-exit 1
-`)
+	setupSendHome(t, faketool.Herdr{})
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"task-1", "hello", "--file", "/does/not/matter"})
@@ -178,10 +114,7 @@ exit 1
 }
 
 func TestSendRequiresMessageOrFile(t *testing.T) {
-	setupSendHome(t, `#!/bin/sh
-echo "unexpected herdr invocation: $@" >&2
-exit 1
-`)
+	setupSendHome(t, faketool.Herdr{})
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"task-1"})
@@ -192,10 +125,7 @@ func TestSendRejectsEmptyFileFlag(t *testing.T) {
 	// An unset shell variable expanding into --file is neither a message source
 	// nor two positional arguments, so it has to land on the usage error rather
 	// than on args[1].
-	setupSendHome(t, `#!/bin/sh
-echo "unexpected herdr invocation: $@" >&2
-exit 1
-`)
+	setupSendHome(t, faketool.Herdr{})
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"task-1", "--file", ""})
@@ -205,28 +135,9 @@ exit 1
 func TestSendFailsWhenPaneDisappearsDuringWait(t *testing.T) {
 	// The pane answers "working" once, then stops answering at all: no retry can
 	// succeed, so this must not take the retryable exit-6 busy-composer path.
-	counterFile := filepath.Join(t.TempDir(), "calls")
-	home := setupSendHome(t, `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	n=0
-	if [ -f "`+counterFile+`" ]; then n=$(cat "`+counterFile+`"); fi
-	n=$((n+1))
-	echo "$n" > "`+counterFile+`"
-	if [ "$n" -lt 2 ]; then
-		printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'
-	else
-		printf '{"id":"cli:1","error":{"code":"pane_not_found","message":"no such pane"}}'
-		exit 1
-	fi
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatusSequence: []string{"working", "pane-gone"},
+	})
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -254,25 +165,14 @@ esac
 func TestSendRecordsUndeliveredMessageWhenSubmitFails(t *testing.T) {
 	// The text reached the composer but was never submitted - a steer with no
 	// evidence it landed, so it owes the same trace the wait bound does.
-	home := setupSendHome(t, `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
-	;;
-"pane send-text")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"pane send-keys")
-	printf '{"id":"cli:1","error":{"code":"send_failed","message":"keystroke rejected"}}'
-	exit 1
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus: "idle",
+		Responses: []faketool.HerdrResponse{{
+			Command: "pane send-keys",
+			Stdout:  "{\"id\":\"cli:1\",\"error\":{\"code\":\"send_failed\",\"message\":\"keystroke rejected\"}}",
+			Exit:    1,
+		}},
+	})
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -303,18 +203,7 @@ esac
 func TestSendRecordsUndeliveredMessageWhenComposerStaysBusy(t *testing.T) {
 	// The composer never frees, so WaitComposerEmpty always exhausts --wait;
 	// a short --wait keeps the test itself fast.
-	home := setupSendHome(t, `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "working"})
 	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -340,24 +229,7 @@ esac
 }
 
 func TestSendClearsAPreviouslyRecordedUndeliveredSendOnSuccess(t *testing.T) {
-	home := setupSendHome(t, `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'
-	;;
-"pane send-text")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"pane send-keys")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
 	if err := state.Write(home, state.Task{
 		ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"},
 		SendUndeliveredMessage: "an earlier abandoned steer",
@@ -385,10 +257,7 @@ func TestSendFailsForUnknownTask(t *testing.T) {
 	// send resolves the task before it ever reaches herdr, so this fake refuses every invocation instead of
 	// imitating a herdr response: a regression that called herdr first would surface that message here
 	// rather than the expected "not found".
-	setupSendHome(t, `#!/bin/sh
-echo "unexpected herdr invocation: $@" >&2
-exit 1
-`)
+	setupSendHome(t, faketool.Herdr{})
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"missing-task", "hello"})

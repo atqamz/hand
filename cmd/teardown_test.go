@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -1118,9 +1117,6 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 }
 
 func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	home, worktree := setupTeardownHome(t)
 	writeScoutReport(t, home, "task-1")
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout, Worktree: worktree,
@@ -1129,14 +1125,14 @@ func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 	}
 
 	marker := filepath.Join(t.TempDir(), "herdr-called")
-	bin := t.TempDir()
-	// This and the herdr fakes further down this file all return a non-null object result for "tab
-	// list"/"tab close"/"workspace close", exactly what call() requires for success (client.go). All
-	// three are query commands, not callVoid's void pane commands, so no exit-code split to reproduce.
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\ntouch '"+marker+"'\nprintf '{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\"}]}}'\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{{
+			Command: "tab list",
+			Stdout:  "{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\"}]}}",
+		}},
+		Log: marker,
+	}.Install(t, bin)
 
 	releaseProject, err := state.Lock(home, "project:myproj")
 	if err != nil {
@@ -1173,33 +1169,12 @@ func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 }
 
 func TestTeardownClosesWorkspaceWhenLastTab(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	home, worktree := setupTeardownHome(t)
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"tab list")
-	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
-	;;
-"workspace close")
- printf '{"id":"cli:1","result":{}}'
-	;;
-"tab close")
-	echo "should not close a tab when it is the last one" >&2
-	exit 1
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Herdr{Responses: []faketool.HerdrResponse{
+		{Command: "tab list", Stdout: "{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"} ]}}"},
+		{Command: "workspace close", Stdout: "{\"id\":\"cli:1\",\"result\":{}}"},
+	}}.Install(t, bin)
 
 	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout, Worktree: worktree,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
@@ -1218,51 +1193,22 @@ esac
 // fail the command: teardown's later steps can fault, and the retry that follows
 // finds exactly this state.
 func TestCloseTaskTabTreatsAbsentTabAsClosed(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
-case "$1 $2" in
-"tab list")
- printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:other","workspace_id":"wA"}]}}'
- ;;
-*)
- echo "unexpected herdr args: $@" >&2
- exit 1
- ;;
-esac
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Herdr{Responses: []faketool.HerdrResponse{{
+		Command: "tab list",
+		Stdout:  "{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:other\",\"workspace_id\":\"wA\"}]}}",
+	}}}.Install(t, bin)
 	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:missing"); err != nil {
 		t.Fatalf("got %v, want an absent tab treated as already closed", err)
 	}
 }
 
 func TestCloseTaskTabClosesWorkspaceForSoleTab(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(`#!/bin/sh
-case "$1 $2" in
-"tab list")
- printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'
- ;;
-"workspace close")
- printf '{"id":"cli:1","result":{}}'
- ;;
-*)
- echo "unexpected herdr args: $@" >&2
- exit 1
- ;;
-esac
-`), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Herdr{Responses: []faketool.HerdrResponse{
+		{Command: "tab list", Stdout: "{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"}]}}"},
+		{Command: "workspace close", Stdout: "{\"id\":\"cli:1\",\"result\":{}}"},
+	}}.Install(t, bin)
 	if err := closeTaskTab(herdr.NewClient(), "wA", "wA:tB"); err != nil {
 		t.Fatal(err)
 	}

@@ -2,13 +2,12 @@ package cmd
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -27,34 +26,10 @@ func fakeNoMistakesPath(t *testing.T, stdout string) string {
 // `no-mistakes status` exits 0 printing the same text.
 func fakeNoMistakesPathExit(t *testing.T, stdout string, code int) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake no-mistakes is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	// GateRunPRs reads the refusal from the text either way, so the fake reproduces the exit code rather
-	// than flattening every refusal to 0.
-	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", stdout, code)
-	if err := os.WriteFile(filepath.Join(bin, "no-mistakes"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return bin + string(os.PathListSeparator) + os.Getenv("PATH")
+	bin := faketool.Bin(t)
+	faketool.NoMistakes{Stdout: stdout, Exit: code}.Install(t, bin)
+	return os.Getenv("PATH")
 }
-
-// Fakes only "pane get", answering the pane as done (not busy), enough for promote's precondition
-// check to pass through to gatePreflight without needing the rest of a clean promote's herdr calls,
-// which gatePreflight's refusal preempts.
-const fakeHerdrPaneDone = `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tOld","workspace_id":"wA","agent_status":"done"}}}' "$3"
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
 
 // Registers a no-mistakes-mode project and nothing else: gatePreflight fires in spawn before
 // state.Claim, the brief check, or any herdr/treehouse call, so none of those need to exist here.
@@ -82,9 +57,6 @@ func setupSpawnHomeGate(t *testing.T, noMistakesPath string) string {
 // worktree.Get, so those three must be satisfied while nothing past gatePreflight needs to exist.
 func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	useFastLaunchPolling(t)
 	home := t.TempDir()
 
@@ -114,11 +86,14 @@ func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 
 	// noMistakesPath becomes PATH verbatim except for the fake herdr binary this helper always adds,
 	// letting each test control whether no-mistakes is reachable.
-	herdrBin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(herdrBin, "herdr"), []byte(fakeHerdrPaneDone), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", herdrBin+string(os.PathListSeparator)+noMistakesPath)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Tabs: []faketool.HerdrTab{{
+			ID: "wA:tOld", Pane: "wA:pOld",
+		}}}},
+		PaneStatus: "done",
+	}.Install(t, bin)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+noMistakesPath)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	return home

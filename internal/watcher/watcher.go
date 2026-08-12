@@ -49,6 +49,9 @@ var ErrArmFailed = errors.New("could not arm")
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 
@@ -119,7 +122,7 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 func connect(ctx context.Context) (*herdr.Client, error) {
 	client := herdr.NewClient()
 	done := make(chan error, 1)
-	go func() { _, err := client.WorkspaceList(); done <- err }()
+	go func() { _, err := client.WorkspaceListContext(ctx); done <- err }()
 	select {
 	// Losing the race is ErrNoEvent for the same reason probeAllTasks's is: the window closed during
 	// arming, which is exit 4 wherever in arming it happens.
@@ -146,7 +149,7 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 	done := make(chan error, 1)
 	go func() {
 		for _, t := range tasks {
-			if _, err := client.PaneGet(t.Herdr.PaneID); err != nil {
+			if _, err := client.PaneGetContext(ctx, t.Herdr.PaneID); err != nil {
 				done <- fmt.Errorf("%w: %s: %v", ErrArmFailed, t.ID, err)
 				return
 			}
@@ -180,7 +183,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			return
 		}
 		seen[t.ID] = true
-		pane, probeErr := client.PaneGet(t.Herdr.PaneID)
+		pane, probeErr := client.PaneGetContext(ctx, t.Herdr.PaneID)
+		if ctx.Err() != nil {
+			return
+		}
 		status := pane.AgentStatus
 
 		// Tracking is keyed by task identity, not by ID: an ID torn down and respawned between two

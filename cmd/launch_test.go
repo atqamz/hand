@@ -3,12 +3,11 @@ package cmd
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/herdr"
 )
 
@@ -50,60 +49,20 @@ func exited(text string) launchFrame { return launchFrame{text: text} }
 // out, and appends every key sent to a log the test reads back.
 func fakeLaunchPane(t *testing.T, frames ...launchFrame) (keyLog string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	dir := t.TempDir()
-	framesDir := filepath.Join(dir, "frames")
-	if err := os.MkdirAll(framesDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for i, frame := range frames {
-		base := filepath.Join(framesDir, strconv.Itoa(i))
-		if err := os.WriteFile(base, []byte(frame.text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(base+".agent", []byte(frame.agent), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 	keyLog = filepath.Join(dir, "keys.log")
-	// A poll is a "pane get" followed by a "pane read", so the get arm advances the frame and the read
-	// arm serves whatever the get arm landed on.
-	script := `#!/bin/sh
-last=$(($LAUNCH_FRAME_COUNT - 1))
-case "$1 $2" in
-"pane get")
-	n=$(cat "$LAUNCH_FRAME_COUNTER" 2>/dev/null || echo 0)
-	echo $((n + 1)) > "$LAUNCH_FRAME_COUNTER"
-	[ "$n" -gt "$last" ] && n=$last
-	echo "$n" > "$LAUNCH_FRAME_CURRENT"
-	agent=$(cat "$LAUNCH_FRAMES_DIR/$n.agent")
-	printf '{"result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"%s","agent_status":"idle"}}}' "$3" "$agent"
-	;;
-"pane read")
-	cat "$LAUNCH_FRAMES_DIR/$(cat "$LAUNCH_FRAME_CURRENT")"
-	;;
-"pane send-keys")
-	shift 3
-	echo "$@" >> "$LAUNCH_KEY_LOG"
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+	herdrFrames := make([]faketool.HerdrFrame, len(frames))
+	for i, frame := range frames {
+		herdrFrames[i] = faketool.HerdrFrame{Text: frame.text, Agent: frame.agent, Status: "idle"}
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("LAUNCH_FRAMES_DIR", framesDir)
-	t.Setenv("LAUNCH_FRAME_COUNT", strconv.Itoa(len(frames)))
-	t.Setenv("LAUNCH_FRAME_COUNTER", filepath.Join(dir, "counter"))
-	t.Setenv("LAUNCH_FRAME_CURRENT", filepath.Join(dir, "current"))
-	t.Setenv("LAUNCH_KEY_LOG", keyLog)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Tabs: []faketool.HerdrTab{{
+			ID: "wA:tB", Pane: "wA:pC",
+		}}}},
+		Frames: herdrFrames,
+		KeyLog: keyLog,
+	}.Install(t, bin)
 	return keyLog
 }
 

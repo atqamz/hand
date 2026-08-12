@@ -11,13 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
@@ -164,9 +164,6 @@ func TestSessionStartMissingRequiredContextNamesPathAndRecovery(t *testing.T) {
 }
 
 func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake hand is a POSIX shell script, not supported on windows")
-	}
 	parent := t.TempDir()
 	home := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
 	mkFleetDirs(t, home)
@@ -179,11 +176,8 @@ func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
 	t.Setenv(harness.RoleEnv, "")
 	t.Chdir(parent)
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "hand"), []byte("#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" \"$2\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Command{Name: "hand", Args: true}.Install(t, bin)
 
 	_, err := executeSessionStart(t, nil)
 	assertExitCode(t, err, 3)
