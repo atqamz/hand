@@ -88,17 +88,19 @@ func newWatchCmd() *cobra.Command {
 
 			// After every validation above, so a usage error still exits 2 without
 			// having disturbed a running watcher's ownership.
-			release, err := watcher.Acquire(home, takeover)
+			ownership, err := watcher.Acquire(home, takeover)
 			if err != nil {
 				if errors.Is(err, watcher.ErrAttached) {
 					return &ExitError{Err: err, Code: 3}
 				}
 				return err
 			}
-			defer release()
+			defer ownership.Release()
 
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
+			signalCtx, stopSignals := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stopSignals()
+			ctx, cancel := contextWithTakeover(signalCtx, ownership.TakeoverRequested())
+			defer cancel()
 
 			cfg := watcher.Config{
 				Home:           home,
