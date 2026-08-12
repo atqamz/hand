@@ -418,8 +418,9 @@ func herdrPaneGet(spec herdrSpec, tabs []herdrTabRef, args []string) int {
 			status = "idle"
 		}
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "{\"id\":\"cli:pane:get\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":%s,\"tab_id\":%s,\"workspace_id\":\"\",\"agent\":%s,\"agent_status\":%s}}}\n",
-		jsonQuote(args[2]), jsonQuote(ref.Tab.ID), jsonQuote(agent), jsonQuote(status))
+	workspace, _ := herdrTabWorkspace(spec, ref)
+	_, _ = fmt.Fprintf(os.Stdout, "{\"id\":\"cli:pane:get\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":%s,\"tab_id\":%s,\"workspace_id\":%s,\"agent\":%s,\"agent_status\":%s}}}\n",
+		jsonQuote(args[2]), jsonQuote(ref.Tab.ID), jsonQuote(workspace), jsonQuote(agent), jsonQuote(status))
 	return 0
 }
 

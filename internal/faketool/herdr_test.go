@@ -2,6 +2,7 @@ package faketool
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -169,6 +170,20 @@ func TestHerdrTabCreateAttachesToTheWorkspaceAskedFor(t *testing.T) {
 	}
 }
 
+func TestHerdrPaneGetReportsItsOwningWorkspace(t *testing.T) {
+	twoTabWorkspace().Install(t, Bin(t))
+
+	out, errOut, code := runHerdr(t, "pane", "get", "wA:p1")
+	if code != 0 {
+		t.Fatalf("pane get = %q (exit %d), want success", errOut, code)
+	}
+	for _, want := range []string{`"pane_id":"wA:p1"`, `"tab_id":"wA:t1"`, `"workspace_id":"wA"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("pane get = %q, want %s", out, want)
+		}
+	}
+}
+
 func TestHerdrTabRenameChangesTheListedLabel(t *testing.T) {
 	twoTabWorkspace().Install(t, Bin(t))
 
@@ -221,7 +236,7 @@ func TestHerdrLogRecordsEveryInvocation(t *testing.T) {
 	runHerdr(t, "tab", "list", "--workspace", "wA")
 	runHerdr(t, "tab", "close", "wA:t1")
 
-	data, err := exec.Command("cat", log).Output()
+	data, err := os.ReadFile(log)
 	if err != nil {
 		t.Fatal(err)
 	}
