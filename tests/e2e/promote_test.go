@@ -16,7 +16,6 @@ import (
 // promotion asserting the scout's old worktree/herdr identifiers are actually released (not just replaced)
 // and that identity fields carry over unchanged while role fields are fully replaced.
 func TestPromoteScoutToShip(t *testing.T) {
-	t.Setenv("HAND_HARNESS", "claude")
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 

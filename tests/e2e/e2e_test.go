@@ -101,10 +101,21 @@ func runHand(t *testing.T, home string, args ...string) invocation {
 }
 
 func handProcessEnv(extraEnv ...string) []string {
-	overridden := map[string]bool{"HAND_ROLE": true}
+	overridden := map[string]bool{
+		"HAND_ROLE":       true,
+		"HAND_HOME":       true,
+		"HAND_HARNESS":    true,
+		"CLAUDECODE":      true,
+		"CODEX_THREAD_ID": true,
+		"PI_CODING_AGENT": true,
+		"GROK_AGENT":      true,
+	}
+	harnessOverride := false
 	for _, entry := range extraEnv {
 		if name, _, ok := strings.Cut(entry, "="); ok {
-			overridden[strings.ToUpper(name)] = true
+			name = strings.ToUpper(name)
+			overridden[name] = true
+			harnessOverride = harnessOverride || name == "HAND_HARNESS"
 		}
 	}
 	env := make([]string, 0, len(os.Environ())+len(extraEnv))
@@ -114,11 +125,63 @@ func handProcessEnv(extraEnv ...string) []string {
 			env = append(env, entry)
 		}
 	}
+	if !harnessOverride {
+		env = append(env, "HAND_HARNESS=unknown")
+	}
 	return append(env, extraEnv...)
 }
 
-// Runs hand with explicit entries replacing ambient values; HAND_ROLE is absent unless a worker test
-// opts in, so the suite's own role never changes the child being exercised.
+func TestHandProcessEnvFiltersAmbientSemanticEnvironment(t *testing.T) {
+	poison := map[string]string{
+		"HAND_ROLE":       "worker",
+		"HAND_HOME":       "/poison/home",
+		"HAND_HARNESS":    "claude",
+		"CLAUDECODE":      "1",
+		"CODEX_THREAD_ID": "poison",
+		"PI_CODING_AGENT": "true",
+		"GROK_AGENT":      "true",
+	}
+	for name, value := range poison {
+		t.Setenv(name, value)
+	}
+
+	for name := range poison {
+		got := envValues(handProcessEnv(), name)
+		if name == "HAND_HARNESS" {
+			if len(got) != 1 || got[0] != "unknown" {
+				t.Fatalf("handProcessEnv() %s entries = %q, want exactly [unknown]", name, got)
+			}
+			continue
+		}
+		if len(got) != 0 {
+			t.Fatalf("handProcessEnv() contains %s entries %q, want none", name, got)
+		}
+	}
+
+	overridden := handProcessEnv("HAND_ROLE=worker", "HAND_HARNESS=codex")
+	for name, want := range map[string]string{
+		"HAND_ROLE":    "worker",
+		"HAND_HARNESS": "codex",
+	} {
+		got := envValues(overridden, name)
+		if len(got) != 1 || got[0] != want {
+			t.Fatalf("handProcessEnv() %s entries = %q, want exactly %q", name, got, want)
+		}
+	}
+}
+
+func envValues(env []string, wantName string) []string {
+	values := make([]string, 0, 1)
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(name, wantName) {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+// Child processes start with neutral semantic harness state; explicit entries replace it.
 func runHandEnv(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
 	cmd := exec.Command(handBin, args...)
