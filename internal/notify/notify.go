@@ -1,5 +1,6 @@
-// Out-of-band delivery for hand notify and the watcher's in-process notify
-// hook uses config/notify as a POSIX-shell template with the message to send.
+// Package notify implements out-of-band delivery for hand notify and the
+// watcher's in-process notify hook: reading config/notify's POSIX-shell
+// template and running it with the message to send.
 package notify
 
 import (
@@ -19,12 +20,13 @@ import (
 var ErrNotConfigured = errors.New("no config/notify")
 
 // Bounds the template's own run: the watcher calls Send inline in its poll loop,
-// so an unbounded template (the documented curl example has no --max-time) would
+// so an unbounded template (a webhook curl with no --max-time) would
 // wedge polling, --until-event's timeout and shutdown alike. A var so tests cut it.
 var sendTimeout = 10 * time.Second
 
-// Delivery runs config/notify's POSIX-shell template with the message available
-// as $HAND_MESSAGE, and reports whether the template ran and succeeded.
+// Send runs config/notify's POSIX-shell template with the message available as
+// $HAND_MESSAGE, in-process rather than through the hand notify subcommand, and
+// reports whether the template actually ran and succeeded.
 func Send(home, message string) error {
 	template, err := os.ReadFile(filepath.Join(home, "config", "notify"))
 	if err != nil {
