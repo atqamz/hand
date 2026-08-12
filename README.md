@@ -307,7 +307,7 @@ Running bare `hand` returns the resolved fleet home, worker configuration, and l
 
 ## Updating
 
-Release installations on Linux and macOS can update themselves:
+Release installations can update themselves:
 
 ```sh
 hand update
@@ -320,8 +320,6 @@ hand update --check
 ```
 
 When run inside a fleet home, an update also refreshes the generated section of `AGENTS.md` without overwriting your own additions. Other commands check for a newer release at most once a day and print a one-line notice when one is available.
-
-Self-update is not yet supported on Windows. Download the matching release archive and replace `hand.exe` manually.
 
 ## Architecture
 

@@ -1,9 +1,7 @@
 package selfupdate
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -22,7 +20,21 @@ const Repo = "atqamz/hand"
 const binaryName = "hand"
 
 func AssetName() string {
-	return fmt.Sprintf("%s-%s-%s.tar.gz", binaryName, runtime.GOOS, runtime.GOARCH)
+	return assetName(runtime.GOOS, runtime.GOARCH)
+}
+
+func assetName(goos, goarch string) string {
+	if goos == "windows" {
+		return fmt.Sprintf("%s-%s-%s.zip", binaryName, goos, goarch)
+	}
+	return fmt.Sprintf("%s-%s-%s.tar.gz", binaryName, goos, goarch)
+}
+
+func archiveBinaryName(goos string) string {
+	if goos == "windows" {
+		return binaryName + ".exe"
+	}
+	return binaryName
 }
 
 func LatestTag(repo string) (string, error) {
@@ -97,22 +109,9 @@ func parseSemver(s string) (major, minor, patch int, err error) {
 // the real test binary produced by `go test`.
 var ExecutableOverride = os.Executable
 
-// Overridable so the Windows refusal path in Apply gets real test coverage on
-// every platform that runs the suite, not only on a Windows CI runner.
-var isWindows = func() bool {
-	return runtime.GOOS == "windows"
-}
-
-// Apply downloads the release tagged tag from repo, verifies its checksum, and replaces
-// the running binary in place. The replacement is atomic - temp file in the same directory,
-// renamed over it - so a crash mid-update never leaves a partial binary at the real path.
+// Downloads the release tagged tag from repo, verifies its checksum, and replaces the running
+// binary with a complete staged file in the executable's directory.
 func Apply(repo, tag string) error {
-	// Windows cannot replace a file open for execution the way POSIX's rename-over-a-
-	// running-inode can; atqamz/hand#200 tracks a Windows-safe replacement design.
-	if isWindows() {
-		return fmt.Errorf("self-update is not supported on windows yet (atqamz/hand#200): download %s from https://github.com/%s/releases and replace the binary manually", tag, repo)
-	}
-
 	execPath, err := ExecutableOverride()
 	if err != nil {
 		return fmt.Errorf("locate running binary: %w", err)
@@ -147,11 +146,11 @@ func Apply(repo, tag string) error {
 		return fmt.Errorf("stage new binary: %w", err)
 	}
 
-	if err := extractBinary(filepath.Join(tmpDir, assetName), tmpBinary); err != nil {
+	if err := extractBinary(filepath.Join(tmpDir, assetName), archiveBinaryName(runtime.GOOS), tmpBinary); err != nil {
 		return err
 	}
 
-	if err := os.Rename(tmpBinary, execPath); err != nil {
+	if err := replaceExecutable(execPath, tmpBinary); err != nil {
 		return fmt.Errorf("replace running binary: %w", err)
 	}
 	return nil
@@ -203,49 +202,6 @@ func verifyChecksum(dir, assetName string) error {
 		return fmt.Errorf("checksum mismatch for %s: want %s, got %s", assetName, want, got)
 	}
 	return nil
-}
-
-func extractBinary(tarGzPath, destPath string) error {
-	f, err := os.Open(tarGzPath)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", tarGzPath, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("open gzip stream in %s: %w", tarGzPath, err)
-	}
-	defer func() { _ = gz.Close() }()
-
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return fmt.Errorf("%s not found in %s", binaryName, tarGzPath)
-		}
-		if err != nil {
-			return fmt.Errorf("read %s: %w", tarGzPath, err)
-		}
-		if hdr.Typeflag != tar.TypeReg || filepath.Base(hdr.Name) != binaryName {
-			continue
-		}
-
-		out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-		if err != nil {
-			return fmt.Errorf("write %s: %w", destPath, err)
-		}
-		if _, err := io.Copy(out, tr); err != nil {
-			_ = out.Close()
-			return fmt.Errorf("write %s: %w", destPath, err)
-		}
-		if err := out.Close(); err != nil {
-			return fmt.Errorf("write %s: %w", destPath, err)
-		}
-		// OpenFile's mode only applies when it creates the file, and the
-		// staging path already exists.
-		return os.Chmod(destPath, 0o755)
-	}
 }
 
 func runGH(ctx context.Context, args ...string) (string, error) {
