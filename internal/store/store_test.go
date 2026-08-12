@@ -140,9 +140,11 @@ func TestProjectsKeepRegistrationOrder(t *testing.T) {
 
 func TestSetProjectURLPreservesProjectIdentityAndOrder(t *testing.T) {
 	db, _ := openTemp(t)
+	oldURL := "https://github.com/org/second"
+	newURL := "https://github.com/org/second-new"
 	want := []Project{
 		{Name: "first", URL: "https://github.com/org/first", Mode: "direct-pr", Upstream: "up/first"},
-		{Name: "second", URL: "https://github.com/org/second-new", Mode: "no-mistakes", Upstream: "up/second"},
+		{Name: "second", URL: oldURL, Mode: "no-mistakes", Upstream: "up/second"},
 		{Name: "third", URL: "https://github.com/org/third", Mode: "local-only", Upstream: "up/third"},
 	}
 	for _, p := range want {
@@ -151,10 +153,11 @@ func TestSetProjectURLPreservesProjectIdentityAndOrder(t *testing.T) {
 		}
 	}
 
-	updated, err := db.SetProjectURL("second", want[1].URL)
+	updated, err := db.SetProjectURL("second", newURL)
 	if err != nil || !updated {
 		t.Fatalf("SetProjectURL = %v, %v", updated, err)
 	}
+	want[1].URL = newURL
 
 	got, err := db.ListProjects()
 	if err != nil {

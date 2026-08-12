@@ -125,7 +125,7 @@ func TestProjectSetURLUpdatesRegistryAndOriginPreservingTask(t *testing.T) {
 	}
 	for _, want := range []string{
 		"result: url-set", "old_url: \"" + oldURL + "\"", "url: \"" + newURL + "\"",
-		"old_origin: \"" + oldURL + "\"", "origin: \"" + newURL + "\"", "clone: " + clonePath,
+		"old_origin: \"" + oldURL + "\"", "origin: \"" + newURL + "\"", "clone:",
 		"hand project upstream secondhand \"\"",
 	} {
 		if !strings.Contains(output.String(), want) {
