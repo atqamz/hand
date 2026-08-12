@@ -110,9 +110,12 @@ func handProcessEnv(extraEnv ...string) []string {
 		"PI_CODING_AGENT": true,
 		"GROK_AGENT":      true,
 	}
+	harnessOverride := false
 	for _, entry := range extraEnv {
 		if name, _, ok := strings.Cut(entry, "="); ok {
-			overridden[strings.ToUpper(name)] = true
+			name = strings.ToUpper(name)
+			overridden[name] = true
+			harnessOverride = harnessOverride || name == "HAND_HARNESS"
 		}
 	}
 	env := make([]string, 0, len(os.Environ())+len(extraEnv))
@@ -121,6 +124,9 @@ func handProcessEnv(extraEnv ...string) []string {
 		if !overridden[strings.ToUpper(name)] {
 			env = append(env, entry)
 		}
+	}
+	if !harnessOverride {
+		env = append(env, "HAND_HARNESS=unknown")
 	}
 	return append(env, extraEnv...)
 }
@@ -140,7 +146,14 @@ func TestHandProcessEnvFiltersAmbientSemanticEnvironment(t *testing.T) {
 	}
 
 	for name := range poison {
-		if got := envValues(handProcessEnv(), name); len(got) != 0 {
+		got := envValues(handProcessEnv(), name)
+		if name == "HAND_HARNESS" {
+			if len(got) != 1 || got[0] != "unknown" {
+				t.Fatalf("handProcessEnv() %s entries = %q, want exactly [unknown]", name, got)
+			}
+			continue
+		}
+		if len(got) != 0 {
 			t.Fatalf("handProcessEnv() contains %s entries %q, want none", name, got)
 		}
 	}
@@ -168,7 +181,7 @@ func envValues(env []string, wantName string) []string {
 	return values
 }
 
-// Child processes start without semantic harness environment; explicit entries replace ambient values.
+// Child processes start with neutral semantic harness state; explicit entries replace it.
 func runHandEnv(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
 	cmd := exec.Command(handBin, args...)
