@@ -210,6 +210,7 @@ func TestBareInvocationRefusesWorkerRoleBeforeReadingContext(t *testing.T) {
 
 func TestBareInvocationOutsideAFleetHomeSaysSoAndNamesTheWayIn(t *testing.T) {
 	t.Setenv("HAND_HARNESS", harness.Claude)
+	t.Setenv(harness.RoleEnv, "")
 	t.Chdir(t.TempDir())
 	t.Setenv("HAND_HOME", "")
 
