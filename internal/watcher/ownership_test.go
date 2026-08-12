@@ -12,11 +12,11 @@ import (
 func TestAcquireRefusesASecondWatcherAndNamesTheIncumbent(t *testing.T) {
 	home := t.TempDir()
 
-	release, err := Acquire(home, false)
+	ownership, err := Acquire(home, false)
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
-	defer release()
+	defer ownership.Release()
 
 	// Two flocks from one process genuinely conflict on Linux: each os.OpenFile is
 	// its own open file description, which is what an flock is held against.
@@ -39,11 +39,11 @@ func TestAcquireIgnoresAStaleFileWhoseRecordedPidIsDead(t *testing.T) {
 	home := t.TempDir()
 	writeOwnerFile(t, home, strconv.Itoa(deadPid(t))+"\n")
 
-	release, err := Acquire(home, false)
+	ownership, err := Acquire(home, false)
 	if err != nil {
 		t.Fatalf("Acquire over a crashed watcher's leftover pid file: %v, want it to succeed - a lock that refuses forever after a crash locks this home out of watching itself", err)
 	}
-	defer release()
+	defer ownership.Release()
 
 	if got := readOwnerFile(t, home); got != strconv.Itoa(os.Getpid())+"\n" {
 		t.Fatalf("got %q, want the leftover pid replaced with this process's own", got)
@@ -56,42 +56,42 @@ func TestAcquireTakesOverAStaleFileWhoseRecordedPidIsDead(t *testing.T) {
 	home := t.TempDir()
 	writeOwnerFile(t, home, strconv.Itoa(deadPid(t))+"\n")
 
-	release, err := Acquire(home, true)
+	ownership, err := Acquire(home, true)
 	if err != nil {
 		t.Fatalf("Acquire --takeover over a crashed watcher's leftover pid file: %v", err)
 	}
-	release()
+	ownership.Release()
 }
 
 func TestAcquireIgnoresAStaleFileHoldingGarbage(t *testing.T) {
 	home := t.TempDir()
 	writeOwnerFile(t, home, "not-a-pid")
 
-	release, err := Acquire(home, false)
+	ownership, err := Acquire(home, false)
 	if err != nil {
 		t.Fatalf("Acquire over an unparseable pid file: %v", err)
 	}
-	release()
+	ownership.Release()
 }
 
 func TestReleaseClearsTheRecordedPid(t *testing.T) {
 	home := t.TempDir()
 
-	release, err := Acquire(home, false)
+	ownership, err := Acquire(home, false)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	release()
+	ownership.Release()
 
 	if got := readOwnerFile(t, home); got != "" {
 		t.Fatalf("got %q in %s after release, want it empty - a pid left behind names a process that has exited", got, OwnerPath(home))
 	}
 
-	release, err = Acquire(home, false)
+	ownership, err = Acquire(home, false)
 	if err != nil {
 		t.Fatalf("Acquire after release: %v", err)
 	}
-	release()
+	ownership.Release()
 }
 
 // Returns a pid that was real and is now gone, so a test about a crashed watcher is about an

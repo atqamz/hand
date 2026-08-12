@@ -194,11 +194,11 @@ func TestWatchRefusesWhenAWatcherIsAlreadyAttached(t *testing.T) {
 
 	// Two flocks from one process genuinely conflict on Linux, so this holds
 	// ownership exactly as a separate watcher process would.
-	release, err := watcher.Acquire(home, false)
+	ownership, err := watcher.Acquire(home, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
+	defer ownership.Release()
 
 	cmd := newWatchCmd()
 	cmd.SetArgs([]string{"--poll", "1h"})
@@ -216,11 +216,11 @@ func TestWatchRefusesWhenAWatcherIsAlreadyAttached(t *testing.T) {
 func TestWatchRejectsAUsageErrorWithoutContendingForOwnership(t *testing.T) {
 	home := setupWatchHome(t)
 
-	release, err := watcher.Acquire(home, false)
+	ownership, err := watcher.Acquire(home, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
+	defer ownership.Release()
 
 	cmd := newWatchCmd()
 	cmd.SetArgs([]string{"--event", "report-done", "--takeover"})

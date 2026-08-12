@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atqamz/hand/internal/filelock"
@@ -29,10 +30,16 @@ func OwnerPath(homeDir string) string {
 	return filepath.Join(state.Dir(homeDir), "watch.pid")
 }
 
-// Acquire makes hand watch a singleton per fleet home, returning the release to defer. Ownership is
-// the lock on state/watch.pid.lock, separate from the pid file so Windows permits it to be read.
-// The kernel drops the lock when the holder dies, so stale pids never lock a home out.
-func Acquire(homeDir string, takeover bool) (func(), error) {
+// Ownership keeps the files and endpoint that make a watcher the fleet-home owner.
+type Ownership struct {
+	ownerFile *os.File
+	lockFile  *os.File
+	endpoint  *takeoverEndpoint
+	once      sync.Once
+}
+
+// Acquire makes hand watch a singleton per fleet home. The kernel drops the lock when the holder dies.
+func Acquire(homeDir string, takeover bool) (*Ownership, error) {
 	path := OwnerPath(homeDir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
@@ -58,13 +65,40 @@ func Acquire(homeDir string, takeover bool) (func(), error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 
-	// The pid is recorded inside the lock only so a refusal can name the incumbent and takeover can
-	// signal it.
-	if err := recordOwner(file); err != nil {
-		releaseOwner(file, lockFile)
+	endpoint, err := newTakeoverEndpoint(os.Getpid())
+	if err != nil {
+		_ = file.Close()
+		releaseLock(lockFile)
 		return nil, err
 	}
-	return func() { releaseOwner(file, lockFile) }, nil
+
+	// The pid is recorded inside the lock only so a refusal can name the incumbent and takeover can
+	// request it to stop.
+	if err := recordOwner(file); err != nil {
+		releaseOwner(file, lockFile)
+		endpoint.Close()
+		return nil, err
+	}
+	return &Ownership{ownerFile: file, lockFile: lockFile, endpoint: endpoint}, nil
+}
+
+// Release clears the recorded pid, releases the lock, and stops the endpoint listener.
+func (o *Ownership) Release() {
+	if o == nil {
+		return
+	}
+	o.once.Do(func() {
+		releaseOwner(o.ownerFile, o.lockFile)
+		o.endpoint.Close()
+	})
+}
+
+// TakeoverRequested returns the one-shot incumbent shutdown notification.
+func (o *Ownership) TakeoverRequested() <-chan struct{} {
+	if o == nil || o.endpoint == nil {
+		return nil
+	}
+	return o.endpoint.Requested()
 }
 
 // Decides what a lock another live watcher holds means. The pid is read after the lock attempt
@@ -76,10 +110,10 @@ func contend(lockFile *os.File, ownerPath string, takeover bool) error {
 		return fmt.Errorf("%w (pid %s) - stop it, or re-run with --takeover to replace it", ErrAttached, ownerLabel(pid))
 	}
 	// Never this process: in production a watcher acquires once, but an
-	// in-process caller that acquired already would otherwise signal itself.
+	// in-process caller that acquired already would otherwise request itself.
 	if pid > 0 && pid != os.Getpid() {
-		if err := signalTerminate(pid); err != nil {
-			return fmt.Errorf("signal watcher pid %d: %w", pid, err)
+		if err := requestTakeover(pid); err != nil {
+			return fmt.Errorf("request takeover from watcher pid %d: %w", pid, err)
 		}
 	}
 
@@ -93,9 +127,8 @@ func contend(lockFile *os.File, ownerPath string, takeover bool) error {
 			return fmt.Errorf("lock %s: %w", lockFile.Name(), err)
 		}
 		if time.Now().After(deadline) {
-			// Deliberately not claiming SIGTERM was delivered: the pid may have been
-			// unreadable, in which case there was nothing to signal and the honest
-			// remedy is the same either way.
+			// The pid may have been unreadable, in which case there was nothing to request and the
+			// honest remedy is the same either way.
 			return fmt.Errorf("%w (pid %s) and it still holds %s %s after --takeover - kill it and retry",
 				ErrAttached, ownerLabel(pid), lockFile.Name(), takeoverGrace)
 		}
@@ -131,7 +164,7 @@ func recordOwner(file *os.File) error {
 }
 
 // Reports the recorded pid, or 0 for anything it cannot read as one - a wrong pid here would be
-// handed to Kill.
+// used to request takeover from the wrong process.
 func readOwner(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil {
