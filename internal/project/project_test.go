@@ -96,6 +96,108 @@ func TestSetUpstreamRoundTripsThroughTheProjection(t *testing.T) {
 	}
 }
 
+func TestSetURLPreservesProjectionAssociationAndProjectFields(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n# profile=first\n- first: https://github.com/org/first mode=direct-pr upstream=up/first\n\n# profile=second\n- second: https://github.com/org/second mode=no-mistakes upstream=up/second\n\n# profile=third\n- third: https://github.com/org/third mode=local-only upstream=up/third\n")
+
+	if err := SetURL(dir, "second", "https://github.com/org/second-new.git"); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Project{
+		{Name: "first", URL: "https://github.com/org/first", Mode: ModeDirectPR, Upstream: "up/first"},
+		{Name: "second", URL: "https://github.com/org/second-new.git", Mode: ModeNoMistakes, Upstream: "up/second"},
+		{Name: "third", URL: "https://github.com/org/third", Mode: ModeLocalOnly, Upstream: "up/third"},
+	}
+	if len(projects) != len(want) {
+		t.Fatalf("projects = %+v, want %d projects", projects, len(want))
+	}
+	for i := range want {
+		if projects[i] != want[i] {
+			t.Fatalf("project %d = %+v, want %+v", i, projects[i], want[i])
+		}
+	}
+
+	gotProjection, err := os.ReadFile(RegistryPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProjection := "# Projects\n\n# profile=first\n- first: https://github.com/org/first mode=direct-pr upstream=up/first\n\n# profile=second\n- second: https://github.com/org/second-new.git mode=no-mistakes upstream=up/second\n\n# profile=third\n- third: https://github.com/org/third mode=local-only upstream=up/third\n"
+	if string(gotProjection) != wantProjection {
+		t.Fatalf("projection = %q, want %q", gotProjection, wantProjection)
+	}
+}
+
+func TestSetURLNotFound(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n")
+
+	err := SetURL(dir, "missing", "https://github.com/org/missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SetURL = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSetURLRollsBackWhenProjectionWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	oldURL := "https://github.com/org/old"
+	newURL := "https://github.com/org/new"
+	writeRegistry(t, dir, "# Projects\n\n- demo: "+oldURL+" mode=direct-pr\n")
+	originalProjection := projectURLProjectionWriter
+	t.Cleanup(func() { projectURLProjectionWriter = originalProjection })
+	projectURLProjectionWriter = func(*store.DB, string) error {
+		return errors.New("projection failed")
+	}
+
+	err := SetURL(dir, "demo", newURL)
+	if err == nil || !strings.Contains(err.Error(), "projection failed") {
+		t.Fatalf("SetURL = %v, want projection failure", err)
+	}
+	projects, listErr := List(dir)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(projects) != 1 || projects[0].URL != oldURL {
+		t.Fatalf("projects = %+v, want old URL after rollback", projects)
+	}
+	projection, readErr := os.ReadFile(RegistryPath(dir))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(projection), oldURL) || strings.Contains(string(projection), newURL) {
+		t.Fatalf("projection = %q, want old URL only", projection)
+	}
+}
+
+func TestSetURLReportsProjectionAndRollbackFailures(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/old mode=direct-pr\n")
+	originalUpdater := projectURLUpdater
+	originalProjection := projectURLProjectionWriter
+	t.Cleanup(func() {
+		projectURLUpdater = originalUpdater
+		projectURLProjectionWriter = originalProjection
+	})
+	projectURLUpdater = func(db *store.DB, name, url string) (bool, error) {
+		if strings.HasSuffix(url, "/old") {
+			return false, errors.New("rollback failed")
+		}
+		return db.SetProjectURL(name, url)
+	}
+	projectURLProjectionWriter = func(*store.DB, string) error {
+		return errors.New("projection failed")
+	}
+
+	err := SetURL(dir, "demo", "https://github.com/org/new")
+	if err == nil || !strings.Contains(err.Error(), "projection failed") || !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("SetURL = %v, want both failures", err)
+	}
+}
+
 func TestSetUpstreamNotFound(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n")

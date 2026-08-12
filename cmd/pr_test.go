@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -159,6 +161,82 @@ func TestPRRefusesWhenRepoMismatch(t *testing.T) {
 	cmd.SetArgs([]string{"task-1", "https://github.com/owner/secondhand/pull/1"})
 	err := cmd.Execute()
 	assertExitCode3(t, err)
+}
+
+func TestPRAcceptsRenamedRepositoryAfterProjectSetURL(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, _ := setupRegisteredURLProject(t, oldURL)
+	if err := project.SetUpstream(home, "secondhand", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "secondhand"}); err != nil {
+		t.Fatal(err)
+	}
+	prURL := "https://github.com/atqamz/hand/pull/185"
+	faketool.GH{PRs: []faketool.GHPR{{Number: 185, URL: prURL, Repo: "atqamz/hand"}}}.Install(t, faketool.Bin(t))
+
+	before := newPRCmd()
+	before.SetArgs([]string{"task-1", prURL})
+	if err := before.Execute(); err == nil || !strings.Contains(err.Error(), "belongs to atqamz/hand") {
+		t.Fatalf("before set-url error = %v, want stale-origin refusal", err)
+	}
+
+	if err := executeProjectSetURL(t, home, newURL); err != nil {
+		t.Fatal(err)
+	}
+	proj, exists, err := project.Find(home, "secondhand")
+	if err != nil || !exists {
+		t.Fatalf("project.Find = %+v, %v, %v", proj, exists, err)
+	}
+	if got, err := project.RepoSlug(home, proj); err != nil || got != "atqamz/hand" {
+		t.Fatalf("RepoSlug = %q, %v, want renamed repo", got, err)
+	}
+
+	after := newPRCmd()
+	after.SetArgs([]string{"task-1", prURL})
+	if err := after.Execute(); err != nil {
+		t.Fatalf("after set-url error = %v, want PR accepted: %v", err, err)
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != prURL {
+		t.Fatalf("task.PR = %q, want %q", task.PR, prURL)
+	}
+}
+
+func TestDetectPRSearchesRenamedRepositoryAfterProjectSetURL(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, clonePath := setupRegisteredURLProject(t, oldURL)
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "secondhand", Worktree: clonePath}); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeProjectSetURL(t, home, newURL); err != nil {
+		t.Fatal(err)
+	}
+	prURL := "https://github.com/atqamz/hand/pull/185"
+	faketool.GH{PRs: []faketool.GHPR{{
+		Number: 185, URL: prURL, Branch: "main", Repo: "atqamz/hand",
+	}}}.Install(t, faketool.Bin(t))
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj, exists, err := project.Find(home, "secondhand")
+	if err != nil || !exists {
+		t.Fatalf("project.Find = %+v, %v, %v", proj, exists, err)
+	}
+	got, err := detectPR(context.Background(), home, task, proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PR != prURL {
+		t.Fatalf("detected task.PR = %q, want %q", got.PR, prURL)
+	}
 }
 
 // A fork contribution's PR lives on the upstream repo, never on the fork hand pushed to, so the guard has

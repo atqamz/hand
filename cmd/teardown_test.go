@@ -225,6 +225,41 @@ func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
 	}
 }
 
+func TestTeardownAfterProjectSetURLDetectsRenamedRepositoryPR(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	clonePath := filepath.Join(home, "projects", "myproj")
+	runGitIn(t, clonePath, "remote", "set-url", "origin", oldURL)
+	if err := project.SetURL(home, "myproj", oldURL); err != nil {
+		t.Fatal(err)
+	}
+	setURL := newProjectSetURLCmd()
+	setURL.SetArgs([]string{"myproj", newURL})
+	if err := setURL.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	prURL := "https://github.com/atqamz/hand/pull/185"
+	faketool.GH{PRs: []faketool.GHPR{{
+		Number: 185, URL: prURL, Branch: "task-1-branch", Repo: "atqamz/hand", State: "MERGED",
+	}}}.Install(t, faketool.Bin(t))
+	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	teardown := newTeardownCmd()
+	teardown.SetArgs([]string{"task-1"})
+	if err := teardown.Execute(); err != nil {
+		t.Fatalf("got %v, want teardown to find merged PR in renamed repo", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	}
+}
+
 // The second regression case: a detected PR that is closed without merging is not landed work, and the
 // guard must still refuse it exactly as it would a `hand pr`-recorded one.
 func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {

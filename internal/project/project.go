@@ -245,6 +245,59 @@ func SetUpstream(homeDir, name, upstream string) error {
 	return writeProjection(db, homeDir)
 }
 
+var projectURLUpdater = func(db *store.DB, name, url string) (bool, error) {
+	return db.SetProjectURL(name, url)
+}
+
+var projectURLProjectionWriter = writeProjection
+
+// Changes only the registered project's repository URL and its projection.
+func SetURL(homeDir, name, url string) error {
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	db, err := openRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	projects, err := db.ListProjects()
+	if err != nil {
+		return err
+	}
+	var oldURL string
+	found := false
+	for _, p := range projects {
+		if p.Name == name {
+			oldURL = p.URL
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("project %q %w", name, ErrNotFound)
+	}
+
+	updated, err := projectURLUpdater(db, name, url)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("project %q %w", name, ErrNotFound)
+	}
+	if err := projectURLProjectionWriter(db, homeDir); err != nil {
+		if _, rollbackErr := projectURLUpdater(db, name, oldURL); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore URL for project %q: %w", name, rollbackErr))
+		}
+		return err
+	}
+	return nil
+}
+
 // Find returns the project with the given name, or false if not registered.
 func Find(homeDir, name string) (Project, bool, error) {
 	projects, err := List(homeDir)

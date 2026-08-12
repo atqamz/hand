@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 )
 
@@ -35,6 +36,181 @@ func setupSyncProject(t *testing.T) (clonePath, remotePath string) {
 		t.Fatalf("git clone failed: %v: %s", err, out)
 	}
 	return clonePath, remotePath
+}
+
+func setupRegisteredGitHubSyncProject(t *testing.T, oldURL, newURL string) (home, clonePath, remotePath string) {
+	t.Helper()
+	home = t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	cloneSource, remotePath := setupSyncProject(t)
+	clonePath = filepath.Join(home, "projects", "secondhand")
+	if err := os.MkdirAll(filepath.Dir(clonePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(cloneSource, clonePath); err != nil {
+		t.Fatal(err)
+	}
+	runGitIn(t, clonePath, "remote", "set-url", "origin", oldURL)
+	runGitIn(t, clonePath, "config", "url."+remotePath+".insteadOf", newURL)
+	if err := project.Add(home, project.Project{Name: "secondhand", URL: oldURL, Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	return home, clonePath, remotePath
+}
+
+func installCanonicalRenameFake(t *testing.T, log string) {
+	t.Helper()
+	faketool.GH{
+		Repos: []faketool.GHRepo{{
+			Requested:     "atqamz/secondhand",
+			NameWithOwner: "atqamz/hand",
+			URL:           "https://github.com/atqamz/hand",
+		}},
+		Log: log,
+	}.Install(t, faketool.Bin(t))
+}
+
+func TestSyncOneProjectRepairsRenamedGitHubRepository(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, clonePath, _ := setupRegisteredGitHubSyncProject(t, oldURL, newURL)
+	installCanonicalRenameFake(t, "")
+
+	got, err := syncOneProject(home, project.Project{Name: "secondhand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Result != "up-to-date" || !strings.Contains(got.Detail, "repointed atqamz/secondhand -> atqamz/hand") {
+		t.Fatalf("outcome = %+v, want up-to-date with repoint detail", got)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projects[0].URL != newURL || gitConfigOrigin(t, clonePath) != newURL {
+		t.Fatalf("project = %+v, origin = %q, want both new", projects[0], gitConfigOrigin(t, clonePath))
+	}
+	if _, err := os.Stat(filepath.Join(home, "projects", "secondhand")); err != nil {
+		t.Fatalf("stable clone path missing: %v", err)
+	}
+}
+
+func TestSyncOneProjectRepairsRenameAndFastForwards(t *testing.T) {
+	oldURL := "git@github.com:atqamz/secondhand.git"
+	newURL := "git@github.com:atqamz/hand.git"
+	home, clonePath, remotePath := setupRegisteredGitHubSyncProject(t, oldURL, newURL)
+	installCanonicalRenameFake(t, "")
+	if err := os.WriteFile(filepath.Join(remotePath, "new.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitIn(t, remotePath, "add", "new.txt")
+	runGitIn(t, remotePath, "commit", "-q", "-m", "add new file")
+
+	got, err := syncOneProject(home, project.Project{Name: "secondhand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Result != "fast-forwarded" || !strings.Contains(got.Detail, "repointed atqamz/secondhand -> atqamz/hand") || !strings.Contains(got.Detail, "was 1 behind") {
+		t.Fatalf("outcome = %+v, want fast-forward with repoint detail", got)
+	}
+	if gitConfigOrigin(t, clonePath) != newURL {
+		t.Fatalf("origin = %q, want %q", gitConfigOrigin(t, clonePath), newURL)
+	}
+	if _, err := os.Stat(filepath.Join(clonePath, "new.txt")); err != nil {
+		t.Fatalf("clone did not fast-forward: %v", err)
+	}
+}
+
+func TestSyncOneProjectContinuesWhenCanonicalLookupFails(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, clonePath, remotePath := setupRegisteredGitHubSyncProject(t, oldURL, newURL)
+	runGitIn(t, clonePath, "config", "url."+remotePath+".insteadOf", oldURL)
+	log := filepath.Join(t.TempDir(), "gh.log")
+	faketool.GH{Log: log}.Install(t, faketool.Bin(t))
+
+	got, err := syncOneProject(home, project.Project{Name: "secondhand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Result != "up-to-date" || got.Detail != "" {
+		t.Fatalf("outcome = %+v, want ordinary up-to-date sync", got)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projects[0].URL != oldURL || gitConfigOrigin(t, clonePath) != oldURL {
+		t.Fatalf("project = %+v, origin = %q, want old identity after optional lookup failure", projects[0], gitConfigOrigin(t, clonePath))
+	}
+	logData, err := os.ReadFile(log)
+	if err != nil || !strings.Contains(string(logData), "gh repo view atqamz/secondhand") {
+		t.Fatalf("gh log = %q, %v, want failed canonical lookup", logData, err)
+	}
+}
+
+func TestSyncOneProjectFailsWhenCanonicalRepairFails(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, _, _ := setupRegisteredGitHubSyncProject(t, oldURL, newURL)
+	installCanonicalRenameFake(t, "")
+	originalSetter := setProjectURL
+	t.Cleanup(func() { setProjectURL = originalSetter })
+	setProjectURL = func(string, string, string) error { return errors.New("registry mutation failed") }
+
+	_, err := syncOneProject(home, project.Project{Name: "secondhand"})
+	if err == nil || !strings.Contains(err.Error(), "registry mutation failed") {
+		t.Fatalf("sync error = %v, want canonical repair failure", err)
+	}
+}
+
+func TestSyncOneProjectSkipsCanonicalLookupForNonGitHubRemote(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	clonePath, _ := setupSyncProject(t)
+	movedClone := filepath.Join(home, "projects", "local")
+	if err := os.Rename(clonePath, movedClone); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(t.TempDir(), "gh.log")
+	faketool.GH{Log: log}.Install(t, faketool.Bin(t))
+
+	got, err := syncOneProject(home, project.Project{Name: "local"})
+	if err != nil || got.Result != "up-to-date" {
+		t.Fatalf("sync = %+v, %v, want ordinary up-to-date sync", got, err)
+	}
+	logData, err := os.ReadFile(log)
+	if err == nil && strings.Contains(string(logData), "repo view") {
+		t.Fatalf("gh log = %q, want no canonical lookup", logData)
+	}
+}
+
+func TestProjectSyncCommandReportsRenamedRepositoryRepair(t *testing.T) {
+	oldURL := "https://github.com/atqamz/secondhand.git"
+	newURL := "https://github.com/atqamz/hand.git"
+	home, clonePath, _ := setupRegisteredGitHubSyncProject(t, oldURL, newURL)
+	installCanonicalRenameFake(t, "")
+
+	cmd := newProjectSyncCmd()
+	var output strings.Builder
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"secondhand"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "up-to-date") || !strings.Contains(output.String(), "repointed atqamz/secondhand -> atqamz/hand") {
+		t.Fatalf("output = %q, want successful sync with repoint detail", output.String())
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projects[0].URL != newURL || gitConfigOrigin(t, clonePath) != newURL {
+		t.Fatalf("project = %+v, origin = %q, want both new", projects[0], gitConfigOrigin(t, clonePath))
+	}
 }
 
 func TestSyncOneProjectUpToDate(t *testing.T) {
