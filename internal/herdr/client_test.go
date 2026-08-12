@@ -4,30 +4,25 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/faketool"
 )
 
-// Fakes herdr with the caller's own script body, so each test picks the response shape it needs.
-// Every real shape is reproduced verbatim - a query's non-null result envelope, a void command's
-// empty stdout, an error envelope at exit 1 and at exit 0 - and other packages cite these.
-func writeFakeHerdr(t *testing.T, script string) {
+func writeFakeHerdr(t *testing.T, responses ...faketool.HerdrResponse) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	path := filepath.Join(bin, "herdr")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Herdr{Responses: responses}.Install(t, bin)
+}
+
+func herdrResponse(command, stdout string) faketool.HerdrResponse {
+	return faketool.HerdrResponse{Command: command, Stdout: stdout}
 }
 
 func TestWorkspaceListParsesResult(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"proj","tab_count":2}]}}'`)
+	writeFakeHerdr(t, herdrResponse("workspace list", "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[{\"workspace_id\":\"wA\",\"label\":\"proj\",\"tab_count\":2}]}}"))
 	c := NewClient()
 	got, err := c.WorkspaceList()
 	if err != nil {
@@ -39,7 +34,7 @@ func TestWorkspaceListParsesResult(t *testing.T) {
 }
 
 func TestFindWorkspaceByLabelFound(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"proj"}]}}'`)
+	writeFakeHerdr(t, herdrResponse("workspace list", "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[{\"workspace_id\":\"wA\",\"label\":\"proj\"}]}}"))
 	c := NewClient()
 	ws, found, err := c.FindWorkspaceByLabel("proj")
 	if err != nil {
@@ -51,7 +46,7 @@ func TestFindWorkspaceByLabelFound(t *testing.T) {
 }
 
 func TestFindWorkspaceByLabelNotFound(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspaces":[]}}'`)
+	writeFakeHerdr(t, herdrResponse("workspace list", "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}"))
 	c := NewClient()
 	_, found, err := c.FindWorkspaceByLabel("proj")
 	if err != nil {
@@ -66,7 +61,7 @@ func TestFindWorkspaceByLabelNotFound(t *testing.T) {
 // of creating a workspace, so WorkspaceCreate must return them rather than discard them - a caller
 // that then creates its own tab leaves the root tab behind as an unowned live shell.
 func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj","tab_count":1},"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'`)
+	writeFakeHerdr(t, herdrResponse("workspace create", "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\",\"tab_count\":1},\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\",\"label\":\"1\"},\"root_pane\":{\"pane_id\":\"wA:pC\",\"tab_id\":\"wA:tB\",\"agent_status\":\"idle\"}}}"))
 	c := NewClient()
 	ws, tab, pane, err := c.WorkspaceCreate("/tmp/clone", "proj")
 	if err != nil {
@@ -87,12 +82,15 @@ func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
 // inherits any CLAUDE_CODE_CHILD_SESSION, CLAUDE_CODE_SESSION_ID, or CLAUDECODE the server was
 // started under, silently killing the worker's transcript. All three are blanked either way.
 func TestWorkspaceCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
-	writeFakeHerdr(t, `
-echo "$@" >> "$HERDR_CALL_LOG"
-printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"},"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB"}}}'
-`)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{{
+			Command: "workspace create",
+			Stdout:  "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\"},\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"},\"root_pane\":{\"pane_id\":\"wA:pC\",\"tab_id\":\"wA:tB\"}}}",
+		}},
+		Log: callLog,
+	}.Install(t, bin)
 
 	c := NewClient()
 	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err != nil {
@@ -111,7 +109,7 @@ printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"}
 }
 
 func TestWorkspaceCreateRejectsMissingRootTabOrPane(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"}}}'`)
+	writeFakeHerdr(t, herdrResponse("workspace create", "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\"}}}"))
 	c := NewClient()
 	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
 		t.Fatal("expected an error when the response omits the root tab and pane")
@@ -122,27 +120,15 @@ func TestWorkspaceCreateRejectsMissingRootTabOrPane(t *testing.T) {
 // means herdr created the workspace (a protocol predating those fields), so WorkspaceCreate closes
 // it before the parse error reaches the caller - nothing downstream learns the ID.
 func TestWorkspaceCreateClosesWorkspaceOnPartialResponse(t *testing.T) {
-	writeFakeHerdr(t, `
-echo "$@" >> "$HERDR_CALL_LOG"
-case "$1 $2" in
-"workspace create")
-	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"}}}'
-	;;
-"workspace close")
-	if [ "$3" != "wA" ]; then
-		echo "unexpected close target: $@" >&2
-		exit 1
-	fi
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{
+			{Command: "workspace create", Stdout: "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\"}}}"},
+			{Command: "workspace close", Stdout: "{\"id\":\"cli:1\",\"result\":{\"type\":\"ok\"}}"},
+		},
+		Log: callLog,
+	}.Install(t, bin)
 
 	c := NewClient()
 	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
@@ -162,27 +148,15 @@ esac
 // type error, so a response that types a field wrongly still yields a workspace ID herdr has
 // already created and this call must still close.
 func TestWorkspaceCreateClosesWorkspaceOnMalformedResponse(t *testing.T) {
-	writeFakeHerdr(t, `
-echo "$@" >> "$HERDR_CALL_LOG"
-case "$1 $2" in
-"workspace create")
-	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"proj"},"tab":"none"}}'
-	;;
-"workspace close")
-	if [ "$3" != "wA" ]; then
-		echo "unexpected close target: $@" >&2
-		exit 1
-	fi
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{
+			{Command: "workspace create", Stdout: "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\"},\"tab\":\"none\"}}"},
+			{Command: "workspace close", Stdout: "{\"id\":\"cli:1\",\"result\":{\"type\":\"ok\"}}"},
+		},
+		Log: callLog,
+	}.Install(t, bin)
 
 	c := NewClient()
 	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
@@ -199,13 +173,7 @@ esac
 }
 
 func TestTabRenameSendsCorrectArgs(t *testing.T) {
-	writeFakeHerdr(t, `
-if [ "$1 $2 $3 $4" != "tab rename wA:tB task-1" ]; then
-	echo "unexpected args: $@" >&2
-	exit 1
-fi
-printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"}}}'
-`)
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "tab rename", Args: []string{"wA:tB", "task-1"}, Stdout: "{\"id\":\"cli:1\",\"result\":{\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\",\"label\":\"task-1\"}}}"})
 	c := NewClient()
 	if err := c.TabRename("wA:tB", "task-1"); err != nil {
 		t.Fatal(err)
@@ -213,7 +181,7 @@ printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","lab
 }
 
 func TestCallReturnsErrorOnEnvelopeError(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","error":{"code":"not_found","message":"pane missing"}}'; exit 1`)
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"error\":{\"code\":\"not_found\",\"message\":\"pane missing\"}}", Exit: 1})
 	c := NewClient()
 	if _, err := c.PaneGet("wA:pB"); err == nil || !strings.Contains(err.Error(), "pane missing") {
 		t.Fatalf("got err %v, want pane missing", err)
@@ -221,7 +189,7 @@ func TestCallReturnsErrorOnEnvelopeError(t *testing.T) {
 }
 
 func TestCallFailsOnNonZeroExitWithNoStdout(t *testing.T) {
-	writeFakeHerdr(t, `echo "binary crashed" >&2; exit 1`)
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stderr: "binary crashed\n", Exit: 1})
 	c := NewClient()
 	if _, err := c.PaneGet("wA:pB"); err == nil || !strings.Contains(err.Error(), "binary crashed") {
 		t.Fatalf("got err %v, want binary crashed failure", err)
@@ -229,7 +197,7 @@ func TestCallFailsOnNonZeroExitWithNoStdout(t *testing.T) {
 }
 
 func TestCallRejectsNullResult(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":null}'`)
+	writeFakeHerdr(t, herdrResponse("workspace list", "{\"id\":\"cli:1\",\"result\":null}"))
 	c := NewClient()
 	if _, err := c.WorkspaceList(); err == nil || !strings.Contains(err.Error(), "null result") {
 		t.Fatalf("got err %v, want null result failure", err)
@@ -237,7 +205,7 @@ func TestCallRejectsNullResult(t *testing.T) {
 }
 
 func TestCallRejectsNonObjectResult(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":[]}'`)
+	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":[]}"))
 	c := NewClient()
 	if _, err := c.PaneGet("wA:pB"); err == nil || !strings.Contains(err.Error(), "not an object") {
 		t.Fatalf("got err %v, want non-object result failure", err)
@@ -245,7 +213,7 @@ func TestCallRejectsNonObjectResult(t *testing.T) {
 }
 
 func TestPaneRunSucceedsOnEmptyStdout(t *testing.T) {
-	writeFakeHerdr(t, ``)
+	writeFakeHerdr(t, herdrResponse("pane run", ""))
 	c := NewClient()
 	if err := c.PaneRun("wA:pB", "echo hi"); err != nil {
 		t.Fatal(err)
@@ -253,7 +221,7 @@ func TestPaneRunSucceedsOnEmptyStdout(t *testing.T) {
 }
 
 func TestPaneRunSurfacesErrorEnvelopeEvenOnExitZero(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","error":{"code":"pane_not_found","message":"pane missing"}}'`)
+	writeFakeHerdr(t, herdrResponse("pane run", "{\"id\":\"cli:1\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"pane missing\"}}"))
 	c := NewClient()
 	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "pane missing") {
 		t.Fatalf("got err %v, want pane missing", err)
@@ -261,7 +229,7 @@ func TestPaneRunSurfacesErrorEnvelopeEvenOnExitZero(t *testing.T) {
 }
 
 func TestPaneSendTextSucceedsOnEmptyStdout(t *testing.T) {
-	writeFakeHerdr(t, ``)
+	writeFakeHerdr(t, herdrResponse("pane send-text", ""))
 	c := NewClient()
 	if err := c.PaneSendText("wA:pB", "hello"); err != nil {
 		t.Fatal(err)
@@ -269,12 +237,7 @@ func TestPaneSendTextSucceedsOnEmptyStdout(t *testing.T) {
 }
 
 func TestPaneSendKeysPassesKeys(t *testing.T) {
-	writeFakeHerdr(t, `
-if [ "$1" != "pane" ] || [ "$2" != "send-keys" ] || [ "$3" != "wA:pB" ] || [ "$4" != "Enter" ]; then
-	echo "unexpected args: $@" >&2
-	exit 1
-fi
-`)
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane send-keys", Args: []string{"wA:pB", "Enter"}})
 	c := NewClient()
 	if err := c.PaneSendKeys("wA:pB", "Enter"); err != nil {
 		t.Fatal(err)
@@ -282,7 +245,7 @@ fi
 }
 
 func TestPaneSendKeysSucceedsOnEmptyStdout(t *testing.T) {
-	writeFakeHerdr(t, ``)
+	writeFakeHerdr(t, herdrResponse("pane send-keys", ""))
 	c := NewClient()
 	if err := c.PaneSendKeys("wA:pB", "Enter"); err != nil {
 		t.Fatal(err)
@@ -290,7 +253,7 @@ func TestPaneSendKeysSucceedsOnEmptyStdout(t *testing.T) {
 }
 
 func TestCallVoidFailsOnNonZeroExitWithNoStdout(t *testing.T) {
-	writeFakeHerdr(t, `echo "binary crashed" >&2; exit 1`)
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane run", Stderr: "binary crashed\n", Exit: 1})
 	c := NewClient()
 	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "binary crashed") {
 		t.Fatalf("got err %v, want binary crashed failure", err)
@@ -298,7 +261,7 @@ func TestCallVoidFailsOnNonZeroExitWithNoStdout(t *testing.T) {
 }
 
 func TestTabCreateParsesTabAndRootPane(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'`)
+	writeFakeHerdr(t, herdrResponse("tab create", "{\"id\":\"cli:1\",\"result\":{\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\",\"label\":\"task\"},\"root_pane\":{\"pane_id\":\"wA:pC\",\"tab_id\":\"wA:tB\",\"agent_status\":\"idle\"}}}"))
 	c := NewClient()
 	tab, pane, err := c.TabCreate("wA", "/tmp/wt", "task")
 	if err != nil {
@@ -313,12 +276,15 @@ func TestTabCreateParsesTabAndRootPane(t *testing.T) {
 // already-existing workspace creates its own tab via TabCreate instead, and that path must be
 // sanitized too.
 func TestTabCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
-	writeFakeHerdr(t, `
-echo "$@" >> "$HERDR_CALL_LOG"
-printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB"}}}'
-`)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{{
+			Command: "tab create",
+			Stdout:  "{\"id\":\"cli:1\",\"result\":{\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"},\"root_pane\":{\"pane_id\":\"wA:pC\",\"tab_id\":\"wA:tB\"}}}",
+		}},
+		Log: callLog,
+	}.Install(t, bin)
 
 	c := NewClient()
 	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err != nil {
@@ -340,27 +306,15 @@ printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"ro
 // created the tab (same as atqamz/hand#74's WorkspaceCreate case), so TabCreate closes it
 // before the parse error reaches the caller - nothing downstream learns the tab ID.
 func TestTabCreateClosesTabOnPartialResponse(t *testing.T) {
-	writeFakeHerdr(t, `
-echo "$@" >> "$HERDR_CALL_LOG"
-case "$1 $2" in
-"tab create")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"}}}'
-	;;
-"tab close")
-	if [ "$3" != "wA:tB" ]; then
-		echo "unexpected close target: $@" >&2
-		exit 1
-	fi
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{
+			{Command: "tab create", Stdout: "{\"id\":\"cli:1\",\"result\":{\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"}}}"},
+			{Command: "tab close", Stdout: "{\"id\":\"cli:1\",\"result\":{\"type\":\"ok\"}}"},
+		},
+		Log: callLog,
+	}.Install(t, bin)
 
 	c := NewClient()
 	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err == nil {
@@ -380,27 +334,15 @@ esac
 // type error, so a response that types a field wrongly still yields a tab ID herdr has already
 // created and this call must still close it.
 func TestTabCreateClosesTabOnMalformedResponse(t *testing.T) {
-	writeFakeHerdr(t, `
-echo "$@" >> "$HERDR_CALL_LOG"
-case "$1 $2" in
-"tab create")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA"},"root_pane":"none"}}'
-	;;
-"tab close")
-	if [ "$3" != "wA:tB" ]; then
-		echo "unexpected close target: $@" >&2
-		exit 1
-	fi
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{
+			{Command: "tab create", Stdout: "{\"id\":\"cli:1\",\"result\":{\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"},\"root_pane\":\"none\"}}"},
+			{Command: "tab close", Stdout: "{\"id\":\"cli:1\",\"result\":{\"type\":\"ok\"}}"},
+		},
+		Log: callLog,
+	}.Install(t, bin)
 
 	c := NewClient()
 	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err == nil {
@@ -417,7 +359,7 @@ esac
 }
 
 func TestPaneGetParsesAgentStatus(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'`)
+	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"))
 	c := NewClient()
 	pane, err := c.PaneGet("wA:pB")
 	if err != nil {
@@ -429,7 +371,7 @@ func TestPaneGetParsesAgentStatus(t *testing.T) {
 }
 
 func TestWaitComposerEmptyReturnsWhenIdle(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"idle"}}}'`)
+	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"idle\"}}}"))
 	c := NewClient()
 	if err := c.WaitComposerEmpty("wA:pB", time.Second); err != nil {
 		t.Fatal(err)
@@ -437,7 +379,7 @@ func TestWaitComposerEmptyReturnsWhenIdle(t *testing.T) {
 }
 
 func TestWaitComposerEmptyTimesOutWhileWorking(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pB","agent_status":"working"}}}'`)
+	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"))
 	c := NewClient()
 	err := c.WaitComposerEmpty("wA:pB", 10*time.Millisecond)
 	if !errors.Is(err, ErrComposerBusyTimeout) {
@@ -448,8 +390,7 @@ func TestWaitComposerEmptyTimesOutWhileWorking(t *testing.T) {
 func TestWaitComposerEmptyPaneFailureIsNotABusyTimeout(t *testing.T) {
 	// A pane that stops answering can never free, so the caller must be able to
 	// tell this apart from the retryable timeout above.
-	writeFakeHerdr(t, `printf '{"id":"cli:1","error":{"code":"pane_not_found","message":"no such pane"}}'
-exit 1`)
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"no such pane\"}}", Exit: 1})
 	c := NewClient()
 	err := c.WaitComposerEmpty("wA:pB", time.Second)
 	if err == nil || errors.Is(err, ErrComposerBusyTimeout) {
@@ -458,7 +399,7 @@ exit 1`)
 }
 
 func TestTabListParsesResult(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tB","workspace_id":"wA"}]}}'`)
+	writeFakeHerdr(t, herdrResponse("tab list", "{\"id\":\"cli:1\",\"result\":{\"tabs\":[{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"}]}}"))
 	c := NewClient()
 	tabs, err := c.TabList("wA")
 	if err != nil {
@@ -472,10 +413,7 @@ func TestTabListParsesResult(t *testing.T) {
 // Pins --source recent: a 23-row unattached pane clips the option and footer lines that identify a
 // first-run dialog, and a dialog that matches nothing is confirmed as a started worker.
 func TestPaneReadReadsRecentScrollback(t *testing.T) {
-	writeFakeHerdr(t, `case "$*" in
-*"--source recent"*) printf 'Welcome to Claude Code\n' ;;
-*) echo "unexpected read args: $*" >&2; exit 1 ;;
-esac`)
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane read", Args: []string{"wA:pB", "--source", "recent", "--lines", "60"}, Stdout: "Welcome to Claude Code\n"})
 	c := NewClient()
 	got, err := c.PaneRead("wA:pB", 60)
 	if err != nil {
@@ -489,7 +427,7 @@ esac`)
 // Pins that the bare {code,message} failure body is honored even when herdr exits 0: read as pane
 // text it would look like a dialog-free pane and confirm a worker no one ever observed.
 func TestPaneReadRejectsErrorBodyOnExitZero(t *testing.T) {
-	writeFakeHerdr(t, `printf '{"code":"pane_not_found","message":"no such pane"}'; exit 0`)
+	writeFakeHerdr(t, herdrResponse("pane read", "{\"code\":\"pane_not_found\",\"message\":\"no such pane\"}"))
 	c := NewClient()
 	if _, err := c.PaneRead("wA:pB", 60); err == nil || !strings.Contains(err.Error(), "pane_not_found") {
 		t.Fatalf("got err %v, want pane_not_found", err)

@@ -4,42 +4,25 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
-// Fakes "workspace list" as a query command per internal/herdr/client.go's call() doc comment: a non-null
-// result object on success, here an empty workspace list.
-const fakeHerdrWatchScript = `#!/bin/sh
-case "$1 $2" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
 func setupWatchHome(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(fakeHerdrWatchScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Herdr{Responses: []faketool.HerdrResponse{{
+		Command: "workspace list",
+		Stdout:  "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}",
+	}}}.Install(t, bin)
 	return home
 }
 

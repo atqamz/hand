@@ -3,13 +3,10 @@ package ghutil
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-	"unicode"
+
+	"github.com/atqamz/hand/internal/faketool"
 )
 
 // Fakes `gh pr view --json state`, emitting a stderr line ahead of the JSON payload so a
@@ -17,23 +14,16 @@ import (
 // output does.
 func writeFakeGHPRView(t *testing.T, state string, exitCode int, stderrLine string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	bin := faketool.Bin(t)
+	response := faketool.GHResponse{
+		Command: "pr view",
+		Stderr:  stderrLine,
+		Exit:    exitCode,
 	}
-	bin := t.TempDir()
-	script := "#!/bin/sh\n"
-	if stderrLine != "" {
-		script += fmt.Sprintf("echo %q >&2\n", stderrLine)
+	if exitCode == 0 {
+		response.Stdout = "{\"state\":\"" + state + "\"}\n"
 	}
-	if exitCode != 0 {
-		script += fmt.Sprintf("exit %d\n", exitCode)
-	} else {
-		script += fmt.Sprintf("printf '{\"state\":\"%s\"}\\n'\n", state)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
+	faketool.GH{Responses: []faketool.GHResponse{response}}.Install(t, bin)
 }
 
 func TestPRIsMergedIgnoresStderrNoise(t *testing.T) {
@@ -68,23 +58,10 @@ func TestPRIsMergedReportsExitStatusWithoutStderr(t *testing.T) {
 // the call site must fail the parse.
 func writeFakeGHPRList(t *testing.T, body string, exitCode int, stderrLine string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := "#!/bin/sh\n"
-	if stderrLine != "" {
-		script += fmt.Sprintf("echo %q >&2\n", stderrLine)
-	}
-	if exitCode != 0 {
-		script += fmt.Sprintf("exit %d\n", exitCode)
-	} else {
-		script += fmt.Sprintf("printf '%s'\n", body)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
+	bin := faketool.Bin(t)
+	faketool.GH{Responses: []faketool.GHResponse{{
+		Command: "pr list", Stdout: body, Stderr: stderrLine, Exit: exitCode,
+	}}}.Install(t, bin)
 }
 
 func TestFindPRByBranchReturnsMatch(t *testing.T) {
@@ -218,49 +195,12 @@ func TestFindPRByBranchPrefersOpenOverClosedUnmerged(t *testing.T) {
 // A", and a fork test would pass against a shape gh never returns (atqamz/hand#40).
 func writeFakeGHPRListPerRepo(t *testing.T, bodies map[string]string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-
-	// A qualified owner:branch --head value is refused below because real gh silently answers it
-	// with an empty list - verified against gh 2.97 on a live cross-repo PR - so the mistake
-	// surfaces as a failure here instead of as "no PR found" in production.
-	script := "#!/bin/sh\n" +
-		"[ \"$1 $2\" = \"pr list\" ] || { echo \"unexpected gh args: $@\" >&2; exit 1; }\n" +
-		"[ \"$3\" = \"--repo\" ] && [ \"$5\" = \"--head\" ] || { echo \"unexpected gh args: $@\" >&2; exit 1; }\n" +
-		"case \"$6\" in *:*) echo \"qualified head ref matches nothing in real gh: $6\" >&2; exit 1 ;; esac\n" +
-		"case \"$4\" in\n"
-	// The dispatch case-folds --repo because GitHub serves a repo under any casing of its slug, so a
-	// case-sensitive fake would answer a differently-cased target with an empty list and hide the
-	// hit real gh returns.
+	bin := faketool.Bin(t)
+	var responses []faketool.GHResponse
 	for repo, body := range bodies {
-		script += fmt.Sprintf("%s) printf '%s' ;;\n", anyCasingGlob(repo), body)
+		responses = append(responses, faketool.GHResponse{Command: "pr list", Repo: repo, Stdout: body})
 	}
-	script += "*) printf '[]' ;;\nesac\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-}
-
-// Turns a repo slug into an unquoted sh case pattern matching it in any casing - a glob rather than
-// tr, because PATH is replaced by the fake's own dir alone and no external binary resolves inside
-// these scripts. Safe unquoted: a slug is [A-Za-z0-9._-/] only, so it carries no metacharacter.
-func anyCasingGlob(slug string) string {
-	var b strings.Builder
-	for _, r := range slug {
-		lower, upper := unicode.ToLower(r), unicode.ToUpper(r)
-		if lower == upper {
-			b.WriteRune(r)
-			continue
-		}
-		b.WriteByte('[')
-		b.WriteRune(upper)
-		b.WriteRune(lower)
-		b.WriteByte(']')
-	}
-	return b.String()
+	faketool.GH{Responses: responses, RejectQualifiedHead: true}.Install(t, bin)
 }
 
 // The target pair a fork project searches with: its own repo, where hand pushes the branch, plus

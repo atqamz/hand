@@ -4,10 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
@@ -29,57 +29,19 @@ func TestSpawnCleanupReportsAllErrors(t *testing.T) {
 	}
 }
 
-// Covers the herdr calls a clean spawn makes: a pane herdr sees claude running in, painted past its
-// startup frame with no first-run dialog, so confirmLaunch confirms on its first poll. It echoes an
-// envelope for the void "pane run" too, which callVoid accepts (real shapes: internal/faketool/FIDELITY.md).
-const fakeHerdrSpawnScript = `#!/bin/sh
-if [ -n "$HERDR_CALL_LOG" ]; then
-	echo "$@" >> "$HERDR_CALL_LOG"
-fi
-cmd="$1 $2"
-case "$cmd" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":1}]}}'
-	;;
-"tab create")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
-	;;
-"pane run")
- printf '{"id":"cli:1","result":{}}'
-	;;
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"claude","agent_status":"idle"}}}' "$3"
-	;;
-"pane read")
-	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
-// Fakes "treehouse get" as always leasing worktreePath. Real treehouse writes a banner to stderr ahead
-// of its JSON on "get" (internal/worktree/worktree.go's Get doc); omitted here since
-// tests/e2e/fakes_test.go's writeFakeTreehouse covers the stdout-only parsing where the banner matters.
-func writeFakeTreehouseGet(t *testing.T, bin, worktreePath string) {
-	t.Helper()
-	// A fresh lease_id per invocation, because that - not the recycled slot path - is what real treehouse
-	// guarantees unique per acquisition, and what the spawn collision guard keys on.
-	counter := filepath.Join(bin, ".treehouse-leases")
-	script := "#!/bin/sh\nn=$(cat " + counter + " 2>/dev/null || echo 0)\nn=$((n+1))\necho \"$n\" > " + counter +
-		"\nprintf '{\"path\":\"" + worktreePath + "\",\"lease_id\":\"lease-%s\"}' \"$n\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "treehouse"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+func defaultSpawnHerdr(agent string) faketool.Herdr {
+	return faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{
+			ID: "wA", Label: "hand:myproj",
+			Tabs: []faketool.HerdrTab{{ID: "wA:root", Label: "root", Pane: "wA:pRoot"}},
+		}},
+		TabCreates: []faketool.HerdrTab{{ID: "wA:tB", Label: "task-1", Pane: "wA:pC"}},
+		PaneAgent:  agent, PaneStatus: "idle",
 	}
 }
 
-func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
+func setupSpawnHome(t *testing.T, worktreePath string, herdr faketool.Herdr) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	useFastLaunchPolling(t)
 	t.Setenv("HAND_HARNESS", harness.Claude)
 	home := t.TempDir()
@@ -97,12 +59,14 @@ func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 		t.Fatal(err)
 	}
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFakeTreehouseGet(t, bin, worktreePath)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+	herdr.Log = callLog
+	herdr.Install(t, bin)
+	treehouseLog := filepath.Join(t.TempDir(), "treehouse.log")
+	t.Setenv("TREEHOUSE_CALL_LOG", treehouseLog)
+	faketool.Treehouse{Slots: []string{worktreePath}, Log: treehouseLog}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	return home
@@ -110,8 +74,7 @@ func setupSpawnHome(t *testing.T, worktreePath, herdrScript string) string {
 
 func TestSpawnUsesDetectedHarnessWithoutConfiguredOverride(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	codexHerdr := strings.ReplaceAll(fakeHerdrSpawnScript, `"agent":"claude"`, `"agent":"codex"`)
-	home := setupSpawnHome(t, wt, codexHerdr)
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("codex"))
 	t.Setenv("HAND_HARNESS", harness.Codex)
 
 	cmd := newSpawnCmd()
@@ -130,7 +93,7 @@ func TestSpawnUsesDetectedHarnessWithoutConfiguredOverride(t *testing.T) {
 
 func TestSpawnConfiguredHarnessWinsOverDetectedHarness(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
 	t.Setenv("HAND_HARNESS", harness.Codex)
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
@@ -154,10 +117,8 @@ func TestSpawnConfiguredHarnessWinsOverDetectedHarness(t *testing.T) {
 }
 
 func TestSpawnUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.T) {
-	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	t.Setenv("HAND_HARNESS", "unknown")
-	bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
-
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj"})
 	err := cmd.Execute()
@@ -165,8 +126,8 @@ func TestSpawnUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.T)
 	if !strings.Contains(err.Error(), "current supervisor harness is unknown") {
 		t.Fatalf("error = %v, want unknown-supervisor remedy", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(bin, ".treehouse-leases")); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("treehouse acquisition counter exists: %v", statErr)
+	if _, statErr := os.Stat(os.Getenv("TREEHOUSE_CALL_LOG")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("treehouse was invoked: %v", statErr)
 	}
 	if _, readErr := state.Read(home, "task-1"); !errors.Is(readErr, state.ErrTaskNotFound) {
 		t.Fatalf("task state after refusal = %v", readErr)
@@ -175,10 +136,12 @@ func TestSpawnUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.T)
 
 func TestSpawnHappyPath(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
 	t.Setenv("HAND_HOME", ".")
-	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	callLog := os.Getenv("HERDR_CALL_LOG")
+	if callLog == "" {
+		t.Fatal("setupSpawnHome did not configure the herdr call log")
+	}
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj"})
@@ -217,37 +180,16 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 }
 
-// Pins atqamz/hand#118: the plain-labelled "myproj" workspace here sorts first in "workspace list"
-// and would have won the old bare-label lookup, so hand must resolve to its own "hand:myproj" whatever
-// the order, never one it did not create (how a human's workspace collides: internal/faketool/FIDELITY.md).
-const fakeHerdrTwoWorkspacesOneLabelScript = `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wHuman","label":"myproj","tab_count":1},{"workspace_id":"wA","label":"hand:myproj","tab_count":1}]}}'
-	;;
-"tab create")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
-	;;
-"pane run")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"claude","agent_status":"idle"}}}' "$3"
-	;;
-"pane read")
-	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
 func TestSpawnIgnoresSameLabelledWorkspaceHandDidNotCreate(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrTwoWorkspacesOneLabelScript)
+	home := setupSpawnHome(t, wt, faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{
+			{ID: "wHuman", Label: "myproj", Tabs: []faketool.HerdrTab{{ID: "wHuman:root", Label: "root", Pane: "wHuman:pHuman"}}},
+			{ID: "wA", Label: "hand:myproj", Tabs: []faketool.HerdrTab{{ID: "wA:root", Label: "root", Pane: "wA:pRoot"}}},
+		},
+		TabCreates: []faketool.HerdrTab{{ID: "wA:tB", Label: "task-1", Pane: "wA:pC"}},
+		PaneAgent:  "claude", PaneStatus: "idle",
+	})
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj"})
@@ -266,7 +208,7 @@ func TestSpawnIgnoresSameLabelledWorkspaceHandDidNotCreate(t *testing.T) {
 
 func TestSpawnPersistsResolvedNotDeclaredTierValues(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
 	briefPath := filepath.Join(home, "data", "task-1", "brief.md")
 	if err := os.WriteFile(briefPath, []byte("---\nmodel: brief-model\neffort: brief-effort\n---\n# Title\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -292,7 +234,7 @@ func TestSpawnPersistsResolvedNotDeclaredTierValues(t *testing.T) {
 
 func TestSpawnScoutFlag(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj", "--scout"})
@@ -310,7 +252,7 @@ func TestSpawnScoutFlag(t *testing.T) {
 }
 
 func TestSpawnRejectsUnregisteredProject(t *testing.T) {
-	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "unknown-proj"})
@@ -322,7 +264,7 @@ func TestSpawnRejectsUnregisteredProject(t *testing.T) {
 }
 
 func TestSpawnRejectsAlreadyActiveTask(t *testing.T) {
-	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	if err := state.Write(home, state.Task{ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +282,7 @@ func TestSpawnRejectsAlreadyActiveTask(t *testing.T) {
 // be free while its question is still open. Reusing that id has to refuse rather
 // than reattach the old question to unrelated work.
 func TestSpawnRejectsHeldIDWithNoTaskRow(t *testing.T) {
-	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator, Reason: "needs a call"}); err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +300,7 @@ func TestSpawnRejectsHeldIDWithNoTaskRow(t *testing.T) {
 }
 
 func TestSpawnAcceptsIDWhoseHoldWasCleared(t *testing.T) {
-	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator, Reason: "needs a call"}); err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +319,7 @@ func TestSpawnAcceptsIDWhoseHoldWasCleared(t *testing.T) {
 }
 
 func TestSpawnRejectsMissingBrief(t *testing.T) {
-	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	if err := os.Remove(filepath.Join(home, "data", "task-1", "brief.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +334,7 @@ func TestSpawnRejectsMissingBrief(t *testing.T) {
 }
 
 func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
-	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), fakeHerdrSpawnScript)
+	setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 
 	cmd := newSpawnCmd()
 	cmd.SetArgs([]string{"task-1", "myproj", "--harness", "nonexistent"})
@@ -409,7 +351,7 @@ func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
 // is still guarded by worktree path, and that guard is still wired into spawn.
 func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
 	if err := state.Write(home, state.Task{ID: "other-task", Worktree: wt}); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +372,7 @@ func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.
 // that is not a collision, and the spawn has to go through.
 func TestSpawnAllowsAReusedWorktreePathUnderAFreshLease(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrSpawnScript)
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
 	if err := state.Write(home, state.Task{ID: "stale-task", Worktree: wt, LeaseID: "lease-0"}); err != nil {
 		t.Fatal(err)
 	}
@@ -450,100 +392,49 @@ func TestSpawnAllowsAReusedWorktreePathUnderAFreshLease(t *testing.T) {
 	}
 }
 
-// Logs every invocation to $HERDR_CALL_LOG and fails "pane run" so a spawn always fails after tab
-// creation, with $HERDR_WS_EXISTS_FLAG driving both leak scenarios, created and pre-existing. Bare exit
-// 1, not herdr's void-failure shape: spawn.go branches only on whether PaneRun errored (client_test.go).
-const fakeHerdrLeakScript = `#!/bin/sh
-echo "$@" >> "$HERDR_CALL_LOG"
-cmd="$1 $2"
-case "$cmd" in
-"workspace list")
-	if [ -e "$HERDR_WS_EXISTS_FLAG" ]; then
-		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":2}]}}'
-	else
-		printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	fi
-	;;
-"workspace create")
-	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"},"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
-	;;
-"tab create")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
-	;;
-"tab rename")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"}}}'
-	;;
-"pane run")
-	exit 1
-	;;
-"workspace close")
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-"tab list")
-	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:root","workspace_id":"wA","label":"root"},{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"}]}}'
-	;;
-"tab close")
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
+func spawnLeakHerdr(workspaceExists bool) faketool.Herdr {
+	herdr := faketool.Herdr{
+		Responses: []faketool.HerdrResponse{{Command: "pane run", Exit: 1}},
+		PaneAgent: "claude", PaneStatus: "idle",
+	}
+	if workspaceExists {
+		herdr.Workspaces = []faketool.HerdrWorkspace{{
+			ID: "wA", Label: "hand:myproj",
+			Tabs: []faketool.HerdrTab{
+				{ID: "wA:root", Label: "root", Pane: "wA:pRoot"},
+				{ID: "wA:other", Label: "other", Pane: "wA:pOther"},
+			},
+		}}
+		herdr.TabCreates = []faketool.HerdrTab{{ID: "wA:tB", Label: "task-1", Pane: "wA:pC"}}
+		return herdr
+	}
+	herdr.Creates = []faketool.HerdrWorkspace{{
+		ID: "wA", Label: "myproj",
+		Tabs: []faketool.HerdrTab{{ID: "wA:tB", Label: "1", Pane: "wA:pC"}},
+	}}
+	return herdr
+}
 
 func setupSpawnLeakEnv(t *testing.T, workspaceExists bool) string {
 	t.Helper()
-	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
-
-	flag := filepath.Join(t.TempDir(), "ws-exists")
-	if workspaceExists {
-		if err := os.WriteFile(flag, nil, 0o644); err != nil {
-			t.Fatal(err)
-		}
+	callLog := os.Getenv("HERDR_CALL_LOG")
+	if callLog == "" {
+		t.Fatal("setupSpawnHome did not configure the herdr call log")
 	}
-	t.Setenv("HERDR_WS_EXISTS_FLAG", flag)
+
+	_ = workspaceExists
 	return callLog
 }
 
-// Launches fine but reports a pane sitting on a dialog nothing answers, the shape confirmLaunch must
-// fail rather than record as a spawned task.
-const fakeHerdrStuckPaneScript = `#!/bin/sh
-echo "$@" >> "$HERDR_CALL_LOG"
-cmd="$1 $2"
-case "$cmd" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	;;
-"workspace create")
-	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"},"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
-	;;
-"tab rename")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"task-1"}}}'
-	;;
-"pane run")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tB","workspace_id":"wA","agent":"claude","agent_status":"idle"}}}' "$3"
-	;;
-"pane read")
-	printf 'Some brand new dialog\n> 1. Sure\n  2. Nope\n\nEnter to confirm\n'
-	;;
-"workspace close")
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
 func TestSpawnRollsBackWhenWorkerNeverStarts(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrStuckPaneScript)
+	home := setupSpawnHome(t, wt, faketool.Herdr{
+		Creates: []faketool.HerdrWorkspace{{
+			ID: "wA", Label: "myproj",
+			Tabs: []faketool.HerdrTab{{ID: "wA:tB", Label: "1", Pane: "wA:pC"}},
+		}},
+		PaneAgent: "claude", PaneStatus: "idle", PaneReadOut: "Some brand new dialog\n> 1. Sure\n  2. Nope\n\nEnter to confirm\n",
+	})
 	expectLaunchTimeout()
 	callLog := setupSpawnLeakEnv(t, false)
 
@@ -568,7 +459,7 @@ func TestSpawnRollsBackWhenWorkerNeverStarts(t *testing.T) {
 
 func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	setupSpawnHome(t, wt, fakeHerdrLeakScript)
+	setupSpawnHome(t, wt, spawnLeakHerdr(false))
 	callLog := setupSpawnLeakEnv(t, false)
 
 	cmd := newSpawnCmd()
@@ -586,32 +477,12 @@ func TestSpawnFailureClosesWorkspaceItCreated(t *testing.T) {
 	}
 }
 
-// Answers "workspace create" as a herdr predating the tab/root_pane fields would, reporting the workspace
-// and omitting both - the partial-response shape atqamz/hand#74 fixes. It accepts and logs
-// "workspace close" too, since the workspace exists by then and a test could otherwise pass unfixed.
-const fakeHerdrPartialWorkspaceCreateScript = `#!/bin/sh
-echo "$@" >> "$HERDR_CALL_LOG"
-cmd="$1 $2"
-case "$cmd" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	;;
-"workspace create")
-	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"}}}'
-	;;
-"workspace close")
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
 func TestSpawnPartialWorkspaceCreateLeavesNoWorkspaceBehind(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrPartialWorkspaceCreateScript)
+	home := setupSpawnHome(t, wt, faketool.Herdr{Responses: []faketool.HerdrResponse{
+		{Command: "workspace create", Stdout: `{"id":"cli:workspace:create","result":{"workspace":{"workspace_id":"wA","label":"myproj"}}}`},
+		{Command: "workspace close", Stdout: `{"id":"cli:workspace:close","result":{"type":"ok"}}`},
+	}})
 	callLog := setupSpawnLeakEnv(t, false)
 
 	cmd := newSpawnCmd()
@@ -633,35 +504,15 @@ func TestSpawnPartialWorkspaceCreateLeavesNoWorkspaceBehind(t *testing.T) {
 	}
 }
 
-// Answers "workspace create" in full and then fails the rename of the root tab into the task's - the
-// one failure that lands between herdr creating the workspace and the caller arming its own rollback,
-// so the workspace has to be closed by the acquisition step itself.
-const fakeHerdrTabRenameFailureScript = `#!/bin/sh
-echo "$@" >> "$HERDR_CALL_LOG"
-cmd="$1 $2"
-case "$cmd" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	;;
-"workspace create")
-	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"},"tab":{"tab_id":"wA:tB","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pC","tab_id":"wA:tB","agent_status":"idle"}}}'
-	;;
-"tab rename")
-	exit 1
-	;;
-"workspace close")
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
 func TestSpawnTabRenameFailureClosesWorkspaceItCreated(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	home := setupSpawnHome(t, wt, fakeHerdrTabRenameFailureScript)
+	home := setupSpawnHome(t, wt, faketool.Herdr{
+		Creates: []faketool.HerdrWorkspace{{
+			ID: "wA", Label: "myproj",
+			Tabs: []faketool.HerdrTab{{ID: "wA:tB", Label: "1", Pane: "wA:pC"}},
+		}},
+		Responses: []faketool.HerdrResponse{{Command: "tab rename", Exit: 1}},
+	})
 	callLog := setupSpawnLeakEnv(t, false)
 
 	cmd := newSpawnCmd()
@@ -685,7 +536,7 @@ func TestSpawnTabRenameFailureClosesWorkspaceItCreated(t *testing.T) {
 
 func TestSpawnFailureKeepsPreexistingWorkspace(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
-	setupSpawnHome(t, wt, fakeHerdrLeakScript)
+	setupSpawnHome(t, wt, spawnLeakHerdr(true))
 	callLog := setupSpawnLeakEnv(t, true)
 
 	cmd := newSpawnCmd()

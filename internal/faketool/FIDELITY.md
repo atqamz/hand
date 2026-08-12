@@ -252,3 +252,13 @@ The call follows a renamed repository: `atqamz/secondhand` answers `atqamz/hand`
 
 An unknown or inaccessible repository exits nonzero and writes its diagnostic to stderr.
 `internal/ghutil` reads stdout separately from stderr so warnings cannot corrupt the JSON payload.
+
+### `gh release view <tag> --json tagName,body --jq <field>`
+
+Exit 0 with the selected field as raw text on stdout and no JSON envelope.
+`hand update` reads `.tagName` and `.body` this way.
+
+### `gh release download <tag> --pattern <asset> --dir <directory>`
+
+Exit 0 with the requested release assets copied into the directory.
+Download progress belongs on stderr and is ignored by `hand update`.

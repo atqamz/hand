@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -36,21 +33,14 @@ func addOriginRemote(t *testing.T, dir, url string) {
 
 func writeFakeGhPRView(t *testing.T, exitCode int) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := "#!/bin/sh\n"
+	bin := faketool.Bin(t)
+	response := faketool.GHResponse{Command: "pr view", Exit: exitCode}
 	if exitCode != 0 {
-		script += "echo 'gh: pull request not found' >&2\n"
-		script += fmt.Sprintf("exit %d\n", exitCode)
+		response.Stderr = "gh: pull request not found\n"
 	} else {
-		script += "printf '{\"state\":\"OPEN\"}'\n"
+		response.Stdout = "{\"state\":\"OPEN\"}"
 	}
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.GH{Responses: []faketool.GHResponse{response}}.Install(t, bin)
 }
 
 func setupPRHome(t *testing.T) (home, clonePath string) {

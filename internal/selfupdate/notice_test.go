@@ -3,9 +3,10 @@ package selfupdate
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/faketool"
 )
 
 func TestCheckNoticeSkipsWithoutStateDir(t *testing.T) {
@@ -44,9 +45,6 @@ func TestCheckNoticeEmptyWhenUpToDate(t *testing.T) {
 }
 
 func TestCheckNoticeUsesFreshCacheWithoutCallingGH(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
 		t.Fatal(err)
@@ -54,12 +52,8 @@ func TestCheckNoticeUsesFreshCacheWithoutCallingGH(t *testing.T) {
 
 	// A refusal fake, not an imitation of gh: a fresh cache must serve the
 	// notice without any gh call at all, so any invocation is the failure.
-	bin := t.TempDir()
-	script := "#!/bin/sh\necho 'gh should not be called' >&2\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.GH{}.Install(t, bin)
 
 	if err := writeCache(filepath.Join(home, "state", cacheFile), versionCache{
 		CheckedAt: time.Now(),
@@ -137,9 +131,6 @@ func TestCheckNoticeCachesFailedCheck(t *testing.T) {
 }
 
 func TestCheckNoticeSkipsUnparseableCurrentVersion(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
 		t.Fatal(err)
@@ -147,12 +138,8 @@ func TestCheckNoticeSkipsUnparseableCurrentVersion(t *testing.T) {
 
 	// Same refusal fake as TestCheckNoticeUsesFreshCacheWithoutCallingGH above;
 	// an unparseable current version must skip the check entirely.
-	bin := t.TempDir()
-	script := "#!/bin/sh\necho 'gh should not be called' >&2\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.GH{}.Install(t, bin)
 
 	if notice := CheckNotice(home, "atqamz/hand", "dev"); notice != "" {
 		t.Fatalf("got %q, want empty notice for an unversioned build", notice)

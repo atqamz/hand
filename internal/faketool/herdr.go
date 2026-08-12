@@ -1,274 +1,662 @@
 package faketool
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
-// One tab of a fake herdr workspace, with the pane herdr creates alongside it.
+// HerdrTab describes a tab and the pane herdr creates with it.
 type HerdrTab struct {
 	ID    string
 	Label string
 	Pane  string
 }
 
-// A workspace of the fake herdr, live from installation when listed in
-// Herdr.Workspaces and from the matching call when listed in Herdr.Creates.
+// HerdrWorkspace describes one workspace and its tabs.
 type HerdrWorkspace struct {
 	ID    string
 	Label string
 	Tabs  []HerdrTab
 }
 
-// A fake herdr whose workspaces, tabs and panes are created and closed by the
-// commands that create and close them, so closing one is visible to every later
-// list, get and close. FIDELITY.md records this against the real tool.
-type Herdr struct {
-	Workspaces []HerdrWorkspace
-	// Handed out by "workspace create", one per call in order.
-	Creates []HerdrWorkspace
-	// Handed out by "tab create", one per call, attached to the workspace asked for.
-	TabCreates  []HerdrTab
-	PaneAgent   string
-	PaneStatus  string
-	PaneReadOut string
-	Log         string
+// HerdrResponse overrides one command while keeping the shared executable and
+// invocation logging. It is useful for deliberately malformed or failed calls.
+type HerdrResponse struct {
+	Command string
+	Args    []string
+	Stdout  string
+	Stderr  string
+	Exit    int
 }
 
-// Frame "pane read" answers with when a test names none: a settled Claude Code
-// prompt with no first-run dialog on it, which is what confirmLaunch waits for.
-const herdrDefaultPaneRead = "Welcome to Claude Code\\n> \\n  ? for shortcuts\\n"
+// HerdrFrame supplies successive pane get/read observations.
+type HerdrFrame struct {
+	Text   string
+	Agent  string
+	Status string
+}
+
+// Herdr models workspace, tab and pane state changes made by hand.
+type Herdr struct {
+	Workspaces         []HerdrWorkspace
+	Creates            []HerdrWorkspace
+	TabCreates         []HerdrTab
+	PaneAgent          string
+	PaneStatus         string
+	PaneStatusSequence []string
+	PaneReadOut        string
+	PaneStatusFile     string
+	Frames             []HerdrFrame
+	Responses          []HerdrResponse
+	Hang               []string
+	Unreachable        bool
+	KeyLog             string
+	TextLog            string
+	Log                string
+	LogCommands        []string
+	PaneAgentEnv       bool
+	PaneReadFileEnv    bool
+	KeyLogEnv          bool
+	TextLogEnv         bool
+	ReadLogEnv         bool
+	AllowUnknownPane   bool
+}
+
+const herdrDefaultPaneRead = "Welcome to Claude Code\n> \n  ? for shortcuts\n"
+
+type herdrSpec struct {
+	Workspaces         []HerdrWorkspace
+	Creates            []HerdrWorkspace
+	TabCreates         []HerdrTab
+	PaneAgent          string
+	PaneStatus         string
+	PaneStatusSequence []string
+	PaneReadOut        string
+	PaneStatusFile     string
+	Frames             []HerdrFrame
+	Responses          []HerdrResponse
+	Hang               []string
+	Unreachable        bool
+	KeyLog             string
+	TextLog            string
+	StateDir           string
+	Log                string
+	LogCommands        []string
+	PaneAgentEnv       bool
+	PaneReadFileEnv    bool
+	KeyLogEnv          bool
+	TextLogEnv         bool
+	ReadLogEnv         bool
+	AllowUnknownPane   bool
+}
 
 type herdrTabRef struct {
-	tab   HerdrTab
-	index int
+	Tab   HerdrTab
+	Index int
 }
 
-// Writes the fake into bin, which Bin has put on PATH.
 func (h Herdr) Install(t *testing.T, bin string) {
 	t.Helper()
 	state := stateDir(t, bin, "herdr")
+	workspaces := append(append([]HerdrWorkspace{}, h.Workspaces...), h.Creates...)
+	tabs := herdrTabs(workspaces, h.TabCreates)
+	for i, ws := range h.Workspaces {
+		ensureFile(t, herdrWorkspacePath(state, i), "live\n")
+		ensureFile(t, herdrLabelPath(state, "w", i), ws.Label+"\n")
+		for _, tab := range ws.Tabs {
+			ref := herdrTabIndex(tabs, tab.ID)
+			ensureFile(t, herdrTabPath(state, ref.Index), ws.ID+"\n")
+			ensureFile(t, herdrLabelPath(state, "t", ref.Index), tab.Label+"\n")
+		}
+	}
+	installConfig(t, bin, "herdr", "herdr", herdrSpec{
+		Workspaces: h.Workspaces, Creates: h.Creates, TabCreates: h.TabCreates,
+		PaneAgent: h.PaneAgent, PaneStatus: h.PaneStatus, PaneReadOut: h.PaneReadOut,
+		PaneStatusSequence: h.PaneStatusSequence,
+		PaneStatusFile:     h.PaneStatusFile, Frames: h.Frames, Responses: h.Responses,
+		Hang: h.Hang, Unreachable: h.Unreachable, KeyLog: h.KeyLog, TextLog: h.TextLog,
+		StateDir: state, Log: h.Log, LogCommands: h.LogCommands,
+		PaneAgentEnv: h.PaneAgentEnv, PaneReadFileEnv: h.PaneReadFileEnv,
+		KeyLogEnv: h.KeyLogEnv, TextLogEnv: h.TextLogEnv,
+		ReadLogEnv: h.ReadLogEnv, AllowUnknownPane: h.AllowUnknownPane,
+	})
+}
 
-	agent, status, paneRead := h.PaneAgent, h.PaneStatus, h.PaneReadOut
-	if agent == "" {
-		agent = "claude"
+func runHerdrFromPayload(payload json.RawMessage, args []string) int {
+	var spec herdrSpec
+	if err := json.Unmarshal(payload, &spec); err != nil {
+		return fail("decode herdr config: %v", err)
+	}
+	if spec.Log != "" && (len(spec.LogCommands) == 0 || containsString(spec.LogCommands, commandName(args))) {
+		if err := appendInvocation(spec.Log, "herdr", args); err != nil {
+			return fail("log herdr invocation: %v", err)
+		}
+	}
+	if len(args) < 2 {
+		return fail("unexpected herdr invocation: %s", strings.Join(args, " "))
+	}
+	command := args[0] + " " + args[1]
+	for _, blocked := range spec.Hang {
+		if blocked == command {
+			for {
+				time.Sleep(time.Hour)
+			}
+		}
+	}
+	if spec.Unreachable {
+		return 1
+	}
+	for _, response := range spec.Responses {
+		if response.Command == command && (response.Args == nil || sameArgs(response.Args, args[2:])) {
+			_, _ = io.WriteString(os.Stdout, response.Stdout)
+			_, _ = io.WriteString(os.Stderr, response.Stderr)
+			return response.Exit
+		}
+	}
+	return runHerdrState(spec, command, args)
+}
+
+func commandName(args []string) string {
+	if len(args) < 2 {
+		return strings.Join(args, " ")
+	}
+	return args[0] + " " + args[1]
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func runHerdrState(spec herdrSpec, command string, args []string) int {
+	workspaces := append(append([]HerdrWorkspace{}, spec.Workspaces...), spec.Creates...)
+	tabs := herdrTabs(workspaces, spec.TabCreates)
+	switch command {
+	case "workspace list":
+		return herdrWorkspaceList(spec, workspaces)
+	case "workspace create":
+		return herdrWorkspaceCreate(spec, workspaces, tabs, args)
+	case "workspace close":
+		return herdrWorkspaceClose(spec, workspaces, tabs, args)
+	case "tab list":
+		return herdrTabList(spec, workspaces, tabs, args)
+	case "tab create":
+		return herdrTabCreate(spec, workspaces, tabs, args)
+	case "tab rename":
+		return herdrTabRename(spec, tabs, args)
+	case "tab close":
+		return herdrTabClose(spec, workspaces, tabs, args)
+	case "pane get":
+		return herdrPaneGet(spec, tabs, args)
+	case "pane read":
+		return herdrPaneRead(spec, tabs, args)
+	case "pane run", "pane send-text", "pane send-keys":
+		return herdrPaneVoid(spec, tabs, command, args)
+	default:
+		return fail("unexpected herdr invocation: %s", strings.Join(args, " "))
+	}
+}
+
+func herdrWorkspaceList(spec herdrSpec, workspaces []HerdrWorkspace) int {
+	var out strings.Builder
+	out.WriteString("{\"id\":\"cli:workspace:list\",\"result\":{\"type\":\"workspace_list\",\"workspaces\":[")
+	sep := ""
+	for i, ws := range workspaces {
+		if !herdrLive(spec.StateDir, herdrWorkspacePath(spec.StateDir, i)) {
+			continue
+		}
+		count := herdrWorkspaceTabCount(spec, ws.ID, workspaces, herdrTabs(workspaces, spec.TabCreates))
+		fmt.Fprintf(&out, "%s{\"workspace_id\":%s,\"label\":%s,\"tab_count\":%d,\"pane_count\":%d,\"active_tab_id\":\"\",\"agent_status\":\"unknown\",\"focused\":false,\"number\":%d}",
+			sep, jsonQuote(ws.ID), jsonQuote(herdrLabel(spec.StateDir, "w", i)), count, count, i+1)
+		sep = ","
+	}
+	out.WriteString("]}}\n")
+	_, _ = io.WriteString(os.Stdout, out.String())
+	return 0
+}
+
+func herdrWorkspaceCreate(spec herdrSpec, workspaces []HerdrWorkspace, tabs []herdrTabRef, args []string) int {
+	index := herdrCounter(spec.StateDir, "creates")
+	if index >= len(spec.Creates) {
+		return fail("the fake declares no further workspace create")
+	}
+	ws := spec.Creates[index]
+	if len(ws.Tabs) == 0 {
+		return fail("the fake workspace has no root tab")
+	}
+	root := ws.Tabs[0]
+	tab := herdrTabIndex(tabs, root.ID)
+	label := flagValue(args, "--label")
+	cwd := flagValue(args, "--cwd")
+	if err := atomicWrite(herdrCounterPath(spec.StateDir, "creates"), strconv.Itoa(index+1)+"\n"); err != nil {
+		return fail("write workspace create counter: %v", err)
+	}
+	if err := atomicWrite(herdrWorkspacePath(spec.StateDir, len(spec.Workspaces)+index), "live\n"); err != nil {
+		return fail("write workspace state: %v", err)
+	}
+	if err := atomicWrite(herdrLabelPath(spec.StateDir, "w", len(spec.Workspaces)+index), label+"\n"); err != nil {
+		return fail("write workspace label: %v", err)
+	}
+	if err := atomicWrite(herdrTabPath(spec.StateDir, tab.Index), ws.ID+"\n"); err != nil {
+		return fail("write root tab state: %v", err)
+	}
+	if err := atomicWrite(herdrLabelPath(spec.StateDir, "t", tab.Index), "1\n"); err != nil {
+		return fail("write root tab label: %v", err)
+	}
+	out := fmt.Sprintf("{\"id\":\"cli:workspace:create\",\"result\":{\"type\":\"workspace_created\",\"workspace\":{\"workspace_id\":%s,\"label\":%s,\"tab_count\":1,\"pane_count\":1,\"active_tab_id\":%s,\"agent_status\":\"unknown\",\"focused\":false,\"number\":%d},\"tab\":{\"tab_id\":%s,\"workspace_id\":%s,\"label\":\"1\",\"number\":1,\"pane_count\":1,\"agent_status\":\"unknown\",\"focused\":false},\"root_pane\":{\"pane_id\":%s,\"tab_id\":%s,\"workspace_id\":%s,\"agent\":\"\",\"agent_status\":\"unknown\",\"cwd\":%s}}}\n",
+		jsonQuote(ws.ID), jsonQuote(label), jsonQuote(root.ID), len(spec.Workspaces)+index+1,
+		jsonQuote(root.ID), jsonQuote(ws.ID), jsonQuote(root.Pane), jsonQuote(root.ID), jsonQuote(ws.ID), jsonQuote(cwd))
+	_, _ = io.WriteString(os.Stdout, out)
+	return 0
+}
+
+func herdrWorkspaceClose(spec herdrSpec, workspaces []HerdrWorkspace, tabs []herdrTabRef, args []string) int {
+	if len(args) < 3 {
+		return fail("workspace_not_found")
+	}
+	index := herdrWorkspaceIndex(workspaces, args[2])
+	if index < 0 || !herdrLive(spec.StateDir, herdrWorkspacePath(spec.StateDir, index)) {
+		return herdrError("workspace_not_found", "workspace "+args[2]+" not found", "cli:workspace:close")
+	}
+	if err := herdrCloseWorkspace(spec.StateDir, workspaces[index].ID, index, tabs); err != nil {
+		return fail("close workspace: %v", err)
+	}
+	_, _ = io.WriteString(os.Stdout, "{\"id\":\"cli:workspace:close\",\"result\":{\"type\":\"ok\"}}\n")
+	return 0
+}
+
+func herdrTabList(spec herdrSpec, workspaces []HerdrWorkspace, tabs []herdrTabRef, args []string) int {
+	ws := flagValue(args, "--workspace")
+	if herdrWorkspaceIndexLive(spec, workspaces, ws) < 0 {
+		return herdrError("workspace_not_found", "workspace "+ws+" not found", "cli:tab:list")
+	}
+	var out strings.Builder
+	out.WriteString("{\"id\":\"cli:tab:list\",\"result\":{\"type\":\"tab_list\",\"tabs\":[")
+	sep := ""
+	for _, ref := range tabs {
+		owner, ok := herdrTabWorkspace(spec, ref)
+		if !ok || owner != ws {
+			continue
+		}
+		fmt.Fprintf(&out, "%s{\"tab_id\":%s,\"workspace_id\":%s,\"label\":%s,\"number\":%d,\"pane_count\":1,\"agent_status\":\"unknown\",\"focused\":false}",
+			sep, jsonQuote(ref.Tab.ID), jsonQuote(ws), jsonQuote(herdrLabel(spec.StateDir, "t", ref.Index)), ref.Index+1)
+		sep = ","
+	}
+	out.WriteString("]}}\n")
+	_, _ = io.WriteString(os.Stdout, out.String())
+	return 0
+}
+
+func herdrTabCreate(spec herdrSpec, workspaces []HerdrWorkspace, tabs []herdrTabRef, args []string) int {
+	ws := flagValue(args, "--workspace")
+	if herdrWorkspaceIndexLive(spec, workspaces, ws) < 0 {
+		return herdrError("workspace_not_found", "workspace "+ws+" not found", "cli:tab:create")
+	}
+	index := herdrCounter(spec.StateDir, "tabcreates")
+	if index >= len(spec.TabCreates) {
+		return fail("the fake declares no further tab create")
+	}
+	tab := spec.TabCreates[index]
+	ref := herdrTabIndex(tabs, tab.ID)
+	if err := atomicWrite(herdrCounterPath(spec.StateDir, "tabcreates"), strconv.Itoa(index+1)+"\n"); err != nil {
+		return fail("write tab create counter: %v", err)
+	}
+	if err := atomicWrite(herdrTabPath(spec.StateDir, ref.Index), ws+"\n"); err != nil {
+		return fail("write tab state: %v", err)
+	}
+	label := flagValue(args, "--label")
+	if err := atomicWrite(herdrLabelPath(spec.StateDir, "t", ref.Index), label+"\n"); err != nil {
+		return fail("write tab label: %v", err)
+	}
+	cwd := flagValue(args, "--cwd")
+	out := fmt.Sprintf("{\"id\":\"cli:tab:create\",\"result\":{\"type\":\"tab_created\",\"tab\":{\"tab_id\":%s,\"workspace_id\":%s,\"label\":%s,\"number\":%d,\"pane_count\":1,\"agent_status\":\"unknown\",\"focused\":false},\"root_pane\":{\"pane_id\":%s,\"tab_id\":%s,\"workspace_id\":%s,\"agent\":\"\",\"agent_status\":\"unknown\",\"cwd\":%s}}}\n",
+		jsonQuote(tab.ID), jsonQuote(ws), jsonQuote(label), ref.Index+1, jsonQuote(tab.Pane), jsonQuote(tab.ID), jsonQuote(ws), jsonQuote(cwd))
+	_, _ = io.WriteString(os.Stdout, out)
+	return 0
+}
+
+func herdrTabRename(spec herdrSpec, tabs []herdrTabRef, args []string) int {
+	if len(args) < 4 {
+		return herdrError("tab_not_found", "tab not found", "cli:tab:rename")
+	}
+	ref := herdrTabIndex(tabs, args[2])
+	if ref.Tab.ID == "" || !herdrLive(spec.StateDir, herdrTabPath(spec.StateDir, ref.Index)) {
+		return herdrError("tab_not_found", "tab "+args[2]+" not found", "cli:tab:rename")
+	}
+	if err := atomicWrite(herdrLabelPath(spec.StateDir, "t", ref.Index), args[3]+"\n"); err != nil {
+		return fail("write tab label: %v", err)
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "{\"id\":\"cli:tab:rename\",\"result\":{\"type\":\"tab_info\",\"tab\":{\"tab_id\":%s,\"workspace_id\":\"\",\"label\":%s,\"number\":1,\"pane_count\":1,\"agent_status\":\"unknown\",\"focused\":false}}}\n",
+		jsonQuote(args[2]), jsonQuote(args[3]))
+	return 0
+}
+
+func herdrTabClose(spec herdrSpec, workspaces []HerdrWorkspace, tabs []herdrTabRef, args []string) int {
+	if len(args) < 3 {
+		return herdrError("tab_not_found", "tab not found", "cli:tab:close")
+	}
+	ref := herdrTabIndex(tabs, args[2])
+	if ref.Tab.ID == "" || !herdrLive(spec.StateDir, herdrTabPath(spec.StateDir, ref.Index)) {
+		return herdrError("tab_not_found", "tab "+args[2]+" not found", "cli:tab:close")
+	}
+	owner, _ := herdrTabWorkspace(spec, ref)
+	if err := atomicWrite(herdrTabPath(spec.StateDir, ref.Index), ""); err != nil {
+		return fail("close tab: %v", err)
+	}
+	if herdrWorkspaceTabCount(spec, owner, workspaces, tabs) == 0 {
+		index := herdrWorkspaceIndex(workspaces, owner)
+		if index >= 0 {
+			if err := herdrCloseWorkspace(spec.StateDir, owner, index, tabs); err != nil {
+				return fail("close workspace after tab close: %v", err)
+			}
+		}
+	}
+	_, _ = io.WriteString(os.Stdout, "{\"id\":\"cli:tab:close\",\"result\":{\"type\":\"ok\"}}\n")
+	return 0
+}
+
+func herdrPaneGet(spec herdrSpec, tabs []herdrTabRef, args []string) int {
+	if len(args) < 3 {
+		return herdrError("pane_not_found", "pane not found", "cli:pane:get")
+	}
+	ref := herdrPaneRef(spec, tabs, args[2])
+	if ref.Tab.ID == "" && !spec.AllowUnknownPane {
+		return herdrError("pane_not_found", "pane "+args[2]+" not found", "cli:pane:get")
+	}
+	status := spec.PaneStatus
+	if spec.PaneStatusFile != "" {
+		if data, err := os.ReadFile(spec.PaneStatusFile); err == nil {
+			status = strings.TrimSpace(string(data))
+		}
+	}
+	if len(spec.PaneStatusSequence) > 0 {
+		index := herdrStatusAdvance(spec.StateDir, len(spec.PaneStatusSequence))
+		status = spec.PaneStatusSequence[index]
 	}
 	if status == "" {
 		status = "working"
 	}
-	if paneRead == "" {
-		paneRead = herdrDefaultPaneRead
+	if status == "pane-gone" {
+		_, _ = io.WriteString(os.Stdout, "{\"id\":\"cli:1\",\"error\":{\"code\":\"not_found\",\"message\":\"pane "+args[2]+" not found\"}}")
+		return 0
 	}
+	agent := spec.PaneAgent
+	if spec.PaneAgentEnv {
+		agent = os.Getenv("PANE_AGENT")
+	}
+	if len(spec.Frames) > 0 {
+		index := herdrFrameAdvance(spec.StateDir, len(spec.Frames))
+		frame := spec.Frames[index]
+		agent, status = frame.Agent, frame.Status
+		if status == "" {
+			status = "idle"
+		}
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "{\"id\":\"cli:pane:get\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":%s,\"tab_id\":%s,\"workspace_id\":\"\",\"agent\":%s,\"agent_status\":%s}}}\n",
+		jsonQuote(args[2]), jsonQuote(ref.Tab.ID), jsonQuote(agent), jsonQuote(status))
+	return 0
+}
 
-	wsFile := func(i int) string { return quote(fmt.Sprintf("%s/w%d", state, i)) }
-	wsLabel := func(i int) string { return quote(fmt.Sprintf("%s/w%d.label", state, i)) }
-	tabFile := func(j int) string { return quote(fmt.Sprintf("%s/t%d", state, j)) }
-	tabLabel := func(j int) string { return quote(fmt.Sprintf("%s/t%d.label", state, j)) }
+func herdrPaneRead(spec herdrSpec, tabs []herdrTabRef, args []string) int {
+	if len(args) < 3 {
+		return herdrError("pane_not_found", "pane not found", "cli:pane:read")
+	}
+	if herdrPaneRef(spec, tabs, args[2]).Tab.ID == "" && !spec.AllowUnknownPane {
+		return herdrError("pane_not_found", "pane "+args[2]+" not found", "cli:pane:read")
+	}
+	read := spec.PaneReadOut
+	if spec.ReadLogEnv {
+		if path := os.Getenv("PANE_LOG"); path != "" {
+			if err := appendLine(path, "read"); err != nil {
+				return fail("log pane read: %v", err)
+			}
+		}
+	}
+	if spec.PaneReadFileEnv {
+		path := os.Getenv("PANE_TEXT_FILE")
+		if path == "" {
+			read = ""
+		} else if data, err := os.ReadFile(path); err == nil {
+			read = string(data)
+		}
+	}
+	if len(spec.Frames) > 0 {
+		index := herdrFrameCurrent(spec.StateDir, len(spec.Frames))
+		read = spec.Frames[index].Text
+	}
+	if read == "" {
+		read = herdrDefaultPaneRead
+	}
+	_, _ = io.WriteString(os.Stdout, read)
+	return 0
+}
 
-	workspaces := append(append([]HerdrWorkspace{}, h.Workspaces...), h.Creates...)
+func herdrPaneVoid(spec herdrSpec, tabs []herdrTabRef, command string, args []string) int {
+	if len(args) < 3 || herdrPaneRef(spec, tabs, args[2]).Tab.ID == "" {
+		return herdrError("pane_not_found", "pane not found", "cli:request")
+	}
+	keyLog := spec.KeyLog
+	if spec.KeyLogEnv {
+		keyLog = os.Getenv("PANE_LOG")
+	}
+	textLog := spec.TextLog
+	if spec.TextLogEnv {
+		textLog = os.Getenv("PANE_LOG")
+	}
+	if command == "pane send-keys" && keyLog != "" && len(args) > 3 {
+		entry := strings.Join(args[3:], " ")
+		if spec.KeyLogEnv {
+			entry = "send-keys " + entry
+		}
+		if err := appendLine(keyLog, entry); err != nil {
+			return fail("log pane keys: %v", err)
+		}
+	}
+	if command == "pane send-text" && textLog != "" && len(args) > 3 {
+		entry := args[3]
+		if spec.TextLogEnv {
+			entry = "send-text " + entry
+		}
+		if err := appendLine(textLog, entry); err != nil {
+			return fail("log pane text: %v", err)
+		}
+	}
+	return 0
+}
+
+func herdrError(code, message, id string) int {
+	_, _ = fmt.Fprintf(os.Stderr, "{\"error\":{\"code\":%s,\"message\":%s},\"id\":%s}\n", jsonQuote(code), jsonQuote(message), jsonQuote(id))
+	return 1
+}
+
+func herdrTabs(workspaces []HerdrWorkspace, creates []HerdrTab) []herdrTabRef {
 	var tabs []herdrTabRef
 	for _, ws := range workspaces {
 		for _, tab := range ws.Tabs {
-			tabs = append(tabs, herdrTabRef{tab: tab, index: len(tabs)})
+			tabs = append(tabs, herdrTabRef{Tab: tab, Index: len(tabs)})
 		}
 	}
-	tabIndex := map[string]int{}
+	for _, tab := range creates {
+		tabs = append(tabs, herdrTabRef{Tab: tab, Index: len(tabs)})
+	}
+	return tabs
+}
+
+func herdrTabIndex(tabs []herdrTabRef, id string) herdrTabRef {
 	for _, ref := range tabs {
-		tabIndex[ref.tab.ID] = ref.index
-	}
-	for _, tab := range h.TabCreates {
-		tabs = append(tabs, herdrTabRef{tab: tab, index: len(tabs)})
-		tabIndex[tab.ID] = len(tabs) - 1
-	}
-
-	var prelude strings.Builder
-	prelude.WriteString(`err() { printf '{"error":{"code":"%s","message":"%s"},"id":"cli:fake"}\n' "$1" "$2" >&2; exit 1; }
-argval() { flag="$1"; shift; while [ $# -gt 0 ]; do if [ "$1" = "$flag" ]; then echo "$2"; return; fi; shift; done; }
-bump() { n=0; [ -s "$1" ] && read n < "$1"; n=$((n+1)); echo "$n" > "$1"; }
-count_tabs() { n=0
-`)
-	for _, ref := range tabs {
-		fmt.Fprintf(&prelude, "  if [ -s %s ]; then read x < %s; [ \"$x\" = \"$1\" ] && n=$((n+1)); fi\n",
-			tabFile(ref.index), tabFile(ref.index))
-	}
-	prelude.WriteString("}\nclose_ws() { case \"$1\" in\n")
-	for i, ws := range workspaces {
-		fmt.Fprintf(&prelude, "  %s) : > %s ;;\n", quote(ws.ID), wsFile(i))
-	}
-	prelude.WriteString("esac\n")
-	for _, ref := range tabs {
-		fmt.Fprintf(&prelude, "  if [ -s %s ]; then read x < %s; [ \"$x\" = \"$1\" ] && : > %s; fi\n",
-			tabFile(ref.index), tabFile(ref.index), tabFile(ref.index))
-	}
-	prelude.WriteString("}\nlist_tabs() { sep=\"\"\n")
-	for _, ref := range tabs {
-		fmt.Fprintf(&prelude, `  if [ -s %[1]s ]; then read tws < %[1]s
-    if [ "$tws" = "$1" ]; then tl=""; [ -s %[2]s ] && read tl < %[2]s
-      printf '%%s{"tab_id":%[3]s,"workspace_id":"%%s","label":"%%s","number":%[4]d,"pane_count":1,"agent_status":"unknown","focused":false}' "$sep" "$tws" "$tl"
-      sep=","
-    fi
-  fi
-`, tabFile(ref.index), tabLabel(ref.index), jsonQuote(ref.tab.ID), ref.index+1)
-	}
-	prelude.WriteString("}\n")
-
-	var body strings.Builder
-
-	body.WriteString(`  "workspace list")
-    printf '{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":['
-    sep=""
-`)
-	for i, ws := range workspaces {
-		fmt.Fprintf(&body, `    if [ -s %[1]s ]; then
-      wl=""; [ -s %[2]s ] && read wl < %[2]s
-      count_tabs %[3]s
-      printf '%%s{"workspace_id":%[4]s,"label":"%%s","tab_count":%%s,"pane_count":%%s,"active_tab_id":"","agent_status":"unknown","focused":false,"number":%[5]d}' "$sep" "$wl" "$n" "$n"
-      sep=","
-    fi
-`, wsFile(i), wsLabel(i), quote(ws.ID), jsonQuote(ws.ID), i+1)
-	}
-	body.WriteString("    printf ']}}\\n'\n    ;;\n")
-
-	body.WriteString(`  "workspace create")
-    label=$(argval --label "$@")
-    cwd=$(argval --cwd "$@")
-    bump ` + quote(state+"/creates") + `
-    case "$n" in
-`)
-	for c, ws := range h.Creates {
-		i := len(h.Workspaces) + c
-		root := ws.Tabs[0]
-		j := tabIndex[root.ID]
-		fmt.Fprintf(&body, `    %d)
-      echo live > %[2]s
-      printf '%%s\n' "$label" > %[3]s
-      printf '%%s\n' %[4]s > %[5]s
-      printf '1\n' > %[6]s
-      printf '{"id":"cli:workspace:create","result":{"type":"workspace_created","workspace":{"workspace_id":%[7]s,"label":"%%s","tab_count":1,"pane_count":1,"active_tab_id":%[8]s,"agent_status":"unknown","focused":false,"number":%[9]d},"tab":{"tab_id":%[8]s,"workspace_id":%[7]s,"label":"1","number":1,"pane_count":1,"agent_status":"unknown","focused":false},"root_pane":{"pane_id":%[10]s,"tab_id":%[8]s,"workspace_id":%[7]s,"agent":"","agent_status":"unknown","cwd":"%%s"}}}\n' "$label" "$cwd"
-      ;;
-`, c+1, wsFile(i), wsLabel(i), quote(ws.ID), tabFile(j), tabLabel(j),
-			jsonQuote(ws.ID), jsonQuote(root.ID), i+1, jsonQuote(root.Pane))
-	}
-	body.WriteString("    *) err workspace_create_exhausted \"the fake declares no further workspace create\" ;;\n    esac\n    ;;\n")
-
-	body.WriteString(`  "tab create")
-    ws=$(argval --workspace "$@")
-    label=$(argval --label "$@")
-    cwd=$(argval --cwd "$@")
-`)
-	body.WriteString(herdrRequireLiveWorkspace(workspaces, wsFile, `"$ws"`))
-	body.WriteString("    bump " + quote(state+"/tabcreates") + "\n    case \"$n\" in\n")
-	for c, tab := range h.TabCreates {
-		j := tabIndex[tab.ID]
-		fmt.Fprintf(&body, `    %d)
-      printf '%%s\n' "$ws" > %[2]s
-      printf '%%s\n' "$label" > %[3]s
-      printf '{"id":"cli:tab:create","result":{"type":"tab_created","tab":{"tab_id":%[4]s,"workspace_id":"%%s","label":"%%s","number":%[5]d,"pane_count":1,"agent_status":"unknown","focused":false},"root_pane":{"pane_id":%[6]s,"tab_id":%[4]s,"workspace_id":"%%s","agent":"","agent_status":"unknown","cwd":"%%s"}}}\n' "$ws" "$label" "$ws" "$cwd"
-      ;;
-`, c+1, tabFile(j), tabLabel(j), jsonQuote(tab.ID), j+1, jsonQuote(tab.Pane))
-	}
-	body.WriteString("    *) err tab_create_exhausted \"the fake declares no further tab create\" ;;\n    esac\n    ;;\n")
-
-	body.WriteString("  \"tab list\")\n    ws=$(argval --workspace \"$@\")\n")
-	body.WriteString(herdrRequireLiveWorkspace(workspaces, wsFile, `"$ws"`))
-	body.WriteString(`    printf '{"id":"cli:tab:list","result":{"type":"tab_list","tabs":['
-    list_tabs "$ws"
-    printf ']}}\n'
-    ;;
-`)
-
-	body.WriteString("  \"tab rename\")\n    case \"$3\" in\n")
-	for _, ref := range tabs {
-		fmt.Fprintf(&body, "    %s) [ -s %s ] || err tab_not_found \"tab $3 not found\"; printf '%%s\\n' \"$4\" > %s ;;\n",
-			quote(ref.tab.ID), tabFile(ref.index), tabLabel(ref.index))
-	}
-	body.WriteString(`    *) err tab_not_found "tab $3 not found" ;;
-    esac
-    printf '{"id":"cli:tab:rename","result":{"type":"tab_info","tab":{"tab_id":"%s","workspace_id":"","label":"%s","number":1,"pane_count":1,"agent_status":"unknown","focused":false}}}\n' "$3" "$4"
-    ;;
-`)
-
-	// Closing a workspace's last tab closes the workspace with it, which is what
-	// real herdr does: nothing refuses the call, and the workspace is simply gone
-	// from every later list, get and close.
-	body.WriteString("  \"tab close\")\n    case \"$3\" in\n")
-	for _, ref := range tabs {
-		fmt.Fprintf(&body, `    %[1]s) [ -s %[2]s ] || err tab_not_found "tab $3 not found"
-      read tws < %[2]s; : > %[2]s
-      count_tabs "$tws"; [ "$n" = 0 ] && close_ws "$tws"
-      ;;
-`, quote(ref.tab.ID), tabFile(ref.index))
-	}
-	body.WriteString(`    *) err tab_not_found "tab $3 not found" ;;
-    esac
-    printf '{"id":"cli:tab:close","result":{"type":"ok"}}\n'
-    ;;
-  "workspace close")
-`)
-	body.WriteString(herdrRequireLiveWorkspace(workspaces, wsFile, `"$3"`))
-	body.WriteString(`    close_ws "$3"
-    printf '{"id":"cli:workspace:close","result":{"type":"ok"}}\n'
-    ;;
-`)
-
-	panes := herdrRequireLivePane(tabs, tabFile)
-	fmt.Fprintf(&body, `  "pane get")
-%[1]s    printf '{"id":"cli:pane:get","result":{"type":"pane_info","pane":{"pane_id":"%%s","tab_id":"%%s","workspace_id":"%%s","agent":%[2]s,"agent_status":%[3]s}}}\n' "$3" "$ptab" "$pws"
-    ;;
-  "pane read")
-%[1]s    printf %[4]s
-    ;;
-  "pane run")
-%[1]s    ;;
-  "pane send-text")
-%[1]s    ;;
-  "pane send-keys")
-%[1]s    ;;`, panes, jsonQuote(agent), jsonQuote(status), quote(paneRead))
-
-	install(t, bin, "herdr", h.Log, prelude.String(), "$1 $2", body.String())
-
-	for i, ws := range h.Workspaces {
-		writeFile(t, fmt.Sprintf("%s/w%d", state, i), "live\n")
-		writeFile(t, fmt.Sprintf("%s/w%d.label", state, i), ws.Label+"\n")
-		for _, tab := range ws.Tabs {
-			j := tabIndex[tab.ID]
-			writeFile(t, fmt.Sprintf("%s/t%d", state, j), ws.ID+"\n")
-			writeFile(t, fmt.Sprintf("%s/t%d.label", state, j), tab.Label+"\n")
+		if ref.Tab.ID == id {
+			return ref
 		}
 	}
+	return herdrTabRef{}
 }
 
-// A workspace closed earlier in the test is not merely absent from the listing:
-// every command naming it answers workspace_not_found, which is what a rerun of
-// teardown actually meets.
-func herdrRequireLiveWorkspace(workspaces []HerdrWorkspace, wsFile func(int) string, arg string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "    case %s in\n", arg)
-	for i, ws := range workspaces {
-		fmt.Fprintf(&b, "    %s) [ -s %s ] || err workspace_not_found \"workspace %s not found\" ;;\n",
-			quote(ws.ID), wsFile(i), arg)
-	}
-	fmt.Fprintf(&b, "    *) err workspace_not_found \"workspace %s not found\" ;;\n    esac\n", arg)
-	return b.String()
-}
-
-// A pane lives and dies with its tab, so it answers pane_not_found from the
-// moment that tab is closed. $ptab and $pws are left set for the caller.
-func herdrRequireLivePane(tabs []herdrTabRef, tabFile func(int) string) string {
-	var b strings.Builder
-	b.WriteString("    case \"$3\" in\n")
+func herdrPaneRef(spec herdrSpec, tabs []herdrTabRef, pane string) herdrTabRef {
 	for _, ref := range tabs {
-		if ref.tab.Pane == "" {
+		if ref.Tab.Pane == pane && herdrLive(spec.StateDir, herdrTabPath(spec.StateDir, ref.Index)) {
+			return ref
+		}
+	}
+	return herdrTabRef{}
+}
+
+func herdrTabWorkspace(spec herdrSpec, ref herdrTabRef) (string, bool) {
+	data, err := os.ReadFile(herdrTabPath(spec.StateDir, ref.Index))
+	if err != nil {
+		return "", false
+	}
+	owner := strings.TrimSpace(string(data))
+	return owner, owner != ""
+}
+
+func herdrWorkspaceIndex(workspaces []HerdrWorkspace, id string) int {
+	for i, ws := range workspaces {
+		if ws.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func herdrWorkspaceIndexLive(spec herdrSpec, workspaces []HerdrWorkspace, id string) int {
+	index := herdrWorkspaceIndex(workspaces, id)
+	if index < 0 || !herdrLive(spec.StateDir, herdrWorkspacePath(spec.StateDir, index)) {
+		return -1
+	}
+	return index
+}
+
+func herdrWorkspaceTabCount(spec herdrSpec, workspace string, workspaces []HerdrWorkspace, tabs []herdrTabRef) int {
+	count := 0
+	for _, ref := range tabs {
+		owner, ok := herdrTabWorkspace(spec, ref)
+		if ok && owner == workspace {
+			count++
+		}
+	}
+	return count
+}
+
+func herdrCloseWorkspace(state, workspace string, index int, tabs []herdrTabRef) error {
+	if err := atomicWrite(herdrWorkspacePath(state, index), ""); err != nil {
+		return err
+	}
+	for _, ref := range tabs {
+		owner, err := os.ReadFile(herdrTabPath(state, ref.Index))
+		if err != nil {
 			continue
 		}
-		fmt.Fprintf(&b, "    %[1]s) [ -s %[2]s ] || err pane_not_found \"pane $3 not found\"; read pws < %[2]s; ptab=%[3]s ;;\n",
-			quote(ref.tab.Pane), tabFile(ref.index), quote(ref.tab.ID))
+		if strings.TrimSpace(string(owner)) == workspace {
+			if err := atomicWrite(herdrTabPath(state, ref.Index), ""); err != nil {
+				return err
+			}
+		}
 	}
-	b.WriteString("    *) err pane_not_found \"pane $3 not found\" ;;\n    esac\n")
-	return b.String()
+	return nil
 }
 
-func jsonQuote(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+func herdrLive(state, path string) bool {
+	data, err := os.ReadFile(path)
+	return err == nil && strings.TrimSpace(string(data)) != ""
+}
+
+func herdrLabel(state, prefix string, index int) string {
+	data, err := os.ReadFile(herdrLabelPath(state, prefix, index))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func herdrCounter(state, name string) int {
+	data, err := os.ReadFile(herdrCounterPath(state, name))
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+	return n
+}
+
+func herdrFrameAdvance(state string, count int) int {
+	current := herdrCounter(state, "frames")
+	if err := atomicWrite(herdrCounterPath(state, "frames"), strconv.Itoa(current+1)+"\n"); err != nil {
+		return min(current, count-1)
+	}
+	return min(current, count-1)
+}
+
+func herdrFrameCurrent(state string, count int) int {
+	return min(max(herdrCounter(state, "frames")-1, 0), count-1)
+}
+
+func herdrStatusAdvance(state string, count int) int {
+	current := herdrCounter(state, "statuses")
+	if err := atomicWrite(herdrCounterPath(state, "statuses"), strconv.Itoa(current+1)+"\n"); err != nil {
+		return min(current, count-1)
+	}
+	return min(current, count-1)
+}
+
+func herdrWorkspacePath(state string, index int) string {
+	return filepath.Join(state, fmt.Sprintf("w%d", index))
+}
+
+func herdrTabPath(state string, index int) string {
+	return filepath.Join(state, fmt.Sprintf("t%d", index))
+}
+
+func herdrLabelPath(state, prefix string, index int) string {
+	return filepath.Join(state, fmt.Sprintf("%s%d.label", prefix, index))
+}
+
+func herdrCounterPath(state, name string) string {
+	return filepath.Join(state, name)
+}
+
+func ensureFile(t *testing.T, path, content string) {
+	t.Helper()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		writeFile(t, path, content)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendLine(path, content string) error {
+	return appendRawLine(path, content+"\n")
+}
+
+func appendRawLine(path, content string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	_, writeErr := io.WriteString(file, content)
+	closeErr := file.Close()
+	return firstError(writeErr, closeErr)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

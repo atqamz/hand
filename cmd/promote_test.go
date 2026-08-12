@@ -4,72 +4,32 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 )
 
-// Covers the herdr calls a clean promote makes, same void-command-as-envelope simplification as
-// fakeHerdrSpawnScript in spawn_test.go: real "pane run" succeeds with empty stdout, but callVoid takes
-// this envelope too, and promote only checks for a non-nil error, so the response shape is not the point.
-const fakeHerdrPromoteScript = `#!/bin/sh
-[ -z "$HERDR_CALL_LOG" ] || echo "$@" >> "$HERDR_CALL_LOG"
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"%s","tab_id":"wA:tOld","workspace_id":"wA","agent":"claude","agent_status":"done"}}}' "$3"
-	;;
-"tab list")
-	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tOld","workspace_id":"wA"},{"tab_id":"wA:tOther","workspace_id":"wA"}]}}'
-	;;
-"tab close")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":2}]}}'
-	;;
-"tab create")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tNew","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pNew","tab_id":"wA:tNew","agent_status":"idle"}}}'
-	;;
-"pane run")
-	printf '{"id":"cli:1","result":{}}'
-	;;
-"pane read")
-	printf 'Welcome to Claude Code\n> \n  ? for shortcuts\n'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
-// Fakes only a successful "pane get" in the real shape (the query-command contract is at
-// internal/herdr/client.go's call doc), reporting the scout's pane as still "working" so promote's
-// precondition check refuses the promotion before any other herdr call is needed.
-const fakeHerdrPromotePaneWorking = `#!/bin/sh
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pOld","tab_id":"wA:tOld","workspace_id":"wA","agent_status":"working"}}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
-func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string) string {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
+func promoteHerdr(agent, status string) faketool.Herdr {
+	return faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{
+			ID: "wA", Label: "hand:myproj",
+			Tabs: []faketool.HerdrTab{
+				{ID: "wA:tOld", Label: "old", Pane: "wA:pOld"},
+				{ID: "wA:tOther", Label: "other", Pane: "wA:pOther"},
+			},
+		}},
+		TabCreates: []faketool.HerdrTab{{ID: "wA:tNew", Label: "task-1", Pane: "wA:pNew"}},
+		PaneAgent:  agent, PaneStatus: status,
 	}
+}
+
+func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faketool.Herdr) string {
+	t.Helper()
 	useFastLaunchPolling(t)
 	t.Setenv("HAND_HARNESS", harness.Claude)
 	home := t.TempDir()
@@ -100,12 +60,12 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string
 		t.Fatal(err)
 	}
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdrScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFakeTreehouseGet(t, bin, newWorktree)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+	herdr.Log = callLog
+	herdr.Install(t, bin)
+	faketool.Treehouse{Slots: []string{newWorktree, oldWorktree}}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	return home
@@ -114,8 +74,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree, herdrScript string
 func TestPromoteUsesDetectedHarnessWithoutConfiguredOverride(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	codexHerdr := strings.ReplaceAll(fakeHerdrPromoteScript, `"agent":"claude"`, `"agent":"codex"`)
-	home := setupPromoteHome(t, oldWt, newWt, codexHerdr)
+	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr("codex", "done"))
 	t.Setenv("HAND_HARNESS", harness.Codex)
 
 	cmd := newPromoteCmd()
@@ -145,10 +104,9 @@ func TestPromoteUsesDetectedHarnessWithoutConfiguredOverride(t *testing.T) {
 func TestPromoteLaunchCarriesWorkerRoleAndResolvedFleetHome(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteScript)
+	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr("claude", "done"))
 	t.Setenv("HAND_HOME", ".")
-	callLog := filepath.Join(t.TempDir(), "calls.log")
-	t.Setenv("HERDR_CALL_LOG", callLog)
+	callLog := os.Getenv("HERDR_CALL_LOG")
 
 	cmd := newPromoteCmd()
 	cmd.SetArgs([]string{"task-1"})
@@ -172,7 +130,7 @@ func TestPromoteLaunchCarriesWorkerRoleAndResolvedFleetHome(t *testing.T) {
 }
 
 func TestPromoteConfiguredHarnessWinsOverDetectedHarness(t *testing.T) {
-	home := setupPromoteHome(t, filepath.Join(t.TempDir(), "old-wt"), filepath.Join(t.TempDir(), "new-wt"), fakeHerdrPromoteScript)
+	home := setupPromoteHome(t, filepath.Join(t.TempDir(), "old-wt"), filepath.Join(t.TempDir(), "new-wt"), promoteHerdr("claude", "done"))
 	t.Setenv("HAND_HARNESS", harness.Codex)
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
 		t.Fatal(err)
@@ -196,7 +154,7 @@ func TestPromoteConfiguredHarnessWinsOverDetectedHarness(t *testing.T) {
 }
 
 func TestPromoteUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.T) {
-	home := setupPromoteHome(t, filepath.Join(t.TempDir(), "old-wt"), filepath.Join(t.TempDir(), "new-wt"), fakeHerdrPromoteScript)
+	home := setupPromoteHome(t, filepath.Join(t.TempDir(), "old-wt"), filepath.Join(t.TempDir(), "new-wt"), promoteHerdr("claude", "done"))
 	t.Setenv("HAND_HARNESS", "unknown")
 	bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
 
@@ -219,7 +177,7 @@ func TestPromoteUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.
 func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteScript)
+	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr("claude", "done"))
 
 	scout, err := state.Read(home, "task-1")
 	if err != nil {
@@ -380,55 +338,23 @@ func TestPromoteRefusesUnregisteredProject(t *testing.T) {
 	}
 }
 
-// Mirrors fakeHerdrLeakScript in spawn_test.go for promote, its bare-exit-1 simplification included: it
-// logs every call and fails "pane run" so the promotion always fails after the new tab exists, with
-// $HERDR_WS_EXISTS_FLAG choosing between the created-workspace and pre-existing-workspace cases.
-const fakeHerdrPromoteLeakScript = `#!/bin/sh
-echo "$@" >> "$HERDR_CALL_LOG"
-cmd="$1 $2"
-case "$cmd" in
-"pane get")
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"wA:pOld","tab_id":"wA:tOld","workspace_id":"wA","agent_status":"done"}}}'
-	;;
-"workspace list")
-	if [ -e "$HERDR_WS_EXISTS_FLAG" ]; then
-		printf '{"id":"cli:1","result":{"workspaces":[{"workspace_id":"wA","label":"hand:myproj","tab_count":2}]}}'
-	else
-		printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	fi
-	;;
-"workspace create")
-	printf '{"id":"cli:1","result":{"workspace":{"workspace_id":"wA","label":"myproj"},"tab":{"tab_id":"wA:tNew","workspace_id":"wA","label":"1"},"root_pane":{"pane_id":"wA:pNew","tab_id":"wA:tNew","agent_status":"idle"}}}'
-	;;
-"tab create")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tNew","workspace_id":"wA","label":"task-1"},"root_pane":{"pane_id":"wA:pNew","tab_id":"wA:tNew","agent_status":"idle"}}}'
-	;;
-"tab rename")
-	printf '{"id":"cli:1","result":{"tab":{"tab_id":"wA:tNew","workspace_id":"wA","label":"task-1"}}}'
-	;;
-"pane run")
-	exit 1
-	;;
-"workspace close")
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-"tab list")
-	printf '{"id":"cli:1","result":{"tabs":[{"tab_id":"wA:tOld","workspace_id":"wA"},{"tab_id":"wA:tNew","workspace_id":"wA"}]}}'
-	;;
-"tab close")
-	printf '{"id":"cli:1","result":{"type":"ok"}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
+func promoteLeakHerdr(workspaceExists bool) faketool.Herdr {
+	herdr := promoteHerdr("claude", "done")
+	herdr.Responses = []faketool.HerdrResponse{{Command: "pane run", Exit: 1}}
+	if !workspaceExists {
+		herdr.Workspaces = nil
+		herdr.Creates = []faketool.HerdrWorkspace{{
+			ID: "wA", Label: "myproj",
+			Tabs: []faketool.HerdrTab{{ID: "wA:tNew", Label: "1", Pane: "wA:pNew"}},
+		}}
+	}
+	return herdr
+}
 
 func TestPromoteFailureClosesWorkspaceItCreated(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteLeakScript)
+	home := setupPromoteHome(t, oldWt, newWt, promoteLeakHerdr(false))
 	callLog := setupSpawnLeakEnv(t, false)
 
 	cmd := newPromoteCmd()
@@ -456,7 +382,7 @@ func TestPromoteFailureClosesWorkspaceItCreated(t *testing.T) {
 func TestPromoteFailureKeepsPreexistingWorkspace(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	setupPromoteHome(t, oldWt, newWt, fakeHerdrPromoteLeakScript)
+	setupPromoteHome(t, oldWt, newWt, promoteLeakHerdr(true))
 	callLog := setupSpawnLeakEnv(t, true)
 
 	cmd := newPromoteCmd()
@@ -480,7 +406,7 @@ func TestPromoteFailureKeepsPreexistingWorkspace(t *testing.T) {
 func TestPromoteRefusesWhenAgentStillWorking(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	home := setupPromoteHome(t, oldWt, newWt, fakeHerdrPromotePaneWorking)
+	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr("claude", "working"))
 	_ = home
 
 	cmd := newPromoteCmd()

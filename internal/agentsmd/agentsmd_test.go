@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/faketool"
 )
 
 func withWindows(t *testing.T) {
@@ -687,9 +689,6 @@ func TestCheckFlagsMissingGeneratedMarkers(t *testing.T) {
 }
 
 func TestCheckRemediationCommandsQuoteFleetHomeForPOSIXShell(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake hand is a POSIX shell script, not supported on windows")
-	}
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
 	for _, subdir := range []string{"data", "state"} {
@@ -700,11 +699,8 @@ func TestCheckRemediationCommandsQuoteFleetHomeForPOSIXShell(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "hand.db"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "hand"), []byte("#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" \"$2\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Command{Name: "hand", Args: true}.Install(t, bin)
 
 	assertRecovery := func(finding string) {
 		t.Helper()

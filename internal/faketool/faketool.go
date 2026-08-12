@@ -4,12 +4,14 @@
 package faketool
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -52,23 +54,129 @@ func Bin(t *testing.T) string {
 	return dir
 }
 
-// Dispatches body on selector, the shell expression each case arm matches ("$1",
-// or "$1 $2" for a two-word command). The loud default arm is what keeps an
-// invocation shape the fake does not model from passing as a silent success.
-func install(t *testing.T, bin, name, log, prelude, selector, body string) {
+type commandConfig struct {
+	Name       string
+	Args       bool
+	Stdout     string
+	Stderr     string
+	Exit       int
+	Log        string
+	FileAction *FileAction
+}
+
+// Command installs a narrow fixed-result process for tests that only need to
+// inspect argv or exercise stdout, stderr and exit-code handling.
+type Command struct {
+	Name       string
+	Args       bool
+	Stdout     string
+	Stderr     string
+	Exit       int
+	Log        string
+	FileAction *FileAction
+}
+
+// FileAction is the one filesystem operation supported by Command.
+type FileAction struct {
+	PathArg  int
+	Relative string
+	Content  string
+	Append   bool
+}
+
+func (c Command) Install(t *testing.T, bin string) {
 	t.Helper()
+	installConfig(t, bin, c.Name, "command", commandConfig(c))
+}
+
+type installSpec struct {
+	Kind    string
+	Payload json.RawMessage
+	Log     string
+}
+
+var helperBuild struct {
+	sync.Once
+	path string
+	err  error
+}
+
+func installConfig(t *testing.T, bin, name, kind string, payload any) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal %s fake config: %v", name, err)
+	}
+	installConfigData(t, bin, name, installSpec{Kind: kind, Payload: data})
+}
+
+func installConfigData(t *testing.T, bin, name string, spec installSpec) {
+	t.Helper()
+	helper := helperBinary(t)
+	target := filepath.Join(bin, executableName(name))
+	data, err := os.ReadFile(helper)
+	if err != nil {
+		t.Fatalf("read faketool helper: %v", err)
+	}
+	if err := os.WriteFile(target, data, 0o755); err != nil {
+		t.Fatalf("install fake %s: %v", name, err)
+	}
+	config, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("marshal %s install config: %v", name, err)
+	}
+	writeFile(t, configPath(bin, name), string(config))
+}
+
+func helperBinary(t *testing.T) string {
+	t.Helper()
+	helperBuild.Do(func() {
+		root := moduleRoot()
+		dir, err := os.MkdirTemp("", "hand-faketool-helper-")
+		if err != nil {
+			helperBuild.err = err
+			return
+		}
+		target := filepath.Join(dir, executableName("faketool"))
+		cmd := exec.Command("go", "build", "-o", target, "./internal/faketool/cmd/faketool")
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			helperBuild.err = fmt.Errorf("build fake helper: %w: %s", err, output)
+			return
+		}
+		helperBuild.path = target
+	})
+	if helperBuild.err != nil {
+		t.Fatal(helperBuild.err)
+	}
+	return helperBuild.path
+}
+
+func moduleRoot() string {
+	_, source, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(source)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "."
+		}
+		dir = parent
+	}
+}
+
+func executableName(name string) string {
 	if runtime.GOOS == "windows" {
-		t.Skip("fake " + name + " is a POSIX shell script, not supported on windows")
+		return name + ".exe"
 	}
-	script := "#!/bin/sh\n" + prelude
-	if log != "" {
-		script += fmt.Sprintf("echo \"%s $@\" >> %s\n", name, quote(log))
-	}
-	script += fmt.Sprintf("case \"%s\" in\n%s\n  *) echo \"unexpected %s invocation: $@\" >&2; exit 1 ;;\nesac\n",
-		selector, body, name)
-	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	return name
+}
+
+func configPath(bin, name string) string {
+	return filepath.Join(bin, "."+name+"-config.json")
 }
 
 // Kept beside the fake rather than in a fresh temp dir, so a test that reinstalls
@@ -96,13 +204,8 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func quote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // Encodes an identifier as a filename, so a fake's state can be one file per
-// entity and every existence test is a shell builtin. Only the separators matter:
-// herdr tab ids carry a colon and treehouse slots are absolute paths.
+// entity. Only the separators matter: herdr tab ids carry a colon and treehouse slots are absolute paths.
 func key(id string) string {
 	return strings.NewReplacer("/", "_", ":", "-", ".", "_", " ", "_").Replace(strings.Trim(id, "/"))
 }

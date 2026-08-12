@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/atqamz/hand/internal/faketool"
 )
 
 func TestIsNewer(t *testing.T) {
@@ -87,32 +89,10 @@ func TestArchiveBinaryName(t *testing.T) {
 // the reason on stderr for a failure. runGH reads stdout only, so that split matters.
 func writeFakeGH(t *testing.T, tag, fixtureDir string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := fmt.Sprintf(`#!/bin/sh
-if [ "$1" = "release" ] && [ "$2" = "view" ]; then
-  printf '%%s' %q
-  exit 0
-fi
-if [ "$1" = "release" ] && [ "$2" = "download" ]; then
-  dir=""
-  prev=""
-  for a in "$@"; do
-    if [ "$prev" = "--dir" ]; then dir="$a"; fi
-    prev="$a"
-  done
-  cp %q/* "$dir"/
-  exit 0
-fi
-echo "unexpected gh invocation: $@" >&2
-exit 1
-`, tag, fixtureDir)
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	portableBin := faketool.Bin(t)
+	faketool.GH{Release: faketool.GHRelease{
+		Tag: tag, FixtureDir: fixtureDir,
+	}}.Install(t, portableBin)
 }
 
 func buildFixture(t *testing.T, binaryContent []byte) string {
