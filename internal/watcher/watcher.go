@@ -183,7 +183,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			return
 		}
 		seen[t.ID] = true
-		pane, probeErr := client.PaneGet(t.Herdr.PaneID)
+		pane, probeErr := client.PaneGetContext(ctx, t.Herdr.PaneID)
+		if ctx.Err() != nil {
+			return
+		}
 		status := pane.AgentStatus
 
 		// Tracking is keyed by task identity, not by ID: an ID torn down and respawned between two

@@ -1910,6 +1910,34 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestRunExitsWhenPaneProbeIsCanceled(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{{ID: "wA:tA", Label: "task-1", Pane: "p1"}}}},
+		Hang:       []string{"pane get"},
+		Log:        callLog, LogCommands: []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	}()
+	waitForPaneGets(t, callLog, 1)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not exit after canceling a pane probe")
+	}
+}
+
 // The regression test for the delivery failure of 2026-07-28: the grep-on-first-line wrapper this
 // mode replaces matched a done worker's startup line, took it for a transition, and left the two real
 // events that followed unread for three hours.
