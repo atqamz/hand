@@ -12,12 +12,10 @@ import (
 // Run dispatches an installed fake executable. The helper binary calls this
 // through the same process boundary production code uses for external tools.
 func Run() int {
-	executable, err := os.Executable()
+	dir, name, err := fakeExecutable()
 	if err != nil {
 		return fail("locate fake executable: %v", err)
 	}
-	dir := filepath.Dir(executable)
-	name := strings.TrimSuffix(filepath.Base(executable), filepath.Ext(executable))
 
 	data, err := os.ReadFile(configPath(dir, name))
 	if err != nil {
@@ -46,6 +44,20 @@ func Run() int {
 	default:
 		return fail("unknown fake kind %q", spec.Kind)
 	}
+}
+
+func fakeExecutable() (string, string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		executable = os.Args[0]
+		if !filepath.IsAbs(executable) {
+			executable, err = filepath.Abs(executable)
+			if err != nil {
+				return "", "", err
+			}
+		}
+	}
+	return filepath.Dir(executable), strings.TrimSuffix(filepath.Base(executable), filepath.Ext(executable)), nil
 }
 
 func runCommand(name string, config commandConfig, args []string) int {

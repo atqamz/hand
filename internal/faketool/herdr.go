@@ -134,33 +134,48 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 	if err := json.Unmarshal(payload, &spec); err != nil {
 		return fail("decode herdr config: %v", err)
 	}
-	if spec.Log != "" && (len(spec.LogCommands) == 0 || containsString(spec.LogCommands, commandName(args))) {
-		if err := appendInvocation(spec.Log, "herdr", args); err != nil {
-			return fail("log herdr invocation: %v", err)
-		}
-	}
 	if len(args) < 2 {
 		return fail("unexpected herdr invocation: %s", strings.Join(args, " "))
 	}
 	command := args[0] + " " + args[1]
 	for _, blocked := range spec.Hang {
 		if blocked == command {
+			if err := logHerdrInvocation(spec, args); err != nil {
+				return fail("log herdr invocation: %v", err)
+			}
 			for {
 				time.Sleep(time.Hour)
 			}
 		}
 	}
 	if spec.Unreachable {
+		if err := logHerdrInvocation(spec, args); err != nil {
+			return fail("log herdr invocation: %v", err)
+		}
 		return 1
 	}
 	for _, response := range spec.Responses {
 		if response.Command == command && (response.Args == nil || sameArgs(response.Args, args[2:])) {
 			_, _ = io.WriteString(os.Stdout, response.Stdout)
 			_, _ = io.WriteString(os.Stderr, response.Stderr)
+			if err := logHerdrInvocation(spec, args); err != nil {
+				return fail("log herdr invocation: %v", err)
+			}
 			return response.Exit
 		}
 	}
-	return runHerdrState(spec, command, args)
+	exit := runHerdrState(spec, command, args)
+	if err := logHerdrInvocation(spec, args); err != nil {
+		return fail("log herdr invocation: %v", err)
+	}
+	return exit
+}
+
+func logHerdrInvocation(spec herdrSpec, args []string) error {
+	if spec.Log == "" || (len(spec.LogCommands) > 0 && !containsString(spec.LogCommands, commandName(args))) {
+		return nil
+	}
+	return appendInvocation(spec.Log, "herdr", args)
 }
 
 func commandName(args []string) string {

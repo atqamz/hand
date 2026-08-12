@@ -118,7 +118,15 @@ func installConfigData(t *testing.T, bin, name string, spec installSpec) {
 	if err != nil {
 		t.Fatalf("read faketool helper: %v", err)
 	}
-	if err := os.WriteFile(target, data, 0o755); err != nil {
+	if err := os.WriteFile(target+".tmp", data, 0o755); err != nil {
+		t.Fatalf("install fake %s: %v", name, err)
+	}
+	if runtime.GOOS == "windows" {
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("replace fake %s: %v", name, err)
+		}
+	}
+	if err := os.Rename(target+".tmp", target); err != nil {
 		t.Fatalf("install fake %s: %v", name, err)
 	}
 	config, err := json.Marshal(spec)
@@ -134,11 +142,11 @@ func helperBinary(t *testing.T) string {
 		root := moduleRoot()
 		dir, err := os.MkdirTemp("", "hand-faketool-helper-")
 		if err != nil {
-			helperBuild.err = err
+			helperBuild.err = fmt.Errorf("create fake helper directory: %w", err)
 			return
 		}
 		target := filepath.Join(dir, executableName("faketool"))
-		cmd := exec.Command("go", "build", "-o", target, "./internal/faketool/cmd/faketool")
+		cmd := exec.Command(goToolPath(), "build", "-o", target, "./internal/faketool/cmd/faketool")
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -151,6 +159,22 @@ func helperBinary(t *testing.T) string {
 		t.Fatal(helperBuild.err)
 	}
 	return helperBuild.path
+}
+
+func goToolPath() string {
+	name := "go"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	//nolint:staticcheck // hermetic test PATHs can hide go, so the running toolchain is the reliable fallback.
+	path := filepath.Join(runtime.GOROOT(), "bin", name)
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	if path, err := exec.LookPath(name); err == nil {
+		return path
+	}
+	return name
 }
 
 func moduleRoot() string {

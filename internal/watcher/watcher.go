@@ -49,6 +49,9 @@ var ErrArmFailed = errors.New("could not arm")
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 
