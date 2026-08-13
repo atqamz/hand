@@ -26,9 +26,11 @@ Freshness is compared per channel: stable by release SemVer, edge by the embedde
 
 Publication happens only from the push-to-`main` CI job that follows the lint, test, E2E, and Nix gates.
 That job serializes in a non-canceling concurrency group, rechecks candidate ancestry before building and again before publishing, refuses to publish when the candidate and `edge` histories diverge, and uploads assets and publishes the release before moving the tag.
+[`.github/scripts/edge-publish.sh`](../../.github/scripts/edge-publish.sh) owns that sequence, and [`tests/edgepublish`](../../tests/edgepublish) runs it against the shared `gh` fake.
 Candidate assets are uploaded under unique staging names and verified before replacing the exact download names, so an upload failure leaves the previous edge asset set intact.
 The first publication runs against a temporary `edge-bootstrap-<commit>` release resolved by database id, because a draft reserves its tag name without creating the ref and claiming `edge` before the assets exist would invert that order.
-Rollback undoes only the renames it recorded, and each run first restores any exact-name asset an interrupted predecessor left behind under `edge-previous-*`.
+Rollback undoes only the renames it recorded.
+A run that finds the exact download names incomplete restores one interrupted candidate's whole `edge-previous-<commit>-*` group, and refuses to publish when no single group is complete, because an asset set assembled from two commits fails checksum verification on every platform.
 
 ## Rejected alternatives
 
@@ -48,3 +50,5 @@ A new released asset must be added to the stable and edge build matrices togethe
 New embedded build metadata must be set by the Makefile, `flake.nix`, and both workflows, or a build reports itself as `dev` and stops checking for updates.
 
 Cached update state is scoped to the channel that wrote it, so switching channels cannot answer from the other channel's remembered result.
+
+Two interrupted runs in a row can leave no complete backup group, and publication then stops until a maintainer reassembles the set by hand rather than shipping a mixed one.

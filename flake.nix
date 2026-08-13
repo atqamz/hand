@@ -28,7 +28,7 @@
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in {
           default = pkgs.mkShell {
-            packages = [ pkgs.go pkgs.golangci-lint pkgs.gopls pkgs.gotools pkgs.gcc ];
+            packages = [ pkgs.go pkgs.golangci-lint pkgs.gopls pkgs.gotools pkgs.gcc pkgs.jq ];
           };
         }
       );

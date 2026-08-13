@@ -3,7 +3,7 @@
 This package installs one stateful fake per external CLI, shared by every suite.
 This file records what the real tool does for the calls the suite actually depends on, so each fake can be checked against a transcript rather than against somebody's memory of the tool.
 
-Only the calls `hand` makes are recorded.
+Only the calls `hand` makes are recorded, plus the release writes `.github/scripts/edge-publish.sh` makes, which `tests/edgepublish` drives through the same fake.
 A behaviour no test exercises does not belong here.
 
 Every entry was observed by running the real binary, not read off its documentation.
@@ -278,3 +278,47 @@ Download progress belongs on stderr and is ignored by `hand update`.
 The requested hand asset is `hand-<goos>-<goarch>.tar.gz` on Unix and `hand-windows-<goarch>.zip` on Windows, followed by `checksums.txt`.
 The tag selects the same archive and checksum path for stable and edge releases.
 Missing releases or assets exit nonzero and write a diagnostic to stderr without silently leaving a partial success.
+
+## gh release writes
+
+Driven by `.github/scripts/edge-publish.sh` alone.
+`GHReleaseStore` models them as a mutable store so `tests/edgepublish` can assert the asset set a publish run leaves behind.
+
+These entries are the one part of this file taken from the documented REST and CLI contract rather than from a probe, for the reason the `pr merge` entries are not re-run: every call changes a real release, and `tests/contract` may change nothing an operator owns.
+The claims below are the ones the script's ordering depends on, so a `gh` upgrade that breaks any of them breaks edge publication.
+
+### `gh release create <tag> --repo <slug> --target <sha> --title Edge --prerelease --draft --notes-file <file>`
+
+Exit 0 with the release URL on stdout.
+
+State left behind: a draft release that **reserves its tag name without creating the git ref**.
+GitHub writes `refs/tags/<tag>` only when the release is published, so a draft's temporary tag never has to be deleted from the remote.
+
+### `gh release view <tag> --repo <slug> --json databaseId --jq .databaseId`
+
+Exit 0 with the release id alone on stdout, for a draft as well as a published release.
+This is why the script resolves the bootstrap release by id: `GET /repos/{owner}/{repo}/releases/tags/{tag}` answers 404 for a draft, while `GET /repos/{owner}/{repo}/releases` lists it.
+
+### `gh release upload <tag> --repo <slug> <file>...`
+
+Exit 0 with the assets attached under their base names.
+Without `--clobber` an upload whose name is already taken exits nonzero, which is what makes staging names the safe way to land a candidate beside the previous set.
+
+### `gh api --method PATCH repos/<owner>/<repo>/releases/assets/<id> -f name=<name>`
+
+Exit 0 with the updated asset JSON on stdout, renaming the asset in place and keeping its id.
+A name already in use on the same release answers **HTTP 422** and exits nonzero, so a rename can never silently replace another asset.
+
+### `gh api --method DELETE repos/<owner>/<repo>/releases/assets/<id>` and `.../releases/<id>`
+
+Exit 0 with an empty stdout on 204.
+
+### `gh api --paginate repos/<owner>/<repo>/releases?per_page=100` and `.../releases/<id>/assets?per_page=100`
+
+Exit 0 with a JSON array on stdout, `[]` when nothing matches.
+The release list includes drafts; `--jq` renders with jq's own semantics, which is why the fake shells out to `jq` instead of reimplementing the programs the script relies on.
+
+### `gh release edit <tag> --repo <slug> --tag <new> --title Edge --prerelease --draft=false --notes-file <file>`
+
+Exit 0, retagging and publishing in one call.
+Publishing is what creates the git ref for a draft's tag, so the assets are already in place when `edge` first resolves to anything.

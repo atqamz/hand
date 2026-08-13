@@ -59,11 +59,14 @@ type GHCopy struct {
 	Dest   string
 }
 
-// GH models the pull-request and release calls made by hand.
+// GH models the pull-request and release calls made by hand. ReleaseStore adds
+// the release and asset writes the edge publish script makes, which no hand
+// command performs.
 type GH struct {
 	PRs                 []GHPR
 	Repos               []GHRepo
 	Release             GHRelease
+	ReleaseStore        *GHReleaseStore
 	Responses           []GHResponse
 	RejectQualifiedHead bool
 	Log                 string
@@ -73,6 +76,8 @@ type ghSpec struct {
 	PRs                 []GHPR
 	Repos               []GHRepo
 	Release             GHRelease
+	ReleaseStorePath    string
+	ReleaseStoreRepo    string
 	Responses           []GHResponse
 	RejectQualifiedHead bool
 	StateDir            string
@@ -93,10 +98,15 @@ func (g GH) Install(t *testing.T, bin string) {
 			t.Fatal(err)
 		}
 	}
-	installConfig(t, bin, "gh", "gh", ghSpec{
+	spec := ghSpec{
 		PRs: g.PRs, Repos: g.Repos, Release: g.Release, Responses: g.Responses,
 		RejectQualifiedHead: g.RejectQualifiedHead, StateDir: state, Log: g.Log,
-	})
+	}
+	if g.ReleaseStore != nil {
+		spec.ReleaseStorePath = g.ReleaseStore.install(t, state)
+		spec.ReleaseStoreRepo = g.ReleaseStore.repo()
+	}
+	installConfig(t, bin, "gh", "gh", spec)
 }
 
 func runGHFromPayload(payload json.RawMessage, args []string) int {
@@ -137,7 +147,13 @@ func runGHFromPayload(payload json.RawMessage, args []string) int {
 		return response.Exit
 	}
 	if args[0] == "api" {
+		if code, handled := ghReleaseAPI(spec, args); handled {
+			return code
+		}
 		return ghAPI(spec, args)
+	}
+	if code, handled := ghReleaseCommand(spec, command, args); handled {
+		return code
 	}
 	switch command {
 	case "repo view":
