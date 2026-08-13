@@ -114,13 +114,37 @@ func TestGHPRChecksReportsBuckets(t *testing.T) {
 	}
 }
 
-func TestGHEdgeRefReportsThePublishedCommitWhenAvailable(t *testing.T) {
+func TestGHRefusesACommitRefThatDoesNotExist(t *testing.T) {
 	requireGH(t)
 
-	res := run(t, "", "gh", "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
-	if res.code != 0 {
-		t.Skipf("edge release is not published yet: %s", res.stderr)
+	res := run(t, "", "gh", "api", "repos/atqamz/hand/commits/no-such-edge-ref-contract-test", "--jq", ".sha")
+	if res.code == 0 {
+		t.Fatalf("exit 0 with stdout %q, want a refusal for an absent ref", res.stdout)
 	}
+	if strings.TrimSpace(res.stderr) == "" {
+		t.Fatal("stderr is empty, want the diagnostic FIDELITY.md records for an absent ref")
+	}
+}
+
+// Asserts in both worlds rather than skipping: matching-refs answers 200 with an
+// empty array for a tag that is absent, so which branch is owed is knowable.
+func TestGHEdgeRefReportsThePublishedCommit(t *testing.T) {
+	requireGH(t)
+
+	refs := run(t, "", "gh", "api", "repos/atqamz/hand/git/matching-refs/tags/edge",
+		"--jq", `[.[] | select(.ref == "refs/tags/edge")] | length`).requireCode(t, 0)
+
+	res := run(t, "", "gh", "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
+	if strings.TrimSpace(refs.stdout) == "0" {
+		if res.code == 0 {
+			t.Fatalf("commits/edge = %q at exit 0, want a refusal while no edge tag exists", res.stdout)
+		}
+		if strings.TrimSpace(res.stderr) == "" {
+			t.Fatal("stderr is empty, want the diagnostic FIDELITY.md records for an absent ref")
+		}
+		return
+	}
+	res.requireCode(t, 0)
 	sha := strings.TrimSpace(res.stdout)
 	if len(sha) != 40 {
 		t.Fatalf("edge commit = %q, want a full SHA", sha)

@@ -27,6 +27,8 @@ Freshness is compared per channel: stable by release SemVer, edge by the embedde
 Publication happens only from the push-to-`main` CI job that follows the lint, test, E2E, and Nix gates.
 That job serializes in a non-canceling concurrency group, rechecks candidate ancestry before building and again before publishing, refuses to publish when the candidate and `edge` histories diverge, and uploads assets and publishes the release before moving the tag.
 Candidate assets are uploaded under unique staging names and verified before replacing the exact download names, so an upload failure leaves the previous edge asset set intact.
+The first publication runs against a temporary `edge-bootstrap-<commit>` release resolved by database id, because a draft reserves its tag name without creating the ref and claiming `edge` before the assets exist would invert that order.
+Rollback undoes only the renames it recorded, and each run first restores any exact-name asset an interrupted predecessor left behind under `edge-previous-*`.
 
 ## Rejected alternatives
 

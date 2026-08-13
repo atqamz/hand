@@ -193,7 +193,7 @@ jobs:
           CANDIDATE: ${{ inputs.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -eu
+          set -euo pipefail
           cat > edge-notes.md <<EOF
           This is the rolling development build for maintainers and contributors.
 
@@ -213,102 +213,149 @@ jobs:
             hand-windows-amd64.zip
             checksums.txt
           )
-          if ! gh release view edge --repo atqamz/hand >/dev/null 2>&1; then
-            # A new draft release may create the edge tag automatically. Existing
-            # releases keep their tag until the staged assets are promoted.
-            gh release create edge --repo atqamz/hand --target "$CANDIDATE" --title Edge --prerelease --draft --notes-file edge-notes.md
+          repo=atqamz/hand
+          all_assets() {
+            gh api --paginate "repos/${repo}/releases/${release_id}/assets?per_page=100" "$@"
+          }
+          asset_id() {
+            all_assets --jq "first(.[] | select(.name == \"$1\") | .id) // empty"
+          }
+          rename_asset() {
+            gh api --method PATCH "repos/${repo}/releases/assets/$1" -f name="$2" >/dev/null
+          }
+          delete_asset() {
+            gh api --method DELETE "repos/${repo}/releases/assets/$1" >/dev/null
+          }
+
+          release_tag=edge
+          bootstrap_tag=""
+          release_id=$(gh api --paginate "repos/${repo}/releases?per_page=100" \
+            --jq 'first(.[] | select(.tag_name == "edge") | .id) // empty')
+          if [ -z "$release_id" ]; then
+            # A draft reserves its tag name without creating the ref, which GitHub
+            # writes only on publish, so a temporary tag leaves edge unclaimed
+            # until the complete asset set is promoted.
+            bootstrap_tag="edge-bootstrap-${CANDIDATE}"
+            release_tag=$bootstrap_tag
+            stale_drafts=$(gh api --paginate "repos/${repo}/releases?per_page=100" \
+              --jq '.[] | select(.tag_name | startswith("edge-bootstrap-")) | .id')
+            for stale in $stale_drafts; do
+              gh api --method DELETE "repos/${repo}/releases/${stale}" >/dev/null
+            done
+            gh release create "$bootstrap_tag" --repo "$repo" --target "$CANDIDATE" --title Edge --prerelease --draft --notes-file edge-notes.md
+            release_id=$(gh release view "$bootstrap_tag" --repo "$repo" --json databaseId --jq .databaseId)
           fi
 
-          release_id=$(gh api repos/atqamz/hand/releases/tags/edge --jq .id)
-          asset_id() {
-            local name=$1
-            gh api --paginate "repos/atqamz/hand/releases/${release_id}/assets?per_page=100" \
-              --jq ".[] | select(.name == \"${name}\") | .id" | head -n 1
-          }
+          # A run killed between the backup and promote loops leaves the only copy
+          # of an exact-name asset under edge-previous-*. Restore those first, and
+          # discard leftovers only once the exact-name set is whole again.
+          unbacked=0
+          for asset in "${assets[@]}"; do
+            existing=$(asset_id "$asset")
+            if [ -n "$existing" ]; then
+              continue
+            fi
+            orphan=$(all_assets --jq "first(.[] | select(.name | startswith(\"edge-previous-\") and endswith(\"-${asset}\")) | .id) // empty")
+            if [ -z "$orphan" ]; then
+              unbacked=$((unbacked + 1))
+              continue
+            fi
+            rename_asset "$orphan" "$asset"
+          done
+          if [ "$unbacked" -eq 0 ]; then
+            stale_ids=$(all_assets --jq '.[] | select(.name | startswith("edge-staging-") or startswith("edge-previous-")) | .id')
+            for stale in $stale_ids; do
+              delete_asset "$stale"
+            done
+          fi
 
           staging_assets=()
           for asset in "${assets[@]}"; do
             staging="edge-staging-${CANDIDATE}-${asset}"
-            gh release delete-asset edge --repo atqamz/hand "$staging" --yes >/dev/null 2>&1 || true
+            existing=$(asset_id "$staging")
+            if [ -n "$existing" ]; then
+              delete_asset "$existing"
+            fi
             cp "$asset" "$staging"
             staging_assets+=("$staging")
           done
 
-          promotion_started=false
+          declare -A backup_of=()
+          declare -A promoted=()
           rollback() {
             status=$?
             if [ "$status" -eq 0 ]; then
               return
             fi
             set +e
-            if [ "$promotion_started" = true ]; then
-              for index in "${!assets[@]}"; do
-                final=${assets[$index]}
-                staging=${staging_assets[$index]}
-                backup=${backup_assets[$index]:-}
-                final_asset_id=$(asset_id "$final")
-                if [ -n "$final_asset_id" ]; then
-                  gh api --method PATCH "repos/atqamz/hand/releases/assets/${final_asset_id}" \
-                    -f name="$staging" >/dev/null
-                fi
-                if [ -n "$backup" ]; then
-                  backup_asset_id=$(asset_id "$backup")
-                  if [ -n "$backup_asset_id" ]; then
-                    gh api --method PATCH "repos/atqamz/hand/releases/assets/${backup_asset_id}" \
-                      -f name="$final" >/dev/null
-                  fi
-                fi
-              done
-            fi
-            for staging in "${staging_assets[@]}"; do
-              gh release delete-asset edge --repo atqamz/hand "$staging" --yes >/dev/null 2>&1 || true
+            for index in "${!promoted[@]}"; do
+              promoted_id=$(asset_id "${assets[$index]}")
+              if [ -n "$promoted_id" ]; then
+                rename_asset "$promoted_id" "${staging_assets[$index]}"
+              fi
             done
+            for index in "${!backup_of[@]}"; do
+              backup_id=$(asset_id "${backup_of[$index]}")
+              if [ -n "$backup_id" ]; then
+                rename_asset "$backup_id" "${assets[$index]}"
+              fi
+            done
+            for staging in "${staging_assets[@]}"; do
+              staging_id=$(asset_id "$staging")
+              if [ -n "$staging_id" ]; then
+                delete_asset "$staging_id"
+              fi
+            done
+            if [ -n "$bootstrap_tag" ]; then
+              gh api --method DELETE "repos/${repo}/releases/${release_id}" >/dev/null
+            fi
             exit "$status"
           }
           trap rollback EXIT
 
           # Upload under unique names so a failed candidate upload leaves the
           # previous exact-name assets available to edge clients.
-          gh release upload edge --repo atqamz/hand "${staging_assets[@]}"
+          gh release upload "$release_tag" --repo "$repo" "${staging_assets[@]}"
           for staging in "${staging_assets[@]}"; do
-            test -n "$(asset_id "$staging")"
+            staged_id=$(asset_id "$staging")
+            test -n "$staged_id"
           done
 
-          promotion_started=true
-          backup_assets=()
           for index in "${!assets[@]}"; do
             final=${assets[$index]}
-            backup="edge-previous-${CANDIDATE}-${final}"
             old_asset_id=$(asset_id "$final")
-            if [ -n "$old_asset_id" ]; then
-              gh release delete-asset edge --repo atqamz/hand "$backup" --yes >/dev/null 2>&1 || true
-              gh api --method PATCH "repos/atqamz/hand/releases/assets/${old_asset_id}" \
-                -f name="$backup" >/dev/null
-              backup_assets+=("$backup")
-            else
-              backup_assets+=("")
+            if [ -z "$old_asset_id" ]; then
+              continue
             fi
+            backup="edge-previous-${CANDIDATE}-${final}"
+            clashing_id=$(asset_id "$backup")
+            if [ -n "$clashing_id" ]; then
+              delete_asset "$clashing_id"
+            fi
+            rename_asset "$old_asset_id" "$backup"
+            backup_of[$index]=$backup
           done
           for index in "${!assets[@]}"; do
-            final=${assets[$index]}
-            staging=${staging_assets[$index]}
-            staged_asset_id=$(asset_id "$staging")
+            staged_asset_id=$(asset_id "${staging_assets[$index]}")
             test -n "$staged_asset_id"
-            gh api --method PATCH "repos/atqamz/hand/releases/assets/${staged_asset_id}" \
-              -f name="$final" >/dev/null
+            rename_asset "$staged_asset_id" "${assets[$index]}"
+            promoted[$index]=1
           done
-          for backup in "${backup_assets[@]}"; do
-            if [ -n "$backup" ]; then
-              backup_asset_id=$(asset_id "$backup")
-              if [ -n "$backup_asset_id" ]; then
-                gh api --method DELETE "repos/atqamz/hand/releases/assets/${backup_asset_id}" >/dev/null
-              fi
+          for index in "${!backup_of[@]}"; do
+            backup_asset_id=$(asset_id "${backup_of[$index]}")
+            if [ -n "$backup_asset_id" ]; then
+              delete_asset "$backup_asset_id"
             fi
           done
           trap - EXIT
 
           # Publishing before the tag moves keeps edge from naming a commit
           # whose complete asset set is not yet available.
-          gh release edit edge --repo atqamz/hand --title Edge --prerelease --draft=false --notes-file edge-notes.md
+          if [ -n "$bootstrap_tag" ]; then
+            gh release edit "$bootstrap_tag" --repo "$repo" --tag edge --title Edge --prerelease --draft=false --notes-file edge-notes.md
+            git push origin ":refs/tags/${bootstrap_tag}" >/dev/null 2>&1 || true
+          else
+            gh release edit edge --repo "$repo" --title Edge --prerelease --draft=false --notes-file edge-notes.md
+          fi
           git tag -f edge "$CANDIDATE"
           git push origin refs/tags/edge --force
