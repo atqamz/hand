@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/atqamz/hand/compare/v0.3.0...v0.4.0) (2026-08-13)
+
+
+### Features
+
+* add Windows portability ([#203](https://github.com/atqamz/hand/issues/203)) ([998b2c3](https://github.com/atqamz/hand/commit/998b2c30fc14a07c3262307ba2a9cb692796fceb))
+* establish hand project identity ([#179](https://github.com/atqamz/hand/issues/179)) ([d689778](https://github.com/atqamz/hand/commit/d689778475cb643a7329b13a5d941712c17b3cb0))
+* **project:** repoint a registered project at a renamed repo ([#209](https://github.com/atqamz/hand/issues/209)) ([b843340](https://github.com/atqamz/hand/commit/b8433409a69d11abb22d98b3e4c361fff7050264))
+* **selfupdate:** add rolling edge release channel ([#212](https://github.com/atqamz/hand/issues/212)) ([911135e](https://github.com/atqamz/hand/commit/911135e12ab99572cbab055a2c22916c717ffbdb))
+
+
+### Bug Fixes
+
+* **notify:** resolve POSIX sh on PATH with an actionable missing-sh error ([#211](https://github.com/atqamz/hand/issues/211)) ([95c48a5](https://github.com/atqamz/hand/commit/95c48a51f9991f695d38a1d9d1c1c445ea2448cb))
+* restore README onboarding guidance ([#185](https://github.com/atqamz/hand/issues/185)) ([fe0b70f](https://github.com/atqamz/hand/commit/fe0b70f9719ea8ad081b586e12f237bba23c47ac))
+
 ## [0.3.0](https://github.com/atqamz/secondhand/compare/v0.2.0...v0.3.0) (2026-08-09)
 
 
