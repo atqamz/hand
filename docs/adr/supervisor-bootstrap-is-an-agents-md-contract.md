@@ -9,6 +9,8 @@
 
 A supervisor must load current fleet context before it acts, regardless of which supported harness the operator launches. A Claude-only session hook made that guarantee asymmetric, and separate native integrations would give every harness its own trust boundary, configuration surface, and compatibility schedule.
 
+The cross-cutting terms used here are defined in [Hand orchestration vocabulary](../vocabulary.md).
+
 The source checkout also serves as a dogfood fleet home. Its project-owned instructions must survive fleet initialization, while the generated bootstrap must already be current so initialization does not dirty a clean clone.
 
 ## Decision
@@ -19,7 +21,7 @@ This supersedes [Ambient fleet context is a session hook, not a rendered file](a
 
 Dynamic context stays in the command's bounded output rather than the instruction file. Mutating commands enforce their own prerequisites at command level, including refusing dispatch with an unknown harness before acquiring a worktree or herdr workspace.
 
-Worker launches carry an explicit worker role and fleet-home path. `hand session start` refuses under that role, so a worker cannot initialize or act as a second supervisor from its isolated worktree.
+Worker launches carry the `HAND_ROLE=worker` process marker and fleet-home path. `hand session start` refuses under that marker, so a worker cannot initialize or act as a second supervisor from its isolated worktree.
 
 The command help and focused tests own the behavioral details of initialization, session output, prerequisite errors, and worker isolation.
 

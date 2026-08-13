@@ -9,6 +9,8 @@
 
 Firstmate proved the fleet-supervision concept but implemented orchestration through shell scripts and a large always-loaded instruction corpus. That shape made portability, recovery, and supervisory context depend on the agent correctly replaying operational procedure.
 
+The cross-cutting orchestration terms used here are defined in [Hand orchestration vocabulary](../vocabulary.md).
+
 ## Decision
 
 Secondhand keeps the fleet model and moves orchestration into one Go CLI binary. The supervising agent is a client. Fleet homes contain state and prose, not executable orchestration, and ordinary commands are short-lived processes.

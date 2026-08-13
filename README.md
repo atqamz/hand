@@ -8,18 +8,19 @@ You talk to one agent. It plans the work, writes briefs, dispatches workers into
 
 `hand` is the CLI underneath that workflow. It owns lifecycle, state, isolation, and process supervision so the supervising agent can focus on judgment and coordination.
 
+The canonical cross-cutting terms for this workflow are defined in [Hand orchestration vocabulary](docs/vocabulary.md).
+
 ```mermaid
 flowchart LR
     user["You"] --> supervisor["Supervising agent"]
     supervisor --> hand["hand"]
-    hand --> worker1["Worker"]
-    hand --> worker2["Worker"]
-    hand --> scout["Scout"]
+    hand --> shipTask["Task: ship"]
+    hand --> scoutTask["Task: scout"]
+    shipTask --> worker1["Worker"]
+    scoutTask --> worker2["Worker"]
     worker1 --> pr1["PR / branch"]
-    worker2 --> pr2["PR / branch"]
-    scout --> report["Report"]
+    worker2 --> report["Report"]
     pr1 --> supervisor
-    pr2 --> supervisor
     report --> supervisor
 ```
 
@@ -111,8 +112,8 @@ flowchart TD
     spawn --> worktree["Worker in an isolated worktree"]
     worktree --> supervise["Watch and steer"]
     supervise --> outcome{"Task kind"}
-    outcome -->|Ship| ship["PR or local branch"]
-    outcome -->|Scout| scout["Investigation report"]
+    outcome -->|ship| ship["PR or local branch"]
+    outcome -->|scout| scout["Investigation report"]
     ship --> finish["Merge or deliver"]
     scout --> finish
     finish --> teardown["hand teardown"]
@@ -155,8 +156,11 @@ Each registered project has a delivery mode:
 | Mode | Workflow |
 | --- | --- |
 | `direct-pr` | Workers produce normal branches and pull requests. This is the default. |
-| `no-mistakes` | Delivery is guarded by a [no-mistakes](https://github.com/yes2games/no-mistakes) validation pipeline. |
+| `no-mistakes` | Delivery uses [no-mistakes](https://github.com/kunchenguid/no-mistakes) as a gate. |
 | `local-only` | Work stays local instead of using a remote pull-request workflow. |
+
+`no-mistakes` is a delivery gate, not a Hand Task kind.
+Its internal review, test, documentation, lint, PR, and CI stages remain owned by no-mistakes rather than becoming Hand Task kinds.
 
 Choose a mode when registering a project:
 
@@ -244,7 +248,7 @@ Every command resolves the fleet home from `HAND_HOME` when set, otherwise from 
 Optional:
 
 - `sh` - a POSIX-compatible shell, required when a non-empty `config/notify` is configured, including on Windows
-- [no-mistakes](https://github.com/yes2games/no-mistakes) - required only by projects using `no-mistakes` mode
+- [no-mistakes](https://github.com/kunchenguid/no-mistakes) - required only by projects using `no-mistakes` mode
 - [qmd](https://github.com/tobi/qmd) - semantic search over historical fleet context beyond `hand search`
 
 `hand init` reports checked tools it cannot find on `PATH`. `hand doctor` checks the fleet home's generated agent instructions and related drift.
@@ -408,16 +412,15 @@ flowchart LR
     user["You<br/>requests and irreversible decisions"] --> supervisor["Supervising agent<br/>planning and coordination"]
     supervisor --> hand["hand<br/>lifecycle, state, isolation, supervision"]
 
-    hand --> worker1["Ship worker"]
-    hand --> worker2["Ship worker"]
-    hand --> scout["Scout worker"]
+    hand --> shipTask["Task: ship"]
+    hand --> scoutTask["Task: scout"]
+    shipTask --> worker1["Worker"]
+    scoutTask --> worker2["Worker"]
 
     worker1 --> tree1["treehouse worktree"]
-    worker2 --> tree2["treehouse worktree"]
-    scout --> tree3["treehouse worktree"]
+    worker2 --> tree3["treehouse worktree"]
 
     tree1 --> pr1["PR / branch"]
-    tree2 --> pr2["PR / branch"]
     tree3 --> report["Report"]
 
     pr1 --> supervisor
