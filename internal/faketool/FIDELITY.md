@@ -252,3 +252,20 @@ The call follows a renamed repository: `atqamz/secondhand` answers `atqamz/hand`
 
 An unknown or inaccessible repository exits nonzero and writes its diagnostic to stderr.
 `internal/ghutil` reads stdout separately from stderr so warnings cannot corrupt the JSON payload.
+
+### `gh release view --repo <slug> --json tagName --jq .tagName`
+
+Exit 0 with the latest normal release tag alone on stdout.
+The prerelease `edge` release is not selected when the tag is omitted.
+
+### `gh api repos/<owner>/<repo>/commits/edge --jq .sha`
+
+Exit 0 with the full commit SHA alone on stdout when the mutable edge ref exists.
+An absent edge ref exits nonzero and writes its diagnostic to stderr.
+The self-updater treats the returned full SHA as the edge freshness identity.
+
+### `gh release download <tag> --repo <slug> --dir <dir> --clobber --pattern <asset>`
+
+Exit 0 after copying the requested release assets into the destination directory.
+The release tag selects the same archive and checksum path for stable and edge releases.
+Missing releases or assets exit nonzero and write a diagnostic to stderr without silently leaving a partial success.

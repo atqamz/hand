@@ -29,13 +29,24 @@ type GHRepo struct {
 	Raw           string
 }
 
+type GHRelease struct {
+	Repo            string
+	StableTag       string
+	EdgeCommit      string
+	EdgeNotes       string
+	StableNotes     string
+	EdgeAssetsDir   string
+	StableAssetsDir string
+}
+
 // A fake gh whose pull requests carry their own state, so `pr view` answers
 // MERGED after `pr merge` rather than repeating whatever it said before.
 // FIDELITY.md records this against the real tool.
 type GH struct {
-	PRs   []GHPR
-	Repos []GHRepo
-	Log   string
+	PRs      []GHPR
+	Repos    []GHRepo
+	Releases []GHRelease
+	Log      string
 }
 
 // Writes the fake into bin, which Bin has put on PATH.
@@ -66,6 +77,73 @@ func (g GH) Install(t *testing.T, bin string) {
 			body = fmt.Sprintf(`{"nameWithOwner":%s,"url":%s}`, jsonQuote(repo.NameWithOwner), jsonQuote(repo.URL))
 		}
 		fmt.Fprintf(&repoView, "    %s) printf '%%s\\n' %s ;;\n", quote(repo.Requested), quote(body))
+	}
+
+	var releases strings.Builder
+	for _, release := range g.Releases {
+		repo := release.Repo
+		if repo == "" {
+			repo = "atqamz/hand"
+		}
+		fmt.Fprintf(&releases, `    repo=$(argval --repo "$@")
+    if { [ -z "$repo" ] || anycase %[1]s "$repo"; }; then
+      case "$tag" in
+      stable)
+        if [ -z %[2]s ]; then echo "release not found" >&2; exit 1; fi
+        case "$(argval --jq "$@")" in
+        .tagName) printf '%%s' %[2]s ;;
+        .body) printf '%%s' %[3]s ;;
+        *) printf '{"tagName":"%%s"}' %[2]s ;;
+        esac
+        ;;
+      edge)
+        if [ -z %[4]s ]; then echo "release not found" >&2; exit 1; fi
+        case "$(argval --jq "$@")" in
+        .tagName) printf 'edge' ;;
+        .body) printf '%%s' %[5]s ;;
+        *) printf '{"tagName":"edge","prerelease":true}' ;;
+        esac
+        ;;
+      *) echo "release not found" >&2; exit 1 ;;
+      esac
+      exit 0
+    fi
+`, quote(anyCasePattern(repo)), quote(release.StableTag), quote(release.StableNotes), quote(release.EdgeCommit), quote(release.EdgeNotes))
+	}
+
+	var releaseDownloads strings.Builder
+	for _, release := range g.Releases {
+		repo := release.Repo
+		if repo == "" {
+			repo = "atqamz/hand"
+		}
+		fmt.Fprintf(&releaseDownloads, `    repo=$(argval --repo "$@")
+    dir=$(argval --dir "$@")
+    if { [ -z "$repo" ] || anycase %[1]s "$repo"; } && [ "$tag" = edge ]; then
+      if [ -z %[2]s ]; then echo "release not found" >&2; exit 1; fi
+      cp %[2]s/* "$dir"/
+      exit 0
+    fi
+    if { [ -z "$repo" ] || anycase %[1]s "$repo"; } && [ "$tag" = %[3]s ]; then
+      if [ -z %[4]s ]; then echo "release not found" >&2; exit 1; fi
+      cp %[4]s/* "$dir"/
+      exit 0
+    fi
+`, quote(anyCasePattern(repo)), quote(release.EdgeAssetsDir), quote(release.StableTag), quote(release.StableAssetsDir))
+	}
+
+	var apiCommits strings.Builder
+	for _, release := range g.Releases {
+		repo := release.Repo
+		if repo == "" {
+			repo = "atqamz/hand"
+		}
+		fmt.Fprintf(&apiCommits, `    if anycase %[1]s "$2"; then
+      if [ -z %[2]s ]; then echo "ref not found" >&2; exit 1; fi
+      printf '%%s' %[2]s
+      exit 0
+    fi
+`, quote(anyCasePattern("repos/"+repo+"/commits/edge")), quote(release.EdgeCommit))
 	}
 
 	// One block per PR rather than one per branch, because --repo narrows the search
@@ -102,7 +180,22 @@ func (g GH) Install(t *testing.T, bin string) {
 		// would answer a double search of one repo with one hit and hide the duplicate
 		// the real gh returns.
 		"anycase() { case \"$2\" in $1) return 0 ;; esac; return 1; }\n"
-	body := fmt.Sprintf(`  "repo view")
+	body := fmt.Sprintf(`  "api "*)
+%[5]s    echo "ref not found: $2" >&2
+    exit 1
+    ;;
+  "release view")
+    tag="$3"
+    if [ "$tag" = "--repo" ]; then tag=stable; fi
+%[6]s    echo "release not found: $tag" >&2
+    exit 1
+    ;;
+  "release download")
+    tag="$3"
+%[7]s    echo "release not found: $tag" >&2
+    exit 1
+    ;;
+  "repo view")
     case "$3" in
 %[1]s    *) echo "repository not found: $3" >&2; exit 1 ;;
     esac
@@ -134,7 +227,7 @@ func (g GH) Install(t *testing.T, bin string) {
     fi
     echo MERGED > "$f"
     printf '%%s merged\n' "$3"
-	    ;;`, repoView.String(), byRef.String(), list.String(), checks.String())
+	    ;;`, repoView.String(), byRef.String(), list.String(), checks.String(), apiCommits.String(), releases.String(), releaseDownloads.String())
 
 	install(t, bin, "gh", g.Log, prelude, "$1 $2", body)
 

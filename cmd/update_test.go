@@ -163,7 +163,11 @@ func writeOwnedSessionHook(t *testing.T, home string) {
 // rather than a set of lines that appear or do not.
 func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
 	doc := "current: v0.1.0\n" +
+		"current_channel: stable\n" +
+		"current_commit: unknown\n" +
 		"latest: v0.5.0\n" +
+		"latest_channel: stable\n" +
+		"latest_commit: unknown\n" +
 		"update_available: true\n" +
 		"updated: true\n" +
 		"agents_md: " + agentsMD + "\n" +
@@ -585,8 +589,16 @@ func TestUpdateReportsVersionsWhenSessionHookRetirementFails(t *testing.T) {
 }
 
 func checkedUpdateDoc(current, latest string, available bool) string {
+	currentChannel := "stable"
+	if current == "dev" {
+		currentChannel = "dev"
+	}
 	doc := "current: " + current + "\n" +
+		"current_channel: " + currentChannel + "\n" +
+		"current_commit: unknown\n" +
 		"latest: " + latest + "\n" +
+		"latest_channel: stable\n" +
+		"latest_commit: unknown\n" +
 		fmt.Sprintf("update_available: %t\n", available) +
 		"updated: false\n" +
 		"agents_md: not-applicable\n" +

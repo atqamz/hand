@@ -1,7 +1,9 @@
 .PHONY: build test fmt lint e2e contract install clean
 
 VERSION ?= dev
-LDFLAGS := -s -w -X main.version=$(VERSION)
+CHANNEL ?= dev
+COMMIT ?=
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.channel=$(CHANNEL) -X main.commit=$(COMMIT)
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" .

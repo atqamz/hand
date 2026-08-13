@@ -208,3 +208,32 @@ func TestGHRefusesAPRItDoesNotKnow(t *testing.T) {
 		}
 	}
 }
+
+func TestGHReleaseAndEdgeRefExposeDeclaredState(t *testing.T) {
+	assets := t.TempDir()
+	if err := os.WriteFile(filepath.Join(assets, "checksums.txt"), []byte("checksums"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	GH{Releases: []GHRelease{
+		{StableTag: "v0.5.0", EdgeCommit: commit, EdgeNotes: "edge notes", EdgeAssetsDir: assets},
+	}}.Install(t, Bin(t))
+
+	stable, stderr, code := runGH(t, "release", "view", "--repo", "atqamz/hand", "--json", "tagName", "--jq", ".tagName")
+	if code != 0 || stderr != "" || stable != "v0.5.0" {
+		t.Fatalf("stable release = %q, %q, exit %d, want v0.5.0", stable, stderr, code)
+	}
+	edge, stderr, code := runGH(t, "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
+	if code != 0 || stderr != "" || edge != commit {
+		t.Fatalf("edge ref = %q, %q, exit %d, want %s", edge, stderr, code, commit)
+	}
+
+	downloaded := t.TempDir()
+	_, stderr, code = runGH(t, "release", "download", "edge", "--repo", "atqamz/hand", "--dir", downloaded, "--pattern", "checksums.txt")
+	if code != 0 || stderr != "" {
+		t.Fatalf("edge download = %q, exit %d, want success", stderr, code)
+	}
+	if _, err := os.Stat(filepath.Join(downloaded, "checksums.txt")); err != nil {
+		t.Fatalf("downloaded checksums: %v", err)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -159,5 +160,46 @@ func TestCheckNoticeSkipsUnparseableCurrentVersion(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "state", cacheFile)); err == nil {
 		t.Fatal("want no version check for an unversioned build")
+	}
+}
+
+func TestCheckNoticeForBuildReportsNewEdgeCommit(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGHTarget(t, "v0.5.0", edgeTestCommit)
+
+	info := BuildInfo{Version: "edge.aaaaaaaaaaaa", Channel: ChannelEdge, Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	want := "A new edge build of hand is available: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -> " + edgeTestCommit + "\nRun \"hand update\" to update"
+	if got := CheckNoticeForBuild(home, "atqamz/hand", info); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestCheckNoticeForBuildRefreshesCacheWhenChannelChanges(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCache(filepath.Join(home, "state", cacheFile), versionCache{
+		CheckedAt: time.Now(),
+		Channel:   ChannelStable,
+		Latest:    "v0.5.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGHTarget(t, "v0.5.0", edgeTestCommit)
+
+	info := BuildInfo{Version: "edge.aaaaaaaaaaaa", Channel: ChannelEdge, Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if notice := CheckNoticeForBuild(home, "atqamz/hand", info); notice == "" || !strings.Contains(notice, "new edge build") {
+		t.Fatalf("notice = %q, want a refreshed edge notice", notice)
+	}
+	cache, err := readCache(filepath.Join(home, "state", cacheFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cache.Channel != ChannelEdge || cache.Commit != edgeTestCommit {
+		t.Fatalf("cache = %#v, want edge channel and commit", cache)
 	}
 }

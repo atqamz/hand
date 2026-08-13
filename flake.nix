@@ -18,7 +18,7 @@
             inherit version;
             src = ./.;
             vendorHash = "sha256-v84XwEQIPE8kqHDOhWcOS9pwk+ebjRJ/3XFuuwa0+aU=";
-            ldflags = [ "-s" "-w" "-X main.version=v${version}" ];
+            ldflags = [ "-s" "-w" "-X main.version=v${version}" "-X main.channel=dev" "-X main.commit=" ];
             nativeCheckInputs = [ pkgs.git ]; # test suite execs git directly
             meta.mainProgram = "hand";
           };

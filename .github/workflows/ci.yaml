@@ -74,3 +74,13 @@ jobs:
         run: nix build .#default --no-link --print-out-paths
       - name: Run built binary
         run: '"$(nix build .#default --no-link --print-out-paths)/bin/hand" --version'
+
+  edge:
+    name: Publish edge
+    needs: [lint, test, e2e, nix-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/edge.yaml
+    with:
+      sha: ${{ github.sha }}
