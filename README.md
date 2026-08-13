@@ -243,6 +243,7 @@ Every command resolves the fleet home from `HAND_HOME` when set, otherwise from 
 
 Optional:
 
+- `sh` - a POSIX-compatible shell, required when a non-empty `config/notify` is configured, including on Windows
 - [no-mistakes](https://github.com/yes2games/no-mistakes) - required only by projects using `no-mistakes` mode
 - [qmd](https://github.com/tobi/qmd) - semantic search over historical fleet context beyond `hand search`
 
@@ -291,6 +292,32 @@ go install github.com/atqamz/hand@latest
 `go install` does not embed release-version metadata, so the binary reports `dev` and never checks for updates. Prefer a release binary or Nix installation for a versioned build.
 
 To build a checkout for contributing to Secondhand itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Notifications
+
+Configure notifications by writing a text file at `config/notify`.
+The file contains a POSIX shell snippet, and the notification text is available as `$HAND_MESSAGE`.
+
+For every supported operating system, the execution contract is:
+
+```text
+config/notify -> POSIX sh -c
+```
+
+This applies on Linux, macOS, and Windows.
+On Windows, Hand does not reinterpret the template as `cmd.exe` batch syntax, PowerShell, or WSL shell syntax, and it does not invoke `wsl.exe` automatically.
+A POSIX-compatible `sh` executable must be directly resolvable from the Windows process's `PATH`.
+Git for Windows and MSYS2 are examples of environments that may provide such an executable, but installing WSL alone does not satisfy this requirement.
+
+Literal Windows paths are still part of POSIX shell source.
+For example, users should not assume this is safe template source:
+
+```text
+C:\some\path\notifier.exe
+```
+
+Backslashes have meaning to POSIX shells, so quote or escape literal paths according to POSIX shell rules, or use a shell-compatible representation such as a forward-slash Windows path when supported.
+Hand does not rewrite paths or automatically escape arbitrary template source.
 
 ## Command map
 

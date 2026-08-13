@@ -1,5 +1,5 @@
 // Package notify implements out-of-band delivery for hand notify and the
-// watcher's in-process notify hook: reading config/notify's shell command
+// watcher's in-process notify hook: reading config/notify's POSIX-shell
 // template and running it with the message to send.
 package notify
 
@@ -20,13 +20,13 @@ import (
 var ErrNotConfigured = errors.New("no config/notify")
 
 // Bounds the template's own run: the watcher calls Send inline in its poll loop,
-// so an unbounded template (the documented curl example has no --max-time) would
+// so an unbounded template (a webhook curl with no --max-time) would
 // wedge polling, --until-event's timeout and shutdown alike. A var so tests cut it.
 var sendTimeout = 10 * time.Second
 
-// Send runs config/notify's shell command template with message available as
-// $HAND_MESSAGE, in-process rather than through the hand notify subcommand,
-// and reports whether the template actually ran and succeeded.
+// Send runs config/notify's POSIX-shell template with the message available as
+// $HAND_MESSAGE, in-process rather than through the hand notify subcommand, and
+// reports whether the template actually ran and succeeded.
 func Send(home, message string) error {
 	template, err := os.ReadFile(filepath.Join(home, "config", "notify"))
 	if err != nil {
@@ -41,9 +41,14 @@ func Send(home, message string) error {
 		return ErrNotConfigured
 	}
 
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		return fmt.Errorf("config/notify requires a POSIX sh executable on PATH: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
 	defer cancel()
-	run := exec.CommandContext(ctx, "sh", "-c", command)
+	run := exec.CommandContext(ctx, shell, "-c", command)
 	run.Env = append(os.Environ(), "HAND_MESSAGE="+message)
 	// Without WaitDelay, a template that backgrounds a child holding the output
 	// pipe keeps CombinedOutput waiting past the kill, defeating the timeout.
