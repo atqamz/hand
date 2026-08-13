@@ -397,7 +397,7 @@ Without `--channel`, the installed build determines the target channel.
 Use `--channel stable` or `--channel edge` for an explicit target or channel switch.
 The edge channel compares embedded commit identities, while stable compares release SemVer versions.
 
-When run inside a fleet home, an update also refreshes the generated section of `AGENTS.md` without overwriting your own additions. Other commands check for a newer release at most once a day and print a one-line notice when one is available.
+When run inside a fleet home, an update also refreshes the generated section of `AGENTS.md` without overwriting your own additions. Other commands check the installed build's channel for a newer build at most once a day and print a one-line notice when one is available.
 
 ## Architecture
 
