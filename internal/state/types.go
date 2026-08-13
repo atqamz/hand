@@ -19,7 +19,24 @@ const (
 // Aliases rather than separate structs: the store owns the columns these map
 // to, and a second definition would be one more place to forget a field.
 type (
-	Herdr = store.Herdr
-	Task  = store.Task
-	Hold  = store.Hold
+	Herdr            = store.Herdr
+	Task             = store.Task
+	Attempt          = store.Attempt
+	TaskHistory      = store.TaskHistory
+	Hold             = store.Hold
+	TaskLifecycle    = store.TaskLifecycle
+	AttemptLifecycle = store.AttemptLifecycle
+)
+
+const (
+	TaskOpen     = store.TaskOpen
+	TaskTerminal = store.TaskTerminal
+)
+
+const (
+	AttemptProvisioning = store.AttemptProvisioning
+	AttemptRunning      = store.AttemptRunning
+	AttemptCompleted    = store.AttemptCompleted
+	AttemptFailed       = store.AttemptFailed
+	AttemptInterrupted  = store.AttemptInterrupted
 )

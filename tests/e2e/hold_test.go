@@ -118,8 +118,8 @@ func TestHoldLifecycle(t *testing.T) {
 		t.Fatalf("fleet JSON holds = %+v, want both holds", all.Holds)
 	}
 
-	// The motivating case: teardown deletes the task row, and the hold set on
-	// that id has to outlive it.
+	// The motivating case: the hold set on this id has to outlive the work it was
+	// raised against, which teardown leaves terminal rather than removing.
 	runGitIn(t, worktree, "commit", "--allow-empty", "-q", "-m", "wip")
 	if got := runHand(t, home, "merge", "fix-login", "--local"); got.code != 0 {
 		t.Fatalf("merge --local: exit %d, stderr %q", got.code, got.stderr)
@@ -127,8 +127,8 @@ func TestHoldLifecycle(t *testing.T) {
 	if got := runHand(t, home, "teardown", "fix-login"); got.code != 0 {
 		t.Fatalf("teardown: exit %d, stderr %q", got.code, got.stderr)
 	}
-	if exists, err := state.Exists(home, "fix-login"); err != nil || exists {
-		t.Fatalf("state.Exists after teardown = %v, %v, want the task row gone", exists, err)
+	if exists, err := state.Exists(home, "fix-login"); err != nil || !exists {
+		t.Fatalf("state.Exists after teardown = %v, %v, want the task row preserved", exists, err)
 	}
 
 	survived := runHand(t, home, "status")
@@ -136,12 +136,12 @@ func TestHoldLifecycle(t *testing.T) {
 		t.Fatalf("status after teardown = %q, want the torn-down task's hold still listed", survived.stdout)
 	}
 
-	// Reusing the id would reattach that still-open question to unrelated work.
+	// A terminal id is never reused by spawn, even while its old hold remains open.
 	writeBrief(t, home, "fix-login")
 	respawn := runHand(t, home, "spawn", "fix-login", "demo")
-	assertInvocation(t, respawn, 3, `id "fix-login" has an open hold`)
-	if !strings.Contains(respawn.stderr, "hand hold clear fix-login") {
-		t.Fatalf("spawn stderr = %q, want it to name the remedy", respawn.stderr)
+	assertInvocation(t, respawn, 3, "hand reopen fix-login")
+	if strings.Contains(respawn.stderr, "open hold") {
+		t.Fatalf("spawn stderr = %q, want terminal-task refusal before hold check", respawn.stderr)
 	}
 
 	cleared := runHand(t, home, "hold", "clear", "fix-login")

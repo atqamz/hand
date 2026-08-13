@@ -50,13 +50,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 		t.Fatal(err)
 	}
 
-	if err := state.Write(home, state.Task{
-		ID:       "task-1",
-		Project:  "myproj",
-		Kind:     state.KindScout,
-		Worktree: oldWorktree,
-		Herdr:    state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"},
-	}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,21 +77,21 @@ func TestPromoteUsesDetectedHarnessWithoutConfiguredOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := state.Read(home, "task-1")
+	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Kind != state.KindShip {
-		t.Fatalf("kind = %q, want ship", got.Kind)
+	if history.Task.Kind != state.KindShip || history.ActiveAttempt == nil {
+		t.Fatalf("history after promotion = %+v, want ship with active attempt", history)
 	}
-	if got.Worktree != newWt {
-		t.Fatalf("worktree = %q, want %q", got.Worktree, newWt)
+	if history.ActiveAttempt.Worktree != newWt {
+		t.Fatalf("worktree = %q, want %q", history.ActiveAttempt.Worktree, newWt)
 	}
-	if got.Herdr.TabID != "wA:tNew" || got.Herdr.PaneID != "wA:pNew" {
-		t.Fatalf("herdr = %+v, want new tab/pane", got.Herdr)
+	if history.ActiveAttempt.Herdr.TabID != "wA:tNew" || history.ActiveAttempt.Herdr.PaneID != "wA:pNew" {
+		t.Fatalf("herdr = %+v, want new tab/pane", history.ActiveAttempt.Herdr)
 	}
-	if got.Harness != harness.Codex {
-		t.Fatalf("harness = %q, want detected %q", got.Harness, harness.Codex)
+	if history.ActiveAttempt.Harness != harness.Codex {
+		t.Fatalf("harness = %q, want detected %q", history.ActiveAttempt.Harness, harness.Codex)
 	}
 }
 
@@ -144,12 +138,12 @@ func TestPromoteConfiguredHarnessWinsOverDetectedHarness(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := state.Read(home, "task-1")
+	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Harness != harness.Claude {
-		t.Fatalf("harness = %q, want configured %q", got.Harness, harness.Claude)
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Harness != harness.Claude {
+		t.Fatalf("harness = %+v, want configured %q", history.ActiveAttempt, harness.Claude)
 	}
 }
 
@@ -183,23 +177,30 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scout.DoneVerified = true
-	scout.Harness = harness.Claude
-	scout.Model = "scout-model"
-	scout.Effort = "scout-effort"
-	scout.LeaseID = "lease-old"
+	scoutAttempt, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoutAttempt.DoneVerified = true
+	scoutAttempt.Harness = harness.Claude
+	scoutAttempt.Model = "scout-model"
+	scoutAttempt.Effort = "scout-effort"
+	scoutAttempt.LeaseID = "lease-old"
 	scout.ReportOffset = 42
 	scout.ReportDigest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 	stale := time.Now().Add(-6 * time.Hour).UTC().Format(time.RFC3339)
-	scout.StatusChangedAt = stale
-	scout.StatusChangedFor = "working"
-	scout.LastReportState = state.ReportDone
-	scout.LastReportNote = "scout findings"
+	scoutAttempt.StatusChangedAt = stale
+	scoutAttempt.StatusChangedFor = "working"
+	scoutAttempt.LastReportState = state.ReportDone
+	scoutAttempt.LastReportNote = "scout findings"
 	scout.DeliveredAt = "2026-08-03T00:00:00Z"
 	scout.DeliveredReason = "report at data/task-1/report.md, no code to land"
-	scout.UsageLimitRetryAt = "2026-08-03T01:00:00Z"
-	scout.UsageLimitAttempts = 2
+	scoutAttempt.UsageLimitRetryAt = "2026-08-03T01:00:00Z"
+	scoutAttempt.UsageLimitAttempts = 2
 	if err := state.Write(home, scout); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAttempt(home, scoutAttempt); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindLimit, Reason: "out of quota"}); err != nil {
@@ -212,10 +213,14 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := state.Read(home, "task-1")
+	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if history.ActiveAttempt == nil {
+		t.Fatal("promotion has no active attempt")
+	}
+	got := history.ActiveAttempt
 	if got.DoneVerified {
 		t.Fatal("DoneVerified = true, want the scout's marker cleared for the ship run")
 	}
@@ -228,13 +233,13 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	if got.Herdr.Session != "default" || got.Herdr.WorkspaceID != "wA" || got.Herdr.TabID != "wA:tNew" || got.Herdr.PaneID != "wA:pNew" {
 		t.Fatalf("herdr = %+v, want the new ship execution identity", got.Herdr)
 	}
-	if got.ReportOffset != 42 {
-		t.Fatalf("ReportOffset = %d, want the scout's offset carried forward", got.ReportOffset)
+	if history.Task.ReportOffset != 42 {
+		t.Fatalf("ReportOffset = %d, want the scout's offset carried forward", history.Task.ReportOffset)
 	}
 	// The offset is only trusted together with the digest of what it consumed, so
 	// carrying one without the other discards it and replays the scout's history.
-	if got.ReportDigest != scout.ReportDigest {
-		t.Fatalf("ReportDigest = %q, want the scout's digest carried forward with its offset", got.ReportDigest)
+	if history.Task.ReportDigest != scout.ReportDigest {
+		t.Fatalf("ReportDigest = %q, want the scout's digest carried forward with its offset", history.Task.ReportDigest)
 	}
 	if got.StatusChangedAt == stale {
 		t.Fatal("StatusChangedAt kept the scout's transition, want the ship's dwell reseeded at promotion")
@@ -254,14 +259,27 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	}
 	// Carried forward, the mark would let teardown accept the ship task as terminal
 	// on a delivery that only ever described the scout's report.
-	if got.DeliveredAt != "" || got.DeliveredReason != "" {
-		t.Fatalf("DeliveredAt/Reason = %q/%q, want the scout's delivery cleared for the ship run", got.DeliveredAt, got.DeliveredReason)
+	if history.Task.DeliveredAt != "" || history.Task.DeliveredReason != "" {
+		t.Fatalf("DeliveredAt/Reason = %q/%q, want the scout's delivery cleared for the ship run", history.Task.DeliveredAt, history.Task.DeliveredReason)
 	}
 	// The scout's harness process is gone with its pane. Carried forward, the schedule
 	// would steer the ship's fresh pane on a clock the scout's refusal set, and the
 	// hold would refuse a spawn over quota the ship is not short of.
 	if got.UsageLimitRetryAt != "" || got.UsageLimitAttempts != 0 {
 		t.Fatalf("usage-limit columns = %q/%d, want the scout's limit schedule cleared", got.UsageLimitRetryAt, got.UsageLimitAttempts)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Attempts) != 2 || history.Attempts[0].Lifecycle != state.AttemptCompleted || history.Attempts[1].Lifecycle != state.AttemptRunning {
+		t.Fatalf("promotion attempt lineage = %+v", history.Attempts)
+	}
+	if history.Attempts[0].Harness != scoutAttempt.Harness || history.Attempts[0].Worktree != scoutAttempt.Worktree || history.Attempts[0].LeaseID != scoutAttempt.LeaseID {
+		t.Fatalf("scout attempt was overwritten: %+v", history.Attempts[0])
+	}
+	if history.Task.ReportOffset != scout.ReportOffset || history.Task.ReportDigest != scout.ReportDigest {
+		t.Fatalf("task report cursor changed during promotion: %+v", history.Task)
 	}
 	if _, found, err := state.ReadHold(home, "task-1"); err != nil || found {
 		t.Fatalf("ReadHold = %v, %v, want the scout's limit hold cleared", found, err)
@@ -409,12 +427,9 @@ func TestPromoteKeepsShipAfterScoutCleanupFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Kind != state.KindShip || got.Worktree != newWt || got.Herdr.TabID != "wA:tNew" {
-		t.Fatalf("task after scout cleanup failure = %+v, want the durably written ship execution", got)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil || history.ActiveAttempt == nil || history.Task.Kind != state.KindShip || history.ActiveAttempt.Worktree != newWt || history.ActiveAttempt.Herdr.TabID != "wA:tNew" {
+		t.Fatalf("task after scout cleanup failure = %+v, want the durably written ship execution", history)
 	}
 	if !strings.Contains(errOut.String(), "herdr tab close failed") {
 		t.Fatalf("stderr = %q, want a cleanup warning", errOut.String())

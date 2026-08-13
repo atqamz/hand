@@ -75,12 +75,7 @@ func setupPromoteHomeGate(t *testing.T, noMistakesPath string) string {
 	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.Write(home, state.Task{
-		ID:      "task-1",
-		Project: "gated",
-		Kind:    state.KindScout,
-		Herdr:   state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"},
-	}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}}); err != nil {
 		t.Fatal(err)
 	}
 

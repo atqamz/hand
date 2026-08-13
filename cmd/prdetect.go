@@ -13,8 +13,8 @@ import (
 // Looks for a PR whose head ref is t's current branch, for a task whose PR was never recorded because a
 // no-mistakes gate opened it directly instead of going through hand pr (atqamz/hand#69). Called only
 // where t.PR == "" already, so a task with a PR on record never reaches here.
-func detectPR(ctx context.Context, home string, t state.Task, proj project.Project) (state.Task, error) {
-	branch, err := currentBranch(t.Worktree)
+func detectPR(ctx context.Context, home string, t state.Task, active state.Attempt, proj project.Project) (state.Task, error) {
+	branch, err := currentBranch(active.Worktree)
 	if err != nil {
 		return t, err
 	}
@@ -59,10 +59,14 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 // unregistered or local-only project, a lock held elsewhere, an ambiguous branch, or a failed gh call all
 // just leave t as read.
 func detectPRForStatus(ctx context.Context, home string, t state.Task) state.Task {
-	// A scout task never answers for a PR - its deliverable is data/<id>/report.md - so it skips the lookup
-	// entirely, the same short-circuit checkLandedWork opens with. A forge round trip on an already-recorded
-	// PR is the only cost this can ever add, and only that task pays it once.
-	if t.PR != "" || t.Kind == state.KindScout {
+	// A scout task never answers for a PR - its deliverable is data/<id>/report.md - and a torn-down task's
+	// completion record is already written, so both skip the lookup rather than pay a forge round trip for a
+	// PR recordPR would refuse. The scout half is the short-circuit checkLandedWork opens with.
+	if t.PR != "" || t.Kind == state.KindScout || t.Lifecycle == state.TaskTerminal {
+		return t
+	}
+	active, err := state.ActiveAttempt(home, t.ID)
+	if err != nil {
 		return t
 	}
 	proj, exists, err := project.Find(home, t.Project)
@@ -91,7 +95,7 @@ func detectPRForStatus(ctx context.Context, home string, t state.Task) state.Tas
 	defer cancel()
 	// Unlike hand teardown's landed-work guard, nothing here is gated on the answer, so an ambiguous branch
 	// degrades like any other detection failure instead of refusing.
-	detected, err := detectPR(ghCtx, home, fresh, proj)
+	detected, err := detectPR(ghCtx, home, fresh, active, proj)
 	if err != nil {
 		return t
 	}

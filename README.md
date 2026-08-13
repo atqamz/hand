@@ -121,11 +121,11 @@ flowchart TD
 
 ### Ship tasks
 
-Ship tasks make changes. A worker receives its own git worktree, works independently, and produces a pull request or local branch according to the project's delivery mode.
+Ship tasks make changes. A Task is durable logical work and its worker run is an Attempt with its own disposable execution identity. A worker receives its own git worktree, works independently, and produces a pull request or local branch according to the project's delivery mode.
 
 ### Scout tasks
 
-Scout tasks investigate without being expected to ship code. They return `data/<id>/report.md`, and a completed scout can later be promoted into a ship task.
+Scout tasks investigate without being expected to ship code. They return `data/<id>/report.md`, and a completed scout can later be promoted into a ship task. Promotion preserves the scout Attempt and starts a new ship Attempt.
 
 ## What `hand` manages
 
@@ -363,12 +363,13 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand project add` | Register a repository with the fleet. |
 | `hand project set-url <name> <repo-url>` | Recover a registered project after a repository rename or transfer while preserving its local identity and task history. |
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
+| `hand reopen <id>` | Reopen a terminal Task by creating a new Attempt. |
 | `hand status` | Read fleet or task state. |
 | `hand watch` | Wait for actionable fleet events. |
 | `hand send` | Steer a running worker. |
 | `hand merge` | Merge completed work after authorization. |
 | `hand deliver` | Mark work as handed off when landing is someone else's decision. |
-| `hand teardown` | Clean up a completed task safely. |
+| `hand teardown` | Clean up a completed task safely while preserving Task and Attempt history. |
 
 Other commands cover session bootstrap, configuration, project sync and upstreams, holds, scout promotion, search, notifications, diagnostics, PR recording, and self-update.
 

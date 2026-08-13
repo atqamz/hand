@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -53,9 +54,16 @@ func newMergeCmd() *cobra.Command {
 			if t.MergeExecuted {
 				return &ExitError{Err: fmt.Errorf("task %s already merged", t.ID), Code: 3}
 			}
+			active, err := state.ActiveAttempt(home, id)
+			if err != nil {
+				if errors.Is(err, state.ErrNoActiveAttempt) {
+					return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+				}
+				return fmt.Errorf("read active attempt for task %q: %w", id, err)
+			}
 
 			if local {
-				return runLocalMerge(cmd, home, t)
+				return runLocalMerge(cmd, home, t, active)
 			}
 			return runPRMerge(cmd, home, t, method)
 		},
@@ -119,7 +127,7 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 
 	t.MergeExecuted = true
 	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}
 
@@ -149,16 +157,17 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 	return doc.Render(cmd.OutOrStdout())
 }
 
-func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
-	dirty, err := hasUncommittedChanges(t.Worktree)
+func runLocalMerge(cmd *cobra.Command, home string, t state.Task, active state.Attempt) error {
+	worktree := active.Worktree
+	dirty, err := hasUncommittedChanges(worktree)
 	if err != nil {
 		return err
 	}
 	if dirty {
-		return &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", t.Worktree), Code: 3}
+		return &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", worktree), Code: 3}
 	}
 
-	branch, err := currentBranch(t.Worktree)
+	branch, err := currentBranch(worktree)
 	if err != nil {
 		return err
 	}
@@ -189,7 +198,7 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
 
 	t.MergeExecuted = true
 	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}
 

@@ -35,11 +35,9 @@ func TestTeardownRefusesAnAbortedWorktreeReturn(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{ID: "scout-1", Project: "demo", Kind: state.KindScout,
-		Worktree: worktree, CreatedAt: now,
-		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "scout-1", Project: "demo", Kind: state.KindScout,
+		CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}})
 
 	dir := binDir(t)
 	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
@@ -66,8 +64,8 @@ func TestTeardownRefusesAnAbortedWorktreeReturn(t *testing.T) {
 	if forced.code != 0 {
 		t.Fatalf("teardown --force: exit %d, stderr %q", forced.code, forced.stderr)
 	}
-	if exists, err := state.Exists(home, "scout-1"); err != nil || exists {
-		t.Fatalf("state.Exists after the forced teardown = %v, %v, want the row removed", exists, err)
+	if exists, err := state.Exists(home, "scout-1"); err != nil || !exists {
+		t.Fatalf("state.Exists after the forced teardown = %v, %v, want the row preserved", exists, err)
 	}
 	if err := exec.Command("treehouse", "get", "--lease", "--json").Run(); err != nil {
 		t.Fatalf("pool still refuses a lease after the forced return: %v", err)

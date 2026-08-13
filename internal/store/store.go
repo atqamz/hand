@@ -30,8 +30,10 @@ const (
 	HoldKindLimit = "limit"
 )
 
-// Wrapped by DeleteTask, rendered by callers as `task "<id>" not found`.
+// Wrapped by task readers, rendered by callers as `task "<id>" not found`.
 var ErrTaskNotFound = errors.New("not found")
+
+var ErrInvalidTransition = errors.New("invalid lifecycle transition")
 
 // Wrapped by ClearHold, rendered by callers as `hold "<id>" not found`.
 var ErrHoldNotFound = errors.New("not found")
@@ -47,76 +49,70 @@ type Herdr struct {
 	PaneID      string `json:"pane_id"`
 }
 
+type TaskLifecycle string
+
+const (
+	TaskOpen     TaskLifecycle = "open"
+	TaskTerminal TaskLifecycle = "terminal"
+)
+
+type AttemptLifecycle string
+
+const (
+	AttemptProvisioning AttemptLifecycle = "provisioning"
+	AttemptRunning      AttemptLifecycle = "running"
+	AttemptCompleted    AttemptLifecycle = "completed"
+	AttemptFailed       AttemptLifecycle = "failed"
+	AttemptInterrupted  AttemptLifecycle = "interrupted"
+)
+
 type Task struct {
-	ID       string `json:"id"`
-	Project  string `json:"project"`
-	Kind     string `json:"kind"`
-	Harness  string `json:"harness"`
-	Model    string `json:"model"`
-	Effort   string `json:"effort"`
-	Worktree string `json:"worktree"`
-	Brief    string `json:"brief"`
-	Herdr    Herdr  `json:"herdr"`
-	PR       string `json:"pr"`
-	// hand itself ran the merge, not that the PR is merged: one merged by other
-	// means leaves this false and is what MergeAnnounced records instead.
-	MergeExecuted   bool   `json:"merged"`
-	MergeExecutedAt string `json:"merged_at"`
-	// Durable so a watcher restart resumes exactly where it stopped instead of replaying every line
-	// the previous run already surfaced.
-	ReportOffset int64 `json:"report_offset"`
-	// Fingerprints the bytes ReportOffset has consumed, because the offset alone cannot tell a report
-	// file rewritten in place from one nothing was appended to when the rewrite kept its length; see
-	// state.ReportCursor, the pair these two columns store. Empty before the column, or before a report.
-	ReportDigest string `json:"report_digest"`
-	// A merge hand observed rather than performed. Distinct from MergeExecuted:
-	// a restarted watcher needs to know the announcement went out even when
-	// hand itself never ran the merge.
-	MergeAnnounced bool `json:"pr_merged_observed"`
-	// Durable for the same reason MergeAnnounced is: evidence can land while the
-	// watcher is down, and a restart that re-derived this from current evidence
-	// would conclude the line had already gone out and never print it.
-	DoneVerified bool   `json:"done_verified"`
-	CreatedAt    string `json:"created_at"`
-	// Durable because a dwell clock reseeded to "now" on every restart never
-	// accumulates past a threshold. Trustworthy only while StatusChangedFor
-	// still matches the observed status; empty seeds the dwell from CreatedAt.
-	StatusChangedAt  string `json:"status_changed_at"`
-	StatusChangedFor string `json:"status_changed_for"`
-	// Durable so a restart resumes the scout's deferred-done bookkeeping without
-	// re-reading report history it has already consumed past ReportOffset.
-	LastReportState string `json:"last_report_state"`
-	LastReportNote  string `json:"last_report_note"`
-	// Durable so a send with no evidence it reached the pane - a composer busy past the
-	// --wait bound, a failed send, a failed submit - leaves a trace instead of vanishing
-	// with the process that tried it. Cleared by the next send that does reach the pane.
-	SendUndeliveredMessage string `json:"send_undelivered_message"`
-	SendUndeliveredAt      string `json:"send_undelivered_at"`
-	// treehouse mints a fresh identity per acquisition, so unlike Worktree, whose pool slot
-	// path is recycled, this names the one lease this task holds. Empty on a row older than
-	// the column or from a treehouse predating lease identities (worktree.CheckCollision).
-	LeaseID string `json:"lease_id"`
-	// Set when landing the work belongs outside the fleet - an upstream maintainer, or a
-	// deliverable that is a report, not a commit. Terminal without MergeExecuted's claim that
-	// it landed (atqamz/hand#78). Reason required, so the record says what and to whom.
-	DeliveredAt     string `json:"delivered_at"`
-	DeliveredReason string `json:"delivered_reason"`
-	// When this task's pane began, written by spawn and restamped by hand promote. Unlike
-	// StatusChangedAt, which the outage-dwell clock restamps for an unreachable pane, one field
-	// cannot mean both pane-start and last-observed transition (atqamz/hand#128).
-	PaneStartedAt string `json:"pane_started_at"`
-	// The silence instant hand watch last fired `parked` against. Durable: a terminal task's
-	// report file never grows, so a re-derived latch would re-fire that frozen instant every
-	// restart and evict real history from events.log (atqamz/hand#127).
-	ParkedFiredFor string `json:"parked_fired_for"`
-	// The earliest instant hand watch may next try to resume a worker its harness stopped on a usage
-	// limit. Non-empty is what makes a task limited; the `limit` hold is the operator-visible
-	// projection of it.
-	UsageLimitRetryAt string `json:"usage_limit_retry_at"`
-	// How many such attempts have been made. Both are durable because a re-derived schedule lets every
-	// watcher restart attempt immediately against an account still limited - the retry storm this is
-	// bounded to avoid - and a restart that forgot it never resumes at all (atqamz/hand#136).
-	UsageLimitAttempts int `json:"usage_limit_attempts"`
+	ID              string        `json:"id"`
+	Project         string        `json:"project"`
+	Kind            string        `json:"kind"`
+	Brief           string        `json:"brief"`
+	Lifecycle       TaskLifecycle `json:"lifecycle"`
+	ActiveAttemptID int64         `json:"active_attempt_id"`
+	PR              string        `json:"pr"`
+	MergeExecuted   bool          `json:"merged"`
+	MergeExecutedAt string        `json:"merged_at"`
+	ReportOffset    int64         `json:"report_offset"`
+	ReportDigest    string        `json:"report_digest"`
+	MergeAnnounced  bool          `json:"pr_merged_observed"`
+	DeliveredAt     string        `json:"delivered_at"`
+	DeliveredReason string        `json:"delivered_reason"`
+	CreatedAt       string        `json:"created_at"`
+}
+
+type Attempt struct {
+	ID                     int64            `json:"id"`
+	TaskID                 string           `json:"task_id"`
+	Ordinal                int              `json:"ordinal"`
+	Lifecycle              AttemptLifecycle `json:"lifecycle"`
+	Harness                string           `json:"harness"`
+	Model                  string           `json:"model"`
+	Effort                 string           `json:"effort"`
+	Worktree               string           `json:"worktree"`
+	LeaseID                string           `json:"lease_id"`
+	Herdr                  Herdr            `json:"herdr"`
+	CreatedAt              string           `json:"created_at"`
+	PaneStartedAt          string           `json:"pane_started_at"`
+	StatusChangedAt        string           `json:"status_changed_at"`
+	StatusChangedFor       string           `json:"status_changed_for"`
+	DoneVerified           bool             `json:"done_verified"`
+	LastReportState        string           `json:"last_report_state"`
+	LastReportNote         string           `json:"last_report_note"`
+	SendUndeliveredMessage string           `json:"send_undelivered_message"`
+	SendUndeliveredAt      string           `json:"send_undelivered_at"`
+	ParkedFiredFor         string           `json:"parked_fired_for"`
+	UsageLimitRetryAt      string           `json:"usage_limit_retry_at"`
+	UsageLimitAttempts     int              `json:"usage_limit_attempts"`
+}
+
+type TaskHistory struct {
+	Task          Task      `json:"task"`
+	ActiveAttempt *Attempt  `json:"active_attempt,omitempty"`
+	Attempts      []Attempt `json:"attempts"`
 }
 
 // Upstream is the "owner/repo" a fork project opens its PRs against, empty when it contributes to
@@ -130,8 +126,8 @@ type Project struct {
 }
 
 // Hold is its own row keyed by an arbitrary id, not a foreign key into task: it exists for a
-// question left open by work whose task row hand teardown already removed. BlockedOn carries
-// the id a HoldKindBlocked hold waits on, empty for HoldKindOperator.
+// question left open by work hand teardown already terminalized, or by no task at all. BlockedOn
+// carries the id a HoldKindBlocked hold waits on, empty for HoldKindOperator.
 type Hold struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
@@ -160,40 +156,53 @@ type DB struct {
 // schemaversion.go, or no database that already exists ever gains it.
 const schema = `
 CREATE TABLE IF NOT EXISTS task (
-	id                 TEXT PRIMARY KEY,
-	project            TEXT NOT NULL DEFAULT '',
-	kind               TEXT NOT NULL DEFAULT '',
-	harness            TEXT NOT NULL DEFAULT '',
-	model              TEXT NOT NULL DEFAULT '',
-	effort             TEXT NOT NULL DEFAULT '',
-	worktree           TEXT NOT NULL DEFAULT '',
-	brief              TEXT NOT NULL DEFAULT '',
-	herdr_session      TEXT NOT NULL DEFAULT '',
-	herdr_workspace_id TEXT NOT NULL DEFAULT '',
-	herdr_tab_id       TEXT NOT NULL DEFAULT '',
-	herdr_pane_id      TEXT NOT NULL DEFAULT '',
-	pr                 TEXT NOT NULL DEFAULT '',
-	merge_executed     INTEGER NOT NULL DEFAULT 0,
-	merge_executed_at  TEXT NOT NULL DEFAULT '',
-	report_offset      INTEGER NOT NULL DEFAULT 0,
-	merge_announced    INTEGER NOT NULL DEFAULT 0,
-	done_verified      INTEGER NOT NULL DEFAULT 0,
-	created_at         TEXT NOT NULL DEFAULT '',
-	status_changed_at  TEXT NOT NULL DEFAULT '',
-	status_changed_for TEXT NOT NULL DEFAULT '',
-	last_report_state  TEXT NOT NULL DEFAULT '',
-	last_report_note   TEXT NOT NULL DEFAULT '',
+	id                TEXT PRIMARY KEY,
+	project           TEXT NOT NULL DEFAULT '',
+	kind              TEXT NOT NULL DEFAULT '',
+	brief             TEXT NOT NULL DEFAULT '',
+	lifecycle         TEXT NOT NULL DEFAULT 'open' CHECK (lifecycle IN ('open', 'terminal')),
+	active_attempt_id INTEGER REFERENCES attempt(id),
+	pr                TEXT NOT NULL DEFAULT '',
+	merge_executed    INTEGER NOT NULL DEFAULT 0,
+	merge_executed_at TEXT NOT NULL DEFAULT '',
+	merge_announced   INTEGER NOT NULL DEFAULT 0,
+	delivered_at      TEXT NOT NULL DEFAULT '',
+	delivered_reason  TEXT NOT NULL DEFAULT '',
+	report_offset     INTEGER NOT NULL DEFAULT 0,
+	report_digest     TEXT NOT NULL DEFAULT '',
+	created_at        TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS attempt (
+	id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+	task_id                TEXT NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+	ordinal                INTEGER NOT NULL,
+	lifecycle              TEXT NOT NULL CHECK (lifecycle IN ('provisioning', 'running', 'completed', 'failed', 'interrupted')),
+	harness                TEXT NOT NULL DEFAULT '',
+	model                  TEXT NOT NULL DEFAULT '',
+	effort                 TEXT NOT NULL DEFAULT '',
+	worktree               TEXT NOT NULL DEFAULT '',
+	lease_id               TEXT NOT NULL DEFAULT '',
+	herdr_session          TEXT NOT NULL DEFAULT '',
+	herdr_workspace_id    TEXT NOT NULL DEFAULT '',
+	herdr_tab_id           TEXT NOT NULL DEFAULT '',
+	herdr_pane_id          TEXT NOT NULL DEFAULT '',
+	created_at             TEXT NOT NULL DEFAULT '',
+	pane_started_at        TEXT NOT NULL DEFAULT '',
+	status_changed_at      TEXT NOT NULL DEFAULT '',
+	status_changed_for     TEXT NOT NULL DEFAULT '',
+	done_verified          INTEGER NOT NULL DEFAULT 0,
+	last_report_state      TEXT NOT NULL DEFAULT '',
+	last_report_note       TEXT NOT NULL DEFAULT '',
 	send_undelivered_message TEXT NOT NULL DEFAULT '',
 	send_undelivered_at      TEXT NOT NULL DEFAULT '',
-	lease_id                 TEXT NOT NULL DEFAULT '',
-	delivered_at             TEXT NOT NULL DEFAULT '',
-	delivered_reason         TEXT NOT NULL DEFAULT '',
-	pane_started_at          TEXT NOT NULL DEFAULT '',
-	parked_fired_for         TEXT NOT NULL DEFAULT '',
-	report_digest            TEXT NOT NULL DEFAULT '',
-	usage_limit_retry_at     TEXT NOT NULL DEFAULT '',
-	usage_limit_attempts     INTEGER NOT NULL DEFAULT 0
+	parked_fired_for       TEXT NOT NULL DEFAULT '',
+	usage_limit_retry_at   TEXT NOT NULL DEFAULT '',
+	usage_limit_attempts   INTEGER NOT NULL DEFAULT 0,
+	UNIQUE (task_id, ordinal)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS attempt_one_active
+ON attempt(task_id)
+WHERE lifecycle IN ('provisioning', 'running');
 CREATE TABLE IF NOT EXISTS project (
 	name     TEXT PRIMARY KEY,
 	url      TEXT NOT NULL,
@@ -306,61 +315,69 @@ func (db *DB) setMeta(key, value string) error {
 	return nil
 }
 
-// The one list of the task table's columns. Everything a write needs is derived from it -
-// the column list, the placeholders, the upsert's SET clause - so adding a column to
-// `schema` and to taskValues below cannot reach one writer and silently miss another.
 var taskColumnNames = []string{
-	"id", "project", "kind", "harness", "model", "effort", "worktree", "brief",
-	"herdr_session", "herdr_workspace_id", "herdr_tab_id", "herdr_pane_id", "pr",
-	"merge_executed", "merge_executed_at", "report_offset", "merge_announced", "done_verified",
-	"created_at", "status_changed_at", "status_changed_for", "last_report_state", "last_report_note",
-	"send_undelivered_message", "send_undelivered_at", "lease_id",
-	"delivered_at", "delivered_reason",
-	"pane_started_at", "parked_fired_for", "report_digest",
-	"usage_limit_retry_at", "usage_limit_attempts",
+	"id", "project", "kind", "brief", "lifecycle", "active_attempt_id", "pr",
+	"merge_executed", "merge_executed_at", "merge_announced", "delivered_at", "delivered_reason",
+	"report_offset", "report_digest", "created_at",
 }
 
-var (
-	taskColumns      = strings.Join(taskColumnNames, ", ")
-	taskPlaceholders = strings.TrimSuffix(strings.Repeat("?, ", len(taskColumnNames)), ", ")
-	taskUpsertSet    = taskExcludedAssignments()
-)
+var taskColumns = strings.Join(taskColumnNames, ", ")
 
-// Builds the upsert's SET clause for every column but the primary key, which is what the
-// conflict matched on.
-func taskExcludedAssignments() string {
-	assignments := make([]string, 0, len(taskColumnNames)-1)
-	for _, name := range taskColumnNames[1:] {
-		assignments = append(assignments, name+" = excluded."+name)
-	}
-	return strings.Join(assignments, ", ")
+var attemptColumnNames = []string{
+	"id", "task_id", "ordinal", "lifecycle", "harness", "model", "effort", "worktree", "lease_id",
+	"herdr_session", "herdr_workspace_id", "herdr_tab_id", "herdr_pane_id", "created_at", "pane_started_at",
+	"status_changed_at", "status_changed_for", "done_verified", "last_report_state", "last_report_note",
+	"send_undelivered_message", "send_undelivered_at", "parked_fired_for", "usage_limit_retry_at", "usage_limit_attempts",
 }
 
-// One task's columns in taskColumnNames order.
+var attemptColumns = strings.Join(attemptColumnNames, ", ")
+
+func placeholders(count int) string {
+	return strings.TrimSuffix(strings.Repeat("?, ", count), ", ")
+}
+
 func taskValues(t Task) []any {
-	return []any{
-		t.ID, t.Project, t.Kind, t.Harness, t.Model, t.Effort, t.Worktree, t.Brief,
-		t.Herdr.Session, t.Herdr.WorkspaceID, t.Herdr.TabID, t.Herdr.PaneID, t.PR,
-		t.MergeExecuted, t.MergeExecutedAt, t.ReportOffset, t.MergeAnnounced, t.DoneVerified,
-		t.CreatedAt, t.StatusChangedAt, t.StatusChangedFor, t.LastReportState, t.LastReportNote,
-		t.SendUndeliveredMessage, t.SendUndeliveredAt, t.LeaseID,
-		t.DeliveredAt, t.DeliveredReason,
-		t.PaneStartedAt, t.ParkedFiredFor, t.ReportDigest,
-		t.UsageLimitRetryAt, t.UsageLimitAttempts,
+	return []any{t.ID, t.Project, t.Kind, t.Brief, t.Lifecycle, nullableAttemptID(t.ActiveAttemptID), t.PR,
+		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
+		t.ReportOffset, t.ReportDigest, t.CreatedAt}
+}
+
+func nullableAttemptID(id int64) any {
+	if id == 0 {
+		return nil
 	}
+	return id
 }
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
-	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Harness, &t.Model, &t.Effort, &t.Worktree, &t.Brief,
-		&t.Herdr.Session, &t.Herdr.WorkspaceID, &t.Herdr.TabID, &t.Herdr.PaneID, &t.PR,
-		&t.MergeExecuted, &t.MergeExecutedAt, &t.ReportOffset, &t.MergeAnnounced, &t.DoneVerified,
-		&t.CreatedAt, &t.StatusChangedAt, &t.StatusChangedFor, &t.LastReportState, &t.LastReportNote,
-		&t.SendUndeliveredMessage, &t.SendUndeliveredAt, &t.LeaseID,
-		&t.DeliveredAt, &t.DeliveredReason,
-		&t.PaneStartedAt, &t.ParkedFiredFor, &t.ReportDigest,
-		&t.UsageLimitRetryAt, &t.UsageLimitAttempts)
+	var activeID sql.NullInt64
+	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
+		&t.MergeExecuted, &t.MergeExecutedAt, &t.MergeAnnounced, &t.DeliveredAt, &t.DeliveredReason,
+		&t.ReportOffset, &t.ReportDigest, &t.CreatedAt)
+	if activeID.Valid {
+		t.ActiveAttemptID = activeID.Int64
+	}
+	if t.Lifecycle == "" {
+		t.Lifecycle = TaskOpen
+	}
 	return t, err
+}
+
+func attemptValues(a Attempt) []any {
+	return []any{a.ID, a.TaskID, a.Ordinal, a.Lifecycle, a.Harness, a.Model, a.Effort, a.Worktree, a.LeaseID,
+		a.Herdr.Session, a.Herdr.WorkspaceID, a.Herdr.TabID, a.Herdr.PaneID, a.CreatedAt, a.PaneStartedAt,
+		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
+		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts}
+}
+
+func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
+	var a Attempt
+	err := row.Scan(&a.ID, &a.TaskID, &a.Ordinal, &a.Lifecycle, &a.Harness, &a.Model, &a.Effort, &a.Worktree, &a.LeaseID,
+		&a.Herdr.Session, &a.Herdr.WorkspaceID, &a.Herdr.TabID, &a.Herdr.PaneID, &a.CreatedAt, &a.PaneStartedAt,
+		&a.StatusChangedAt, &a.StatusChangedFor, &a.DoneVerified, &a.LastReportState, &a.LastReportNote,
+		&a.SendUndeliveredMessage, &a.SendUndeliveredAt, &a.ParkedFiredFor, &a.UsageLimitRetryAt, &a.UsageLimitAttempts)
+	return a, err
 }
 
 func (db *DB) ReadTask(id string) (Task, bool, error) {
@@ -375,13 +392,26 @@ func (db *DB) ReadTask(id string) (Task, bool, error) {
 	return t, true, nil
 }
 
-func (db *DB) WriteTask(t Task) error {
-	_, err := db.sql.Exec(`INSERT INTO task (`+taskColumns+`)
-		VALUES (`+taskPlaceholders+`)
-		ON CONFLICT(id) DO UPDATE SET `+taskUpsertSet,
-		taskValues(t)...)
+func (db *DB) CreateTask(t Task) error {
+	if t.Lifecycle == "" {
+		t.Lifecycle = TaskOpen
+	}
+	_, err := db.sql.Exec(`INSERT INTO task (`+taskColumns+`) VALUES (`+placeholders(len(taskColumnNames))+`)`, taskValues(t)...)
 	if err != nil {
-		return fmt.Errorf("write task %q: %w", t.ID, err)
+		return fmt.Errorf("create task %q: %w", t.ID, err)
+	}
+	return nil
+}
+
+func (db *DB) UpdateTask(t Task) error {
+	_, err := db.sql.Exec(`UPDATE task SET project = ?, kind = ?, brief = ?,
+		pr = ?, merge_executed = ?, merge_executed_at = ?, merge_announced = ?, delivered_at = ?, delivered_reason = ?,
+		report_offset = ?, report_digest = ?, created_at = ? WHERE id = ?`,
+		t.Project, t.Kind, t.Brief, t.PR,
+		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
+		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.ID)
+	if err != nil {
+		return fmt.Errorf("update task %q: %w", t.ID, err)
 	}
 	return nil
 }
@@ -405,6 +435,291 @@ func (db *DB) ListTasks() ([]Task, error) {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
 	return tasks, nil
+}
+
+func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
+	task, found, err := db.ReadTask(id)
+	if err != nil || !found {
+		return TaskHistory{}, found, err
+	}
+	attempts, err := db.ListAttempts(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
+	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list open tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list open tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list open tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.ListAttempts(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("task %q active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
+}
+
+func (db *DB) CreateAttempt(a Attempt) (Attempt, error) {
+	if a.Lifecycle == "" {
+		a.Lifecycle = AttemptProvisioning
+	}
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return Attempt{}, fmt.Errorf("begin attempt creation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var lifecycle TaskLifecycle
+	if err := tx.QueryRow(`SELECT lifecycle FROM task WHERE id = ?`, a.TaskID).Scan(&lifecycle); errors.Is(err, sql.ErrNoRows) {
+		return Attempt{}, fmt.Errorf("task %q %w", a.TaskID, ErrTaskNotFound)
+	} else if err != nil {
+		return Attempt{}, fmt.Errorf("read task %q for attempt: %w", a.TaskID, err)
+	} else if lifecycle != TaskOpen {
+		return Attempt{}, fmt.Errorf("task %q is terminal", a.TaskID)
+	}
+	if a.Ordinal == 0 {
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(ordinal), 0) + 1 FROM attempt WHERE task_id = ?`, a.TaskID).Scan(&a.Ordinal); err != nil {
+			return Attempt{}, fmt.Errorf("next attempt ordinal for task %q: %w", a.TaskID, err)
+		}
+	}
+	args := attemptValues(a)
+	if a.ID == 0 {
+		args = args[1:]
+		query := `INSERT INTO attempt (` + strings.Join(attemptColumnNames[1:], ", ") + `) VALUES (` + placeholders(len(attemptColumnNames)-1) + `)`
+		result, err := tx.Exec(query, args...)
+		if err != nil {
+			return Attempt{}, fmt.Errorf("create attempt for task %q: %w", a.TaskID, err)
+		}
+		a.ID, err = result.LastInsertId()
+		if err != nil {
+			return Attempt{}, fmt.Errorf("read new attempt ID: %w", err)
+		}
+	} else if _, err := tx.Exec(`INSERT INTO attempt (`+attemptColumns+`) VALUES (`+placeholders(len(attemptColumnNames))+`)`, args...); err != nil {
+		return Attempt{}, fmt.Errorf("create attempt %d: %w", a.ID, err)
+	}
+	if isActiveAttempt(a.Lifecycle) {
+		if _, err := tx.Exec(`UPDATE task SET active_attempt_id = ? WHERE id = ?`, a.ID, a.TaskID); err != nil {
+			return Attempt{}, fmt.Errorf("set active attempt %d: %w", a.ID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Attempt{}, fmt.Errorf("create attempt for task %q: %w", a.TaskID, err)
+	}
+	return a, nil
+}
+
+func (db *DB) ReadAttempt(id int64) (Attempt, bool, error) {
+	row := db.sql.QueryRow(`SELECT `+attemptColumns+` FROM attempt WHERE id = ?`, id)
+	a, err := scanAttempt(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Attempt{}, false, nil
+	}
+	if err != nil {
+		return Attempt{}, false, fmt.Errorf("read attempt %d: %w", id, err)
+	}
+	return a, true, nil
+}
+
+func (db *DB) ListAttempts(taskID string) ([]Attempt, error) {
+	rows, err := db.sql.Query(`SELECT `+attemptColumns+` FROM attempt WHERE task_id = ? ORDER BY ordinal`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list attempts for task %q: %w", taskID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var attempts []Attempt
+	for rows.Next() {
+		a, err := scanAttempt(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list attempts for task %q: %w", taskID, err)
+		}
+		attempts = append(attempts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list attempts for task %q: %w", taskID, err)
+	}
+	return attempts, nil
+}
+
+func (db *DB) UpdateAttempt(a Attempt) error {
+	_, err := db.sql.Exec(`UPDATE attempt SET task_id = ?, ordinal = ?, lifecycle = ?, harness = ?, model = ?, effort = ?,
+		worktree = ?, lease_id = ?, herdr_session = ?, herdr_workspace_id = ?, herdr_tab_id = ?, herdr_pane_id = ?,
+		created_at = ?, pane_started_at = ?, status_changed_at = ?, status_changed_for = ?, done_verified = ?,
+		last_report_state = ?, last_report_note = ?, send_undelivered_message = ?, send_undelivered_at = ?,
+		parked_fired_for = ?, usage_limit_retry_at = ?, usage_limit_attempts = ? WHERE id = ?`,
+		a.TaskID, a.Ordinal, a.Lifecycle, a.Harness, a.Model, a.Effort, a.Worktree, a.LeaseID,
+		a.Herdr.Session, a.Herdr.WorkspaceID, a.Herdr.TabID, a.Herdr.PaneID, a.CreatedAt, a.PaneStartedAt,
+		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
+		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts, a.ID)
+	if err != nil {
+		return fmt.Errorf("update attempt %d: %w", a.ID, err)
+	}
+	return nil
+}
+
+func (db *DB) TransitionAttempt(id int64, from, to AttemptLifecycle) error {
+	if !validAttemptTransition(from, to) {
+		return fmt.Errorf("%w: attempt %s -> %s", ErrInvalidTransition, from, to)
+	}
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return fmt.Errorf("begin attempt transition: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var current AttemptLifecycle
+	var taskID string
+	if err := tx.QueryRow(`SELECT task_id, lifecycle FROM attempt WHERE id = ?`, id).Scan(&taskID, &current); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("attempt %d %w", id, ErrTaskNotFound)
+	} else if err != nil {
+		return fmt.Errorf("read attempt %d: %w", id, err)
+	}
+	if current != from || !validAttemptTransition(current, to) {
+		return fmt.Errorf("%w: attempt %s -> %s", ErrInvalidTransition, current, to)
+	}
+	if _, err := tx.Exec(`UPDATE attempt SET lifecycle = ? WHERE id = ?`, to, id); err != nil {
+		return fmt.Errorf("transition attempt %d: %w", id, err)
+	}
+	if isActiveAttempt(to) {
+		if _, err := tx.Exec(`UPDATE task SET active_attempt_id = ? WHERE id = ?`, id, taskID); err != nil {
+			return fmt.Errorf("set active attempt %d: %w", id, err)
+		}
+	} else if _, err := tx.Exec(`UPDATE task SET active_attempt_id = NULL WHERE id = ? AND active_attempt_id = ?`, taskID, id); err != nil {
+		return fmt.Errorf("clear active attempt %d: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("transition attempt %d: %w", id, err)
+	}
+	return nil
+}
+
+func (db *DB) SetActiveAttempt(taskID string, attemptID int64) error {
+	a, found, err := db.ReadAttempt(attemptID)
+	if err != nil {
+		return err
+	}
+	if !found || a.TaskID != taskID || !isActiveAttempt(a.Lifecycle) {
+		return fmt.Errorf("%w: attempt %d cannot be active", ErrInvalidTransition, attemptID)
+	}
+	_, err = db.sql.Exec(`UPDATE task SET active_attempt_id = ? WHERE id = ? AND lifecycle = 'open'`, attemptID, taskID)
+	if err != nil {
+		return fmt.Errorf("set active attempt %d: %w", attemptID, err)
+	}
+	return nil
+}
+
+func (db *DB) TransitionTask(id string, from, to TaskLifecycle) error {
+	if !validTaskTransition(from, to) {
+		return fmt.Errorf("%w: task %s -> %s", ErrInvalidTransition, from, to)
+	}
+	task, found, err := db.ReadTask(id)
+	if err != nil {
+		return err
+	}
+	if !found || task.Lifecycle != from {
+		return fmt.Errorf("%w: task %s -> %s", ErrInvalidTransition, task.Lifecycle, to)
+	}
+	if to == TaskTerminal && task.ActiveAttemptID != 0 {
+		return fmt.Errorf("%w: task has active attempt", ErrInvalidTransition)
+	}
+	_, err = db.sql.Exec(`UPDATE task SET lifecycle = ?, active_attempt_id = CASE WHEN ? = 'terminal' THEN NULL ELSE active_attempt_id END WHERE id = ?`, to, to, id)
+	if err != nil {
+		return fmt.Errorf("transition task %q: %w", id, err)
+	}
+	return nil
+}
+
+func validTaskTransition(from, to TaskLifecycle) bool {
+	return from == TaskOpen && to == TaskTerminal
+}
+
+func (db *DB) ReopenTask(taskID string, a Attempt) (Attempt, error) {
+	if !isActiveAttempt(a.Lifecycle) {
+		return Attempt{}, fmt.Errorf("%w: task reopen requires an active attempt", ErrInvalidTransition)
+	}
+	a.TaskID = taskID
+	a.ID = 0
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return Attempt{}, fmt.Errorf("begin task reopen: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var lifecycle TaskLifecycle
+	if err := tx.QueryRow(`SELECT lifecycle FROM task WHERE id = ?`, taskID).Scan(&lifecycle); errors.Is(err, sql.ErrNoRows) {
+		return Attempt{}, fmt.Errorf("task %q %w", taskID, ErrTaskNotFound)
+	} else if err != nil {
+		return Attempt{}, fmt.Errorf("read task %q for reopen: %w", taskID, err)
+	} else if lifecycle != TaskTerminal {
+		return Attempt{}, fmt.Errorf("%w: task %s -> open", ErrInvalidTransition, lifecycle)
+	}
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(ordinal), 0) + 1 FROM attempt WHERE task_id = ?`, taskID).Scan(&a.Ordinal); err != nil {
+		return Attempt{}, fmt.Errorf("next attempt ordinal for task %q: %w", taskID, err)
+	}
+	args := attemptValues(a)[1:]
+	query := `INSERT INTO attempt (` + strings.Join(attemptColumnNames[1:], ", ") + `) VALUES (` + placeholders(len(attemptColumnNames)-1) + `)`
+	result, err := tx.Exec(query, args...)
+	if err != nil {
+		return Attempt{}, fmt.Errorf("create reopened attempt for task %q: %w", taskID, err)
+	}
+	a.ID, err = result.LastInsertId()
+	if err != nil {
+		return Attempt{}, fmt.Errorf("read reopened attempt ID: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE task SET lifecycle = 'open', active_attempt_id = ? WHERE id = ? AND lifecycle = 'terminal'`, a.ID, taskID); err != nil {
+		return Attempt{}, fmt.Errorf("reopen task %q: %w", taskID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Attempt{}, fmt.Errorf("reopen task %q: %w", taskID, err)
+	}
+	return a, nil
+}
+
+func validAttemptTransition(from, to AttemptLifecycle) bool {
+	switch from {
+	case AttemptProvisioning:
+		return to == AttemptRunning || to == AttemptFailed || to == AttemptInterrupted
+	case AttemptRunning:
+		return to == AttemptCompleted || to == AttemptFailed || to == AttemptInterrupted
+	default:
+		return false
+	}
+}
+
+func isActiveAttempt(lifecycle AttemptLifecycle) bool {
+	return lifecycle == AttemptProvisioning || lifecycle == AttemptRunning
 }
 
 func (db *DB) TaskExists(id string) (bool, error) {

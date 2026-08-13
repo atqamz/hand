@@ -4,7 +4,30 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/atqamz/hand/internal/state"
 )
+
+func writeTaskAttempt(t *testing.T, home string, task state.Task, attempt state.Attempt) error {
+	t.Helper()
+	if err := state.CreateTask(home, task); err != nil {
+		t.Fatal(err)
+	}
+	attempt.TaskID = task.ID
+	if _, err := state.CreateAttempt(home, attempt); err != nil {
+		t.Fatal(err)
+	}
+	return nil
+}
+
+func readTaskAttempt(t *testing.T, home, id string) state.Attempt {
+	t.Helper()
+	attempt, err := state.ActiveAttempt(home, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return attempt
+}
 
 func TestMain(m *testing.M) {
 	for _, tc := range []struct {

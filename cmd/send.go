@@ -68,24 +68,33 @@ func newSendCmd() *cobra.Command {
 			}
 			defer release()
 
-			t, err := state.Read(home, id)
+			active, err := state.ActiveAttempt(home, id)
 			if err != nil {
-				return asPrecondition(err)
+				if errors.Is(err, state.ErrTaskNotFound) {
+					return asPrecondition(err)
+				}
+				if errors.Is(err, state.ErrNoActiveAttempt) {
+					return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+				}
+				return fmt.Errorf("read active attempt for task %q: %w", id, err)
+			}
+			if active.Lifecycle != state.AttemptProvisioning && active.Lifecycle != state.AttemptRunning {
+				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
 			}
 
 			client := herdr.NewClient()
-			pane, err := client.PaneGet(t.Herdr.PaneID)
+			pane, err := client.PaneGet(active.Herdr.PaneID)
 			if err != nil {
-				return fmt.Errorf("herdr pane %s not found: %w", t.Herdr.PaneID, err)
+				return fmt.Errorf("herdr pane %s not found: %w", active.Herdr.PaneID, err)
 			}
 
 			if pane.AgentStatus == herdr.StatusWorking {
-				if waitErr := client.WaitComposerEmpty(t.Herdr.PaneID, waitDuration); waitErr != nil {
+				if waitErr := client.WaitComposerEmpty(active.Herdr.PaneID, waitDuration); waitErr != nil {
 					// The pane stopped answering mid-wait (agent died, tab closed):
 					// no retry can succeed, so this is the same exit-1 outcome as the
 					// PaneGet above, not the retryable busy-composer one below.
 					if !errors.Is(waitErr, herdr.ErrComposerBusyTimeout) {
-						return fmt.Errorf("herdr pane %s not found: %w", t.Herdr.PaneID, waitErr)
+						return fmt.Errorf("herdr pane %s not found: %w", active.Herdr.PaneID, waitErr)
 					}
 					if err := recordUndeliveredSend(home, id, message); err != nil {
 						return fmt.Errorf("%w; record undelivered send: %w", waitErr, err)
@@ -100,10 +109,10 @@ func newSendCmd() *cobra.Command {
 			// Both delivery failures leave the steer undemonstrated in the pane -
 			// text that never left, and text sitting unsubmitted in the composer -
 			// so both owe the operator the same durable trace the wait bound does.
-			if err := client.PaneSendText(t.Herdr.PaneID, message); err != nil {
+			if err := client.PaneSendText(active.Herdr.PaneID, message); err != nil {
 				return withUndeliveredSend(home, id, message, fmt.Errorf("send message failed: %w", err))
 			}
-			if err := client.PaneSendKeys(t.Herdr.PaneID, "Enter"); err != nil {
+			if err := client.PaneSendKeys(active.Herdr.PaneID, "Enter"); err != nil {
 				return withUndeliveredSend(home, id, message, fmt.Errorf("submit message failed: %w", err))
 			}
 
@@ -159,14 +168,14 @@ func setUndeliveredSend(home, id, message, at string) error {
 	}
 	defer release()
 
-	t, err := state.Read(home, id)
+	active, err := state.ActiveAttempt(home, id)
 	if err != nil {
 		return err
 	}
-	if t.SendUndeliveredMessage == message && t.SendUndeliveredAt == at {
+	if active.SendUndeliveredMessage == message && active.SendUndeliveredAt == at {
 		return nil
 	}
-	t.SendUndeliveredMessage = message
-	t.SendUndeliveredAt = at
-	return state.Write(home, t)
+	active.SendUndeliveredMessage = message
+	active.SendUndeliveredAt = at
+	return state.UpdateAttempt(home, active)
 }

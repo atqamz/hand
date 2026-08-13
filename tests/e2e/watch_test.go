@@ -19,13 +19,14 @@ func TestWatchEventStream(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	for _, task := range []state.Task{
-		{ID: "task-1", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now},
-		{ID: "task-2", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}, CreatedAt: now},
+	for _, tc := range []struct {
+		task    state.Task
+		attempt state.Attempt
+	}{
+		{state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}}},
+		{state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}}},
 	} {
-		if err := state.Write(home, task); err != nil {
-			t.Fatal(err)
-		}
+		writeTaskAttempt(t, home, tc.task, tc.attempt)
 	}
 
 	statusDir := t.TempDir()
@@ -96,13 +97,14 @@ func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	for _, task := range []state.Task{
-		{ID: "task-1", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now},
-		{ID: "task-2", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}, CreatedAt: now},
+	for _, tc := range []struct {
+		task    state.Task
+		attempt state.Attempt
+	}{
+		{state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}}},
+		{state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}}},
 	} {
-		if err := state.Write(home, task); err != nil {
-			t.Fatal(err)
-		}
+		writeTaskAttempt(t, home, tc.task, tc.attempt)
 	}
 	// A terminal report line nobody consumed: report_offset is still 0, so the
 	// poll loop classifies it as new. The baseline has to absorb it silently.
@@ -152,13 +154,10 @@ func TestWatchUntilEventTimesOutWithADistinctCode(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	statusDir := t.TempDir()
 	setPaneStatus(t, statusDir, "pane-1", "working")
@@ -185,13 +184,10 @@ func TestWatchUntilEventFailsToArmWithADistinctCode(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	writeFakeHerdrUnprobeablePanes(t, binDir(t))
 
@@ -215,13 +211,10 @@ func TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent(t *testing.
 	registerProject(t, home, "demo", "direct-pr")
 	writeConfig(t, home, "parked-other-bound", "2")
 
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "slow-migration", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 	// Written now so the bound is crossed while the poll loop runs, not before it.
 	if err := os.WriteFile(state.ReportPath(home, "slow-migration"), []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -248,13 +241,10 @@ func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 	writeConfig(t, home, "parked-done-bound", "2")
 
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "shipped-task", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 	// Written now so the bound is crossed while the poll loop runs, not before it.
 	if err := os.WriteFile(state.ReportPath(home, "shipped-task"), []byte("done: shipped the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -292,13 +282,10 @@ func TestWatchDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	writeConfig(t, home, "parked-done-bound", "6")
 
 	spawnedAt := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "shipped-task", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
-		CreatedAt: spawnedAt, PaneStartedAt: spawnedAt,
-	}); err != nil {
-		t.Fatal(err)
-	}
+		CreatedAt: spawnedAt,
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, PaneStartedAt: spawnedAt})
 	if err := os.WriteFile(state.ReportPath(home, "shipped-task"), []byte("done: shipped the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -349,13 +336,10 @@ func TestWatchUntilEventWakesOnlyOnTheFilteredKind(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 	writeConfig(t, home, "parked-done-bound", "2")
 
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "shipped-task", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 	if err := os.WriteFile(state.ReportPath(home, "shipped-task"), []byte("done: shipped the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -395,13 +379,10 @@ func TestWatchNotifiesInProcessForABlockedEvent(t *testing.T) {
 	marker := filepath.Join(home, "notify-marker.txt")
 	writeConfig(t, home, "notify", "printf '%s' \"$HAND_MESSAGE\" > "+marker)
 
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	statusDir := t.TempDir()
 	setPaneStatus(t, statusDir, "pane-1", "working")
@@ -448,13 +429,10 @@ func TestWatchTracksATaskFirstSightedUnreachable(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	setPaneStatus(t, statusDir, "pane-anchor", "working")
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "anchor-task", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-anchor"), Herdr: state.Herdr{PaneID: "pane-anchor"},
 		CreatedAt: now,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-anchor"), Herdr: state.Herdr{PaneID: "pane-anchor"}})
 
 	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
 	waitForInvocation(t, herdrLog, "herdr pane get pane-anchor", 5*time.Second)
@@ -464,13 +442,14 @@ func TestWatchTracksATaskFirstSightedUnreachable(t *testing.T) {
 	setPaneStatus(t, statusDir, "pane-dark", "unreachable")
 	setPaneStatus(t, statusDir, "pane-blink", "unreachable")
 	sighted := time.Now().UTC().Format(time.RFC3339)
-	for _, task := range []state.Task{
-		{ID: "dark-task", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-dark"), Herdr: state.Herdr{PaneID: "pane-dark"}, CreatedAt: sighted},
-		{ID: "blink-task", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-blink"), Herdr: state.Herdr{PaneID: "pane-blink"}, CreatedAt: sighted},
+	for _, tc := range []struct {
+		task    state.Task
+		attempt state.Attempt
+	}{
+		{state.Task{ID: "dark-task", Project: "demo", Kind: state.KindShip, CreatedAt: sighted}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-dark"), Herdr: state.Herdr{PaneID: "pane-dark"}}},
+		{state.Task{ID: "blink-task", Project: "demo", Kind: state.KindShip, CreatedAt: sighted}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-blink"), Herdr: state.Herdr{PaneID: "pane-blink"}}},
 	} {
-		if err := state.Write(home, task); err != nil {
-			t.Fatal(err)
-		}
+		writeTaskAttempt(t, home, tc.task, tc.attempt)
 	}
 
 	// Three failing probes at a 30ms poll is well inside the 2s dwell, so silence
@@ -500,13 +479,14 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	for _, task := range []state.Task{
-		{ID: "limited", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-limited"), Herdr: state.Herdr{PaneID: "pane-limited"}, CreatedAt: now},
-		{ID: "plain", Project: "demo", Kind: state.KindShip, Worktree: filepath.Join(home, "wt-plain"), Herdr: state.Herdr{PaneID: "pane-plain"}, CreatedAt: now},
+	for _, tc := range []struct {
+		task    state.Task
+		attempt state.Attempt
+	}{
+		{state.Task{ID: "limited", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-limited"), Herdr: state.Herdr{PaneID: "pane-limited"}}},
+		{state.Task{ID: "plain", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-plain"), Herdr: state.Herdr{PaneID: "pane-plain"}}},
 	} {
-		if err := state.Write(home, task); err != nil {
-			t.Fatal(err)
-		}
+		writeTaskAttempt(t, home, tc.task, tc.attempt)
 	}
 
 	statusDir := t.TempDir()
@@ -547,19 +527,13 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 		t.Fatalf("ReadHold(plain) = %v, %v, want no hold for a worker that stopped for another reason", found, err)
 	}
 
-	limited, err := state.Read(home, "limited")
-	if err != nil {
-		t.Fatal(err)
+	_, limitedAttempt := readTaskAttempt(t, home, "limited")
+	if limitedAttempt.UsageLimitRetryAt == "" {
+		t.Fatalf("limited attempt = %+v, want a durable retry stamp", limitedAttempt)
 	}
-	if limited.UsageLimitRetryAt == "" {
-		t.Fatalf("limited task = %+v, want a durable retry stamp", limited)
-	}
-	plain, err := state.Read(home, "plain")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plain.UsageLimitRetryAt != "" || plain.UsageLimitAttempts != 0 {
-		t.Fatalf("plain task = %+v, want no usage-limit schedule", plain)
+	_, plainAttempt := readTaskAttempt(t, home, "plain")
+	if plainAttempt.UsageLimitRetryAt != "" || plainAttempt.UsageLimitAttempts != 0 {
+		t.Fatalf("plain attempt = %+v, want no usage-limit schedule", plainAttempt)
 	}
 
 	if result := watch.stop(t, 3*time.Second); result.code != 0 {
@@ -574,8 +548,8 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 	// The restart: the stamp the first run wrote moved into the past, which is the one thing that makes an
 	// attempt due without waiting out the ten-minute floor. It covers the durability too - a watcher that
 	// came up fresh still knows this worker is limited and when it may be poked.
-	limited.UsageLimitRetryAt = time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
-	if err := state.Write(home, limited); err != nil {
+	limitedAttempt.UsageLimitRetryAt = time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	if err := state.UpdateAttempt(home, limitedAttempt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -593,12 +567,17 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 	if _, found, err := state.ReadHold(home, "limited"); found || err != nil {
 		t.Fatalf("ReadHold(limited) after resume = %v, %v, want the hold released", found, err)
 	}
-	after, err := state.Read(home, "limited")
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(5 * time.Second)
+	var afterAttempt state.Attempt
+	for time.Now().Before(deadline) {
+		_, afterAttempt = readTaskAttempt(t, home, "limited")
+		if afterAttempt.UsageLimitRetryAt == "" && afterAttempt.UsageLimitAttempts == 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if after.UsageLimitRetryAt != "" || after.UsageLimitAttempts != 0 {
-		t.Fatalf("limited task after resume = %+v, want the schedule cleared", after)
+	if afterAttempt.UsageLimitRetryAt != "" || afterAttempt.UsageLimitAttempts != 0 {
+		t.Fatalf("limited attempt after resume = %+v, want the schedule cleared", afterAttempt)
 	}
 
 	if result := resumed.stop(t, 3*time.Second); result.code != 0 {

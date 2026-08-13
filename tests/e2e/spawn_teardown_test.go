@@ -36,16 +36,13 @@ func TestSpawnTeardownCycle(t *testing.T) {
 		t.Fatalf("spawn: exit %d, stderr %q", spawned.code, spawned.stderr)
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	if task.Project != "demo" || task.Kind != state.KindShip || attempt.Worktree != worktree ||
+		attempt.Harness == "" || attempt.Herdr.WorkspaceID != "ws-1" || attempt.Herdr.TabID != "tab-1" || attempt.Herdr.PaneID != "pane-1" {
+		t.Fatalf("spawned task state = %+v, attempt = %+v, want project=demo kind=ship worktree=%s herdr ids populated", task, attempt, worktree)
 	}
-	if task.Project != "demo" || task.Kind != state.KindShip || task.Worktree != worktree ||
-		task.Harness == "" || task.Herdr.WorkspaceID != "ws-1" || task.Herdr.TabID != "tab-1" || task.Herdr.PaneID != "pane-1" {
-		t.Fatalf("spawned task state = %+v, want project=demo kind=ship worktree=%s herdr ids populated", task, worktree)
-	}
-	if task.PaneStartedAt != task.CreatedAt || task.PaneStartedAt == "" {
-		t.Fatalf("spawned task PaneStartedAt = %q, CreatedAt = %q, want the spawn instant recorded as both: a task's first pane starts when it is created", task.PaneStartedAt, task.CreatedAt)
+	if attempt.PaneStartedAt != task.CreatedAt || attempt.PaneStartedAt == "" {
+		t.Fatalf("spawned attempt PaneStartedAt = %q, task CreatedAt = %q, want the spawn instant recorded as both", attempt.PaneStartedAt, task.CreatedAt)
 	}
 
 	// The regression this cycle exists to catch: a first spawn into a fresh workspace must reuse
@@ -80,8 +77,8 @@ func TestSpawnTeardownCycle(t *testing.T) {
 		t.Fatalf("teardown: exit %d, stderr %q", done.code, done.stderr)
 	}
 
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state.Exists after teardown = %v, %v, want task removed", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state.Exists after teardown = %v, %v, want task preserved", exists, err)
 	}
 	records, err := completion.List(home)
 	if err != nil {

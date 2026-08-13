@@ -121,7 +121,7 @@ func TestMergeRefusesWhenNoPRRecorded(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	if err := state.Write(home, state.Task{ID: "task-1"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +147,7 @@ func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 	g.PRs[0].State = "MERGED"
 	g.Install(t, faketool.Bin(t))
 
-	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +177,7 @@ func TestMergePRRefusesRedCI(t *testing.T) {
 	mkFleetDirs(t, home)
 	mergeTestGH("pass", "fail").Install(t, faketool.Bin(t))
 
-	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,7 +214,7 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	mkFleetDirs(t, home)
 	mergeTestGH("pass", "skipping").Install(t, faketool.Bin(t))
 
-	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -263,7 +263,7 @@ func TestMergeRefusesAPRAnEarlierRunAlreadyMerged(t *testing.T) {
 	g.Log = log
 	g.Install(t, faketool.Bin(t))
 
-	if err := state.Write(home, state.Task{ID: "task-1", PR: mergeTestPR}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -313,7 +313,7 @@ func TestMergeLocalRefusesUncommittedChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktreePath, Project: "myproj"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktreePath}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -349,7 +349,7 @@ func TestMergeLocalFastForwardSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, Worktree: worktreePath}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktreePath}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -401,7 +401,7 @@ func TestMergeLocalRefusesWhenNotFastForwardable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, Worktree: worktreePath}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktreePath}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -10,14 +10,17 @@ import (
 	"github.com/atqamz/hand/internal/store"
 )
 
-// ErrTaskNotFound is wrapped into errors returned by Read and Delete when no
-// task row exists for the given ID, rendering as `task "<id>" not found`.
+// ErrTaskNotFound is wrapped into errors returned by the task and history readers
+// and by Delete when no task row exists for the given ID, rendering as
+// `task "<id>" not found`.
 var ErrTaskNotFound = store.ErrTaskNotFound
 
 // ErrTaskActive is wrapped into errors returned by Claim when the task is
 // already claimed by another running command, rendering as
 // `task "<id>" already active`.
 var ErrTaskActive = errors.New("already active")
+
+var ErrNoActiveAttempt = errors.New("no active attempt")
 
 // ErrLockBusy is returned by TryLock when another process holds the lock.
 var ErrLockBusy = errors.New("lock held by another process")
@@ -56,7 +59,11 @@ func Claim(homeDir, id string) (func(), error) {
 		return nil, err
 	}
 	if active {
+		task, readErr := Read(homeDir, id)
 		release()
+		if readErr == nil && task.Lifecycle == TaskTerminal {
+			return nil, fmt.Errorf("task %q already exists; use hand reopen %s: %w", id, id, ErrTaskActive)
+		}
 		return nil, fmt.Errorf("task %q %w", id, ErrTaskActive)
 	}
 	return release, nil
@@ -109,6 +116,49 @@ func Read(homeDir, id string) (Task, error) {
 	return t, nil
 }
 
+func ReadHistory(homeDir, id string) (TaskHistory, error) {
+	return readHistory(homeDir, id, false)
+}
+
+// A read-only history read avoids schema migration and legacy import.
+func ReadHistoryReadOnly(homeDir, id string) (TaskHistory, error) {
+	return readHistory(homeDir, id, true)
+}
+
+func readHistory(homeDir, id string, readOnly bool) (TaskHistory, error) {
+	if err := ValidateID(id); err != nil {
+		return TaskHistory{}, err
+	}
+	open := store.Open
+	if readOnly {
+		open = store.OpenReadOnly
+	}
+	db, err := open(homeDir)
+	if err != nil {
+		return TaskHistory{}, err
+	}
+	defer func() { _ = db.Close() }()
+	history, found, err := db.ReadTaskHistory(id)
+	if err != nil {
+		return TaskHistory{}, fmt.Errorf("read task history %q: %w", id, err)
+	}
+	if !found {
+		return TaskHistory{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
+	}
+	return history, nil
+}
+
+func ActiveAttempt(homeDir, id string) (Attempt, error) {
+	history, err := ReadHistory(homeDir, id)
+	if err != nil {
+		return Attempt{}, err
+	}
+	if history.ActiveAttempt == nil {
+		return Attempt{}, fmt.Errorf("task %q %w", id, ErrNoActiveAttempt)
+	}
+	return *history.ActiveAttempt, nil
+}
+
 func Write(homeDir string, t Task) error {
 	if err := ValidateID(t.ID); err != nil {
 		return err
@@ -118,7 +168,89 @@ func Write(homeDir string, t Task) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	return db.WriteTask(t)
+	found, err := db.TaskExists(t.ID)
+	if err != nil {
+		return err
+	}
+	if found {
+		return db.UpdateTask(t)
+	}
+	return db.CreateTask(t)
+}
+
+func CreateTask(homeDir string, t Task) error {
+	if err := ValidateID(t.ID); err != nil {
+		return err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.CreateTask(t)
+}
+
+func UpdateTask(homeDir string, t Task) error {
+	if err := ValidateID(t.ID); err != nil {
+		return err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.UpdateTask(t)
+}
+
+func CreateAttempt(homeDir string, a Attempt) (Attempt, error) {
+	if err := ValidateID(a.TaskID); err != nil {
+		return Attempt{}, err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return Attempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.CreateAttempt(a)
+}
+
+func UpdateAttempt(homeDir string, a Attempt) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.UpdateAttempt(a)
+}
+
+func TransitionAttempt(homeDir string, id int64, from, to AttemptLifecycle) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.TransitionAttempt(id, from, to)
+}
+
+func TransitionTask(homeDir, id string, from, to TaskLifecycle) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.TransitionTask(id, from, to)
+}
+
+func ReopenTask(homeDir string, a Attempt) (Attempt, error) {
+	if err := ValidateID(a.TaskID); err != nil {
+		return Attempt{}, err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return Attempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ReopenTask(a.TaskID, a)
 }
 
 func List(homeDir string) ([]Task, error) {
@@ -130,13 +262,36 @@ func List(homeDir string) ([]Task, error) {
 	return db.ListTasks()
 }
 
-func ListReadOnly(homeDir string) ([]Task, error) {
+func ListOpen(homeDir string) ([]Task, error) {
+	histories, err := ListOpenHistories(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]Task, 0, len(histories))
+	for _, history := range histories {
+		tasks = append(tasks, history.Task)
+	}
+	return tasks, nil
+}
+
+func ListOpenHistories(homeDir string) ([]TaskHistory, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ListOpenTaskHistories()
+}
+
+// ListOpenHistoriesReadOnly is ListOpenHistories for a presentation reader: same open-only fleet, off
+// a handle that cannot create schema or import legacy state. A torn-down task is history, not fleet.
+func ListOpenHistoriesReadOnly(homeDir string) ([]TaskHistory, error) {
 	db, err := store.OpenReadOnly(homeDir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	return db.ListTasks()
+	return db.ListOpenTaskHistories()
 }
 
 // Delete removes a task's row along with its report channel at state/<id>.status, leaving

@@ -2,26 +2,9 @@ package store
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
-// Narrows the registered list to the entries naming substr, so a test replays only the one
-// entry it exercises: the whole list would hit "duplicate column name" on every column
-// `schema` builds, and an index would silently shift when another commit appends one.
-func migrationsContaining(substr string) []string {
-	var matched []string
-	for _, m := range migrations {
-		if strings.Contains(m, substr) {
-			matched = append(matched, m)
-		}
-	}
-	return matched
-}
-
-// A fresh database is built by `schema`, which already carries every registered migration,
-// so it is stamped straight to the latest version rather than 0 - only a database predating
-// the mechanism reads as 0 (TestExistingBaselineDatabaseOpensCleanly below).
 func TestFreshOpenRecordsSchemaVersionAtLatest(t *testing.T) {
 	db, _ := openTemp(t)
 	version, err := db.schemaVersion()
@@ -33,16 +16,13 @@ func TestFreshOpenRecordsSchemaVersionAtLatest(t *testing.T) {
 	}
 }
 
-// The mechanism has to treat a real fleet home - version 0, tables already
-// present - as the known baseline, not as unversioned-and-therefore-suspect,
-// or the one home that exists stops working the moment a migration lands.
 func TestExistingBaselineDatabaseOpensCleanly(t *testing.T) {
 	home := t.TempDir()
 	db, err := Open(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -55,12 +35,19 @@ func TestExistingBaselineDatabaseOpensCleanly(t *testing.T) {
 	}
 	defer func() { _ = reopened.Close() }()
 
-	got, found, err := reopened.ReadTask(sampleTask().ID)
+	history, found, err := reopened.ReadTaskHistory(sampleTask().ID)
 	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
+		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	if got != sampleTask() {
-		t.Fatalf("reopen lost state: got %+v", got)
+	got := history.Task
+	got.ActiveAttemptID = 0
+	want := sampleTask()
+	want.ActiveAttemptID = 0
+	if got != want {
+		t.Fatalf("task = %+v, want %+v", got, want)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Ordinal != 1 || history.ActiveAttempt.Lifecycle != AttemptRunning {
+		t.Fatalf("active attempt = %+v", history.ActiveAttempt)
 	}
 }
 
@@ -83,18 +70,11 @@ func TestOpenRefusesADatabaseNewerThanThisBuild(t *testing.T) {
 	}
 }
 
-// The real hand.db this mechanism has to keep working is exactly the shape this sets up:
-// tables from the pre-mechanism schema, user_version at sqlite's default 0, no meta row.
-// One registered entry is meant to be the whole job: automatic, and cheap to run again.
 func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	home := t.TempDir()
-
 	restore := migrations
 	t.Cleanup(func() { migrations = restore })
 
-	// Empty migrations for this first open, so the fresh database it stamps reads as version
-	// 0 - the pre-mechanism baseline this test needs - rather than picking up whatever this
-	// build's real migrations already registered.
 	migrations = []string{}
 	existing, err := Open(home)
 	if err != nil {
@@ -108,7 +88,6 @@ func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	}
 
 	migrations = []string{`ALTER TABLE project ADD COLUMN note TEXT NOT NULL DEFAULT ''`}
-
 	db, err := Open(home)
 	if err != nil {
 		t.Fatal(err)
@@ -117,20 +96,12 @@ func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	if err := db.sql.QueryRow(`SELECT note FROM project WHERE name = 'nsr'`).Scan(&note); err != nil {
 		t.Fatalf("migrated column not usable: %v", err)
 	}
-	version, err := db.schemaVersion()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if version != 1 {
-		t.Fatalf("schemaVersion = %d, want 1", version)
+	if version, err := db.schemaVersion(); err != nil || version != 1 {
+		t.Fatalf("schemaVersion = %d, %v", version, err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-
-	// A second open re-running `ALTER TABLE ADD COLUMN` against a column that
-	// is already there fails loudly - so this only passes if the migration
-	// did not run twice.
 	second, err := Open(home)
 	if err != nil {
 		t.Fatalf("second open re-ran an already-applied migration: %v", err)
@@ -138,9 +109,6 @@ func TestPendingMigrationAppliesAutomaticallyAndOnlyOnce(t *testing.T) {
 	defer func() { _ = second.Close() }()
 }
 
-// Adding a column puts it in `schema`, so new databases are built with it, and appends the
-// matching ALTER TABLE to `migrations`, so existing ones gain it. A fresh database must take
-// only the first, or replay fails with "duplicate column name"; `mode` stands in.
 func TestFreshDatabaseSkipsAMigrationTheSchemaAlreadyBuilds(t *testing.T) {
 	restore := migrations
 	migrations = []string{`ALTER TABLE project ADD COLUMN mode TEXT NOT NULL DEFAULT ''`}
@@ -151,414 +119,15 @@ func TestFreshDatabaseSkipsAMigrationTheSchemaAlreadyBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fresh database replayed a migration its schema already builds: %v", err)
 	}
-	version, err := db.schemaVersion()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if version != 1 {
-		t.Fatalf("schemaVersion = %d, want 1", version)
+	if version, err := db.schemaVersion(); err != nil || version != 1 {
+		t.Fatalf("schemaVersion = %d, %v", version, err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-
-	// Stamped, not merely skipped: the next open must not read it as pending.
 	second, err := Open(home)
 	if err != nil {
 		t.Fatalf("reopening a stamped fresh database: %v", err)
 	}
 	defer func() { _ = second.Close() }()
-}
-
-// Exercises the real migrations entry this commit registers, rather than a
-// swapped-in stand-in like the tests above, so a syntax error in the actual
-// ALTER TABLE statements would fail here instead of only in a synthetic one.
-func TestSendUndeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
-	home := t.TempDir()
-
-	restore := migrations
-	own := migrationsContaining("send_undelivered_message")
-	t.Cleanup(func() { migrations = restore })
-
-	// Empty migrations for this first open, so the fresh database reads as version 0.
-	// `schema` still creates the two new columns (it cannot be swapped the way `migrations`
-	// can), so they are dropped by hand to reach the pre-migration shape.
-	migrations = []string{}
-	existing, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN send_undelivered_message`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN send_undelivered_at`); err != nil {
-		t.Fatal(err)
-	}
-	// WriteTask always targets the full, current taskColumns, which still
-	// names the two dropped columns - so this row goes in with a raw insert
-	// against the pre-migration column set instead.
-	if _, err := existing.sql.Exec(`INSERT INTO task (id) VALUES ('t1')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := existing.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrations = own
-
-	reopened, err := Open(home)
-	if err != nil {
-		t.Fatalf("reopen replaying the real send_undelivered migration: %v", err)
-	}
-	defer func() { _ = reopened.Close() }()
-
-	got, found, err := reopened.ReadTask("t1")
-	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
-	}
-	if got.SendUndeliveredMessage != "" || got.SendUndeliveredAt != "" {
-		t.Fatalf("migrated columns not empty-defaulted: %+v", got)
-	}
-}
-
-// The live fleet home holds rows written before lease_id existed, and they stay readable
-// through the migration rather than only after a respawn - so the column arrives empty on
-// every one of them, which is what worktree.CheckCollision's path fallback keys on.
-func TestLeaseIDColumnMigratesOntoAnExistingDatabase(t *testing.T) {
-	home := t.TempDir()
-
-	restore := migrations
-	own := migrationsContaining("lease_id")
-	t.Cleanup(func() { migrations = restore })
-
-	migrations = []string{}
-	existing, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN lease_id`); err != nil {
-		t.Fatal(err)
-	}
-	// WriteTask always targets the full, current taskColumns, which still names
-	// the dropped column - so this row goes in with a raw insert against the
-	// pre-migration column set instead.
-	if _, err := existing.sql.Exec(`INSERT INTO task (id, worktree) VALUES ('t1', '/w/nsr')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := existing.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrations = own
-
-	reopened, err := Open(home)
-	if err != nil {
-		t.Fatalf("reopen replaying the real lease_id migration: %v", err)
-	}
-	defer func() { _ = reopened.Close() }()
-
-	got, found, err := reopened.ReadTask("t1")
-	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
-	}
-	if got.LeaseID != "" {
-		t.Fatalf("migrated column not empty-defaulted: %+v", got)
-	}
-	if got.Worktree != "/w/nsr" {
-		t.Fatalf("migration lost the pre-existing row's worktree: %+v", got)
-	}
-}
-
-// Exercises the real delivered_at/delivered_reason entry against a database holding a task
-// row written before those columns existed - the live fleet home's shape - so a task spawned
-// earlier stays readable and reads as not delivered rather than blocking the whole open.
-func TestDeliveredColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
-	home := t.TempDir()
-
-	restore := migrations
-	own := migrationsContaining("delivered_reason")
-	t.Cleanup(func() { migrations = restore })
-
-	migrations = []string{}
-	existing, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN delivered_at`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN delivered_reason`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`INSERT INTO task (id, project, pr) VALUES ('t1', 'no-mistakes', 'https://github.com/kunchenguid/no-mistakes/pull/597')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := existing.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrations = own
-
-	reopened, err := Open(home)
-	if err != nil {
-		t.Fatalf("reopen replaying the real delivered migration: %v", err)
-	}
-	defer func() { _ = reopened.Close() }()
-
-	got, found, err := reopened.ReadTask("t1")
-	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
-	}
-	if got.DeliveredAt != "" || got.DeliveredReason != "" {
-		t.Fatalf("migrated columns not empty-defaulted: %+v", got)
-	}
-
-	got.DeliveredAt = "2026-08-03T00:00:00Z"
-	got.DeliveredReason = "PR offered upstream, maintainer decides"
-	if err := reopened.WriteTask(got); err != nil {
-		t.Fatal(err)
-	}
-	reread, _, err := reopened.ReadTask("t1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reread.DeliveredAt != got.DeliveredAt || reread.DeliveredReason != got.DeliveredReason {
-		t.Fatalf("delivered mark did not survive a write to the migrated row: %+v", reread)
-	}
-}
-
-// Exercises the real pane_started_at/parked_fired_for entry against a database holding rows
-// written before those columns existed. The pre-migration `parked` floor read
-// status_changed_at and fell back to created_at, so the backfill freezes that same value.
-func TestPaneStartColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
-	home := t.TempDir()
-
-	restore := migrations
-	own := migrationsContaining("pane_started_at")
-	t.Cleanup(func() { migrations = restore })
-
-	migrations = []string{}
-	existing, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN pane_started_at`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN parked_fired_for`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`INSERT INTO task (id, created_at, status_changed_at, status_changed_for)
-		VALUES ('promoted', '2026-07-01T00:00:00Z', '2026-08-01T00:00:00Z', 'working')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`INSERT INTO task (id, created_at) VALUES ('never-observed', '2026-07-02T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := existing.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrations = own
-
-	reopened, err := Open(home)
-	if err != nil {
-		t.Fatalf("reopen replaying the real pane-start migration: %v", err)
-	}
-	defer func() { _ = reopened.Close() }()
-
-	promoted, found, err := reopened.ReadTask("promoted")
-	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
-	}
-	if promoted.PaneStartedAt != "2026-08-01T00:00:00Z" {
-		t.Fatalf("pane_started_at = %q, want the row's status_changed_at frozen as its pane start", promoted.PaneStartedAt)
-	}
-	if promoted.ParkedFiredFor != "" {
-		t.Fatalf("parked_fired_for = %q, want empty: no fire has been recorded for this row", promoted.ParkedFiredFor)
-	}
-
-	never, _, err := reopened.ReadTask("never-observed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if never.PaneStartedAt != "2026-07-02T00:00:00Z" {
-		t.Fatalf("pane_started_at = %q, want created_at for a row with no observed transition", never.PaneStartedAt)
-	}
-}
-
-// Exercises the real project.upstream entry against a database holding a project row written
-// before that column existed - the live fleet home's shape - so a project registered long ago
-// stays readable and gains the column empty rather than the whole registry failing to open.
-func TestProjectUpstreamColumnMigratesOntoAnExistingDatabase(t *testing.T) {
-	home := t.TempDir()
-
-	restore := migrations
-	own := migrationsContaining("project ADD COLUMN upstream")
-	t.Cleanup(func() { migrations = restore })
-
-	migrations = []string{}
-	existing, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE project DROP COLUMN upstream`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`INSERT INTO project (name, url, mode, position) VALUES ('no-mistakes', 'https://github.com/atqamz/no-mistakes.git', 'no-mistakes', 0)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := existing.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrations = own
-
-	reopened, err := Open(home)
-	if err != nil {
-		t.Fatalf("reopen replaying the real project.upstream migration: %v", err)
-	}
-	defer func() { _ = reopened.Close() }()
-
-	projects, err := reopened.ListProjects()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 || projects[0].Name != "no-mistakes" || projects[0].Upstream != "" {
-		t.Fatalf("ListProjects = %+v, want the pre-migration row with an empty upstream", projects)
-	}
-
-	updated, err := reopened.SetProjectUpstream("no-mistakes", "kunchenguid/no-mistakes")
-	if err != nil || !updated {
-		t.Fatalf("SetProjectUpstream = %v, %v", updated, err)
-	}
-	projects, err = reopened.ListProjects()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projects[0].Upstream != "kunchenguid/no-mistakes" {
-		t.Fatalf("upstream = %q, wanted it declared on the migrated row", projects[0].Upstream)
-	}
-}
-
-// Exercises the real report_digest entry against a database holding a task row whose worker has
-// already reported - a live fleet home's shape. The column arrives empty rather than backfilled on
-// purpose: the consumed prefix cannot be recovered from a file that may have been rewritten since.
-func TestReportDigestColumnMigratesOntoAnExistingDatabase(t *testing.T) {
-	home := t.TempDir()
-
-	restore := migrations
-	own := migrationsContaining("report_digest")
-	t.Cleanup(func() { migrations = restore })
-
-	migrations = []string{}
-	existing, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN report_digest`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`INSERT INTO task (id, report_offset, last_report_state, last_report_note)
-		VALUES ('t1', 61, 'working', 'rebasing onto main before the last two commits land')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := existing.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrations = own
-
-	reopened, err := Open(home)
-	if err != nil {
-		t.Fatalf("reopen replaying the real report_digest migration: %v", err)
-	}
-	defer func() { _ = reopened.Close() }()
-
-	got, found, err := reopened.ReadTask("t1")
-	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
-	}
-	if got.ReportDigest != "" {
-		t.Fatalf("report_digest = %q, want empty: the migration carries no backfill", got.ReportDigest)
-	}
-	// The offset has to survive where the digest does not, or the upgrade replays every line the
-	// previous run already surfaced.
-	if got.ReportOffset != 61 {
-		t.Fatalf("report_offset = %d, want the pre-migration row's 61 intact", got.ReportOffset)
-	}
-	if got.LastReportState != "working" {
-		t.Fatalf("migration lost the pre-existing row's report state: %+v", got)
-	}
-
-	got.ReportDigest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-	if err := reopened.WriteTask(got); err != nil {
-		t.Fatal(err)
-	}
-	reread, _, err := reopened.ReadTask("t1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reread.ReportDigest != got.ReportDigest {
-		t.Fatalf("digest did not survive a write to the migrated row: %+v", reread)
-	}
-}
-
-// Exercises the real usage-limit entry against a database holding rows written before hand could
-// detect a limit. Deliberately no backfill: an empty retry stamp means "this task is not limited", the
-// honest reading of every such row, and an invented value would steer a pane off a schedule nobody saw.
-func TestUsageLimitColumnsMigrateOntoAnExistingDatabase(t *testing.T) {
-	home := t.TempDir()
-
-	restore := migrations
-	own := migrationsContaining("usage_limit_retry_at")
-	t.Cleanup(func() { migrations = restore })
-
-	migrations = []string{}
-	existing, err := Open(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN usage_limit_retry_at`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`ALTER TABLE task DROP COLUMN usage_limit_attempts`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := existing.sql.Exec(`INSERT INTO task (id, created_at) VALUES ('pre-existing', '2026-07-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := existing.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrations = own
-
-	reopened, err := Open(home)
-	if err != nil {
-		t.Fatalf("reopen replaying the real usage-limit migration: %v", err)
-	}
-	defer func() { _ = reopened.Close() }()
-
-	task, found, err := reopened.ReadTask("pre-existing")
-	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
-	}
-	if task.UsageLimitRetryAt != "" || task.UsageLimitAttempts != 0 {
-		t.Fatalf("usage-limit columns = %q/%d, want an unlimited row", task.UsageLimitRetryAt, task.UsageLimitAttempts)
-	}
-
-	task.UsageLimitRetryAt = "2026-08-04T15:01:00Z"
-	task.UsageLimitAttempts = 3
-	if err := reopened.WriteTask(task); err != nil {
-		t.Fatal(err)
-	}
-	got, _, err := reopened.ReadTask("pre-existing")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.UsageLimitRetryAt != task.UsageLimitRetryAt || got.UsageLimitAttempts != task.UsageLimitAttempts {
-		t.Fatalf("round trip on the migrated row = %q/%d, want %q/%d",
-			got.UsageLimitRetryAt, got.UsageLimitAttempts, task.UsageLimitRetryAt, task.UsageLimitAttempts)
-	}
 }

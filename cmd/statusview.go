@@ -13,6 +13,8 @@ import (
 // fleet table and the single-task detail can never disagree about what a task is doing.
 type taskView struct {
 	task          state.Task
+	attempt       *state.Attempt
+	attempts      []state.Attempt
 	agentState    string
 	reportedState string
 	reportedLine  string
@@ -24,6 +26,13 @@ type taskView struct {
 	gateIssue     string
 	held          bool
 	hold          state.Hold
+}
+
+func (v taskView) execution() state.Attempt {
+	if v.attempt != nil {
+		return *v.attempt
+	}
+	return state.Attempt{}
 }
 
 func orNone(s string) string {
@@ -94,9 +103,22 @@ var taskFields = []axi.Column[taskView]{
 	{Name: "id", Value: func(v taskView) string { return v.task.ID }},
 	{Name: "project", Value: func(v taskView) string { return v.task.Project }},
 	{Name: "kind", Value: func(v taskView) string { return v.task.Kind }},
-	{Name: "harness", Value: func(v taskView) string { return orNone(v.task.Harness) }},
-	{Name: "model", Value: func(v taskView) string { return orNone(v.task.Model) }},
-	{Name: "effort", Value: func(v taskView) string { return orNone(v.task.Effort) }},
+	{Name: "task_lifecycle", Value: func(v taskView) string { return string(v.task.Lifecycle) }},
+	{Name: "attempt_ordinal", Value: func(v taskView) string {
+		if v.attempt == nil {
+			return "none"
+		}
+		return fmt.Sprintf("%d", v.attempt.Ordinal)
+	}},
+	{Name: "attempt_lifecycle", Value: func(v taskView) string {
+		if v.attempt == nil {
+			return "none"
+		}
+		return string(v.attempt.Lifecycle)
+	}},
+	{Name: "harness", Value: func(v taskView) string { return orNone(v.execution().Harness) }},
+	{Name: "model", Value: func(v taskView) string { return orNone(v.execution().Model) }},
+	{Name: "effort", Value: func(v taskView) string { return orNone(v.execution().Effort) }},
 	{Name: "state", Value: func(v taskView) string { return v.agentState }},
 	{Name: "reported", Value: func(v taskView) string {
 		if v.unreadable {
@@ -109,9 +131,10 @@ var taskFields = []axi.Column[taskView]{
 	{Name: "created", Value: func(v taskView) string { return orNone(v.task.CreatedAt) }},
 	{Name: "last_report", Value: func(v taskView) string { return formatReportAge(v.lastReportAt) }},
 	{Name: "pr", Value: func(v taskView) string { return orNone(v.task.PR) }},
-	{Name: "worktree", Value: func(v taskView) string { return orNone(v.task.Worktree) }},
+	{Name: "worktree", Value: func(v taskView) string { return orNone(v.execution().Worktree) }},
 	{Name: "herdr", Value: func(v taskView) string {
-		return orNone(strings.Trim(v.task.Herdr.Session+"/"+v.task.Herdr.TabID, "/"))
+		e := v.execution()
+		return orNone(strings.Trim(e.Herdr.Session+"/"+e.Herdr.TabID, "/"))
 	}},
 	{Name: "brief", Value: func(v taskView) string { return orNone(v.task.Brief) }},
 	{Name: "delivered", Value: func(v taskView) string {
@@ -139,7 +162,7 @@ var fleetDefaultFields = []string{"id", "state", "reported", "age", "flags"}
 // The single-task view is one item, not a list, so it defaults to everything
 // the plain-text detail view printed.
 var detailDefaultFields = []string{
-	"id", "project", "kind", "harness", "model", "state", "worktree", "herdr",
+	"id", "project", "kind", "task_lifecycle", "attempt_ordinal", "attempt_lifecycle", "harness", "model", "state", "worktree", "herdr",
 	"age", "last_report", "pr", "reported", "report", "delivered", "held", "gate", "flags", "report_file",
 }
 

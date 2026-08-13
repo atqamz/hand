@@ -83,12 +83,9 @@ func TestSpawnUsesDetectedHarnessWithoutConfiguredOverride(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Harness != harness.Codex {
-		t.Fatalf("harness = %q, want detected %q", got.Harness, harness.Codex)
+	active := readTaskAttempt(t, home, "task-1")
+	if active.Harness != harness.Codex {
+		t.Fatalf("harness = %q, want detected %q", active.Harness, harness.Codex)
 	}
 }
 
@@ -108,12 +105,9 @@ func TestSpawnConfiguredHarnessWinsOverDetectedHarness(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Harness != harness.Claude {
-		t.Fatalf("harness = %q, want configured %q", got.Harness, harness.Claude)
+	active := readTaskAttempt(t, home, "task-1")
+	if active.Harness != harness.Claude {
+		t.Fatalf("harness = %q, want configured %q", active.Harness, harness.Claude)
 	}
 }
 
@@ -134,12 +128,9 @@ func TestSpawnExplicitHarnessOverridesConfiguredAndDetectedHarness(t *testing.T)
 		t.Fatal(err)
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Harness != harness.Claude {
-		t.Fatalf("harness = %q, want explicit %q", got.Harness, harness.Claude)
+	active := readTaskAttempt(t, home, "task-1")
+	if active.Harness != harness.Claude {
+		t.Fatalf("harness = %q, want explicit %q", active.Harness, harness.Claude)
 	}
 }
 
@@ -182,17 +173,18 @@ func TestSpawnHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Project != "myproj" || got.Kind != state.KindShip || got.Harness != "claude" {
+	active := readTaskAttempt(t, home, "task-1")
+	if got.Project != "myproj" || got.Kind != state.KindShip || active.Harness != "claude" {
 		t.Fatalf("got %+v", got)
 	}
-	if got.Worktree != wt {
-		t.Fatalf("got worktree %q, want %q", got.Worktree, wt)
+	if active.Worktree != wt {
+		t.Fatalf("got worktree %q, want %q", active.Worktree, wt)
 	}
-	if got.Herdr.WorkspaceID != "wA" || got.Herdr.TabID != "wA:tB" || got.Herdr.PaneID != "wA:pC" {
-		t.Fatalf("got herdr %+v", got.Herdr)
+	if active.Herdr.WorkspaceID != "wA" || active.Herdr.TabID != "wA:tB" || active.Herdr.PaneID != "wA:pC" {
+		t.Fatalf("got herdr %+v", active.Herdr)
 	}
-	if got.LeaseID != "lease-1" {
-		t.Fatalf("got lease id %q, want the identity treehouse handed back", got.LeaseID)
+	if active.LeaseID != "lease-1" {
+		t.Fatalf("got lease id %q, want the identity treehouse handed back", active.LeaseID)
 	}
 	for _, want := range []string{
 		"id: task-1\n",
@@ -238,12 +230,9 @@ func TestSpawnIgnoresSameLabelledWorkspaceHandDidNotCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Herdr.WorkspaceID != "wA" {
-		t.Fatalf("got workspace %q, want hand's own hand:myproj workspace wA, not the same-labelled one it did not create", got.Herdr.WorkspaceID)
+	active := readTaskAttempt(t, home, "task-1")
+	if active.Herdr.WorkspaceID != "wA" {
+		t.Fatalf("got workspace %q, want hand's own hand:myproj workspace wA, not the same-labelled one it did not create", active.Herdr.WorkspaceID)
 	}
 }
 
@@ -261,15 +250,12 @@ func TestSpawnPersistsResolvedNotDeclaredTierValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
+	active := readTaskAttempt(t, home, "task-1")
+	if active.Model != "flag-model" {
+		t.Fatalf("got model %q, want the flag to win over the brief's declared %q", active.Model, "brief-model")
 	}
-	if got.Model != "flag-model" {
-		t.Fatalf("got model %q, want the flag to win over the brief's declared %q", got.Model, "brief-model")
-	}
-	if got.Effort != "brief-effort" {
-		t.Fatalf("got effort %q, want the brief's declared value since no flag or config overrides it", got.Effort)
+	if active.Effort != "brief-effort" {
+		t.Fatalf("got effort %q, want the brief's declared value since no flag or config overrides it", active.Effort)
 	}
 }
 
@@ -340,6 +326,37 @@ func TestSpawnRejectsHeldIDWithNoTaskRow(t *testing.T) {
 	}
 }
 
+func TestSpawnTerminalTaskWithHoldPointsToReopen(t *testing.T) {
+	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TransitionAttempt(home, attempt.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TransitionTask(home, "task-1", state.TaskOpen, state.TaskTerminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator, Reason: "needs a call"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	err = cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "hand reopen task-1") {
+		t.Fatalf("got err %v, want terminal-task reopen remedy", err)
+	}
+	if strings.Contains(err.Error(), "open hold") {
+		t.Fatalf("got err %v, want existing terminal-task refusal before hold check", err)
+	}
+}
+
 func TestSpawnAcceptsIDWhoseHoldWasCleared(t *testing.T) {
 	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator, Reason: "needs a call"}); err != nil {
@@ -396,7 +413,7 @@ func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
 func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
-	if err := state.Write(home, state.Task{ID: "other-task", Worktree: wt}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "other-task"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: wt}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -417,7 +434,7 @@ func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.
 func TestSpawnAllowsAReusedWorktreePathUnderAFreshLease(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
-	if err := state.Write(home, state.Task{ID: "stale-task", Worktree: wt, LeaseID: "lease-0"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "stale-task"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: wt, LeaseID: "lease-0"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -427,12 +444,9 @@ func TestSpawnAllowsAReusedWorktreePathUnderAFreshLease(t *testing.T) {
 		t.Fatalf("got err %v, want the spawn to proceed past a stale row on the same path", err)
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.LeaseID != "lease-1" {
-		t.Fatalf("got lease id %q, want the identity treehouse handed back", got.LeaseID)
+	active := readTaskAttempt(t, home, "task-1")
+	if active.LeaseID != "lease-1" {
+		t.Fatalf("got lease id %q, want the identity treehouse handed back", active.LeaseID)
 	}
 }
 

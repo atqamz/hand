@@ -34,6 +34,86 @@ var migrations = []string{
 	// is the honest reading of every row written before hand could detect a limit.
 	`ALTER TABLE task ADD COLUMN usage_limit_retry_at TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN usage_limit_attempts INTEGER NOT NULL DEFAULT 0;`,
+	`DROP TABLE IF EXISTS attempt;
+	CREATE TABLE task_v8 (
+		id TEXT PRIMARY KEY,
+		project TEXT NOT NULL DEFAULT '',
+		kind TEXT NOT NULL DEFAULT '',
+		brief TEXT NOT NULL DEFAULT '',
+		lifecycle TEXT NOT NULL DEFAULT 'open' CHECK (lifecycle IN ('open', 'terminal')),
+		active_attempt_id INTEGER REFERENCES attempt_v8(id),
+		pr TEXT NOT NULL DEFAULT '',
+		merge_executed INTEGER NOT NULL DEFAULT 0,
+		merge_executed_at TEXT NOT NULL DEFAULT '',
+		merge_announced INTEGER NOT NULL DEFAULT 0,
+		delivered_at TEXT NOT NULL DEFAULT '',
+		delivered_reason TEXT NOT NULL DEFAULT '',
+		report_offset INTEGER NOT NULL DEFAULT 0,
+		report_digest TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE attempt_v8 (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id TEXT NOT NULL REFERENCES task_v8(id) ON DELETE CASCADE,
+		ordinal INTEGER NOT NULL,
+		lifecycle TEXT NOT NULL CHECK (lifecycle IN ('provisioning', 'running', 'completed', 'failed', 'interrupted')),
+		harness TEXT NOT NULL DEFAULT '',
+		model TEXT NOT NULL DEFAULT '',
+		effort TEXT NOT NULL DEFAULT '',
+		worktree TEXT NOT NULL DEFAULT '',
+		lease_id TEXT NOT NULL DEFAULT '',
+		herdr_session TEXT NOT NULL DEFAULT '',
+		herdr_workspace_id TEXT NOT NULL DEFAULT '',
+		herdr_tab_id TEXT NOT NULL DEFAULT '',
+		herdr_pane_id TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT '',
+		pane_started_at TEXT NOT NULL DEFAULT '',
+		status_changed_at TEXT NOT NULL DEFAULT '',
+		status_changed_for TEXT NOT NULL DEFAULT '',
+		done_verified INTEGER NOT NULL DEFAULT 0,
+		last_report_state TEXT NOT NULL DEFAULT '',
+		last_report_note TEXT NOT NULL DEFAULT '',
+		send_undelivered_message TEXT NOT NULL DEFAULT '',
+		send_undelivered_at TEXT NOT NULL DEFAULT '',
+		parked_fired_for TEXT NOT NULL DEFAULT '',
+		usage_limit_retry_at TEXT NOT NULL DEFAULT '',
+		usage_limit_attempts INTEGER NOT NULL DEFAULT 0,
+		UNIQUE (task_id, ordinal)
+	);
+	INSERT INTO task_v8 (id, project, kind, brief, lifecycle, pr, merge_executed, merge_executed_at,
+		merge_announced, delivered_at, delivered_reason, report_offset, report_digest, created_at)
+	SELECT id, project, kind, brief, 'open', pr, merge_executed, merge_executed_at,
+		merge_announced, delivered_at, delivered_reason, report_offset, report_digest, created_at
+	FROM task;
+	INSERT INTO attempt_v8 (task_id, ordinal, lifecycle, harness, model, effort, worktree, lease_id,
+		herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id, created_at, pane_started_at,
+		status_changed_at, status_changed_for, done_verified, last_report_state, last_report_note,
+		send_undelivered_message, send_undelivered_at, parked_fired_for, usage_limit_retry_at, usage_limit_attempts)
+	SELECT id, 1, 'running', harness, model, effort, worktree, lease_id,
+		herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id, created_at, pane_started_at,
+		status_changed_at, status_changed_for, done_verified, last_report_state, last_report_note,
+		send_undelivered_message, send_undelivered_at, parked_fired_for, usage_limit_retry_at, usage_limit_attempts
+	FROM task;
+	UPDATE task_v8 SET active_attempt_id = (SELECT id FROM attempt_v8 WHERE task_id = task_v8.id);
+	DROP TABLE task;
+	ALTER TABLE task_v8 RENAME TO task;
+	ALTER TABLE attempt_v8 RENAME TO attempt;
+	CREATE UNIQUE INDEX attempt_one_active ON attempt(task_id) WHERE lifecycle IN ('provisioning', 'running');`,
+}
+
+// The version whose migration splits task from attempt. A database already carrying that
+// layout has every earlier migration folded into it, whatever user_version claims.
+const splitVersion = 8
+
+// Reports whether the task table already carries the split layout. The attempt table cannot
+// answer this: createSchema builds it on every home before any migration runs, while an
+// existing task table keeps whatever columns it was created with.
+func (db *DB) taskIsSplit() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name = 'active_attempt_id'`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect the split task layout: %w", err)
+	}
+	return count != 0, nil
 }
 
 func (db *DB) schemaVersion() (int, error) {
@@ -98,6 +178,21 @@ func (db *DB) migrateSchema() error {
 	// already-migrated homes keep working - a test-passes, production-fails asymmetry.
 	if isNew {
 		return nil
+	}
+	// Version 0 means both "the pre-versioning baseline" and "already split, never stamped",
+	// and only the task table's own layout tells them apart. Stamped rather than returned, so
+	// a migration added after the split still applies to a home that arrives here unstamped.
+	if current == 0 && latest >= splitVersion {
+		split, err := db.taskIsSplit()
+		if err != nil {
+			return err
+		}
+		if split {
+			if _, err := db.sql.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, splitVersion)); err != nil {
+				return fmt.Errorf("record schema version %d: %w", splitVersion, err)
+			}
+			current = splitVersion
+		}
 	}
 	for version := current; version < latest; version++ {
 		if err := db.applyMigration(version); err != nil {

@@ -201,7 +201,7 @@ func TestDetectPRSearchesRenamedRepositoryAfterProjectSetURL(t *testing.T) {
 	oldURL := "https://github.com/atqamz/secondhand.git"
 	newURL := "https://github.com/atqamz/hand.git"
 	home, clonePath := setupRegisteredURLProject(t, oldURL)
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "secondhand", Worktree: clonePath}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "secondhand"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: clonePath}); err != nil {
 		t.Fatal(err)
 	}
 	if err := executeProjectSetURL(t, home, newURL); err != nil {
@@ -220,7 +220,7 @@ func TestDetectPRSearchesRenamedRepositoryAfterProjectSetURL(t *testing.T) {
 	if err != nil || !exists {
 		t.Fatalf("project.Find = %+v, %v, %v", proj, exists, err)
 	}
-	got, err := detectPR(context.Background(), home, task, proj)
+	got, err := detectPR(context.Background(), home, task, state.Attempt{Worktree: clonePath}, proj)
 	if err != nil {
 		t.Fatal(err)
 	}

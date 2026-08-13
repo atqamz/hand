@@ -32,7 +32,7 @@ func TestSendHappyPathWhenIdle(t *testing.T) {
 	// (callVoid's doc comment, client.go). callVoid only checks env.Error, which is nil here, so the extra
 	// body is harmless and this still exercises the real success path.
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -59,7 +59,7 @@ func TestSendFailsWhenPaneNotFound(t *testing.T) {
 		Stdout:  "{\"id\":\"cli:1\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"no such pane\"}}",
 		Exit:    1,
 	}}})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:gone"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:gone"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,7 +74,7 @@ func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 	// Same send-text/send-keys envelope simplification as
 	// TestSendHappyPathWhenIdle above.
 	home := setupSendHome(t, faketool.Herdr{PaneStatusSequence: []string{"working", "idle"}})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,7 +88,7 @@ func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 func TestSendReadsMessageFromFile(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "sent.log")
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +145,7 @@ func TestSendFailsWhenPaneDisappearsDuringWait(t *testing.T) {
 	home := setupSendHome(t, faketool.Herdr{
 		PaneStatusSequence: []string{"working", "pane-gone"},
 	})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -160,12 +160,12 @@ func TestSendFailsWhenPaneDisappearsDuringWait(t *testing.T) {
 		t.Fatalf("got err %v, want pane not found", err)
 	}
 
-	got, err := state.Read(home, "task-1")
+	active, err := state.ActiveAttempt(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SendUndeliveredMessage != "" {
-		t.Fatalf("SendUndeliveredMessage = %q, want no trace for an unreachable pane", got.SendUndeliveredMessage)
+	if active.SendUndeliveredMessage != "" {
+		t.Fatalf("SendUndeliveredMessage = %q, want no trace for an unreachable pane", active.SendUndeliveredMessage)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestSendRecordsUndeliveredMessageWhenSubmitFails(t *testing.T) {
 			Exit:    1,
 		}},
 	})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,14 +195,14 @@ func TestSendRecordsUndeliveredMessageWhenSubmitFails(t *testing.T) {
 		t.Fatalf("got err %v, want the submit failure", err)
 	}
 
-	got, err := state.Read(home, "task-1")
+	active, err := state.ActiveAttempt(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SendUndeliveredMessage != "stop and wait for review" {
-		t.Fatalf("SendUndeliveredMessage = %q, want the unsubmitted message", got.SendUndeliveredMessage)
+	if active.SendUndeliveredMessage != "stop and wait for review" {
+		t.Fatalf("SendUndeliveredMessage = %q, want the unsubmitted message", active.SendUndeliveredMessage)
 	}
-	if got.SendUndeliveredAt == "" {
+	if active.SendUndeliveredAt == "" {
 		t.Fatal("SendUndeliveredAt not recorded")
 	}
 }
@@ -216,7 +216,7 @@ func TestSendRecordsUndeliveredMessageWhenTextSendFails(t *testing.T) {
 			Exit:    1,
 		}},
 	})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,12 +231,12 @@ func TestSendRecordsUndeliveredMessageWhenTextSendFails(t *testing.T) {
 		t.Fatalf("got err %v, want the text-send failure", err)
 	}
 
-	got, err := state.Read(home, "task-1")
+	active, err := state.ActiveAttempt(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SendUndeliveredMessage != "stop and wait for review" || got.SendUndeliveredAt == "" {
-		t.Fatalf("undelivered trace = %q/%q, want the failed message and timestamp", got.SendUndeliveredMessage, got.SendUndeliveredAt)
+	if active.SendUndeliveredMessage != "stop and wait for review" || active.SendUndeliveredAt == "" {
+		t.Fatalf("undelivered trace = %q/%q, want the failed message and timestamp", active.SendUndeliveredMessage, active.SendUndeliveredAt)
 	}
 }
 
@@ -244,7 +244,7 @@ func TestSendRecordsUndeliveredMessageWhenComposerStaysBusy(t *testing.T) {
 	// The composer never frees, so WaitComposerEmpty always exhausts --wait;
 	// a short --wait keeps the test itself fast.
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "working"})
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -256,25 +256,21 @@ func TestSendRecordsUndeliveredMessageWhenComposerStaysBusy(t *testing.T) {
 		t.Fatalf("got %v, want ExitError code 6", err)
 	}
 
-	got, err := state.Read(home, "task-1")
+	active, err := state.ActiveAttempt(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SendUndeliveredMessage != "stop and wait for review" {
-		t.Fatalf("SendUndeliveredMessage = %q, want the abandoned message", got.SendUndeliveredMessage)
+	if active.SendUndeliveredMessage != "stop and wait for review" {
+		t.Fatalf("SendUndeliveredMessage = %q, want the abandoned message", active.SendUndeliveredMessage)
 	}
-	if got.SendUndeliveredAt == "" {
+	if active.SendUndeliveredAt == "" {
 		t.Fatal("SendUndeliveredAt not recorded")
 	}
 }
 
 func TestSendClearsAPreviouslyRecordedUndeliveredSendOnSuccess(t *testing.T) {
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"},
-		SendUndeliveredMessage: "an earlier abandoned steer",
-		SendUndeliveredAt:      "2026-08-01T00:00:00Z",
-	}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}, SendUndeliveredMessage: "an earlier abandoned steer", SendUndeliveredAt: "2026-08-01T00:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -284,12 +280,12 @@ func TestSendClearsAPreviouslyRecordedUndeliveredSendOnSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := state.Read(home, "task-1")
+	active, err := state.ActiveAttempt(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SendUndeliveredMessage != "" || got.SendUndeliveredAt != "" {
-		t.Fatalf("undelivered send trace not cleared: %+v", got)
+	if active.SendUndeliveredMessage != "" || active.SendUndeliveredAt != "" {
+		t.Fatalf("undelivered send trace not cleared: %+v", active)
 	}
 }
 

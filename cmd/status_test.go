@@ -91,8 +91,8 @@ func TestStatusFleetListsAllTasks(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -118,8 +118,8 @@ func TestStatusFleetRowCellsStaySeparableAtAnyValueWidth(t *testing.T) {
 	writeFakeHerdrPaneStatus(t, "working")
 
 	id := "task-aaaaaaaaaaa"
-	if err := state.Write(home, state.Task{ID: id, Project: "myproject12", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: id, Project: "myproject12", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestStatusFleetDegradesToUnknownWhenHerdrUnreachable(t *testing.T) {
 	mkFleetDirs(t, home)
 	t.Setenv("PATH", t.TempDir())
 
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -163,8 +163,8 @@ func TestStatusFleetJSON(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,8 +192,9 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, Harness: "claude",
-		Herdr: state.Herdr{Session: "default", TabID: "wA:tB", PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude",
+		Herdr: state.Herdr{Session: "default", TabID: "wA:tB", PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -209,6 +210,59 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	}
 	if got := detailField(t, out.String(), "state"); got != "idle" {
 		t.Fatalf("state = %q, want idle", got)
+	}
+}
+
+func TestStatusSingleTaskPropagatesUnreadableAttemptHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := state.CreateTask(home, state.Task{ID: "other", Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateAttempt(home, state.Attempt{TaskID: "other", Lifecycle: state.AttemptRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Lifecycle: state.TaskOpen, ActiveAttemptID: attempt.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "read task history") {
+		t.Fatalf("error = %v, want durable attempt-history read error", err)
+	}
+}
+
+// The fleet view reads attempt history the same way the detail view does, so a durable fault reading it
+// fails the whole command rather than listing the task with its execution silently blank.
+func TestStatusFleetPropagatesUnreadableAttemptHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := state.CreateTask(home, state.Task{ID: "other", Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateAttempt(home, state.Attempt{TaskID: "other", Lifecycle: state.AttemptRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Lifecycle: state.TaskOpen, ActiveAttemptID: attempt.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("got nil error and output %q, want the unreadable attempt history to fail the command", out.String())
 	}
 }
 
@@ -231,9 +285,10 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 			mkFleetDirs(t, home)
 			writeFakeHerdrPaneStatus(t, "idle")
 
-			if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-				Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
-				PR: "https://github.com/a/b/pull/1", MergeExecuted: c.merged, MergeAnnounced: c.prMergedObserved}); err != nil {
+			if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+				CreatedAt: "2026-07-24T10:00:00Z",
+				PR:        "https://github.com/a/b/pull/1", MergeExecuted: c.merged, MergeAnnounced: c.prMergedObserved}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+			); err != nil {
 				t.Fatal(err)
 			}
 
@@ -263,8 +318,9 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	writeFakeHerdrPaneStatus(t, "idle")
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
-	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindShip, Worktree: worktree, Project: "myproj",
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -297,8 +353,9 @@ func TestStatusSkipsPRDetectionForScoutTasks(t *testing.T) {
 	writeFakeHerdrPaneStatus(t, "idle")
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
-	if err := state.Write(home, state.Task{ID: "task-1", Kind: state.KindScout, Worktree: worktree, Project: "myproj",
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindScout, Project: "myproj",
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -324,9 +381,10 @@ func TestStatusFleetOverviewRendersMergeMarker(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
-		PR: "https://github.com/a/b/pull/1", MergeAnnounced: true}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z",
+		PR:        "https://github.com/a/b/pull/1", MergeAnnounced: true}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -348,8 +406,8 @@ func TestStatusFleetOverviewTaskWithNoPRIsUnaffected(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -371,7 +429,7 @@ func TestStatusSingleTaskJSON(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "blocked")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -405,8 +463,8 @@ func TestStatusFleetFlagsIdleWithoutTerminalReportAsUnreported(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -429,8 +487,8 @@ func TestStatusFleetFlagsIdleWithTerminalReportInsteadOfUnreported(t *testing.T)
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("needs-decision: waiting on review\n"), 0o644); err != nil {
@@ -462,8 +520,8 @@ func TestStatusFleetKeepsTheReportedFlagAfterATrailingMalformedLine(t *testing.T
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"),
@@ -489,8 +547,8 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -516,8 +574,8 @@ func TestStatusFleetCarriesAPausedReportThroughABusyPane(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("paused: waiting on the nightly build\n"), 0o644); err != nil {
@@ -545,9 +603,10 @@ func TestStatusFleetDwellTimeFollowsTheReportFileNotTheTaskAge(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr:     state.Herdr{PaneID: "wA:pB"},
-		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+
+		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	report := state.ReportPath(home, "task-1")
@@ -579,9 +638,10 @@ func TestStatusSingleTaskDwellTimeFollowsTheReportFileNotTheTaskAge(t *testing.T
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr:     state.Herdr{PaneID: "wA:pB"},
-		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+
+		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	report := state.ReportPath(home, "task-1")
@@ -618,9 +678,10 @@ func TestStatusReportsNoDwellTimeWithoutAReportFile(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr:     state.Herdr{PaneID: "wA:pB"},
-		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+
+		CreatedAt: time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -642,8 +703,8 @@ func TestStatusSingleTaskShowsReportedStateAndHistory(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	reportBody := "working: started\nneeds-decision: waiting on review\n"
@@ -679,8 +740,8 @@ func TestStatusSingleTaskDegradesOnAnUnreadableReport(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(state.ReportPath(home, "task-1"), 0o755); err != nil {
@@ -751,8 +812,8 @@ func TestStatusSingleTaskTruncatesALongReportedLineAndPointsAtTheFile(t *testing
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	longNote := strings.Repeat("x", 500)
@@ -797,10 +858,11 @@ func TestStatusSingleTaskEmitsOnlyAddressableFields(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Harness: "claude", Model: "sonnet", Worktree: filepath.Join(home, "wt"),
-		Herdr:     state.Herdr{Session: "default", TabID: "wA:tB", PaneID: "wA:pB"},
-		CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Model: "sonnet", Worktree: filepath.Join(home, "wt"),
+		Herdr: state.Herdr{Session: "default", TabID: "wA:tB", PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: landed\n"), 0o644); err != nil {
@@ -847,8 +909,8 @@ func TestStatusSingleTaskHistoryDoesNotRepeatTheReportedEntry(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	reportBody := "working: started\nneeds-decision: waiting on review\n"
@@ -881,8 +943,8 @@ func TestStatusSingleTaskFullFlagShowsEveryReportUntruncated(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	longNote := strings.Repeat("x", 500)
@@ -913,7 +975,7 @@ func TestStatusSingleTaskJSONKeepsTheFullReportUntruncated(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	longNote := strings.Repeat("x", 500)
@@ -939,7 +1001,7 @@ func TestStatusSingleTaskJSONIncludesReportedAndHistory(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("blocked: waiting on secrets\n"), 0o644); err != nil {
@@ -1019,8 +1081,8 @@ func TestStatusFleetStatesZeroHoldsRatherThanOmittingTheBlock(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1150,8 +1212,8 @@ func TestStatusSingleTaskShowsHeldLine(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindBlocked,
@@ -1177,8 +1239,8 @@ func TestStatusSingleTaskStatesNoHoldRatherThanOmittingTheField(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1203,10 +1265,11 @@ func TestStatusShowsDeliveredWorkWithoutClaimingAMerge(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt:   "2026-07-24T10:00:00Z",
 		PR:          "https://github.com/kunchenguid/no-mistakes/pull/597",
-		DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream, maintainer decides"}); err != nil {
+		DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream, maintainer decides"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1256,7 +1319,7 @@ func TestStatusSingleTaskJSONIncludesHeld(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindOperator,
@@ -1283,7 +1346,7 @@ func TestStatusSingleTaskPropagatesAnUnreadableHoldStore(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(store.Path(home)); err != nil {
@@ -1352,8 +1415,8 @@ func TestStatusFleetFieldsNarrowsTheSchemaHeaderWithTheRows(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1856,8 +1919,8 @@ func TestStatusFleetFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	writeDoneReport(t, home, "task-1", "PR up")
@@ -1881,9 +1944,10 @@ func TestStatusFleetDoesNotFlagATerminalReportAWatcherConsumed(t *testing.T) {
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	report := "done: PR up\n"
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
-		ReportOffset: int64(len(report))}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt:    "2026-07-24T10:00:00Z",
+		ReportOffset: int64(len(report))}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
@@ -1912,8 +1976,8 @@ func TestStatusFleetJSONFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	writeDoneReport(t, home, "task-1", "PR up")
@@ -1936,8 +2000,8 @@ func TestStatusSingleTaskFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	writeDoneReport(t, home, "task-1", "PR up")
@@ -1963,8 +2027,8 @@ func TestStatusSingleTaskFlagsATerminalReportBeyondTheHistoryWindow(t *testing.T
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	report := "done: PR up\nstill tidying\nand more\nand more\nand more\nand more\n"
@@ -1993,8 +2057,8 @@ func TestStatusSingleTaskFlagsTheClassifiedLineNotTrailingFreeText(t *testing.T)
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR up\nstill tidying\n"), 0o644); err != nil {
@@ -2025,9 +2089,10 @@ func TestStatusSingleTaskShowsTrailingFreeTextWhenAcknowledged(t *testing.T) {
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	report := "done: PR up\nstill tidying\n"
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
-		ReportOffset: int64(len(report))}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt:    "2026-07-24T10:00:00Z",
+		ReportOffset: int64(len(report))}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
@@ -2053,9 +2118,10 @@ func TestStatusSingleTaskJSONOmitsUnacknowledgedWhenAcknowledged(t *testing.T) {
 	writeFakeHerdrPaneStatus(t, "idle")
 
 	report := "done: PR up\n"
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z",
-		ReportOffset: int64(len(report))}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt:    "2026-07-24T10:00:00Z",
+		ReportOffset: int64(len(report))}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte(report), 0o644); err != nil {
@@ -2119,8 +2185,8 @@ func TestStatusFleetFlagsATerminalReportWithNoTrailingNewline(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		Herdr: state.Herdr{PaneID: "wA:pB"}, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR up"), 0o644); err != nil {

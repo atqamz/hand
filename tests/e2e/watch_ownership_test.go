@@ -93,11 +93,9 @@ func seedOneTaskHome(t *testing.T) string {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
-		CreatedAt: time.Now().UTC().Format(time.RFC3339)}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning,
+		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	statusDir := t.TempDir()
 	setPaneStatus(t, statusDir, "pane-1", "working")

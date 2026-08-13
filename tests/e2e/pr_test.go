@@ -28,9 +28,7 @@ func TestPRCommand(t *testing.T) {
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "e2e-fixture", Kind: state.KindShip, CreatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "e2e-fixture", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning})
 
 	invocationLog := filepath.Join(t.TempDir(), "gh-invocations.log")
 	writeFakeDispatch(t, dir, "gh", invocationLog, "$1 $2", `  "pr view") echo '{"state":"OPEN"}' ;;`)

@@ -125,14 +125,11 @@ func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 				t.Fatalf("spawn under claude warned about effort: %q", spawned.stderr)
 			}
 
-			task, err := state.Read(home, tc.id)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Logf("persisted tier: model=%q effort=%q", task.Model, task.Effort)
-			if task.Model != tc.wantModel || task.Effort != tc.wantEffort {
+			_, attempt := readTaskAttempt(t, home, tc.id)
+			t.Logf("persisted tier: model=%q effort=%q", attempt.Model, attempt.Effort)
+			if attempt.Model != tc.wantModel || attempt.Effort != tc.wantEffort {
 				t.Fatalf("persisted tier = model %q effort %q, want model %q effort %q",
-					task.Model, task.Effort, tc.wantModel, tc.wantEffort)
+					attempt.Model, attempt.Effort, tc.wantModel, tc.wantEffort)
 			}
 
 			lines := readLaunchLog(t, launchLog)
@@ -164,15 +161,11 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "projects", "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindScout,
-		Worktree:  filepath.Join(home, "wt-scout-old"),
-		Herdr:     state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"},
-		Model:     "claude-sonnet-5",
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-scout-old"),
+		Herdr: state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"}, Model: "claude-sonnet-5"})
 
 	// The scout already holds a pool slot and a tab in the project's workspace, so
 	// promote reuses that workspace for the ship task rather than opening a second
@@ -196,13 +189,10 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 		t.Fatalf("promote: exit %d, stderr %q", promoted.code, promoted.stderr)
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("persisted tier: model=%q effort=%q", task.Model, task.Effort)
-	if task.Model != "claude-opus-5" || task.Effort != "max" {
-		t.Fatalf("persisted tier = model %q effort %q, want claude-opus-5/max from the brief", task.Model, task.Effort)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	t.Logf("persisted tier: model=%q effort=%q", attempt.Model, attempt.Effort)
+	if attempt.Model != "claude-opus-5" || attempt.Effort != "max" {
+		t.Fatalf("persisted tier = model %q effort %q, want claude-opus-5/max from the brief", attempt.Model, attempt.Effort)
 	}
 
 	launch := readLaunchLog(t, launchLog)[0]

@@ -142,15 +142,19 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 // Confirms every active task's pane answers before RunUntilEvent arms, since an unprobed task would
 // otherwise wait out the timeout with no distinguishing signal.
 func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error {
-	tasks, err := state.List(home)
+	histories, err := state.ListOpenHistories(home)
 	if err != nil {
 		return fmt.Errorf("list tasks: %w", err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		for _, t := range tasks {
-			if _, err := client.PaneGetContext(ctx, t.Herdr.PaneID); err != nil {
-				done <- fmt.Errorf("%w: %s: %v", ErrArmFailed, t.ID, err)
+		for _, history := range histories {
+			if history.ActiveAttempt == nil {
+				done <- fmt.Errorf("%w: %s has no active attempt", ErrArmFailed, history.Task.ID)
+				return
+			}
+			if _, err := client.PaneGetContext(ctx, history.ActiveAttempt.Herdr.PaneID); err != nil {
+				done <- fmt.Errorf("%w: %s: %v", ErrArmFailed, history.Task.ID, err)
 				return
 			}
 		}
@@ -170,33 +174,39 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {
-	tasks, err := state.List(cfg.Home)
+	histories, err := state.ListOpenHistories(cfg.Home)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: list tasks failed: %v\n", err)
 		return
 	}
 
-	seen := make(map[string]bool, len(tasks))
+	seen := make(map[string]bool, len(histories))
 	now := time.Now()
-	for _, t := range tasks {
+	for _, history := range histories {
 		if ctx.Err() != nil {
 			return
 		}
+		t := history.Task
+		if history.ActiveAttempt == nil {
+			_, _ = fmt.Fprintf(errOut, "watch: task %s has no active attempt\n", t.ID)
+			continue
+		}
+		attempt := *history.ActiveAttempt
 		seen[t.ID] = true
-		pane, probeErr := client.PaneGetContext(ctx, t.Herdr.PaneID)
+		pane, probeErr := client.PaneGetContext(ctx, attempt.Herdr.PaneID)
 		if ctx.Err() != nil {
 			return
 		}
 		status := pane.AgentStatus
 
-		// Tracking is keyed by task identity, not by ID: an ID torn down and respawned between two
-		// ticks is a different task. Same hazard as a surviving report channel, one layer in - see
-		// state.Delete for that half.
+		// Tracking is keyed by task identity, not by ID: a reopen or a promote gives the same ID a new
+		// attempt, and a new attempt is a new execution identity. Same hazard as a surviving report
+		// channel, one layer in.
 		ts, tracked := states[t.ID]
 		// Inheriting the previous run's TaskState would suppress the new task's verified done forever -
 		// syncTaskState writes that inherited done_verified onto the fresh row, making the suppression
 		// durable - and absorb its first unexplained stop.
-		if tracked && ts.CreatedAt != t.CreatedAt {
+		if tracked && (ts.CreatedAt != t.CreatedAt || ts.AttemptID != t.ActiveAttemptID) {
 			tracked = false
 		}
 		if !tracked {
@@ -205,7 +215,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			if probeErr != nil {
 				status = herdr.StatusUnknown
 			}
-			ts = resumeTaskState(t, status, now)
+			ts = resumeTaskState(t, attempt, status, now)
 			// False starts ClassifyUnreachable's dwell clock immediately, instead of waiting for a second
 			// failed probe to notice this task at all.
 			ts.Probed = probeErr == nil
@@ -213,7 +223,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			continue
 		}
 
-		forgetPaneScopedCache(ts, t, now)
+		forgetPaneScopedCache(ts, t, attempt, now)
 
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
 
@@ -243,12 +253,12 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
-		if mtime, err := reportEvidenceTime(cfg.Home, t); err != nil {
+		if mtime, err := reportEvidenceTime(cfg.Home, t, attempt); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
 		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
-		if e := classifyUsageLimit(cfg, client, ts, t, pane, status, probeErr, justStopped, now, errOut); e != nil {
+		if e := classifyUsageLimit(cfg, client, ts, t, attempt, pane, status, probeErr, justStopped, now, errOut); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
 		// Last, after every event this tick produced has been announced: a marker persisted before its
@@ -266,26 +276,27 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 
 // Every restored fact comes from durable state: re-deriving what landed while the watcher was down
 // would make new evidence look like an announcement that already went out.
-func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskState {
-	changedAt := statusChangeSeed(t, status, now)
+func resumeTaskState(t state.Task, a state.Attempt, status herdr.Status, now time.Time) *TaskState {
+	changedAt := statusChangeSeed(t, a, status, now)
 	ts := NewTaskState(status, changedAt)
 	ts.PersistedChangedAt = changedAt
-	ts.PersistedChangedFor = t.StatusChangedFor
-	ts.PersistedPaneID = t.Herdr.PaneID
+	ts.PersistedChangedFor = a.StatusChangedFor
+	ts.PersistedPaneID = a.Herdr.PaneID
 	ts.CreatedAt = t.CreatedAt
+	ts.AttemptID = t.ActiveAttemptID
 	ts.ReportCursor = state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest}
 	ts.PersistedCursor = ts.ReportCursor
 	ts.PRMerged = t.MergeAnnounced
 	ts.PersistedPRMerged = t.MergeAnnounced
-	ts.DoneVerified = t.DoneVerified
-	ts.PersistedDoneVerified = t.DoneVerified
-	ts.LastReportState = t.LastReportState
-	ts.LastReportNote = t.LastReportNote
-	ts.ParkedFiredFor = parkedFiredSeed(t)
+	ts.DoneVerified = a.DoneVerified
+	ts.PersistedDoneVerified = a.DoneVerified
+	ts.LastReportState = a.LastReportState
+	ts.LastReportNote = a.LastReportNote
+	ts.ParkedFiredFor = parkedFiredSeed(a)
 	ts.PersistedParkedFiredFor = ts.ParkedFiredFor
-	ts.LimitRetryAt = limitRetrySeed(t)
+	ts.LimitRetryAt = limitRetrySeed(a)
 	ts.PersistedLimitRetryAt = ts.LimitRetryAt
-	ts.LimitAttempts = t.UsageLimitAttempts
+	ts.LimitAttempts = a.UsageLimitAttempts
 	ts.PersistedLimitAttempts = ts.LimitAttempts
 	return ts
 }
@@ -293,8 +304,8 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 // Reads back the instant a limited worker may next be tried. An unparseable stamp seeds unlimited,
 // losing the schedule rather than inventing one: the next stop edge or first probe re-detects the limit
 // from the pane, whereas a stamp guessed at here would drive real steers off a value nothing wrote.
-func limitRetrySeed(t state.Task) time.Time {
-	parsed, err := time.Parse(time.RFC3339, t.UsageLimitRetryAt)
+func limitRetrySeed(a state.Attempt) time.Time {
+	parsed, err := time.Parse(time.RFC3339, a.UsageLimitRetryAt)
 	if err != nil {
 		return time.Time{}
 	}
@@ -311,8 +322,8 @@ func limitRetryStamp(retryAt time.Time) string {
 // Reads back the silence instant parked last fired against. An unparseable stamp seeds unfired
 // rather than failing the resume: one duplicate event is the same failure direction the whole
 // classifier already prefers over a suppressed one.
-func parkedFiredSeed(t state.Task) time.Time {
-	parsed, err := time.Parse(time.RFC3339Nano, t.ParkedFiredFor)
+func parkedFiredSeed(a state.Attempt) time.Time {
+	parsed, err := time.Parse(time.RFC3339Nano, a.ParkedFiredFor)
 	if err != nil {
 		return time.Time{}
 	}
@@ -332,25 +343,25 @@ func parkedFiredStamp(fired time.Time) string {
 // Drops the cached facts hand promote invalidated: it gives the task a new herdr pane while keeping
 // created_at, so tick's identity check never fires, yet every pane-anchored fact cached here
 // describes a pane the task no longer has.
-func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
+func forgetPaneScopedCache(ts *TaskState, t state.Task, a state.Attempt, now time.Time) {
 	// Compared against the persisted mirror, not the live flag: the watcher only ever sets the flag
 	// true, so a disk value gone false since this watcher wrote true is such a rewrite - while a flag
 	// set true earlier in this very tick is simply not persisted yet, which syncTaskState's OR fixes.
-	if !t.DoneVerified && ts.PersistedDoneVerified {
+	if !a.DoneVerified && ts.PersistedDoneVerified {
 		ts.DoneVerified = false
 		ts.PersistedDoneVerified = false
 	}
 	// The trigger is the pane changing, not the newly observed status differing - a ship whose first
 	// probe reads the status the scout last held raises no transition at all - and not a restamped
 	// timestamp, too eager (a resume reseeds the dwell) and too blunt (same-second restamps vanish).
-	if t.Herdr.PaneID == ts.PersistedPaneID {
+	if a.Herdr.PaneID == ts.PersistedPaneID {
 		return
 	}
-	ts.PersistedPaneID = t.Herdr.PaneID
-	seed := statusChangeSeed(t, ts.Status, now)
+	ts.PersistedPaneID = a.Herdr.PaneID
+	seed := statusChangeSeed(t, a, ts.Status, now)
 	ts.ChangedAt = seed
 	ts.PersistedChangedAt = seed
-	ts.PersistedChangedFor = t.StatusChangedFor
+	ts.PersistedChangedFor = a.StatusChangedFor
 	// Reset after the seed above, which asks what status the cached dwell describes. StatusUnknown
 	// matches neither the working nor the blocked branch, so a ship's first probe reads as the
 	// baseline a first sighting always is rather than as a transition out of the scout's status.
@@ -372,10 +383,10 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, now time.Time) {
 	ts.LimitProbed = false
 	// Re-read from the promoted row rather than zeroed alongside the rest, so the columns get written
 	// clear here in the one case hand promote did not already clear them itself.
-	ts.PersistedLimitRetryAt = limitRetrySeed(t)
-	ts.PersistedLimitAttempts = t.UsageLimitAttempts
-	ts.LastReportState = t.LastReportState
-	ts.LastReportNote = t.LastReportNote
+	ts.PersistedLimitRetryAt = limitRetrySeed(a)
+	ts.PersistedLimitAttempts = a.UsageLimitAttempts
+	ts.LastReportState = a.LastReportState
+	ts.LastReportNote = a.LastReportNote
 }
 
 // Classifies whatever report lines have arrived since ts.ReportCursor, before ClassifyStatus runs
@@ -412,13 +423,14 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 
 // Answers how long a task has already been dwelling in status, so a restart does not reset a dwell
 // that has been real all along.
-func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Time {
+
+func statusChangeSeed(t state.Task, a state.Attempt, status herdr.Status, now time.Time) time.Time {
 	// StatusChangedAt is only evidence about the status it was stamped for.
-	if t.StatusChangedAt != "" {
-		if t.StatusChangedFor != string(status) {
+	if a.StatusChangedAt != "" {
+		if a.StatusChangedFor != string(status) {
 			return now
 		}
-		if parsed, err := time.Parse(time.RFC3339, t.StatusChangedAt); err == nil {
+		if parsed, err := time.Parse(time.RFC3339, a.StatusChangedAt); err == nil {
 			return parsed
 		}
 	}
@@ -432,8 +444,8 @@ func statusChangeSeed(t state.Task, status herdr.Status, now time.Time) time.Tim
 // Floors the report file's mtime at the instant the task's current pane started, because hand
 // promote leaves the scout's report file - and so its mtime - untouched while clearing the
 // last-report state that had the scout's silence under the long done/failed bound.
-func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
-	started, err := paneStartTime(t)
+func reportEvidenceTime(home string, t state.Task, a state.Attempt) (time.Time, error) {
+	started, err := paneStartTime(t, a)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -455,8 +467,8 @@ func reportEvidenceTime(home string, t state.Task) (time.Time, error) {
 // When the task's current pane started, as spawn and hand promote each recorded it. Deliberately no
 // longer StatusChangedAt, which the outage-dwell clock restamps for a pane it could not even reach,
 // sliding this floor forward by up to a full bound of real report silence.
-func paneStartTime(t state.Task) (time.Time, error) {
-	stamp, field := t.PaneStartedAt, "pane_started_at"
+func paneStartTime(t state.Task, a state.Attempt) (time.Time, error) {
+	stamp, field := a.PaneStartedAt, "pane_started_at"
 	// The schema migration and the legacy import both backfill the column, so an empty stamp means a
 	// row nothing in hand wrote, and CreatedAt is the honest floor for it.
 	if stamp == "" {
@@ -558,7 +570,7 @@ func recordAutoPR(home, id, url string) error {
 		return nil
 	}
 	t.PR = url
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return fmt.Errorf("write task %s: %w", id, err)
 	}
 	return nil
@@ -614,28 +626,40 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		_, _ = fmt.Fprintf(errOut, "watch: read task %s failed: %v\n", id, err)
 		return
 	}
-	// A promote may have landed since this tick's state.List. Writing the cached values back would
-	// erase its restamp and leave the disk value matching what this watcher persisted, so no later
-	// tick would find anything to forget either.
-	forgetPaneScopedCache(ts, t, now)
-
 	t.ReportOffset = ts.ReportCursor.Offset
 	t.ReportDigest = ts.ReportCursor.Digest
 	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
-	t.DoneVerified = t.DoneVerified || ts.DoneVerified
-	t.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
-	t.StatusChangedFor = string(ts.Status)
-	t.LastReportState = ts.LastReportState
-	t.LastReportNote = ts.LastReportNote
-	t.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
-	t.UsageLimitRetryAt = limitRetryStamp(ts.LimitRetryAt)
-	t.UsageLimitAttempts = ts.LimitAttempts
-	if err := state.Write(home, t); err != nil {
+	// The report cursor is task-owned and lands before the attempt is resolved: dropping it because a
+	// task terminalized mid-tick would replay lines this watcher already consumed, which re-raises
+	// resolved decisions and can auto-record a stale PR URL.
+	if err := state.UpdateTask(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
 	}
 	ts.PersistedCursor = ts.ReportCursor
 	ts.PersistedPRMerged = ts.PRMerged
+
+	active, err := state.ActiveAttempt(home, id)
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: read active attempt %s failed: %v\n", id, err)
+		return
+	}
+	// A promote may have landed since this tick's state.List. Writing the cached values back would
+	// erase its restamp and leave the disk value matching what this watcher persisted, so no later
+	// tick would find anything to forget either.
+	forgetPaneScopedCache(ts, t, active, now)
+	active.DoneVerified = active.DoneVerified || ts.DoneVerified
+	active.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
+	active.StatusChangedFor = string(ts.Status)
+	active.LastReportState = ts.LastReportState
+	active.LastReportNote = ts.LastReportNote
+	active.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
+	active.UsageLimitRetryAt = limitRetryStamp(ts.LimitRetryAt)
+	active.UsageLimitAttempts = ts.LimitAttempts
+	if err := state.UpdateAttempt(home, active); err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: persist attempt %s failed: %v\n", id, err)
+		return
+	}
 	ts.PersistedDoneVerified = ts.DoneVerified
 	ts.PersistedChangedAt = ts.ChangedAt
 	ts.PersistedChangedFor = string(ts.Status)

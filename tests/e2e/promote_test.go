@@ -34,16 +34,11 @@ func TestPromoteScoutToShip(t *testing.T) {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 	scoutPaneStart := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	oldWorktree := filepath.Join(home, "wt-scout-old")
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindScout,
-		Worktree:      oldWorktree,
-		LeaseID:       "lease-old",
-		Herdr:         state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"},
-		CreatedAt:     createdAt,
-		PaneStartedAt: scoutPaneStart,
-	}); err != nil {
-		t.Fatal(err)
-	}
+		CreatedAt: createdAt,
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, LeaseID: "lease-old",
+		Herdr: state.Herdr{WorkspaceID: "ws-old", TabID: "tab-old", PaneID: "pane-old"}, PaneStartedAt: scoutPaneStart})
 
 	dir := binDir(t)
 	newWorktree := filepath.Join(home, "wt-ship-new")
@@ -84,33 +79,30 @@ func TestPromoteScoutToShip(t *testing.T) {
 		t.Fatalf("promote stdout = %q, want it to announce the scout->ship transition", promoted.stdout)
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	task, attempt := readTaskAttempt(t, home, "task-1")
 	if task.Kind != state.KindShip {
 		t.Fatalf("task.Kind = %q, want %q after promote", task.Kind, state.KindShip)
 	}
 	if task.Project != "demo" || task.CreatedAt != createdAt {
 		t.Fatalf("task identity changed: Project=%q CreatedAt=%q, want Project=demo CreatedAt=%q unchanged", task.Project, task.CreatedAt, createdAt)
 	}
-	if task.Worktree != newWorktree {
-		t.Fatalf("task.Worktree = %q, want the new worktree %q", task.Worktree, newWorktree)
+	if attempt.Worktree != newWorktree {
+		t.Fatalf("attempt.Worktree = %q, want the new worktree %q", attempt.Worktree, newWorktree)
 	}
-	if task.LeaseID != "lease-new" {
-		t.Fatalf("task.LeaseID = %q, want the new lease identity, not the scout's", task.LeaseID)
+	if attempt.LeaseID != "lease-new" {
+		t.Fatalf("attempt.LeaseID = %q, want the new lease identity, not the scout's", attempt.LeaseID)
 	}
-	if task.Herdr.WorkspaceID != "ws-new" || task.Herdr.TabID != "tab-new" || task.Herdr.PaneID != "pane-new" {
-		t.Fatalf("task.Herdr = %+v, want the new ws-new/tab-new/pane-new identifiers", task.Herdr)
+	if attempt.Herdr.WorkspaceID != "ws-new" || attempt.Herdr.TabID != "tab-new" || attempt.Herdr.PaneID != "pane-new" {
+		t.Fatalf("attempt.Herdr = %+v, want the new ws-new/tab-new/pane-new identifiers", attempt.Herdr)
 	}
-	if task.Herdr.Session != "default" {
-		t.Fatalf("task.Herdr.Session = %q, want %q", task.Herdr.Session, "default")
+	if attempt.Herdr.Session != "default" {
+		t.Fatalf("attempt.Herdr.Session = %q, want %q", attempt.Herdr.Session, "default")
 	}
-	if task.Harness != "claude" {
-		t.Fatalf("task.Harness = %q, want the default harness recorded", task.Harness)
+	if attempt.Harness != "claude" {
+		t.Fatalf("attempt.Harness = %q, want the default harness recorded", attempt.Harness)
 	}
-	if task.PaneStartedAt == "" || task.PaneStartedAt == scoutPaneStart {
-		t.Fatalf("task.PaneStartedAt = %q, want it restamped off the scout's %q: parked's silence floor is anchored to it", task.PaneStartedAt, scoutPaneStart)
+	if attempt.PaneStartedAt == "" || attempt.PaneStartedAt == scoutPaneStart {
+		t.Fatalf("attempt.PaneStartedAt = %q, want it restamped off the scout's %q: parked's silence floor is anchored to it", attempt.PaneStartedAt, scoutPaneStart)
 	}
 
 	logData, err := os.ReadFile(invocationLog)

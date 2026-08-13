@@ -38,13 +38,18 @@ func newDeliverCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
+			// Teardown already read whatever this mark would have said and wrote the permanent
+			// completion record from it, so a delivery recorded now would never be read at all.
+			if t.Lifecycle == state.TaskTerminal {
+				return &ExitError{Err: fmt.Errorf("task %q is torn down; run hand reopen %s to work on it again", id, id), Code: 3}
+			}
 
 			// Re-running with a new reason is a correction, not a conflict: nothing
 			// downstream has consumed the mark until teardown reads it, and the last
 			// word on what was delivered is the one worth keeping.
 			t.DeliveredAt = time.Now().UTC().Format(time.RFC3339)
 			t.DeliveredReason = reason
-			if err := state.Write(home, t); err != nil {
+			if err := state.UpdateTask(home, t); err != nil {
 				return fmt.Errorf("write task state: %w", err)
 			}
 

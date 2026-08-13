@@ -51,16 +51,12 @@ func newSpawnCmd() *cobra.Command {
 			if err := gatePreflight(cmd, proj, clonePath, skipGateCheck); err != nil {
 				return err
 			}
-
 			releaseClaim, err := state.Claim(home, id)
 			if err != nil {
 				return asPrecondition(err)
 			}
 			defer releaseClaim()
 
-			// A hold outlives the task row it was set on, by design, so a torn-down task's open question stays
-			// visible, and reusing the id would silently reattach it to unrelated work. Refused rather than
-			// cleared: answering an operator hold is not hand's, and a limit hold means a worker is still here.
 			held, hasHold, err := state.ReadHold(home, id)
 			if err != nil {
 				return asPrecondition(err)
@@ -123,7 +119,7 @@ func newSpawnCmd() *cobra.Command {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 
-			// Disarms the rollback below once state.Write has durably recorded the task: from that point
+			// Disarms the rollback below once state has durably recorded the task: from that point
 			// its workspace and tab are owned by the running task, not by this call.
 			spawned := false
 			defer func() {
@@ -162,26 +158,22 @@ func newSpawnCmd() *cobra.Command {
 
 			spawnedAt := time.Now().UTC().Format(time.RFC3339)
 			task := state.Task{
-				ID:       id,
-				Project:  proj.Name,
-				Kind:     kind,
-				Harness:  harnessName,
-				Model:    model,
-				Effort:   effort,
-				Worktree: wt,
-				LeaseID:  lease.ID,
-				Brief:    briefRel,
-				Herdr: state.Herdr{
-					Session:     "default",
-					WorkspaceID: ws.WorkspaceID,
-					TabID:       tab.TabID,
-					PaneID:      pane.PaneID,
-				},
-				CreatedAt:     spawnedAt,
-				PaneStartedAt: spawnedAt,
+				ID:        id,
+				Project:   proj.Name,
+				Kind:      kind,
+				Brief:     briefRel,
+				Lifecycle: state.TaskOpen,
+				CreatedAt: spawnedAt,
 			}
-			if err := state.Write(home, task); err != nil {
+			if err := state.CreateTask(home, task); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
+			}
+			if _, err := state.CreateAttempt(home, state.Attempt{
+				TaskID: id, Lifecycle: state.AttemptRunning, Harness: harnessName, Model: model, Effort: effort,
+				Worktree: wt, LeaseID: lease.ID, Herdr: state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID},
+				CreatedAt: spawnedAt, PaneStartedAt: spawnedAt,
+			}); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("write attempt state: %w", err), worktree.Return(wt, true))
 			}
 			spawned = true
 

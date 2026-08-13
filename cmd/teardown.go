@@ -41,14 +41,19 @@ func newTeardownCmd() *cobra.Command {
 			}
 			defer release()
 
-			t, err := state.Read(home, id)
+			history, err := state.ReadHistory(home, id)
 			if err != nil {
 				return asPrecondition(err)
 			}
+			if history.ActiveAttempt == nil {
+				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+			}
+			t := history.Task
+			active := *history.ActiveAttempt
 
 			dirtWasSafe := false
 			if !force {
-				updated, safeDirt, err := checkLandedWork(cmd.Context(), home, t)
+				updated, safeDirt, err := checkLandedWork(cmd.Context(), home, t, active)
 				if err != nil {
 					return err
 				}
@@ -62,7 +67,7 @@ func newTeardownCmd() *cobra.Command {
 			defer releaseProject()
 
 			client := herdr.NewClient()
-			if err := closeTaskTab(client, t.Herdr.WorkspaceID, t.Herdr.TabID); err != nil {
+			if err := closeTaskTab(client, active.Herdr.WorkspaceID, active.Herdr.TabID); err != nil {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
 					return printErr
 				}
@@ -71,36 +76,41 @@ func newTeardownCmd() *cobra.Command {
 			// treehouse refuses to clean a dirty worktree without --force, and nothing is left to answer
 			// its prompt here, so dirt this command already judged discardable has to be returned
 			// forcibly or the slot goes back to the pool still dirty.
-			if err := worktree.Return(t.Worktree, force || dirtWasSafe); err != nil {
+			if err := worktree.Return(active.Worktree, force || dirtWasSafe); err != nil {
 				return err
 			}
 
 			// Everything the record claims (landed work, a returned worktree) is already true by this
 			// line, --force or not, so a fault after it lands cannot make the record inaccurate, only
-			// late to remove its source.
+			// late to terminalize its source.
 			record := completionFor(t, force)
 			record.TornDownAt = time.Now().UTC().Format(time.RFC3339)
 
-			// Recorded before state.Delete, not after: the record is derived from t, which state.Delete
-			// would remove out from under us. Failing here leaves the task row untouched, so the whole
-			// command is simply retryable and no completion is lost.
+			if err := state.UpdateTask(home, t); err != nil {
+				return fmt.Errorf("record task facts: %w", err)
+			}
+
 			if err := completion.Append(home, record); err != nil {
 				return fmt.Errorf("record completion: %w", err)
 			}
 
-			// Failing here leaves the task row in place, so a retry replays the whole command and
-			// appends a second, identical record - a harmless duplicate this trades for never losing a
-			// completion.
-			if err := state.Delete(home, id); err != nil {
-				return asPrecondition(err)
+			terminalAttempt := state.AttemptCompleted
+			if force {
+				terminalAttempt = state.AttemptInterrupted
+			}
+			if err := state.TransitionAttempt(home, active.ID, active.Lifecycle, terminalAttempt); err != nil {
+				return fmt.Errorf("record attempt completion: %w", err)
+			}
+			if err := state.TransitionTask(home, id, state.TaskOpen, state.TaskTerminal); err != nil {
+				return fmt.Errorf("record task completion: %w", err)
 			}
 
-			// A hold outlives the task row it was set on, which is what an operator hold is for. A limit hold
+			// A hold outlives the work it was set on, which is what an operator hold is for. A limit hold
 			// is the opposite: nothing is left to resume and no watcher will ever clear it, so left behind it
-			// would refuse `hand spawn` on this id forever.
+			// would refuse `hand reopen` on this id forever.
 			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {
 				// A warning rather than a failure: the teardown itself is done, and re-running it cannot undo
-				// the delete.
+				// the terminal transition.
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear usage-limit hold failed: %v\n", err); printErr != nil {
 					return printErr
 				}
@@ -114,7 +124,7 @@ func newTeardownCmd() *cobra.Command {
 			doc.Field("outcome", record.Outcome)
 			doc.Field("detail", orNone(record.Detail))
 			doc.Field("worktree", "returned")
-			doc.Help("This id is gone from `hand status`; its completion is the last word on it")
+			doc.Help("This task remains inspectable with `hand status " + id + "`; use `hand reopen " + id + "` for another attempt")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
@@ -157,7 +167,7 @@ func completionFor(t state.Task, forced bool) completion.Record {
 // Reports whether the task's work is landed, and whether it got there past dirt it judged safe to
 // discard - the caller has to force the worktree return in that case, since treehouse will not clean a
 // dirty worktree on its own.
-func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task, bool, error) {
+func checkLandedWork(ctx context.Context, home string, t state.Task, active state.Attempt) (state.Task, bool, error) {
 	if t.Kind == state.KindScout {
 		reportPath := filepath.Join("data", t.ID, "report.md")
 		if _, err := os.Stat(filepath.Join(home, reportPath)); err != nil {
@@ -166,14 +176,14 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		return t, false, nil
 	}
 
-	status, err := gitStatusPorcelain(t.Worktree)
+	status, err := gitStatusPorcelain(active.Worktree)
 	if err != nil {
 		return t, false, err
 	}
 	dirtWasSafe := false
 	if status != "" {
-		if !dirtIsSafeToDiscard(t.Worktree, status) {
-			return t, false, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s:\n%s", t.Worktree, capStatusLines(status)), Code: 3}
+		if !dirtIsSafeToDiscard(active.Worktree, status) {
+			return t, false, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s:\n%s", active.Worktree, capStatusLines(status)), Code: 3}
 		}
 		dirtWasSafe = true
 	}
@@ -195,7 +205,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			return t, false, err
 		}
 		if exists && proj.Mode == project.ModeLocalOnly {
-			merged, err := branchIsMerged(filepath.Join(home, "projects", t.Project), t.Worktree)
+			merged, err := branchIsMerged(filepath.Join(home, "projects", t.Project), active.Worktree)
 			if err != nil {
 				return t, false, err
 			}
@@ -209,7 +219,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		// for landed work; detect it here rather than only refusing on it, so the merged check below
 		// reads the same PR state hand pr would have recorded.
 		if exists {
-			detected, err := detectPR(ctx, home, t, proj)
+			detected, err := detectPR(ctx, home, t, active, proj)
 			var ambiguous *ghutil.AmbiguousPRError
 			// An ambiguous branch is a different failure and must not fall through the same way: "no PR
 			// recorded" reads as unlanded, but ambiguous means unknown, and picking either meaning here
@@ -237,7 +247,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			// A report deliverable on disk and a branch carrying no commits of its own is a completed scout
 			// whatever the row says, and is recorded as one. Merge evidence excludes the path outright - work
 			// hand merged or watched merge landed as a merge, and the record has to say so (atqamz/hand#78).
-			if !t.MergeExecuted && !t.MergeAnnounced && isCompletedScout(home, t) {
+			if !t.MergeExecuted && !t.MergeAnnounced && isCompletedScout(home, t, active.Worktree) {
 				t.Kind = state.KindScout
 				return t, dirtWasSafe, nil
 			}
@@ -260,18 +270,18 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 // Reports whether a task's work is a delivered scout report and nothing else: the report exists under
 // data/<id>/ and the worktree's branch adds no commit to the local default branch. Both halves are
 // required - a report alone says nothing about code sitting unlanded on the branch beside it.
-func isCompletedScout(home string, t state.Task) bool {
+func isCompletedScout(home string, t state.Task, worktree string) bool {
 	if _, err := os.Stat(filepath.Join(home, "data", t.ID, "report.md")); err != nil {
 		return false
 	}
 	// Resolution failures fail closed, and the branch comparison is local-only like dirtIsSafeToDiscard's:
 	// a stale local ref only misses a real case, it never accepts an unlanded one.
-	baseRef, err := localDefaultBranchRef(t.Worktree)
+	baseRef, err := localDefaultBranchRef(worktree)
 	if err != nil {
 		return false
 	}
 	c := exec.Command("git", "rev-list", "--count", baseRef+"..HEAD")
-	c.Dir = t.Worktree
+	c.Dir = worktree
 	out, err := c.Output()
 	if err != nil {
 		return false

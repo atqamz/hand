@@ -13,22 +13,31 @@ import (
 func TestWriteReadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	task := Task{
-		ID: "fix-login", Project: "nsr", Kind: KindShip, Harness: "claude",
-		Model: "sonnet", Effort: "low", Worktree: "/tmp/wt", Brief: "data/fix-login/brief.md",
-		Herdr:     Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
+		ID: "fix-login", Project: "nsr", Kind: KindShip, Brief: "data/fix-login/brief.md",
 		CreatedAt: "2026-07-24T10:00:00Z",
 	}
+	attempt := Attempt{
+		TaskID: task.ID, Lifecycle: AttemptRunning, Harness: "claude", Model: "sonnet", Effort: "low", Worktree: "/tmp/wt",
+		Herdr: Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
+	}
 
-	if err := Write(dir, task); err != nil {
+	if err := CreateTask(dir, task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateAttempt(dir, attempt); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := Read(dir, "fix-login")
+	history, err := ReadHistory(dir, "fix-login")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != task {
-		t.Fatalf("got %+v, want %+v", got, task)
+	got := history.Task
+	if got.ID != task.ID || got.Project != task.Project || got.Kind != task.Kind || got.Brief != task.Brief || got.CreatedAt != task.CreatedAt {
+		t.Fatalf("task got %+v, want %+v", got, task)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Harness != attempt.Harness || history.ActiveAttempt.Model != attempt.Model || history.ActiveAttempt.Effort != attempt.Effort || history.ActiveAttempt.Worktree != attempt.Worktree || history.ActiveAttempt.Herdr != attempt.Herdr {
+		t.Fatalf("attempt got %+v, want %+v", history.ActiveAttempt, attempt)
 	}
 }
 
@@ -220,10 +229,10 @@ func TestTryLockReportsBusyInsteadOfWaiting(t *testing.T) {
 
 func TestWriteOverwritesExisting(t *testing.T) {
 	dir := t.TempDir()
-	if err := Write(dir, Task{ID: "fix-login", Harness: "claude"}); err != nil {
+	if err := Write(dir, Task{ID: "fix-login", PR: "old"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Write(dir, Task{ID: "fix-login", Harness: "codex"}); err != nil {
+	if err := Write(dir, Task{ID: "fix-login", PR: "new"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,7 +240,42 @@ func TestWriteOverwritesExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Harness != "codex" {
-		t.Fatalf("got harness %q, want codex", got.Harness)
+	if got.PR != "new" {
+		t.Fatalf("got PR %q, want new", got.PR)
+	}
+}
+
+// The read-only fleet view is what `hand session start` renders, and a torn-down task
+// belongs to history: it stays inspectable by id without crowding the fleet overview.
+func TestListOpenHistoriesReadOnlyShowsOpenTasksOnly(t *testing.T) {
+	dir := t.TempDir()
+	for _, id := range []string{"open-task", "torn-down"} {
+		if err := CreateTask(dir, Task{ID: id}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CreateAttempt(dir, Attempt{TaskID: id, Lifecycle: AttemptRunning, Harness: "claude"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done, err := Read(dir, "torn-down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := TransitionAttempt(dir, done.ActiveAttemptID, AttemptRunning, AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransitionTask(dir, "torn-down", TaskOpen, TaskTerminal); err != nil {
+		t.Fatal(err)
+	}
+
+	histories, err := ListOpenHistoriesReadOnly(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(histories) != 1 || histories[0].Task.ID != "open-task" {
+		t.Fatalf("ListOpenHistoriesReadOnly = %+v, want the open task only", histories)
+	}
+	if histories[0].ActiveAttempt == nil || histories[0].ActiveAttempt.Harness != "claude" {
+		t.Fatalf("active attempt was not carried with the open task: %+v", histories[0])
 	}
 }

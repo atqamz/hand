@@ -61,6 +61,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newMergeCmd())
 	root.AddCommand(newPRCmd())
 	root.AddCommand(newPromoteCmd())
+	root.AddCommand(newReopenCmd())
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newSearchCmd())
 	root.AddCommand(newDoctorCmd())

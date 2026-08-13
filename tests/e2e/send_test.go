@@ -101,12 +101,9 @@ func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 	got := runHand(t, home, "send", "task-1", "stop and wait for review", "--wait", "400ms")
 	assertInvocation(t, got, 6, "composer still busy after 400ms, message recorded as undelivered")
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.SendUndeliveredMessage != "stop and wait for review" || task.SendUndeliveredAt == "" {
-		t.Fatalf("task row = %+v, want the abandoned message and a timestamp recorded", task)
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.SendUndeliveredMessage != "stop and wait for review" || attempt.SendUndeliveredAt == "" {
+		t.Fatalf("task = %+v attempt = %+v, want the abandoned message and a timestamp recorded", task, attempt)
 	}
 
 	setPaneStatus(t, statusDir, "pane-1", "idle")
@@ -116,22 +113,16 @@ func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 			delivered.code, delivered.stdout, delivered.stderr)
 	}
 
-	task, err = state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.SendUndeliveredMessage != "" || task.SendUndeliveredAt != "" {
-		t.Fatalf("task row = %+v, want the undelivered trace cleared by a send that reached the pane", task)
+	_, attempt = readTaskAttempt(t, home, "task-1")
+	if attempt.SendUndeliveredMessage != "" || attempt.SendUndeliveredAt != "" {
+		t.Fatalf("attempt = %+v, want the undelivered trace cleared by a send that reached the pane", attempt)
 	}
 }
 
 func seedSendTask(t *testing.T, home string) {
 	t.Helper()
-	if err := state.Write(home, state.Task{
+	writeTaskAttempt(t, home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 }

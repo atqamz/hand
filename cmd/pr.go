@@ -75,6 +75,13 @@ func recordPR(ctx context.Context, home string, t state.Task, url string) (state
 		return t, true, nil
 	}
 
+	// After the reconcile no-op above, so a retry that changes nothing still reads as one: what a
+	// torn-down task refuses is a PR that would land on a completion record already written from
+	// the state it had at teardown.
+	if t.Lifecycle == state.TaskTerminal {
+		return t, false, &ExitError{Err: fmt.Errorf("task %s is torn down; run hand reopen %s before recording a PR on it", t.ID, t.ID), Code: 3}
+	}
+
 	proj, exists, err := project.Find(home, t.Project)
 	if err != nil {
 		return t, false, err
@@ -90,7 +97,7 @@ func recordPR(ctx context.Context, home string, t state.Task, url string) (state
 	}
 
 	t.PR = url
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return t, false, fmt.Errorf("write task state: %w", err)
 	}
 	return t, false, nil
