@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: hand-edge-publish
@@ -33,7 +33,15 @@ jobs:
         run: |
           set -eu
           git fetch --force origin main
-          git fetch --force origin refs/tags/edge:refs/tags/edge || true
+          set +e
+          git ls-remote --exit-code origin refs/tags/edge >/dev/null
+          edge_status=$?
+          set -e
+          case "$edge_status" in
+            0) git fetch --force origin refs/tags/edge:refs/tags/edge ;;
+            2) ;;
+            *) echo "could not determine whether the edge tag exists" >&2; exit 1 ;;
+          esac
 
           if ! git merge-base --is-ancestor "$CANDIDATE" origin/main; then
             echo "candidate $CANDIDATE is not in current main history; skipping" >&2
@@ -127,6 +135,8 @@ jobs:
     name: Publish rolling release
     needs: [prepare, build]
     if: needs.prepare.outputs.eligible == 'true'
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -145,7 +155,15 @@ jobs:
         run: |
           set -eu
           git fetch --force origin main
-          git fetch --force origin refs/tags/edge:refs/tags/edge || true
+          set +e
+          git ls-remote --exit-code origin refs/tags/edge >/dev/null
+          edge_status=$?
+          set -e
+          case "$edge_status" in
+            0) git fetch --force origin refs/tags/edge:refs/tags/edge ;;
+            2) ;;
+            *) echo "could not determine whether the edge tag exists" >&2; exit 1 ;;
+          esac
 
           if ! git merge-base --is-ancestor "$CANDIDATE" origin/main; then
             echo "candidate is no longer in main history; skipping" >&2
@@ -187,14 +205,110 @@ jobs:
 
           Not intended as the stable release channel.
           EOF
-          # A draft carries no git tag, so the first publish reaches assets-then-tag
-          # order through the same trailing `gh release edit --draft=false`.
+          assets=(
+            hand-linux-amd64.tar.gz
+            hand-linux-arm64.tar.gz
+            hand-darwin-amd64.tar.gz
+            hand-darwin-arm64.tar.gz
+            hand-windows-amd64.zip
+            checksums.txt
+          )
           if ! gh release view edge --repo atqamz/hand >/dev/null 2>&1; then
+            # A new draft release may create the edge tag automatically. Existing
+            # releases keep their tag until the staged assets are promoted.
             gh release create edge --repo atqamz/hand --target "$CANDIDATE" --title Edge --prerelease --draft --notes-file edge-notes.md
           fi
-          gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
-          # Publishing before the tag moves keeps `edge` from ever naming a commit
-          # whose release a reader cannot yet download.
+
+          release_id=$(gh api repos/atqamz/hand/releases/tags/edge --jq .id)
+          asset_id() {
+            local name=$1
+            gh api --paginate "repos/atqamz/hand/releases/${release_id}/assets?per_page=100" \
+              --jq ".[] | select(.name == \"${name}\") | .id" | head -n 1
+          }
+
+          staging_assets=()
+          for asset in "${assets[@]}"; do
+            staging="edge-staging-${CANDIDATE}-${asset}"
+            gh release delete-asset edge --repo atqamz/hand "$staging" --yes >/dev/null 2>&1 || true
+            cp "$asset" "$staging"
+            staging_assets+=("$staging")
+          done
+
+          promotion_started=false
+          rollback() {
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              return
+            fi
+            set +e
+            if [ "$promotion_started" = true ]; then
+              for index in "${!assets[@]}"; do
+                final=${assets[$index]}
+                staging=${staging_assets[$index]}
+                backup=${backup_assets[$index]:-}
+                final_asset_id=$(asset_id "$final")
+                if [ -n "$final_asset_id" ]; then
+                  gh api --method PATCH "repos/atqamz/hand/releases/assets/${final_asset_id}" \
+                    -f name="$staging" >/dev/null
+                fi
+                if [ -n "$backup" ]; then
+                  backup_asset_id=$(asset_id "$backup")
+                  if [ -n "$backup_asset_id" ]; then
+                    gh api --method PATCH "repos/atqamz/hand/releases/assets/${backup_asset_id}" \
+                      -f name="$final" >/dev/null
+                  fi
+                fi
+              done
+            fi
+            for staging in "${staging_assets[@]}"; do
+              gh release delete-asset edge --repo atqamz/hand "$staging" --yes >/dev/null 2>&1 || true
+            done
+            exit "$status"
+          }
+          trap rollback EXIT
+
+          # Upload under unique names so a failed candidate upload leaves the
+          # previous exact-name assets available to edge clients.
+          gh release upload edge --repo atqamz/hand "${staging_assets[@]}"
+          for staging in "${staging_assets[@]}"; do
+            test -n "$(asset_id "$staging")"
+          done
+
+          promotion_started=true
+          backup_assets=()
+          for index in "${!assets[@]}"; do
+            final=${assets[$index]}
+            backup="edge-previous-${CANDIDATE}-${final}"
+            old_asset_id=$(asset_id "$final")
+            if [ -n "$old_asset_id" ]; then
+              gh release delete-asset edge --repo atqamz/hand "$backup" --yes >/dev/null 2>&1 || true
+              gh api --method PATCH "repos/atqamz/hand/releases/assets/${old_asset_id}" \
+                -f name="$backup" >/dev/null
+              backup_assets+=("$backup")
+            else
+              backup_assets+=("")
+            fi
+          done
+          for index in "${!assets[@]}"; do
+            final=${assets[$index]}
+            staging=${staging_assets[$index]}
+            staged_asset_id=$(asset_id "$staging")
+            test -n "$staged_asset_id"
+            gh api --method PATCH "repos/atqamz/hand/releases/assets/${staged_asset_id}" \
+              -f name="$final" >/dev/null
+          done
+          for backup in "${backup_assets[@]}"; do
+            if [ -n "$backup" ]; then
+              backup_asset_id=$(asset_id "$backup")
+              if [ -n "$backup_asset_id" ]; then
+                gh api --method DELETE "repos/atqamz/hand/releases/assets/${backup_asset_id}" >/dev/null
+              fi
+            fi
+          done
+          trap - EXIT
+
+          # Publishing before the tag moves keeps edge from naming a commit
+          # whose complete asset set is not yet available.
           gh release edit edge --repo atqamz/hand --title Edge --prerelease --draft=false --notes-file edge-notes.md
           git tag -f edge "$CANDIDATE"
           git push origin refs/tags/edge --force

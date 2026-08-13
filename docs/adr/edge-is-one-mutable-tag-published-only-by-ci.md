@@ -26,13 +26,14 @@ Freshness is compared per channel: stable by release SemVer, edge by the embedde
 
 Publication happens only from the push-to-`main` CI job that follows the lint, test, E2E, and Nix gates.
 That job serializes in a non-canceling concurrency group, rechecks candidate ancestry before building and again before publishing, refuses to publish when the candidate and `edge` histories diverge, and uploads assets and publishes the release before moving the tag.
+Candidate assets are uploaded under unique staging names and verified before replacing the exact download names, so an upload failure leaves the previous edge asset set intact.
 
 ## Rejected alternatives
 
 - Per-merge prerelease versions multiply tags and releases, impose SemVer ordering on commits that were never released, and give up the one fixed download URL per asset.
 - Comparing edge builds by SemVer cannot work, because an edge version is a commit prefix and carries no order.
 - A Go `@edge` distribution path needs a resolvable module version and would hand out builds that never passed the gate that gives edge its only guarantee.
-- Moving the tag before uploading assets lets a reader resolve `edge` to a commit whose release is not downloadable yet.
+- Moving the tag before staging and verifying assets lets a reader resolve `edge` to a commit whose complete release is not downloadable yet.
 - Force-resetting the tag on divergence would silently discard published edge history, so the workflow fails and prints the explicit recovery push instead.
 - Publishing from a maintainer machine removes the gate and is the reason no local path exists.
 
