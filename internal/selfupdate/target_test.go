@@ -54,6 +54,22 @@ func TestResolveTargetEdgeUsesFullRefCommit(t *testing.T) {
 	}
 }
 
+// The notice cache remembers a version and a commit, never the tag, so rebuilding
+// a target from it has to land on exactly what resolving it would have produced.
+func TestCachedTargetMatchesTheResolvedTargetPerChannel(t *testing.T) {
+	writeFakeGHTarget(t, "v0.5.0", edgeTestCommit)
+
+	for _, channel := range []string{ChannelStable, ChannelEdge} {
+		resolved, err := ResolveTarget("atqamz/hand", channel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cachedTarget(channel, resolved.Version, resolved.Commit); got != resolved {
+			t.Fatalf("cached %s target = %#v, want the resolved %#v", channel, got, resolved)
+		}
+	}
+}
+
 func TestResolveTargetRejectsMalformedEdgeCommit(t *testing.T) {
 	writeFakeGHTarget(t, "v0.5.0", "not-a-commit")
 

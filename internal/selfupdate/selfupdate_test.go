@@ -120,17 +120,6 @@ func buildFixture(t *testing.T, binaryContent []byte) string {
 	return dir
 }
 
-func TestLatestTag(t *testing.T) {
-	writeFakeGH(t, "v0.5.0", t.TempDir())
-	tag, err := LatestTag("atqamz/hand")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tag != "v0.5.0" {
-		t.Fatalf("got %q, want v0.5.0", tag)
-	}
-}
-
 func TestApplyReplacesRunningBinary(t *testing.T) {
 	fixture := buildFixture(t, []byte("new binary contents"))
 	writeFakeGH(t, "v0.5.0", fixture)

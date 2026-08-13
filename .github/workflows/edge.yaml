@@ -59,6 +59,7 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$edge" "$CANDIDATE"; then
             echo "candidate and edge histories diverge; refusing to publish" >&2
+            echo "recover by resetting the tag onto current main: git push origin +$CANDIDATE:refs/tags/edge" >&2
             exit 1
           fi
           echo "eligible=true" >> "$GITHUB_OUTPUT"
@@ -163,6 +164,7 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$edge" "$CANDIDATE"; then
             echo "candidate and edge histories diverge; refusing to publish" >&2
+            echo "recover by resetting the tag onto current main: git push origin +$CANDIDATE:refs/tags/edge" >&2
             exit 1
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -190,6 +192,8 @@ jobs:
             gh release create edge --repo atqamz/hand --target "$CANDIDATE" --title Edge --prerelease --draft --notes-file edge-notes.md
           fi
           gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
+          # Publishing before the tag moves keeps `edge` from ever naming a commit
+          # whose release a reader cannot yet download.
+          gh release edit edge --repo atqamz/hand --title Edge --prerelease --draft=false --notes-file edge-notes.md
           git tag -f edge "$CANDIDATE"
           git push origin refs/tags/edge --force
-          gh release edit edge --repo atqamz/hand --title Edge --prerelease --draft=false --notes-file edge-notes.md

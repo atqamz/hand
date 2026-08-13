@@ -46,7 +46,7 @@ func CheckNoticeForBuild(home, repo string, info BuildInfo) string {
 	now := time.Now()
 	var target Target
 	if cache, err := readCache(cachePath); err == nil && now.Sub(cache.CheckedAt) < checkInterval && cacheChannel(cache) == info.Channel {
-		target = Target{Channel: info.Channel, Tag: cache.Latest, Version: cache.Latest, Commit: cache.Commit}
+		target = cachedTarget(info.Channel, cache.Latest, cache.Commit)
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 		defer cancel()
@@ -65,7 +65,7 @@ func CheckNoticeForBuild(home, repo string, info BuildInfo) string {
 		return ""
 	}
 	if info.Channel == ChannelEdge {
-		return fmt.Sprintf("A new edge build of hand is available: %s -> %s\nRun \"hand update\" to update", displayCommit(info.Commit), displayCommit(target.Commit))
+		return fmt.Sprintf("A new edge build of hand is available: %s -> %s\nRun \"hand update\" to update", DisplayCommit(info.Commit), DisplayCommit(target.Commit))
 	}
 	return fmt.Sprintf("A new version of hand is available: %s -> %s\nRun \"hand update\" to update", info.Version, target.Version)
 }
@@ -75,13 +75,6 @@ func cacheChannel(cache versionCache) string {
 		return ChannelStable
 	}
 	return cache.Channel
-}
-
-func displayCommit(commit string) string {
-	if commit == "" {
-		return "unknown"
-	}
-	return commit
 }
 
 func readCache(path string) (versionCache, error) {

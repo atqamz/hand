@@ -36,6 +36,25 @@ func ResolveTarget(repo, channel string) (Target, error) {
 	return resolveTarget(context.Background(), repo, channel)
 }
 
+// DisplayCommit renders an embedded or resolved commit for output, naming the
+// absence of one rather than leaving an empty field.
+func DisplayCommit(commit string) string {
+	if commit == "" {
+		return "unknown"
+	}
+	return commit
+}
+
+// Rebuilds a Target from remembered values. Only edge carries a tag that differs
+// from its version, and it is always the rolling tag itself.
+func cachedTarget(channel, version, commit string) Target {
+	tag := version
+	if channel == ChannelEdge {
+		tag = ChannelEdge
+	}
+	return Target{Channel: channel, Tag: tag, Version: version, Commit: commit}
+}
+
 func resolveTarget(ctx context.Context, repo, channel string) (Target, error) {
 	if err := validateChannel(channel); err != nil {
 		return Target{}, err
