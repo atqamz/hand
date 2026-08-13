@@ -162,9 +162,31 @@ func TestCheckNoticeForBuildReportsNewEdgeCommit(t *testing.T) {
 	writeFakeGHTarget(t, "v0.5.0", edgeTestCommit)
 
 	info := BuildInfo{Version: "edge.aaaaaaaaaaaa", Channel: ChannelEdge, Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	want := "A new edge build of hand is available: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -> " + edgeTestCommit + "\nRun \"hand update\" to update"
+	want := "A new edge build of hand is available: aaaaaaaaaaaa -> 0123456789ab\nRun \"hand update\" to update"
 	if got := CheckNoticeForBuild(home, "atqamz/hand", info); got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// The notice abbreviates for the reader, but the cache it leaves behind is what the
+// next run compares commit identity against, so it keeps the full SHA.
+func TestCheckNoticeForBuildCachesTheFullEdgeCommit(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGHTarget(t, "v0.5.0", edgeTestCommit)
+
+	info := BuildInfo{Version: "edge.aaaaaaaaaaaa", Channel: ChannelEdge, Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if notice := CheckNoticeForBuild(home, "atqamz/hand", info); notice == "" {
+		t.Fatal("want an edge notice")
+	}
+	cache, err := readCache(filepath.Join(home, "state", cacheFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cache.Commit != edgeTestCommit {
+		t.Fatalf("cached commit = %q, want the full SHA %q", cache.Commit, edgeTestCommit)
 	}
 }
 

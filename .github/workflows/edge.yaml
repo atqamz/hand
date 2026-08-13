@@ -148,8 +148,9 @@ jobs:
           git fetch --force origin refs/tags/edge:refs/tags/edge || true
 
           if ! git merge-base --is-ancestor "$CANDIDATE" origin/main; then
-            echo "candidate is no longer in main history; refusing to publish" >&2
-            exit 1
+            echo "candidate is no longer in main history; skipping" >&2
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           if ! git rev-parse --verify refs/tags/edge >/dev/null 2>&1; then
             echo "publish=true" >> "$GITHUB_OUTPUT"

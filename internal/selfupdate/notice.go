@@ -65,7 +65,7 @@ func CheckNoticeForBuild(home, repo string, info BuildInfo) string {
 		return ""
 	}
 	if info.Channel == ChannelEdge {
-		return fmt.Sprintf("A new edge build of hand is available: %s -> %s\nRun \"hand update\" to update", DisplayCommit(info.Commit), DisplayCommit(target.Commit))
+		return fmt.Sprintf("A new edge build of hand is available: %s -> %s\nRun \"hand update\" to update", DisplayCommit(shortCommit(info.Commit)), DisplayCommit(shortCommit(target.Commit)))
 	}
 	return fmt.Sprintf("A new version of hand is available: %s -> %s\nRun \"hand update\" to update", info.Version, target.Version)
 }
