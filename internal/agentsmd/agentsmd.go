@@ -53,6 +53,7 @@ Do not run supervisor bootstrap when ` + "`HAND_ROLE=worker`" + `.
 var supervisorInstructions = []string{
 	"Read `data/operator.md` before anything else. Its constraints outrank your own judgment.",
 	"Match the request to a project in `data/projects.md`.",
+	"`scout` and `ship` are Task kinds, not worker roles. Use `scout` when the intended deliverable is an investigation/report and `ship` when it is a change that must be landed or explicitly delivered. A worker is the agent process Hand launches to execute delegated work.",
 	"Edit `data/backlog.md` to record the task with a unique ID.",
 	"Write a brief at `data/<id>/brief.md`, including the absolute path to `state/<id>.status` and the report vocabulary the worker should append to it.",
 	"`hand status <id>` shows a worker's reported state. Workers report with `working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, or `failed:`.",

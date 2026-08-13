@@ -9,6 +9,8 @@
 
 Secondhand needs to know whether a repository can use its configured gate and whether a PR appears in a completed gate run. Both answers exist in no-mistakes output and in its private sqlite schema.
 
+The distinction between a Project delivery mode and an optional gate is defined in [Hand orchestration vocabulary](../vocabulary.md).
+
 ## Decision
 
 Secondhand invokes no-mistakes and interprets its public output. It never reads `~/.no-mistakes/state.sqlite`.

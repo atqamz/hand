@@ -128,6 +128,20 @@ func TestSupervisorInstructionsCoverDurableOperatingContract(t *testing.T) {
 	}
 }
 
+func TestSupervisorInstructionsUseCanonicalTaskKinds(t *testing.T) {
+	got := strings.Join(SupervisorInstructions(), "\n")
+	for _, want := range []string{
+		"`scout` and `ship` are Task kinds, not worker roles",
+		"Use `scout` when the intended deliverable is an investigation/report",
+		"`ship` when it is a change that must be landed or explicitly delivered",
+		"A worker is the agent process Hand launches to execute delegated work",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("got supervisor instructions %q, want canonical task-kind rule %q", got, want)
+		}
+	}
+}
+
 func TestSupervisorInstructionsReturnsClone(t *testing.T) {
 	first := SupervisorInstructions()
 	first[0] = "changed by caller"
