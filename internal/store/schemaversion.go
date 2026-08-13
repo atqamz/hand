@@ -101,6 +101,21 @@ var migrations = []string{
 	CREATE UNIQUE INDEX attempt_one_active ON attempt(task_id) WHERE lifecycle IN ('provisioning', 'running');`,
 }
 
+// The version whose migration splits task from attempt. A database already carrying that
+// layout has every earlier migration folded into it, whatever user_version claims.
+const splitVersion = 8
+
+// Reports whether the task table already carries the split layout. The attempt table cannot
+// answer this: createSchema builds it on every home before any migration runs, while an
+// existing task table keeps whatever columns it was created with.
+func (db *DB) taskIsSplit() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name = 'active_attempt_id'`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect the split task layout: %w", err)
+	}
+	return count != 0, nil
+}
+
 func (db *DB) schemaVersion() (int, error) {
 	var version int
 	if err := db.sql.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
@@ -164,13 +179,19 @@ func (db *DB) migrateSchema() error {
 	if isNew {
 		return nil
 	}
-	if current == 0 && latest == 8 {
-		var split int
-		if err := db.sql.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'attempt'`).Scan(&split); err == nil && split != 0 {
-			if _, err := db.sql.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, latest)); err != nil {
-				return fmt.Errorf("record schema version %d: %w", latest, err)
+	// Version 0 means both "the pre-versioning baseline" and "already split, never stamped",
+	// and only the task table's own layout tells them apart. Stamped rather than returned, so
+	// a migration added after the split still applies to a home that arrives here unstamped.
+	if current == 0 && latest >= splitVersion {
+		split, err := db.taskIsSplit()
+		if err != nil {
+			return err
+		}
+		if split {
+			if _, err := db.sql.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, splitVersion)); err != nil {
+				return fmt.Errorf("record schema version %d: %w", splitVersion, err)
 			}
-			return nil
+			current = splitVersion
 		}
 	}
 	for version := current; version < latest; version++ {

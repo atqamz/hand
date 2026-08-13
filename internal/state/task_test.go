@@ -239,3 +239,35 @@ func TestWriteOverwritesExisting(t *testing.T) {
 		t.Fatalf("got harness %q, want codex", got.Harness)
 	}
 }
+
+// The read-only fleet view is what `hand session start` renders, and a torn-down task
+// belongs to history: it stays inspectable by id without crowding the fleet overview.
+func TestListReadOnlyShowsOpenTasksOnly(t *testing.T) {
+	dir := t.TempDir()
+	for _, id := range []string{"open-task", "torn-down"} {
+		if err := Write(dir, Task{ID: id, Harness: "claude"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done, err := Read(dir, "torn-down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := TransitionAttempt(dir, done.ActiveAttemptID, AttemptRunning, AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransitionTask(dir, "torn-down", TaskOpen, TaskTerminal); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks, err := ListReadOnly(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "open-task" {
+		t.Fatalf("ListReadOnly = %+v, want the open task only", tasks)
+	}
+	if tasks[0].Harness != "claude" {
+		t.Fatalf("active attempt was not projected onto the row: %+v", tasks[0])
+	}
+}

@@ -235,15 +235,7 @@ func ListOpen(homeDir string) ([]Task, error) {
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	histories, err := db.ListOpenTaskHistories()
-	if err != nil {
-		return nil, err
-	}
-	tasks := make([]Task, 0, len(histories))
-	for _, history := range histories {
-		tasks = append(tasks, history.Task)
-	}
-	return tasks, nil
+	return openTasks(db)
 }
 
 func ListOpenHistories(homeDir string) ([]TaskHistory, error) {
@@ -255,13 +247,27 @@ func ListOpenHistories(homeDir string) ([]TaskHistory, error) {
 	return db.ListOpenTaskHistories()
 }
 
+// ListReadOnly is ListOpen for a presentation reader: same open-only fleet, off a handle that
+// cannot create schema or import legacy state. A torn-down task is history, not fleet.
 func ListReadOnly(homeDir string) ([]Task, error) {
 	db, err := store.OpenReadOnly(homeDir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	return db.ListTasks()
+	return openTasks(db)
+}
+
+func openTasks(db *store.DB) ([]Task, error) {
+	histories, err := db.ListOpenTaskHistories()
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]Task, 0, len(histories))
+	for _, history := range histories {
+		tasks = append(tasks, history.Task)
+	}
+	return tasks, nil
 }
 
 // Delete removes a task's row along with its report channel at state/<id>.status, leaving

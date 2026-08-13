@@ -440,13 +440,8 @@ func (db *DB) WriteTask(t Task) error {
 		if err := db.CreateTask(logical); err != nil {
 			return err
 		}
-		attempt, err := db.CreateAttempt(attemptFromTask(t))
-		if err != nil {
-			return err
-		}
-		if attempt.ID != 0 {
-			return nil
-		}
+		_, err := db.CreateAttempt(attemptFromTask(t))
+		return err
 	}
 	if t.Lifecycle == "" {
 		t.Lifecycle = existing.Lifecycle

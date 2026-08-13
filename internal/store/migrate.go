@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -74,11 +73,16 @@ func (db *DB) migrateLegacy() error {
 			VALUES (`+placeholders(len(taskColumnNames))+`)`, taskValues(task)...); err != nil {
 			return fmt.Errorf("import task %q: %w", task.ID, err)
 		}
-		var activeID sql.NullInt64
-		if err := db.sql.QueryRow(`SELECT active_attempt_id FROM task WHERE id = ?`, task.ID).Scan(&activeID); err != nil {
+		var lifecycle TaskLifecycle
+		var attempts int
+		if err := db.sql.QueryRow(`SELECT lifecycle, (SELECT COUNT(*) FROM attempt WHERE task_id = task.id)
+			FROM task WHERE id = ?`, task.ID).Scan(&lifecycle, &attempts); err != nil {
 			return fmt.Errorf("read imported task %q: %w", task.ID, err)
 		}
-		if !activeID.Valid {
+		// An id the database already owns attempts for keeps them, for the same reason the row
+		// itself wins: they postdate the snapshot. Attempting one anyway collides on the ordinal,
+		// or is refused outright once the task is terminal, and fails every command on this home.
+		if lifecycle == TaskOpen && attempts == 0 {
 			if _, err := db.CreateAttempt(Attempt{
 				TaskID: legacy.ID, Ordinal: 1, Lifecycle: AttemptRunning,
 				Harness: legacy.Harness, Model: legacy.Model, Effort: legacy.Effort,

@@ -345,6 +345,52 @@ func TestMigrationIsIdempotent(t *testing.T) {
 	}
 }
 
+// A snapshot for an id the fleet has since torn down: the row and its attempt history win, and
+// importing an attempt onto a terminal task would fail every command on this home instead.
+func TestLegacyImportLeavesATerminalTaskAndItsHistoryAlone(t *testing.T) {
+	home := t.TempDir()
+	db, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.WriteTask(sampleTask()); err != nil {
+		t.Fatal(err)
+	}
+	task, _, err := db.ReadTask(sampleTask().ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.TransitionAttempt(task.ActiveAttemptID, AttemptRunning, AttemptInterrupted); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.TransitionTask(task.ID, TaskOpen, TaskTerminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := sampleTask()
+	stale.PR = "https://github.com/o/nsr/pull/999"
+	writeLegacyTask(t, home, stale)
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("open a home whose legacy file names a terminal task: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+	history, found, err := reopened.ReadTaskHistory(stale.ID)
+	if err != nil || !found {
+		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
+	}
+	if history.Task.Lifecycle != TaskTerminal || history.Task.PR == stale.PR {
+		t.Fatalf("the snapshot overwrote the live row: %+v", history.Task)
+	}
+	if len(history.Attempts) != 1 || history.Attempts[0].Lifecycle != AttemptInterrupted {
+		t.Fatalf("attempts = %+v, want the one interrupted attempt", history.Attempts)
+	}
+}
+
 // A legacy file the migration cannot read is a loud failure, not a skipped task:
 // silently continuing would present a partial fleet as the whole one.
 func TestOpenRefusesAnUnreadableLegacyFile(t *testing.T) {

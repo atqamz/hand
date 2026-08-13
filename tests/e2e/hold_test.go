@@ -118,8 +118,8 @@ func TestHoldLifecycle(t *testing.T) {
 		t.Fatalf("fleet JSON holds = %+v, want both holds", all.Holds)
 	}
 
-	// The motivating case: teardown deletes the task row, and the hold set on
-	// that id has to outlive it.
+	// The motivating case: the hold set on this id has to outlive the work it was
+	// raised against, which teardown leaves terminal rather than removing.
 	runGitIn(t, worktree, "commit", "--allow-empty", "-q", "-m", "wip")
 	if got := runHand(t, home, "merge", "fix-login", "--local"); got.code != 0 {
 		t.Fatalf("merge --local: exit %d, stderr %q", got.code, got.stderr)

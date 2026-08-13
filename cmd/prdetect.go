@@ -62,10 +62,10 @@ func detectPR(ctx context.Context, home string, t state.Task, proj project.Proje
 // unregistered or local-only project, a lock held elsewhere, an ambiguous branch, or a failed gh call all
 // just leave t as read.
 func detectPRForStatus(ctx context.Context, home string, t state.Task) state.Task {
-	// A scout task never answers for a PR - its deliverable is data/<id>/report.md - so it skips the lookup
-	// entirely, the same short-circuit checkLandedWork opens with. A forge round trip on an already-recorded
-	// PR is the only cost this can ever add, and only that task pays it once.
-	if t.PR != "" || t.Kind == state.KindScout {
+	// A scout task never answers for a PR - its deliverable is data/<id>/report.md - and a torn-down task's
+	// completion record is already written, so both skip the lookup rather than pay a forge round trip for a
+	// PR recordPR would refuse. The scout half is the short-circuit checkLandedWork opens with.
+	if t.PR != "" || t.Kind == state.KindScout || t.Lifecycle == state.TaskTerminal {
 		return t
 	}
 	proj, exists, err := project.Find(home, t.Project)
