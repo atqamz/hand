@@ -199,6 +199,13 @@ func TestMergePRRefusesRedCI(t *testing.T) {
 	if got.MergeExecuted {
 		t.Fatal("want task not marked merged")
 	}
+	merged, err := ghutil.PRIsMerged(context.Background(), mergeTestPR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged {
+		t.Fatal("want red checks to leave gh's PR unmerged")
+	}
 }
 
 func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
@@ -212,6 +219,8 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	}
 
 	cmd := newMergeCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -234,6 +243,11 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 	}
 	if !merged {
 		t.Fatal("want the PR merged on gh's side too, not only on the task row")
+	}
+	for _, want := range []string{"id: task-1\n", "result: merged\n", "method: squash\n", "pr: \"https://github.com/org/repo/pull/42\"\n", "merged: "} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output = %q, want field %q", out.String(), want)
+		}
 	}
 }
 

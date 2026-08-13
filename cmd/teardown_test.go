@@ -441,6 +441,12 @@ func TestTeardownShipFailsWhenPRNotMerged(t *testing.T) {
 	if !strings.Contains(err.Error(), "not merged") {
 		t.Fatalf("got err %v, want not merged", err)
 	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state after landed-work refusal = %v, %v, want task to remain", exists, err)
+	}
+	if invocations := readInvocations(t, worktree); len(invocations) != 0 {
+		t.Fatalf("external cleanup before landed-work refusal = %v, want no invocations", invocations)
+	}
 }
 
 func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
@@ -529,6 +535,8 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 
 	before := time.Now().UTC().Truncate(time.Second)
 	cmd := newTeardownCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -553,6 +561,14 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 	want := completion.Record{ID: "task-1", Project: "myproj", Kind: "ship", Outcome: "merged", Detail: "PR https://example.com/pr/1"}
 	if got != want {
 		t.Fatalf("record = %+v, want %+v", got, want)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
+		t.Fatalf("state after successful baseline teardown = %v, %v, want active task row deleted", exists, err)
+	}
+	for _, field := range []string{"id: task-1\n", "result: torn-down\n", "project: myproj\n", "kind: ship\n", "outcome: merged\n", "detail:", "worktree: returned\n"} {
+		if !strings.Contains(out.String(), field) {
+			t.Fatalf("output = %q, want field %q", out.String(), field)
+		}
 	}
 }
 

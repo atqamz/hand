@@ -37,9 +37,16 @@ func TestSendHappyPathWhenIdle(t *testing.T) {
 	}
 
 	cmd := newSendCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"task-1", "hello worker"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+	for _, want := range []string{"id: task-1\n", "result: sent\n", "chars: 12\n"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output = %q, want field %q", out.String(), want)
+		}
 	}
 }
 
@@ -197,6 +204,39 @@ func TestSendRecordsUndeliveredMessageWhenSubmitFails(t *testing.T) {
 	}
 	if got.SendUndeliveredAt == "" {
 		t.Fatal("SendUndeliveredAt not recorded")
+	}
+}
+
+func TestSendRecordsUndeliveredMessageWhenTextSendFails(t *testing.T) {
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus: "idle",
+		Responses: []faketool.HerdrResponse{{
+			Command: "pane send-text",
+			Stdout:  "{\"id\":\"cli:1\",\"error\":{\"code\":\"send_failed\",\"message\":\"text rejected\"}}",
+			Exit:    1,
+		}},
+	})
+	if err := state.Write(home, state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if errors.As(err, &exitErr) {
+		t.Fatalf("got ExitError code %d, want the underlying operational failure", exitErr.Code)
+	}
+	if err == nil || !strings.Contains(err.Error(), "send message failed") {
+		t.Fatalf("got err %v, want the text-send failure", err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SendUndeliveredMessage != "stop and wait for review" || got.SendUndeliveredAt == "" {
+		t.Fatalf("undelivered trace = %q/%q, want the failed message and timestamp", got.SendUndeliveredMessage, got.SendUndeliveredAt)
 	}
 }
 
