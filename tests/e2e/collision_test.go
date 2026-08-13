@@ -56,12 +56,9 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 	if exists, err := state.Exists(home, "task-2"); err != nil || exists {
 		t.Fatalf("state.Exists(task-2) = %v, %v, want the collision to leave no task-2 state", exists, err)
 	}
-	task1, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatalf("task-1 state should be untouched by task-2's collision: %v", err)
-	}
-	if task1.Worktree != sharedWorktree {
-		t.Fatalf("task-1 worktree = %q, want %q (collision handling must not mutate the winner)", task1.Worktree, sharedWorktree)
+	task1, attempt1 := readTaskAttempt(t, home, "task-1")
+	if attempt1.Worktree != sharedWorktree {
+		t.Fatalf("task-1 worktree = %q, want %q (collision handling must not mutate the winner; task=%+v)", attempt1.Worktree, sharedWorktree, task1)
 	}
 }
 
@@ -86,18 +83,12 @@ func TestSpawnAllowsARecycledWorktreePathUnderAFreshLease(t *testing.T) {
 		t.Fatalf("spawn task-2: exit %d, stderr %q, want the recycled path to be accepted", second.code, second.stderr)
 	}
 
-	task1, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
+	_, attempt1 := readTaskAttempt(t, home, "task-1")
+	_, attempt2 := readTaskAttempt(t, home, "task-2")
+	if attempt1.LeaseID == "" || attempt2.LeaseID == "" {
+		t.Fatalf("lease identities not recorded: task-1 %q, task-2 %q", attempt1.LeaseID, attempt2.LeaseID)
 	}
-	task2, err := state.Read(home, "task-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task1.LeaseID == "" || task2.LeaseID == "" {
-		t.Fatalf("lease identities not recorded: task-1 %q, task-2 %q", task1.LeaseID, task2.LeaseID)
-	}
-	if task1.LeaseID == task2.LeaseID {
-		t.Fatalf("both tasks recorded lease %q, so this proved nothing about identity keying", task1.LeaseID)
+	if attempt1.LeaseID == attempt2.LeaseID {
+		t.Fatalf("both tasks recorded lease %q, so this proved nothing about identity keying", attempt1.LeaseID)
 	}
 }

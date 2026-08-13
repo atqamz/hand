@@ -136,12 +136,12 @@ func TestHoldLifecycle(t *testing.T) {
 		t.Fatalf("status after teardown = %q, want the torn-down task's hold still listed", survived.stdout)
 	}
 
-	// Reusing the id would reattach that still-open question to unrelated work.
+	// A terminal id is never reused by spawn, even while its old hold remains open.
 	writeBrief(t, home, "fix-login")
 	respawn := runHand(t, home, "spawn", "fix-login", "demo")
-	assertInvocation(t, respawn, 3, `id "fix-login" has an open hold`)
-	if !strings.Contains(respawn.stderr, "hand hold clear fix-login") {
-		t.Fatalf("spawn stderr = %q, want it to name the remedy", respawn.stderr)
+	assertInvocation(t, respawn, 3, "hand reopen fix-login")
+	if strings.Contains(respawn.stderr, "open hold") {
+		t.Fatalf("spawn stderr = %q, want terminal-task refusal before hold check", respawn.stderr)
 	}
 
 	cleared := runHand(t, home, "hold", "clear", "fix-login")

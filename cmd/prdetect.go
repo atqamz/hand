@@ -13,8 +13,8 @@ import (
 // Looks for a PR whose head ref is t's current branch, for a task whose PR was never recorded because a
 // no-mistakes gate opened it directly instead of going through hand pr (atqamz/hand#69). Called only
 // where t.PR == "" already, so a task with a PR on record never reaches here.
-func detectPR(ctx context.Context, home string, t state.Task, proj project.Project) (state.Task, error) {
-	branch, err := currentBranch(t.Worktree)
+func detectPR(ctx context.Context, home string, t state.Task, active state.Attempt, proj project.Project) (state.Task, error) {
+	branch, err := currentBranch(active.Worktree)
 	if err != nil {
 		return t, err
 	}
@@ -65,6 +65,10 @@ func detectPRForStatus(ctx context.Context, home string, t state.Task) state.Tas
 	if t.PR != "" || t.Kind == state.KindScout || t.Lifecycle == state.TaskTerminal {
 		return t
 	}
+	active, err := state.ActiveAttempt(home, t.ID)
+	if err != nil {
+		return t
+	}
 	proj, exists, err := project.Find(home, t.Project)
 	if err != nil || !exists || proj.Mode == project.ModeLocalOnly {
 		return t
@@ -91,7 +95,7 @@ func detectPRForStatus(ctx context.Context, home string, t state.Task) state.Tas
 	defer cancel()
 	// Unlike hand teardown's landed-work guard, nothing here is gated on the answer, so an ambiguous branch
 	// degrades like any other detection failure instead of refusing.
-	detected, err := detectPR(ghCtx, home, fresh, proj)
+	detected, err := detectPR(ghCtx, home, fresh, active, proj)
 	if err != nil {
 		return t
 	}

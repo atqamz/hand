@@ -51,6 +51,12 @@ func newSpawnCmd() *cobra.Command {
 			if err := gatePreflight(cmd, proj, clonePath, skipGateCheck); err != nil {
 				return err
 			}
+			releaseClaim, err := state.Claim(home, id)
+			if err != nil {
+				return asPrecondition(err)
+			}
+			defer releaseClaim()
+
 			held, hasHold, err := state.ReadHold(home, id)
 			if err != nil {
 				return asPrecondition(err)
@@ -58,12 +64,6 @@ func newSpawnCmd() *cobra.Command {
 			if hasHold {
 				return &ExitError{Err: fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", id, held.Kind, held.Reason, id), Code: 3}
 			}
-
-			releaseClaim, err := state.Claim(home, id)
-			if err != nil {
-				return asPrecondition(err)
-			}
-			defer releaseClaim()
 
 			briefRel := filepath.Join("data", id, "brief.md")
 			briefAbs := filepath.Join(home, briefRel)

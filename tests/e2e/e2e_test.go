@@ -557,9 +557,7 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 			name: "project remove with active task",
 			setup: func(t *testing.T, home string) {
 				registerProject(t, home, "demo", "direct-pr")
-				if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip}); err != nil {
-					t.Fatal(err)
-				}
+				writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning})
 			},
 			args:       []string{"project", "remove", "demo"},
 			wantStderr: `project "demo" has active tasks referencing it`,
@@ -568,9 +566,7 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 			name: "teardown scout without report",
 			setup: func(t *testing.T, home string) {
 				registerProject(t, home, "demo", "direct-pr")
-				if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout}); err != nil {
-					t.Fatal(err)
-				}
+				writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning})
 			},
 			args:       []string{"teardown", "task-1"},
 			wantStderr: "report not found at data/task-1/report.md",
@@ -581,9 +577,7 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 				registerProject(t, home, "demo", "direct-pr")
 				worktree := filepath.Join(home, "wt")
 				initGitRepo(t, worktree)
-				if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Worktree: worktree}); err != nil {
-					t.Fatal(err)
-				}
+				writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree})
 			},
 			args:       []string{"teardown", "task-1"},
 			wantStderr: "no PR recorded for task-1",
@@ -592,9 +586,7 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 			name: "promote a task that is not a scout",
 			setup: func(t *testing.T, home string) {
 				registerProject(t, home, "demo", "direct-pr")
-				if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip}); err != nil {
-					t.Fatal(err)
-				}
+				writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning})
 			},
 			args:       []string{"promote", "task-1"},
 			wantStderr: `task "task-1" is not a scout`,
@@ -603,9 +595,7 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 			name: "merge an already merged task",
 			setup: func(t *testing.T, home string) {
 				registerProject(t, home, "demo", "direct-pr")
-				if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, MergeExecuted: true}); err != nil {
-					t.Fatal(err)
-				}
+				writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, MergeExecuted: true}, state.Attempt{Lifecycle: state.AttemptRunning})
 			},
 			args:       []string{"merge", "task-1"},
 			wantStderr: "task task-1 already merged",

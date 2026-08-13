@@ -167,7 +167,14 @@ func Write(homeDir string, t Task) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	return db.WriteTask(t)
+	found, err := db.TaskExists(t.ID)
+	if err != nil {
+		return err
+	}
+	if found {
+		return db.UpdateTask(t)
+	}
+	return db.CreateTask(t)
 }
 
 func CreateTask(homeDir string, t Task) error {
@@ -231,6 +238,18 @@ func TransitionTask(homeDir, id string, from, to TaskLifecycle) error {
 	}
 	defer func() { _ = db.Close() }()
 	return db.TransitionTask(id, from, to)
+}
+
+func ReopenTask(homeDir string, a Attempt) (Attempt, error) {
+	if err := ValidateID(a.TaskID); err != nil {
+		return Attempt{}, err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return Attempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ReopenTask(a.TaskID, a)
 }
 
 func List(homeDir string) ([]Task, error) {

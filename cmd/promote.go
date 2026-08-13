@@ -177,10 +177,6 @@ func newPromoteCmd() *cobra.Command {
 			t.Kind = state.KindShip
 			t.DeliveredAt = ""
 			t.DeliveredReason = ""
-			// The scout attempt this task still points at is completed as of the line above, and
-			// the ship attempt below owns the slot next. Between them the task owns no attempt,
-			// so a failure there leaves it torn-down-able rather than wedged on a dead one.
-			t.ActiveAttemptID = 0
 			if err := state.UpdateTask(home, t); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
 			}

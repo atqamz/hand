@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -29,89 +28,87 @@ func openTemp(t *testing.T) (*DB, string) {
 
 func sampleTask() Task {
 	return Task{
-		ID: "fix-login", Project: "nsr", Kind: KindShip, Harness: "claude",
-		Model: "opus", Effort: "high", Worktree: "/w/nsr", Brief: "data/fix-login/brief.md",
-		Herdr:           Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
+		ID: "fix-login", Project: "nsr", Kind: KindShip, Brief: "data/fix-login/brief.md", Lifecycle: TaskOpen,
 		PR:              "https://github.com/o/nsr/pull/1",
 		MergeExecuted:   true,
 		MergeExecutedAt: "2026-07-24T12:00:00Z",
 		ReportOffset:    42,
 		ReportDigest:    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 		MergeAnnounced:  true,
-		DoneVerified:    true,
 		CreatedAt:       "2026-07-24T10:00:00Z",
+	}
+}
 
-		StatusChangedAt: "2026-07-24T11:00:00Z", StatusChangedFor: "working",
-		LastReportState: "working", LastReportNote: "on it",
+func sampleAttempt() Attempt {
+	return Attempt{
+		TaskID: "fix-login", Lifecycle: AttemptRunning, Harness: "claude", Model: "opus", Effort: "high", Worktree: "/w/nsr",
+		Herdr:        Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
+		DoneVerified: true, StatusChangedAt: "2026-07-24T11:00:00Z", StatusChangedFor: "working",
+		LastReportState: "working", LastReportNote: "on it", PaneStartedAt: "2026-07-24T10:30:00Z",
+		ParkedFiredFor: "2026-07-24T11:30:00.123456789Z", UsageLimitRetryAt: "2026-07-24T15:00:00Z",
+		UsageLimitAttempts: 2, SendUndeliveredMessage: "stop and wait for review", SendUndeliveredAt: "2026-07-24T13:00:00Z",
+		LeaseID: "5fe5412a4aabdeb85a148d6d73eb42d8", CreatedAt: "2026-07-24T10:00:00Z",
+	}
+}
 
-		PaneStartedAt:  "2026-07-24T10:30:00Z",
-		ParkedFiredFor: "2026-07-24T11:30:00.123456789Z",
-
-		UsageLimitRetryAt:  "2026-07-24T15:00:00Z",
-		UsageLimitAttempts: 2,
-
-		SendUndeliveredMessage: "stop and wait for review",
-		SendUndeliveredAt:      "2026-07-24T13:00:00Z",
-
+func sampleLegacyTask() legacyTask {
+	return legacyTask{
+		ID: "fix-login", Project: "nsr", Kind: KindShip, Harness: "claude", Model: "opus", Effort: "high", Worktree: "/w/nsr",
+		Brief: "data/fix-login/brief.md", Herdr: Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
+		PR: "https://github.com/o/nsr/pull/1", MergeExecuted: true, MergeExecutedAt: "2026-07-24T12:00:00Z",
+		ReportOffset: 42, ReportDigest: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", MergeAnnounced: true,
+		DoneVerified: true, CreatedAt: "2026-07-24T10:00:00Z", StatusChangedAt: "2026-07-24T11:00:00Z", StatusChangedFor: "working",
+		LastReportState: "working", LastReportNote: "on it", PaneStartedAt: "2026-07-24T10:30:00Z",
+		ParkedFiredFor: "2026-07-24T11:30:00.123456789Z", UsageLimitRetryAt: "2026-07-24T15:00:00Z", UsageLimitAttempts: 2,
+		SendUndeliveredMessage: "stop and wait for review", SendUndeliveredAt: "2026-07-24T13:00:00Z",
 		LeaseID: "5fe5412a4aabdeb85a148d6d73eb42d8",
 	}
 }
 
+func writeSample(db *DB) error {
+	if err := db.CreateTask(sampleTask()); err != nil {
+		return err
+	}
+	_, err := db.CreateAttempt(sampleAttempt())
+	return err
+}
+
 func TestWriteReadPreservesEveryField(t *testing.T) {
 	db, _ := openTemp(t)
-	want := sampleTask()
-	if err := db.WriteTask(want); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
+	want := sampleTask()
 
 	history, found, err := db.ReadTaskHistory(want.ID)
 	if err != nil || !found {
 		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	assertTaskProjection(t, history.Task, want)
+	gotTask := history.Task
+	gotTask.ActiveAttemptID = 0
+	want.ActiveAttemptID = 0
+	if gotTask != want {
+		t.Fatalf("task round trip lost logical state: got %+v want %+v", gotTask, want)
+	}
 	if len(history.Attempts) != 1 {
 		t.Fatalf("attempts = %d, want 1", len(history.Attempts))
 	}
 	got := history.Attempts[0]
-	wantAttempt := attemptFromTask(want)
+	wantAttempt := sampleAttempt()
 	wantAttempt.ID, wantAttempt.Ordinal, wantAttempt.Lifecycle = got.ID, got.Ordinal, got.Lifecycle
 	if got != wantAttempt {
 		t.Fatalf("attempt round trip lost a field:\ngot  %+v\nwant %+v", got, wantAttempt)
 	}
 }
 
-func assertTaskProjection(t *testing.T, got, want Task) {
-	t.Helper()
-	got.ActiveAttemptID = 0
-	if want.Lifecycle == "" {
-		want.Lifecycle = TaskOpen
-	}
-	got.Harness, got.Model, got.Effort, got.Worktree, got.Herdr = "", "", "", "", Herdr{}
-	got.DoneVerified, got.StatusChangedAt, got.StatusChangedFor = false, "", ""
-	got.LastReportState, got.LastReportNote = "", ""
-	got.SendUndeliveredMessage, got.SendUndeliveredAt = "", ""
-	got.LeaseID, got.PaneStartedAt, got.ParkedFiredFor = "", "", ""
-	got.UsageLimitRetryAt, got.UsageLimitAttempts = "", 0
-	want.ActiveAttemptID = 0
-	want.Harness, want.Model, want.Effort, want.Worktree, want.Herdr = "", "", "", "", Herdr{}
-	want.DoneVerified, want.StatusChangedAt, want.StatusChangedFor = false, "", ""
-	want.LastReportState, want.LastReportNote = "", ""
-	want.SendUndeliveredMessage, want.SendUndeliveredAt = "", ""
-	want.LeaseID, want.PaneStartedAt, want.ParkedFiredFor = "", "", ""
-	want.UsageLimitRetryAt, want.UsageLimitAttempts = "", 0
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("task round trip lost logical state: got %+v want %+v", got, want)
-	}
-}
-
-func TestWriteTaskOverwritesInPlace(t *testing.T) {
+func TestUpdateTaskPreservesLogicalFields(t *testing.T) {
 	db, _ := openTemp(t)
 	task := sampleTask()
-	if err := db.WriteTask(task); err != nil {
+	if err := db.CreateTask(task); err != nil {
 		t.Fatal(err)
 	}
 	task.PR = "https://github.com/o/nsr/pull/2"
-	if err := db.WriteTask(task); err != nil {
+	if err := db.UpdateTask(task); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +131,7 @@ func TestReadTaskReportsAMissingTaskWithoutAnError(t *testing.T) {
 
 func TestDeleteTask(t *testing.T) {
 	db, _ := openTemp(t)
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.DeleteTask("fix-login"); err != nil {
@@ -236,7 +233,7 @@ func TestRemoveProject(t *testing.T) {
 	}
 }
 
-func writeLegacyTask(t *testing.T, home string, task Task) {
+func writeLegacyTask(t *testing.T, home string, task legacyTask) {
 	t.Helper()
 	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
 		t.Fatal(err)
@@ -252,7 +249,7 @@ func writeLegacyTask(t *testing.T, home string, task Task) {
 
 func TestOpenImportsLegacyTaskFiles(t *testing.T) {
 	home := t.TempDir()
-	want := sampleTask()
+	want := sampleLegacyTask()
 	writeLegacyTask(t, home, want)
 
 	db, err := Open(home)
@@ -265,12 +262,18 @@ func TestOpenImportsLegacyTaskFiles(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	assertTaskProjection(t, history.Task, want)
+	gotTask := history.Task
+	gotTask.ActiveAttemptID = 0
+	wantTask := sampleTask()
+	wantTask.ActiveAttemptID = 0
+	if gotTask != wantTask {
+		t.Fatalf("task round trip lost logical state: got %+v want %+v", gotTask, wantTask)
+	}
 	if len(history.Attempts) != 1 {
 		t.Fatalf("attempts = %d, want 1", len(history.Attempts))
 	}
 	got := history.Attempts[0]
-	wantAttempt := attemptFromTask(want)
+	wantAttempt := sampleAttempt()
 	wantAttempt.ID, wantAttempt.Ordinal, wantAttempt.Lifecycle = got.ID, got.Ordinal, got.Lifecycle
 	if got != wantAttempt {
 		t.Fatalf("import lost execution state: got %+v want %+v", got, wantAttempt)
@@ -297,7 +300,7 @@ func TestLegacyImportBackfillsThePaneStart(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			legacy := sampleTask()
+			legacy := sampleLegacyTask()
 			legacy.PaneStartedAt = ""
 			legacy.StatusChangedAt = tc.statusChangedAt
 			writeLegacyTask(t, home, legacy)
@@ -308,12 +311,12 @@ func TestLegacyImportBackfillsThePaneStart(t *testing.T) {
 			}
 			defer func() { _ = db.Close() }()
 
-			got, found, err := db.ReadTask(legacy.ID)
+			got, found, err := db.ReadTaskHistory(legacy.ID)
 			if err != nil || !found {
-				t.Fatalf("ReadTask = %v, %v", found, err)
+				t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 			}
-			if got.PaneStartedAt != tc.want {
-				t.Fatalf("PaneStartedAt = %q, want %q", got.PaneStartedAt, tc.want)
+			if got.ActiveAttempt == nil || got.ActiveAttempt.PaneStartedAt != tc.want {
+				t.Fatalf("PaneStartedAt = %q, want %q", got.ActiveAttempt.PaneStartedAt, tc.want)
 			}
 		})
 	}
@@ -323,7 +326,7 @@ func TestLegacyImportBackfillsThePaneStart(t *testing.T) {
 // the store. The second open must find nothing to do and change nothing.
 func TestMigrationIsIdempotent(t *testing.T) {
 	home := t.TempDir()
-	writeLegacyTask(t, home, sampleTask())
+	writeLegacyTask(t, home, sampleLegacyTask())
 
 	first, err := Open(home)
 	if err != nil {
@@ -331,7 +334,7 @@ func TestMigrationIsIdempotent(t *testing.T) {
 	}
 	updated := sampleTask()
 	updated.PR = "https://github.com/o/nsr/pull/99"
-	if err := first.WriteTask(updated); err != nil {
+	if err := first.UpdateTask(updated); err != nil {
 		t.Fatal(err)
 	}
 	if err := first.Close(); err != nil {
@@ -368,7 +371,7 @@ func TestLegacyImportLeavesATerminalTaskAndItsHistoryAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	task, _, err := db.ReadTask(sampleTask().ID)
@@ -385,7 +388,7 @@ func TestLegacyImportLeavesATerminalTaskAndItsHistoryAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stale := sampleTask()
+	stale := sampleLegacyTask()
 	stale.PR = "https://github.com/o/nsr/pull/999"
 	writeLegacyTask(t, home, stale)
 
@@ -438,7 +441,7 @@ func TestConcurrentOpensImportALegacyHomeExactlyOnce(t *testing.T) {
 	home := t.TempDir()
 	const legacyTasks = 5
 	for i := range legacyTasks {
-		task := sampleTask()
+		task := sampleLegacyTask()
 		task.ID = fmt.Sprintf("task-%d", i)
 		writeLegacyTask(t, home, task)
 	}
@@ -493,7 +496,7 @@ func TestConcurrentOpensImportALegacyHomeExactlyOnce(t *testing.T) {
 // rather than run its own copy alongside.
 func TestLegacyImportWaitsForTheMigrationLock(t *testing.T) {
 	home := t.TempDir()
-	writeLegacyTask(t, home, sampleTask())
+	writeLegacyTask(t, home, sampleLegacyTask())
 
 	unlock, err := Lock(home, MigrationLock, false)
 	if err != nil {
@@ -580,7 +583,7 @@ func TestOpenHandlesAHomePathWithURISyntaxInIt(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := db.ReadTask(sampleTask().ID)
@@ -597,7 +600,7 @@ func TestOpenHandlesAHomePathWithURISyntaxInIt(t *testing.T) {
 
 func TestOpenReadOnlyReadsCurrentRowsAndRefusesWrites(t *testing.T) {
 	db, home := openTemp(t)
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -619,8 +622,8 @@ func TestOpenReadOnlyReadsCurrentRowsAndRefusesWrites(t *testing.T) {
 	if len(tasks) != 1 || tasks[0].ID != sampleTask().ID {
 		t.Fatalf("ListTasks = %+v, want the current SQLite row", tasks)
 	}
-	if err := db.WriteTask(Task{ID: "must-not-write"}); err == nil {
-		t.Fatal("WriteTask through OpenReadOnly succeeded")
+	if err := db.CreateTask(Task{ID: "must-not-write"}); err == nil {
+		t.Fatal("CreateTask through OpenReadOnly succeeded")
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
@@ -699,7 +702,7 @@ func TestOpenReadOnlyHandlesURISpecialFleetPathWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {

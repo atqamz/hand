@@ -160,7 +160,7 @@ func TestDeletingTheIndexCostsNeitherMachineStateNorCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {

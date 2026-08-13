@@ -20,12 +20,8 @@ func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now},
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	statusDir := t.TempDir()
 	setPaneStatus(t, statusDir, "pane-1", "working")
@@ -68,12 +64,8 @@ func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now},
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	statusDir := t.TempDir()
 	setPaneStatus(t, statusDir, "pane-1", "working")
@@ -100,12 +92,9 @@ func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 	if !strings.Contains(string(eventsLog), "idle-unreported task-1") {
 		t.Fatalf("events.log = %q, want the unreported idle on the log an operator reads", eventsLog)
 	}
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != "" {
-		t.Fatalf("LastReportState = %q, want nothing recorded for a worker that reported nothing", task.LastReportState)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != "" {
+		t.Fatalf("LastReportState = %q, want nothing recorded for a worker that reported nothing", attempt.LastReportState)
 	}
 }
 
@@ -116,12 +105,8 @@ func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Project: "demo", Kind: state.KindShip,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now},
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	statusDir := t.TempDir()
 	setPaneStatus(t, statusDir, "pane-1", "working")
@@ -155,12 +140,9 @@ func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 		t.Fatalf("stdout = %q, want no malformed report for a report rewritten in place", stdout)
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportNote != notes[len(notes)-1] {
-		t.Fatalf("LastReportNote = %q, want %q", task.LastReportNote, notes[len(notes)-1])
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportNote != notes[len(notes)-1] {
+		t.Fatalf("LastReportNote = %q, want %q", attempt.LastReportNote, notes[len(notes)-1])
 	}
 }
 
@@ -172,12 +154,8 @@ func TestWatchDoneRewrittenToTheSameLengthReachesVerifiedDone(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Project: "demo", Kind: state.KindScout,
-		Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, CreatedAt: now,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, CreatedAt: now},
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
 
 	statusDir := t.TempDir()
 	setPaneStatus(t, statusDir, "pane-1", "working")

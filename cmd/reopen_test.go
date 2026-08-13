@@ -60,7 +60,7 @@ func TestReopenCreatesANewAttemptWithoutResurrectingTheOldOne(t *testing.T) {
 
 func TestReopenRefusesAnOpenTask(t *testing.T) {
 	home := setupSpawnHome(t, t.TempDir()+"/wt", defaultSpawnHerdr(harness.Claude))
-	if err := state.Write(home, state.Task{ID: "task-1", Lifecycle: state.TaskOpen}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Lifecycle: state.TaskOpen}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
 		t.Fatal(err)
 	}
 	cmd := newReopenCmd()
@@ -72,7 +72,7 @@ func TestReopenRefusesAnOpenTask(t *testing.T) {
 
 func TestReopenRefusesAnOpenHold(t *testing.T) {
 	home := setupSpawnHome(t, t.TempDir()+"/wt", defaultSpawnHerdr(harness.Claude))
-	if err := state.Write(home, state.Task{ID: "task-1", Lifecycle: state.TaskOpen}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Lifecycle: state.TaskOpen}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
 		t.Fatal(err)
 	}
 	task, err := state.Read(home, "task-1")

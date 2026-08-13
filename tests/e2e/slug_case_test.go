@@ -89,9 +89,7 @@ func TestPRRecordAcceptsCanonicalCasingOfOwnRepoAndUpstream(t *testing.T) {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, id := range []string{"task-1", "task-2", "task-3"} {
-		if err := state.Write(home, state.Task{ID: id, Project: "No-Mistakes", Kind: state.KindShip, CreatedAt: now}); err != nil {
-			t.Fatal(err)
-		}
+		writeTaskAttempt(t, home, state.Task{ID: id, Project: "No-Mistakes", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning})
 	}
 
 	for _, tc := range []struct{ id, url string }{

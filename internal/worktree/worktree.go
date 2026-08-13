@@ -70,27 +70,28 @@ func Return(worktreePath string, force bool) error {
 // CheckCollision cross-checks a freshly acquired lease against every other task's recorded one,
 // returning the ID of the conflicting task or "" for no collision.
 func CheckCollision(homeDir string, lease Lease, excludeID string) (string, error) {
-	tasks, err := state.ListOpen(homeDir)
+	histories, err := state.ListOpenHistories(homeDir)
 	if err != nil {
 		return "", err
 	}
-	for _, t := range tasks {
-		if t.ID == excludeID {
+	for _, history := range histories {
+		if history.Task.ID == excludeID || history.ActiveAttempt == nil {
 			continue
 		}
-		if lease.ID != "" && t.LeaseID != "" {
+		attempt := history.ActiveAttempt
+		if lease.ID != "" && attempt.LeaseID != "" {
 			// Identity rather than path: a pool slot path is recycled across leases while an
 			// identity never is, so a row a failed teardown left behind still names a path
 			// treehouse has freed, and path equality refused the next spawn over that.
-			if t.LeaseID == lease.ID {
-				return t.ID, nil
+			if attempt.LeaseID == lease.ID {
+				return history.Task.ID, nil
 			}
 			continue
 		}
 		// Fallback whenever either side has no identity, which is any row written before the
 		// lease_id column existed.
-		if t.Worktree == lease.Path {
-			return t.ID, nil
+		if attempt.Worktree == lease.Path {
+			return history.Task.ID, nil
 		}
 	}
 	return "", nil

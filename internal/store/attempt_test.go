@@ -111,8 +111,8 @@ func TestTaskAndAttemptTransitionsRejectIllegalStates(t *testing.T) {
 	if err := db.TransitionTask("task-1", TaskTerminal, TaskTerminal); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("terminal -> terminal = %v, want ErrInvalidTransition", err)
 	}
-	if err := db.TransitionTask("task-1", TaskTerminal, TaskOpen); err != nil {
-		t.Fatal(err)
+	if err := db.TransitionTask("task-1", TaskTerminal, TaskOpen); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("terminal -> open = %v, want ErrInvalidTransition", err)
 	}
 }
 
@@ -130,5 +130,36 @@ func TestAttemptTerminalStateCannotBecomeActiveAgain(t *testing.T) {
 	}
 	if err := db.SetActiveAttempt("task-1", attempt.ID); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("reactivating completed attempt = %v, want ErrInvalidTransition", err)
+	}
+}
+
+func TestReopenTaskCreatesANewAttemptWithoutResurrectingHistory(t *testing.T) {
+	db, _ := openTemp(t)
+	if err := db.CreateTask(Task{ID: "task-1", Lifecycle: TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := db.CreateAttempt(Attempt{TaskID: "task-1", Lifecycle: AttemptRunning, Harness: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.TransitionAttempt(first.ID, AttemptRunning, AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.TransitionTask("task-1", TaskOpen, TaskTerminal); err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.ReopenTask("task-1", Attempt{Lifecycle: AttemptRunning, Harness: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Ordinal != 2 || second.Lifecycle != AttemptRunning || second.Harness != "codex" {
+		t.Fatalf("reopened attempt = %+v, want ordinal 2 running codex", second)
+	}
+	history, found, err := db.ReadTaskHistory("task-1")
+	if err != nil || !found || history.Task.Lifecycle != TaskOpen || history.ActiveAttempt == nil || history.ActiveAttempt.ID != second.ID {
+		t.Fatalf("reopened history = %+v, %v, want task open with second active", history, err)
+	}
+	if len(history.Attempts) != 2 || history.Attempts[0].Lifecycle != AttemptCompleted {
+		t.Fatalf("attempt history = %+v, want completed first attempt and running second", history.Attempts)
 	}
 }

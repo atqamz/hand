@@ -56,7 +56,7 @@ func newTeardownCmd() *cobra.Command {
 
 			dirtWasSafe := false
 			if !force {
-				updated, safeDirt, err := checkLandedWork(cmd.Context(), home, t)
+				updated, safeDirt, err := checkLandedWork(cmd.Context(), home, t, active)
 				if err != nil {
 					return err
 				}
@@ -170,7 +170,7 @@ func completionFor(t state.Task, forced bool) completion.Record {
 // Reports whether the task's work is landed, and whether it got there past dirt it judged safe to
 // discard - the caller has to force the worktree return in that case, since treehouse will not clean a
 // dirty worktree on its own.
-func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task, bool, error) {
+func checkLandedWork(ctx context.Context, home string, t state.Task, active state.Attempt) (state.Task, bool, error) {
 	if t.Kind == state.KindScout {
 		reportPath := filepath.Join("data", t.ID, "report.md")
 		if _, err := os.Stat(filepath.Join(home, reportPath)); err != nil {
@@ -179,14 +179,14 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		return t, false, nil
 	}
 
-	status, err := gitStatusPorcelain(t.Worktree)
+	status, err := gitStatusPorcelain(active.Worktree)
 	if err != nil {
 		return t, false, err
 	}
 	dirtWasSafe := false
 	if status != "" {
-		if !dirtIsSafeToDiscard(t.Worktree, status) {
-			return t, false, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s:\n%s", t.Worktree, capStatusLines(status)), Code: 3}
+		if !dirtIsSafeToDiscard(active.Worktree, status) {
+			return t, false, &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s:\n%s", active.Worktree, capStatusLines(status)), Code: 3}
 		}
 		dirtWasSafe = true
 	}
@@ -208,7 +208,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			return t, false, err
 		}
 		if exists && proj.Mode == project.ModeLocalOnly {
-			merged, err := branchIsMerged(filepath.Join(home, "projects", t.Project), t.Worktree)
+			merged, err := branchIsMerged(filepath.Join(home, "projects", t.Project), active.Worktree)
 			if err != nil {
 				return t, false, err
 			}
@@ -222,7 +222,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 		// for landed work; detect it here rather than only refusing on it, so the merged check below
 		// reads the same PR state hand pr would have recorded.
 		if exists {
-			detected, err := detectPR(ctx, home, t, proj)
+			detected, err := detectPR(ctx, home, t, active, proj)
 			var ambiguous *ghutil.AmbiguousPRError
 			// An ambiguous branch is a different failure and must not fall through the same way: "no PR
 			// recorded" reads as unlanded, but ambiguous means unknown, and picking either meaning here
@@ -250,7 +250,7 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 			// A report deliverable on disk and a branch carrying no commits of its own is a completed scout
 			// whatever the row says, and is recorded as one. Merge evidence excludes the path outright - work
 			// hand merged or watched merge landed as a merge, and the record has to say so (atqamz/hand#78).
-			if !t.MergeExecuted && !t.MergeAnnounced && isCompletedScout(home, t) {
+			if !t.MergeExecuted && !t.MergeAnnounced && isCompletedScout(home, t, active.Worktree) {
 				t.Kind = state.KindScout
 				return t, dirtWasSafe, nil
 			}
@@ -273,18 +273,18 @@ func checkLandedWork(ctx context.Context, home string, t state.Task) (state.Task
 // Reports whether a task's work is a delivered scout report and nothing else: the report exists under
 // data/<id>/ and the worktree's branch adds no commit to the local default branch. Both halves are
 // required - a report alone says nothing about code sitting unlanded on the branch beside it.
-func isCompletedScout(home string, t state.Task) bool {
+func isCompletedScout(home string, t state.Task, worktree string) bool {
 	if _, err := os.Stat(filepath.Join(home, "data", t.ID, "report.md")); err != nil {
 		return false
 	}
 	// Resolution failures fail closed, and the branch comparison is local-only like dirtIsSafeToDiscard's:
 	// a stale local ref only misses a real case, it never accepts an unlanded one.
-	baseRef, err := localDefaultBranchRef(t.Worktree)
+	baseRef, err := localDefaultBranchRef(worktree)
 	if err != nil {
 		return false
 	}
 	c := exec.Command("git", "rev-list", "--count", baseRef+"..HEAD")
-	c.Dir = t.Worktree
+	c.Dir = worktree
 	out, err := c.Output()
 	if err != nil {
 		return false

@@ -299,7 +299,7 @@ func TestSessionOverviewsDoNotMutateFleetState(t *testing.T) {
 			if err := db.AddProject(store.Project{Name: "sqlite-project", URL: "local", Mode: "local-only"}); err != nil {
 				t.Fatal(err)
 			}
-			if err := db.WriteTask(store.Task{ID: "sqlite-task", Project: "sqlite-project", Kind: store.KindShip}); err != nil {
+			if err := db.CreateTask(store.Task{ID: "sqlite-task", Project: "sqlite-project", Kind: store.KindShip}); err != nil {
 				t.Fatal(err)
 			}
 			if err := db.SetHold(store.Hold{ID: "sqlite-hold", Kind: store.HoldKindOperator, Reason: "waiting"}); err != nil {

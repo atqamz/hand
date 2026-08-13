@@ -61,7 +61,7 @@ func TestReadHoldReportsAMissingHoldWithoutAnError(t *testing.T) {
 // question open still answers "what needs the operator" after DeleteTask.
 func TestHoldSurvivesWithNoTaskRowBehindIt(t *testing.T) {
 	db, _ := openTemp(t)
-	if err := db.WriteTask(Task{ID: "fix-login"}); err != nil {
+	if err := db.CreateTask(Task{ID: "fix-login"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetHold(sampleHold()); err != nil {

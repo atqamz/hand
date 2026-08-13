@@ -50,7 +50,7 @@ type limitPane interface {
 
 // The whole usage-limit lifecycle for one task on one tick: detect a harness that stopped on a limit,
 // resume it once the limit plausibly lifted, and let go the moment the worker is running again.
-func classifyUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task, pane herdr.Pane, status herdr.Status, probeErr error, justStopped bool, now time.Time, errOut io.Writer) *Event {
+func classifyUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, status herdr.Status, probeErr error, justStopped bool, now time.Time, errOut io.Writer) *Event {
 	// A pane that will not answer PaneGet cannot be read or steered either, and
 	// ClassifyUnreachable already owns that fact.
 	if probeErr != nil {
@@ -63,7 +63,7 @@ func classifyUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 		return nil
 	}
 	if !ts.LimitRetryAt.IsZero() {
-		return continueUsageLimit(cfg, client, ts, t, pane, status, now, errOut)
+		return continueUsageLimit(cfg, client, ts, t, a, pane, status, now, errOut)
 	}
 	// justStopped is computed before ClassifyStatus consumes the transition: it is what makes detection
 	// edge-triggered rather than a per-tick pane read. ts.LimitProbed is the other edge, covering what no
@@ -71,13 +71,13 @@ func classifyUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 	if !status.NotBusy() || (!justStopped && ts.LimitProbed) {
 		return nil
 	}
-	return detectUsageLimit(cfg, client, ts, t, pane, now, errOut)
+	return detectUsageLimit(cfg, client, ts, t, a, pane, now, errOut)
 }
 
 // Reads the stopped pane once and, if the harness stopped on a limit, records the schedule that will
 // resume it. A worker whose report channel already explains the stop is left alone: a done or failed
 // worker is not waiting on quota, and steering one would restart work that is over.
-func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
+func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
 	if reportEndsTask(ts.LastReportState) {
 		return nil
 	}
@@ -86,7 +86,7 @@ func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task,
 	// poll. One attempt per stop edge is the same budget the successful path gets.
 	ts.LimitProbed = true
 
-	text, err := client.PaneRead(t.Herdr.PaneID, limitReadLines)
+	text, err := client.PaneRead(a.Herdr.PaneID, limitReadLines)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read pane for %s failed: %v\n", t.ID, err)
 		return nil
@@ -110,7 +110,7 @@ func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task,
 // Runs for a task already known to be limited. The clear check comes first and runs every tick, not only
 // when an attempt is due: the limit can end for reasons this package had no part in - an operator
 // `hand send`, a human typing in the pane - and a visibly running worker must not keep collecting attempts.
-func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task, pane herdr.Pane, status herdr.Status, now time.Time, errOut io.Writer) *Event {
+func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, status herdr.Status, now time.Time, errOut io.Writer) *Event {
 	if status == herdr.StatusWorking || status == herdr.StatusBlocked {
 		return clearUsageLimit(cfg, ts, t, errOut)
 	}
@@ -122,13 +122,13 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 	if now.Before(ts.LimitRetryAt) {
 		return nil
 	}
-	return attemptUsageLimitResume(cfg, client, ts, t, pane, now, errOut)
+	return attemptUsageLimitResume(cfg, client, ts, t, a, pane, now, errOut)
 }
 
 // Steers the pane and schedules the next attempt. The attempt itself is the observation: nothing here
 // decides whether the limit is over - the next tick's clear check does that, by seeing whether the pane
 // started working.
-func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
+func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
 	// The same `send:<id>` lock hand send holds, because two writers racing one composer is the lost
 	// steer atqamz/hand#102 traced. TryLock, never Lock: a tick must not block behind an operator's
 	// whole --wait, and an operator send landing right now is itself the thing that ends the limit.
@@ -145,7 +145,7 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 	// Read first: the freshest refusal on screen is the harness's own latest prediction of when its quota
 	// returns, and scheduling from it keeps a genuinely long limit off the backoff's much shorter clock.
 	reset := time.Time{}
-	if text, err := client.PaneRead(t.Herdr.PaneID, limitReadLines); err != nil {
+	if text, err := client.PaneRead(a.Herdr.PaneID, limitReadLines); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read pane for %s failed: %v\n", t.ID, err)
 	} else if at, limited := harness.DetectUsageLimit(pane.Agent, text, now); limited {
 		reset = at
@@ -154,7 +154,7 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 	ts.LimitAttempts++
 	ts.LimitRetryAt = nextLimitRetry(reset, ts.LimitAttempts, now)
 
-	if err := steerPane(client, t.Herdr.PaneID, limitResumeMessage); err != nil {
+	if err := steerPane(client, a.Herdr.PaneID, limitResumeMessage); err != nil {
 		// The schedule above is kept deliberately: a steer that did not land is one
 		// lost attempt, and reverting the stamp would put this task back in the due
 		// state every tick, which is the storm.

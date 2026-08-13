@@ -35,11 +35,9 @@ func TestTeardownRefusesAnAbortedWorktreeReturn(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{ID: "scout-1", Project: "demo", Kind: state.KindScout,
-		Worktree: worktree, CreatedAt: now,
-		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "scout-1", Project: "demo", Kind: state.KindScout,
+		CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}})
 
 	dir := binDir(t)
 	invocationLog := filepath.Join(t.TempDir(), "invocations.log")

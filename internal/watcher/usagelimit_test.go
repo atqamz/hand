@@ -46,15 +46,6 @@ func paneCalls(t *testing.T, paneLog string) string {
 	return string(data)
 }
 
-func readTask(t *testing.T, home, id string) state.Task {
-	t.Helper()
-	task, err := state.Read(home, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return task
-}
-
 func limitHold(t *testing.T, home, id string) (state.Hold, bool) {
 	t.Helper()
 	h, exists, err := state.ReadHold(home, id)
@@ -69,9 +60,9 @@ func limitHold(t *testing.T, home, id string) (state.Hold, bool) {
 // the attempt is gone, and the one that resumes has nothing but this column to learn from.
 func setLimitRetryAt(t *testing.T, home, id string, at time.Time) {
 	t.Helper()
-	task := readTask(t, home, id)
-	task.UsageLimitRetryAt = at.UTC().Format(time.RFC3339)
-	if err := state.Write(home, task); err != nil {
+	_, attempt := readTaskAttempt(t, home, id)
+	attempt.UsageLimitRetryAt = at.UTC().Format(time.RFC3339)
+	if err := state.UpdateAttempt(home, attempt); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -85,7 +76,7 @@ func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	paneLog := paneScript(t, limitedPaneAgent, claudeLimitText)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	states := make(map[string]*TaskState)
@@ -110,11 +101,11 @@ func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {
 	if !exists || held.Kind != state.HoldKindLimit {
 		t.Fatalf("hold = %+v, exists = %v, want a %s hold", held, exists, state.HoldKindLimit)
 	}
-	task := readTask(t, home, "task-1")
-	if task.UsageLimitRetryAt == "" {
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.UsageLimitRetryAt == "" {
 		t.Fatal("usage_limit_retry_at is empty, want the schedule a restart resumes from")
 	}
-	retryAt, err := time.Parse(time.RFC3339, task.UsageLimitRetryAt)
+	retryAt, err := time.Parse(time.RFC3339, attempt.UsageLimitRetryAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +123,8 @@ func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {
 	if !strings.Contains(calls, "send-text") || !strings.Contains(calls, "send-keys Enter") {
 		t.Fatalf("pane calls = %q, want the due attempt to steer the pane and submit it", calls)
 	}
-	if got := readTask(t, home, "task-1").UsageLimitAttempts; got != 1 {
+	_, attempt = readTaskAttempt(t, home, "task-1")
+	if got := attempt.UsageLimitAttempts; got != 1 {
 		t.Fatalf("usage_limit_attempts = %d, want 1", got)
 	}
 
@@ -145,9 +137,9 @@ func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {
 	if _, exists := limitHold(t, home, "task-1"); exists {
 		t.Fatal("the limit hold outlived the limit, so hand spawn would refuse this id over quota nobody is waiting on")
 	}
-	task = readTask(t, home, "task-1")
-	if task.UsageLimitRetryAt != "" || task.UsageLimitAttempts != 0 {
-		t.Fatalf("usage-limit columns = %q/%d, want both cleared", task.UsageLimitRetryAt, task.UsageLimitAttempts)
+	_, attempt = readTaskAttempt(t, home, "task-1")
+	if attempt.UsageLimitRetryAt != "" || attempt.UsageLimitAttempts != 0 {
+		t.Fatalf("usage-limit columns = %q/%d, want both cleared", attempt.UsageLimitRetryAt, attempt.UsageLimitAttempts)
 	}
 }
 
@@ -160,7 +152,7 @@ func TestTickLeavesAWorkerThatStoppedForAnotherReasonAlone(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	paneLog := paneScript(t, limitedPaneAgent, "$ go test -race ./...\nok  github.com/atqamz/hand/internal/watcher\n")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	states := make(map[string]*TaskState)
@@ -182,8 +174,9 @@ func TestTickLeavesAWorkerThatStoppedForAnotherReasonAlone(t *testing.T) {
 	if _, exists := limitHold(t, home, "task-1"); exists {
 		t.Fatal("a limit hold was set on a worker that never hit a limit")
 	}
-	if task := readTask(t, home, "task-1"); task.UsageLimitRetryAt != "" {
-		t.Fatalf("usage_limit_retry_at = %q, want empty", task.UsageLimitRetryAt)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.UsageLimitRetryAt != "" {
+		t.Fatalf("usage_limit_retry_at = %q, want empty", attempt.UsageLimitRetryAt)
 	}
 }
 
@@ -196,7 +189,7 @@ func TestTickReadsNoPaneForAHarnessWithoutTheCapability(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	paneLog := paneScript(t, "codex", claudeLimitText)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	states := make(map[string]*TaskState)
@@ -221,7 +214,7 @@ func TestTickDetectsALimitThatPredatesTheWatcher(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	paneScript(t, limitedPaneAgent, claudeLimitText)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	states := make(map[string]*TaskState)
@@ -245,10 +238,9 @@ func TestTickDoesNotResumeALimitedWorkerThatReportedDone(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	paneLog := paneScript(t, limitedPaneAgent, claudeLimitText)
 
-	home := setupWatcherHome(t, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		LastReportState: state.ReportDone, LastReportNote: "shipped",
-	})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		LastReportState: state.ReportDone, LastReportNote: "shipped"},
+	)
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	states := make(map[string]*TaskState)
@@ -275,10 +267,9 @@ func TestTickReleasesALimitTheOperatorEndedItself(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	paneScript(t, limitedPaneAgent, claudeLimitText)
 
-	home := setupWatcherHome(t, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		UsageLimitRetryAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), UsageLimitAttempts: 2,
-	})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		UsageLimitRetryAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), UsageLimitAttempts: 2},
+	)
 	if err := state.SetHold(home, state.Hold{
 		ID: "task-1", Kind: state.HoldKindLimit, Reason: "harness stopped on a usage limit",
 		SetAt: time.Now().UTC().Format(time.RFC3339),
@@ -303,8 +294,9 @@ func TestTickReleasesALimitTheOperatorEndedItself(t *testing.T) {
 	if _, exists := limitHold(t, home, "task-1"); exists {
 		t.Fatal("the limit hold survived the worker running again")
 	}
-	if task := readTask(t, home, "task-1"); task.UsageLimitRetryAt != "" {
-		t.Fatalf("usage_limit_retry_at = %q, want empty", task.UsageLimitRetryAt)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.UsageLimitRetryAt != "" {
+		t.Fatalf("usage_limit_retry_at = %q, want empty", attempt.UsageLimitRetryAt)
 	}
 }
 
@@ -317,10 +309,9 @@ func TestUsageLimitAnnouncesItselfStuckExactlyOnce(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	paneScript(t, limitedPaneAgent, "Claude usage limit reached.")
 
-	home := setupWatcherHome(t, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		UsageLimitAttempts: limitStuckAfter - 1,
-	})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		UsageLimitAttempts: limitStuckAfter - 1},
+	)
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	ctx := context.Background()
@@ -336,7 +327,8 @@ func TestUsageLimitAnnouncesItselfStuckExactlyOnce(t *testing.T) {
 	if got := strings.Count(buf.String(), "usage-limit-stuck task-1"); got != 1 {
 		t.Fatalf("usage-limit-stuck fired %d times, want exactly 1:\n%s", got, buf.String())
 	}
-	if got := readTask(t, home, "task-1").UsageLimitAttempts; got != limitStuckAfter+2 {
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if got := attempt.UsageLimitAttempts; got != limitStuckAfter+2 {
 		t.Fatalf("usage_limit_attempts = %d, want %d: the attempts continue past the stuck announcement", got, limitStuckAfter+2)
 	}
 }
@@ -411,12 +403,13 @@ func TestAFailedSteerStillConsumesItsAttempt(t *testing.T) {
 	ts := &TaskState{LimitRetryAt: time.Now().Add(-time.Minute)}
 	client := &steerFailingPane{}
 	cfg := Config{Home: t.TempDir()}
-	task := state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "p1"}}
+	task := state.Task{ID: "task-1"}
+	attempt := state.Attempt{Herdr: state.Herdr{PaneID: "p1"}}
 	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
 	var errBuf bytes.Buffer
 
 	now := time.Now()
-	if e := classifyUsageLimit(cfg, client, ts, task, pane, herdr.StatusDone, nil, false, now, &errBuf); e != nil {
+	if e := classifyUsageLimit(cfg, client, ts, task, attempt, pane, herdr.StatusDone, nil, false, now, &errBuf); e != nil {
 		t.Fatalf("event = %+v, want none for an ordinary attempt", e)
 	}
 	if ts.LimitAttempts != 1 {
@@ -442,7 +435,7 @@ func (p *steerFailingPane) PaneSendKeys(string, ...string) error { return nil }
 // interleaved into the composer it is already writing. The attempt is deferred rather than spent: the
 // schedule stays due, and the next tick either steers or finds the send has ended the limit for it.
 func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	release, err := state.TryLock(home, "send:task-1")
 	if err != nil {
 		t.Fatal(err)
@@ -453,11 +446,12 @@ func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
 	ts := &TaskState{LimitRetryAt: due}
 	client := &countingPane{}
 	cfg := Config{Home: home}
-	task := state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "p1"}}
+	task := state.Task{ID: "task-1"}
+	attempt := state.Attempt{Herdr: state.Herdr{PaneID: "p1"}}
 	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
 	var errBuf bytes.Buffer
 
-	if e := classifyUsageLimit(cfg, client, ts, task, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
+	if e := classifyUsageLimit(cfg, client, ts, task, attempt, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
 		t.Fatalf("event = %+v, want none", e)
 	}
 	if client.steers != 0 || client.reads != 0 {
@@ -475,7 +469,7 @@ func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
 // their own. Overwriting it would not merely hide that question: the clear at the end of the limit
 // matches on kind, so the row - operator hold and all - would be deleted once the worker ran again.
 func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	operatorHold := state.Hold{
 		ID: "task-1", Kind: state.HoldKindOperator, Reason: "two ways to fix this, needs a call",
 		SetAt: time.Now().UTC().Format(time.RFC3339),
@@ -487,11 +481,12 @@ func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
 	ts := &TaskState{}
 	client := &countingPane{}
 	cfg := Config{Home: home}
-	task := state.Task{ID: "task-1", Herdr: state.Herdr{PaneID: "p1"}}
+	task := state.Task{ID: "task-1"}
+	attempt := state.Attempt{Herdr: state.Herdr{PaneID: "p1"}}
 	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
 	var errBuf bytes.Buffer
 
-	e := classifyUsageLimit(cfg, client, ts, task, pane, herdr.StatusDone, nil, true, time.Now(), &errBuf)
+	e := classifyUsageLimit(cfg, client, ts, task, attempt, pane, herdr.StatusDone, nil, true, time.Now(), &errBuf)
 	if e == nil || e.Kind != KindUsageLimit {
 		t.Fatalf("event = %+v, want %s: the limit is real whatever else holds the id", e, KindUsageLimit)
 	}
@@ -506,7 +501,7 @@ func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
 		t.Fatalf("hold = %+v, exists = %v, want the operator's own hold untouched", held, exists)
 	}
 
-	if e := classifyUsageLimit(cfg, client, ts, task, pane, herdr.StatusWorking, nil, false, time.Now(), &errBuf); e == nil || e.Kind != KindUsageLimitResumed {
+	if e := classifyUsageLimit(cfg, client, ts, task, attempt, pane, herdr.StatusWorking, nil, false, time.Now(), &errBuf); e == nil || e.Kind != KindUsageLimitResumed {
 		t.Fatalf("event = %+v, want %s once the worker runs again", e, KindUsageLimitResumed)
 	}
 	held, exists = limitHold(t, home, "task-1")

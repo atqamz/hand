@@ -21,12 +21,8 @@ func TestMergePR(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, PR: "1", CreatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.Write(home, state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, PR: "2", CreatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, PR: "1", CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning})
+	writeTaskAttempt(t, home, state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, PR: "2", CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning})
 
 	dir := binDir(t)
 	invocationLog := filepath.Join(t.TempDir(), "gh-invocations.log")

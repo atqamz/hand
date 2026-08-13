@@ -127,7 +127,31 @@ func waitForPaneGets(t *testing.T, callLog string, want int) {
 	t.Fatalf("timed out waiting for %d pane get calls", want)
 }
 
-func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
+func writeTaskAttempt(t *testing.T, home string, task state.Task, attempt state.Attempt) error {
+	t.Helper()
+	if err := state.CreateTask(home, task); err != nil {
+		return err
+	}
+	attempt.TaskID = task.ID
+	if _, err := state.CreateAttempt(home, attempt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readTaskAttempt(t *testing.T, home, id string) (state.Task, state.Attempt) {
+	t.Helper()
+	history, err := state.ReadHistory(home, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil {
+		t.Fatalf("task %q has no active attempt", id)
+	}
+	return history.Task, *history.ActiveAttempt
+}
+
+func setupWatcherHome(t *testing.T, taskOpts state.Task, attempts ...state.Attempt) (home string) {
 	t.Helper()
 	home = t.TempDir()
 	// hand init creates this; the project registry (data/projects.md) expects it
@@ -138,7 +162,11 @@ func setupWatcherHome(t *testing.T, taskOpts state.Task) (home string) {
 	if taskOpts.CreatedAt == "" {
 		taskOpts.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	if err := state.Write(home, taskOpts); err != nil {
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning}
+	if len(attempts) != 0 {
+		attempt = attempts[0]
+	}
+	if err := writeTaskAttempt(t, home, taskOpts, attempt); err != nil {
 		t.Fatal(err)
 	}
 	return home
@@ -152,7 +180,7 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -181,12 +209,9 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 	// The task's own recorded report state stays empty rather than turning into
 	// "done": it is derived from what the worker wrote, and an idle pane is an
 	// observation about the harness, not a word the worker said.
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != "" {
-		t.Fatalf("LastReportState = %q, want no report state invented from an unexplained herdr transition", task.LastReportState)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != "" {
+		t.Fatalf("LastReportState = %q, want no report state invented from an unexplained herdr transition", attempt.LastReportState)
 	}
 
 	logData, err := os.ReadFile(filepath.Join(home, "state", "events.log"))
@@ -212,11 +237,9 @@ func TestTickRecordsVerifiedDoneOnlyOnceReportedDoneIsVerified(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip,
-		PR: "https://github.com/atqamz/hand/pull/1", MergeExecuted: true,
-		Herdr: state.Herdr{PaneID: "p1"},
-	})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		PR: "https://github.com/atqamz/hand/pull/1", MergeExecuted: true}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}},
+	)
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -235,15 +258,12 @@ func TestTickRecordsVerifiedDoneOnlyOnceReportedDoneIsVerified(t *testing.T) {
 		t.Fatalf("output = %q, want a verified done event", buf.String())
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !task.DoneVerified {
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if !attempt.DoneVerified {
 		t.Fatal("task.DoneVerified = false, want the verified done persisted")
 	}
-	if task.LastReportState != state.ReportDone {
-		t.Fatalf("LastReportState = %q, want %q recorded", task.LastReportState, state.ReportDone)
+	if attempt.LastReportState != state.ReportDone {
+		t.Fatalf("LastReportState = %q, want %q recorded", attempt.LastReportState, state.ReportDone)
 	}
 }
 
@@ -255,7 +275,7 @@ func TestTickClassifiesBlockedWithoutInventingAPendingDecision(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -272,12 +292,9 @@ func TestTickClassifiesBlockedWithoutInventingAPendingDecision(t *testing.T) {
 		t.Fatalf("output = %q, want blocked task-1", buf.String())
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != "" {
-		t.Fatalf("LastReportState = %q, want nothing inferred from a pane the worker never explained", task.LastReportState)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != "" {
+		t.Fatalf("LastReportState = %q, want nothing inferred from a pane the worker never explained", attempt.LastReportState)
 	}
 }
 
@@ -287,7 +304,7 @@ func TestTickClassifiesPRMerged(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "MERGED")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://example.com/pr/1", Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -315,7 +332,7 @@ func TestTickFiresIdleUnreportedWhenPaneGoesNotBusyWithNoReport(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -334,12 +351,9 @@ func TestTickFiresIdleUnreportedWhenPaneGoesNotBusyWithNoReport(t *testing.T) {
 		t.Fatalf("output = %q, want idle-unreported task-1 when nothing explained the stop", buf.String())
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != "" {
-		t.Fatalf("LastReportState = %q, want the idle pane raised as an event and not as a decision the worker never asked for", task.LastReportState)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != "" {
+		t.Fatalf("LastReportState = %q, want the idle pane raised as an event and not as a decision the worker never asked for", attempt.LastReportState)
 	}
 }
 
@@ -348,7 +362,7 @@ func TestTickAbsorbsNotBusyWhenReportExplainsTheStop(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -381,7 +395,7 @@ func TestTickAutoRecordsPRFromReportLine(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "OPEN")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -417,7 +431,7 @@ func TestTickDoesNotOverwriteAlreadyRecordedPR(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "OPEN")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -450,7 +464,7 @@ func TestTickRefusesToAutoRecordAForeignRepoPR(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "OPEN")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -498,7 +512,7 @@ func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "OPEN")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -519,12 +533,9 @@ func TestTickKeepsAWorkerQuestionWhenItsPRURLIsRefused(t *testing.T) {
 		t.Fatalf("out = %q, want the refusal still announced", buf.String())
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != state.ReportNeedsDecision || !strings.Contains(task.LastReportNote, "which base branch?") {
-		t.Fatalf("LastReportState/Note = %q/%q, want the worker's own question intact", task.LastReportState, task.LastReportNote)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != state.ReportNeedsDecision || !strings.Contains(attempt.LastReportNote, "which base branch?") {
+		t.Fatalf("LastReportState/Note = %q/%q, want the worker's own question intact", attempt.LastReportState, attempt.LastReportNote)
 	}
 }
 
@@ -537,7 +548,7 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "OPEN")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -597,7 +608,7 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	url := "https://github.com/atqamz/hand/pull/7"
@@ -651,14 +662,22 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 // the whole database and copying it is the whole substitution.
 func taskSnapshotWithPR(t *testing.T, home, id, pr string) string {
 	t.Helper()
-	task, err := state.Read(home, id)
+	history, err := state.ReadHistory(home, id)
 	if err != nil {
 		t.Fatal(err)
 	}
+	task := history.Task
 	task.PR = pr
+	task.ActiveAttemptID = 0
 	scratch := t.TempDir()
-	if err := state.Write(scratch, task); err != nil {
+	if err := state.CreateTask(scratch, task); err != nil {
 		t.Fatal(err)
+	}
+	for _, attempt := range history.Attempts {
+		attempt.ID = 0
+		if _, err := state.CreateAttempt(scratch, attempt); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return store.Path(scratch)
 }
@@ -671,7 +690,7 @@ func TestTickReportsAnUnreadableTaskWhenTheLockIsContended(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	url := "https://github.com/atqamz/hand/pull/7"
@@ -722,7 +741,7 @@ func TestTickAnnouncesPRMergedBeforePersistingIt(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "MERGED")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -776,7 +795,7 @@ func TestTickDoesNotReannounceAPollObservedMergeAfterRestart(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGh(t, "MERGED")
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1", Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, PR: "https://github.com/atqamz/hand/pull/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -809,7 +828,7 @@ func TestTickReportsAnUnreadableReport(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	if err := os.MkdirAll(state.ReportPath(home, "task-1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -832,7 +851,7 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -881,7 +900,7 @@ func TestTickAnnouncesADoneRewrittenToTheSameLengthAcrossARestart(t *testing.T) 
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -914,14 +933,12 @@ func TestTickAnnouncesADoneRewrittenToTheSameLengthAcrossARestart(t *testing.T) 
 		t.Fatalf("out = %q, want the same-length done rewrite announced", buf.String())
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != state.ReportDone {
-		t.Fatalf("LastReportState = %q, want the done rewrite recorded so the deferred verification can fire", task.LastReportState)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != state.ReportDone {
+		t.Fatalf("LastReportState = %q, want the done rewrite recorded so the deferred verification can fire", attempt.LastReportState)
 	}
 
+	task, _ := readTaskAttempt(t, home, "task-1")
 	task.MergeExecuted = true
 	if err := state.Write(home, task); err != nil {
 		t.Fatal(err)
@@ -941,10 +958,9 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	// Created before the silence it is about to be blamed for: reportEvidenceTime
 	// floors the mtime at the pane's start, so a task younger than its own report
 	// file could not accumulate this silence in the first place.
-	home := setupWatcherHome(t, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
-	})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}},
+	)
 	reportPath := state.ReportPath(home, "task-1")
 	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -987,11 +1003,11 @@ func TestTickDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	started := time.Now().Add(-2 * time.Hour)
-	home := setupWatcherHome(t, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt:     started.UTC().Format(time.RFC3339),
-		PaneStartedAt: started.UTC().Format(time.RFC3339),
-	})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: started.UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+
+		PaneStartedAt: started.UTC().Format(time.RFC3339)},
+	)
 	reportPath := state.ReportPath(home, "task-1")
 	if err := os.WriteFile(reportPath, []byte("done: shipped the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1034,14 +1050,13 @@ func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 	now := time.Now()
 	home := t.TempDir()
 	paneStart := now.Add(-3 * time.Hour)
-	task := state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt:        now.Add(-4 * time.Hour).UTC().Format(time.RFC3339),
+	task := state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: now.Add(-4 * time.Hour).UTC().Format(time.RFC3339)}
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
 		PaneStartedAt:    paneStart.UTC().Format(time.RFC3339),
 		StatusChangedAt:  now.Add(-time.Minute).UTC().Format(time.RFC3339),
-		StatusChangedFor: string(herdr.StatusUnknown),
-	}
-	if err := state.Write(home, task); err != nil {
+		StatusChangedFor: string(herdr.StatusUnknown)}
+	if err := writeTaskAttempt(t, home, task, attempt); err != nil {
 		t.Fatal(err)
 	}
 	reportPath := state.ReportPath(home, "task-1")
@@ -1053,7 +1068,7 @@ func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := reportEvidenceTime(home, task)
+	got, err := reportEvidenceTime(home, task, attempt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1062,8 +1077,9 @@ func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 	}
 
 	promoted := task
-	promoted.PaneStartedAt = now.Add(-time.Minute).UTC().Format(time.RFC3339)
-	got, err = reportEvidenceTime(home, promoted)
+	promotedAttempt := attempt
+	promotedAttempt.PaneStartedAt = now.Add(-time.Minute).UTC().Format(time.RFC3339)
+	got, err = reportEvidenceTime(home, promoted, promotedAttempt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1079,11 +1095,10 @@ func TestTickTiesTheStaleDwellToDurableEvidenceAcrossARestart(t *testing.T) {
 
 	home := t.TempDir()
 	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
-	task := state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "working",
-	}
-	if err := state.Write(home, task); err != nil {
+	task := state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, CreatedAt: dwelling}
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		StatusChangedAt: dwelling, StatusChangedFor: "working"}
+	if err := writeTaskAttempt(t, home, task, attempt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1112,10 +1127,10 @@ func TestTickRefusesADurableDwellStampedForADifferentStatus(t *testing.T) {
 
 	home := t.TempDir()
 	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "blocked",
-	}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: dwelling}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		StatusChangedAt: dwelling, StatusChangedFor: "blocked"},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1132,12 +1147,9 @@ func TestTickRefusesADurableDwellStampedForADifferentStatus(t *testing.T) {
 		t.Fatalf("output = %q, want no stale: the 30m stamp was recorded for blocked, so it says nothing about how long working has been held", buf.String())
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.StatusChangedFor != "working" || got.StatusChangedAt == dwelling {
-		t.Fatalf("status_changed_at/for = %q/%q, want the dwell restamped for the status actually observed", got.StatusChangedAt, got.StatusChangedFor)
+	_, gotAttempt := readTaskAttempt(t, home, "task-1")
+	if gotAttempt.StatusChangedFor != "working" || gotAttempt.StatusChangedAt == dwelling {
+		t.Fatalf("status_changed_at/for = %q/%q, want the dwell restamped for the status actually observed", gotAttempt.StatusChangedAt, gotAttempt.StatusChangedFor)
 	}
 }
 
@@ -1149,7 +1161,7 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -1170,11 +1182,8 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 
 	// hand merge, with the watcher stopped: it writes merged, leaving the
 	// verified announcement to whichever watcher restarts and rereads the evidence.
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.DoneVerified {
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.DoneVerified {
 		t.Fatal("task.DoneVerified = true, want the unverified report to leave the marker unset")
 	}
 	task.MergeExecuted = true
@@ -1190,15 +1199,12 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 		t.Fatalf("out = %q, want the verified done announced by the restarted watcher", buf.String())
 	}
 
-	task, err = state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, attempt = readTaskAttempt(t, home, "task-1")
 	// Without the announcement the recorded state stays stuck where the unverified report left it.
-	if task.LastReportState != state.ReportDone {
-		t.Fatalf("LastReportState = %q, want the task's own recorded state moved to done", task.LastReportState)
+	if attempt.LastReportState != state.ReportDone {
+		t.Fatalf("LastReportState = %q, want the task's own recorded state moved to done", attempt.LastReportState)
 	}
-	if !task.DoneVerified {
+	if !attempt.DoneVerified {
 		t.Fatal("task.DoneVerified = false, want the announcement persisted after the fact")
 	}
 
@@ -1218,7 +1224,7 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1244,11 +1250,8 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	if !hasEventLine(buf.String(), "done task-1: scout findings") {
 		t.Fatalf("out = %q, want the scout's verified done", buf.String())
 	}
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !task.DoneVerified {
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	if !attempt.DoneVerified {
 		t.Fatal("task.DoneVerified = false, want the scout's announcement persisted")
 	}
 
@@ -1256,9 +1259,12 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	// CreatedAt and the report channel do not - with the DoneVerified reset this
 	// test exists to cover.
 	task.Kind = state.KindShip
-	task.Herdr.PaneID = "p2"
-	task.DoneVerified = false
+	attempt.Herdr.PaneID = "p2"
+	attempt.DoneVerified = false
 	if err := state.Write(home, task); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAttempt(home, attempt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1281,15 +1287,16 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	if !hasEventLine(buf.String(), "reported-done task-1: ship work") {
 		t.Fatalf("out = %q, want an unverified reported-done - the ship has not merged yet", buf.String())
 	}
-	task, err = state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.DoneVerified {
+	_, attempt = readTaskAttempt(t, home, "task-1")
+	if attempt.DoneVerified {
 		t.Fatal("task.DoneVerified = true, want promote's reset not resurrected by the cached copy")
 	}
 
 	// hand merge lands the evidence the ship's own done needs.
+	task, err = state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	task.MergeExecuted = true
 	if err := state.Write(home, task); err != nil {
 		t.Fatal(err)
@@ -1312,10 +1319,10 @@ func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) 
 
 	home := t.TempDir()
 	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "working",
-	}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
+		CreatedAt: dwelling}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		StatusChangedAt: dwelling, StatusChangedFor: "working"},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1327,15 +1334,15 @@ func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) 
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
-	promoted, err := state.Read(home, "task-1")
-	if err != nil {
+	promoted, attempt := readTaskAttempt(t, home, "task-1")
+	promoted.Kind = state.KindShip
+	attempt.Herdr.PaneID = "p2"
+	attempt.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
+	attempt.StatusChangedFor = ""
+	if err := state.Write(home, promoted); err != nil {
 		t.Fatal(err)
 	}
-	promoted.Kind = state.KindShip
-	promoted.Herdr.PaneID = "p2"
-	promoted.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
-	promoted.StatusChangedFor = ""
-	if err := state.Write(home, promoted); err != nil {
+	if err := state.UpdateAttempt(home, attempt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1350,26 +1357,23 @@ func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) 
 		t.Fatalf("out = %q, want no stale: the ship's dwell starts at the promotion, not at the scout's last observed transition", buf.String())
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.StatusChangedAt == dwelling {
+	_, gotAttempt := readTaskAttempt(t, home, "task-1")
+	if gotAttempt.StatusChangedAt == dwelling {
 		t.Fatal("status_changed_at = the scout's stamp, want the cached scout dwell not written back over promote's restamp")
 	}
-	stamped, err := time.Parse(time.RFC3339, got.StatusChangedAt)
+	stamped, err := time.Parse(time.RFC3339, gotAttempt.StatusChangedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restamped, err := time.Parse(time.RFC3339, promoted.StatusChangedAt)
+	restamped, err := time.Parse(time.RFC3339, attempt.StatusChangedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stamped.Before(restamped) {
-		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", got.StatusChangedAt, promoted.StatusChangedAt)
+		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", gotAttempt.StatusChangedAt, attempt.StatusChangedAt)
 	}
-	if got.StatusChangedFor != "working" {
-		t.Fatalf("status_changed_for = %q, want the status the ship's dwell was stamped for", got.StatusChangedFor)
+	if gotAttempt.StatusChangedFor != "working" {
+		t.Fatalf("status_changed_for = %q, want the status the ship's dwell was stamped for", gotAttempt.StatusChangedFor)
 	}
 }
 
@@ -1393,12 +1397,9 @@ func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
 		LastReportNote:        "scout findings",
 	}
 
-	promoted := state.Task{
-		ID: "task-1", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
-		CreatedAt:       scoutDwell.UTC().Format(time.RFC3339),
-		StatusChangedAt: now.UTC().Format(time.RFC3339),
-	}
-	forgetPaneScopedCache(ts, promoted, now)
+	promoted := state.Task{ID: "task-1", Kind: state.KindShip, CreatedAt: scoutDwell.UTC().Format(time.RFC3339)}
+	promotedAttempt := state.Attempt{Herdr: state.Herdr{PaneID: "p2"}, StatusChangedAt: now.UTC().Format(time.RFC3339)}
+	forgetPaneScopedCache(ts, promoted, promotedAttempt, now)
 
 	if ts.Stale || ts.Blocked {
 		t.Fatalf("Stale = %v, Blocked = %v, want both latches cleared for the ship's new pane", ts.Stale, ts.Blocked)
@@ -1435,7 +1436,7 @@ func TestForgetPaneScopedCacheGivesTheShipsFirstProbeFailureADwell(t *testing.T)
 		PersistedPaneID: "p1",
 	}
 
-	forgetPaneScopedCache(ts, promotedTask(now), now)
+	forgetPaneScopedCache(ts, promotedTask(now), promotedAttempt(now), now)
 
 	if e := ClassifyStatus(ts, "task-1", "", errors.New("pane not found"), now); e != nil {
 		t.Fatalf("event = %+v, want none: a blink on the ship's first probe is not a failure", e)
@@ -1481,13 +1482,10 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		LimitProbed:             true,
 		UnreachableFired:        true,
 	}
-	promoted := state.Task{
-		Herdr:            state.Herdr{PaneID: "ship-pane"},
-		DoneVerified:     false,
-		CreatedAt:        "2020-01-01T00:00:00Z",
-		StatusChangedFor: "",
-		LastReportState:  "ship-report-state",
-		LastReportNote:   "ship-report-note",
+	promoted := state.Task{CreatedAt: "2020-01-01T00:00:00Z"}
+	promotedAttempt := state.Attempt{
+		Herdr: state.Herdr{PaneID: "ship-pane"}, LastReportState: "ship-report-state",
+		LastReportNote: "ship-report-note",
 	}
 
 	// Every field the PR body's field-by-field table classifies as pane-independent, so
@@ -1505,7 +1503,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	}
 
 	ts := before
-	forgetPaneScopedCache(&ts, promoted, time.Now())
+	forgetPaneScopedCache(&ts, promoted, promotedAttempt, time.Now())
 
 	// Walking every field by reflection: one neither reset/re-derived nor named in the carried map fails
 	// automatically by staying equal to its deliberately-stale "before" value. Which of the two fixes it
@@ -1533,10 +1531,13 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 
 func promotedTask(now time.Time) state.Task {
 	return state.Task{
-		ID: "task-1", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
-		CreatedAt:       now.Add(-30 * time.Minute).UTC().Format(time.RFC3339),
-		StatusChangedAt: now.UTC().Format(time.RFC3339),
+		ID: "task-1", Kind: state.KindShip,
+		CreatedAt: now.Add(-30 * time.Minute).UTC().Format(time.RFC3339),
 	}
+}
+
+func promotedAttempt(now time.Time) state.Attempt {
+	return state.Attempt{Herdr: state.Herdr{PaneID: "p2"}, StatusChangedAt: now.UTC().Format(time.RFC3339)}
 }
 
 // The scout's status is the baseline the ship's first probe would be diffed
@@ -1552,7 +1553,7 @@ func TestForgetPaneScopedCacheStopsIdleUnreportedForAStatusTheShipNeverHeld(t *t
 		LastReportNote:  "scout findings",
 	}
 
-	forgetPaneScopedCache(ts, promotedTask(now), now)
+	forgetPaneScopedCache(ts, promotedTask(now), promotedAttempt(now), now)
 
 	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second)); e != nil {
 		t.Fatalf("event = %+v, want none: the ship was never observed working, so its first probe cannot be an unexplained stop", e)
@@ -1571,7 +1572,7 @@ func TestForgetPaneScopedCacheLetsTheShipsOwnBlockedFireAfterABlockedScout(t *te
 		PersistedPaneID: "p1",
 	}
 
-	forgetPaneScopedCache(ts, promotedTask(now), now)
+	forgetPaneScopedCache(ts, promotedTask(now), promotedAttempt(now), now)
 
 	e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(time.Second))
 	if e == nil || e.Kind != KindBlocked {
@@ -1601,12 +1602,13 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 		ReportCursor:          state.ReportCursor{Offset: 42, Digest: "cached-digest"},
 	}
 
-	if err := state.Write(home, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p2"},
-		CreatedAt:       scoutDwell.UTC().Format(time.RFC3339),
-		StatusChangedAt: now.UTC().Format(time.RFC3339),
-		ReportOffset:    42,
-	}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: scoutDwell.UTC().Format(time.RFC3339),
+
+		ReportOffset: 42}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p2"},
+
+		StatusChangedAt: now.UTC().Format(time.RFC3339)},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1616,21 +1618,18 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 		t.Fatalf("errOut = %q, want a clean write", errBuf.String())
 	}
 
-	got, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.StatusChangedAt == scoutDwell.UTC().Format(time.RFC3339) {
+	_, gotAttempt := readTaskAttempt(t, home, "task-1")
+	if gotAttempt.StatusChangedAt == scoutDwell.UTC().Format(time.RFC3339) {
 		t.Fatal("status_changed_at = the scout's stamp, want promote's restamp not overwritten")
 	}
-	if got.StatusChangedFor != string(herdr.StatusUnknown) {
-		t.Fatalf("status_changed_for = %q, want the restamped dwell to belong to no observed status: this tick probed the scout's pane", got.StatusChangedFor)
+	if gotAttempt.StatusChangedFor != string(herdr.StatusUnknown) {
+		t.Fatalf("status_changed_for = %q, want the restamped dwell to belong to no observed status: this tick probed the scout's pane", gotAttempt.StatusChangedFor)
 	}
-	if got.DoneVerified {
+	if gotAttempt.DoneVerified {
 		t.Fatal("done_verified = true, want the scout's marker not resurrected by the cached copy")
 	}
-	if got.LastReportState != "" || got.LastReportNote != "" {
-		t.Fatalf("last_report_state/note = %q/%q, want the scout's report evidence not written back", got.LastReportState, got.LastReportNote)
+	if gotAttempt.LastReportState != "" || gotAttempt.LastReportNote != "" {
+		t.Fatalf("last_report_state/note = %q/%q, want the scout's report evidence not written back", gotAttempt.LastReportState, gotAttempt.LastReportNote)
 	}
 	if ts.Stale {
 		t.Fatal("ts.Stale = true, want the cached stale latch cleared for the ship's pane")
@@ -1657,7 +1656,7 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	writeFakeGhFailingMultiline(t)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	registerProject(t, home, "nsr", "https://github.com/atqamz/hand.git")
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -1722,7 +1721,7 @@ func TestTickForgetsTornDownTasks(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -1919,7 +1918,7 @@ func TestRunExitsWhenPaneProbeIsCanceled(t *testing.T) {
 		Hang:       []string{"pane get"},
 		Log:        callLog, LogCommands: []string{"pane get"},
 	}.Install(t, faketool.Bin(t))
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1948,7 +1947,7 @@ func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
 	setStatus(t, statusFile, "done")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR checks green\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1979,7 +1978,7 @@ func TestRunUntilEventDeliversTheFirstTransitionAndReturns(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	callLog := logPaneGets(t)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
 
 	var out bytes.Buffer
@@ -2013,7 +2012,7 @@ func TestRunUntilEventFiltersWakesToTheRequestedKinds(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 	callLog := logPaneGets(t)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{
 		Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second,
 		EventFilter: NewEventFilter([]string{KindBlocked}),
@@ -2061,7 +2060,7 @@ func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T
 	writeFakeHerdr(t, statusFile)
 	callLog := logPaneGets(t)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: still on the migration\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2092,7 +2091,7 @@ func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
 
 	var out bytes.Buffer
@@ -2118,7 +2117,7 @@ func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2178,7 +2177,7 @@ func TestRunUntilEventReportsNoEventWhenTheArmProbeHangs(t *testing.T) {
 		Hang:       []string{"pane get"},
 	}.Install(t, faketool.Bin(t))
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
 
 	start := time.Now()
@@ -2200,7 +2199,7 @@ func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
 	setStatus(t, statusFile, paneGoneStatus)
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: time.Second}
 
 	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
@@ -2223,7 +2222,7 @@ func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	ctx := context.Background()
@@ -2252,12 +2251,9 @@ func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
 		t.Fatalf("output = %q, want the stop still explained by the needs-decision the malformed line followed", buf.String())
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != state.ReportNeedsDecision || !strings.Contains(task.LastReportNote, "which base branch?") {
-		t.Fatalf("LastReportState/Note = %q/%q, want the worker's own question left intact", task.LastReportState, task.LastReportNote)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != state.ReportNeedsDecision || !strings.Contains(attempt.LastReportNote, "which base branch?") {
+		t.Fatalf("LastReportState/Note = %q/%q, want the worker's own question left intact", attempt.LastReportState, attempt.LastReportNote)
 	}
 }
 
@@ -2269,7 +2265,7 @@ func TestTickReseedsARespawnedTaskID(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	reportMD := filepath.Join(home, "data", "task-1", "report.md")
 	if err := os.MkdirAll(filepath.Dir(reportMD), 0o755); err != nil {
 		t.Fatal(err)
@@ -2302,9 +2298,10 @@ func TestTickReseedsARespawnedTaskID(t *testing.T) {
 	if err := os.Remove(reportMD); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.Write(home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
-		Herdr:     state.Herdr{PaneID: "p1"},
-		CreatedAt: time.Now().UTC().Add(time.Minute).Format(time.RFC3339)}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
+
+		CreatedAt: time.Now().UTC().Add(time.Minute).Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2318,11 +2315,8 @@ func TestTickReseedsARespawnedTaskID(t *testing.T) {
 		t.Fatalf("output = %q, want the respawned task's own done report read from offset 0", buf.String())
 	}
 
-	respawned, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if respawned.DoneVerified {
+	_, respawnedAttempt := readTaskAttempt(t, home, "task-1")
+	if respawnedAttempt.DoneVerified {
 		t.Fatal("done_verified inherited by a respawned ID, want the previous run's announcement not carried over")
 	}
 
@@ -2344,7 +2338,7 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -2369,12 +2363,9 @@ func TestTickSetsTheStateColumnOnAReportedStop(t *testing.T) {
 		}
 		tick(ctx, cfg, client, states, &bytes.Buffer{}, io.Discard)
 
-		task, err := state.Read(home, "task-1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if task.LastReportState != tc.wantState {
-			t.Fatalf("LastReportState = %q after %q, want state %s", task.LastReportState, tc.line, tc.wantState)
+		_, attempt := readTaskAttempt(t, home, "task-1")
+		if attempt.LastReportState != tc.wantState {
+			t.Fatalf("LastReportState = %q after %q, want state %s", attempt.LastReportState, tc.line, tc.wantState)
 		}
 	}
 }
@@ -2387,7 +2378,7 @@ func TestTickStaysSilentOnABlinkAtFirstSighting(t *testing.T) {
 	setStatus(t, statusFile, paneGoneStatus)
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
 	states := make(map[string]*TaskState)
@@ -2417,7 +2408,7 @@ func TestTickAnnouncesATaskUnreachableAtFirstSightingOnceTheDwellMatures(t *test
 	setStatus(t, statusFile, paneGoneStatus)
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
 	client := herdr.NewClient()
 	states := make(map[string]*TaskState)
@@ -2454,10 +2445,10 @@ func TestTickResumesAnUnreachableDwellAcrossARestart(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
-	home := setupWatcherHome(t, state.Task{
-		ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"},
-		CreatedAt: dwelling, StatusChangedAt: dwelling, StatusChangedFor: "unknown",
-	})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: dwelling}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		StatusChangedAt: dwelling, StatusChangedFor: "unknown"},
+	)
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
 	client := herdr.NewClient()
@@ -2485,7 +2476,7 @@ func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -2507,11 +2498,8 @@ func TestTickKeepsAPendingQuestionWhenThePaneProbeFails(t *testing.T) {
 		t.Fatalf("output = %q, want the failed event", buf.String())
 	}
 
-	task, err := state.Read(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.LastReportState != state.ReportNeedsDecision || !strings.Contains(task.LastReportNote, "which base branch?") {
-		t.Fatalf("LastReportState/Note = %q/%q, want the worker's question left standing", task.LastReportState, task.LastReportNote)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.LastReportState != state.ReportNeedsDecision || !strings.Contains(attempt.LastReportNote, "which base branch?") {
+		t.Fatalf("LastReportState/Note = %q/%q, want the worker's question left standing", attempt.LastReportState, attempt.LastReportNote)
 	}
 }

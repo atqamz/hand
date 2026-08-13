@@ -22,7 +22,7 @@ func TestExistingBaselineDatabaseOpensCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.WriteTask(sampleTask()); err != nil {
+	if err := writeSample(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -39,7 +39,13 @@ func TestExistingBaselineDatabaseOpensCleanly(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	assertTaskProjection(t, history.Task, sampleTask())
+	got := history.Task
+	got.ActiveAttemptID = 0
+	want := sampleTask()
+	want.ActiveAttemptID = 0
+	if got != want {
+		t.Fatalf("task = %+v, want %+v", got, want)
+	}
 	if history.ActiveAttempt == nil || history.ActiveAttempt.Ordinal != 1 || history.ActiveAttempt.Lifecycle != AttemptRunning {
 		t.Fatalf("active attempt = %+v", history.ActiveAttempt)
 	}

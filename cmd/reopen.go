@@ -136,12 +136,7 @@ func newReopenCmd() *cobra.Command {
 			}
 
 			startedAt := time.Now().UTC().Format(time.RFC3339)
-			t.Lifecycle = state.TaskOpen
-			t.ActiveAttemptID = 0
-			if err := state.UpdateTask(homeDir, t); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("reopen task: %w", err), worktree.Return(wt, true))
-			}
-			if _, err := state.CreateAttempt(homeDir, state.Attempt{TaskID: id, Lifecycle: state.AttemptRunning, Harness: harnessName, Model: model, Effort: effort, Worktree: wt, LeaseID: lease.ID, Herdr: state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID}, CreatedAt: startedAt, PaneStartedAt: startedAt}); err != nil {
+			if _, err := state.ReopenTask(homeDir, state.Attempt{TaskID: id, Lifecycle: state.AttemptRunning, Harness: harnessName, Model: model, Effort: effort, Worktree: wt, LeaseID: lease.ID, Herdr: state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID}, CreatedAt: startedAt, PaneStartedAt: startedAt}); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write reopened attempt: %w", err), worktree.Return(wt, true))
 			}
 			started = true

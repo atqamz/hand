@@ -158,16 +158,16 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 }
 
 func runLocalMerge(cmd *cobra.Command, home string, t state.Task, active state.Attempt) error {
-	t.Worktree = active.Worktree
-	dirty, err := hasUncommittedChanges(t.Worktree)
+	worktree := active.Worktree
+	dirty, err := hasUncommittedChanges(worktree)
 	if err != nil {
 		return err
 	}
 	if dirty {
-		return &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", t.Worktree), Code: 3}
+		return &ExitError{Err: fmt.Errorf("uncommitted changes in worktree %s", worktree), Code: 3}
 	}
 
-	branch, err := currentBranch(t.Worktree)
+	branch, err := currentBranch(worktree)
 	if err != nil {
 		return err
 	}

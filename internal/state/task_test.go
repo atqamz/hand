@@ -13,13 +13,18 @@ import (
 func TestWriteReadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	task := Task{
-		ID: "fix-login", Project: "nsr", Kind: KindShip, Harness: "claude",
-		Model: "sonnet", Effort: "low", Worktree: "/tmp/wt", Brief: "data/fix-login/brief.md",
-		Herdr:     Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
+		ID: "fix-login", Project: "nsr", Kind: KindShip, Brief: "data/fix-login/brief.md",
 		CreatedAt: "2026-07-24T10:00:00Z",
 	}
+	attempt := Attempt{
+		TaskID: task.ID, Lifecycle: AttemptRunning, Harness: "claude", Model: "sonnet", Effort: "low", Worktree: "/tmp/wt",
+		Herdr: Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
+	}
 
-	if err := Write(dir, task); err != nil {
+	if err := CreateTask(dir, task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateAttempt(dir, attempt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -31,8 +36,8 @@ func TestWriteReadRoundTrip(t *testing.T) {
 	if got.ID != task.ID || got.Project != task.Project || got.Kind != task.Kind || got.Brief != task.Brief || got.CreatedAt != task.CreatedAt {
 		t.Fatalf("task got %+v, want %+v", got, task)
 	}
-	if history.ActiveAttempt == nil || history.ActiveAttempt.Harness != task.Harness || history.ActiveAttempt.Model != task.Model || history.ActiveAttempt.Effort != task.Effort || history.ActiveAttempt.Worktree != task.Worktree || history.ActiveAttempt.Herdr != task.Herdr {
-		t.Fatalf("attempt got %+v, want execution fields from %+v", history.ActiveAttempt, task)
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Harness != attempt.Harness || history.ActiveAttempt.Model != attempt.Model || history.ActiveAttempt.Effort != attempt.Effort || history.ActiveAttempt.Worktree != attempt.Worktree || history.ActiveAttempt.Herdr != attempt.Herdr {
+		t.Fatalf("attempt got %+v, want %+v", history.ActiveAttempt, attempt)
 	}
 }
 
@@ -224,10 +229,10 @@ func TestTryLockReportsBusyInsteadOfWaiting(t *testing.T) {
 
 func TestWriteOverwritesExisting(t *testing.T) {
 	dir := t.TempDir()
-	if err := Write(dir, Task{ID: "fix-login", Harness: "claude"}); err != nil {
+	if err := Write(dir, Task{ID: "fix-login", PR: "old"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Write(dir, Task{ID: "fix-login", Harness: "codex"}); err != nil {
+	if err := Write(dir, Task{ID: "fix-login", PR: "new"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -235,8 +240,8 @@ func TestWriteOverwritesExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Harness != "codex" {
-		t.Fatalf("got harness %q, want codex", got.Harness)
+	if got.PR != "new" {
+		t.Fatalf("got PR %q, want new", got.PR)
 	}
 }
 
@@ -245,7 +250,10 @@ func TestWriteOverwritesExisting(t *testing.T) {
 func TestListReadOnlyShowsOpenTasksOnly(t *testing.T) {
 	dir := t.TempDir()
 	for _, id := range []string{"open-task", "torn-down"} {
-		if err := Write(dir, Task{ID: id, Harness: "claude"}); err != nil {
+		if err := CreateTask(dir, Task{ID: id}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CreateAttempt(dir, Attempt{TaskID: id, Lifecycle: AttemptRunning, Harness: "claude"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -267,11 +275,8 @@ func TestListReadOnlyShowsOpenTasksOnly(t *testing.T) {
 	if len(tasks) != 1 || tasks[0].ID != "open-task" {
 		t.Fatalf("ListReadOnly = %+v, want the open task only", tasks)
 	}
-	if tasks[0].Harness != "claude" {
-		t.Fatalf("active attempt was not projected onto the row: %+v", tasks[0])
-	}
 	history, err := ReadHistoryReadOnly(dir, "open-task")
-	if err != nil || history.ActiveAttempt == nil {
-		t.Fatalf("ReadHistoryReadOnly = %+v, %v", history, err)
+	if err != nil || history.ActiveAttempt == nil || history.ActiveAttempt.Harness != "claude" {
+		t.Fatalf("active attempt was not retained separately: %+v, %v", history, err)
 	}
 }

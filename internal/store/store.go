@@ -67,38 +67,21 @@ const (
 )
 
 type Task struct {
-	ID                     string        `json:"id"`
-	Project                string        `json:"project"`
-	Kind                   string        `json:"kind"`
-	Brief                  string        `json:"brief"`
-	Lifecycle              TaskLifecycle `json:"lifecycle"`
-	ActiveAttemptID        int64         `json:"active_attempt_id"`
-	PR                     string        `json:"pr"`
-	MergeExecuted          bool          `json:"merged"`
-	MergeExecutedAt        string        `json:"merged_at"`
-	ReportOffset           int64         `json:"report_offset"`
-	ReportDigest           string        `json:"report_digest"`
-	MergeAnnounced         bool          `json:"pr_merged_observed"`
-	DeliveredAt            string        `json:"delivered_at"`
-	DeliveredReason        string        `json:"delivered_reason"`
-	CreatedAt              string        `json:"created_at"`
-	Harness                string        `json:"harness,omitempty"`
-	Model                  string        `json:"model,omitempty"`
-	Effort                 string        `json:"effort,omitempty"`
-	Worktree               string        `json:"worktree,omitempty"`
-	Herdr                  Herdr         `json:"herdr,omitempty"`
-	DoneVerified           bool          `json:"done_verified,omitempty"`
-	StatusChangedAt        string        `json:"status_changed_at,omitempty"`
-	StatusChangedFor       string        `json:"status_changed_for,omitempty"`
-	LastReportState        string        `json:"last_report_state,omitempty"`
-	LastReportNote         string        `json:"last_report_note,omitempty"`
-	SendUndeliveredMessage string        `json:"send_undelivered_message,omitempty"`
-	SendUndeliveredAt      string        `json:"send_undelivered_at,omitempty"`
-	LeaseID                string        `json:"lease_id,omitempty"`
-	PaneStartedAt          string        `json:"pane_started_at,omitempty"`
-	ParkedFiredFor         string        `json:"parked_fired_for,omitempty"`
-	UsageLimitRetryAt      string        `json:"usage_limit_retry_at,omitempty"`
-	UsageLimitAttempts     int           `json:"usage_limit_attempts,omitempty"`
+	ID              string        `json:"id"`
+	Project         string        `json:"project"`
+	Kind            string        `json:"kind"`
+	Brief           string        `json:"brief"`
+	Lifecycle       TaskLifecycle `json:"lifecycle"`
+	ActiveAttemptID int64         `json:"active_attempt_id"`
+	PR              string        `json:"pr"`
+	MergeExecuted   bool          `json:"merged"`
+	MergeExecutedAt string        `json:"merged_at"`
+	ReportOffset    int64         `json:"report_offset"`
+	ReportDigest    string        `json:"report_digest"`
+	MergeAnnounced  bool          `json:"pr_merged_observed"`
+	DeliveredAt     string        `json:"delivered_at"`
+	DeliveredReason string        `json:"delivered_reason"`
+	CreatedAt       string        `json:"created_at"`
 }
 
 type Attempt struct {
@@ -406,13 +389,6 @@ func (db *DB) ReadTask(id string) (Task, bool, error) {
 	if err != nil {
 		return Task{}, false, fmt.Errorf("read task %q: %w", id, err)
 	}
-	if t.ActiveAttemptID != 0 {
-		if attempt, found, err := db.ReadAttempt(t.ActiveAttemptID); err != nil {
-			return Task{}, false, err
-		} else if found {
-			projectAttempt(&t, attempt)
-		}
-	}
 	return t, true, nil
 }
 
@@ -427,88 +403,11 @@ func (db *DB) CreateTask(t Task) error {
 	return nil
 }
 
-// WriteTask is the compatibility adapter for pre-Task/Attempt callers and fixtures.
-// It projects execution fields into the one active Attempt; the database remains split.
-func (db *DB) WriteTask(t Task) error {
-	existing, found, err := db.ReadTask(t.ID)
-	if err != nil {
-		return err
-	}
-	if !found {
-		logical := taskOnly(t)
-		logical.ActiveAttemptID = 0
-		if err := db.CreateTask(logical); err != nil {
-			return err
-		}
-		_, err := db.CreateAttempt(attemptFromTask(t))
-		return err
-	}
-	if t.Lifecycle == "" {
-		t.Lifecycle = existing.Lifecycle
-	}
-	if t.CreatedAt == "" {
-		t.CreatedAt = existing.CreatedAt
-	}
-	activeID := t.ActiveAttemptID
-	if activeID == 0 {
-		activeID = existing.ActiveAttemptID
-		t.ActiveAttemptID = activeID
-	}
-	if err := db.UpdateTask(taskOnly(t)); err != nil {
-		return err
-	}
-	if activeID != 0 {
-		attempt, found, err := db.ReadAttempt(activeID)
-		if err != nil || !found {
-			return err
-		}
-		mergeAttemptProjection(&attempt, t)
-		return db.UpdateAttempt(attempt)
-	}
-	return nil
-}
-
-func taskOnly(t Task) Task {
-	return Task{ID: t.ID, Project: t.Project, Kind: t.Kind, Brief: t.Brief, Lifecycle: t.Lifecycle,
-		ActiveAttemptID: t.ActiveAttemptID, PR: t.PR, MergeExecuted: t.MergeExecuted,
-		MergeExecutedAt: t.MergeExecutedAt, MergeAnnounced: t.MergeAnnounced,
-		DeliveredAt: t.DeliveredAt, DeliveredReason: t.DeliveredReason,
-		ReportOffset: t.ReportOffset, ReportDigest: t.ReportDigest, CreatedAt: t.CreatedAt}
-}
-
-func attemptFromTask(t Task) Attempt {
-	lifecycle := AttemptRunning
-	return Attempt{TaskID: t.ID, Lifecycle: lifecycle, Harness: t.Harness, Model: t.Model, Effort: t.Effort,
-		Worktree: t.Worktree, LeaseID: t.LeaseID, Herdr: t.Herdr, CreatedAt: t.CreatedAt,
-		PaneStartedAt: t.PaneStartedAt, StatusChangedAt: t.StatusChangedAt, StatusChangedFor: t.StatusChangedFor,
-		DoneVerified: t.DoneVerified, LastReportState: t.LastReportState, LastReportNote: t.LastReportNote,
-		SendUndeliveredMessage: t.SendUndeliveredMessage, SendUndeliveredAt: t.SendUndeliveredAt,
-		ParkedFiredFor: t.ParkedFiredFor, UsageLimitRetryAt: t.UsageLimitRetryAt, UsageLimitAttempts: t.UsageLimitAttempts}
-}
-
-func projectAttempt(t *Task, a Attempt) {
-	t.Harness, t.Model, t.Effort, t.Worktree, t.Herdr, t.DoneVerified = a.Harness, a.Model, a.Effort, a.Worktree, a.Herdr, a.DoneVerified
-	t.StatusChangedAt, t.StatusChangedFor = a.StatusChangedAt, a.StatusChangedFor
-	t.LastReportState, t.LastReportNote = a.LastReportState, a.LastReportNote
-	t.SendUndeliveredMessage, t.SendUndeliveredAt = a.SendUndeliveredMessage, a.SendUndeliveredAt
-	t.LeaseID, t.PaneStartedAt, t.ParkedFiredFor = a.LeaseID, a.PaneStartedAt, a.ParkedFiredFor
-	t.UsageLimitRetryAt, t.UsageLimitAttempts = a.UsageLimitRetryAt, a.UsageLimitAttempts
-}
-
-func mergeAttemptProjection(a *Attempt, t Task) {
-	a.Harness, a.Model, a.Effort, a.Worktree, a.LeaseID, a.Herdr = t.Harness, t.Model, t.Effort, t.Worktree, t.LeaseID, t.Herdr
-	a.DoneVerified, a.StatusChangedAt, a.StatusChangedFor = t.DoneVerified, t.StatusChangedAt, t.StatusChangedFor
-	a.LastReportState, a.LastReportNote = t.LastReportState, t.LastReportNote
-	a.SendUndeliveredMessage, a.SendUndeliveredAt = t.SendUndeliveredMessage, t.SendUndeliveredAt
-	a.PaneStartedAt, a.ParkedFiredFor = t.PaneStartedAt, t.ParkedFiredFor
-	a.UsageLimitRetryAt, a.UsageLimitAttempts = t.UsageLimitRetryAt, t.UsageLimitAttempts
-}
-
 func (db *DB) UpdateTask(t Task) error {
-	_, err := db.sql.Exec(`UPDATE task SET project = ?, kind = ?, brief = ?, lifecycle = ?, active_attempt_id = ?,
+	_, err := db.sql.Exec(`UPDATE task SET project = ?, kind = ?, brief = ?,
 		pr = ?, merge_executed = ?, merge_executed_at = ?, merge_announced = ?, delivered_at = ?, delivered_reason = ?,
 		report_offset = ?, report_digest = ?, created_at = ? WHERE id = ?`,
-		t.Project, t.Kind, t.Brief, t.Lifecycle, nullableAttemptID(t.ActiveAttemptID), t.PR,
+		t.Project, t.Kind, t.Brief, t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
 		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.ID)
 	if err != nil {
@@ -535,15 +434,6 @@ func (db *DB) ListTasks() ([]Task, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	for i := range tasks {
-		if tasks[i].ActiveAttemptID != 0 {
-			if attempt, found, err := db.ReadAttempt(tasks[i].ActiveAttemptID); err != nil {
-				return nil, err
-			} else if found {
-				projectAttempt(&tasks[i], attempt)
-			}
-		}
-	}
 	return tasks, nil
 }
 
@@ -562,6 +452,9 @@ func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
 			history.ActiveAttempt = &attempts[i]
 			break
 		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", id, task.ActiveAttemptID)
 	}
 	return history, true, nil
 }
@@ -592,9 +485,11 @@ func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
 		for j := range attempts {
 			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
 				histories[i].ActiveAttempt = &histories[i].Attempts[j]
-				projectAttempt(&histories[i].Task, attempts[j])
 				break
 			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("task %q active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
 		}
 	}
 	return histories, nil
@@ -768,7 +663,48 @@ func (db *DB) TransitionTask(id string, from, to TaskLifecycle) error {
 }
 
 func validTaskTransition(from, to TaskLifecycle) bool {
-	return (from == TaskOpen && to == TaskTerminal) || (from == TaskTerminal && to == TaskOpen)
+	return from == TaskOpen && to == TaskTerminal
+}
+
+func (db *DB) ReopenTask(taskID string, a Attempt) (Attempt, error) {
+	if !isActiveAttempt(a.Lifecycle) {
+		return Attempt{}, fmt.Errorf("%w: task reopen requires an active attempt", ErrInvalidTransition)
+	}
+	a.TaskID = taskID
+	a.ID = 0
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return Attempt{}, fmt.Errorf("begin task reopen: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var lifecycle TaskLifecycle
+	if err := tx.QueryRow(`SELECT lifecycle FROM task WHERE id = ?`, taskID).Scan(&lifecycle); errors.Is(err, sql.ErrNoRows) {
+		return Attempt{}, fmt.Errorf("task %q %w", taskID, ErrTaskNotFound)
+	} else if err != nil {
+		return Attempt{}, fmt.Errorf("read task %q for reopen: %w", taskID, err)
+	} else if lifecycle != TaskTerminal {
+		return Attempt{}, fmt.Errorf("%w: task %s -> open", ErrInvalidTransition, lifecycle)
+	}
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(ordinal), 0) + 1 FROM attempt WHERE task_id = ?`, taskID).Scan(&a.Ordinal); err != nil {
+		return Attempt{}, fmt.Errorf("next attempt ordinal for task %q: %w", taskID, err)
+	}
+	args := attemptValues(a)[1:]
+	query := `INSERT INTO attempt (` + strings.Join(attemptColumnNames[1:], ", ") + `) VALUES (` + placeholders(len(attemptColumnNames)-1) + `)`
+	result, err := tx.Exec(query, args...)
+	if err != nil {
+		return Attempt{}, fmt.Errorf("create reopened attempt for task %q: %w", taskID, err)
+	}
+	a.ID, err = result.LastInsertId()
+	if err != nil {
+		return Attempt{}, fmt.Errorf("read reopened attempt ID: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE task SET lifecycle = 'open', active_attempt_id = ? WHERE id = ? AND lifecycle = 'terminal'`, a.ID, taskID); err != nil {
+		return Attempt{}, fmt.Errorf("reopen task %q: %w", taskID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Attempt{}, fmt.Errorf("reopen task %q: %w", taskID, err)
+	}
+	return a, nil
 }
 
 func validAttemptTransition(from, to AttemptLifecycle) bool {
