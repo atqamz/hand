@@ -10,8 +10,9 @@ import (
 	"github.com/atqamz/hand/internal/store"
 )
 
-// ErrTaskNotFound is wrapped into errors returned by Read and Delete when no
-// task row exists for the given ID, rendering as `task "<id>" not found`.
+// ErrTaskNotFound is wrapped into errors returned by the task and history readers
+// and by Delete when no task row exists for the given ID, rendering as
+// `task "<id>" not found`.
 var ErrTaskNotFound = store.ErrTaskNotFound
 
 // ErrTaskActive is wrapped into errors returned by Claim when the task is

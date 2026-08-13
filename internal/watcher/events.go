@@ -114,8 +114,8 @@ type Event struct {
 // TaskState tracks what's already been observed and announced for one task, so the
 // classifier only fires once per transition instead of once per poll tick.
 type TaskState struct {
-	// CreatedAt is the tracked task's identity, not just a timestamp: the poll loop
-	// compares it against the task on disk so a torn-down and respawned ID is
+	// CreatedAt pairs with AttemptID as the tracked execution identity, not just a timestamp:
+	// the poll loop compares both against the task on disk so a reopened or promoted ID is
 	// re-seeded from scratch instead of inheriting this state.
 	CreatedAt    string
 	AttemptID    int64

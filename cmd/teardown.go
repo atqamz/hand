@@ -82,7 +82,7 @@ func newTeardownCmd() *cobra.Command {
 
 			// Everything the record claims (landed work, a returned worktree) is already true by this
 			// line, --force or not, so a fault after it lands cannot make the record inaccurate, only
-			// late to remove its source.
+			// late to terminalize its source.
 			record := completionFor(t, force)
 			record.TornDownAt = time.Now().UTC().Format(time.RFC3339)
 
@@ -105,12 +105,12 @@ func newTeardownCmd() *cobra.Command {
 				return fmt.Errorf("record task completion: %w", err)
 			}
 
-			// A hold outlives the task row it was set on, which is what an operator hold is for. A limit hold
+			// A hold outlives the work it was set on, which is what an operator hold is for. A limit hold
 			// is the opposite: nothing is left to resume and no watcher will ever clear it, so left behind it
-			// would refuse `hand spawn` on this id forever.
+			// would refuse `hand reopen` on this id forever.
 			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {
 				// A warning rather than a failure: the teardown itself is done, and re-running it cannot undo
-				// the delete.
+				// the terminal transition.
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear usage-limit hold failed: %v\n", err); printErr != nil {
 					return printErr
 				}

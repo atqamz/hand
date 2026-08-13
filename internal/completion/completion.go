@@ -55,7 +55,7 @@ func Append(homeDir string, r Record) error {
 	}
 	// Not deferred and not discarded: a filesystem that reports a write fault only
 	// at close (NFS, delayed-allocation ENOSPC) makes Close the sole signal the record
-	// reached disk, and teardown removes the task's row on this returning nil.
+	// reached disk, and teardown terminalizes the task and its attempt on this returning nil.
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close completions store: %w", err)
 	}

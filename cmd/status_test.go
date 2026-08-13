@@ -239,6 +239,33 @@ func TestStatusSingleTaskPropagatesUnreadableAttemptHistory(t *testing.T) {
 	}
 }
 
+// The fleet view reads attempt history the same way the detail view does, so a durable fault reading it
+// fails the whole command rather than listing the task with its execution silently blank.
+func TestStatusFleetPropagatesUnreadableAttemptHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := state.CreateTask(home, state.Task{ID: "other", Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateAttempt(home, state.Attempt{TaskID: "other", Lifecycle: state.AttemptRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		Lifecycle: state.TaskOpen, ActiveAttemptID: attempt.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("got nil error and output %q, want the unreadable attempt history to fail the command", out.String())
+	}
+}
+
 func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 	cases := []struct {
 		name             string
