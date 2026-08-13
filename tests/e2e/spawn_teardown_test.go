@@ -80,8 +80,8 @@ func TestSpawnTeardownCycle(t *testing.T) {
 		t.Fatalf("teardown: exit %d, stderr %q", done.code, done.stderr)
 	}
 
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state.Exists after teardown = %v, %v, want task removed", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state.Exists after teardown = %v, %v, want task preserved", exists, err)
 	}
 	records, err := completion.List(home)
 	if err != nil {

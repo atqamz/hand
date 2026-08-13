@@ -45,6 +45,14 @@ func newTeardownCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
+			history, err := state.ReadHistory(home, id)
+			if err != nil {
+				return asPrecondition(err)
+			}
+			if history.ActiveAttempt == nil {
+				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+			}
+			active := *history.ActiveAttempt
 
 			dirtWasSafe := false
 			if !force {
@@ -62,7 +70,7 @@ func newTeardownCmd() *cobra.Command {
 			defer releaseProject()
 
 			client := herdr.NewClient()
-			if err := closeTaskTab(client, t.Herdr.WorkspaceID, t.Herdr.TabID); err != nil {
+			if err := closeTaskTab(client, active.Herdr.WorkspaceID, active.Herdr.TabID); err != nil {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
 					return printErr
 				}
@@ -71,7 +79,7 @@ func newTeardownCmd() *cobra.Command {
 			// treehouse refuses to clean a dirty worktree without --force, and nothing is left to answer
 			// its prompt here, so dirt this command already judged discardable has to be returned
 			// forcibly or the slot goes back to the pool still dirty.
-			if err := worktree.Return(t.Worktree, force || dirtWasSafe); err != nil {
+			if err := worktree.Return(active.Worktree, force || dirtWasSafe); err != nil {
 				return err
 			}
 
@@ -81,18 +89,23 @@ func newTeardownCmd() *cobra.Command {
 			record := completionFor(t, force)
 			record.TornDownAt = time.Now().UTC().Format(time.RFC3339)
 
-			// Recorded before state.Delete, not after: the record is derived from t, which state.Delete
-			// would remove out from under us. Failing here leaves the task row untouched, so the whole
-			// command is simply retryable and no completion is lost.
+			if err := state.UpdateTask(home, t); err != nil {
+				return fmt.Errorf("record task facts: %w", err)
+			}
+
 			if err := completion.Append(home, record); err != nil {
 				return fmt.Errorf("record completion: %w", err)
 			}
 
-			// Failing here leaves the task row in place, so a retry replays the whole command and
-			// appends a second, identical record - a harmless duplicate this trades for never losing a
-			// completion.
-			if err := state.Delete(home, id); err != nil {
-				return asPrecondition(err)
+			terminalAttempt := state.AttemptCompleted
+			if force {
+				terminalAttempt = state.AttemptInterrupted
+			}
+			if err := state.TransitionAttempt(home, active.ID, active.Lifecycle, terminalAttempt); err != nil {
+				return fmt.Errorf("record attempt completion: %w", err)
+			}
+			if err := state.TransitionTask(home, id, state.TaskOpen, state.TaskTerminal); err != nil {
+				return fmt.Errorf("record task completion: %w", err)
 			}
 
 			// A hold outlives the task row it was set on, which is what an operator hold is for. A limit hold
@@ -114,7 +127,7 @@ func newTeardownCmd() *cobra.Command {
 			doc.Field("outcome", record.Outcome)
 			doc.Field("detail", orNone(record.Detail))
 			doc.Field("worktree", "returned")
-			doc.Help("This id is gone from `hand status`; its completion is the last word on it")
+			doc.Help("This task remains inspectable with `hand status " + id + "`; use `hand reopen " + id + "` for another attempt")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}

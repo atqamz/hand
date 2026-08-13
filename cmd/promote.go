@@ -43,6 +43,14 @@ func newPromoteCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
+			history, err := state.ReadHistory(home, id)
+			if err != nil {
+				return asPrecondition(err)
+			}
+			if history.ActiveAttempt == nil {
+				return &ExitError{Err: fmt.Errorf("task %q has no active scout attempt", id), Code: 3}
+			}
+			active := *history.ActiveAttempt
 			if t.Kind != state.KindScout {
 				return &ExitError{Err: fmt.Errorf("task %q is not a scout", id), Code: 3}
 			}
@@ -53,7 +61,7 @@ func newPromoteCmd() *cobra.Command {
 			}
 
 			client := herdr.NewClient()
-			if s := herdr.Status(paneAgentStatus(client, t.Herdr.PaneID)); !s.NotBusy() && s != herdr.StatusUnknown {
+			if s := herdr.Status(paneAgentStatus(client, active.Herdr.PaneID)); !s.NotBusy() && s != herdr.StatusUnknown {
 				return &ExitError{Err: fmt.Errorf("task %q is not a completed scout (agent state: %s)", id, s), Code: 3}
 			}
 
@@ -103,9 +111,9 @@ func newPromoteCmd() *cobra.Command {
 			}
 			defer releaseProject()
 
-			oldWorktree := t.Worktree
-			oldWorkspaceID := t.Herdr.WorkspaceID
-			oldTabID := t.Herdr.TabID
+			oldWorktree := active.Worktree
+			oldWorkspaceID := active.Herdr.WorkspaceID
+			oldTabID := active.Herdr.TabID
 
 			lease, err := worktree.Get(clonePath, "hand:"+id)
 			if err != nil {
@@ -129,7 +137,7 @@ func newPromoteCmd() *cobra.Command {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
 
-			// Same rollback contract as hand spawn: until state.Write records the promotion,
+			// Same rollback contract as hand spawn: until state records the promotion,
 			// this call owns the new workspace or tab and must undo it on any failure; after
 			// that the promoted task owns them and later warnings must not tear them down.
 			promoted := false
@@ -162,40 +170,22 @@ func newPromoteCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), worktree.Return(wt, true))
 			}
 
-			t.Kind = state.KindShip
-			t.Harness = harnessName
-			t.Model = model
-			t.Effort = effort
-			t.Worktree = wt
-			t.LeaseID = lease.ID
-			t.Herdr = state.Herdr{
-				Session:     "default",
-				WorkspaceID: ws.WorkspaceID,
-				TabID:       tab.TabID,
-				PaneID:      pane.PaneID,
+			promotedAt := time.Now().UTC().Format(time.RFC3339)
+			if err := state.TransitionAttempt(home, active.ID, active.Lifecycle, state.AttemptCompleted); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record scout attempt completion: %w", err), worktree.Return(wt, true))
 			}
-			// Everything below is pane-scoped and so describes a pane this task no longer has, none of it
-			// evidence about the ship. The report cursor is carried instead: promote never touches
-			// state/<id>.status, so the stream is continuous. Cleared here rather than left for a watch that may be off.
-			t.DoneVerified = false
-			// The delivery described the scout's report, not the ship run starting
-			// here: left set, teardown would accept the ship task as terminal on a
-			// delivery nobody made for its code.
+			t.Kind = state.KindShip
 			t.DeliveredAt = ""
 			t.DeliveredReason = ""
-			promotedAt := time.Now().UTC().Format(time.RFC3339)
-			t.PaneStartedAt = promotedAt
-			t.StatusChangedAt = promotedAt
-			t.StatusChangedFor = ""
-			t.LastReportState = ""
-			t.LastReportNote = ""
-			// The scout's harness process is gone along with its pane, and the ship's
-			// runs against whatever quota exists now. Kept, the schedule would steer
-			// the fresh pane on a clock the scout's refusal set.
-			t.UsageLimitRetryAt = ""
-			t.UsageLimitAttempts = 0
-			if err := state.Write(home, t); err != nil {
+			if err := state.UpdateTask(home, t); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
+			}
+			if _, err := state.CreateAttempt(home, state.Attempt{
+				TaskID: id, Lifecycle: state.AttemptRunning, Harness: harnessName, Model: model, Effort: effort,
+				Worktree: wt, LeaseID: lease.ID, Herdr: state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID},
+				CreatedAt: promotedAt, PaneStartedAt: promotedAt, StatusChangedAt: promotedAt,
+			}); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("write ship attempt state: %w", err), worktree.Return(wt, true))
 			}
 			promoted = true
 			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {

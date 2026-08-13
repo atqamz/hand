@@ -1494,6 +1494,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	// the parked latch, keyed to the report mtime not the pane. Persisted* entries mirror those facts.
 	carried := map[string]bool{
 		"CreatedAt":               true,
+		"AttemptID":               true,
 		"PRMerged":                true,
 		"ReportCursor":            true,
 		"PersistedCursor":         true,

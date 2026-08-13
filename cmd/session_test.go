@@ -316,18 +316,6 @@ func TestSessionOverviewsDoNotMutateFleetState(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := os.WriteFile(filepath.Join(home, "data", "projects.md"),
-				[]byte("# Projects\n\n- legacy-project: local mode=local-only\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			legacyTask, err := json.Marshal(store.Task{ID: "legacy-task", Project: "legacy-project", Kind: store.KindShip})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(home, "state", "legacy-task.json"), legacyTask, 0o644); err != nil {
-				t.Fatal(err)
-			}
-
 			before := snapshotFleetTree(t, home)
 			out, _, err := executeRootForTest(t, devBuild("test"), nil, test.args...)
 			if err != nil {
@@ -417,18 +405,6 @@ func downgradeSessionStore(t *testing.T, home string) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	for _, column := range []string{
-		"send_undelivered_message", "send_undelivered_at", "lease_id", "delivered_at",
-		"delivered_reason", "pane_started_at", "parked_fired_for", "report_digest",
-		"usage_limit_retry_at", "usage_limit_attempts",
-	} {
-		if _, err := db.Exec("ALTER TABLE task DROP COLUMN " + column); err != nil {
-			t.Fatalf("drop task.%s: %v", column, err)
-		}
-	}
-	if _, err := db.Exec("ALTER TABLE project DROP COLUMN upstream"); err != nil {
-		t.Fatalf("drop project.upstream: %v", err)
-	}
 	if _, err := db.Exec("PRAGMA user_version = 0"); err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,7 @@
 # Completions use an uncapped append-only file
 
 - Date: 2026-08-04
-- Status: accepted
+- Status: accepted, superseded in part by [Tasks are durable and Attempts own execution](tasks-are-durable-and-attempts-own-execution.md)
 - Issues: atqamz/hand#78
 - PRs: none single
 

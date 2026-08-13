@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -55,15 +56,42 @@ func (db *DB) migrateLegacy() error {
 
 	for _, name := range names {
 		path := filepath.Join(Dir(db.home), name)
-		t, err := readLegacyTask(path, strings.TrimSuffix(name, ".json"))
+		legacy, err := readLegacyTask(path, strings.TrimSuffix(name, ".json"))
 		if err != nil {
 			return err
 		}
 		// An id already in the database wins: it is what hand has been writing
 		// since the import, and the JSON file is a snapshot from before it.
+		task := Task{
+			ID: legacy.ID, Project: legacy.Project, Kind: legacy.Kind, Brief: legacy.Brief,
+			Lifecycle: TaskOpen, PR: legacy.PR, MergeExecuted: legacy.MergeExecuted,
+			MergeExecutedAt: legacy.MergeExecutedAt, ReportOffset: legacy.ReportOffset,
+			ReportDigest: legacy.ReportDigest, MergeAnnounced: legacy.MergeAnnounced,
+			DeliveredAt: legacy.DeliveredAt, DeliveredReason: legacy.DeliveredReason,
+			CreatedAt: legacy.CreatedAt,
+		}
 		if _, err := db.sql.Exec(`INSERT OR IGNORE INTO task (`+taskColumns+`)
-			VALUES (`+taskPlaceholders+`)`, taskValues(t)...); err != nil {
-			return fmt.Errorf("import task %q: %w", t.ID, err)
+			VALUES (`+placeholders(len(taskColumnNames))+`)`, taskValues(task)...); err != nil {
+			return fmt.Errorf("import task %q: %w", task.ID, err)
+		}
+		var activeID sql.NullInt64
+		if err := db.sql.QueryRow(`SELECT active_attempt_id FROM task WHERE id = ?`, task.ID).Scan(&activeID); err != nil {
+			return fmt.Errorf("read imported task %q: %w", task.ID, err)
+		}
+		if !activeID.Valid {
+			if _, err := db.CreateAttempt(Attempt{
+				TaskID: legacy.ID, Ordinal: 1, Lifecycle: AttemptRunning,
+				Harness: legacy.Harness, Model: legacy.Model, Effort: legacy.Effort,
+				Worktree: legacy.Worktree, LeaseID: legacy.LeaseID, Herdr: legacy.Herdr,
+				CreatedAt: legacy.CreatedAt, PaneStartedAt: legacy.PaneStartedAt,
+				StatusChangedAt: legacy.StatusChangedAt, StatusChangedFor: legacy.StatusChangedFor,
+				DoneVerified: legacy.DoneVerified, LastReportState: legacy.LastReportState,
+				LastReportNote: legacy.LastReportNote, SendUndeliveredMessage: legacy.SendUndeliveredMessage,
+				SendUndeliveredAt: legacy.SendUndeliveredAt, ParkedFiredFor: legacy.ParkedFiredFor,
+				UsageLimitRetryAt: legacy.UsageLimitRetryAt, UsageLimitAttempts: legacy.UsageLimitAttempts,
+			}); err != nil {
+				return fmt.Errorf("import attempt for task %q: %w", task.ID, err)
+			}
 		}
 	}
 
@@ -81,17 +109,50 @@ func (db *DB) migrateLegacy() error {
 	return nil
 }
 
-func readLegacyTask(path, id string) (Task, error) {
+type legacyTask struct {
+	ID                     string `json:"id"`
+	Project                string `json:"project"`
+	Kind                   string `json:"kind"`
+	Harness                string `json:"harness"`
+	Model                  string `json:"model"`
+	Effort                 string `json:"effort"`
+	Worktree               string `json:"worktree"`
+	Brief                  string `json:"brief"`
+	Herdr                  Herdr  `json:"herdr"`
+	PR                     string `json:"pr"`
+	MergeExecuted          bool   `json:"merged"`
+	MergeExecutedAt        string `json:"merged_at"`
+	ReportOffset           int64  `json:"report_offset"`
+	ReportDigest           string `json:"report_digest"`
+	MergeAnnounced         bool   `json:"pr_merged_observed"`
+	DoneVerified           bool   `json:"done_verified"`
+	CreatedAt              string `json:"created_at"`
+	StatusChangedAt        string `json:"status_changed_at"`
+	StatusChangedFor       string `json:"status_changed_for"`
+	LastReportState        string `json:"last_report_state"`
+	LastReportNote         string `json:"last_report_note"`
+	SendUndeliveredMessage string `json:"send_undelivered_message"`
+	SendUndeliveredAt      string `json:"send_undelivered_at"`
+	LeaseID                string `json:"lease_id"`
+	DeliveredAt            string `json:"delivered_at"`
+	DeliveredReason        string `json:"delivered_reason"`
+	PaneStartedAt          string `json:"pane_started_at"`
+	ParkedFiredFor         string `json:"parked_fired_for"`
+	UsageLimitRetryAt      string `json:"usage_limit_retry_at"`
+	UsageLimitAttempts     int    `json:"usage_limit_attempts"`
+}
+
+func readLegacyTask(path, id string) (legacyTask, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Task{}, fmt.Errorf("read legacy task state %s: %w", path, err)
+		return legacyTask{}, fmt.Errorf("read legacy task state %s: %w", path, err)
 	}
-	var t Task
+	var t legacyTask
 	if err := json.Unmarshal(data, &t); err != nil {
-		return Task{}, fmt.Errorf("parse legacy task state %s (move it aside to continue): %w", path, err)
+		return legacyTask{}, fmt.Errorf("parse legacy task state %s (move it aside to continue): %w", path, err)
 	}
 	if t.ID != id {
-		return Task{}, fmt.Errorf("legacy task state %s has mismatched ID %q (move it aside to continue)", path, t.ID)
+		return legacyTask{}, fmt.Errorf("legacy task state %s has mismatched ID %q (move it aside to continue)", path, t.ID)
 	}
 	// A file predating the pane-start column carries no such key, so the import lands as an
 	// INSERT the backfill never sees. Same CASE as that backfill, so a task promoted before

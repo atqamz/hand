@@ -44,7 +44,7 @@ func newDeliverCmd() *cobra.Command {
 			// word on what was delivered is the one worth keeping.
 			t.DeliveredAt = time.Now().UTC().Format(time.RFC3339)
 			t.DeliveredReason = reason
-			if err := state.Write(home, t); err != nil {
+			if err := state.UpdateTask(home, t); err != nil {
 				return fmt.Errorf("write task state: %w", err)
 			}
 

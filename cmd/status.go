@@ -120,27 +120,42 @@ type reportedJSON struct {
 }
 
 type statusJSON struct {
-	ID              string        `json:"id"`
-	Project         string        `json:"project"`
-	Kind            string        `json:"kind"`
-	Harness         string        `json:"harness,omitempty"`
-	AgentState      string        `json:"agent_state"`
-	Worktree        string        `json:"worktree"`
-	Herdr           state.Herdr   `json:"herdr"`
-	PR              string        `json:"pr"`
-	MergeExecuted   bool          `json:"merged"`
-	MergeAnnounced  bool          `json:"pr_merged_observed"`
-	DeliveredAt     string        `json:"delivered_at,omitempty"`
-	DeliveredReason string        `json:"delivered_reason,omitempty"`
-	CreatedAt       string        `json:"created_at"`
-	LastReportAt    string        `json:"last_report_at,omitempty"`
-	Reported        *reportedJSON `json:"reported,omitempty"`
-	ReportHistory   []string      `json:"report_history,omitempty"`
-	Held            *holdJSON     `json:"held,omitempty"`
-	GateRunIssue    string        `json:"gate_run_issue,omitempty"`
+	ID               string        `json:"id"`
+	Project          string        `json:"project"`
+	Kind             string        `json:"kind"`
+	TaskLifecycle    string        `json:"task_lifecycle"`
+	AttemptOrdinal   int           `json:"attempt_ordinal,omitempty"`
+	AttemptLifecycle string        `json:"attempt_lifecycle,omitempty"`
+	Harness          string        `json:"harness,omitempty"`
+	Model            string        `json:"model,omitempty"`
+	Effort           string        `json:"effort,omitempty"`
+	AgentState       string        `json:"agent_state"`
+	Worktree         string        `json:"worktree"`
+	Herdr            state.Herdr   `json:"herdr"`
+	PR               string        `json:"pr"`
+	MergeExecuted    bool          `json:"merged"`
+	MergeAnnounced   bool          `json:"pr_merged_observed"`
+	DeliveredAt      string        `json:"delivered_at,omitempty"`
+	DeliveredReason  string        `json:"delivered_reason,omitempty"`
+	CreatedAt        string        `json:"created_at"`
+	LastReportAt     string        `json:"last_report_at,omitempty"`
+	Reported         *reportedJSON `json:"reported,omitempty"`
+	ReportHistory    []string      `json:"report_history,omitempty"`
+	Held             *holdJSON     `json:"held,omitempty"`
+	GateRunIssue     string        `json:"gate_run_issue,omitempty"`
 	// Omitted when false so a consumer written before this field sees no change
 	// on the fleet it already understands.
-	Unacknowledged bool `json:"unacknowledged,omitempty"`
+	Unacknowledged bool          `json:"unacknowledged,omitempty"`
+	Attempts       []attemptJSON `json:"attempts,omitempty"`
+}
+
+type attemptJSON struct {
+	Ordinal   int    `json:"ordinal"`
+	Lifecycle string `json:"lifecycle"`
+	Harness   string `json:"harness,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+	Worktree  string `json:"worktree,omitempty"`
 }
 
 // Wraps the task rows with the fleet's holds, which name any id - not only a live task - so a torn-down
@@ -313,7 +328,7 @@ func appendFleetState(doc *axi.Doc, views []taskView, holds []state.Hold, cols [
 }
 
 func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly bool) ([]taskView, []state.Hold, error) {
-	listTasks := state.List
+	listTasks := state.ListOpen
 	listHolds := state.ListHolds
 	listProjects := project.List
 	if readOnly {
@@ -407,7 +422,20 @@ func unacknowledged(home string, t state.Task, reported state.ReportLine, report
 // Reads everything both status views derive from one task, and returns the report lines alongside so the
 // detail view's history block and the summary line above it can never come from two reads of the file.
 func buildTaskView(home string, client *herdr.Client, t state.Task, full bool) (taskView, []state.ReportLine) {
-	agentState := paneAgentStatus(client, t.Herdr.PaneID)
+	var attempt *state.Attempt
+	var attempts []state.Attempt
+	if history, err := state.ReadHistory(home, t.ID); err == nil {
+		attempts = history.Attempts
+		attempt = history.ActiveAttempt
+		if attempt == nil && len(attempts) != 0 {
+			attempt = &attempts[len(attempts)-1]
+		}
+	}
+	e := state.Attempt{}
+	if attempt != nil {
+		e = *attempt
+	}
+	agentState := paneAgentStatus(client, e.Herdr.PaneID)
 	lines, readErr := state.ReadReportLines(home, t.ID)
 	reported, reportedOK := state.LastReportedState(lines)
 	unacked, readErr := unacknowledged(home, t, reported, reportedOK, readErr)
@@ -418,6 +446,8 @@ func buildTaskView(home string, client *herdr.Client, t state.Task, full bool) (
 	}
 	v := taskView{
 		task:         t,
+		attempt:      attempt,
+		attempts:     attempts,
 		agentState:   agentState,
 		reportedLine: reportSummary(t.ID, lines, readErr, unacked, full),
 		lastReportAt: lastReportAt(home, t.ID),
@@ -433,13 +463,22 @@ func buildTaskView(home string, client *herdr.Client, t state.Task, full bool) (
 }
 
 func (v taskView) json() statusJSON {
+	e := v.execution()
+	attempts := v.attempts
+	if len(attempts) > 5 {
+		attempts = attempts[len(attempts)-5:]
+	}
+	history := make([]attemptJSON, len(attempts))
+	for i, attempt := range attempts {
+		history[i] = attemptJSON{Ordinal: attempt.Ordinal, Lifecycle: string(attempt.Lifecycle), Harness: attempt.Harness, Model: attempt.Model, Effort: attempt.Effort, Worktree: attempt.Worktree}
+	}
 	return statusJSON{
-		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, Harness: v.task.Harness,
-		AgentState: v.agentState, Worktree: v.task.Worktree, Herdr: v.task.Herdr, PR: v.task.PR,
+		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, TaskLifecycle: string(v.task.Lifecycle), AttemptOrdinal: e.Ordinal, AttemptLifecycle: string(e.Lifecycle), Harness: e.Harness, Model: e.Model, Effort: e.Effort,
+		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR,
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
-		Reported: v.reported, GateRunIssue: v.gateIssue, Unacknowledged: v.unacked,
+		Reported: v.reported, GateRunIssue: v.gateIssue, Unacknowledged: v.unacked, Attempts: history,
 	}
 }
 
@@ -518,8 +557,21 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		doc.Field(c.Name, c.Value(v))
 	}
 	doc.List("report_history", historyBlock(v, tail, full))
+	doc.List("attempts", attemptHistoryBlock(v))
 	doc.Help(detailHelp(v, full)...)
 	return doc.Render(cmd.OutOrStdout())
+}
+
+func attemptHistoryBlock(v taskView) []string {
+	attempts := v.attempts
+	if len(attempts) > 5 {
+		attempts = attempts[len(attempts)-5:]
+	}
+	lines := make([]string, len(attempts))
+	for i, attempt := range attempts {
+		lines[i] = fmt.Sprintf("Attempt %d: %s (%s, %s, %s)", attempt.Ordinal, attempt.Lifecycle, orNone(attempt.Harness), orNone(attempt.Model), orNone(attempt.Worktree))
+	}
+	return lines
 }
 
 // The report tail with the entry the report field already shows dropped - repeating it was the core of

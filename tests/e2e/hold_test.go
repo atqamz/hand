@@ -127,8 +127,8 @@ func TestHoldLifecycle(t *testing.T) {
 	if got := runHand(t, home, "teardown", "fix-login"); got.code != 0 {
 		t.Fatalf("teardown: exit %d, stderr %q", got.code, got.stderr)
 	}
-	if exists, err := state.Exists(home, "fix-login"); err != nil || exists {
-		t.Fatalf("state.Exists after teardown = %v, %v, want the task row gone", exists, err)
+	if exists, err := state.Exists(home, "fix-login"); err != nil || !exists {
+		t.Fatalf("state.Exists after teardown = %v, %v, want the task row preserved", exists, err)
 	}
 
 	survived := runHand(t, home, "status")

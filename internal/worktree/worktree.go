@@ -70,12 +70,10 @@ func Return(worktreePath string, force bool) error {
 // CheckCollision cross-checks a freshly acquired lease against every other task's recorded one,
 // returning the ID of the conflicting task or "" for no collision.
 func CheckCollision(homeDir string, lease Lease, excludeID string) (string, error) {
-	tasks, err := state.List(homeDir)
+	tasks, err := state.ListOpen(homeDir)
 	if err != nil {
 		return "", err
 	}
-	// Done and failed rows are compared too, because a task holds its lease until teardown
-	// returns it.
 	for _, t := range tasks {
 		if t.ID == excludeID {
 			continue

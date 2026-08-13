@@ -23,12 +23,16 @@ func TestWriteReadRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Read(dir, "fix-login")
+	history, err := ReadHistory(dir, "fix-login")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != task {
-		t.Fatalf("got %+v, want %+v", got, task)
+	got := history.Task
+	if got.ID != task.ID || got.Project != task.Project || got.Kind != task.Kind || got.Brief != task.Brief || got.CreatedAt != task.CreatedAt {
+		t.Fatalf("task got %+v, want %+v", got, task)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Harness != task.Harness || history.ActiveAttempt.Model != task.Model || history.ActiveAttempt.Effort != task.Effort || history.ActiveAttempt.Worktree != task.Worktree || history.ActiveAttempt.Herdr != task.Herdr {
+		t.Fatalf("attempt got %+v, want execution fields from %+v", history.ActiveAttempt, task)
 	}
 }
 

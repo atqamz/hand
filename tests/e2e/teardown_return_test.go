@@ -66,8 +66,8 @@ func TestTeardownRefusesAnAbortedWorktreeReturn(t *testing.T) {
 	if forced.code != 0 {
 		t.Fatalf("teardown --force: exit %d, stderr %q", forced.code, forced.stderr)
 	}
-	if exists, err := state.Exists(home, "scout-1"); err != nil || exists {
-		t.Fatalf("state.Exists after the forced teardown = %v, %v, want the row removed", exists, err)
+	if exists, err := state.Exists(home, "scout-1"); err != nil || !exists {
+		t.Fatalf("state.Exists after the forced teardown = %v, %v, want the row preserved", exists, err)
 	}
 	if err := exec.Command("treehouse", "get", "--lease", "--json").Run(); err != nil {
 		t.Fatalf("pool still refuses a lease after the forced return: %v", err)

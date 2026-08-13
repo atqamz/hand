@@ -53,6 +53,9 @@ func newMergeCmd() *cobra.Command {
 			if t.MergeExecuted {
 				return &ExitError{Err: fmt.Errorf("task %s already merged", t.ID), Code: 3}
 			}
+			if _, err := state.ActiveAttempt(home, id); err != nil {
+				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+			}
 
 			if local {
 				return runLocalMerge(cmd, home, t)
@@ -119,7 +122,7 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 
 	t.MergeExecuted = true
 	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}
 
@@ -150,6 +153,11 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 }
 
 func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
+	active, err := state.ActiveAttempt(home, t.ID)
+	if err != nil {
+		return &ExitError{Err: fmt.Errorf("task %q has no active attempt", t.ID), Code: 3}
+	}
+	t.Worktree = active.Worktree
 	dirty, err := hasUncommittedChanges(t.Worktree)
 	if err != nil {
 		return err
@@ -189,7 +197,7 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
 
 	t.MergeExecuted = true
 	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}
 

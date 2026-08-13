@@ -552,7 +552,7 @@ func newProjectRemoveCmd() *cobra.Command {
 }
 
 func hasActiveTasksForProject(home, name string) (bool, error) {
-	tasks, err := state.List(home)
+	tasks, err := state.ListOpen(home)
 	if err != nil {
 		return false, err
 	}

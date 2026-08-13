@@ -19,6 +19,8 @@ var ErrTaskNotFound = store.ErrTaskNotFound
 // `task "<id>" already active`.
 var ErrTaskActive = errors.New("already active")
 
+var ErrNoActiveAttempt = errors.New("no active attempt")
+
 // ErrLockBusy is returned by TryLock when another process holds the lock.
 var ErrLockBusy = errors.New("lock held by another process")
 
@@ -56,7 +58,11 @@ func Claim(homeDir, id string) (func(), error) {
 		return nil, err
 	}
 	if active {
+		task, readErr := Read(homeDir, id)
 		release()
+		if readErr == nil && task.Lifecycle == TaskTerminal {
+			return nil, fmt.Errorf("task %q already exists; use hand reopen %s: %w", id, id, ErrTaskActive)
+		}
 		return nil, fmt.Errorf("task %q %w", id, ErrTaskActive)
 	}
 	return release, nil
@@ -109,6 +115,36 @@ func Read(homeDir, id string) (Task, error) {
 	return t, nil
 }
 
+func ReadHistory(homeDir, id string) (TaskHistory, error) {
+	if err := ValidateID(id); err != nil {
+		return TaskHistory{}, err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return TaskHistory{}, err
+	}
+	defer func() { _ = db.Close() }()
+	history, found, err := db.ReadTaskHistory(id)
+	if err != nil {
+		return TaskHistory{}, err
+	}
+	if !found {
+		return TaskHistory{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
+	}
+	return history, nil
+}
+
+func ActiveAttempt(homeDir, id string) (Attempt, error) {
+	history, err := ReadHistory(homeDir, id)
+	if err != nil {
+		return Attempt{}, err
+	}
+	if history.ActiveAttempt == nil {
+		return Attempt{}, fmt.Errorf("task %q %w", id, ErrNoActiveAttempt)
+	}
+	return *history.ActiveAttempt, nil
+}
+
 func Write(homeDir string, t Task) error {
 	if err := ValidateID(t.ID); err != nil {
 		return err
@@ -121,6 +157,69 @@ func Write(homeDir string, t Task) error {
 	return db.WriteTask(t)
 }
 
+func CreateTask(homeDir string, t Task) error {
+	if err := ValidateID(t.ID); err != nil {
+		return err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.CreateTask(t)
+}
+
+func UpdateTask(homeDir string, t Task) error {
+	if err := ValidateID(t.ID); err != nil {
+		return err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.UpdateTask(t)
+}
+
+func CreateAttempt(homeDir string, a Attempt) (Attempt, error) {
+	if err := ValidateID(a.TaskID); err != nil {
+		return Attempt{}, err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return Attempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.CreateAttempt(a)
+}
+
+func UpdateAttempt(homeDir string, a Attempt) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.UpdateAttempt(a)
+}
+
+func TransitionAttempt(homeDir string, id int64, from, to AttemptLifecycle) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.TransitionAttempt(id, from, to)
+}
+
+func TransitionTask(homeDir, id string, from, to TaskLifecycle) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.TransitionTask(id, from, to)
+}
+
 func List(homeDir string) ([]Task, error) {
 	db, err := store.Open(homeDir)
 	if err != nil {
@@ -128,6 +227,32 @@ func List(homeDir string) ([]Task, error) {
 	}
 	defer func() { _ = db.Close() }()
 	return db.ListTasks()
+}
+
+func ListOpen(homeDir string) ([]Task, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	histories, err := db.ListOpenTaskHistories()
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]Task, 0, len(histories))
+	for _, history := range histories {
+		tasks = append(tasks, history.Task)
+	}
+	return tasks, nil
+}
+
+func ListOpenHistories(homeDir string) ([]TaskHistory, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ListOpenTaskHistories()
 }
 
 func ListReadOnly(homeDir string) ([]Task, error) {

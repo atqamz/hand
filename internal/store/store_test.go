@@ -63,12 +63,29 @@ func TestWriteReadPreservesEveryField(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, found, err := db.ReadTask(want.ID)
+	history, found, err := db.ReadTaskHistory(want.ID)
 	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
+		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	if got != want {
-		t.Fatalf("round trip lost a field:\ngot  %+v\nwant %+v", got, want)
+	assertTaskProjection(t, history.Task, want)
+	if len(history.Attempts) != 1 {
+		t.Fatalf("attempts = %d, want 1", len(history.Attempts))
+	}
+	got := history.Attempts[0]
+	wantAttempt := attemptFromTask(want)
+	wantAttempt.ID, wantAttempt.Ordinal, wantAttempt.Lifecycle = got.ID, got.Ordinal, got.Lifecycle
+	if got != wantAttempt {
+		t.Fatalf("attempt round trip lost a field:\ngot  %+v\nwant %+v", got, wantAttempt)
+	}
+}
+
+func assertTaskProjection(t *testing.T, got, want Task) {
+	t.Helper()
+	if got.ID != want.ID || got.Project != want.Project || got.Kind != want.Kind || got.Brief != want.Brief ||
+		got.PR != want.PR || got.MergeExecuted != want.MergeExecuted || got.MergeExecutedAt != want.MergeExecutedAt ||
+		got.MergeAnnounced != want.MergeAnnounced || got.DeliveredAt != want.DeliveredAt || got.DeliveredReason != want.DeliveredReason ||
+		got.ReportOffset != want.ReportOffset || got.ReportDigest != want.ReportDigest || got.CreatedAt != want.CreatedAt {
+		t.Fatalf("task round trip lost logical state: got %+v want %+v", got, want)
 	}
 }
 
@@ -229,12 +246,19 @@ func TestOpenImportsLegacyTaskFiles(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	got, found, err := db.ReadTask(want.ID)
+	history, found, err := db.ReadTaskHistory(want.ID)
 	if err != nil || !found {
-		t.Fatalf("ReadTask = %v, %v", found, err)
+		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	if got != want {
-		t.Fatalf("import lost a field:\ngot  %+v\nwant %+v", got, want)
+	assertTaskProjection(t, history.Task, want)
+	if len(history.Attempts) != 1 {
+		t.Fatalf("attempts = %d, want 1", len(history.Attempts))
+	}
+	got := history.Attempts[0]
+	wantAttempt := attemptFromTask(want)
+	wantAttempt.ID, wantAttempt.Ordinal, wantAttempt.Lifecycle = got.ID, got.Ordinal, got.Lifecycle
+	if got != wantAttempt {
+		t.Fatalf("import lost execution state: got %+v want %+v", got, wantAttempt)
 	}
 	if _, err := os.Stat(filepath.Join(Dir(home), want.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("legacy file still in state/: %v", err)

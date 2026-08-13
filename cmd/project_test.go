@@ -117,8 +117,8 @@ func TestProjectSetURLUpdatesRegistryAndOriginPreservingTask(t *testing.T) {
 	if origin != newURL {
 		t.Fatalf("origin = %q, want %q", origin, newURL)
 	}
-	if got, err := state.Read(home, wantTask.ID); err != nil || got != wantTask {
-		t.Fatalf("task = %+v, %v, want unchanged task %+v", got, err, wantTask)
+	if got, err := state.Read(home, wantTask.ID); err != nil || got.ID != wantTask.ID || got.Project != wantTask.Project || got.Kind != wantTask.Kind || got.Brief != wantTask.Brief {
+		t.Fatalf("task = %+v, %v, want unchanged logical task %+v", got, err, wantTask)
 	}
 	if got, err := os.Stat(clonePath); err != nil || !got.IsDir() {
 		t.Fatalf("clone path = %s, %v, want same directory", clonePath, err)

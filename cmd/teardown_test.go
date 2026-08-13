@@ -169,8 +169,8 @@ func TestTeardownDetectsGateOpenedPRonDeclaredUpstream(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to detect the upstream PR and succeed", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 
@@ -196,8 +196,8 @@ func TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing(t *testing.
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want the differently-cased self-upstream to be searched once", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 
@@ -219,8 +219,8 @@ func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to detect the gate-opened merged PR and succeed", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 
@@ -254,8 +254,8 @@ func TestTeardownAfterProjectSetURLDetectsRenamedRepositoryPR(t *testing.T) {
 	if err := teardown.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to find merged PR in renamed repo", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 
@@ -311,8 +311,8 @@ func TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to tear down on the merged PR", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 
@@ -463,8 +463,8 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 
@@ -491,28 +491,14 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "remove report channel") {
-		t.Fatalf("got err %v, want a remove report channel failure", err)
+	if err != nil {
+		t.Fatalf("got err %v, want teardown to preserve the report channel", err)
 	}
-	// state.Delete's removal order - report channel before the task row - leaves the task row untouched,
-	// so there is something left to retry at all.
 	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
-		t.Fatalf("state gone after failed teardown, want it retryable: %v %v", exists, err)
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
-
-	if err := os.RemoveAll(reportPath); err != nil {
-		t.Fatal(err)
-	}
-
-	// The retry re-runs the cleanup steps the first call already completed, which have to treat an
-	// already-closed tab and an already-returned worktree as success.
-	cmd = newTeardownCmd()
-	cmd.SetArgs([]string{"task-1"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after retried teardown: %v %v", exists, err)
+	if _, err := os.Stat(filepath.Join(reportPath, "blocker")); err != nil {
+		t.Fatalf("report channel was removed: %v", err)
 	}
 
 	records, err := completion.List(home)
@@ -562,8 +548,15 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 	if got != want {
 		t.Fatalf("record = %+v, want %+v", got, want)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state after successful baseline teardown = %v, %v, want active task row deleted", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state after successful baseline teardown = %v, %v, want terminal task row preserved", exists, err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.Task.ActiveAttemptID != 0 || len(history.Attempts) != 1 || history.Attempts[0].Lifecycle != state.AttemptCompleted {
+		t.Fatalf("terminal teardown history = %+v", history)
 	}
 	for _, field := range []string{"id: task-1\n", "result: torn-down\n", "project: myproj\n", "kind: ship\n", "outcome: merged\n", "detail:", "worktree: returned\n"} {
 		if !strings.Contains(out.String(), field) {
@@ -573,8 +566,7 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 }
 
 // The ordering in cmd/teardown.go must survive a fault in completion.Append the same way
-// TestTeardownRetriesAfterReportRemovalFails covers state.Delete's report removal: state.Delete never
-// runs, so the task stays retryable, and the retry leaves no duplicate record behind a failed line.
+// Completion append failure leaves the task retryable, and a retry leaves no duplicate record behind a failed line.
 func TestTeardownCompletionAppendFailureLeavesStateIntact(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
@@ -608,8 +600,8 @@ func TestTeardownCompletionAppendFailureLeavesStateIntact(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after retried teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after retried teardown: %v %v", exists, err)
 	}
 
 	records, err := completion.List(home)
@@ -642,11 +634,11 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
-	if _, err := os.Stat(state.ReportPath(home, "task-1")); !os.IsNotExist(err) {
-		t.Fatalf("got report path err %v, want the question's report channel gone too", err)
+	if _, err := os.Stat(state.ReportPath(home, "task-1")); err != nil {
+		t.Fatalf("report channel was removed: %v", err)
 	}
 }
 
@@ -962,8 +954,8 @@ func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("teardown of delivered work: %v", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 
 	records, err := completion.List(home)
@@ -1127,8 +1119,8 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after forced teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after forced teardown: %v %v", exists, err)
 	}
 }
 
@@ -1271,8 +1263,8 @@ func TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to proceed past dirt that already matches the merged base", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 
@@ -1408,8 +1400,8 @@ func TestTeardownProceedsWhenDirtMatchesOriginDefaultBranchTip(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got %v, want teardown to compare against origin's default branch tip", err)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state still exists after teardown: %v %v", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state not preserved after teardown: %v %v", exists, err)
 	}
 }
 

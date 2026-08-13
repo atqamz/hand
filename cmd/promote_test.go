@@ -263,6 +263,19 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	if got.UsageLimitRetryAt != "" || got.UsageLimitAttempts != 0 {
 		t.Fatalf("usage-limit columns = %q/%d, want the scout's limit schedule cleared", got.UsageLimitRetryAt, got.UsageLimitAttempts)
 	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Attempts) != 2 || history.Attempts[0].Lifecycle != state.AttemptCompleted || history.Attempts[1].Lifecycle != state.AttemptRunning {
+		t.Fatalf("promotion attempt lineage = %+v", history.Attempts)
+	}
+	if history.Attempts[0].Harness != scout.Harness || history.Attempts[0].Worktree != scout.Worktree || history.Attempts[0].LeaseID != scout.LeaseID {
+		t.Fatalf("scout attempt was overwritten: %+v", history.Attempts[0])
+	}
+	if history.Task.ReportOffset != scout.ReportOffset || history.Task.ReportDigest != scout.ReportDigest {
+		t.Fatalf("task report cursor changed during promotion: %+v", history.Task)
+	}
 	if _, found, err := state.ReadHold(home, "task-1"); err != nil || found {
 		t.Fatalf("ReadHold = %v, %v, want the scout's limit hold cleared", found, err)
 	}

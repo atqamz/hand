@@ -90,7 +90,7 @@ func recordPR(ctx context.Context, home string, t state.Task, url string) (state
 	}
 
 	t.PR = url
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return t, false, fmt.Errorf("write task state: %w", err)
 	}
 	return t, false, nil

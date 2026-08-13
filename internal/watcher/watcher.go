@@ -142,7 +142,7 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 // Confirms every active task's pane answers before RunUntilEvent arms, since an unprobed task would
 // otherwise wait out the timeout with no distinguishing signal.
 func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error {
-	tasks, err := state.List(home)
+	tasks, err := state.ListOpen(home)
 	if err != nil {
 		return fmt.Errorf("list tasks: %w", err)
 	}
@@ -170,7 +170,7 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {
-	tasks, err := state.List(cfg.Home)
+	tasks, err := state.ListOpen(cfg.Home)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: list tasks failed: %v\n", err)
 		return
@@ -191,12 +191,12 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 
 		// Tracking is keyed by task identity, not by ID: an ID torn down and respawned between two
 		// ticks is a different task. Same hazard as a surviving report channel, one layer in - see
-		// state.Delete for that half.
+		// A new attempt on the same task ID is a new execution identity.
 		ts, tracked := states[t.ID]
 		// Inheriting the previous run's TaskState would suppress the new task's verified done forever -
 		// syncTaskState writes that inherited done_verified onto the fresh row, making the suppression
 		// durable - and absorb its first unexplained stop.
-		if tracked && ts.CreatedAt != t.CreatedAt {
+		if tracked && (ts.CreatedAt != t.CreatedAt || ts.AttemptID != t.ActiveAttemptID) {
 			tracked = false
 		}
 		if !tracked {
@@ -273,6 +273,7 @@ func resumeTaskState(t state.Task, status herdr.Status, now time.Time) *TaskStat
 	ts.PersistedChangedFor = t.StatusChangedFor
 	ts.PersistedPaneID = t.Herdr.PaneID
 	ts.CreatedAt = t.CreatedAt
+	ts.AttemptID = t.ActiveAttemptID
 	ts.ReportCursor = state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest}
 	ts.PersistedCursor = ts.ReportCursor
 	ts.PRMerged = t.MergeAnnounced
@@ -558,7 +559,7 @@ func recordAutoPR(home, id, url string) error {
 		return nil
 	}
 	t.PR = url
-	if err := state.Write(home, t); err != nil {
+	if err := state.UpdateTask(home, t); err != nil {
 		return fmt.Errorf("write task %s: %w", id, err)
 	}
 	return nil
@@ -619,19 +620,28 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	// tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, now)
 
+	active, err := state.ActiveAttempt(home, id)
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: read active attempt %s failed: %v\n", id, err)
+		return
+	}
 	t.ReportOffset = ts.ReportCursor.Offset
 	t.ReportDigest = ts.ReportCursor.Digest
 	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
-	t.DoneVerified = t.DoneVerified || ts.DoneVerified
-	t.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
-	t.StatusChangedFor = string(ts.Status)
-	t.LastReportState = ts.LastReportState
-	t.LastReportNote = ts.LastReportNote
-	t.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
-	t.UsageLimitRetryAt = limitRetryStamp(ts.LimitRetryAt)
-	t.UsageLimitAttempts = ts.LimitAttempts
-	if err := state.Write(home, t); err != nil {
+	active.DoneVerified = active.DoneVerified || ts.DoneVerified
+	active.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
+	active.StatusChangedFor = string(ts.Status)
+	active.LastReportState = ts.LastReportState
+	active.LastReportNote = ts.LastReportNote
+	active.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
+	active.UsageLimitRetryAt = limitRetryStamp(ts.LimitRetryAt)
+	active.UsageLimitAttempts = ts.LimitAttempts
+	if err := state.UpdateTask(home, t); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
+		return
+	}
+	if err := state.UpdateAttempt(home, active); err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: persist attempt %s failed: %v\n", id, err)
 		return
 	}
 	ts.PersistedCursor = ts.ReportCursor

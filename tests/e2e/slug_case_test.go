@@ -147,8 +147,8 @@ func TestGateOpenedUpstreamPRFoundWhenOriginRemoteCasingDiffers(t *testing.T) {
 	if tornDown.code != 0 {
 		t.Fatalf("teardown: exit %d, stderr %q", tornDown.code, tornDown.stderr)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state.Exists after teardown = %v, %v, want the landed task removed", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state.Exists after teardown = %v, %v, want the landed task preserved", exists, err)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestGateOpenedPRLandsWhenUpstreamDeclaresOwnRepoInOtherCasing(t *testing.T)
 	if tornDown.code != 0 {
 		t.Fatalf("teardown: exit %d, stderr %q", tornDown.code, tornDown.stderr)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state.Exists after teardown = %v, %v, want the landed task removed", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state.Exists after teardown = %v, %v, want the landed task preserved", exists, err)
 	}
 }

@@ -75,8 +75,8 @@ func TestForkContributionDeliveredNotLanded(t *testing.T) {
 	if tornDown.code != 0 {
 		t.Fatalf("teardown of delivered work: exit %d, stderr %q", tornDown.code, tornDown.stderr)
 	}
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state.Exists after teardown = %v, %v, want the task removed", exists, err)
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state.Exists after teardown = %v, %v, want the task preserved", exists, err)
 	}
 
 	records, err := completion.List(home)
