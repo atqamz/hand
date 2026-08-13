@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -69,16 +68,12 @@ func TestMergeRejectsConflictingMethodFlags(t *testing.T) {
 	}
 }
 
-func writeFakeGh(t *testing.T, script string) {
+func writeFakeGh(t *testing.T, checks string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.GH{Responses: []faketool.GHResponse{{
+		Command: "pr checks", Stdout: checks,
+	}}}.Install(t, bin)
 }
 
 const mergeTestPR = "https://github.com/org/repo/pull/42"
@@ -99,9 +94,7 @@ func mergeTestGH(checks ...string) faketool.GH {
 func TestPRChecksGreenAllPass(t *testing.T) {
 	// Faithful to real gh here: an all-pass `pr checks --json bucket` prints
 	// this array on stdout and exits 0.
-	writeFakeGh(t, `#!/bin/sh
-printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
-`)
+	writeFakeGh(t, `[{"bucket":"pass"},{"bucket":"skipping"}]`)
 	green, err := prChecksGreen("https://example.com/pr/1")
 	if err != nil {
 		t.Fatal(err)
@@ -114,9 +107,7 @@ printf '[{"bucket":"pass"},{"bucket":"skipping"}]'
 func TestPRChecksGreenFailingCheck(t *testing.T) {
 	// Exit 0 with a "fail" bucket instead of real gh's exit 1, same reason as
 	// fakeGhChecksRed above.
-	writeFakeGh(t, `#!/bin/sh
-printf '[{"bucket":"pass"},{"bucket":"fail"}]'
-`)
+	writeFakeGh(t, `[{"bucket":"pass"},{"bucket":"fail"}]`)
 	green, err := prChecksGreen("https://example.com/pr/1")
 	if err != nil {
 		t.Fatal(err)

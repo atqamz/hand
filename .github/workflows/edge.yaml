@@ -59,6 +59,7 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$edge" "$CANDIDATE"; then
             echo "candidate and edge histories diverge; refusing to publish" >&2
+            echo "recover by resetting the tag onto current main: git push origin +$CANDIDATE:refs/tags/edge" >&2
             exit 1
           fi
           echo "eligible=true" >> "$GITHUB_OUTPUT"
@@ -147,8 +148,9 @@ jobs:
           git fetch --force origin refs/tags/edge:refs/tags/edge || true
 
           if ! git merge-base --is-ancestor "$CANDIDATE" origin/main; then
-            echo "candidate is no longer in main history; refusing to publish" >&2
-            exit 1
+            echo "candidate is no longer in main history; skipping" >&2
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           if ! git rev-parse --verify refs/tags/edge >/dev/null 2>&1; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -163,6 +165,7 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$edge" "$CANDIDATE"; then
             echo "candidate and edge histories diverge; refusing to publish" >&2
+            echo "recover by resetting the tag onto current main: git push origin +$CANDIDATE:refs/tags/edge" >&2
             exit 1
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -170,6 +173,7 @@ jobs:
         if: steps.final-check.outputs.publish == 'true'
         env:
           CANDIDATE: ${{ inputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
           cat > edge-notes.md <<EOF
@@ -183,12 +187,14 @@ jobs:
 
           Not intended as the stable release channel.
           EOF
-          if gh release view edge --repo atqamz/hand >/dev/null 2>&1; then
-            gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
-          else
-            gh release create edge --repo atqamz/hand --target "$CANDIDATE" --title Edge --prerelease --notes-file edge-notes.md
-            gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
+          # A draft carries no git tag, so the first publish reaches assets-then-tag
+          # order through the same trailing `gh release edit --draft=false`.
+          if ! gh release view edge --repo atqamz/hand >/dev/null 2>&1; then
+            gh release create edge --repo atqamz/hand --target "$CANDIDATE" --title Edge --prerelease --draft --notes-file edge-notes.md
           fi
+          gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
+          # Publishing before the tag moves keeps `edge` from ever naming a commit
+          # whose release a reader cannot yet download.
+          gh release edit edge --repo atqamz/hand --title Edge --prerelease --draft=false --notes-file edge-notes.md
           git tag -f edge "$CANDIDATE"
           git push origin refs/tags/edge --force
-          gh release edit edge --repo atqamz/hand --title Edge --prerelease --draft=false --notes-file edge-notes.md

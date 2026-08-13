@@ -11,7 +11,7 @@ const edgeTestCommit = "0123456789abcdef0123456789abcdef01234567"
 
 func writeFakeGHTarget(t *testing.T, stable, edge string) {
 	t.Helper()
-	faketool.GH{Releases: []faketool.GHRelease{{StableTag: stable, EdgeCommit: edge}}}.Install(t, faketool.Bin(t))
+	faketool.GH{Release: faketool.GHRelease{Tag: stable, EdgeCommit: edge}}.Install(t, faketool.Bin(t))
 }
 
 func TestNormalizeBuildInfoDefaultsUnknownChannelsToDev(t *testing.T) {
@@ -51,6 +51,22 @@ func TestResolveTargetEdgeUsesFullRefCommit(t *testing.T) {
 	want := Target{Channel: ChannelEdge, Tag: "edge", Version: "edge." + edgeTestCommit[:12], Commit: edgeTestCommit}
 	if target != want {
 		t.Fatalf("target = %#v, want %#v", target, want)
+	}
+}
+
+// The notice cache remembers a version and a commit, never the tag, so rebuilding
+// a target from it has to land on exactly what resolving it would have produced.
+func TestCachedTargetMatchesTheResolvedTargetPerChannel(t *testing.T) {
+	writeFakeGHTarget(t, "v0.5.0", edgeTestCommit)
+
+	for _, channel := range []string{ChannelStable, ChannelEdge} {
+		resolved, err := ResolveTarget("atqamz/hand", channel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cachedTarget(channel, resolved.Version, resolved.Commit); got != resolved {
+			t.Fatalf("cached %s target = %#v, want the resolved %#v", channel, got, resolved)
+		}
 	}
 }
 

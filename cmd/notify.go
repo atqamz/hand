@@ -14,7 +14,11 @@ func newNotifyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "notify <message>",
 		Short: "Send an out-of-band notification",
-		Args:  usageArgs(cobra.ExactArgs(1)),
+		Long: "config/notify contains POSIX shell source, executed through sh -c on Linux, macOS, and Windows.\n" +
+			"The notification text is available as $HAND_MESSAGE. On Windows, a POSIX-compatible sh must be directly available on PATH;\n" +
+			"Hand does not reinterpret the template as cmd.exe, PowerShell, or WSL syntax, invoke wsl.exe, or rewrite paths.\n" +
+			"Literal Windows paths remain POSIX shell source and need POSIX-compatible quoting or escaping.",
+		Args: usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			message := args[0]
 			home, err := home.Resolve()

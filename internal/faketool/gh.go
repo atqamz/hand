@@ -1,23 +1,24 @@
 package faketool
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// One pull request the fake gh knows about. State is where it starts; a merge
-// through the fake moves it to MERGED. Checks are the buckets `pr checks`
-// reports, defaulting to a single pass.
+// GHPR describes one pull request and the checks its fake reports.
 type GHPR struct {
-	Number int
-	URL    string
-	Branch string
-	State  string
-	// The repo the PR lives in, which `pr list --repo` matches in any casing.
-	Repo string
-	// The repo the head branch lives in, for a PR opened from a fork. Defaults to
-	// Repo, which is the same-repo case.
+	Number   int
+	URL      string
+	Branch   string
+	State    string
+	Repo     string
 	HeadRepo string
 	Checks   []string
 }
@@ -29,215 +30,391 @@ type GHRepo struct {
 	Raw           string
 }
 
+// GHRelease describes the read and download operations used by self-update.
+// Tag names the latest stable release; the Edge fields describe the mutable
+// edge prerelease and the commit its ref points at.
 type GHRelease struct {
-	Repo            string
-	StableTag       string
-	EdgeCommit      string
-	EdgeNotes       string
-	StableNotes     string
-	EdgeAssetsDir   string
-	StableAssetsDir string
+	Tag        string
+	Notes      string
+	FixtureDir string
+	Repo       string
+	Patterns   []string
+	EdgeCommit string
+	EdgeNotes  string
+	EdgeDir    string
 }
 
-// A fake gh whose pull requests carry their own state, so `pr view` answers
-// MERGED after `pr merge` rather than repeating whatever it said before.
-// FIDELITY.md records this against the real tool.
+// GHResponse provides a deliberately fixed result for one modeled gh command.
+type GHResponse struct {
+	Command string
+	Repo    string
+	Stdout  string
+	Stderr  string
+	Exit    int
+	Copy    *GHCopy
+}
+
+type GHCopy struct {
+	Source string
+	Dest   string
+}
+
+// GH models the pull-request and release calls made by hand.
 type GH struct {
-	PRs      []GHPR
-	Repos    []GHRepo
-	Releases []GHRelease
-	Log      string
+	PRs                 []GHPR
+	Repos               []GHRepo
+	Release             GHRelease
+	Responses           []GHResponse
+	RejectQualifiedHead bool
+	Log                 string
 }
 
-// Writes the fake into bin, which Bin has put on PATH.
+type ghSpec struct {
+	PRs                 []GHPR
+	Repos               []GHRepo
+	Release             GHRelease
+	Responses           []GHResponse
+	RejectQualifiedHead bool
+	StateDir            string
+	Log                 string
+}
+
 func (g GH) Install(t *testing.T, bin string) {
 	t.Helper()
 	state := stateDir(t, bin, "gh")
-	stateFile := func(i int) string { return quote(fmt.Sprintf("%s/pr%d", state, i)) }
-
-	// gh takes a URL or a number here, either of which resolves to the same PR.
-	var byRef, checks strings.Builder
 	for i, pr := range g.PRs {
-		for _, ref := range []string{pr.URL, fmt.Sprintf("%d", pr.Number)} {
-			if ref == "" || ref == "0" {
-				continue
-			}
-			fmt.Fprintf(&byRef, "    %s) f=%s ;;\n", quote(ref), stateFile(i))
-			fmt.Fprintf(&checks, "    %s) printf '%s\\n' ;;\n", quote(ref), ghBuckets(pr.Checks))
+		if pr.State == "" {
+			pr.State = "OPEN"
+		}
+		path := ghStatePath(state, i)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			writeFile(t, path, pr.State+"\n")
+		} else if err != nil {
+			t.Fatal(err)
 		}
 	}
+	installConfig(t, bin, "gh", "gh", ghSpec{
+		PRs: g.PRs, Repos: g.Repos, Release: g.Release, Responses: g.Responses,
+		RejectQualifiedHead: g.RejectQualifiedHead, StateDir: state, Log: g.Log,
+	})
+}
 
-	var repoView strings.Builder
-	for _, repo := range g.Repos {
-		if repo.Requested == "" {
+func runGHFromPayload(payload json.RawMessage, args []string) int {
+	var spec ghSpec
+	if err := json.Unmarshal(payload, &spec); err != nil {
+		return fail("decode gh config: %v", err)
+	}
+	if spec.Log != "" {
+		if err := appendInvocation(spec.Log, "gh", args); err != nil {
+			return fail("log gh invocation: %v", err)
+		}
+	}
+	if len(args) < 2 {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	command := args[0] + " " + args[1]
+	if command == "pr list" && spec.RejectQualifiedHead && strings.Contains(flagValue(args, "--head"), ":") {
+		return fail("qualified head ref matches nothing in real gh: %s", flagValue(args, "--head"))
+	}
+	for _, response := range spec.Responses {
+		if response.Command != command {
+			continue
+		}
+		if response.Repo != "" && !strings.EqualFold(response.Repo, flagValue(args, "--repo")) {
+			continue
+		}
+		if response.Copy != nil {
+			data, err := os.ReadFile(response.Copy.Source)
+			if err != nil {
+				return fail("read gh copy source: %v", err)
+			}
+			if err := atomicWrite(response.Copy.Dest, string(data)); err != nil {
+				return fail("write gh copy destination: %v", err)
+			}
+		}
+		_, _ = io.WriteString(os.Stdout, response.Stdout)
+		_, _ = io.WriteString(os.Stderr, response.Stderr)
+		return response.Exit
+	}
+	if args[0] == "api" {
+		return ghAPI(spec, args)
+	}
+	switch command {
+	case "repo view":
+		return ghRepoView(spec, args)
+	case "pr view":
+		return ghPRView(spec, args)
+	case "pr list":
+		return ghPRList(spec, args)
+	case "pr checks":
+		return ghPRChecks(spec, args)
+	case "pr merge":
+		return ghPRMerge(spec, args)
+	case "release view":
+		return ghReleaseView(spec, args)
+	case "release download":
+		return ghReleaseDownload(spec, args)
+	default:
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+}
+
+func ghRepoView(spec ghSpec, args []string) int {
+	if len(args) != 5 || args[3] != "--json" || args[4] != "nameWithOwner,url" {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	for _, repo := range spec.Repos {
+		if !strings.EqualFold(repo.Requested, args[2]) {
 			continue
 		}
 		body := repo.Raw
 		if body == "" {
 			body = fmt.Sprintf(`{"nameWithOwner":%s,"url":%s}`, jsonQuote(repo.NameWithOwner), jsonQuote(repo.URL))
 		}
-		fmt.Fprintf(&repoView, "    %s) printf '%%s\\n' %s ;;\n", quote(repo.Requested), quote(body))
+		_, _ = fmt.Fprintln(os.Stdout, body)
+		return 0
 	}
+	return fail("repository not found: %s", args[2])
+}
 
-	var releases strings.Builder
-	for _, release := range g.Releases {
-		repo := release.Repo
-		if repo == "" {
-			repo = "atqamz/hand"
-		}
-		fmt.Fprintf(&releases, `    repo=$(argval --repo "$@")
-    if { [ -z "$repo" ] || anycase %[1]s "$repo"; }; then
-      case "$tag" in
-      stable)
-        if [ -z %[2]s ]; then echo "release not found" >&2; exit 1; fi
-        case "$(argval --jq "$@")" in
-        .tagName) printf '%%s' %[2]s ;;
-        .body) printf '%%s' %[3]s ;;
-        *) printf '{"tagName":"%%s"}' %[2]s ;;
-        esac
-        ;;
-      edge)
-        if [ -z %[4]s ]; then echo "release not found" >&2; exit 1; fi
-        case "$(argval --jq "$@")" in
-        .tagName) printf 'edge' ;;
-        .body) printf '%%s' %[5]s ;;
-        *) printf '{"tagName":"edge","prerelease":true}' ;;
-        esac
-        ;;
-      *) echo "release not found" >&2; exit 1 ;;
-      esac
-      exit 0
-    fi
-`, quote(anyCasePattern(repo)), quote(release.StableTag), quote(release.StableNotes), quote(release.EdgeCommit), quote(release.EdgeNotes))
+func ghPRView(spec ghSpec, args []string) int {
+	if len(args) < 3 {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
 	}
-
-	var releaseDownloads strings.Builder
-	for _, release := range g.Releases {
-		repo := release.Repo
-		if repo == "" {
-			repo = "atqamz/hand"
-		}
-		fmt.Fprintf(&releaseDownloads, `    repo=$(argval --repo "$@")
-    dir=$(argval --dir "$@")
-    if { [ -z "$repo" ] || anycase %[1]s "$repo"; } && [ "$tag" = edge ]; then
-      if [ -z %[2]s ]; then echo "release not found" >&2; exit 1; fi
-      cp %[2]s/* "$dir"/
-      exit 0
-    fi
-    if { [ -z "$repo" ] || anycase %[1]s "$repo"; } && [ "$tag" = %[3]s ]; then
-      if [ -z %[4]s ]; then echo "release not found" >&2; exit 1; fi
-      cp %[4]s/* "$dir"/
-      exit 0
-    fi
-`, quote(anyCasePattern(repo)), quote(release.EdgeAssetsDir), quote(release.StableTag), quote(release.StableAssetsDir))
+	index, ok := ghPRIndex(spec.PRs, args[2])
+	if !ok {
+		return fail("no such pull request: %s", args[2])
 	}
-
-	var apiCommits strings.Builder
-	for _, release := range g.Releases {
-		repo := release.Repo
-		if repo == "" {
-			repo = "atqamz/hand"
-		}
-		fmt.Fprintf(&apiCommits, `    if anycase %[1]s "$2"; then
-      if [ -z %[2]s ]; then echo "ref not found" >&2; exit 1; fi
-      printf '%%s' %[2]s
-      exit 0
-    fi
-`, quote(anyCasePattern("repos/"+repo+"/commits/edge")), quote(release.EdgeCommit))
+	state, err := os.ReadFile(ghStatePath(spec.StateDir, index))
+	if err != nil {
+		return fail("read gh pull request state: %v", err)
 	}
+	_, _ = fmt.Fprintf(os.Stdout, "{\"state\":%s}\n", jsonQuote(strings.TrimSpace(string(state))))
+	return 0
+}
 
-	// One block per PR rather than one per branch, because --repo narrows the search
-	// independently of --head: a fork project searches two repos for the same branch
-	// and has to see a different answer from each.
-	var list strings.Builder
-	list.WriteString("    branch=$(argval --head \"$@\")\n    repo=$(argval --repo \"$@\")\n    printf '['\n    sep=\"\"\n")
-	for i, pr := range g.PRs {
-		if pr.Branch == "" {
+func ghPRList(spec ghSpec, args []string) int {
+	branch := flagValue(args, "--head")
+	repo := flagValue(args, "--repo")
+	var out strings.Builder
+	out.WriteByte('[')
+	sep := ""
+	for i, pr := range spec.PRs {
+		if pr.Branch == "" || pr.Branch != branch {
 			continue
 		}
-		repo := pr.Repo
-		if repo == "" {
-			repo = "owner/repo"
+		prRepo := pr.Repo
+		if prRepo == "" {
+			prRepo = "owner/repo"
+		}
+		if repo != "" && !strings.EqualFold(repo, prRepo) {
+			continue
 		}
 		headRepo := pr.HeadRepo
 		if headRepo == "" {
-			headRepo = repo
+			headRepo = prRepo
 		}
-		fmt.Fprintf(&list, `    if [ "$branch" = %[1]s ] && { [ -z "$repo" ] || anycase %[2]s "$repo"; }; then
-      read s < %[3]s
-      printf '%%s{"number":%[4]d,"url":%[5]s,"state":"%%s","headRepository":{"id":"R_1","name":%[6]s,"nameWithOwner":%[7]s}}' "$sep" "$s"
-      sep=","
-    fi
-`, quote(pr.Branch), quote(anyCasePattern(repo)), stateFile(i), pr.Number,
-			jsonQuote(pr.URL), jsonQuote(repoName(headRepo)), jsonQuote(headRepo))
-	}
-	// An empty result is exit 0 with an empty array, not a failure: a branch with no
-	// PR is the ordinary case teardown's landed-work check has to handle.
-	list.WriteString("    printf ']\\n'\n")
-
-	prelude := "argval() { flag=\"$1\"; shift; while [ $# -gt 0 ]; do if [ \"$1\" = \"$flag\" ]; then echo \"$2\"; return; fi; shift; done; }\n" +
-		// GitHub serves a repo under any casing of its slug, so a case-sensitive match
-		// would answer a double search of one repo with one hit and hide the duplicate
-		// the real gh returns.
-		"anycase() { case \"$2\" in $1) return 0 ;; esac; return 1; }\n"
-	body := fmt.Sprintf(`  "api "*)
-%[5]s    echo "ref not found: $2" >&2
-    exit 1
-    ;;
-  "release view")
-    tag="$3"
-    if [ "$tag" = "--repo" ]; then tag=stable; fi
-%[6]s    echo "release not found: $tag" >&2
-    exit 1
-    ;;
-  "release download")
-    tag="$3"
-%[7]s    echo "release not found: $tag" >&2
-    exit 1
-    ;;
-  "repo view")
-    case "$3" in
-%[1]s    *) echo "repository not found: $3" >&2; exit 1 ;;
-    esac
-    ;;
-  "pr view")
-    f=""
-    case "$3" in
-%[2]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
-    esac
-    read s < "$f"
-    printf '{"state":"%%s"}\n' "$s"
-    ;;
-  "pr list")
-%[3]s    ;;
-  "pr checks")
-    case "$3" in
-%[4]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
-    esac
-    ;;
-  "pr merge")
-    f=""
-    case "$3" in
-%[2]s    *) echo "no such pull request: $3" >&2; exit 1 ;;
-    esac
-    read s < "$f"
-    if [ "$s" = MERGED ]; then
-      echo "! Pull request $3 was already merged" >&2
-      exit 0
-    fi
-    echo MERGED > "$f"
-    printf '%%s merged\n' "$3"
-	    ;;`, repoView.String(), byRef.String(), list.String(), checks.String(), apiCommits.String(), releases.String(), releaseDownloads.String())
-
-	install(t, bin, "gh", g.Log, prelude, "$1 $2", body)
-
-	for i, pr := range g.PRs {
-		s := pr.State
-		if s == "" {
-			s = "OPEN"
+		state, err := os.ReadFile(ghStatePath(spec.StateDir, i))
+		if err != nil {
+			return fail("read gh pull request state: %v", err)
 		}
-		writeFile(t, fmt.Sprintf("%s/pr%d", state, i), s+"\n")
+		fmt.Fprintf(&out, "%s{\"number\":%d,\"url\":%s,\"state\":%s,\"headRepository\":{\"id\":\"R_1\",\"name\":%s,\"nameWithOwner\":%s}}",
+			sep, pr.Number, jsonQuote(pr.URL), jsonQuote(strings.TrimSpace(string(state))),
+			jsonQuote(repoName(headRepo)), jsonQuote(headRepo))
+		sep = ","
 	}
+	out.WriteString("]\n")
+	_, _ = io.WriteString(os.Stdout, out.String())
+	return 0
+}
+
+func ghPRChecks(spec ghSpec, args []string) int {
+	if len(args) < 3 {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	index, ok := ghPRIndex(spec.PRs, args[2])
+	if !ok {
+		return fail("no such pull request: %s", args[2])
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "%s\n", ghBuckets(spec.PRs[index].Checks))
+	return 0
+}
+
+func ghPRMerge(spec ghSpec, args []string) int {
+	if len(args) < 3 {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	index, ok := ghPRIndex(spec.PRs, args[2])
+	if !ok {
+		return fail("no such pull request: %s", args[2])
+	}
+	path := ghStatePath(spec.StateDir, index)
+	state, err := os.ReadFile(path)
+	if err != nil {
+		return fail("read gh pull request state: %v", err)
+	}
+	if strings.TrimSpace(string(state)) == "MERGED" {
+		_, _ = fmt.Fprintf(os.Stderr, "! Pull request %s was already merged\n", args[2])
+		return 0
+	}
+	if err := atomicWrite(path, "MERGED\n"); err != nil {
+		return fail("write gh pull request state: %v", err)
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "%s merged\n", args[2])
+	return 0
+}
+
+// The mutable edge ref self-update reads for the freshness of an edge build.
+func ghAPI(spec ghSpec, args []string) int {
+	if !sameArgs(args, []string{"api", "repos/" + ghReleaseRepo(spec.Release) + "/commits/" + edgeTag, "--jq", ".sha"}) {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	if spec.Release.EdgeCommit == "" {
+		return fail("ref not found: %s", args[1])
+	}
+	_, _ = io.WriteString(os.Stdout, spec.Release.EdgeCommit)
+	return 0
+}
+
+func ghReleaseView(spec ghSpec, args []string) int {
+	switch flagValue(args, "--jq") {
+	case ".tagName":
+		want := []string{"release", "view", "--repo", ghReleaseRepo(spec.Release), "--json", "tagName", "--jq", ".tagName"}
+		if spec.Release.Tag != "" && sameArgs(args, want) {
+			_, _ = io.WriteString(os.Stdout, spec.Release.Tag)
+			return 0
+		}
+	case ".body":
+		tag := ghReleaseTag(args)
+		notes, ok := ghReleaseNotes(spec.Release, tag)
+		want := []string{"release", "view", tag, "--repo", ghReleaseRepo(spec.Release), "--json", "body", "--jq", ".body"}
+		if ok && sameArgs(args, want) {
+			_, _ = io.WriteString(os.Stdout, notes)
+			return 0
+		}
+	}
+	return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+}
+
+func ghReleaseDownload(spec ghSpec, args []string) int {
+	tag := ghReleaseTag(args)
+	fixtureDir, ok := ghReleaseFixtureDir(spec.Release, tag)
+	if !ok {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	dir, ok := ghReleaseDownloadDir(spec.Release, tag, args)
+	if !ok {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fail("create gh release directory: %v", err)
+	}
+	for _, name := range ghReleasePatterns(spec.Release) {
+		data, err := os.ReadFile(filepath.Join(fixtureDir, name))
+		if err != nil {
+			return fail("read gh release fixture %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			return fail("write gh release asset %s: %v", name, err)
+		}
+	}
+	return 0
+}
+
+// The positional tag, absent when the caller asks for the latest release.
+func ghReleaseTag(args []string) string {
+	if len(args) < 3 || strings.HasPrefix(args[2], "-") {
+		return ""
+	}
+	return args[2]
+}
+
+func ghReleaseNotes(release GHRelease, tag string) (string, bool) {
+	switch {
+	case tag == edgeTag && release.EdgeCommit != "":
+		return release.EdgeNotes, true
+	case tag != "" && tag == release.Tag:
+		return release.Notes, true
+	}
+	return "", false
+}
+
+func ghReleaseFixtureDir(release GHRelease, tag string) (string, bool) {
+	switch {
+	case tag == edgeTag && release.EdgeDir != "":
+		return release.EdgeDir, true
+	case tag != "" && tag == release.Tag && release.FixtureDir != "":
+		return release.FixtureDir, true
+	}
+	return "", false
+}
+
+const (
+	defaultGHReleaseRepo = "atqamz/hand"
+	edgeTag              = "edge"
+)
+
+func ghReleaseRepo(release GHRelease) string {
+	if release.Repo != "" {
+		return release.Repo
+	}
+	return defaultGHReleaseRepo
+}
+
+func ghReleasePatterns(release GHRelease) []string {
+	return ghReleasePatternsFor(release, runtime.GOOS, runtime.GOARCH)
+}
+
+func ghReleasePatternsFor(release GHRelease, goos, goarch string) []string {
+	if len(release.Patterns) > 0 {
+		return append([]string(nil), release.Patterns...)
+	}
+	return []string{ghReleaseAssetName(goos, goarch), "checksums.txt"}
+}
+
+func ghReleaseAssetName(goos, goarch string) string {
+	suffix := ".tar.gz"
+	if goos == "windows" {
+		suffix = ".zip"
+	}
+	return fmt.Sprintf("hand-%s-%s%s", goos, goarch, suffix)
+}
+
+func ghReleaseDownloadDir(release GHRelease, tag string, args []string) (string, bool) {
+	patterns := ghReleasePatterns(release)
+	if len(args) != 8+2*len(patterns) {
+		return "", false
+	}
+	expected := []string{"release", "download", tag, "--repo", ghReleaseRepo(release), "--dir"}
+	for i, want := range expected {
+		if args[i] != want {
+			return "", false
+		}
+	}
+	dir := args[len(expected)]
+	if dir == "" || args[len(expected)+1] != "--clobber" {
+		return "", false
+	}
+	for i, pattern := range patterns {
+		index := len(expected) + 2 + 2*i
+		if args[index] != "--pattern" || args[index+1] != pattern {
+			return "", false
+		}
+	}
+	return dir, true
+}
+
+func ghPRIndex(prs []GHPR, ref string) (int, bool) {
+	for i, pr := range prs {
+		if ref == pr.URL || ref == strconv.Itoa(pr.Number) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func ghStatePath(dir string, index int) string {
+	return filepath.Join(dir, fmt.Sprintf("pr%d", index))
 }
 
 func ghBuckets(checks []string) string {
@@ -246,26 +423,18 @@ func ghBuckets(checks []string) string {
 	}
 	items := make([]string, len(checks))
 	for i, bucket := range checks {
-		items[i] = `{"bucket":"` + bucket + `"}`
+		items[i] = "{\"bucket\":" + jsonQuote(bucket) + "}"
 	}
 	return "[" + strings.Join(items, ",") + "]"
 }
 
-// A glob matching s in any casing, since POSIX sh has no case conversion and the
-// hermetic PATH in tests/e2e has no tr.
-func anyCasePattern(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteString("[" + string(r-32) + string(r) + "]")
-		case r >= 'A' && r <= 'Z':
-			b.WriteString("[" + string(r) + string(r+32) + "]")
-		default:
-			b.WriteRune(r)
+func flagValue(args []string, flag string) string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
 		}
 	}
-	return b.String()
+	return ""
 }
 
 func repoName(slug string) string {
@@ -273,4 +442,17 @@ func repoName(slug string) string {
 		return name
 	}
 	return slug
+}
+
+func jsonQuote(s string) string {
+	return strconv.Quote(s)
+}
+
+func firstError(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

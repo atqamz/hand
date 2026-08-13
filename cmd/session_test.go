@@ -11,14 +11,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 )
@@ -51,13 +52,13 @@ func writeSessionContext(t *testing.T, home, operator, backlog string) {
 
 func executeSessionStart(t *testing.T, in io.Reader) (string, error) {
 	t.Helper()
-	out, _, err := executeRootForTest(t, "test", in, "session", "start")
+	out, _, err := executeRootForTest(t, devBuild("test"), in, "session", "start")
 	return out, err
 }
 
-func executeRootForTest(t *testing.T, version string, in io.Reader, args ...string) (string, string, error) {
+func executeRootForTest(t *testing.T, info selfupdate.BuildInfo, in io.Reader, args ...string) (string, string, error) {
 	t.Helper()
-	root := newRootCmd(version)
+	root := newRootCmd(info)
 	root.SetArgs(args)
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -164,9 +165,6 @@ func TestSessionStartMissingRequiredContextNamesPathAndRecovery(t *testing.T) {
 }
 
 func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake hand is a POSIX shell script, not supported on windows")
-	}
 	parent := t.TempDir()
 	home := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
 	mkFleetDirs(t, home)
@@ -179,11 +177,8 @@ func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
 	t.Setenv(harness.RoleEnv, "")
 	t.Chdir(parent)
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "hand"), []byte("#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" \"$2\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.Command{Name: "hand", Args: true}.Install(t, bin)
 
 	_, err := executeSessionStart(t, nil)
 	assertExitCode(t, err, 3)
@@ -334,7 +329,7 @@ func TestSessionOverviewsDoNotMutateFleetState(t *testing.T) {
 			}
 
 			before := snapshotFleetTree(t, home)
-			out, _, err := executeRootForTest(t, "test", nil, test.args...)
+			out, _, err := executeRootForTest(t, devBuild("test"), nil, test.args...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -383,7 +378,7 @@ func TestOldFleetRequiresExplicitRecoveryBeforeReadOnlyOverview(t *testing.T) {
 	beforeRecovery := snapshotFleetTree(t, home)
 	remedy := "hand init '" + home + "'"
 	for _, args := range [][]string{{"session", "start"}, nil} {
-		_, _, err = executeRootForTest(t, "test", nil, args...)
+		_, _, err = executeRootForTest(t, devBuild("test"), nil, args...)
 		if err == nil {
 			t.Fatalf("overview %q opened an older schema read-only", args)
 		}
@@ -395,12 +390,12 @@ func TestOldFleetRequiresExplicitRecoveryBeforeReadOnlyOverview(t *testing.T) {
 		}
 	}
 
-	if _, _, err := executeRootForTest(t, "test", nil, "init", home); err != nil {
+	if _, _, err := executeRootForTest(t, devBuild("test"), nil, "init", home); err != nil {
 		t.Fatalf("run advertised recovery %q: %v", remedy, err)
 	}
 	afterRecovery := snapshotFleetTree(t, home)
 	for i, args := range [][]string{{"session", "start"}, nil} {
-		out, _, err := executeRootForTest(t, "test", nil, args...)
+		out, _, err := executeRootForTest(t, devBuild("test"), nil, args...)
 		if err != nil {
 			t.Fatalf("overview %d: %v", i+1, err)
 		}
@@ -493,7 +488,7 @@ func TestSessionOverviewsSkipReleasedVersionCheck(t *testing.T) {
 			home := setupSessionHome(t)
 			writeFreshVersionCheck(t, home)
 
-			_, errOut, err := executeRootForTest(t, "v0.1.0", nil, test.args...)
+			_, errOut, err := executeRootForTest(t, stableBuild("v0.1.0"), nil, test.args...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -509,7 +504,7 @@ func TestSessionStartWorkerRefusalPrecedesReleasedVersionCheck(t *testing.T) {
 	writeFreshVersionCheck(t, home)
 	t.Setenv(harness.RoleEnv, harness.WorkerRole)
 
-	_, errOut, err := executeRootForTest(t, "v0.1.0", nil, "session", "start")
+	_, errOut, err := executeRootForTest(t, stableBuild("v0.1.0"), nil, "session", "start")
 	assertExitCode(t, err, 3)
 	if errOut != "" {
 		t.Fatalf("stderr before worker refusal = %q, want no version-check output", errOut)
@@ -520,7 +515,7 @@ func TestNormalCommandKeepsReleasedVersionNotice(t *testing.T) {
 	home := setupSessionHome(t)
 	writeFreshVersionCheck(t, home)
 
-	_, errOut, err := executeRootForTest(t, "v0.1.0", nil, "status")
+	_, errOut, err := executeRootForTest(t, stableBuild("v0.1.0"), nil, "status")
 	if err != nil {
 		t.Fatal(err)
 	}

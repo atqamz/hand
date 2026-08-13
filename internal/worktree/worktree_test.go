@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -12,24 +11,13 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// One-off treehouse for a single response shape, used only where the call changes
-// no state: payload and exit-status parsing. Everything stateful drives
-// faketool.Treehouse instead, the shared pool fake.
-func writeFakeTreehouse(t *testing.T, script string) {
+func writeFakeTreehouse(t *testing.T, response faketool.TreehouseResponse) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake treehouse is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	path := filepath.Join(bin, "treehouse")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.Treehouse{Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
 }
 
 func TestGetParsesLeasePathAndIdentity(t *testing.T) {
-	writeFakeTreehouse(t, `printf '{"path":"/tmp/wt-1","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8"}'`)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8"}`})
 	got, err := Get(t.TempDir(), "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +32,7 @@ func TestGetParsesLeasePathAndIdentity(t *testing.T) {
 // stay a usable lease rather than an error - CheckCollision falls back to the
 // path for it.
 func TestGetAcceptsAPayloadWithoutALeaseIdentity(t *testing.T) {
-	writeFakeTreehouse(t, `printf '{"path":"/tmp/wt-1"}'`)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1"}`})
 	got, err := Get(t.TempDir(), "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
@@ -55,27 +43,24 @@ func TestGetAcceptsAPayloadWithoutALeaseIdentity(t *testing.T) {
 }
 
 func TestGetPassesLeaseHolder(t *testing.T) {
-	writeFakeTreehouse(t, `
-if [ "$4" != "--lease-holder" ] || [ "$5" != "hand:task-1" ]; then
-	echo "unexpected args: $@" >&2
-	exit 1
-fi
-printf '{"path":"/tmp/wt-1"}'
-`)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{
+		Command: "get", Args: []string{"--lease", "--json", "--lease-holder", "hand:task-1"},
+		Stdout: `{"path":"/tmp/wt-1"}`,
+	})
 	if _, err := Get(t.TempDir(), "hand:task-1"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestGetFailsOnNonZeroExit(t *testing.T) {
-	writeFakeTreehouse(t, `echo "pool exhausted" >&2; exit 1`)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stderr: "pool exhausted\n", Exit: 1})
 	if _, err := Get(t.TempDir(), ""); err == nil || !strings.Contains(err.Error(), "pool exhausted") {
 		t.Fatalf("got err %v, want pool exhausted failure", err)
 	}
 }
 
 func TestGetFailsOnMissingPath(t *testing.T) {
-	writeFakeTreehouse(t, `printf '{}'`)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{}`})
 	if _, err := Get(t.TempDir(), ""); err == nil {
 		t.Fatal("expected error for missing path in lease response")
 	}
@@ -83,19 +68,14 @@ func TestGetFailsOnMissingPath(t *testing.T) {
 
 func TestReturnPassesForceFlag(t *testing.T) {
 	wt := t.TempDir()
-	writeFakeTreehouse(t, `
-if [ "$1" != "return" ] || [ "$2" != "`+wt+`" ] || [ "$3" != "--force" ]; then
-	echo "unexpected args: $@" >&2
-	exit 1
-fi
-`)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Args: []string{wt, "--force"}})
 	if err := Return(wt, true); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestReturnFailsOnNonZeroExit(t *testing.T) {
-	writeFakeTreehouse(t, `echo "worktree busy" >&2; exit 1`)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Stderr: "worktree busy\n", Exit: 1})
 	if err := Return(t.TempDir(), false); err == nil || !strings.Contains(err.Error(), "worktree busy") {
 		t.Fatalf("got err %v, want worktree busy failure", err)
 	}

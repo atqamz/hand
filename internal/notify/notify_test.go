@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +35,59 @@ func TestSendReturnsErrNotConfiguredWithAnEmptyTemplate(t *testing.T) {
 	if !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("Send() error = %v, want ErrNotConfigured", err)
 	}
+}
+
+func TestSendReportsActionableErrorWhenShIsMissing(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte("printf '%s' \"$HAND_MESSAGE\""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	err := Send(home, "hello")
+	if err == nil {
+		t.Fatal("Send() error = nil, want missing-shell failure")
+	}
+	if errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("Send() error = %v, want a configured-template failure", err)
+	}
+	if !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("Send() error = %v, want exec.ErrNotFound", err)
+	}
+	for _, want := range []string{"config/notify", "posix", "sh", "path"} {
+		if !strings.Contains(strings.ToLower(err.Error()), want) {
+			t.Fatalf("Send() error = %v, want it to mention %q", err, want)
+		}
+	}
+}
+
+func TestSendDoesNotRequireShWhenNotificationIsUnconfigured(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	t.Run("missing", func(t *testing.T) {
+		err := Send(t.TempDir(), "hello")
+		if !errors.Is(err, ErrNotConfigured) {
+			t.Fatalf("Send() error = %v, want ErrNotConfigured", err)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		home := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte("  \n\t\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		err := Send(home, "hello")
+		if !errors.Is(err, ErrNotConfigured) {
+			t.Fatalf("Send() error = %v, want ErrNotConfigured", err)
+		}
+	})
 }
 
 func TestSendRunsTheTemplateWithTheMessage(t *testing.T) {

@@ -118,6 +118,7 @@ func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs)
 			{ID: ids.TabID, Label: "1", Pane: ids.PaneID},
 		}}},
 		TabCreates: spares,
+		PaneAgent:  "claude",
 		PaneStatus: ids.PaneStatus,
 		Log:        logPath,
 	}.Install(t, dir)

@@ -209,31 +209,133 @@ func TestGHRefusesAPRItDoesNotKnow(t *testing.T) {
 	}
 }
 
-func TestGHReleaseAndEdgeRefExposeDeclaredState(t *testing.T) {
+func TestGHReleaseRefusesUnexpectedInvocationShapes(t *testing.T) {
+	fixture := t.TempDir()
+	for _, name := range []string{"asset.tar.gz", "checksums.txt", "unexpected.txt"} {
+		if err := os.WriteFile(filepath.Join(fixture, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	GH{Release: GHRelease{
+		Tag:        "v1.2.3",
+		FixtureDir: fixture,
+		Patterns:   []string{"asset.tar.gz", "checksums.txt"},
+	}}.Install(t, Bin(t))
+
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"release", "view", "--json", "tagName", "--jq", ".tagName"},
+		{"release", "view", "wrong-tag", "--repo", "atqamz/hand", "--json", "body", "--jq", ".body"},
+		{"release", "view", "--repo", "atqamz/hand", "--json", "body", "--jq", ".tagName"},
+		{"release", "download", "v1.2.3", "--repo", "other/repo", "--dir", dir, "--clobber", "--pattern", "asset.tar.gz", "--pattern", "checksums.txt"},
+		{"release", "download", "v1.2.3", "--repo", "atqamz/hand", "--dir", dir, "--pattern", "asset.tar.gz", "--pattern", "checksums.txt"},
+		{"release", "download", "v1.2.3", "--repo", "atqamz/hand", "--dir", dir, "--clobber", "--pattern", "unexpected.txt", "--pattern", "checksums.txt"},
+	} {
+		_, errOut, code := runGH(t, args...)
+		if code == 0 || !strings.Contains(errOut, "unexpected gh invocation") {
+			t.Errorf("gh %v = %q (exit %d), want a loud refusal", args, errOut, code)
+		}
+	}
+}
+
+func TestGHReleaseDefaultAssetNameMatchesSelfUpdateContract(t *testing.T) {
+	for _, tt := range []struct {
+		goos, goarch, want string
+	}{
+		{goos: "linux", goarch: "amd64", want: "hand-linux-amd64.tar.gz"},
+		{goos: "darwin", goarch: "arm64", want: "hand-darwin-arm64.tar.gz"},
+		{goos: "windows", goarch: "amd64", want: "hand-windows-amd64.zip"},
+	} {
+		if got := ghReleaseAssetName(tt.goos, tt.goarch); got != tt.want {
+			t.Errorf("ghReleaseAssetName(%q, %q) = %q, want %q", tt.goos, tt.goarch, got, tt.want)
+		}
+	}
+	for _, tt := range []struct {
+		goos, goarch string
+		want         []string
+	}{
+		{goos: "linux", goarch: "amd64", want: []string{"hand-linux-amd64.tar.gz", "checksums.txt"}},
+		{goos: "windows", goarch: "amd64", want: []string{"hand-windows-amd64.zip", "checksums.txt"}},
+	} {
+		if got := ghReleasePatternsFor(GHRelease{}, tt.goos, tt.goarch); !sameArgs(got, tt.want) {
+			t.Errorf("ghReleasePatternsFor(%q, %q) = %v, want %v", tt.goos, tt.goarch, got, tt.want)
+		}
+	}
+}
+
+func TestGHReleaseDownloadCopiesOnlyRequestedPatterns(t *testing.T) {
+	fixture := t.TempDir()
+	for _, name := range []string{"asset.tar.gz", "checksums.txt", "unexpected.txt"} {
+		if err := os.WriteFile(filepath.Join(fixture, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	GH{Release: GHRelease{
+		Tag:        "v1.2.3",
+		FixtureDir: fixture,
+		Patterns:   []string{"asset.tar.gz", "checksums.txt"},
+	}}.Install(t, Bin(t))
+
+	dir := t.TempDir()
+	_, errOut, code := runGH(t, "release", "download", "v1.2.3", "--repo", "atqamz/hand", "--dir", dir, "--clobber", "--pattern", "asset.tar.gz", "--pattern", "checksums.txt")
+	if code != 0 {
+		t.Fatalf("gh release download = %q (exit %d), want success", errOut, code)
+	}
+	for _, name := range []string{"asset.tar.gz", "checksums.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("downloaded %s: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "unexpected.txt")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected asset stat error = %v, want file absent", err)
+	}
+}
+
+// The edge channel reads its freshness from a commit SHA rather than a tag, and
+// serves notes and assets off the same mutable `edge` release.
+func TestGHEdgeReleaseExposesCommitNotesAndAssets(t *testing.T) {
 	assets := t.TempDir()
 	if err := os.WriteFile(filepath.Join(assets, "checksums.txt"), []byte("checksums"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	commit := "0123456789abcdef0123456789abcdef01234567"
-	GH{Releases: []GHRelease{
-		{StableTag: "v0.5.0", EdgeCommit: commit, EdgeNotes: "edge notes", EdgeAssetsDir: assets},
+	GH{Release: GHRelease{
+		Tag:        "v0.5.0",
+		EdgeCommit: commit,
+		EdgeNotes:  "edge notes",
+		EdgeDir:    assets,
+		Patterns:   []string{"checksums.txt"},
 	}}.Install(t, Bin(t))
 
-	stable, stderr, code := runGH(t, "release", "view", "--repo", "atqamz/hand", "--json", "tagName", "--jq", ".tagName")
-	if code != 0 || stderr != "" || stable != "v0.5.0" {
-		t.Fatalf("stable release = %q, %q, exit %d, want v0.5.0", stable, stderr, code)
+	stable, errOut, code := runGH(t, "release", "view", "--repo", "atqamz/hand", "--json", "tagName", "--jq", ".tagName")
+	if code != 0 || errOut != "" || stable != "v0.5.0" {
+		t.Fatalf("release view = %q, %q (exit %d), want v0.5.0", stable, errOut, code)
 	}
-	edge, stderr, code := runGH(t, "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
-	if code != 0 || stderr != "" || edge != commit {
-		t.Fatalf("edge ref = %q, %q, exit %d, want %s", edge, stderr, code, commit)
+	sha, errOut, code := runGH(t, "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
+	if code != 0 || errOut != "" || sha != commit {
+		t.Fatalf("api commits/edge = %q, %q (exit %d), want %s", sha, errOut, code, commit)
+	}
+	notes, errOut, code := runGH(t, "release", "view", "edge", "--repo", "atqamz/hand", "--json", "body", "--jq", ".body")
+	if code != 0 || errOut != "" || notes != "edge notes" {
+		t.Fatalf("release view edge = %q, %q (exit %d), want the edge notes", notes, errOut, code)
 	}
 
-	downloaded := t.TempDir()
-	_, stderr, code = runGH(t, "release", "download", "edge", "--repo", "atqamz/hand", "--dir", downloaded, "--pattern", "checksums.txt")
-	if code != 0 || stderr != "" {
-		t.Fatalf("edge download = %q, exit %d, want success", stderr, code)
+	dir := t.TempDir()
+	if _, errOut, code := runGH(t, "release", "download", "edge", "--repo", "atqamz/hand", "--dir", dir, "--clobber", "--pattern", "checksums.txt"); code != 0 {
+		t.Fatalf("release download edge = %q (exit %d), want success", errOut, code)
 	}
-	if _, err := os.Stat(filepath.Join(downloaded, "checksums.txt")); err != nil {
-		t.Fatalf("downloaded checksums: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "checksums.txt")); err != nil {
+		t.Fatalf("downloaded edge checksums: %v", err)
+	}
+}
+
+// An unpublished edge ref has to fail loudly: a silent empty SHA would read as a
+// valid edge identity and update every build forever.
+func TestGHRefusesAnEdgeRefItDoesNotPublish(t *testing.T) {
+	GH{Release: GHRelease{Tag: "v1.2.3"}}.Install(t, Bin(t))
+
+	_, errOut, code := runGH(t, "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
+	if code == 0 || !strings.Contains(errOut, "ref not found") {
+		t.Fatalf("api commits/edge = %q (exit %d), want a refusal", errOut, code)
 	}
 }

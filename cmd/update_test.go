@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/selfupdate"
 )
 
@@ -22,57 +23,18 @@ import (
 // shape - no envelope to reproduce here, unlike herdr's call()/callVoid().
 func writeFakeGHReleaseView(t *testing.T, tag string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := fmt.Sprintf(`#!/bin/sh
-if [ "$1" != "release" ] || [ "$2" != "view" ] || [ "$3" != "--repo" ] || [ "$4" != "atqamz/hand" ]; then
-  echo "unexpected gh invocation: $@" >&2
-  exit 1
-fi
-printf '%%s' %q
-`, tag)
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.GH{Release: faketool.GHRelease{Tag: tag}}.Install(t, bin)
 }
 
 // Fakes the three gh invocations a full `hand update` makes: the tag lookup and the release notes lookup,
 // both "release view --jq" in the shape writeFakeGHReleaseView documents above, plus the asset download.
 func writeFakeGHUpdate(t *testing.T, tag, notes, fixtureDir string) {
 	t.Helper()
-	bin := t.TempDir()
-	// Real `gh release download` leaves only the assets themselves in --dir and writes its progress to
-	// stderr, so copying the fixture in and printing nothing is the faithful success shape. The trailing
-	// arm mirrors real gh's failure shape too: a diagnostic on stderr and a non-zero exit, never partial.
-	script := fmt.Sprintf(`#!/bin/sh
-if [ "$1" = "release" ] && [ "$2" = "view" ] && [ "$3" = "--repo" ]; then
-  printf '%%s' %q
-  exit 0
-fi
-if [ "$1" = "release" ] && [ "$2" = "view" ]; then
-  printf '%%s' %q
-  exit 0
-fi
-if [ "$1" = "release" ] && [ "$2" = "download" ]; then
-  dir=""
-  prev=""
-  for a in "$@"; do
-    if [ "$prev" = "--dir" ]; then dir="$a"; fi
-    prev="$a"
-  done
-  cp %q/* "$dir"/
-  exit 0
-fi
-echo "unexpected gh invocation: $@" >&2
-exit 1
-`, tag, notes, fixtureDir)
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	faketool.GH{Release: faketool.GHRelease{
+		Tag: tag, Notes: notes, FixtureDir: fixtureDir,
+	}}.Install(t, bin)
 }
 
 func buildUpdateFixture(t *testing.T, binaryContent []byte) string {
@@ -181,9 +143,6 @@ func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
 }
 
 func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -193,7 +152,7 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -225,9 +184,6 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 // The refreshed template directs the agent at data files a home initialized
 // before them never had, so update seeds whichever are missing.
 func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -236,7 +192,7 @@ func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -270,9 +226,6 @@ func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
 // state/hand.db marker, so update has to create the directory it seeds into
 // rather than warning about six files it could not write.
 func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -284,7 +237,7 @@ func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -304,9 +257,6 @@ func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
 }
 
 func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -320,7 +270,7 @@ func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -338,9 +288,6 @@ func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
 }
 
 func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	fleetHome := t.TempDir()
 	mkFleetDirs(t, fleetHome)
@@ -351,7 +298,7 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -374,9 +321,6 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 }
 
 func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	t.Setenv("HAND_HOME", "")
 	home := t.TempDir()
@@ -385,7 +329,7 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -406,9 +350,6 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 // home" is a misconfiguration, and swallowing it would leave the operator with
 // an unrefreshed AGENTS.md and nothing on stderr saying why.
 func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -418,7 +359,7 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -431,15 +372,13 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	if want := appliedUpdateDoc("failed", "no-fleet-home", "fixed the frobnicator"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), notAHome) {
-		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), notAHome)
+	quotedHome := fmt.Sprintf("%q", notAHome)
+	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), quotedHome) {
+		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), quotedHome)
 	}
 }
 
 func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -448,7 +387,7 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -465,9 +404,6 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 // The binary is already replaced before the refresh runs, so a refresh failure
 // must not turn a successful update into a nonzero exit.
 func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "AGENTS.md"), 0o755); err != nil {
@@ -479,7 +415,7 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -498,9 +434,6 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 }
 
 func TestUpdatePreservesOwnedSessionHookWhenAgentsRefreshFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -519,7 +452,7 @@ func TestUpdatePreservesOwnedSessionHookWhenAgentsRefreshFails(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -549,9 +482,6 @@ func TestUpdatePreservesOwnedSessionHookWhenAgentsRefreshFails(t *testing.T) {
 // The binary is already replaced before retirement runs, so malformed operator
 // settings produce a warning and a failed field without changing update success.
 func TestUpdateReportsVersionsWhenSessionHookRetirementFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
 	setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -567,7 +497,7 @@ func TestUpdateReportsVersionsWhenSessionHookRetirementFails(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -614,7 +544,7 @@ func checkedUpdateDoc(current, latest string, available bool) string {
 func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.5.0")
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check"})
@@ -632,7 +562,7 @@ func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
 func TestUpdateCheckReportsUpToDate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.1.0")
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check"})
@@ -648,7 +578,7 @@ func TestUpdateCheckReportsUpToDate(t *testing.T) {
 func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.1.0")
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -664,7 +594,7 @@ func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
 func TestUpdateCheckReportsAvailableUpdateForDevBuild(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.5.0")
 
-	cmd := newUpdateCmd("dev")
+	cmd := newUpdateCmd(devBuild("dev"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check"})
@@ -680,7 +610,7 @@ func TestUpdateCheckReportsAvailableUpdateForDevBuild(t *testing.T) {
 func TestUpdatePropagatesLatestTagError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	cmd.SetArgs([]string{"--check"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("want error when gh is unreachable")

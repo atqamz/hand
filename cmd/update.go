@@ -14,11 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newUpdateCmd(version string) *cobra.Command {
-	return newUpdateCmdWithBuildInfo(legacyBuildInfo(version))
-}
-
-func newUpdateCmdWithBuildInfo(info selfupdate.BuildInfo) *cobra.Command {
+func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 	var checkOnly bool
 	var requestedChannel string
 
@@ -127,23 +123,16 @@ func updateDoc(info selfupdate.BuildInfo, target selfupdate.Target, available, u
 	var doc axi.Doc
 	doc.Field("current", info.Version)
 	doc.Field("current_channel", info.Channel)
-	doc.Field("current_commit", displayCommit(info.Commit))
+	doc.Field("current_commit", selfupdate.DisplayCommit(info.Commit))
 	doc.Field("latest", target.Version)
 	doc.Field("latest_channel", target.Channel)
-	doc.Field("latest_commit", displayCommit(target.Commit))
+	doc.Field("latest_commit", selfupdate.DisplayCommit(target.Commit))
 	doc.Bool("update_available", available)
 	doc.Bool("updated", updated)
 	doc.Field("agents_md", agentsMD)
 	doc.Field("session_hook", sessionHook)
 	doc.List("notes", notes)
 	return doc
-}
-
-func displayCommit(commit string) string {
-	if commit == "" {
-		return "unknown"
-	}
-	return commit
 }
 
 func updateHelp(target selfupdate.Target, explicit bool) string {

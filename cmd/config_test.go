@@ -368,7 +368,7 @@ func TestCommandStartupMigratesOlderWorkerDefaultsBeforeReportingConfig(t *testi
 		}
 	}
 
-	root := newRootCmd("test")
+	root := newRootCmd(devBuild("test"))
 	root.SetArgs([]string{"config"})
 	var out bytes.Buffer
 	root.SetOut(&out)

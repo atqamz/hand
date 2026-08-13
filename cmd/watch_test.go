@@ -1,45 +1,31 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
-// Fakes "workspace list" as a query command per internal/herdr/client.go's call() doc comment: a non-null
-// result object on success, here an empty workspace list.
-const fakeHerdrWatchScript = `#!/bin/sh
-case "$1 $2" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-
 func setupWatchHome(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(fakeHerdrWatchScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	bin := faketool.Bin(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+	faketool.Herdr{Responses: []faketool.HerdrResponse{{
+		Command: "workspace list",
+		Stdout:  "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}",
+	}}, Log: callLog}.Install(t, bin)
 	return home
 }
 
@@ -176,7 +162,17 @@ func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
 		done <- cmd.ExecuteContext(ctx)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		calls, err := os.ReadFile(os.Getenv("HERDR_CALL_LOG"))
+		if err == nil && bytes.Contains(calls, []byte("herdr workspace list\n")) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if time.Now().After(deadline) {
+		t.Fatal("watch did not reach herdr before cancellation")
+	}
 	cancel()
 
 	select {

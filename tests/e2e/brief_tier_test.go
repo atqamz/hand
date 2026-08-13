@@ -186,6 +186,7 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 			{ID: "tab-other", Label: "other", Pane: "pane-other"},
 		}}},
 		TabCreates: []faketool.HerdrTab{{ID: "tab-new", Label: "task-1", Pane: "pane-new"}},
+		PaneAgent:  "claude",
 		PaneStatus: "done",
 		Log:        launchLog,
 	}.Install(t, dir)

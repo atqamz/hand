@@ -80,3 +80,21 @@ func TestNotifyFailureIsVisibleRatherThanAWarningBehindExitZero(t *testing.T) {
 		t.Fatal("Execute() error = nil, want the template's failure surfaced")
 	}
 }
+
+func TestNotifyHelpDocumentsThePOSIXShellContract(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newNotifyCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	help := strings.ToLower(out.String())
+	for _, want := range []string{"posix", "sh", "path", "windows", "hand_message", "cmd.exe", "powershell", "quot"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want it to mention %q", out.String(), want)
+		}
+	}
+}

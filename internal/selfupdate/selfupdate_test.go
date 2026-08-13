@@ -11,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/faketool"
 )
 
 func TestIsNewer(t *testing.T) {
@@ -87,32 +90,10 @@ func TestArchiveBinaryName(t *testing.T) {
 // the reason on stderr for a failure. runGH reads stdout only, so that split matters.
 func writeFakeGH(t *testing.T, tag, fixtureDir string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := fmt.Sprintf(`#!/bin/sh
-if [ "$1" = "release" ] && [ "$2" = "view" ]; then
-  printf '%%s' %q
-  exit 0
-fi
-if [ "$1" = "release" ] && [ "$2" = "download" ]; then
-  dir=""
-  prev=""
-  for a in "$@"; do
-    if [ "$prev" = "--dir" ]; then dir="$a"; fi
-    prev="$a"
-  done
-  cp %q/* "$dir"/
-  exit 0
-fi
-echo "unexpected gh invocation: $@" >&2
-exit 1
-`, tag, fixtureDir)
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	portableBin := faketool.Bin(t)
+	faketool.GH{Release: faketool.GHRelease{
+		Tag: tag, FixtureDir: fixtureDir,
+	}}.Install(t, portableBin)
 }
 
 func buildFixture(t *testing.T, binaryContent []byte) string {
@@ -139,22 +120,7 @@ func buildFixture(t *testing.T, binaryContent []byte) string {
 	return dir
 }
 
-func TestLatestTag(t *testing.T) {
-	writeFakeGH(t, "v0.5.0", t.TempDir())
-	tag, err := LatestTag("atqamz/hand")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tag != "v0.5.0" {
-		t.Fatalf("got %q, want v0.5.0", tag)
-	}
-}
-
 func TestApplyReplacesRunningBinary(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
-
 	fixture := buildFixture(t, []byte("new binary contents"))
 	writeFakeGH(t, "v0.5.0", fixture)
 
@@ -184,7 +150,7 @@ func TestApplyReplacesRunningBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o755 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Fatalf("got mode %v, want 0755", info.Mode().Perm())
 	}
 
@@ -192,16 +158,27 @@ func TestApplyReplacesRunningBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("got %d entries in install dir, want only the replaced binary", len(entries))
+	wantEntries := 1
+	if runtime.GOOS == "windows" {
+		wantEntries = 2
+	}
+	if len(entries) != wantEntries {
+		t.Fatalf("got %d entries in install dir, want %d", len(entries), wantEntries)
+	}
+	if runtime.GOOS == "windows" {
+		backupCount := 0
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".hand-update-") && strings.HasSuffix(entry.Name(), ".old.exe") {
+				backupCount++
+			}
+		}
+		if backupCount != 1 {
+			t.Fatalf("got %d updater backups, want one", backupCount)
+		}
 	}
 }
 
 func TestApplyLeavesNoStagedFileWhenExtractionFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("update binary layout targets unix asset names")
-	}
-
 	fixture := t.TempDir()
 	assetName := AssetName()
 	payload := []byte("not a gzip stream")
@@ -225,8 +202,16 @@ func TestApplyLeavesNoStagedFileWhenExtractionFails(t *testing.T) {
 	ExecutableOverride = func() (string, error) { return execPath, nil }
 	defer func() { ExecutableOverride = restore }()
 
-	if err := Apply("atqamz/hand", "v0.5.0"); err == nil {
+	err := Apply("atqamz/hand", "v0.5.0")
+	if err == nil {
 		t.Fatal("want error when the asset is not a valid archive")
+	}
+	wantError := "open gzip stream"
+	if runtime.GOOS == "windows" {
+		wantError = "open zip"
+	}
+	if !strings.Contains(err.Error(), wantError) {
+		t.Fatalf("error = %q, want %q", err, wantError)
 	}
 
 	entries, err := os.ReadDir(execDir)
@@ -260,9 +245,6 @@ func TestVerifyChecksumMismatch(t *testing.T) {
 }
 
 func TestApplyLeavesBinaryUnchangedOnChecksumMismatch(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
 	fixture := t.TempDir()
 	assetName := AssetName()
 	if err := os.WriteFile(filepath.Join(fixture, assetName), []byte("payload"), 0o644); err != nil {
@@ -282,8 +264,9 @@ func TestApplyLeavesBinaryUnchangedOnChecksumMismatch(t *testing.T) {
 	ExecutableOverride = func() (string, error) { return execPath, nil }
 	t.Cleanup(func() { ExecutableOverride = restore })
 
-	if err := Apply("atqamz/hand", "v0.5.0"); err == nil {
-		t.Fatal("want checksum mismatch")
+	err := Apply("atqamz/hand", "v0.5.0")
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch for "+assetName) {
+		t.Fatalf("error = %v, want checksum mismatch for %s", err, assetName)
 	}
 	got, err := os.ReadFile(execPath)
 	if err != nil {

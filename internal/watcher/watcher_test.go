@@ -4,17 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/shellquote"
@@ -32,55 +31,20 @@ const paneGoneStatus = "pane-gone"
 // internal/herdr/client.go's call doc. Those failure paths belong to internal/herdr/client_test.go.
 func writeFakeHerdr(t *testing.T, statusFile string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
+	bin := faketool.Bin(t)
 	// The unexpected-args arm deliberately diverges - a bare stderr line and exit 1 - so a call shape
 	// no test anticipated fails loudly instead of parsing. "pane get" reads its status from statusFile,
 	// so a test can drive transitions between ticks.
-	script := `#!/bin/sh
-case "$1 $2" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	;;
-"pane get")
-	status=$(cat "$STATUS_FILE")
-	# Logged after the read, never before: a test that flips the status on seeing
-	# the Nth call would otherwise still be racing the Nth read of the file.
-	if [ -n "$CALL_LOG" ]; then
-		echo "pane get" >> "$CALL_LOG"
-	fi
-	if [ "$status" = "` + paneGoneStatus + `" ]; then
-		printf '{"id":"cli:1","error":{"code":"not_found","message":"pane p1 not found"}}'
-		exit 0
-	fi
-	# PANE_AGENT is empty unless a test sets it, which is what keeps every test written before the
-	# usage-limit check from reading a pane: an unclassified pane names no harness, so no harness
-	# capability applies to it.
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"%s","agent":"%s"}}}' "$status" "$PANE_AGENT"
-	;;
-"pane read")
-	echo "read" >> "${PANE_LOG:-/dev/null}"
-	# Raw text on stdout, not an envelope: herdr's own contract for this one
-	# command, mirrored here because the client parses it that way.
-	cat "$PANE_TEXT_FILE" 2>/dev/null
-	;;
-"pane send-text"|"pane send-keys")
-	# Empty stdout and exit 0 is real herdr's success shape for a void command.
-	echo "$2 $4" >> "${PANE_LOG:-/dev/null}"
-	;;
-*)
-	echo "unexpected herdr args: $@" >&2
-	exit 1
-	;;
-esac
-`
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("STATUS_FILE", statusFile)
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+	faketool.Herdr{
+		Workspaces:     []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{{ID: "wA:tA", Label: "task-1", Pane: "p1"}}}},
+		PaneStatusFile: statusFile,
+		PaneAgentEnv:   true, PaneReadFileEnv: true, KeyLogEnv: true, TextLogEnv: true,
+		ReadLogEnv: true, AllowUnknownPane: true,
+		Responses: []faketool.HerdrResponse{{Command: "workspace list", Stdout: `{"id":"cli:1","result":{"workspaces":[]}}`}},
+		Log:       callLog, LogCommands: []string{"pane get"},
+	}.Install(t, bin)
 }
 
 // Fakes `gh pr view --json state`, the only gh call a tick makes (watcher.go's ghutil.PRIsMerged),
@@ -94,18 +58,18 @@ func writeFakeGh(t *testing.T, prState string) {
 // at the instant that matters: after tick's state.List snapshot, before the auto-record re-reads.
 func writeFakeGhWithHook(t *testing.T, prState, hook string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
+	if hook != "" {
+		t.Fatalf("shell hook is not supported by the portable fake: %q", hook)
 	}
-	bin := t.TempDir()
-	// Real gh prefixes its own warnings on stderr and PRIsMerged reads stdout alone, so the fake emits
-	// a stderr line too: a CombinedOutput regression there must fail this watcher path as well, not
-	// only internal/ghutil/pr_test.go.
-	script := "#!/bin/sh\necho 'Warning: gh version is out of date' >&2\n" + hook + "\nprintf '{\"state\":\"" + prState + "\"}'\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.GH{Responses: []faketool.GHResponse{{Command: "pr view", Stdout: `{"state":"` + prState + `"}`, Stderr: "Warning: gh version is out of date\n"}}}.Install(t, faketool.Bin(t))
+}
+
+func writeFakeGhWithCopy(t *testing.T, prState, source, dest string) {
+	t.Helper()
+	faketool.GH{Responses: []faketool.GHResponse{{
+		Command: "pr view", Stdout: `{"state":"` + prState + `"}`, Stderr: "Warning: gh version is out of date\n",
+		Copy: &faketool.GHCopy{Source: source, Dest: dest},
+	}}}.Install(t, faketool.Bin(t))
 }
 
 // Gives a watcher home the two things the auto-record path's validation reads: a registry entry and a
@@ -144,9 +108,7 @@ func setStatus(t *testing.T, statusFile, status string) {
 
 func logPaneGets(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "pane-get-calls")
-	t.Setenv("CALL_LOG", path)
-	return path
+	return os.Getenv("HERDR_CALL_LOG")
 }
 
 func waitForPaneGets(t *testing.T, callLog string, want int) {
@@ -645,7 +607,7 @@ func TestTickStaysSilentWhenTheLockHolderRecordedTheSamePR(t *testing.T) {
 	snapshot := taskSnapshotWithPR(t, home, "task-1", url)
 	// Hence the gh double writes it: ValidatePR shells out to gh on the way to the lock, so the hook
 	// fires inside exactly that window.
-	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", snapshot, store.Path(home)))
+	writeFakeGhWithCopy(t, "OPEN", snapshot, store.Path(home))
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -717,7 +679,7 @@ func TestTickReportsAnUnreadableTaskWhenTheLockIsContended(t *testing.T) {
 	if err := os.WriteFile(corrupt, []byte("this is not a database"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writeFakeGhWithHook(t, "OPEN", fmt.Sprintf("cp %q %q", corrupt, store.Path(home)))
+	writeFakeGhWithCopy(t, "OPEN", corrupt, store.Path(home))
 
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 	client := herdr.NewClient()
@@ -1746,15 +1708,11 @@ func TestTickKeepsAMultiLineAutoRecordFailureOnOneLine(t *testing.T) {
 // written to stdout, as with the real tool on this path.
 func writeFakeGhFailingMultiline(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := "#!/bin/sh\nprintf 'error connecting to api.github.com\\ncheck your internet connection or https://githubstatus.com\\n' >&2\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.GH{Responses: []faketool.GHResponse{{
+		Command: "pr view",
+		Stderr:  "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com\n",
+		Exit:    1,
+	}}}.Install(t, faketool.Bin(t))
 }
 
 func TestTickForgetsTornDownTasks(t *testing.T) {
@@ -1914,17 +1872,7 @@ func TestHandleEventReportsAFailingNotifyTemplateToErrOut(t *testing.T) {
 }
 
 func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	// exit 1 with empty stdout is the faithful crashed-or-missing-binary shape, which call()'s
-	// empty-stdout-plus-runErr branch handles. A distinct shape from herdr's ordinary failure (exit 0
-	// plus an error envelope), and only this one means "unreachable".
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.Herdr{Unreachable: true}.Install(t, faketool.Bin(t))
 
 	home := t.TempDir()
 	err := Run(context.Background(), Config{Home: home, PollInterval: time.Second, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
@@ -1959,6 +1907,34 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit after context cancellation")
+	}
+}
+
+func TestRunExitsWhenPaneProbeIsCanceled(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{{ID: "wA:tA", Label: "task-1", Pane: "p1"}}}},
+		Hang:       []string{"pane get"},
+		Log:        callLog, LogCommands: []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	}()
+	waitForPaneGets(t, callLog, 1)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not exit after canceling a pane probe")
 	}
 }
 
@@ -2161,14 +2137,7 @@ func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
 }
 
 func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.Herdr{Unreachable: true}.Install(t, faketool.Bin(t))
 
 	err := RunUntilEvent(context.Background(), Config{Home: t.TempDir(), PollInterval: time.Second, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "herdr unreachable") {
@@ -2180,15 +2149,7 @@ func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
 }
 
 func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := "#!/bin/sh\nsleep 5\nprintf '{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}'\n"
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.Herdr{Hang: []string{"workspace list"}}.Install(t, faketool.Bin(t))
 
 	cfg := Config{Home: t.TempDir(), PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
 	start := time.Now()
@@ -2209,25 +2170,11 @@ func TestRunUntilEventReportsNoEventWhenConnectHangs(t *testing.T) {
 }
 
 func TestRunUntilEventReportsNoEventWhenTheArmProbeHangs(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake herdr is a POSIX shell script, not supported on windows")
-	}
-	bin := t.TempDir()
-	script := `#!/bin/sh
-case "$1 $2" in
-"workspace list")
-	printf '{"id":"cli:1","result":{"workspaces":[]}}'
-	;;
-"pane get")
-	sleep 5
-	printf '{"id":"cli:1","result":{"pane":{"pane_id":"p1","agent_status":"working"}}}'
-	;;
-esac
-`
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{{ID: "wA:tA", Label: "task-1", Pane: "p1"}}}},
+		Responses:  []faketool.HerdrResponse{{Command: "workspace list", Stdout: `{"id":"cli:1","result":{"workspaces":[]}}`}},
+		Hang:       []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}

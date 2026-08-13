@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -15,18 +14,20 @@ const edgeCommandCommit = "0123456789abcdef0123456789abcdef01234567"
 
 func writeFakeGHChannels(t *testing.T, stable, edge string) {
 	t.Helper()
-	faketool.GH{Releases: []faketool.GHRelease{{StableTag: stable, EdgeCommit: edge}}}.Install(t, faketool.Bin(t))
+	faketool.GH{Release: faketool.GHRelease{Tag: stable, EdgeCommit: edge}}.Install(t, faketool.Bin(t))
 }
 
 func writeFakeGHEdgeUpdate(t *testing.T, commit, notes, fixtureDir string) {
 	t.Helper()
-	faketool.GH{Releases: []faketool.GHRelease{{EdgeCommit: commit, EdgeNotes: notes, EdgeAssetsDir: fixtureDir}}}.Install(t, faketool.Bin(t))
+	faketool.GH{Release: faketool.GHRelease{
+		EdgeCommit: commit, EdgeNotes: notes, EdgeDir: fixtureDir,
+	}}.Install(t, faketool.Bin(t))
 }
 
 func TestUpdateCheckFollowsEmbeddedEdgeChannel(t *testing.T) {
 	writeFakeGHChannels(t, "v0.5.0", edgeCommandCommit)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{
+	cmd := newUpdateCmd(selfupdate.BuildInfo{
 		Version: "edge.aaaaaaaaaaaa",
 		Channel: selfupdate.ChannelEdge,
 		Commit:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -57,7 +58,7 @@ func TestUpdateCheckFollowsEmbeddedEdgeChannel(t *testing.T) {
 func TestUpdateCheckExplicitlySwitchesStableToEdge(t *testing.T) {
 	writeFakeGHChannels(t, "v0.5.0", edgeCommandCommit)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{Version: "v0.9.0", Channel: selfupdate.ChannelStable})
+	cmd := newUpdateCmd(selfupdate.BuildInfo{Version: "v0.9.0", Channel: selfupdate.ChannelStable})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check", "--channel", selfupdate.ChannelEdge})
@@ -72,7 +73,7 @@ func TestUpdateCheckExplicitlySwitchesStableToEdge(t *testing.T) {
 func TestUpdateCheckEdgeWithMatchingCommitIsUpToDate(t *testing.T) {
 	writeFakeGHChannels(t, "v0.5.0", edgeCommandCommit)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{
+	cmd := newUpdateCmd(selfupdate.BuildInfo{
 		Version: "edge.0123456789ab",
 		Channel: selfupdate.ChannelEdge,
 		Commit:  edgeCommandCommit,
@@ -89,9 +90,6 @@ func TestUpdateCheckEdgeWithMatchingCommitIsUpToDate(t *testing.T) {
 }
 
 func TestUpdateInstallsEdgeAssetThroughSharedApplyPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a POSIX shell script")
-	}
 	execPath := setFakeExecutable(t)
 	home := t.TempDir()
 	t.Chdir(home)
@@ -100,7 +98,7 @@ func TestUpdateInstallsEdgeAssetThroughSharedApplyPath(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new edge binary contents"))
 	writeFakeGHEdgeUpdate(t, edgeCommandCommit, "edge notes", fixture)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{
+	cmd := newUpdateCmd(selfupdate.BuildInfo{
 		Version: "edge.aaaaaaaaaaaa",
 		Channel: selfupdate.ChannelEdge,
 		Commit:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -124,7 +122,7 @@ func TestUpdateInstallsEdgeAssetThroughSharedApplyPath(t *testing.T) {
 }
 
 func TestUpdateRejectsInvalidChannelAsUsageError(t *testing.T) {
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{Version: "v0.1.0", Channel: selfupdate.ChannelStable})
+	cmd := newUpdateCmd(selfupdate.BuildInfo{Version: "v0.1.0", Channel: selfupdate.ChannelStable})
 	cmd.SetArgs([]string{"--check", "--channel", "nightly"})
 	if code := exitCodeFor(t, cmd.Execute()); code != 2 {
 		t.Fatalf("exit code = %d, want usage code 2", code)
