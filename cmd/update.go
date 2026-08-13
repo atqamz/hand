@@ -14,39 +14,47 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newUpdateCmd(version string) *cobra.Command {
+func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 	var checkOnly bool
+	var requestedChannel string
 
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Self-update the hand binary from GitHub Releases",
 		Args:  usageArgs(cobra.NoArgs),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if requestedChannel != "" && requestedChannel != selfupdate.ChannelStable && requestedChannel != selfupdate.ChannelEdge {
+				return usageValue(true, fmt.Errorf("invalid release channel %q", requestedChannel))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			latest, err := selfupdate.LatestTag(selfupdate.Repo)
+			targetChannel := info.Channel
+			if targetChannel == selfupdate.ChannelDev {
+				targetChannel = selfupdate.ChannelStable
+			}
+			if requestedChannel != "" {
+				targetChannel = requestedChannel
+			}
+
+			target, err := selfupdate.ResolveTarget(selfupdate.Repo, targetChannel)
 			if err != nil {
 				return err
 			}
-			newer, err := selfupdate.IsNewer(latest, version)
+			newer, err := selfupdate.NeedsUpdate(info, target)
 			if err != nil {
 				return err
 			}
 
 			if !newer || checkOnly {
-				var doc axi.Doc
-				doc.Field("current", version)
-				doc.Field("latest", latest)
-				doc.Bool("update_available", newer)
-				doc.Bool("updated", false)
-				doc.Field("agents_md", "not-applicable")
-				doc.Field("session_hook", "not-applicable")
-				doc.List("notes", nil)
+				doc := updateDoc(info, target, newer, false, "not-applicable", "not-applicable", nil)
 				if newer {
-					doc.Help("Run `hand update` to install " + latest + ", which also refreshes this home's AGENTS.md template")
+					doc.Help(updateHelp(target, requestedChannel != ""))
 				}
 				return doc.Render(cmd.OutOrStdout())
 			}
 
-			if err := selfupdate.Apply(selfupdate.Repo, latest); err != nil {
+			if err := selfupdate.Apply(selfupdate.Repo, target.Tag); err != nil {
 				return err
 			}
 
@@ -90,23 +98,49 @@ func newUpdateCmd(version string) *cobra.Command {
 					return err
 				}
 			}
-			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, latest)
+			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, target.Tag)
 
-			var doc axi.Doc
-			doc.Field("current", version)
-			doc.Field("latest", latest)
-			doc.Bool("update_available", true)
-			doc.Bool("updated", true)
-			doc.Field("agents_md", refreshOutcome(fleetHome, refreshed, refreshErr))
-			doc.Field("session_hook", retirementOutcome(fleetHome, hookRemoved, hookErr))
-			doc.List("notes", releaseNoteLines(notes))
-			doc.Help("Run `hand doctor` to check this home's AGENTS.md against the template " + latest + " installed")
+			doc := updateDoc(
+				info,
+				target,
+				true,
+				true,
+				refreshOutcome(fleetHome, refreshed, refreshErr),
+				retirementOutcome(fleetHome, hookRemoved, hookErr),
+				releaseNoteLines(notes),
+			)
+			doc.Help("Run `hand doctor` to check this home's AGENTS.md against the template " + target.Version + " installed")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
 
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "check whether an update is available without installing")
+	cmd.Flags().StringVar(&requestedChannel, "channel", "", "release channel to target (stable or edge)")
 	return cmd
+}
+
+func updateDoc(info selfupdate.BuildInfo, target selfupdate.Target, available, updated bool, agentsMD, sessionHook string, notes []string) axi.Doc {
+	var doc axi.Doc
+	doc.Field("current", info.Version)
+	doc.Field("current_channel", info.Channel)
+	doc.Field("current_commit", selfupdate.DisplayCommit(info.Commit))
+	doc.Field("latest", target.Version)
+	doc.Field("latest_channel", target.Channel)
+	doc.Field("latest_commit", selfupdate.DisplayCommit(target.Commit))
+	doc.Bool("update_available", available)
+	doc.Bool("updated", updated)
+	doc.Field("agents_md", agentsMD)
+	doc.Field("session_hook", sessionHook)
+	doc.List("notes", notes)
+	return doc
+}
+
+func updateHelp(target selfupdate.Target, explicit bool) string {
+	command := "hand update"
+	if explicit {
+		command += " --channel " + target.Channel
+	}
+	return "Run `" + command + "` to install " + target.Version + ", which also refreshes this home's AGENTS.md template"
 }
 
 // The binary is replaced whatever this says, so every outcome is a value of

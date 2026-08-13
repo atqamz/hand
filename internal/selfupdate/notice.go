@@ -17,18 +17,24 @@ const checkTimeout = 2 * time.Second
 
 type versionCache struct {
 	CheckedAt time.Time `json:"checked_at"`
+	Channel   string    `json:"channel,omitempty"`
 	Latest    string    `json:"latest"`
+	Commit    string    `json:"commit,omitempty"`
 }
 
-// CheckNotice returns a one-line stderr notice when a newer hand release is available, or
-// "" when up to date or when the check can't be completed. Bounded by checkTimeout and
-// never fails the caller: startup version checks are non-blocking and non-fatal.
-func CheckNotice(home, repo, currentVersion string) string {
-	// A version that isn't semver (a build without ldflags, defaulting to "dev") has no
-	// released version to compare against, so nagging a from-source build would be noise.
-	// `hand update` still resolves and installs the latest release for such builds.
-	if _, _, _, err := parseSemver(currentVersion); err != nil {
+// CheckNoticeForBuild returns a one-line stderr notice when a newer hand release is available on the
+// build's channel, or "" when up to date or when the check can't be completed. Bounded by checkTimeout
+// and never fails the caller: startup version checks are non-blocking and non-fatal.
+func CheckNoticeForBuild(home, repo string, info BuildInfo) string {
+	info = NormalizeBuildInfo(info.Version, info.Channel, info.Commit)
+	if info.Channel == ChannelDev {
 		return ""
+	}
+	// A version the comparison can never accept costs a gh call per interval otherwise.
+	if info.Channel == ChannelStable {
+		if _, _, _, err := parseSemver(info.Version); err != nil {
+			return ""
+		}
 	}
 
 	stateDir := filepath.Join(home, "state")
@@ -38,27 +44,37 @@ func CheckNotice(home, repo, currentVersion string) string {
 	cachePath := filepath.Join(stateDir, cacheFile)
 
 	now := time.Now()
-	latest := ""
-	if cache, err := readCache(cachePath); err == nil && now.Sub(cache.CheckedAt) < checkInterval {
-		latest = cache.Latest
+	var target Target
+	if cache, err := readCache(cachePath); err == nil && now.Sub(cache.CheckedAt) < checkInterval && cacheChannel(cache) == info.Channel {
+		target = cachedTarget(info.Channel, cache.Latest, cache.Commit)
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 		defer cancel()
-		tag, err := latestTag(ctx, repo)
+		resolved, err := resolveTarget(ctx, repo, info.Channel)
 		// Cache failures too, so an unreachable or black-holed network costs
 		// one checkTimeout stall per interval instead of one per command.
-		_ = writeCache(cachePath, versionCache{CheckedAt: now, Latest: tag})
+		_ = writeCache(cachePath, versionCache{CheckedAt: now, Channel: info.Channel, Latest: resolved.Version, Commit: resolved.Commit})
 		if err != nil {
 			return ""
 		}
-		latest = tag
+		target = resolved
 	}
 
-	newer, err := IsNewer(latest, currentVersion)
+	newer, err := NeedsUpdate(info, target)
 	if err != nil || !newer {
 		return ""
 	}
-	return fmt.Sprintf("A new version of hand is available: %s -> %s\nRun \"hand update\" to update", currentVersion, latest)
+	if info.Channel == ChannelEdge {
+		return fmt.Sprintf("A new edge build of hand is available: %s -> %s\nRun \"hand update\" to update", DisplayCommit(shortCommit(info.Commit)), DisplayCommit(shortCommit(target.Commit)))
+	}
+	return fmt.Sprintf("A new version of hand is available: %s -> %s\nRun \"hand update\" to update", info.Version, target.Version)
+}
+
+func cacheChannel(cache versionCache) string {
+	if cache.Channel == "" {
+		return ChannelStable
+	}
+	return cache.Channel
 }
 
 func readCache(path string) (versionCache, error) {

@@ -14,11 +14,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newRootCmd(version string) *cobra.Command {
+func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root := &cobra.Command{
 		Use:     "hand",
 		Short:   "You lead. hand runs the crew.",
-		Version: version,
+		Version: info.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if fleetHome, err := home.Resolve(); err == nil {
 				startupOverview := cmd.Name() == "hand" || cmd.CommandPath() == "hand session start"
@@ -28,7 +28,7 @@ func newRootCmd(version string) *cobra.Command {
 					}
 				}
 				if cmd.Name() != "update" && !startupOverview {
-					if notice := selfupdate.CheckNotice(fleetHome, selfupdate.Repo, version); notice != "" {
+					if notice := selfupdate.CheckNoticeForBuild(fleetHome, selfupdate.Repo, info); notice != "" {
 						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
 					}
 				}
@@ -40,7 +40,7 @@ func newRootCmd(version string) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRootOverview(cmd, version)
+			return runRootOverview(cmd, info.Version)
 		},
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
@@ -52,7 +52,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newProjectCmd())
 	root.AddCommand(newSpawnCmd())
 	root.AddCommand(newStatusCmd())
-	root.AddCommand(newSessionCmd(version))
+	root.AddCommand(newSessionCmd(info.Version))
 	root.AddCommand(newSendCmd())
 	root.AddCommand(newHoldCmd())
 	root.AddCommand(newDeliverCmd())
@@ -64,7 +64,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newSearchCmd())
 	root.AddCommand(newDoctorCmd())
-	root.AddCommand(newUpdateCmd(version))
+	root.AddCommand(newUpdateCmd(info))
 	// ExecuteC would add the completion group later, too late for the guard below.
 	root.InitDefaultCompletionCmd()
 	guardSubcommandGroups(root)
@@ -141,8 +141,8 @@ func usageValue(fromFlag bool, err error) error {
 	return err
 }
 
-func Execute(version string) {
-	root := newRootCmd(version)
+func Execute(version, channel, commit string) {
+	root := newRootCmd(selfupdate.NormalizeBuildInfo(version, channel, commit))
 	found, err := root.ExecuteC()
 	if err == nil {
 		return

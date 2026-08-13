@@ -31,12 +31,17 @@ type GHRepo struct {
 }
 
 // GHRelease describes the read and download operations used by self-update.
+// Tag names the latest stable release; the Edge fields describe the mutable
+// edge prerelease and the commit its ref points at.
 type GHRelease struct {
 	Tag        string
 	Notes      string
 	FixtureDir string
 	Repo       string
 	Patterns   []string
+	EdgeCommit string
+	EdgeNotes  string
+	EdgeDir    string
 }
 
 // GHResponse provides a deliberately fixed result for one modeled gh command.
@@ -54,11 +59,14 @@ type GHCopy struct {
 	Dest   string
 }
 
-// GH models the pull-request and release calls made by hand.
+// GH models the pull-request and release calls made by hand. ReleaseStore adds
+// the release and asset writes the edge publish script makes, which no hand
+// command performs.
 type GH struct {
 	PRs                 []GHPR
 	Repos               []GHRepo
 	Release             GHRelease
+	ReleaseStore        *GHReleaseStore
 	Responses           []GHResponse
 	RejectQualifiedHead bool
 	Log                 string
@@ -68,6 +76,8 @@ type ghSpec struct {
 	PRs                 []GHPR
 	Repos               []GHRepo
 	Release             GHRelease
+	ReleaseStorePath    string
+	ReleaseStoreRepo    string
 	Responses           []GHResponse
 	RejectQualifiedHead bool
 	StateDir            string
@@ -88,10 +98,15 @@ func (g GH) Install(t *testing.T, bin string) {
 			t.Fatal(err)
 		}
 	}
-	installConfig(t, bin, "gh", "gh", ghSpec{
+	spec := ghSpec{
 		PRs: g.PRs, Repos: g.Repos, Release: g.Release, Responses: g.Responses,
 		RejectQualifiedHead: g.RejectQualifiedHead, StateDir: state, Log: g.Log,
-	})
+	}
+	if g.ReleaseStore != nil {
+		spec.ReleaseStorePath = g.ReleaseStore.install(t, state)
+		spec.ReleaseStoreRepo = g.ReleaseStore.repo()
+	}
+	installConfig(t, bin, "gh", "gh", spec)
 }
 
 func runGHFromPayload(payload json.RawMessage, args []string) int {
@@ -130,6 +145,15 @@ func runGHFromPayload(payload json.RawMessage, args []string) int {
 		_, _ = io.WriteString(os.Stdout, response.Stdout)
 		_, _ = io.WriteString(os.Stderr, response.Stderr)
 		return response.Exit
+	}
+	if args[0] == "api" {
+		if code, handled := ghReleaseAPI(spec, args); handled {
+			return code
+		}
+		return ghAPI(spec, args)
+	}
+	if code, handled := ghReleaseCommand(spec, command, args); handled {
+		return code
 	}
 	switch command {
 	case "repo view":
@@ -256,33 +280,45 @@ func ghPRMerge(spec ghSpec, args []string) int {
 	return 0
 }
 
-func ghReleaseView(spec ghSpec, args []string) int {
-	if spec.Release.Tag == "" && spec.Release.Notes == "" {
+// The mutable edge ref self-update reads for the freshness of an edge build.
+func ghAPI(spec ghSpec, args []string) int {
+	if !sameArgs(args, []string{"api", "repos/" + ghReleaseRepo(spec.Release) + "/commits/" + edgeTag, "--jq", ".sha"}) {
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
 	}
-	jq := flagValue(args, "--jq")
-	switch jq {
-	case ".tagName":
-		if !sameArgs(args, []string{"release", "view", "--repo", ghReleaseRepo(spec.Release), "--json", "tagName", "--jq", ".tagName"}) {
-			return fail("unexpected gh invocation: %s", strings.Join(args, " "))
-		}
-		_, _ = io.WriteString(os.Stdout, spec.Release.Tag)
-	case ".body":
-		if !sameArgs(args, []string{"release", "view", spec.Release.Tag, "--repo", ghReleaseRepo(spec.Release), "--json", "body", "--jq", ".body"}) {
-			return fail("unexpected gh invocation: %s", strings.Join(args, " "))
-		}
-		_, _ = io.WriteString(os.Stdout, spec.Release.Notes)
-	default:
-		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	if spec.Release.EdgeCommit == "" {
+		return fail("ref not found: %s", args[1])
 	}
+	_, _ = io.WriteString(os.Stdout, spec.Release.EdgeCommit)
 	return 0
 }
 
+func ghReleaseView(spec ghSpec, args []string) int {
+	switch flagValue(args, "--jq") {
+	case ".tagName":
+		want := []string{"release", "view", "--repo", ghReleaseRepo(spec.Release), "--json", "tagName", "--jq", ".tagName"}
+		if spec.Release.Tag != "" && sameArgs(args, want) {
+			_, _ = io.WriteString(os.Stdout, spec.Release.Tag)
+			return 0
+		}
+	case ".body":
+		tag := ghReleaseTag(args)
+		notes, ok := ghReleaseNotes(spec.Release, tag)
+		want := []string{"release", "view", tag, "--repo", ghReleaseRepo(spec.Release), "--json", "body", "--jq", ".body"}
+		if ok && sameArgs(args, want) {
+			_, _ = io.WriteString(os.Stdout, notes)
+			return 0
+		}
+	}
+	return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+}
+
 func ghReleaseDownload(spec ghSpec, args []string) int {
-	if spec.Release.Tag == "" || spec.Release.FixtureDir == "" {
+	tag := ghReleaseTag(args)
+	fixtureDir, ok := ghReleaseFixtureDir(spec.Release, tag)
+	if !ok {
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
 	}
-	dir, ok := ghReleaseDownloadDir(spec.Release, args)
+	dir, ok := ghReleaseDownloadDir(spec.Release, tag, args)
 	if !ok {
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
 	}
@@ -290,7 +326,7 @@ func ghReleaseDownload(spec ghSpec, args []string) int {
 		return fail("create gh release directory: %v", err)
 	}
 	for _, name := range ghReleasePatterns(spec.Release) {
-		data, err := os.ReadFile(filepath.Join(spec.Release.FixtureDir, name))
+		data, err := os.ReadFile(filepath.Join(fixtureDir, name))
 		if err != nil {
 			return fail("read gh release fixture %s: %v", name, err)
 		}
@@ -301,7 +337,38 @@ func ghReleaseDownload(spec ghSpec, args []string) int {
 	return 0
 }
 
-const defaultGHReleaseRepo = "atqamz/hand"
+// The positional tag, absent when the caller asks for the latest release.
+func ghReleaseTag(args []string) string {
+	if len(args) < 3 || strings.HasPrefix(args[2], "-") {
+		return ""
+	}
+	return args[2]
+}
+
+func ghReleaseNotes(release GHRelease, tag string) (string, bool) {
+	switch {
+	case tag == edgeTag && release.EdgeCommit != "":
+		return release.EdgeNotes, true
+	case tag != "" && tag == release.Tag:
+		return release.Notes, true
+	}
+	return "", false
+}
+
+func ghReleaseFixtureDir(release GHRelease, tag string) (string, bool) {
+	switch {
+	case tag == edgeTag && release.EdgeDir != "":
+		return release.EdgeDir, true
+	case tag != "" && tag == release.Tag && release.FixtureDir != "":
+		return release.FixtureDir, true
+	}
+	return "", false
+}
+
+const (
+	defaultGHReleaseRepo = "atqamz/hand"
+	edgeTag              = "edge"
+)
 
 func ghReleaseRepo(release GHRelease) string {
 	if release.Repo != "" {
@@ -329,12 +396,12 @@ func ghReleaseAssetName(goos, goarch string) string {
 	return fmt.Sprintf("hand-%s-%s%s", goos, goarch, suffix)
 }
 
-func ghReleaseDownloadDir(release GHRelease, args []string) (string, bool) {
+func ghReleaseDownloadDir(release GHRelease, tag string, args []string) (string, bool) {
 	patterns := ghReleasePatterns(release)
 	if len(args) != 8+2*len(patterns) {
 		return "", false
 	}
-	expected := []string{"release", "download", release.Tag, "--repo", ghReleaseRepo(release), "--dir"}
+	expected := []string{"release", "download", tag, "--repo", ghReleaseRepo(release), "--dir"}
 	for i, want := range expected {
 		if args[i] != want {
 			return "", false

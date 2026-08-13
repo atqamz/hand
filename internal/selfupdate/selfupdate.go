@@ -37,10 +37,6 @@ func archiveBinaryName(goos string) string {
 	return binaryName
 }
 
-func LatestTag(repo string) (string, error) {
-	return latestTag(context.Background(), repo)
-}
-
 func latestTag(ctx context.Context, repo string) (string, error) {
 	out, err := runGH(ctx, "release", "view", "--repo", repo, "--json", "tagName", "--jq", ".tagName")
 	if err != nil {

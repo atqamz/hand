@@ -290,3 +290,52 @@ func TestGHReleaseDownloadCopiesOnlyRequestedPatterns(t *testing.T) {
 		t.Fatalf("unexpected asset stat error = %v, want file absent", err)
 	}
 }
+
+// The edge channel reads its freshness from a commit SHA rather than a tag, and
+// serves notes and assets off the same mutable `edge` release.
+func TestGHEdgeReleaseExposesCommitNotesAndAssets(t *testing.T) {
+	assets := t.TempDir()
+	if err := os.WriteFile(filepath.Join(assets, "checksums.txt"), []byte("checksums"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	GH{Release: GHRelease{
+		Tag:        "v0.5.0",
+		EdgeCommit: commit,
+		EdgeNotes:  "edge notes",
+		EdgeDir:    assets,
+		Patterns:   []string{"checksums.txt"},
+	}}.Install(t, Bin(t))
+
+	stable, errOut, code := runGH(t, "release", "view", "--repo", "atqamz/hand", "--json", "tagName", "--jq", ".tagName")
+	if code != 0 || errOut != "" || stable != "v0.5.0" {
+		t.Fatalf("release view = %q, %q (exit %d), want v0.5.0", stable, errOut, code)
+	}
+	sha, errOut, code := runGH(t, "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
+	if code != 0 || errOut != "" || sha != commit {
+		t.Fatalf("api commits/edge = %q, %q (exit %d), want %s", sha, errOut, code, commit)
+	}
+	notes, errOut, code := runGH(t, "release", "view", "edge", "--repo", "atqamz/hand", "--json", "body", "--jq", ".body")
+	if code != 0 || errOut != "" || notes != "edge notes" {
+		t.Fatalf("release view edge = %q, %q (exit %d), want the edge notes", notes, errOut, code)
+	}
+
+	dir := t.TempDir()
+	if _, errOut, code := runGH(t, "release", "download", "edge", "--repo", "atqamz/hand", "--dir", dir, "--clobber", "--pattern", "checksums.txt"); code != 0 {
+		t.Fatalf("release download edge = %q (exit %d), want success", errOut, code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "checksums.txt")); err != nil {
+		t.Fatalf("downloaded edge checksums: %v", err)
+	}
+}
+
+// An unpublished edge ref has to fail loudly: a silent empty SHA would read as a
+// valid edge identity and update every build forever.
+func TestGHRefusesAnEdgeRefItDoesNotPublish(t *testing.T) {
+	GH{Release: GHRelease{Tag: "v1.2.3"}}.Install(t, Bin(t))
+
+	_, errOut, code := runGH(t, "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
+	if code == 0 || !strings.Contains(errOut, "ref not found") {
+		t.Fatalf("api commits/edge = %q (exit %d), want a refusal", errOut, code)
+	}
+}

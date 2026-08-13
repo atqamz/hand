@@ -8,7 +8,8 @@ nix develop
 make build
 make test
 
-`nix develop` is optional and provides the full toolchain: Go, golangci-lint, gopls, gotools, and gcc (gcc is required because `make test` runs with `-race`, which needs CGO).
+`nix develop` is optional and provides the full toolchain: Go, golangci-lint, gopls, gotools, gcc, and jq.
+gcc is required because `make test` runs with `-race`, which needs CGO, and jq because `tests/edgepublish` runs the edge publish script through the `gh` fake, which shells out to `jq`.
 Without Nix, install those yourself.
 
 To dogfood the tool from its own checkout, enter `nix develop`, run `make build` whenever `./hand` is absent or stale, and launch any supported harness from the checkout root.
@@ -16,6 +17,24 @@ The tracked `AGENTS.md` tells a main session to initialize the checkout when `st
 
 Every directory `hand init` creates at the checkout root is gitignored, so the fleet home lives alongside the source without ever being committed.
 The tracked managed block is already current, so initialization preserves the source-owned instructions and leaves a clean checkout unchanged.
+
+## Dogfooding edge builds
+
+An installed edge release tracks the newest `main` commit that passed the complete CI gate.
+It is useful for maintainers and contributors who want to exercise the packaged application during normal work.
+
+Opt into the channel with:
+
+```sh
+hand update --channel edge
+```
+
+After the edge binary is installed, `hand update` continues following edge automatically.
+Use `hand update --channel stable` to switch back explicitly.
+Edge can contain unreleased behavior and state/schema changes, so switching back to an older stable binary may not be compatible with every migration performed while using edge.
+
+An executable built as `./hand` from the checkout remains the preferred path while actively changing or debugging `hand` itself.
+An installed edge release is the preferred path for dogfooding the newest CI-verified `main` during normal work.
 
 ## Making changes
 

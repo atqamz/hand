@@ -267,6 +267,36 @@ On Windows, download `hand-windows-amd64.zip`, extract `hand.exe`, and place it 
 
 See the [releases page](https://github.com/atqamz/hand/releases) for every asset.
 
+### Edge builds
+
+Edge is a rolling GitHub prerelease for maintainers and contributors who want the newest CI-verified `main` build.
+It is intentionally mutable and may contain unreleased behavior or state/schema changes.
+Stable users should continue using the normal release assets above.
+
+Install the Linux AMD64 edge asset directly:
+
+```sh
+curl -fsSLO https://github.com/atqamz/hand/releases/download/edge/hand-linux-amd64.tar.gz
+tar xzf hand-linux-amd64.tar.gz
+install -m755 hand ~/.local/bin/hand
+```
+
+Opt into edge from an existing installation:
+
+```sh
+hand update --channel edge
+```
+
+Check for an edge update without installing it:
+
+```sh
+hand update --check --channel edge
+```
+
+After an edge binary is installed, plain `hand update` continues tracking edge.
+Switch back explicitly with `hand update --channel stable`.
+That switch is a downgrade from unreleased development state, so it may not be runtime-compatible with every future migration performed while using edge.
+
 ### Nix
 
 Install into your profile:
@@ -356,7 +386,18 @@ Check without installing:
 hand update --check
 ```
 
-When run inside a fleet home, an update also refreshes the generated section of `AGENTS.md` without overwriting your own additions. Other commands check for a newer release at most once a day and print a one-line notice when one is available.
+Without `--channel`, the installed build determines the target channel.
+
+| Installed build | `hand update` target |
+| --- | --- |
+| stable | stable |
+| edge | edge |
+| dev | stable |
+
+Use `--channel stable` or `--channel edge` for an explicit target or channel switch.
+The edge channel compares embedded commit identities, while stable compares release SemVer versions.
+
+When run inside a fleet home, an update also refreshes the generated section of `AGENTS.md` without overwriting your own additions. Other commands check the installed build's channel for a newer build at most once a day and print a one-line notice when one is available.
 
 ## Architecture
 

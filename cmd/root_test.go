@@ -9,9 +9,18 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
+
+func devBuild(version string) selfupdate.BuildInfo {
+	return selfupdate.BuildInfo{Version: version, Channel: selfupdate.ChannelDev}
+}
+
+func stableBuild(version string) selfupdate.BuildInfo {
+	return selfupdate.BuildInfo{Version: version, Channel: selfupdate.ChannelStable}
+}
 
 func exitCodeFor(t *testing.T, err error) int {
 	t.Helper()
@@ -41,7 +50,7 @@ func TestUsageArgsPassesThroughValidArgs(t *testing.T) {
 }
 
 func TestRootRejectsUnknownCommand(t *testing.T) {
-	root := newRootCmd("test")
+	root := newRootCmd(devBuild("test"))
 	root.SetArgs([]string{"bogus-command"})
 	root.SetOut(new(strings.Builder))
 	root.SetErr(new(strings.Builder))
@@ -60,7 +69,7 @@ func TestRootRejectsUnknownCommand(t *testing.T) {
 func TestGroupRejectsUnknownSubcommand(t *testing.T) {
 	for _, group := range []string{"project", "completion"} {
 		t.Run(group, func(t *testing.T) {
-			root := newRootCmd("test")
+			root := newRootCmd(devBuild("test"))
 			root.SetArgs([]string{group, "bogus-subcommand"})
 			root.SetOut(new(strings.Builder))
 			root.SetErr(new(strings.Builder))
@@ -76,7 +85,7 @@ func TestGroupRejectsUnknownSubcommand(t *testing.T) {
 }
 
 func TestGroupBareInvocationShowsHelpWithoutError(t *testing.T) {
-	root := newRootCmd("test")
+	root := newRootCmd(devBuild("test"))
 	root.SetArgs([]string{"project"})
 	var out strings.Builder
 	root.SetOut(&out)
@@ -90,7 +99,7 @@ func TestGroupBareInvocationShowsHelpWithoutError(t *testing.T) {
 }
 
 func TestRootRejectsBadArgCount(t *testing.T) {
-	root := newRootCmd("test")
+	root := newRootCmd(devBuild("test"))
 	root.SetArgs([]string{"spawn", "onlyonearg"})
 	root.SetOut(new(strings.Builder))
 	root.SetErr(new(strings.Builder))
@@ -101,7 +110,7 @@ func TestRootRejectsBadArgCount(t *testing.T) {
 }
 
 func TestRootRejectsUnknownFlag(t *testing.T) {
-	root := newRootCmd("test")
+	root := newRootCmd(devBuild("test"))
 	root.SetArgs([]string{"spawn", "--bogus", "a", "b"})
 	root.SetOut(new(strings.Builder))
 	root.SetErr(new(strings.Builder))
@@ -113,7 +122,7 @@ func TestRootRejectsUnknownFlag(t *testing.T) {
 
 func runBareRoot(t *testing.T) string {
 	t.Helper()
-	root := newRootCmd("test")
+	root := newRootCmd(devBuild("test"))
 	root.SetArgs([]string{})
 	var out strings.Builder
 	root.SetOut(&out)
@@ -201,7 +210,7 @@ func TestBareInvocationRefusesWorkerRoleBeforeReadingContext(t *testing.T) {
 	}
 	t.Setenv(harness.RoleEnv, harness.WorkerRole)
 
-	_, _, err := executeRootForTest(t, "test", nil)
+	_, _, err := executeRootForTest(t, devBuild("test"), nil)
 	assertExitCode(t, err, 3)
 	if want := "supervisor session bootstrap is unavailable when HAND_ROLE=worker"; !strings.Contains(err.Error(), want) {
 		t.Fatalf("err = %q, want %q", err, want)

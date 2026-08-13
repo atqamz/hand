@@ -125,7 +125,11 @@ func writeOwnedSessionHook(t *testing.T, home string) {
 // rather than a set of lines that appear or do not.
 func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
 	doc := "current: v0.1.0\n" +
+		"current_channel: stable\n" +
+		"current_commit: unknown\n" +
 		"latest: v0.5.0\n" +
+		"latest_channel: stable\n" +
+		"latest_commit: unknown\n" +
 		"update_available: true\n" +
 		"updated: true\n" +
 		"agents_md: " + agentsMD + "\n" +
@@ -148,7 +152,7 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -188,7 +192,7 @@ func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -233,7 +237,7 @@ func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -266,7 +270,7 @@ func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -294,7 +298,7 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -325,7 +329,7 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -355,7 +359,7 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -383,7 +387,7 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -411,7 +415,7 @@ func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -448,7 +452,7 @@ func TestUpdatePreservesOwnedSessionHookWhenAgentsRefreshFails(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -493,7 +497,7 @@ func TestUpdateReportsVersionsWhenSessionHookRetirementFails(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new binary contents"))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -515,8 +519,16 @@ func TestUpdateReportsVersionsWhenSessionHookRetirementFails(t *testing.T) {
 }
 
 func checkedUpdateDoc(current, latest string, available bool) string {
+	currentChannel := "stable"
+	if current == "dev" {
+		currentChannel = "dev"
+	}
 	doc := "current: " + current + "\n" +
+		"current_channel: " + currentChannel + "\n" +
+		"current_commit: unknown\n" +
 		"latest: " + latest + "\n" +
+		"latest_channel: stable\n" +
+		"latest_commit: unknown\n" +
 		fmt.Sprintf("update_available: %t\n", available) +
 		"updated: false\n" +
 		"agents_md: not-applicable\n" +
@@ -532,7 +544,7 @@ func checkedUpdateDoc(current, latest string, available bool) string {
 func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.5.0")
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check"})
@@ -550,7 +562,7 @@ func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
 func TestUpdateCheckReportsUpToDate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.1.0")
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check"})
@@ -566,7 +578,7 @@ func TestUpdateCheckReportsUpToDate(t *testing.T) {
 func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.1.0")
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
@@ -582,7 +594,7 @@ func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
 func TestUpdateCheckReportsAvailableUpdateForDevBuild(t *testing.T) {
 	writeFakeGHReleaseView(t, "v0.5.0")
 
-	cmd := newUpdateCmd("dev")
+	cmd := newUpdateCmd(devBuild("dev"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check"})
@@ -598,7 +610,7 @@ func TestUpdateCheckReportsAvailableUpdateForDevBuild(t *testing.T) {
 func TestUpdatePropagatesLatestTagError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	cmd := newUpdateCmd("v0.1.0")
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
 	cmd.SetArgs([]string{"--check"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("want error when gh is unreachable")
