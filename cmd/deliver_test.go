@@ -25,6 +25,15 @@ func TestDeliverRecordsTheReasonOnTheTask(t *testing.T) {
 	if !strings.Contains(out.String(), "result: delivered\n") {
 		t.Fatalf("out = %q, want a delivered confirmation", out.String())
 	}
+	for _, want := range []string{
+		"id: task-1\n",
+		"reason: PR 597 offered to kunchenguid/no-mistakes\n",
+		"delivered: ",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("out = %q, want field %q", out.String(), want)
+		}
+	}
 
 	got, err := state.Read(home, "task-1")
 	if err != nil {

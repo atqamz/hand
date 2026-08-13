@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
@@ -116,6 +117,32 @@ func TestSpawnConfiguredHarnessWinsOverDetectedHarness(t *testing.T) {
 	}
 }
 
+func TestSpawnExplicitHarnessOverridesConfiguredAndDetectedHarness(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr(harness.Claude))
+	t.Setenv("HAND_HARNESS", harness.Codex)
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "harness"), []byte(harness.Codex+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj", "--harness", harness.Claude})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Harness != harness.Claude {
+		t.Fatalf("harness = %q, want explicit %q", got.Harness, harness.Claude)
+	}
+}
+
 func TestSpawnUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.T) {
 	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	t.Setenv("HAND_HARNESS", "unknown")
@@ -144,6 +171,8 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 
 	cmd := newSpawnCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"task-1", "myproj"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -164,6 +193,18 @@ func TestSpawnHappyPath(t *testing.T) {
 	}
 	if got.LeaseID != "lease-1" {
 		t.Fatalf("got lease id %q, want the identity treehouse handed back", got.LeaseID)
+	}
+	for _, want := range []string{
+		"id: task-1\n",
+		"result: spawned\n",
+		"project: myproj\n",
+		"kind: ship\n",
+		"harness: claude\n",
+		"worktree: " + axi.Value(wt) + "\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output = %q, want field %q", out.String(), want)
+		}
 	}
 	calls, err := os.ReadFile(callLog)
 	if err != nil {
@@ -344,6 +385,9 @@ func TestSpawnRejectsUnrecognizedHarness(t *testing.T) {
 	}
 	if code := exitCodeFor(t, err); code != 2 {
 		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+	if _, statErr := os.Stat(os.Getenv("TREEHOUSE_CALL_LOG")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("treehouse was invoked for an invalid explicit harness: %v", statErr)
 	}
 }
 

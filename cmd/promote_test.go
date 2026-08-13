@@ -177,13 +177,17 @@ func TestPromoteUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.
 func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr("claude", "done"))
+	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr(harness.Codex, "done"))
 
 	scout, err := state.Read(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	scout.DoneVerified = true
+	scout.Harness = harness.Claude
+	scout.Model = "scout-model"
+	scout.Effort = "scout-effort"
+	scout.LeaseID = "lease-old"
 	scout.ReportOffset = 42
 	scout.ReportDigest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 	stale := time.Now().Add(-6 * time.Hour).UTC().Format(time.RFC3339)
@@ -203,7 +207,7 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	}
 
 	cmd := newPromoteCmd()
-	cmd.SetArgs([]string{"task-1"})
+	cmd.SetArgs([]string{"task-1", "--harness", harness.Codex, "--model", "ship-model", "--effort", "ship-effort"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +218,15 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	}
 	if got.DoneVerified {
 		t.Fatal("DoneVerified = true, want the scout's marker cleared for the ship run")
+	}
+	if got.Harness != harness.Codex || got.Model != "ship-model" || got.Effort != "ship-effort" {
+		t.Fatalf("execution tier = %q/%q/%q, want the newly resolved ship values", got.Harness, got.Model, got.Effort)
+	}
+	if got.Worktree != newWt || got.LeaseID != "lease-1" {
+		t.Fatalf("worktree/lease = %q/%q, want the new ship execution identity", got.Worktree, got.LeaseID)
+	}
+	if got.Herdr.Session != "default" || got.Herdr.WorkspaceID != "wA" || got.Herdr.TabID != "wA:tNew" || got.Herdr.PaneID != "wA:pNew" {
+		t.Fatalf("herdr = %+v, want the new ship execution identity", got.Herdr)
 	}
 	if got.ReportOffset != 42 {
 		t.Fatalf("ReportOffset = %d, want the scout's offset carried forward", got.ReportOffset)
@@ -376,6 +389,38 @@ func TestPromoteFailureClosesWorkspaceItCreated(t *testing.T) {
 	}
 	if got.Kind != state.KindScout {
 		t.Fatalf("kind = %q, want the task left as a scout", got.Kind)
+	}
+}
+
+func TestPromoteKeepsShipAfterScoutCleanupFailure(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	herdr := promoteHerdr("claude", "done")
+	herdr.Responses = []faketool.HerdrResponse{{Command: "tab close", Exit: 1}}
+	home := setupPromoteHome(t, oldWt, newWt, herdr)
+
+	var errOut strings.Builder
+	var out strings.Builder
+	cmd := newPromoteCmd()
+	cmd.SetErr(&errOut)
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != state.KindShip || got.Worktree != newWt || got.Herdr.TabID != "wA:tNew" {
+		t.Fatalf("task after scout cleanup failure = %+v, want the durably written ship execution", got)
+	}
+	if !strings.Contains(errOut.String(), "herdr tab close failed") {
+		t.Fatalf("stderr = %q, want a cleanup warning", errOut.String())
+	}
+	if !strings.Contains(out.String(), "result: promoted\n") {
+		t.Fatalf("output = %q, want promotion success after cleanup warning", out.String())
 	}
 }
 
