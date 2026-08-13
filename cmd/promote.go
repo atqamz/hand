@@ -39,10 +39,6 @@ func newPromoteCmd() *cobra.Command {
 			}
 			defer release()
 
-			t, err := state.Read(home, id)
-			if err != nil {
-				return asPrecondition(err)
-			}
 			history, err := state.ReadHistory(home, id)
 			if err != nil {
 				return asPrecondition(err)
@@ -50,6 +46,7 @@ func newPromoteCmd() *cobra.Command {
 			if history.ActiveAttempt == nil {
 				return &ExitError{Err: fmt.Errorf("task %q has no active scout attempt", id), Code: 3}
 			}
+			t := history.Task
 			active := *history.ActiveAttempt
 			if t.Kind != state.KindScout {
 				return &ExitError{Err: fmt.Errorf("task %q is not a scout", id), Code: 3}

@@ -140,11 +140,6 @@ func newReopenCmd() *cobra.Command {
 				return reportSpawnCleanup(fmt.Errorf("write reopened attempt: %w", err), worktree.Return(wt, true))
 			}
 			started = true
-			if err := state.ClearHoldIfKind(homeDir, id, state.HoldKindLimit); err != nil {
-				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear usage-limit hold failed: %v\n", err); printErr != nil {
-					return printErr
-				}
-			}
 
 			var doc axi.Doc
 			doc.Field("id", id)

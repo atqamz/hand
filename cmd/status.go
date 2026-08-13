@@ -158,8 +158,8 @@ type attemptJSON struct {
 	Worktree  string `json:"worktree,omitempty"`
 }
 
-// Wraps the task rows with the fleet's holds, which name any id - not only a live task - so a torn-down
-// task's still-open hold keeps surfacing here after its task row is gone.
+// Wraps the task rows with the fleet's holds, which name any id - not only an open task - so a
+// torn-down task's still-open hold keeps surfacing here after the task leaves the open fleet.
 type fleetJSON struct {
 	// Always present, zero included, so an empty fleet is a positive statement ("no tasks") and not the
 	// same absence of output a broken command would also produce.
@@ -328,15 +328,17 @@ func appendFleetState(doc *axi.Doc, views []taskView, holds []state.Hold, cols [
 }
 
 func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly bool) ([]taskView, []state.Hold, error) {
-	listTasks := state.ListOpen
+	listHistories := state.ListOpenHistories
 	listHolds := state.ListHolds
 	listProjects := project.List
 	if readOnly {
-		listTasks = state.ListReadOnly
+		listHistories = state.ListOpenHistoriesReadOnly
 		listHolds = state.ListHoldsReadOnly
 		listProjects = project.ListReadOnly
 	}
-	tasks, err := listTasks(home)
+	// The one attempt-history read the fleet view makes: rendering re-reads nothing, so a fleet costs
+	// one store handle rather than one per task.
+	histories, err := listHistories(home)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -363,12 +365,10 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly 
 	}
 	runPRs := newGateRunReader()
 
-	views := make([]taskView, 0, len(tasks))
-	for _, t := range tasks {
-		v, _, err := buildTaskView(home, client, t, false, readOnly)
-		if err != nil {
-			return nil, nil, err
-		}
+	views := make([]taskView, 0, len(histories))
+	for _, history := range histories {
+		t := history.Task
+		v, _ := buildTaskView(home, client, history, false)
 		p, registered := projectByName[t.Project]
 		v.gateIssue = gateRunIssue(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)
@@ -422,21 +422,13 @@ func unacknowledged(home string, t state.Task, reported state.ReportLine, report
 	return state.UnacknowledgedTerminalReport(home, t.ID, state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest})
 }
 
-// Reads everything both status views derive from one task, and returns the report lines alongside so the
-// detail view's history block and the summary line above it can never come from two reads of the file.
-func buildTaskView(home string, client *herdr.Client, t state.Task, full, readOnly bool) (taskView, []state.ReportLine, error) {
-	var attempt *state.Attempt
-	var attempts []state.Attempt
-	readHistory := state.ReadHistory
-	if readOnly {
-		readHistory = state.ReadHistoryReadOnly
-	}
-	history, err := readHistory(home, t.ID)
-	if err != nil {
-		return taskView{}, nil, fmt.Errorf("read task history %q: %w", t.ID, err)
-	}
-	attempts = history.Attempts
-	attempt = history.ActiveAttempt
+// Derives everything both status views show from one already-read history, and returns the report lines
+// alongside so the detail view's history block and the summary line above it can never come from two
+// reads of the file.
+func buildTaskView(home string, client *herdr.Client, history state.TaskHistory, full bool) (taskView, []state.ReportLine) {
+	t := history.Task
+	attempts := history.Attempts
+	attempt := history.ActiveAttempt
 	if attempt == nil && len(attempts) != 0 {
 		attempt = &attempts[len(attempts)-1]
 	}
@@ -468,15 +460,23 @@ func buildTaskView(home string, client *herdr.Client, t state.Task, full, readOn
 	if reportedOK {
 		v.reportedState = reported.State
 	}
-	return v, lines, nil
+	return v, lines
+}
+
+// Bounds the attempt window both status renderers show, so the JSON and plain-text views can never
+// disagree about how much of a task's execution history is on screen.
+const attemptHistoryLen = 5
+
+func recentAttempts(attempts []state.Attempt) []state.Attempt {
+	if len(attempts) > attemptHistoryLen {
+		return attempts[len(attempts)-attemptHistoryLen:]
+	}
+	return attempts
 }
 
 func (v taskView) json() statusJSON {
 	e := v.execution()
-	attempts := v.attempts
-	if len(attempts) > 5 {
-		attempts = attempts[len(attempts)-5:]
-	}
+	attempts := recentAttempts(v.attempts)
 	history := make([]attemptJSON, len(attempts))
 	for i, attempt := range attempts {
 		history[i] = attemptJSON{Ordinal: attempt.Ordinal, Lifecycle: string(attempt.Lifecycle), Harness: attempt.Harness, Model: attempt.Model, Effort: attempt.Effort, Worktree: attempt.Worktree}
@@ -505,19 +505,17 @@ func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
 }
 
 func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool, cols []axi.Column[taskView]) error {
-	t, err := state.Read(home, id)
+	history, err := state.ReadHistory(home, id)
 	if err != nil {
 		return asPrecondition(err)
 	}
-	t = detectPRForStatus(cmd.Context(), home, t)
+	history.Task = detectPRForStatus(cmd.Context(), home, history.Task)
+	t := history.Task
 
 	// An unreadable report degrades exactly as it does in the fleet view: the
 	// fault is named on the report field and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
-	v, reportLines, err := buildTaskView(home, client, t, full, false)
-	if err != nil {
-		return err
-	}
+	v, reportLines := buildTaskView(home, client, history, full)
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
 	hold, held, err := state.ReadHold(home, id)
@@ -575,10 +573,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 }
 
 func attemptHistoryBlock(v taskView) []string {
-	attempts := v.attempts
-	if len(attempts) > 5 {
-		attempts = attempts[len(attempts)-5:]
-	}
+	attempts := recentAttempts(v.attempts)
 	lines := make([]string, len(attempts))
 	for i, attempt := range attempts {
 		lines[i] = fmt.Sprintf("Attempt %d: %s (%s, %s, %s)", attempt.Ordinal, attempt.Lifecycle, orNone(attempt.Harness), orNone(attempt.Model), orNone(attempt.Worktree))

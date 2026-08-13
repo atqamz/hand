@@ -247,7 +247,7 @@ func TestWriteOverwritesExisting(t *testing.T) {
 
 // The read-only fleet view is what `hand session start` renders, and a torn-down task
 // belongs to history: it stays inspectable by id without crowding the fleet overview.
-func TestListReadOnlyShowsOpenTasksOnly(t *testing.T) {
+func TestListOpenHistoriesReadOnlyShowsOpenTasksOnly(t *testing.T) {
 	dir := t.TempDir()
 	for _, id := range []string{"open-task", "torn-down"} {
 		if err := CreateTask(dir, Task{ID: id}); err != nil {
@@ -268,15 +268,14 @@ func TestListReadOnlyShowsOpenTasksOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tasks, err := ListReadOnly(dir)
+	histories, err := ListOpenHistoriesReadOnly(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 1 || tasks[0].ID != "open-task" {
-		t.Fatalf("ListReadOnly = %+v, want the open task only", tasks)
+	if len(histories) != 1 || histories[0].Task.ID != "open-task" {
+		t.Fatalf("ListOpenHistoriesReadOnly = %+v, want the open task only", histories)
 	}
-	history, err := ReadHistoryReadOnly(dir, "open-task")
-	if err != nil || history.ActiveAttempt == nil || history.ActiveAttempt.Harness != "claude" {
-		t.Fatalf("active attempt was not retained separately: %+v, %v", history, err)
+	if histories[0].ActiveAttempt == nil || histories[0].ActiveAttempt.Harness != "claude" {
+		t.Fatalf("active attempt was not carried with the open task: %+v", histories[0])
 	}
 }

@@ -139,7 +139,7 @@ func readHistory(homeDir, id string, readOnly bool) (TaskHistory, error) {
 	defer func() { _ = db.Close() }()
 	history, found, err := db.ReadTaskHistory(id)
 	if err != nil {
-		return TaskHistory{}, err
+		return TaskHistory{}, fmt.Errorf("read task history %q: %w", id, err)
 	}
 	if !found {
 		return TaskHistory{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
@@ -262,12 +262,15 @@ func List(homeDir string) ([]Task, error) {
 }
 
 func ListOpen(homeDir string) ([]Task, error) {
-	db, err := store.Open(homeDir)
+	histories, err := ListOpenHistories(homeDir)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = db.Close() }()
-	return openTasks(db)
+	tasks := make([]Task, 0, len(histories))
+	for _, history := range histories {
+		tasks = append(tasks, history.Task)
+	}
+	return tasks, nil
 }
 
 func ListOpenHistories(homeDir string) ([]TaskHistory, error) {
@@ -279,27 +282,15 @@ func ListOpenHistories(homeDir string) ([]TaskHistory, error) {
 	return db.ListOpenTaskHistories()
 }
 
-// ListReadOnly is ListOpen for a presentation reader: same open-only fleet, off a handle that
-// cannot create schema or import legacy state. A torn-down task is history, not fleet.
-func ListReadOnly(homeDir string) ([]Task, error) {
+// ListOpenHistoriesReadOnly is ListOpenHistories for a presentation reader: same open-only fleet, off
+// a handle that cannot create schema or import legacy state. A torn-down task is history, not fleet.
+func ListOpenHistoriesReadOnly(homeDir string) ([]TaskHistory, error) {
 	db, err := store.OpenReadOnly(homeDir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	return openTasks(db)
-}
-
-func openTasks(db *store.DB) ([]Task, error) {
-	histories, err := db.ListOpenTaskHistories()
-	if err != nil {
-		return nil, err
-	}
-	tasks := make([]Task, 0, len(histories))
-	for _, history := range histories {
-		tasks = append(tasks, history.Task)
-	}
-	return tasks, nil
+	return db.ListOpenTaskHistories()
 }
 
 // Delete removes a task's row along with its report channel at state/<id>.status, leaving

@@ -199,9 +199,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		}
 		status := pane.AgentStatus
 
-		// Tracking is keyed by task identity, not by ID: an ID torn down and respawned between two
-		// ticks is a different task. Same hazard as a surviving report channel, one layer in - see
-		// A new attempt on the same task ID is a new execution identity.
+		// Tracking is keyed by task identity, not by ID: a reopen or a promote gives the same ID a new
+		// attempt, and a new attempt is a new execution identity. Same hazard as a surviving report
+		// channel, one layer in.
 		ts, tracked := states[t.ID]
 		// Inheriting the previous run's TaskState would suppress the new task's verified done forever -
 		// syncTaskState writes that inherited done_verified onto the fresh row, making the suppression
@@ -626,6 +626,19 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		_, _ = fmt.Fprintf(errOut, "watch: read task %s failed: %v\n", id, err)
 		return
 	}
+	t.ReportOffset = ts.ReportCursor.Offset
+	t.ReportDigest = ts.ReportCursor.Digest
+	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
+	// The report cursor is task-owned and lands before the attempt is resolved: dropping it because a
+	// task terminalized mid-tick would replay lines this watcher already consumed, which re-raises
+	// resolved decisions and can auto-record a stale PR URL.
+	if err := state.UpdateTask(home, t); err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
+		return
+	}
+	ts.PersistedCursor = ts.ReportCursor
+	ts.PersistedPRMerged = ts.PRMerged
+
 	active, err := state.ActiveAttempt(home, id)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read active attempt %s failed: %v\n", id, err)
@@ -635,9 +648,6 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	// erase its restamp and leave the disk value matching what this watcher persisted, so no later
 	// tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, active, now)
-	t.ReportOffset = ts.ReportCursor.Offset
-	t.ReportDigest = ts.ReportCursor.Digest
-	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
 	active.DoneVerified = active.DoneVerified || ts.DoneVerified
 	active.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
 	active.StatusChangedFor = string(ts.Status)
@@ -646,16 +656,10 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	active.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
 	active.UsageLimitRetryAt = limitRetryStamp(ts.LimitRetryAt)
 	active.UsageLimitAttempts = ts.LimitAttempts
-	if err := state.UpdateTask(home, t); err != nil {
-		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
-		return
-	}
 	if err := state.UpdateAttempt(home, active); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist attempt %s failed: %v\n", id, err)
 		return
 	}
-	ts.PersistedCursor = ts.ReportCursor
-	ts.PersistedPRMerged = ts.PRMerged
 	ts.PersistedDoneVerified = ts.DoneVerified
 	ts.PersistedChangedAt = ts.ChangedAt
 	ts.PersistedChangedFor = string(ts.Status)

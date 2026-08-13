@@ -126,8 +126,8 @@ type Project struct {
 }
 
 // Hold is its own row keyed by an arbitrary id, not a foreign key into task: it exists for a
-// question left open by work whose task row hand teardown already removed. BlockedOn carries
-// the id a HoldKindBlocked hold waits on, empty for HoldKindOperator.
+// question left open by work hand teardown already terminalized, or by no task at all. BlockedOn
+// carries the id a HoldKindBlocked hold waits on, empty for HoldKindOperator.
 type Hold struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`

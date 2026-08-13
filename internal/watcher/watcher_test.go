@@ -1636,6 +1636,53 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 	}
 }
 
+// The report cursor is task-owned, so a task terminalized between this tick's read and its write-back
+// must not lose it: a surviving report log replayed from offset 0 re-raises resolved decisions and can
+// auto-record a stale PR URL onto the id's next attempt.
+func TestSyncTaskStateKeepsTheReportCursorWhenTheAttemptIsGone(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: now.UTC().Format(time.RFC3339)},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if err := state.TransitionAttempt(home, attempt.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TransitionTask(home, "task-1", state.TaskOpen, state.TaskTerminal); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := &TaskState{
+		Status:          herdr.StatusWorking,
+		Probed:          true,
+		ChangedAt:       now,
+		PersistedPaneID: "p1",
+		ReportCursor:    state.ReportCursor{Offset: 128, Digest: "consumed-digest"},
+	}
+
+	var errBuf bytes.Buffer
+	syncTaskState(home, "task-1", ts, now, &errBuf)
+	if !strings.Contains(errBuf.String(), "read active attempt task-1 failed") {
+		t.Fatalf("errOut = %q, want the missing attempt named", errBuf.String())
+	}
+
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.ReportOffset != 128 || history.Task.ReportDigest != "consumed-digest" {
+		t.Fatalf("report cursor = %d/%q, want the consumed cursor persisted", history.Task.ReportOffset, history.Task.ReportDigest)
+	}
+	if ts.PersistedCursor != ts.ReportCursor {
+		t.Fatalf("ts.PersistedCursor = %+v, want the write it just made mirrored", ts.PersistedCursor)
+	}
+}
+
 // Matches want as a whole output line, so "reported-done <id>" and "done <id>" - one a substring of
 // the other - cannot be confused.
 func hasEventLine(out, want string) bool {
