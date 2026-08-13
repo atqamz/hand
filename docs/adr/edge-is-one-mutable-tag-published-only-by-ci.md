@@ -30,7 +30,9 @@ That job serializes in a non-canceling concurrency group, rechecks candidate anc
 Candidate assets are uploaded under unique staging names and verified before replacing the exact download names, so an upload failure leaves the previous edge asset set intact.
 The first publication runs against a temporary `edge-bootstrap-<commit>` release resolved by database id, because a draft reserves its tag name without creating the ref and claiming `edge` before the assets exist would invert that order.
 Rollback undoes only the renames it recorded.
-A run that finds the exact download names incomplete restores one interrupted candidate's whole `edge-previous-<commit>-*` group, and refuses to publish when no single group is complete, because an asset set assembled from two commits fails checksum verification on every platform.
+A run that finds the exact download names incomplete recovers from exactly one interrupted candidate's `edge-previous-<commit>-*` group: a group holding all six replaces the whole set, and a group holding exactly the missing names fills the gap an interrupted backup loop left.
+It refuses before any mutation when two groups qualify or none does, because an asset set assembled from two commits fails checksum verification on every platform.
+Names that carry no managed download-name suffix belong to nobody and are ignored rather than treated as a failed group.
 
 ## Rejected alternatives
 
@@ -51,4 +53,7 @@ New embedded build metadata must be set by the Makefile, `flake.nix`, and both w
 
 Cached update state is scoped to the channel that wrote it, so switching channels cannot answer from the other channel's remembered result.
 
-Two interrupted runs in a row can leave no complete backup group, and publication then stops until a maintainer reassembles the set by hand rather than shipping a mixed one.
+Two interrupted runs in a row leave two backup groups, and publication then stops until a maintainer reassembles the set by hand rather than shipping a mixed one.
+
+The publish script uses associative arrays, so it needs bash 4 and runs only on the ubuntu runner.
+`tests/edgepublish` skips on the macOS system bash 3.2 for that reason alone, and Linux keeps the coverage.

@@ -18,8 +18,8 @@ type GHReleaseAsset struct {
 	Name string `json:"name"`
 }
 
-// GHReleaseRecord is one release in the mutable store, draft included: the
-// release list endpoint answers with drafts and the tag endpoint does not.
+// GHReleaseRecord is one release in the mutable store, draft included: only
+// gh release list reports drafts, and the REST release list omits them.
 type GHReleaseRecord struct {
 	ID         int              `json:"id"`
 	TagName    string           `json:"tag_name"`
@@ -242,10 +242,13 @@ func ghReleaseAPI(spec ghSpec, args []string) (int, bool) {
 	}
 	switch {
 	case rest == "" && method == "GET":
-		if store.Releases == nil {
-			return ghEmit(args, []GHReleaseRecord{}), true
+		published := []GHReleaseRecord{}
+		for _, release := range store.Releases {
+			if !release.Draft {
+				published = append(published, release)
+			}
 		}
-		return ghEmit(args, store.Releases), true
+		return ghEmit(args, published), true
 	case strings.HasSuffix(rest, "/assets") && method == "GET":
 		id, err := strconv.Atoi(strings.TrimSuffix(rest, "/assets"))
 		if err != nil {
@@ -336,6 +339,15 @@ func ghReleaseCommand(spec ghSpec, command string, args []string) (int, bool) {
 		return ghReleaseUpload(spec, args, store, tag), true
 	case "release edit":
 		return ghReleaseEdit(spec, args, store, tag), true
+	case "release list":
+		return ghReleaseList(args, store), true
+	case "release delete":
+		release := store.byTag(tag)
+		if release == nil {
+			return fail("release not found: %s", tag), true
+		}
+		store.dropRelease(release.ID)
+		return ghReleaseSave(spec, store), true
 	case "release view":
 		if flagValue(args, "--json") != "databaseId" {
 			return 0, false
@@ -349,11 +361,26 @@ func ghReleaseCommand(spec ghSpec, command string, args []string) (int, bool) {
 	return 0, false
 }
 
+// Unlike the REST list, gh release list reports drafts, which is the only way
+// the publish script can see a bootstrap draft a killed run left behind.
+func ghReleaseList(args []string, store *GHReleaseStore) int {
+	listed := []map[string]any{}
+	for _, release := range store.Releases {
+		listed = append(listed, map[string]any{
+			"tagName": release.TagName,
+			"isDraft": release.Draft,
+		})
+	}
+	return ghEmit(args, listed)
+}
+
 func ghReleaseCreate(spec ghSpec, args []string, store *GHReleaseStore, tag string) int {
 	if tag == "" {
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
 	}
-	if store.byTag(tag) != nil {
+	// A second draft for a tag another draft already reserves is accepted and
+	// duplicated, because a draft holds the name without creating the ref.
+	if existing := store.byTag(tag); existing != nil && !existing.Draft {
 		return fail("a release with tag %s already exists", tag)
 	}
 	store.Releases = append(store.Releases, GHReleaseRecord{

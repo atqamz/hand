@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -46,6 +47,9 @@ func setup(t *testing.T, store *faketool.GHReleaseStore) harness {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("%s is not on PATH", tool)
 		}
+	}
+	if major := bashMajor(t); major < 4 {
+		t.Skipf("bash %d has no associative arrays, which the publish script needs", major)
 	}
 	bin := faketool.Bin(t)
 	dir := filepath.Join(t.TempDir(), "work")
@@ -155,6 +159,69 @@ func TestRecoveryRestoresOneBackupGroupWholeAfterPartialPromotion(t *testing.T) 
 	}
 }
 
+// SIGTERM, which is how a cancelled job dies without running the rollback trap,
+// can land inside the backup loop. The names it had already renamed survive only
+// as one group covering exactly the gap, and that gap is recoverable.
+func TestRecoveryFillsTheGapOneInterruptedBackupLoopLeft(t *testing.T) {
+	backed, kept := releaseAssets[:3], releaseAssets[3:]
+	want := map[string]int{}
+	var assets []faketool.GHReleaseAsset
+	for i, name := range kept {
+		want[name] = 200 + i
+		assets = append(assets, faketool.GHReleaseAsset{ID: want[name], Name: name})
+	}
+	for i, name := range backed {
+		want[name] = 100 + i
+		assets = append(assets, faketool.GHReleaseAsset{ID: want[name], Name: "edge-previous-" + interrupted + "-" + name})
+	}
+	for i, name := range releaseAssets {
+		assets = append(assets, faketool.GHReleaseAsset{ID: 300 + i, Name: "edge-staging-" + interrupted + "-" + name})
+	}
+	h := setup(t, &faketool.GHReleaseStore{
+		NextID:   1000,
+		Releases: []faketool.GHReleaseRecord{{ID: 1, TagName: "edge", Prerelease: true, Assets: assets}},
+	})
+
+	// Stops the run right after reconciliation and before the trap that would
+	// roll back, so the assertion sees the set recovery alone produced.
+	if err := os.Remove(filepath.Join(h.dir, "checksums.txt")); err != nil {
+		t.Fatal(err)
+	}
+	stderr, _ := h.publish(t)
+	if strings.Contains(stderr, "no single backup group") {
+		t.Fatalf("stderr = %q, want the one group covering the gap to be recovered, not refused", stderr)
+	}
+
+	store := faketool.GHReleases(t, h.bin)
+	requireExactSet(t, store.AssetNames("edge"))
+	release, _ := store.Release("edge")
+	for _, asset := range release.Assets {
+		if asset.ID != want[asset.Name] {
+			t.Fatalf("%s is asset %d, want %d: recovery replaced an asset it should have left alone",
+				asset.Name, asset.ID, want[asset.Name])
+		}
+	}
+}
+
+// Refusing on any edge-previous-* name at all stops publication over an asset
+// nobody manages, so only names carrying a managed download-name suffix count.
+func TestUnmanagedBackupNamesDoNotBlockPublication(t *testing.T) {
+	h := setup(t, &faketool.GHReleaseStore{
+		NextID: 1000,
+		Releases: []faketool.GHReleaseRecord{{ID: 1, TagName: "edge", Prerelease: true, Assets: []faketool.GHReleaseAsset{
+			{ID: 201, Name: releaseAssets[0]},
+			{ID: 202, Name: "edge-previous-release-notes.txt"},
+		}}},
+	})
+
+	if _, code := h.publish(t); code != 0 {
+		t.Fatalf("exit %d, want an unmanaged edge-previous-* name to leave publication alone", code)
+	}
+
+	store := faketool.GHReleases(t, h.bin)
+	requireDownloadNames(t, store.AssetNames("edge"))
+}
+
 func TestRecoveryRefusesToPublishWhenNoBackupGroupIsComplete(t *testing.T) {
 	assets := []faketool.GHReleaseAsset{
 		{ID: 201, Name: releaseAssets[0]},
@@ -183,6 +250,34 @@ func TestRecoveryRefusesToPublishWhenNoBackupGroupIsComplete(t *testing.T) {
 	after := faketool.GHReleases(t, h.bin)
 	if got, want := inventory(after), inventory(before); got != want {
 		t.Fatalf("assets = %q, want the refusal to have changed nothing: %q", got, want)
+	}
+}
+
+// The publish script needs bash 4 for associative arrays, so a host on the
+// macOS system bash 3.2 skips rather than reporting a syntax error as a defect.
+func bashMajor(t *testing.T) int {
+	t.Helper()
+	out, err := exec.Command("bash", "-c", "echo ${BASH_VERSINFO[0]}").Output()
+	if err != nil {
+		t.Fatalf("read the bash version: %v", err)
+	}
+	major, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatalf("parse the bash version %q: %v", out, err)
+	}
+	return major
+}
+
+func requireDownloadNames(t *testing.T, names []string) {
+	t.Helper()
+	have := map[string]bool{}
+	for _, name := range names {
+		have[name] = true
+	}
+	for _, want := range releaseAssets {
+		if !have[want] {
+			t.Fatalf("assets = %q, want %s among the download names", names, want)
+		}
 	}
 }
 

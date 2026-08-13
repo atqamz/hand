@@ -284,30 +284,53 @@ Missing releases or assets exit nonzero and write a diagnostic to stderr without
 Driven by `.github/scripts/edge-publish.sh` alone.
 `GHReleaseStore` models them as a mutable store so `tests/edgepublish` can assert the asset set a publish run leaves behind.
 
-These entries are the one part of this file taken from the documented REST and CLI contract rather than from a probe, for the reason the `pr merge` entries are not re-run: every call changes a real release, and `tests/contract` may change nothing an operator owns.
-The claims below are the ones the script's ordering depends on, so a `gh` upgrade that breaks any of them breaks edge publication.
+Observed with `gh 2.97.0` against disposable private repositories that the probe created and deleted in the same run, so no release an operator owns was written to.
+`tests/contract` does not re-run them, for the reason the `pr merge` entries are not re-run: every call changes a release, and a contract run may change nothing an operator owns.
+Re-probe the same way after a `gh` upgrade, because the script's ordering depends on each result below.
 
 ### `gh release create <tag> --repo <slug> --target <sha> --title Edge --prerelease --draft --notes-file <file>`
 
-Exit 0 with the release URL on stdout.
+Exit 0.
+Stdout is a release URL naming a placeholder rather than the requested tag: `https://github.com/<slug>/releases/tag/untagged-877fe33df70e192ddff9`.
 
-State left behind: a draft release that **reserves its tag name without creating the git ref**.
-GitHub writes `refs/tags/<tag>` only when the release is published, so a draft's temporary tag never has to be deleted from the remote.
+The draft **reserves its tag name without creating the git ref**.
+`gh api repos/<slug>/git/matching-refs/tags/<tag>` answered `[]` while the draft existed, so a draft's temporary tag never has to be deleted from the remote.
+
+Repeating the call with a tag an existing draft already reserves also exits 0 and creates a **second** draft.
+`gh release list --json tagName,isDraft` then reported two entries carrying that one tag name, which is why the script drains stale bootstrap drafts before creating its own.
 
 ### `gh release view <tag> --repo <slug> --json databaseId --jq .databaseId`
 
-Exit 0 with the release id alone on stdout, for a draft as well as a published release.
-This is why the script resolves the bootstrap release by id: `GET /repos/{owner}/{repo}/releases/tags/{tag}` answers 404 for a draft, while `GET /repos/{owner}/{repo}/releases` lists it.
+Exit 0 with the release id alone on stdout (`369645024`) for a draft.
+
+This is why the script resolves the bootstrap release by id.
+`gh api repos/<slug>/releases/tags/<tag>` answered `{"message":"Not Found","status":"404"}` and exit 1 for that same draft.
+
+### `gh release list --repo <slug> --limit 100 --json tagName,isDraft`
+
+Exit 0 with drafts included: `[{"isDraft":true,"name":"Edge","tagName":"edge-bootstrap-<sha>"}]`.
+
+`databaseId` is **not** an available field, so a caller needing the id resolves the tag through `gh release view`.
+Available fields are `createdAt`, `isDraft`, `isImmutable`, `isLatest`, `isPrerelease`, `name`, `publishedAt`, and `tagName`.
+
+### `gh release delete <tag> --repo <slug> --yes`
+
+Exit 0, deleting one release per call.
+Run against a tag two drafts shared, two calls were needed and the third lookup answered empty.
 
 ### `gh release upload <tag> --repo <slug> <file>...`
 
-Exit 0 with the assets attached under their base names.
-Without `--clobber` an upload whose name is already taken exits nonzero, which is what makes staging names the safe way to land a candidate beside the previous set.
+Exit 0 with the assets attached to a draft under their base names, addressed by the draft's reserved tag.
+
+Without `--clobber` an upload whose name is already taken exits 1 with `asset under the same name already exists: [hand-linux-amd64.tar.gz]` on stderr.
+That is what makes staging names the safe way to land a candidate beside the previous set.
 
 ### `gh api --method PATCH repos/<owner>/<repo>/releases/assets/<id> -f name=<name>`
 
-Exit 0 with the updated asset JSON on stdout, renaming the asset in place and keeping its id.
-A name already in use on the same release answers **HTTP 422** and exits nonzero, so a rename can never silently replace another asset.
+Exit 0 with the updated asset JSON on stdout, renaming the asset in place and keeping its id: `512416076` before and after.
+
+A name already in use on the same release answers **HTTP 422** and exits 1, so a rename can never silently replace another asset.
+The body carries `{"resource":"ReleaseAsset","code":"already_exists","field":"name"}` and stderr reads `gh: Validation Failed (HTTP 422)`.
 
 ### `gh api --method DELETE repos/<owner>/<repo>/releases/assets/<id>` and `.../releases/<id>`
 
@@ -316,9 +339,14 @@ Exit 0 with an empty stdout on 204.
 ### `gh api --paginate repos/<owner>/<repo>/releases?per_page=100` and `.../releases/<id>/assets?per_page=100`
 
 Exit 0 with a JSON array on stdout, `[]` when nothing matches.
-The release list includes drafts; `--jq` renders with jq's own semantics, which is why the fake shells out to `jq` instead of reimplementing the programs the script relies on.
+
+The release list **omits drafts**: with one draft present it answered `[]`, and the same call after publication listed the release.
+A draft is therefore reachable only through `gh release list` or `gh release view`.
+`--jq` renders with jq's own semantics, which is why the fake shells out to `jq` instead of reimplementing the programs the script relies on.
 
 ### `gh release edit <tag> --repo <slug> --tag <new> --title Edge --prerelease --draft=false --notes-file <file>`
 
-Exit 0, retagging and publishing in one call.
-Publishing is what creates the git ref for a draft's tag, so the assets are already in place when `edge` first resolves to anything.
+Exit 0, retagging and publishing in one call, with `https://github.com/<slug>/releases/tag/edge` on stdout.
+
+Publishing is what creates the git ref for a draft's tag.
+Afterwards `matching-refs/tags/edge` held one ref and `matching-refs/tags/<bootstrap tag>` held none, so the assets are already in place when `edge` first resolves to anything and the temporary tag never reaches the remote.
