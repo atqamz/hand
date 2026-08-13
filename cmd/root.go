@@ -14,11 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newRootCmd(version string) *cobra.Command {
-	return newRootCmdWithBuildInfo(legacyBuildInfo(version))
-}
-
-func newRootCmdWithBuildInfo(info selfupdate.BuildInfo) *cobra.Command {
+func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root := &cobra.Command{
 		Use:     "hand",
 		Short:   "You lead. hand runs the crew.",
@@ -68,7 +64,7 @@ func newRootCmdWithBuildInfo(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newSearchCmd())
 	root.AddCommand(newDoctorCmd())
-	root.AddCommand(newUpdateCmdWithBuildInfo(info))
+	root.AddCommand(newUpdateCmd(info))
 	// ExecuteC would add the completion group later, too late for the guard below.
 	root.InitDefaultCompletionCmd()
 	guardSubcommandGroups(root)
@@ -146,7 +142,7 @@ func usageValue(fromFlag bool, err error) error {
 }
 
 func Execute(version, channel, commit string) {
-	root := newRootCmdWithBuildInfo(buildInfo(version, channel, commit))
+	root := newRootCmd(selfupdate.NormalizeBuildInfo(version, channel, commit))
 	found, err := root.ExecuteC()
 	if err == nil {
 		return

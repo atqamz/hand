@@ -22,26 +22,19 @@ type versionCache struct {
 	Commit    string    `json:"commit,omitempty"`
 }
 
-// CheckNotice returns a one-line stderr notice when a newer hand release is available, or
-// "" when up to date or when the check can't be completed. Bounded by checkTimeout and
-// never fails the caller: startup version checks are non-blocking and non-fatal.
-func CheckNotice(home, repo, currentVersion string) string {
-	if currentVersion != ChannelDev {
-		if _, err := IsNewer(currentVersion, currentVersion); err != nil {
-			return ""
-		}
-	}
-	channel := ChannelStable
-	if currentVersion == ChannelDev {
-		channel = ChannelDev
-	}
-	return CheckNoticeForBuild(home, repo, NormalizeBuildInfo(currentVersion, channel, ""))
-}
-
+// CheckNoticeForBuild returns a one-line stderr notice when a newer hand release is available on the
+// build's channel, or "" when up to date or when the check can't be completed. Bounded by checkTimeout
+// and never fails the caller: startup version checks are non-blocking and non-fatal.
 func CheckNoticeForBuild(home, repo string, info BuildInfo) string {
 	info = NormalizeBuildInfo(info.Version, info.Channel, info.Commit)
 	if info.Channel == ChannelDev {
 		return ""
+	}
+	// A version the comparison can never accept costs a gh call per interval otherwise.
+	if info.Channel == ChannelStable {
+		if _, _, _, err := parseSemver(info.Version); err != nil {
+			return ""
+		}
 	}
 
 	stateDir := filepath.Join(home, "state")

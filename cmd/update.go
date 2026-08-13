@@ -14,11 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newUpdateCmd(version string) *cobra.Command {
-	return newUpdateCmdWithBuildInfo(legacyBuildInfo(version))
-}
-
-func newUpdateCmdWithBuildInfo(info selfupdate.BuildInfo) *cobra.Command {
+func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 	var checkOnly bool
 	var requestedChannel string
 

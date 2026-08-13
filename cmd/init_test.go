@@ -236,7 +236,7 @@ func TestInitRefusesTheRetiredSetupFlag(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	t.Chdir(t.TempDir())
 
-	root := newRootCmd("test")
+	root := newRootCmd(devBuild("test"))
 	root.SetOut(new(bytes.Buffer))
 	root.SetErr(new(bytes.Buffer))
 	root.SetArgs([]string{"init", "--setup"})

@@ -170,6 +170,7 @@ jobs:
         if: steps.final-check.outputs.publish == 'true'
         env:
           CANDIDATE: ${{ inputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
           cat > edge-notes.md <<EOF
@@ -183,12 +184,12 @@ jobs:
 
           Not intended as the stable release channel.
           EOF
-          if gh release view edge --repo atqamz/hand >/dev/null 2>&1; then
-            gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
-          else
-            gh release create edge --repo atqamz/hand --target "$CANDIDATE" --title Edge --prerelease --notes-file edge-notes.md
-            gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
+          # A draft carries no git tag, so the first publish reaches assets-then-tag
+          # order through the same trailing `gh release edit --draft=false`.
+          if ! gh release view edge --repo atqamz/hand >/dev/null 2>&1; then
+            gh release create edge --repo atqamz/hand --target "$CANDIDATE" --title Edge --prerelease --draft --notes-file edge-notes.md
           fi
+          gh release upload edge --repo atqamz/hand hand-*.tar.gz hand-*.zip checksums.txt --clobber
           git tag -f edge "$CANDIDATE"
           git push origin refs/tags/edge --force
           gh release edit edge --repo atqamz/hand --title Edge --prerelease --draft=false --notes-file edge-notes.md

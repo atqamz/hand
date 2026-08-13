@@ -27,7 +27,7 @@ func writeFakeGHEdgeUpdate(t *testing.T, commit, notes, fixtureDir string) {
 func TestUpdateCheckFollowsEmbeddedEdgeChannel(t *testing.T) {
 	writeFakeGHChannels(t, "v0.5.0", edgeCommandCommit)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{
+	cmd := newUpdateCmd(selfupdate.BuildInfo{
 		Version: "edge.aaaaaaaaaaaa",
 		Channel: selfupdate.ChannelEdge,
 		Commit:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -58,7 +58,7 @@ func TestUpdateCheckFollowsEmbeddedEdgeChannel(t *testing.T) {
 func TestUpdateCheckExplicitlySwitchesStableToEdge(t *testing.T) {
 	writeFakeGHChannels(t, "v0.5.0", edgeCommandCommit)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{Version: "v0.9.0", Channel: selfupdate.ChannelStable})
+	cmd := newUpdateCmd(selfupdate.BuildInfo{Version: "v0.9.0", Channel: selfupdate.ChannelStable})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--check", "--channel", selfupdate.ChannelEdge})
@@ -73,7 +73,7 @@ func TestUpdateCheckExplicitlySwitchesStableToEdge(t *testing.T) {
 func TestUpdateCheckEdgeWithMatchingCommitIsUpToDate(t *testing.T) {
 	writeFakeGHChannels(t, "v0.5.0", edgeCommandCommit)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{
+	cmd := newUpdateCmd(selfupdate.BuildInfo{
 		Version: "edge.0123456789ab",
 		Channel: selfupdate.ChannelEdge,
 		Commit:  edgeCommandCommit,
@@ -98,7 +98,7 @@ func TestUpdateInstallsEdgeAssetThroughSharedApplyPath(t *testing.T) {
 	fixture := buildUpdateFixture(t, []byte("new edge binary contents"))
 	writeFakeGHEdgeUpdate(t, edgeCommandCommit, "edge notes", fixture)
 
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{
+	cmd := newUpdateCmd(selfupdate.BuildInfo{
 		Version: "edge.aaaaaaaaaaaa",
 		Channel: selfupdate.ChannelEdge,
 		Commit:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -122,7 +122,7 @@ func TestUpdateInstallsEdgeAssetThroughSharedApplyPath(t *testing.T) {
 }
 
 func TestUpdateRejectsInvalidChannelAsUsageError(t *testing.T) {
-	cmd := newUpdateCmdWithBuildInfo(selfupdate.BuildInfo{Version: "v0.1.0", Channel: selfupdate.ChannelStable})
+	cmd := newUpdateCmd(selfupdate.BuildInfo{Version: "v0.1.0", Channel: selfupdate.ChannelStable})
 	cmd.SetArgs([]string{"--check", "--channel", "nightly"})
 	if code := exitCodeFor(t, cmd.Execute()); code != 2 {
 		t.Fatalf("exit code = %d, want usage code 2", code)
