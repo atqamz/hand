@@ -113,3 +113,16 @@ func TestGHPRChecksReportsBuckets(t *testing.T) {
 		}
 	}
 }
+
+func TestGHEdgeRefReportsThePublishedCommitWhenAvailable(t *testing.T) {
+	requireGH(t)
+
+	res := run(t, "", "gh", "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha")
+	if res.code != 0 {
+		t.Skipf("edge release is not published yet: %s", res.stderr)
+	}
+	sha := strings.TrimSpace(res.stdout)
+	if len(sha) != 40 {
+		t.Fatalf("edge commit = %q, want a full SHA", sha)
+	}
+}

@@ -257,14 +257,24 @@ An unknown or inaccessible repository exits nonzero and writes its diagnostic to
 ### `gh release view --repo <slug> --json <field> --jq <jq>`
 
 The tag lookup omits the positional tag and requests `tagName`.
+It answers the latest normal release; the prerelease `edge` release is never selected this way.
 
 The notes lookup includes the release tag before `--repo` and requests `body`.
+That tag is a stable release tag or the mutable `edge` tag.
 
 Exit 0 with the selected field as raw text on stdout and no JSON envelope.
 `hand update` reads `.tagName` and `.body` this way.
+
+### `gh api repos/<owner>/<repo>/commits/edge --jq .sha`
+
+Exit 0 with the full commit SHA alone on stdout when the mutable edge ref exists.
+An absent edge ref exits nonzero and writes its diagnostic to stderr.
+The self-updater treats the returned full SHA as the edge freshness identity.
 
 ### `gh release download <tag> --repo <slug> --dir <directory> --clobber --pattern <asset>...`
 
 Exit 0 with the requested release assets copied into the directory.
 Download progress belongs on stderr and is ignored by `hand update`.
 The requested hand asset is `hand-<goos>-<goarch>.tar.gz` on Unix and `hand-windows-<goarch>.zip` on Windows, followed by `checksums.txt`.
+The tag selects the same archive and checksum path for stable and edge releases.
+Missing releases or assets exit nonzero and write a diagnostic to stderr without silently leaving a partial success.
