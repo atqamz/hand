@@ -116,10 +116,23 @@ func Read(homeDir, id string) (Task, error) {
 }
 
 func ReadHistory(homeDir, id string) (TaskHistory, error) {
+	return readHistory(homeDir, id, false)
+}
+
+// A read-only history read avoids schema migration and legacy import.
+func ReadHistoryReadOnly(homeDir, id string) (TaskHistory, error) {
+	return readHistory(homeDir, id, true)
+}
+
+func readHistory(homeDir, id string, readOnly bool) (TaskHistory, error) {
 	if err := ValidateID(id); err != nil {
 		return TaskHistory{}, err
 	}
-	db, err := store.Open(homeDir)
+	open := store.Open
+	if readOnly {
+		open = store.OpenReadOnly
+	}
+	db, err := open(homeDir)
 	if err != nil {
 		return TaskHistory{}, err
 	}

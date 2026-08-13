@@ -270,4 +270,8 @@ func TestListReadOnlyShowsOpenTasksOnly(t *testing.T) {
 	if tasks[0].Harness != "claude" {
 		t.Fatalf("active attempt was not projected onto the row: %+v", tasks[0])
 	}
+	history, err := ReadHistoryReadOnly(dir, "open-task")
+	if err != nil || history.ActiveAttempt == nil {
+		t.Fatalf("ReadHistoryReadOnly = %+v, %v", history, err)
+	}
 }

@@ -43,6 +43,13 @@ func newReopenCmd() *cobra.Command {
 			if history.Task.Lifecycle != state.TaskTerminal {
 				return &ExitError{Err: fmt.Errorf("task %q is already open", id), Code: 3}
 			}
+			held, hasHold, err := state.ReadHold(homeDir, id)
+			if err != nil {
+				return asPrecondition(err)
+			}
+			if hasHold {
+				return &ExitError{Err: fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", id, held.Kind, held.Reason, id), Code: 3}
+			}
 			t := history.Task
 			proj, exists, err := project.Find(homeDir, t.Project)
 			if err != nil {

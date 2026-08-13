@@ -73,7 +73,10 @@ func newSendCmd() *cobra.Command {
 				if errors.Is(err, state.ErrTaskNotFound) {
 					return asPrecondition(err)
 				}
-				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+				if errors.Is(err, state.ErrNoActiveAttempt) {
+					return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+				}
+				return fmt.Errorf("read active attempt for task %q: %w", id, err)
 			}
 			if active.Lifecycle != state.AttemptProvisioning && active.Lifecycle != state.AttemptRunning {
 				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}

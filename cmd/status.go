@@ -365,7 +365,7 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly 
 
 	views := make([]taskView, 0, len(tasks))
 	for _, t := range tasks {
-		v, _ := buildTaskView(home, client, t, false)
+		v, _ := buildTaskView(home, client, t, false, readOnly)
 		p, registered := projectByName[t.Project]
 		v.gateIssue = gateRunIssue(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)
@@ -421,10 +421,14 @@ func unacknowledged(home string, t state.Task, reported state.ReportLine, report
 
 // Reads everything both status views derive from one task, and returns the report lines alongside so the
 // detail view's history block and the summary line above it can never come from two reads of the file.
-func buildTaskView(home string, client *herdr.Client, t state.Task, full bool) (taskView, []state.ReportLine) {
+func buildTaskView(home string, client *herdr.Client, t state.Task, full, readOnly bool) (taskView, []state.ReportLine) {
 	var attempt *state.Attempt
 	var attempts []state.Attempt
-	if history, err := state.ReadHistory(home, t.ID); err == nil {
+	readHistory := state.ReadHistory
+	if readOnly {
+		readHistory = state.ReadHistoryReadOnly
+	}
+	if history, err := readHistory(home, t.ID); err == nil {
 		attempts = history.Attempts
 		attempt = history.ActiveAttempt
 		if attempt == nil && len(attempts) != 0 {
@@ -505,7 +509,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// An unreadable report degrades exactly as it does in the fleet view: the
 	// fault is named on the report field and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
-	v, reportLines := buildTaskView(home, client, t, full)
+	v, reportLines := buildTaskView(home, client, t, full, false)
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
 	hold, held, err := state.ReadHold(home, id)

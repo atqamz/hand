@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -81,10 +82,24 @@ func TestWriteReadPreservesEveryField(t *testing.T) {
 
 func assertTaskProjection(t *testing.T, got, want Task) {
 	t.Helper()
-	if got.ID != want.ID || got.Project != want.Project || got.Kind != want.Kind || got.Brief != want.Brief ||
-		got.PR != want.PR || got.MergeExecuted != want.MergeExecuted || got.MergeExecutedAt != want.MergeExecutedAt ||
-		got.MergeAnnounced != want.MergeAnnounced || got.DeliveredAt != want.DeliveredAt || got.DeliveredReason != want.DeliveredReason ||
-		got.ReportOffset != want.ReportOffset || got.ReportDigest != want.ReportDigest || got.CreatedAt != want.CreatedAt {
+	got.ActiveAttemptID = 0
+	if want.Lifecycle == "" {
+		want.Lifecycle = TaskOpen
+	}
+	got.Harness, got.Model, got.Effort, got.Worktree, got.Herdr = "", "", "", "", Herdr{}
+	got.DoneVerified, got.StatusChangedAt, got.StatusChangedFor = false, "", ""
+	got.LastReportState, got.LastReportNote = "", ""
+	got.SendUndeliveredMessage, got.SendUndeliveredAt = "", ""
+	got.LeaseID, got.PaneStartedAt, got.ParkedFiredFor = "", "", ""
+	got.UsageLimitRetryAt, got.UsageLimitAttempts = "", 0
+	want.ActiveAttemptID = 0
+	want.Harness, want.Model, want.Effort, want.Worktree, want.Herdr = "", "", "", "", Herdr{}
+	want.DoneVerified, want.StatusChangedAt, want.StatusChangedFor = false, "", ""
+	want.LastReportState, want.LastReportNote = "", ""
+	want.SendUndeliveredMessage, want.SendUndeliveredAt = "", ""
+	want.LeaseID, want.PaneStartedAt, want.ParkedFiredFor = "", "", ""
+	want.UsageLimitRetryAt, want.UsageLimitAttempts = "", 0
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("task round trip lost logical state: got %+v want %+v", got, want)
 	}
 }

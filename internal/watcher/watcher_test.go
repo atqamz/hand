@@ -1455,6 +1455,7 @@ func TestForgetPaneScopedCacheGivesTheShipsFirstProbeFailureADwell(t *testing.T)
 func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	before := TaskState{
 		CreatedAt:               "created-marker",
+		AttemptID:               99,
 		Status:                  herdr.Status("scout-status"),
 		Probed:                  true,
 		ChangedAt:               time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),

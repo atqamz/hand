@@ -189,7 +189,11 @@ func newPromoteCmd() *cobra.Command {
 				Worktree: wt, LeaseID: lease.ID, Herdr: state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID},
 				CreatedAt: promotedAt, PaneStartedAt: promotedAt, StatusChangedAt: promotedAt,
 			}); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("write ship attempt state: %w", err), worktree.Return(wt, true))
+				persistErr := state.TransitionTask(home, id, state.TaskOpen, state.TaskTerminal)
+				if persistErr != nil {
+					return reportSpawnCleanup(fmt.Errorf("write ship attempt state: %w; terminalize task: %v", err, persistErr), worktree.Return(wt, true))
+				}
+				return reportSpawnCleanup(fmt.Errorf("write ship attempt state: %w; task is terminal, use hand reopen %s", err, id), worktree.Return(wt, true))
 			}
 			promoted = true
 			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {

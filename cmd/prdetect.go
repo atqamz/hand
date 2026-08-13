@@ -14,9 +14,6 @@ import (
 // no-mistakes gate opened it directly instead of going through hand pr (atqamz/hand#69). Called only
 // where t.PR == "" already, so a task with a PR on record never reaches here.
 func detectPR(ctx context.Context, home string, t state.Task, proj project.Project) (state.Task, error) {
-	if active, err := state.ActiveAttempt(home, t.ID); err == nil {
-		t.Worktree = active.Worktree
-	}
 	branch, err := currentBranch(t.Worktree)
 	if err != nil {
 		return t, err

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -53,12 +54,16 @@ func newMergeCmd() *cobra.Command {
 			if t.MergeExecuted {
 				return &ExitError{Err: fmt.Errorf("task %s already merged", t.ID), Code: 3}
 			}
-			if _, err := state.ActiveAttempt(home, id); err != nil {
-				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+			active, err := state.ActiveAttempt(home, id)
+			if err != nil {
+				if errors.Is(err, state.ErrNoActiveAttempt) {
+					return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+				}
+				return fmt.Errorf("read active attempt for task %q: %w", id, err)
 			}
 
 			if local {
-				return runLocalMerge(cmd, home, t)
+				return runLocalMerge(cmd, home, t, active)
 			}
 			return runPRMerge(cmd, home, t, method)
 		},
@@ -152,11 +157,7 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 	return doc.Render(cmd.OutOrStdout())
 }
 
-func runLocalMerge(cmd *cobra.Command, home string, t state.Task) error {
-	active, err := state.ActiveAttempt(home, t.ID)
-	if err != nil {
-		return &ExitError{Err: fmt.Errorf("task %q has no active attempt", t.ID), Code: 3}
-	}
+func runLocalMerge(cmd *cobra.Command, home string, t state.Task, active state.Attempt) error {
 	t.Worktree = active.Worktree
 	dirty, err := hasUncommittedChanges(t.Worktree)
 	if err != nil {
