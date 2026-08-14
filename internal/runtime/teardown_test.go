@@ -441,7 +441,7 @@ func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if returns != 2 || verified != 1 || result.Detail != "report "+filepath.Join("data", "task-1", "report.md") {
+	if returns != 2 || verified != 2 || result.Detail != "report "+filepath.Join("data", "task-1", "report.md") {
 		t.Fatalf("retry returns=%d verified=%d result=%+v, want verified forced retry and unchanged detail", returns, verified, result)
 	}
 	history, err = state.ReadHistory(home, "task-1")
@@ -453,7 +453,7 @@ func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 	}
 }
 
-func TestTeardownRetryRefusesARecycledWorktreeLease(t *testing.T) {
+func TestTeardownRefusesARecycledWorktreeLeaseOnFirstReturn(t *testing.T) {
 	home, worktreePath := teardownFixture(t, true)
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
@@ -463,35 +463,45 @@ func TestTeardownRetryRefusesARecycledWorktreeLease(t *testing.T) {
 	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
 		t.Fatal(err)
 	}
+	verified := 0
 	returns := 0
 	deps := defaultDependencies()
 	deps.worktree.verifyLease = func(path, leaseID string) error {
 		if path != worktreePath || leaseID != "lease-1" {
 			t.Fatalf("verifyLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
 		}
-		return errors.New("treehouse lease belongs to another attempt")
+		verified++
+		return errors.New("treehouse lease is lease-2")
 	}
 	deps.worktree.returnWorktree = func(string, bool) error {
 		returns++
-		return worktree.ErrReturnAborted
+		return nil
 	}
-	runtime := &Runtime{deps: deps}
-	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err == nil {
-		t.Fatal("first Teardown() succeeded, want known abort")
-	}
-	result, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true})
+
+	_, err = (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
 	if err == nil || !strings.Contains(err.Error(), "verify worktree ownership") {
-		t.Fatalf("forced retry = %+v, %v, want verification refusal", result, err)
+		t.Fatalf("Teardown() = %v, want lease verification refusal", err)
 	}
-	if returns != 1 {
-		t.Fatalf("worktree return count = %d, want no destructive retry after the first abort", returns)
+	if verified != 1 {
+		t.Fatalf("lease verification count = %d, want one", verified)
+	}
+	if returns != 0 {
+		t.Fatalf("worktree return count = %d, want no destructive return", returns)
 	}
 	history, err = state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.ActiveAttempt == nil || history.ActiveAttempt.TeardownWorktreeState != state.TeardownResourceAmbiguous {
-		t.Fatalf("worktree state after lease mismatch = %+v, want ambiguous", history.ActiveAttempt)
+	if history.Task.Lifecycle != state.TaskOpen || history.ActiveAttempt == nil {
+		t.Fatalf("history after lease mismatch = %+v, want open task and active attempt", history)
+	}
+	if history.ActiveAttempt.Lifecycle != state.AttemptRunning || history.ActiveAttempt.TeardownWorktreeState != state.TeardownResourceAmbiguous {
+		t.Fatalf("attempt after lease mismatch = %+v, want running and ambiguous worktree state", history.ActiveAttempt)
+	}
+	if records, err := completion.List(home); err != nil {
+		t.Fatal(err)
+	} else if len(records) != 0 {
+		t.Fatalf("completions after lease mismatch = %+v, want none", records)
 	}
 }
 

@@ -14,7 +14,9 @@ func TestReopenCreatesANewAttemptWithoutResurrectingTheOldOne(t *testing.T) {
 		{ID: "wA:tB", Label: "task-1", Pane: "wA:pC"},
 		{ID: "wA:tC", Label: "task-1", Pane: "wA:pD"},
 	}
-	home := setupSpawnHome(t, t.TempDir()+"/wt", herdr)
+	worktree := t.TempDir() + "/wt"
+	home := setupSpawnHome(t, worktree, herdr)
+	initGitRepo(t, worktree)
 
 	spawn := newSpawnCmd()
 	spawn.SetArgs([]string{"task-1", "myproj", "--harness", harness.Claude})

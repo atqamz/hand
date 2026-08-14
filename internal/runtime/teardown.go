@@ -206,6 +206,19 @@ func (r *Runtime) releaseWorktree(home, taskID string, attempt state.Attempt, fo
 	if attempt.Worktree == "" {
 		return nil
 	}
+	verifyLease := r.deps.worktree.verifyLease
+	if verifyLease == nil {
+		verifyLease = worktree.VerifyLease
+	}
+	verifyOwnership := func(action string) error {
+		if err := verifyLease(attempt.Worktree, attempt.LeaseID); err != nil {
+			if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceAmbiguous); stateErr != nil {
+				return fmt.Errorf("record unverified worktree ownership: %w", stateErr)
+			}
+			return fmt.Errorf("verify worktree ownership before %s: %w", action, err)
+		}
+		return nil
+	}
 	switch attempt.TeardownWorktreeState {
 	case state.TeardownResourceReleased:
 		return nil
@@ -215,15 +228,14 @@ func (r *Runtime) releaseWorktree(home, taskID string, attempt state.Attempt, fo
 		if !force {
 			return fmt.Errorf("worktree for attempt %d remains leased; retry with --force", attempt.ID)
 		}
-		verifyLease := r.deps.worktree.verifyLease
-		if verifyLease == nil {
-			verifyLease = worktree.VerifyLease
+		if err := verifyOwnership("forced retry"); err != nil {
+			return err
 		}
-		if err := verifyLease(attempt.Worktree, attempt.LeaseID); err != nil {
-			if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceAmbiguous); stateErr != nil {
-				return fmt.Errorf("record unverified worktree ownership: %w", stateErr)
-			}
-			return fmt.Errorf("verify worktree ownership before forced retry: %w", err)
+	}
+	// Legacy attempts without a persisted lease ID retain pre-migration path-only behavior.
+	if attempt.TeardownWorktreeState == "" && attempt.LeaseID != "" {
+		if err := verifyOwnership("return"); err != nil {
+			return err
 		}
 	}
 	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
