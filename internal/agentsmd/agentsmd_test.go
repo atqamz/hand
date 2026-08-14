@@ -142,6 +142,33 @@ func TestSupervisorInstructionsUseCanonicalTaskKinds(t *testing.T) {
 	}
 }
 
+func TestSupervisorInstructionsCoverExecutionPlanningContract(t *testing.T) {
+	got := strings.Join(SupervisorInstructions(), "\n")
+	for _, want := range []string{
+		"execution class",
+		"mechanical",
+		"standard",
+		"deep",
+		"remaining executor judgment",
+		"decision-complete",
+		"planned_against",
+		"verified default branch",
+		"scout first",
+		"routine classification",
+		"operator-owned tradeoff",
+		"not task size",
+		"headings are recommendations",
+		"re-check",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("got supervisor instructions %q, want durable execution-planning concept %q", got, want)
+		}
+	}
+	if strings.Contains(got, "mechanical means small") || strings.Contains(got, "deep means large") {
+		t.Fatalf("got supervisor instructions %q, want no task-size classification", got)
+	}
+}
+
 func TestSupervisorInstructionsReturnsClone(t *testing.T) {
 	first := SupervisorInstructions()
 	first[0] = "changed by caller"

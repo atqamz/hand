@@ -621,6 +621,25 @@ func defaultBranch(clonePath string) (string, error) {
 	return "", fmt.Errorf("resolve default branch failed")
 }
 
+func projectBaseCommit(clonePath string) (string, error) {
+	branch, err := defaultBranch(clonePath)
+	if err != nil {
+		return "", err
+	}
+	ref := "refs/heads/" + branch
+	c := exec.Command("git", "rev-parse", "--verify", ref+"^{commit}")
+	c.Dir = clonePath
+	out, err := c.Output()
+	if err != nil {
+		return "", fmt.Errorf("resolve local default branch commit %s: %w", ref, err)
+	}
+	commit := strings.TrimSpace(string(out))
+	if commit == "" {
+		return "", fmt.Errorf("resolve local default branch commit %s: empty Git object ID", ref)
+	}
+	return commit, nil
+}
+
 func currentBranch(worktreePath string) (string, error) {
 	c := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	c.Dir = worktreePath

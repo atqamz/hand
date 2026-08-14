@@ -55,9 +55,18 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 	}
 	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
 	if err != nil {
-		return fail(err)
+		return fail(Precondition(err))
 	}
 	warnings = append(warnings, tier.Warnings...)
+	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
+	releaseProject, err := state.Lock(req.Home, "project:"+projectInfo.Name)
+	if err != nil {
+		return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
+	}
+	defer releaseProject()
+	if err := r.preflightTier(tier, clonePath); err != nil {
+		return fail(err)
+	}
 
 	kind := req.Kind
 	if kind == "" {
@@ -76,9 +85,10 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		return fail(err)
 	}
 
-	worktreePath, err := r.provision(ctx, provisioningRequest{
-		home: req.Home, projectName: projectInfo.Name, clonePath: filepath.Join(req.Home, "projects", projectInfo.Name), briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
+	worktreePath, err := r.provisionLocked(ctx, provisioningRequest{
+		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
+		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass,
+		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
 	})
 	if err != nil {
 		return fail(err)

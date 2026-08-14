@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/brief"
 )
 
 // The shell-quoted first message a harness launches with. The operator-decision rule is a paragraph
@@ -185,6 +186,45 @@ func TestBuildClaudeNoFrontMatterUnchanged(t *testing.T) {
 	}
 	if strings.Contains(got, "dispatch metadata") {
 		t.Fatalf("got %q, want no disclaimer for a brief with no front matter", got)
+	}
+}
+
+func TestBuildMechanicalExecutionGuidance(t *testing.T) {
+	for _, name := range []string{Claude, Codex, OpenCode} {
+		t.Run(name, func(t *testing.T) {
+			got, err := Build(name, Options{
+				Worktree:       "/tmp/wt",
+				Brief:          "/tmp/brief.md",
+				ExecutionClass: brief.ExecutionClassMechanical,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"Verify the named files/symbols and plan assumptions before editing.",
+				"stop and report blocked",
+				"Do not redesign the task yourself.",
+				"execute the ordered plan and verification steps",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("Build(%q) = %q, want mechanical guidance %q", name, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildStandardAndDeepOmitMechanicalExecutionGuidance(t *testing.T) {
+	for _, class := range []brief.ExecutionClass{brief.ExecutionClassStandard, brief.ExecutionClassDeep} {
+		t.Run(string(class), func(t *testing.T) {
+			got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", ExecutionClass: class})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(got, "Do not redesign the task yourself.") || strings.Contains(got, "Verify the named files/symbols") {
+				t.Fatalf("Build(%q) = %q, want no mechanical-only guidance", class, got)
+			}
+		})
 	}
 }
 

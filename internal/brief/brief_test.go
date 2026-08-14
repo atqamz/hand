@@ -98,6 +98,65 @@ func TestParseDeclaresModelAndEffort(t *testing.T) {
 	}
 }
 
+func TestParseDeclaresExecutionClass(t *testing.T) {
+	for _, class := range []ExecutionClass{ExecutionClassMechanical, ExecutionClassStandard, ExecutionClassDeep} {
+		t.Run(string(class), func(t *testing.T) {
+			d, present, err := Parse(writeBrief(t, "---\nexecution_class: "+string(class)+"\n---\n# Title\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !present || d.ExecutionClass != class {
+				t.Fatalf("got present=%v declaration=%+v, want class %q", present, d, class)
+			}
+		})
+	}
+}
+
+func TestParseDeclaresPlannedAgainstFullObjectID(t *testing.T) {
+	for _, commit := range []string{strings.Repeat("a", 40), strings.Repeat("b", 64)} {
+		d, present, err := Parse(writeBrief(t, "---\nplanned_against: "+commit+"\n---\n# Title\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !present || d.PlannedAgainst != commit {
+			t.Fatalf("got present=%v declaration=%+v, want planned_against %q", present, d, commit)
+		}
+	}
+}
+
+func TestParseRejectsInvalidExecutionClass(t *testing.T) {
+	for _, value := range []string{"cheap", "Mechanical", `""`} {
+		t.Run(value, func(t *testing.T) {
+			_, _, err := Parse(writeBrief(t, "---\nexecution_class: "+value+"\n---\n# Title\n"))
+			if err == nil || !strings.Contains(err.Error(), "execution_class") || !strings.Contains(err.Error(), value) {
+				t.Fatalf("Parse() = %v, want execution_class error naming %q", err, value)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidPlannedAgainst(t *testing.T) {
+	for _, value := range []string{"", strings.Repeat("a", 39), "HEAD", "main", strings.Repeat("g", 40)} {
+		t.Run(value, func(t *testing.T) {
+			_, _, err := Parse(writeBrief(t, "---\nplanned_against: "+value+"\n---\n# Title\n"))
+			if err == nil || !strings.Contains(err.Error(), "planned_against") || !strings.Contains(err.Error(), value) {
+				t.Fatalf("Parse() = %v, want planned_against error naming %q", err, value)
+			}
+		})
+	}
+}
+
+func TestParseStripsQuotedExecutionMetadataScalars(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	d, present, err := Parse(writeBrief(t, "---\nexecution_class: 'mechanical'\nplanned_against: \""+commit+"\"\n---\n# Title\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || d.ExecutionClass != ExecutionClassMechanical || d.PlannedAgainst != commit {
+		t.Fatalf("got present=%v declaration=%+v, want quoted values stripped", present, d)
+	}
+}
+
 func TestParseIgnoresUnknownKeys(t *testing.T) {
 	path := writeBrief(t, "---\nmodel: claude-opus-5\nnote: whatever this is\nreviewer: someone\n---\n# Title\n")
 
@@ -156,6 +215,18 @@ func TestParseKeepsUnpairedQuote(t *testing.T) {
 
 func TestParseUnclosedFrontMatterTreatedAsProse(t *testing.T) {
 	path := writeBrief(t, "---\nmodel: claude-opus-5\n\n# Title\n\nno closing fence above\n")
+
+	d, present, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present || d != (Declaration{}) {
+		t.Fatalf("got present=%v d=%+v, want unclosed front matter treated as prose", present, d)
+	}
+}
+
+func TestParseUnclosedNewMetadataTreatedAsProse(t *testing.T) {
+	path := writeBrief(t, "---\nexecution_class: invalid\nplanned_against: HEAD\n# Title\n")
 
 	d, present, err := Parse(path)
 	if err != nil {

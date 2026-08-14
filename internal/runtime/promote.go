@@ -39,17 +39,6 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if _, err := os.Stat(filepath.Join(req.Home, reportRel)); err != nil {
 		return Result{}, Precondition(fmt.Errorf("scout report not found at %s", reportRel))
 	}
-	client := r.deps.herdr()
-	status := herdr.StatusUnknown
-	if scout.Herdr.PaneID != "" {
-		if pane, err := client.PaneGet(scout.Herdr.PaneID); err == nil && pane.AgentStatus != "" {
-			status = pane.AgentStatus
-		}
-	}
-	if !status.NotBusy() && status != herdr.StatusUnknown {
-		return Result{}, Precondition(fmt.Errorf("task %q is not a completed scout (agent state: %s)", req.ID, status))
-	}
-
 	briefRel := filepath.Join("data", req.ID, "brief.md")
 	briefPath := filepath.Join(req.Home, briefRel)
 	if _, err := os.Stat(briefPath); err != nil {
@@ -62,7 +51,13 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if !exists {
 		return Result{}, Precondition(fmt.Errorf("project %q not registered", task.Project))
 	}
-	warnings, err := r.gatePreflight(projectInfo, filepath.Join(req.Home, "projects", projectInfo.Name), req.SkipGateCheck)
+	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
+	releaseProject, err := state.Lock(req.Home, "project:"+projectInfo.Name)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock project %q: %w", projectInfo.Name, err)
+	}
+	defer releaseProject()
+	warnings, err := r.gatePreflight(projectInfo, clonePath, req.SkipGateCheck)
 	if err != nil {
 		return Result{}, err
 	}
@@ -73,9 +68,23 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	}
 	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
 	if err != nil {
-		return fail(err)
+		return fail(Precondition(err))
 	}
 	warnings = append(warnings, tier.Warnings...)
+	if err := r.preflightTier(tier, clonePath); err != nil {
+		return fail(err)
+	}
+
+	client := r.deps.herdr()
+	status := herdr.StatusUnknown
+	if scout.Herdr.PaneID != "" {
+		if pane, err := client.PaneGet(scout.Herdr.PaneID); err == nil && pane.AgentStatus != "" {
+			status = pane.AgentStatus
+		}
+	}
+	if !status.NotBusy() && status != herdr.StatusUnknown {
+		return fail(Precondition(fmt.Errorf("task %q is not a completed scout (agent state: %s)", req.ID, status)))
+	}
 
 	createdAt := r.deps.now().Format(time.RFC3339)
 	shipAttempt, err := state.PromoteTask(req.Home, req.ID, scout.ID, scout.Lifecycle, state.Attempt{
@@ -89,12 +98,6 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	}
 	scout.Lifecycle = state.AttemptCompleted
 
-	releaseProject, err := state.Lock(req.Home, "project:"+projectInfo.Name)
-	if err != nil {
-		return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
-	}
-	defer releaseProject()
-
 	cleanupWarnings, err := r.cleanupScout(req.Home, req.ID, scout)
 	if err != nil {
 		return Result{}, WithWarnings(err, append(warnings, cleanupWarnings...))
@@ -102,8 +105,9 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	warnings = append(warnings, cleanupWarnings...)
 
 	worktreePath, err := r.provisionLocked(ctx, provisioningRequest{
-		home: req.Home, projectName: projectInfo.Name, clonePath: filepath.Join(req.Home, "projects", projectInfo.Name), briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: shipAttempt,
+		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
+		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass,
+		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: shipAttempt,
 	})
 	if err != nil {
 		return fail(err)

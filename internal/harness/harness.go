@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/shellquote"
 )
 
@@ -136,6 +137,7 @@ type Options struct {
 	FleetHome           string
 	Model               string
 	Effort              string
+	ExecutionClass      brief.ExecutionClass
 	BriefHasFrontMatter bool
 }
 
@@ -264,6 +266,9 @@ func briefPrompt(o Options) string {
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
 	if o.BriefHasFrontMatter {
 		prompt += " Any model or effort keys in its leading '---' block are dispatch metadata, not task content."
+	}
+	if o.ExecutionClass == brief.ExecutionClassMechanical {
+		prompt += " Verify the named files/symbols and plan assumptions before editing. If materially stale or contradictory, stop and report blocked. Do not redesign the task yourself. Otherwise execute the ordered plan and verification steps."
 	}
 	return prompt + " " + agentsmd.OperatorDecisionRule
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
@@ -34,13 +35,14 @@ type worktreeDependencies struct {
 }
 
 type dependencies struct {
-	now              func() time.Time
-	herdr            func() herdrClient
-	worktree         worktreeDependencies
-	buildHarness     func(string, harness.Options) (string, error)
-	confirmLaunch    func(herdrClient, string, string) error
-	appendCompletion func(string, completion.Record) error
-	phase            func(lifecyclePhase) error
+	now               func() time.Time
+	herdr             func() herdrClient
+	worktree          worktreeDependencies
+	projectBaseCommit func(string) (string, error)
+	buildHarness      func(string, harness.Options) (string, error)
+	confirmLaunch     func(herdrClient, string, string) error
+	appendCompletion  func(string, completion.Record) error
+	phase             func(lifecyclePhase) error
 }
 
 type Runtime struct{ deps dependencies }
@@ -49,13 +51,14 @@ func New() *Runtime { return &Runtime{deps: defaultDependencies()} }
 
 func defaultDependencies() dependencies {
 	return dependencies{
-		now:              func() time.Time { return time.Now().UTC() },
-		herdr:            newHerdrClient,
-		worktree:         worktreeDependencies{get: worktree.Get, returnWorktree: worktree.Return, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
-		buildHarness:     harness.Build,
-		confirmLaunch:    confirmLaunch,
-		appendCompletion: completion.Append,
-		phase:            func(lifecyclePhase) error { return nil },
+		now:               func() time.Time { return time.Now().UTC() },
+		herdr:             newHerdrClient,
+		worktree:          worktreeDependencies{get: worktree.Get, returnWorktree: worktree.Return, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
+		projectBaseCommit: projectBaseCommit,
+		buildHarness:      harness.Build,
+		confirmLaunch:     confirmLaunch,
+		appendCompletion:  completion.Append,
+		phase:             func(lifecyclePhase) error { return nil },
 	}
 }
 
@@ -67,6 +70,7 @@ type provisioningRequest struct {
 	harness             string
 	model               string
 	effort              string
+	executionClass      brief.ExecutionClass
 	briefHasFrontMatter bool
 	attempt             state.Attempt
 }
@@ -132,7 +136,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 
 	launchCommand, err := r.deps.buildHarness(req.harness, harness.Options{
 		Worktree: worktreePath, Brief: req.briefPath, FleetHome: req.home, Model: req.model, Effort: req.effort,
-		BriefHasFrontMatter: req.briefHasFrontMatter,
+		ExecutionClass: req.executionClass, BriefHasFrontMatter: req.briefHasFrontMatter,
 	})
 	if err != nil {
 		return fail(err)
