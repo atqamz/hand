@@ -158,8 +158,7 @@ func TestClassifiedRoutingRefusalsStopBeforeStateAndProvisioning(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			home, _, treehouseLog, herdrLog := setupClassifiedRoutingRefusal(t)
-			bin := binDir(t)
+			home, bin, treehouseLog, herdrLog := setupClassifiedRoutingRefusal(t)
 			if test.configure != nil {
 				test.configure(t, home, bin)
 			}
