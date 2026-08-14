@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -450,6 +451,9 @@ func addHarnessToPath(t *testing.T, name string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, name)
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
