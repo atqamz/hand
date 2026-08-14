@@ -70,9 +70,12 @@ func TestMechanicalPlanRefusesWhenTreehouseAcquiresADifferentHead(t *testing.T) 
 	acquired := strings.TrimSpace(runGitIn(t, clonePath, "commit-tree", tree, "-p", planned, "-m", "remote advance"))
 	worktree := filepath.Join(home, "wt-task-1")
 	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "task-1-branch", worktree)
+	dir := binDir(t)
+	writeFakeBin(t, dir, "claude", "exit 0\n")
+	setExecutionProfile(t, home, "execution-mechanical", "claude", "", "")
+	setExecutionRoute(t, home, "mechanical", "execution-mechanical")
 	writeBriefWith(t, home, "task-1", mechanicalBrief(planned))
 
-	dir := binDir(t)
 	treehouseLog := filepath.Join(t.TempDir(), "treehouse.log")
 	herdrLog := filepath.Join(t.TempDir(), "herdr.log")
 	faketool.Treehouse{Slots: []string{worktree}, Log: treehouseLog, AcquireHeads: map[string]string{worktree: acquired}}.Install(t, dir)
@@ -159,10 +162,14 @@ func setupExecutionDispatch(t *testing.T, class string) (home, clonePath, worktr
 	dir := binDir(t)
 	treehouseLog = filepath.Join(t.TempDir(), "treehouse.log")
 	herdrLog = filepath.Join(t.TempDir(), "herdr.log")
+	writeFakeBin(t, dir, "claude", "exit 0\n")
 	faketool.Treehouse{Slots: []string{worktree}, Log: treehouseLog}.Install(t, dir)
 	writeFakeHerdrStaticLogged(t, dir, herdrLog, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
 	if class != "" {
 		writeBriefWith(t, home, "task-1", executionBrief(class, base))
+		profile := "execution-" + class
+		setExecutionProfile(t, home, profile, "claude", "", "")
+		setExecutionRoute(t, home, class, profile)
 	}
 	return home, clonePath, worktree, base, treehouseLog, herdrLog
 }
