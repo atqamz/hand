@@ -13,7 +13,7 @@ Teardown releases the only worktree holding unlanded work. Task metadata can be 
 
 Where metadata cannot answer whether work survives, teardown inspects repository content and deliverables. Any unresolved read, parse, ref, or PR ambiguity refuses. `--force` remains an explicit authorization to discard genuinely unlanded work, not a repair for metadata.
 
-[`cmd/teardown.go`](../../cmd/teardown.go) owns the ordered guard. Its focused tests cover content comparison, scout evidence, ambiguous PRs, and retry-safe cleanup.
+[`internal/runtime/teardown.go`](../../internal/runtime/teardown.go) owns the ordered guard. Its focused tests cover content comparison, scout evidence, ambiguous PRs, and retry-safe cleanup.
 
 ## Rejected alternatives
 

@@ -18,6 +18,7 @@ An attempt has its own ordinal, lifecycle, execution identity, resources, pane-s
 The database partial unique index permits at most one provisioning or running attempt for a task.
 Terminal attempts are immutable with respect to activation.
 Spawn creates a task and Attempt 1, promotion preserves the scout attempt and creates the next attempt, teardown terminalizes both rows without deleting them, and `hand reopen` explicitly creates a new attempt for a terminal task.
+The Cobra commands are CLI adapters; first-party runtime use-cases own lifecycle sequencing, while SQLite stores durable intent and history and external tools provide observed resource reality.
 
 ## Rejected alternatives
 
@@ -29,4 +30,4 @@ Spawn creates a task and Attempt 1, promotion preserves the scout attempt and cr
 
 Single-task status can inspect terminal tasks and bounded attempt history, while fleet status remains focused on open tasks.
 Completion JSONL remains useful as an independent audit and recovery channel, but it is no longer the sole durable record after teardown.
-Conditional transitions, crash evidence, and orchestration extraction remain later work in #194 and #195; profile and route snapshots remain later work in #215.
+Conditional transitions and crash evidence remain later work in #194 and #196; profile and route snapshots remain later work in #215.

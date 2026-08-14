@@ -716,7 +716,7 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 	}
 }
 
-// The ordering in cmd/teardown.go must survive a fault in completion.Append the same way
+// The ordering in internal/runtime/teardown.go must survive a fault in completion.Append the same way
 // Completion append failure leaves the task retryable, and a retry leaves no duplicate record behind a failed line.
 func TestTeardownCompletionAppendFailureLeavesStateIntact(t *testing.T) {
 	home, worktree := setupTeardownHome(t)

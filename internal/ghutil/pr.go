@@ -102,7 +102,7 @@ func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarge
 	}
 
 	// A merged PR coexisting with an open one refuses too: the open PR is live evidence the branch
-	// may still carry unlanded work. Guessing here is what let cmd/teardown.go's landed-work guard
+	// may still carry unlanded work. Guessing here is what let internal/runtime/teardown.go's landed-work guard
 	// trust a merged PR while the branch's real state was closed-unmerged (atqamz/hand#77).
 	if len(mergedPRs) > 0 && len(openPRs) > 0 {
 		return "", false, false, ambiguousPRError(branch, results)

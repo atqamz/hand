@@ -1,45 +1,21 @@
 package cmd
 
 import (
-	"cmp"
 	"fmt"
-	"strings"
 
-	"github.com/atqamz/hand/internal/brief"
-	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/runtime"
 	"github.com/spf13/cobra"
 )
 
-func resolveTier(cmd *cobra.Command, home, briefAbs, harnessName, model, effort string) (resolvedModel, resolvedEffort string, frontMatter bool, err error) {
-	decl, frontMatter, err := brief.Parse(briefAbs)
+func resolveTier(cmd *cobra.Command, home, briefAbs, harnessName, model, effort string) (string, string, bool, error) {
+	result, err := runtime.ResolveTier(home, briefAbs, harnessName, model, effort)
 	if err != nil {
-		return "", "", false, fmt.Errorf("parse brief %s: %w", briefAbs, err)
+		return "", "", false, err
 	}
-
-	resolvedModel = cmp.Or(model, decl.Model, workerDefault(home, settingModel, harnessName))
-	resolvedEffort = cmp.Or(effort, decl.Effort, workerDefault(home, settingEffort, harnessName))
-
-	var dropped []string
-	if resolvedModel != "" && !harness.SupportsModel(harnessName) {
-		dropped = append(dropped, fmt.Sprintf("model %q", resolvedModel))
-	}
-	if resolvedEffort != "" && !harness.SupportsEffort(harnessName) {
-		dropped = append(dropped, fmt.Sprintf("effort %q", resolvedEffort))
-	}
-	if !harness.CarriesPrompt(harnessName) {
-		dropped = append(dropped, "the operator-decision rule")
-		if frontMatter {
-			dropped = append(dropped, "the front-matter disclaimer")
-		}
-	}
-
-	// One line per launch rather than one per dropped value: consecutive warnings all naming the
-	// same harness read as separate problems (atqamz/hand#151).
-	if len(dropped) > 0 {
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: harness %q cannot carry %s; launching anyway\n", harnessName, strings.Join(dropped, ", ")); err != nil {
+	for _, warning := range result.Warnings {
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), warning); err != nil {
 			return "", "", false, err
 		}
 	}
-
-	return resolvedModel, resolvedEffort, frontMatter, nil
+	return result.Model, result.Effort, result.BriefHasFrontMatter, nil
 }

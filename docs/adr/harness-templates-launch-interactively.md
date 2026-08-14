@@ -13,7 +13,7 @@ Workers must survive multiple steers and gate turns. Interactive launches provid
 
 Every harness template launches a resident interactive process with its autonomy flag. Herdr alone answers whether that process is live. Pane text is used only to detect dialogs, and a launch is confirmed only when both signals are clear.
 
-Exact commands and dialog signatures belong to [`internal/harness`](../../internal/harness); confirmation belongs to [`cmd/launch.go`](../../cmd/launch.go). Their tests own supported flags, prompt handling, and failure behavior.
+Exact commands and dialog signatures belong to [`internal/harness`](../../internal/harness); confirmation belongs to [`internal/runtime/launch.go`](../../internal/runtime/launch.go). Their tests own supported flags, prompt handling, and failure behavior.
 
 ## Rejected alternatives
 

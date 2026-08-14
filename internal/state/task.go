@@ -493,7 +493,7 @@ func Delete(homeDir, id string) error {
 	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
 		// Failing here leaves nothing durable gone yet, so the whole command is retryable.
 		// Removing the row first would strand the caller with the state gone and no way to
-		// retry (see cmd/teardown.go's guarded path).
+		// retry (see internal/runtime/teardown.go's guarded path).
 		return fmt.Errorf("remove report channel %q: %w", id, err)
 	}
 	db, err := store.Open(homeDir)

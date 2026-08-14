@@ -326,7 +326,7 @@ func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 
 // PaneRead returns the pane's recent scrollback as plain text, and a failure as an error rather than as
 // text, since a failure read as pane text would confirm a worker nobody observed. Re-answering a dialog
-// that lingers in scrollback is prevented in cmd/launch.go, by answering each one once per launch.
+// that lingers in scrollback is prevented in internal/runtime/launch.go, by answering each one once per launch.
 func (c *Client) PaneRead(paneID string, lines int) (string, error) {
 	// The one caller matches first-run dialogs on their lower half, so a viewport too short for the whole
 	// dialog clips exactly the text that has to match, and an unmatched dialog under a live agent reads as
