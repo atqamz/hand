@@ -507,6 +507,116 @@ func TestTeardownReleasesAnAttemptThatNeverReachedItsResources(t *testing.T) {
 	}
 }
 
+func TestTeardownRefusesLaunchedProvisioningWithUnlandedWork(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "OPEN")
+	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
+	if err := os.WriteFile(filepath.Join(worktree, "feature.txt"), []byte("unlanded"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitIn(t, worktree, "add", "feature.txt")
+	runGitIn(t, worktree, "commit", "-q", "-m", "feature")
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj", PR: teardownTestPR}, state.Attempt{
+		Lifecycle: state.AttemptProvisioning, Worktree: worktree, LaunchSubmittedAt: "2026-08-14T00:00:01Z",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pB"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "not merged") {
+		t.Fatalf("got err %v, want launched provisioning safety refusal", err)
+	}
+	if history, readErr := state.ReadHistory(home, "task-1"); readErr != nil || history.Task.Lifecycle != state.TaskOpen || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptProvisioning {
+		t.Fatalf("history after safety refusal = %+v, %v, want provisioning task preserved", history, readErr)
+	}
+	if invocations := readInvocations(t, worktree); len(invocations) != 0 {
+		t.Fatalf("external cleanup before landed-work refusal = %v, want no invocations", invocations)
+	}
+}
+
+func TestTeardownDoesNotCallConfirmedProvisioningNeverLaunched(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	writeFakeGHPRState(t, "MERGED")
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj", PR: teardownTestPR}, state.Attempt{
+		Lifecycle: state.AttemptProvisioning, Worktree: worktree,
+		LaunchSubmittedAt: "2026-08-14T00:00:01Z", LaunchConfirmedAt: "2026-08-14T00:00:02Z",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pB"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("attempt after confirmed provisioning teardown = %+v, want interrupted without a running transition", history.Attempts[0])
+	}
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Detail == "attempt never launched" {
+		t.Fatalf("completions = %+v, want launched completion", records)
+	}
+}
+
+func TestTeardownRefusesLaunchedProvisioningWithoutWorktree(t *testing.T) {
+	home, _ := setupTeardownHome(t)
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{
+		Lifecycle: state.AttemptProvisioning, LaunchConfirmedAt: "2026-08-14T00:00:02Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "launch evidence but no worktree") {
+		t.Fatalf("got err %v, want missing-worktree safety refusal", err)
+	}
+}
+
+func TestTeardownForceInterruptsLaunchedProvisioning(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{
+		Lifecycle: state.AttemptProvisioning, Worktree: worktree, LaunchSubmittedAt: "2026-08-14T00:00:01Z",
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pB"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1", "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("forced launched provisioning teardown = %+v, want interrupted", history.Attempts[0])
+	}
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Detail == "attempt never launched" {
+		t.Fatalf("forced completions = %+v, want launched forced completion", records)
+	}
+}
+
 // Teardown must survive a fault in its last step, which takes both halves of "retryable". Reverting
 // either half fails this test: the ordering leaves nothing to retry, the idempotency leaves the retry
 // dying on a tab herdr no longer lists.

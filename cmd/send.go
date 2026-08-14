@@ -59,9 +59,8 @@ func newSendCmd() *cobra.Command {
 				return usageValue(waitFromFlag, fmt.Errorf("invalid wait duration %q: %w", wait, err))
 			}
 
-			// Send holds send only, never a task lock under it: the composer wait runs for the whole
-			// --wait bound, and blocking promote and teardown for that long is worse than the write
-			// they may race, which the store rejects on its own preconditions anyway.
+			// Send holds send across the composer wait, then takes task only for the short external-send
+			// boundary. Blocking promote and teardown for the whole --wait bound is avoided.
 			releaseSend, err := state.Lock(home, "send:"+id)
 			if err != nil {
 				return fmt.Errorf("lock send %q: %w", id, err)

@@ -52,12 +52,15 @@ func newTeardownCmd() *cobra.Command {
 			originalTask := t
 			active := *history.ActiveAttempt
 
-			// An attempt still provisioning never ran an agent, so there is no landed work to check for
-			// and no completion to claim: it can only be torn down as interrupted.
-			launched := active.Lifecycle != state.AttemptProvisioning
+			// Provisioning remains durable through launch confirmation, so lifecycle alone cannot tell
+			// whether the worker ever ran. Launch evidence makes the ordinary landed-work check mandatory.
+			launched := active.Lifecycle != state.AttemptProvisioning || active.LaunchSubmittedAt != "" || active.LaunchConfirmedAt != ""
 
 			dirtWasSafe := false
 			if !force && launched {
+				if active.Lifecycle == state.AttemptProvisioning && active.Worktree == "" {
+					return &ExitError{Err: fmt.Errorf("task %q has launch evidence but no worktree to inspect; rerun with --force to interrupt it", id), Code: 3}
+				}
 				updated, safeDirt, err := checkLandedWork(cmd.Context(), home, t, active)
 				if err != nil {
 					return err
@@ -112,7 +115,7 @@ func newTeardownCmd() *cobra.Command {
 			}
 
 			terminalAttempt := state.AttemptCompleted
-			if force || !launched {
+			if force || !launched || active.Lifecycle == state.AttemptProvisioning {
 				terminalAttempt = state.AttemptInterrupted
 			}
 			if err := state.TerminalizeTaskAndAttempt(home, id, active.ID, active.Lifecycle, terminalAttempt); err != nil {
