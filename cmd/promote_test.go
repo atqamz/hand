@@ -181,6 +181,7 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	initialScoutAttempt := scoutAttempt
 	scoutAttempt.DoneVerified = true
 	scoutAttempt.Harness = harness.Claude
 	scoutAttempt.Model = "scout-model"
@@ -275,7 +276,7 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	if len(history.Attempts) != 2 || history.Attempts[0].Lifecycle != state.AttemptCompleted || history.Attempts[1].Lifecycle != state.AttemptRunning {
 		t.Fatalf("promotion attempt lineage = %+v", history.Attempts)
 	}
-	if history.Attempts[0].Harness != scoutAttempt.Harness || history.Attempts[0].Worktree != scoutAttempt.Worktree || history.Attempts[0].LeaseID != scoutAttempt.LeaseID {
+	if history.Attempts[0].Harness != initialScoutAttempt.Harness || history.Attempts[0].Model != initialScoutAttempt.Model || history.Attempts[0].Effort != initialScoutAttempt.Effort || history.Attempts[0].Worktree != scoutAttempt.Worktree || history.Attempts[0].LeaseID != scoutAttempt.LeaseID {
 		t.Fatalf("scout attempt was overwritten: %+v", history.Attempts[0])
 	}
 	if history.Task.ReportOffset != scout.ReportOffset || history.Task.ReportDigest != scout.ReportDigest {

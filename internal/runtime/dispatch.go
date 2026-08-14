@@ -102,7 +102,15 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 			return routing.ResolvedRoute{}, err
 		}
 	}
-	legacy, err := routing.LoadLegacyDefaults(homeDir, harnessName)
+	detectedHarness := ""
+	if !harnessFromFlag && !profileFromFlag {
+		detected, detectErr := harness.DetectCurrent()
+		if detectErr != nil {
+			return routing.ResolvedRoute{}, classifyResolutionError(detectErr, harnessName, harnessFromFlag)
+		}
+		detectedHarness = detected.Name
+	}
+	legacy, err := routing.LoadLegacyDefaults(homeDir, detectedHarness)
 	if err != nil {
 		return routing.ResolvedRoute{}, err
 	}

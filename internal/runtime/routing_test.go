@@ -239,6 +239,7 @@ func TestSpawnUnclassifiedBriefRetainsLegacyWarnAndLaunch(t *testing.T) {
 
 func TestSpawnUnclassifiedBriefDoesNotLoadProfileRoutes(t *testing.T) {
 	home := executionPlanHome(t, "brief\n")
+	t.Setenv("HAND_HARNESS", harness.Claude)
 	profiles := filepath.Join(home, "config", "profiles")
 	if err := os.RemoveAll(profiles); err != nil {
 		t.Fatal(err)

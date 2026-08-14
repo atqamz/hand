@@ -8,6 +8,7 @@ import (
 )
 
 func newPromoteCmd() *cobra.Command {
+	var profile string
 	var harnessName string
 	var model string
 	var effort string
@@ -22,18 +23,11 @@ func newPromoteCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			harnessFromFlag := harnessName != ""
-			if !harnessFromFlag {
-				cfg, err := currentWorkerConfig(fleetHome)
-				if err != nil {
-					return err
-				}
-				harnessName = cfg.harness
-			}
-
 			result, err := runtime.New().Promote(cmd.Context(), runtime.PromoteRequest{
-				Home: fleetHome, ID: args[0], Harness: harnessName, HarnessFromFlag: harnessFromFlag,
-				Model: model, Effort: effort, SkipGateCheck: skipGateCheck,
+				Home: fleetHome, ID: args[0], Profile: profile, ProfileFromFlag: cmd.Flags().Changed("profile"),
+				Harness: harnessName, HarnessFromFlag: cmd.Flags().Changed("harness"),
+				Model: model, ModelFromFlag: cmd.Flags().Changed("model"),
+				Effort: effort, EffortFromFlag: cmd.Flags().Changed("effort"), SkipGateCheck: skipGateCheck,
 			})
 			if err != nil {
 				if warningErr := renderRuntimeWarnings(cmd, runtime.Warnings(err)); warningErr != nil {
@@ -57,6 +51,7 @@ func newPromoteCmd() *cobra.Command {
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().StringVar(&profile, "profile", "", "execution profile override")
 	cmd.Flags().StringVar(&harnessName, "harness", "", "harness for the new ship worker (default: config/harness, then the detected supervisor harness)")
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort override for harnesses that support it")
