@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 type TierResult struct {
 	Model               string
 	Effort              string
+	ExecutionClass      brief.ExecutionClass
+	PlannedAgainst      string
 	BriefHasFrontMatter bool
 	Warnings            []string
 }
@@ -28,6 +31,8 @@ func ResolveTier(homeDir, briefPath, harnessName, model, effort string) (TierRes
 	result := TierResult{
 		Model:               cmp.Or(model, declaration.Model, workerDefault(homeDir, "model", harnessName)),
 		Effort:              cmp.Or(effort, declaration.Effort, workerDefault(homeDir, "effort", harnessName)),
+		ExecutionClass:      declaration.ExecutionClass,
+		PlannedAgainst:      declaration.PlannedAgainst,
 		BriefHasFrontMatter: frontMatter,
 	}
 	var dropped []string
@@ -42,11 +47,53 @@ func ResolveTier(homeDir, briefPath, harnessName, model, effort string) (TierRes
 		if frontMatter {
 			dropped = append(dropped, "the front-matter disclaimer")
 		}
+		if result.ExecutionClass == brief.ExecutionClassMechanical {
+			dropped = append(dropped, "the mechanical execution guidance")
+		}
 	}
 	if len(dropped) > 0 {
 		result.Warnings = []string{fmt.Sprintf("warning: harness %q cannot carry %s; launching anyway", harnessName, strings.Join(dropped, ", "))}
 	}
 	return result, nil
+}
+
+func classifyTierError(err error) error {
+	var validationErr *brief.ValidationError
+	if errors.As(err, &validationErr) {
+		return Precondition(err)
+	}
+	return err
+}
+
+func preflightExecutionClass(executionClass brief.ExecutionClass, harnessName string) error {
+	if executionClass == brief.ExecutionClassMechanical && !harness.CarriesPrompt(harnessName) {
+		return Precondition(fmt.Errorf("mechanical execution requires a prompt-capable harness: harness %q cannot carry the required mechanical worker guidance", harnessName))
+	}
+	return nil
+}
+
+func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string) error {
+	if declaration.ExecutionClass != brief.ExecutionClassMechanical {
+		return nil
+	}
+	if declaration.PlannedAgainst == "" {
+		return Precondition(fmt.Errorf("mechanical execution class requires planned_against before dispatch"))
+	}
+	current, err := r.deps.projectBaseCommit(clonePath)
+	if err != nil {
+		return Precondition(fmt.Errorf("resolve current project base for mechanical plan: %w", err))
+	}
+	if declaration.PlannedAgainst != current {
+		return Precondition(fmt.Errorf("mechanical plan is stale: planned against %s, current project base is %s; re-check and rewrite the brief before dispatch", declaration.PlannedAgainst, current))
+	}
+	return nil
+}
+
+func (r *Runtime) preflightTier(tier TierResult, clonePath string) error {
+	return r.preflightBrief(brief.Declaration{
+		ExecutionClass: tier.ExecutionClass,
+		PlannedAgainst: tier.PlannedAgainst,
+	}, clonePath)
 }
 
 func workerDefault(homeDir, key, harnessName string) string {

@@ -103,6 +103,51 @@ func TestTreehouseLeaseIsExclusiveUntilReturned(t *testing.T) {
 	run(t, dir, "treehouse", "return", second.Path).requireCode(t, 0)
 }
 
+func TestTreehouseGetCanAdvanceAWorktreeToTheRemoteDefaultBranch(t *testing.T) {
+	requireBin(t, "treehouse")
+	pool := newPool(t, 1)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	if err := os.MkdirAll(remote, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, remote, "git", "init", "--bare", "-q").requireCode(t, 0)
+	run(t, pool, "git", "remote", "add", "origin", remote).requireCode(t, 0)
+	initial := run(t, pool, "git", "rev-parse", "HEAD").requireCode(t, 0).stdout
+	run(t, pool, "git", "push", "-q", "-u", "origin", "main").requireCode(t, 0)
+	run(t, pool, "git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main").requireCode(t, 0)
+	run(t, pool, "git", "commit", "--allow-empty", "-q", "-m", "remote advance").requireCode(t, 0)
+	remoteHead := run(t, pool, "git", "rev-parse", "HEAD").requireCode(t, 0).stdout
+	run(t, pool, "git", "push", "-q", "origin", "main").requireCode(t, 0)
+	run(t, pool, "git", "reset", "--hard", "-q", strings.TrimSpace(initial)).requireCode(t, 0)
+
+	lease := acquire(t, pool, "hand:contract-remote-advance")
+	got := strings.TrimSpace(run(t, lease.Path, "git", "rev-parse", "HEAD").requireCode(t, 0).stdout)
+	if got != strings.TrimSpace(remoteHead) {
+		t.Fatalf("acquired worktree HEAD = %q, want remote default branch tip %q", got, strings.TrimSpace(remoteHead))
+	}
+	local := strings.TrimSpace(run(t, pool, "git", "rev-parse", "refs/heads/main").requireCode(t, 0).stdout)
+	if local != strings.TrimSpace(initial) {
+		t.Fatalf("registered local default branch = %q, want planned revision %q", local, strings.TrimSpace(initial))
+	}
+	run(t, pool, "treehouse", "return", "--force", lease.Path).requireCode(t, 0)
+}
+
+func TestTreehouseConditionalReturnProtectsAReusedLease(t *testing.T) {
+	requireBin(t, "treehouse")
+	pool := newPool(t, 1)
+	l1 := acquire(t, pool, "hand:contract-l1")
+	run(t, pool, "treehouse", "return", "--force", "--if-lease-id", l1.LeaseID, l1.Path).requireCode(t, 0)
+	l2 := acquire(t, pool, "hand:contract-l2")
+	if l2.Path != l1.Path || l2.LeaseID == l1.LeaseID {
+		t.Fatalf("reused lease = %+v, want path %q and a new identity after %q", l2, l1.Path, l1.LeaseID)
+	}
+	run(t, pool, "treehouse", "return", "--force", "--if-lease-id", l1.LeaseID, l1.Path).
+		requireCode(t, 1).
+		requireStderrContains(t, "lease")
+	run(t, pool, "treehouse", "get", "--lease", "--json").requireCode(t, 1)
+	run(t, pool, "treehouse", "return", "--force", "--if-lease-id", l2.LeaseID, l2.Path).requireCode(t, 0)
+}
+
 func TestTreehouseStatusReportsTheCurrentLeaseIdentity(t *testing.T) {
 	requireBin(t, "treehouse")
 	dir := newPool(t, 1)

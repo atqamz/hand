@@ -241,7 +241,7 @@ func (r *Runtime) releaseWorktree(home, taskID string, attempt state.Attempt, fo
 	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
 		return fmt.Errorf("record worktree release phase: %w", err)
 	}
-	if err := r.deps.worktree.returnWorktree(attempt.Worktree, force); err != nil {
+	if err := r.deps.worktree.returnLease(worktree.Lease{Path: attempt.Worktree, ID: attempt.LeaseID}, force); err != nil {
 		if errors.Is(err, worktree.ErrReturnAborted) {
 			if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceRetryable); stateErr != nil {
 				return fmt.Errorf("record retryable worktree return: %w", stateErr)
@@ -619,6 +619,43 @@ func defaultBranch(clonePath string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("resolve default branch failed")
+}
+
+func projectBaseCommit(clonePath string) (string, error) {
+	branch, err := localDefaultBranch(clonePath)
+	if err != nil {
+		return "", err
+	}
+	ref := "refs/heads/" + branch
+	c := exec.Command("git", "rev-parse", "--verify", ref+"^{commit}")
+	c.Dir = clonePath
+	out, err := c.Output()
+	if err != nil {
+		return "", fmt.Errorf("resolve local default branch commit %s: %w", ref, err)
+	}
+	commit := strings.TrimSpace(string(out))
+	if commit == "" {
+		return "", fmt.Errorf("resolve local default branch commit %s: empty Git object ID", ref)
+	}
+	return commit, nil
+}
+
+func localDefaultBranch(clonePath string) (string, error) {
+	c := exec.Command("git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+	c.Dir = clonePath
+	if out, err := c.Output(); err == nil {
+		if branch := strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"); branch != "" {
+			return branch, nil
+		}
+	}
+	for _, branch := range []string{"main", "master"} {
+		c := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+		c.Dir = clonePath
+		if err := c.Run(); err == nil {
+			return branch, nil
+		}
+	}
+	return "", fmt.Errorf("resolve local default branch failed")
 }
 
 func currentBranch(worktreePath string) (string, error) {

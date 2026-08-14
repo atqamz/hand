@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/worktree"
 )
 
 func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, error) {
@@ -62,7 +64,8 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if !exists {
 		return Result{}, Precondition(fmt.Errorf("project %q not registered", task.Project))
 	}
-	warnings, err := r.gatePreflight(projectInfo, filepath.Join(req.Home, "projects", projectInfo.Name), req.SkipGateCheck)
+	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
+	warnings, err := r.gatePreflight(projectInfo, clonePath, req.SkipGateCheck)
 	if err != nil {
 		return Result{}, err
 	}
@@ -73,9 +76,24 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	}
 	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
 	if err != nil {
+		return fail(classifyTierError(err))
+	}
+	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
 		return fail(err)
 	}
 	warnings = append(warnings, tier.Warnings...)
+
+	var releaseProject func()
+	if tier.ExecutionClass == brief.ExecutionClassMechanical {
+		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
+		if err != nil {
+			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
+		}
+		defer releaseProject()
+		if err := r.preflightTier(tier, clonePath); err != nil {
+			return fail(err)
+		}
+	}
 
 	createdAt := r.deps.now().Format(time.RFC3339)
 	shipAttempt, err := state.PromoteTask(req.Home, req.ID, scout.ID, scout.Lifecycle, state.Attempt{
@@ -88,12 +106,13 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		return fail(err)
 	}
 	scout.Lifecycle = state.AttemptCompleted
-
-	releaseProject, err := state.Lock(req.Home, "project:"+projectInfo.Name)
-	if err != nil {
-		return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
+	if releaseProject == nil {
+		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
+		if err != nil {
+			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
+		}
+		defer releaseProject()
 	}
-	defer releaseProject()
 
 	cleanupWarnings, err := r.cleanupScout(req.Home, req.ID, scout)
 	if err != nil {
@@ -102,8 +121,9 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	warnings = append(warnings, cleanupWarnings...)
 
 	worktreePath, err := r.provisionLocked(ctx, provisioningRequest{
-		home: req.Home, projectName: projectInfo.Name, clonePath: filepath.Join(req.Home, "projects", projectInfo.Name), briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: shipAttempt,
+		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
+		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass, plannedAgainst: tier.PlannedAgainst,
+		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: shipAttempt,
 	})
 	if err != nil {
 		return fail(err)
@@ -159,7 +179,7 @@ func (r *Runtime) cleanupScout(homeDir, taskID string, scout state.Attempt) ([]s
 		default:
 			if err := setState("worktree", state.TeardownResourceReleasing); err != nil {
 				warnings = append(warnings, fmt.Sprintf("warning: record scout worktree release phase failed: %v", err))
-			} else if err := r.deps.worktree.returnWorktree(scout.Worktree, true); err != nil {
+			} else if err := r.deps.worktree.returnLease(worktree.Lease{Path: scout.Worktree, ID: scout.LeaseID}, true); err != nil {
 				_ = setState("worktree", state.TeardownResourceAmbiguous)
 				warnings = append(warnings, fmt.Sprintf("warning: return scout worktree failed: %v", err))
 			} else if err := setState("worktree", state.TeardownResourceReleased); err != nil {

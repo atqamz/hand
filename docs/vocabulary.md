@@ -60,7 +60,15 @@ A Worker is the generic agent process executing delegated work, regardless of Ta
 ### Brief
 
 The durable task instruction written by the Supervisor for a Worker.
-The execution-ready front matter and planning contract are defined by later runtime work, not by this glossary.
+The brief may contain optional `execution_class` and `planned_against` front matter.
+The recognized machine-readable contract is limited to those fields and the existing `model` and `effort` fields; the Markdown body has no required schema.
+
+For a mechanical brief, `planned_against` is the full commit ID of the registered project's verified local default branch.
+Hand compares it with exact equality before provisioning and refuses a stale plan.
+For standard and deep briefs, it remains provenance without the mechanical exact-match refusal.
+Hand also verifies the acquired worktree `HEAD` before Herdr or worker launch because Treehouse may refresh a lease during acquisition.
+Mechanical dispatch requires a harness capable of carrying the shared mechanical worker guidance; unsupported harnesses fail before lifecycle mutation.
+If the project advances, the Supervisor must re-check the plan rather than merely replacing the commit ID.
 
 ### Execution class
 
@@ -76,7 +84,9 @@ deep
 ```
 
 A large exact migration can be `mechanical`, while a five-line concurrency fix can be `deep`.
-This glossary defines the term only and does not add parsing, validation, or routing behavior.
+`mechanical` plans should be execution-ready: they should state verified current state, locked decisions, exact change locations, ordered steps, invariants, tests, verification, non-goals, and stop conditions.
+Those headings are recommendations, not syntax Hand parses.
+Execution classes are not model, effort, profile, or cost routing; concrete routing is deferred to atqamz/hand#215.
 
 ### Attempt
 

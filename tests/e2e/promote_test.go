@@ -125,7 +125,7 @@ func TestPromoteScoutToShip(t *testing.T) {
 	if strings.Contains(log, "herdr tab create --workspace ws-new") {
 		t.Fatalf("invocation log = %q, want promote to reuse the new workspace's root tab instead of creating a second one", log)
 	}
-	if !strings.Contains(log, "treehouse return "+oldWorktree) {
+	if !strings.Contains(log, "treehouse return --force --if-lease-id lease-old "+oldWorktree) {
 		t.Fatalf("invocation log = %q, want promote to have returned the OLD worktree %s", log, oldWorktree)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
@@ -55,9 +56,24 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 	}
 	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
 	if err != nil {
+		return fail(classifyTierError(err))
+	}
+	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
 		return fail(err)
 	}
 	warnings = append(warnings, tier.Warnings...)
+	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
+	var releaseProject func()
+	if tier.ExecutionClass == brief.ExecutionClassMechanical {
+		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
+		if err != nil {
+			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
+		}
+		defer releaseProject()
+		if err := r.preflightTier(tier, clonePath); err != nil {
+			return fail(err)
+		}
+	}
 
 	kind := req.Kind
 	if kind == "" {
@@ -76,10 +92,17 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		return fail(err)
 	}
 
-	worktreePath, err := r.provision(ctx, provisioningRequest{
-		home: req.Home, projectName: projectInfo.Name, clonePath: filepath.Join(req.Home, "projects", projectInfo.Name), briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
-	})
+	provisionRequest := provisioningRequest{
+		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
+		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass, plannedAgainst: tier.PlannedAgainst,
+		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
+	}
+	var worktreePath string
+	if releaseProject != nil {
+		worktreePath, err = r.provisionLocked(ctx, provisionRequest)
+	} else {
+		worktreePath, err = r.provision(ctx, provisionRequest)
+	}
 	if err != nil {
 		return fail(err)
 	}

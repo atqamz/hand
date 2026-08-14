@@ -22,6 +22,7 @@ type Treehouse struct {
 	NoLeaseIdentity bool
 	Banner          string
 	Log             string
+	AcquireHeads    map[string]string
 	Responses       []TreehouseResponse
 }
 
@@ -41,6 +42,7 @@ type treehouseSpec struct {
 	Banner          string
 	StateDir        string
 	Log             string
+	AcquireHeads    map[string]string
 	Responses       []TreehouseResponse
 }
 
@@ -63,7 +65,7 @@ func (th Treehouse) Install(t *testing.T, bin string) {
 	}
 	installConfig(t, bin, "treehouse", "treehouse", treehouseSpec{
 		Slots: th.Slots, Held: th.Held, LeaseIDs: th.LeaseIDs, NoLeaseIdentity: th.NoLeaseIdentity,
-		Banner: banner, StateDir: state, Log: th.Log, Responses: th.Responses,
+		Banner: banner, StateDir: state, Log: th.Log, AcquireHeads: th.AcquireHeads, Responses: th.Responses,
 	})
 }
 
@@ -111,6 +113,11 @@ func treehouseGet(spec treehouseSpec) int {
 		}
 		if leased {
 			continue
+		}
+		if head := spec.AcquireHeads[slot]; head != "" {
+			if output, err := exec.Command("git", "-C", slot, "reset", "--hard", "-q", head).CombinedOutput(); err != nil {
+				return fail("reset acquired worktree: %v: %s", err, output)
+			}
 		}
 		counter := treehouseCounter(spec.StateDir)
 		if err := atomicWrite(treehouseCounterPath(spec.StateDir), fmt.Sprintf("%d\n", counter+1)); err != nil {
@@ -185,10 +192,28 @@ func treehouseStatus(spec treehouseSpec) int {
 }
 
 func treehouseReturn(spec treehouseSpec, args []string) int {
-	if len(args) < 2 {
+	var slot, expectedLeaseID string
+	forced := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--force":
+			forced = true
+		case "--if-lease-id":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return fail("missing lease ID for --if-lease-id")
+			}
+			expectedLeaseID = args[i+1]
+			i++
+		default:
+			if slot != "" {
+				return fail("unexpected treehouse invocation: %s", strings.Join(args, " "))
+			}
+			slot = args[i]
+		}
+	}
+	if slot == "" {
 		return fail("unexpected treehouse invocation: %s", strings.Join(args, " "))
 	}
-	slot := args[1]
 	marker := ""
 	for _, managed := range append(append([]string{}, spec.Slots...), spec.Held...) {
 		if managed == slot {
@@ -199,10 +224,13 @@ func treehouseReturn(spec treehouseSpec, args []string) int {
 	if marker == "" {
 		return fail("worktree %s is not managed by treehouse", slot)
 	}
-	forced := false
-	for _, arg := range args[2:] {
-		if arg == "--force" {
-			forced = true
+	if expectedLeaseID != "" {
+		current, err := os.ReadFile(marker)
+		if err != nil && !os.IsNotExist(err) {
+			return fail("inspect treehouse lease: %v", err)
+		}
+		if strings.TrimSpace(string(current)) != expectedLeaseID {
+			return fail("lease identity mismatch: expected %s, current %s", expectedLeaseID, strings.TrimSpace(string(current)))
 		}
 	}
 	dirty, err := treehouseDirty(slot)

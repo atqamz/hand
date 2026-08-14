@@ -67,11 +67,23 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	return Lease{Path: payload.Path, ID: payload.LeaseID}, nil
 }
 
-// Return releases a worktree back to its treehouse pool. A repeated return is a
-// no-op success; an aborted one exits 0 with the slot still leased, so the exit
-// status alone cannot say a return happened. See internal/faketool/FIDELITY.md.
+// Reads the full commit object ID currently checked out by a leased worktree.
+func HeadCommit(worktreePath string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--verify", "HEAD^{commit}")
+	cmd.Dir = worktreePath
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("resolve worktree HEAD: %w", err)
+	}
+	commit := strings.TrimSpace(string(out))
+	if commit == "" {
+		return "", fmt.Errorf("resolve worktree HEAD: empty Git object ID")
+	}
+	return commit, nil
+}
+
+// Return releases a worktree back to its treehouse pool without lease identity.
 func Return(worktreePath string, force bool) error {
-	// An attempt that never reached a lease has no slot to release.
 	if worktreePath == "" {
 		return nil
 	}
@@ -79,6 +91,26 @@ func Return(worktreePath string, force bool) error {
 	if force {
 		args = append(args, "--force")
 	}
+	return returnTreehouse(worktreePath, args, force)
+}
+
+// ReturnLease releases a worktree only when treehouse still owns the expected lease.
+func ReturnLease(worktreePath, leaseID string, force bool) error {
+	if worktreePath == "" {
+		return nil
+	}
+	if leaseID == "" {
+		return Return(worktreePath, force)
+	}
+	args := []string{"return"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, "--if-lease-id", leaseID, worktreePath)
+	return returnTreehouse(worktreePath, args, force)
+}
+
+func returnTreehouse(worktreePath string, args []string, force bool) error {
 	out, err := exec.Command("treehouse", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("treehouse return failed: %s", strings.TrimSpace(string(out)))

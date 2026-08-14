@@ -127,6 +127,42 @@ Ship tasks make changes. A Task is durable logical work and its worker run is an
 
 Scout tasks investigate without being expected to ship code. They return `data/<id>/report.md`, and a completed scout can later be promoted into a ship task. Promotion preserves the scout Attempt and starts a new ship Attempt.
 
+### Task kinds and execution classes
+
+Task kind describes the intended deliverable: `scout` produces an investigation or report, while `ship` produces a change that must be landed or explicitly delivered.
+
+Execution class describes how much implementation judgment remains after supervisor planning:
+
+| Class | Meaning |
+| --- | --- |
+| `mechanical` | The plan is decision-complete; the worker applies the specified changes and verifies them. |
+| `standard` | Architecture is decided; ordinary reversible local implementation judgment remains. |
+| `deep` | Substantial implementation reasoning remains with the worker. |
+
+Task kind and execution class are orthogonal.
+For example, `ship + mechanical`, `ship + standard`, `ship + deep`, and `scout + deep` are meaningful combinations.
+Execution classes describe remaining judgment, not task size, line count, file count, worker role, model, or cost.
+
+A supervisor-created execution-class brief records the project revision it was planned against:
+
+```yaml
+---
+execution_class: mechanical
+planned_against: <full commit ID>
+---
+```
+
+`planned_against` is the full commit ID of the registered project's verified local default branch in `<home>/projects/<project>`.
+For `mechanical`, Hand refuses dispatch when that project base no longer matches exactly, before provisioning begins.
+For `standard` and `deep`, the value is provenance only and does not trigger the mechanical exact-match refusal.
+Because Treehouse may refresh a leased worktree during acquisition, Hand also verifies the acquired worktree `HEAD` against the same commit and refuses to launch when it differs.
+Mechanical dispatch also requires a harness capable of carrying the shared mechanical worker guidance; unsupported harnesses fail as a precondition before lifecycle mutation.
+The supervisor must re-check the plan and rewrite or revalidate it before recording a new revision.
+
+These fields are optional, so briefs without them and legacy `model`/`effort` front matter retain their existing behavior.
+Execution-ready body sections such as goal, verified current state, locked decisions, implementation steps, invariants, tests, verification, non-goals, and stop conditions are recommendations for mechanical briefs, not required syntax.
+Concrete profile and model routing is deferred to atqamz/hand#215.
+
 ## What `hand` manages
 
 ### Isolated workers
