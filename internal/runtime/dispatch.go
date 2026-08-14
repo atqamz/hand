@@ -83,13 +83,6 @@ func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string
 	return nil
 }
 
-func (r *Runtime) preflightTier(tier TierResult, clonePath string) error {
-	return r.preflightBrief(brief.Declaration{
-		ExecutionClass: tier.ExecutionClass,
-		PlannedAgainst: tier.PlannedAgainst,
-	}, clonePath)
-}
-
 func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag bool, harnessName string, harnessFromFlag bool, model string, modelFromFlag bool, effort string, effortFromFlag bool) (routing.ResolvedRoute, error) {
 	declaration, frontMatter, err := brief.Parse(briefPath)
 	if err != nil {

@@ -424,7 +424,7 @@ func TestConfigProfileCommandsPersistCompleteDefinitions(t *testing.T) {
 	out := mustConfig(t, "profile", "list")
 	alpha := "alpha,codex,none,none"
 	zeta := "zeta,claude,claude-opus-5,high"
-	if !strings.Contains(out, "profiles[2]{name,harness,model,effort}:\n") || strings.Index(out, alpha) < 0 || strings.Index(out, zeta) < strings.Index(out, alpha) {
+	if !strings.Contains(out, "profiles[2]{name,harness,model,effort}:\n") || !strings.Contains(out, alpha) || strings.Index(out, zeta) < strings.Index(out, alpha) {
 		t.Fatalf("profile list = %q, want alphabetical profiles", out)
 	}
 
