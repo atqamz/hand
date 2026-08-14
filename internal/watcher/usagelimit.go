@@ -149,6 +149,10 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 	}
 	defer releaseSend()
 
+	if !ownsAttempt(cfg.Home, t, a, errOut) {
+		return nil
+	}
+
 	// Read first: the freshest refusal on screen is the harness's own latest prediction of when its quota
 	// returns, and scheduling from it keeps a genuinely long limit off the backoff's much shorter clock.
 	reset := time.Time{}
@@ -178,6 +182,23 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		Text:   fmt.Sprintf("usage-limit-stuck %s: %s", t.ID, limitReason(ts)),
 		Reason: limitReason(ts),
 	}
+}
+
+// The Task and Attempt a tick carries were read before the locks above, so a teardown or promotion that
+// landed in between describes execution this fleet has moved past: steering it pokes a pane the run no
+// longer owns, and the hold write would put a limit hold back on an id nothing is waiting for.
+func ownsAttempt(home string, t state.Task, a state.Attempt, errOut io.Writer) bool {
+	history, err := state.ReadHistory(home, t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrTaskNotFound) {
+			_, _ = fmt.Fprintf(errOut, "watch: re-read task %s failed: %v\n", t.ID, err)
+		}
+		return false
+	}
+	current := history.ActiveAttempt
+	return history.Task.ID == t.ID && history.Task.Lifecycle == state.TaskOpen &&
+		current != nil && current.ID == a.ID && current.TaskID == t.ID &&
+		current.Lifecycle == state.AttemptRunning && current.Herdr.PaneID == a.Herdr.PaneID
 }
 
 // Forgets the schedule and the operator-visible hold together, so the two cannot disagree about whether
