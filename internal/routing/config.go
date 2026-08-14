@@ -84,12 +84,9 @@ func WriteProfile(home string, profile Profile) error {
 	if err := ValidateProfile(profile); err != nil {
 		return err
 	}
-	dir, err := profileDirectory(home, profile.Name)
+	dir, err := prepareProfileDirectory(home, profile.Name)
 	if err != nil {
 		return err
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create profile directory: %w", err)
 	}
 	if err := writeConfigValue(filepath.Join(dir, "harness"), profile.Harness); err != nil {
 		return fmt.Errorf("write profile harness: %w", err)
@@ -312,6 +309,44 @@ func profileDirectory(home, name string) (string, error) {
 		return "", fmt.Errorf("profile name %q escapes profiles directory", name)
 	}
 	return path, nil
+}
+
+func prepareProfileDirectory(home, name string) (string, error) {
+	dir, err := profileDirectory(home, name)
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Join(home, configDirectory, profilesDirectory)
+	for _, path := range []string{
+		filepath.Join(home, configDirectory),
+		root,
+		dir,
+	} {
+		if err := ensureDirectory(path); err != nil {
+			return "", err
+		}
+	}
+	if !within(root, dir) {
+		return "", fmt.Errorf("profile name %q escapes profiles directory", name)
+	}
+	return dir, nil
+}
+
+func ensureDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.Mkdir(path, 0o755); err != nil {
+			return fmt.Errorf("create directory %s: %w", path, err)
+		}
+		info, err = os.Lstat(path)
+	}
+	if err != nil {
+		return fmt.Errorf("inspect directory %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("directory %s must not be a symlink", path)
+	}
+	return nil
 }
 
 func routeFile(home string, kind TaskKind, class ExecutionClass) (string, error) {

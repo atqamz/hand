@@ -25,8 +25,8 @@ func TestValidateProfileNameRejectsUnsafeFilename(t *testing.T) {
 		"..",
 		"profile/name",
 		`profile\name`,
-		"profile\x00name",
-		"profile\nname",
+		"profile" + "\x00" + "name",
+		"profile" + "\n" + "name",
 		"profile:name",
 		"profile*name",
 		"profile?name",
@@ -353,6 +353,45 @@ func TestRejectedProfileAndRouteDoNotCreateConfiguration(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "config", "routes")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("routes directory error = %v, want not exist", err)
+	}
+}
+
+func TestWriteProfileRefusesSymlinkedProfileDirectory(t *testing.T) {
+	home := t.TempDir()
+	profiles := filepath.Join(home, "config", "profiles")
+	if err := os.MkdirAll(profiles, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(profiles, "daily")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	err := WriteProfile(home, Profile{Name: "daily", Harness: "codex"})
+	if err == nil {
+		t.Fatal("WriteProfile() = nil")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "harness")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside harness error = %v, want not exist", err)
+	}
+}
+
+func TestWriteProfileRefusesSymlinkedProfilesDirectory(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(home, "config", "profiles")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	err := WriteProfile(home, Profile{Name: "daily", Harness: "codex"})
+	if err == nil {
+		t.Fatal("WriteProfile() = nil")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "daily", "harness")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside harness error = %v, want not exist", err)
 	}
 }
 
