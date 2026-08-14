@@ -143,10 +143,6 @@ func (r *Runtime) preflightExecution(route routing.ResolvedRoute, clonePath stri
 	}, clonePath)
 }
 
-func currentAdapterOverride(value string, fromFlag bool) bool {
-	return fromFlag || value != ""
-}
-
 func workerDefault(homeDir, key, harnessName string) string {
 	data, err := os.ReadFile(filepath.Join(homeDir, "config", key+"."+harnessName))
 	if err != nil {

@@ -173,13 +173,14 @@ func TestSpawnProfiledBriefOverridesEmitCompatibilityWarning(t *testing.T) {
 	}
 }
 
-func TestSpawnRetainsCurrentAdapterModelAndEffortOverrides(t *testing.T) {
+func TestSpawnExplicitModelAndEffortOverrideProfile(t *testing.T) {
 	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
 	configureRoute(t, home, state.KindShip, routing.ExecutionClassStandard, routing.Profile{Name: "daily", Harness: "claude", Model: "profile-model", Effort: "high"})
 	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
 
 	_, err := r.Spawn(context.Background(), SpawnRequest{
-		Home: home, ID: "task-1", Project: "demo", Kind: state.KindShip, Model: "command-model", Effort: "low",
+		Home: home, ID: "task-1", Project: "demo", Kind: state.KindShip,
+		Model: "command-model", ModelFromFlag: true, Effort: "low", EffortFromFlag: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +190,27 @@ func TestSpawnRetainsCurrentAdapterModelAndEffortOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := *history.ActiveAttempt; got.Model != "command-model" || got.Effort != "low" {
-		t.Fatalf("attempt = %+v, want current adapter overrides", got)
+		t.Fatalf("attempt = %+v, want explicit overrides", got)
+	}
+}
+
+func TestSpawnModelAndEffortWithoutProvenanceDoNotOverrideProfile(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+	configureRoute(t, home, state.KindShip, routing.ExecutionClassStandard, routing.Profile{Name: "daily", Harness: "claude", Model: "profile-model", Effort: "high"})
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+	_, err := r.Spawn(context.Background(), SpawnRequest{
+		Home: home, ID: "task-1", Project: "demo", Kind: state.KindShip, Model: "non-explicit", Effort: "low",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := *history.ActiveAttempt; got.Model != "profile-model" || got.Effort != "high" {
+		t.Fatalf("attempt = %+v, want Profile values without explicit provenance", got)
 	}
 }
 
@@ -233,6 +254,89 @@ func TestSpawnUnclassifiedBriefDoesNotLoadProfileRoutes(t *testing.T) {
 	}
 	if result.Harness != "claude" {
 		t.Fatalf("result harness = %q, want claude", result.Harness)
+	}
+}
+
+func TestSpawnUnclassifiedExplicitProfilePersistsSnapshotWithoutRoute(t *testing.T) {
+	home := executionPlanHome(t, "brief\n")
+	for _, kind := range routing.TaskKinds() {
+		for _, class := range routing.ExecutionClasses() {
+			if err := routing.RemoveRoute(home, kind, class); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := routing.WriteProfile(home, routing.Profile{Name: "direct", Harness: "claude", Model: "direct-model", Effort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+	_, err := r.Spawn(context.Background(), SpawnRequest{
+		Home: home, ID: "task-1", Project: "demo", Kind: state.KindShip, Profile: "direct", ProfileFromFlag: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := *history.ActiveAttempt; got.Harness != "claude" || got.Model != "direct-model" || got.Effort != "high" || got.ExecutionClass != "" || got.RequestedProfile != "direct" || got.RoutingSource != string(routing.RoutingSourceExplicitProfile) {
+		t.Fatalf("attempt = %+v, want explicit Profile snapshot", got)
+	}
+}
+
+func TestSpawnUnclassifiedExplicitProfileRejectsBeforeLifecycleSideEffects(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		profile routing.Profile
+		request SpawnRequest
+		setup   func(t *testing.T)
+		want    string
+	}{
+		{
+			name:    "harness absent from PATH",
+			profile: routing.Profile{Name: "direct", Harness: "grok"},
+			want:    "harness \"grok\" is not installed on PATH",
+		},
+		{
+			name:    "model unsupported by harness",
+			profile: routing.Profile{Name: "direct", Harness: "grok"},
+			request: SpawnRequest{Model: "opaque", ModelFromFlag: true},
+			setup: func(t *testing.T) {
+				addHarnessToPath(t, "grok")
+			},
+			want: "harness \"grok\" takes no model",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := executionPlanHome(t, "brief\n")
+			if test.setup != nil {
+				test.setup(t)
+			}
+			if err := routing.WriteProfile(home, test.profile); err != nil {
+				t.Fatal(err)
+			}
+			calls := &executionPlanCalls{}
+			r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+			req := test.request
+			req.Home = home
+			req.ID = "task-1"
+			req.Project = "demo"
+			req.Kind = state.KindShip
+			req.Profile = "direct"
+			req.ProfileFromFlag = true
+			_, err := r.Spawn(context.Background(), req)
+			assertPreconditionError(t, err)
+			if !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Spawn() error = %q, want %q", err, test.want)
+			}
+			assertNoProvisioningSideEffects(t, home, calls)
+			if _, err := state.ReadHistory(home, "task-1"); !errors.Is(err, state.ErrTaskNotFound) {
+				t.Fatalf("history after refused Spawn = %v, want no Task/Attempt", err)
+			}
+		})
 	}
 }
 

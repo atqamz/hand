@@ -55,7 +55,7 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 	if _, err := os.Stat(briefPath); err != nil {
 		return fail(Precondition(fmt.Errorf("brief not found at %s", briefRel)))
 	}
-	route, err := resolveExecution(req.Home, briefPath, task.Kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, currentAdapterOverride(req.Model, req.ModelFromFlag), req.Effort, currentAdapterOverride(req.Effort, req.EffortFromFlag))
+	route, err := resolveExecution(req.Home, briefPath, task.Kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, req.ModelFromFlag, req.Effort, req.EffortFromFlag)
 	if err != nil {
 		return fail(err)
 	}

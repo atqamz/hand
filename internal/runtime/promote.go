@@ -70,7 +70,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		return Result{}, err
 	}
 	fail := func(err error) (Result, error) { return Result{}, WithWarnings(err, warnings) }
-	route, err := resolveExecution(req.Home, briefPath, state.KindShip, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, currentAdapterOverride(req.Model, req.ModelFromFlag), req.Effort, currentAdapterOverride(req.Effort, req.EffortFromFlag))
+	route, err := resolveExecution(req.Home, briefPath, state.KindShip, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, req.ModelFromFlag, req.Effort, req.EffortFromFlag)
 	if err != nil {
 		return fail(err)
 	}

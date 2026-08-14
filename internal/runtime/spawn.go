@@ -53,7 +53,7 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 	if kind == "" {
 		kind = state.KindShip
 	}
-	route, err := resolveExecution(req.Home, briefPath, kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, currentAdapterOverride(req.Model, req.ModelFromFlag), req.Effort, currentAdapterOverride(req.Effort, req.EffortFromFlag))
+	route, err := resolveExecution(req.Home, briefPath, kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, req.ModelFromFlag, req.Effort, req.EffortFromFlag)
 	if err != nil {
 		return fail(err)
 	}
