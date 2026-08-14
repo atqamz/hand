@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/brief"
-	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -50,40 +49,34 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 	if _, err := os.Stat(briefPath); err != nil {
 		return fail(Precondition(fmt.Errorf("brief not found at %s", briefRel)))
 	}
-	harnessName, err := requestedHarness(req.Harness, req.HarnessFromFlag)
+	kind := req.Kind
+	if kind == "" {
+		kind = state.KindShip
+	}
+	route, err := resolveExecution(req.Home, briefPath, kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, currentAdapterOverride(req.Model, req.ModelFromFlag), req.Effort, currentAdapterOverride(req.Effort, req.EffortFromFlag))
 	if err != nil {
 		return fail(err)
 	}
-	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
-	if err != nil {
-		return fail(classifyTierError(err))
-	}
-	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
-		return fail(err)
-	}
-	warnings = append(warnings, tier.Warnings...)
+	warnings = append(warnings, route.Warnings...)
 	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
 	var releaseProject func()
-	if tier.ExecutionClass == brief.ExecutionClassMechanical {
+	if route.ExecutionClass == brief.ExecutionClassMechanical {
 		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
 		if err != nil {
 			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
 		}
 		defer releaseProject()
-		if err := r.preflightTier(tier, clonePath); err != nil {
+		if err := r.preflightExecution(route, clonePath); err != nil {
 			return fail(err)
 		}
 	}
 
-	kind := req.Kind
-	if kind == "" {
-		kind = state.KindShip
-	}
 	createdAt := r.deps.now().Format(time.RFC3339)
 	attempt, err := state.CreateTaskWithAttempt(req.Home, state.Task{
 		ID: req.ID, Project: projectInfo.Name, Kind: kind, Brief: briefRel, Lifecycle: state.TaskOpen, CreatedAt: createdAt,
 	}, state.Attempt{
-		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: tier.Model, Effort: tier.Effort, CreatedAt: createdAt,
+		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write provisioning state: %w", err))
@@ -94,8 +87,7 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 
 	provisionRequest := provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass, plannedAgainst: tier.PlannedAgainst,
-		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, attempt: attempt,
 	}
 	var worktreePath string
 	if releaseProject != nil {
@@ -107,20 +99,7 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		return fail(err)
 	}
 	return Result{
-		ID: req.ID, Project: projectInfo.Name, Kind: kind, Harness: harnessName, Worktree: worktreePath,
+		ID: req.ID, Project: projectInfo.Name, Kind: kind, Harness: attempt.Harness, Worktree: worktreePath,
 		Warnings: warnings, Help: []string{"Run `hand status " + req.ID + "` to read what this worker reports", "Run `hand send " + req.ID + " <message>` to steer it"},
 	}, nil
-}
-
-func requestedHarness(name string, fromFlag bool) (string, error) {
-	if name == "" {
-		return "", Precondition(fmt.Errorf("current supervisor harness is unknown and no worker harness override is configured; run hand config set harness <name>"))
-	}
-	if harness.IsSupported(name) {
-		return name, nil
-	}
-	if fromFlag {
-		return "", Usage(fmt.Errorf("harness %q not recognized", name))
-	}
-	return "", fmt.Errorf("harness %q not recognized", name)
 }

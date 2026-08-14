@@ -55,34 +55,28 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 	if _, err := os.Stat(briefPath); err != nil {
 		return fail(Precondition(fmt.Errorf("brief not found at %s", briefRel)))
 	}
-	harnessName, err := requestedHarness(req.Harness, req.HarnessFromFlag)
+	route, err := resolveExecution(req.Home, briefPath, task.Kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, currentAdapterOverride(req.Model, req.ModelFromFlag), req.Effort, currentAdapterOverride(req.Effort, req.EffortFromFlag))
 	if err != nil {
 		return fail(err)
 	}
-	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
-	if err != nil {
-		return fail(classifyTierError(err))
-	}
-	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
-		return fail(err)
-	}
-	warnings = append(warnings, tier.Warnings...)
+	warnings = append(warnings, route.Warnings...)
 	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
 	var releaseProject func()
-	if tier.ExecutionClass == brief.ExecutionClassMechanical {
+	if route.ExecutionClass == brief.ExecutionClassMechanical {
 		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
 		if err != nil {
 			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
 		}
 		defer releaseProject()
-		if err := r.preflightTier(tier, clonePath); err != nil {
+		if err := r.preflightExecution(route, clonePath); err != nil {
 			return fail(err)
 		}
 	}
 
 	createdAt := r.deps.now().Format(time.RFC3339)
 	attempt, err := state.ReopenTask(req.Home, state.Attempt{
-		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: tier.Model, Effort: tier.Effort, CreatedAt: createdAt,
+		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write reopened provisioning state: %w", err))
@@ -93,8 +87,7 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 
 	provisionRequest := provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass, plannedAgainst: tier.PlannedAgainst,
-		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, attempt: attempt,
 	}
 	var worktreePath string
 	if releaseProject != nil {
@@ -106,7 +99,7 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 		return fail(err)
 	}
 	return Result{
-		ID: req.ID, Attempt: "new", Project: task.Project, Kind: task.Kind, Harness: harnessName, Worktree: worktreePath,
+		ID: req.ID, Attempt: "new", Project: task.Project, Kind: task.Kind, Harness: attempt.Harness, Worktree: worktreePath,
 		Warnings: warnings, Help: []string{"Run `hand status " + req.ID + "` to read this attempt"},
 	}, nil
 }

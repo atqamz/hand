@@ -11,6 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/routing"
 )
 
 type TierResult struct {
@@ -65,13 +66,6 @@ func classifyTierError(err error) error {
 	return err
 }
 
-func preflightExecutionClass(executionClass brief.ExecutionClass, harnessName string) error {
-	if executionClass == brief.ExecutionClassMechanical && !harness.CarriesPrompt(harnessName) {
-		return Precondition(fmt.Errorf("mechanical execution requires a prompt-capable harness: harness %q cannot carry the required mechanical worker guidance", harnessName))
-	}
-	return nil
-}
-
 func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string) error {
 	if declaration.ExecutionClass != brief.ExecutionClassMechanical {
 		return nil
@@ -94,6 +88,63 @@ func (r *Runtime) preflightTier(tier TierResult, clonePath string) error {
 		ExecutionClass: tier.ExecutionClass,
 		PlannedAgainst: tier.PlannedAgainst,
 	}, clonePath)
+}
+
+func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag bool, harnessName string, harnessFromFlag bool, model string, modelFromFlag bool, effort string, effortFromFlag bool) (routing.ResolvedRoute, error) {
+	declaration, frontMatter, err := brief.Parse(briefPath)
+	if err != nil {
+		return routing.ResolvedRoute{}, classifyResolutionError(fmt.Errorf("parse brief %s: %w", briefPath, err), harnessName, harnessFromFlag)
+	}
+	config := routing.Config{}
+	if declaration.ExecutionClass != "" || profileFromFlag {
+		config, err = routing.Load(homeDir)
+		if err != nil {
+			return routing.ResolvedRoute{}, err
+		}
+	}
+	legacy, err := routing.LoadLegacyDefaults(homeDir, harnessName)
+	if err != nil {
+		return routing.ResolvedRoute{}, err
+	}
+	resolved, err := routing.Resolve(routing.Request{
+		Kind:                routing.TaskKind(kind),
+		Declaration:         declaration,
+		BriefHasFrontMatter: frontMatter,
+		Profile:             profile,
+		ProfileFromFlag:     profileFromFlag,
+		Harness:             harnessName,
+		HarnessFromFlag:     harnessFromFlag,
+		Model:               model,
+		ModelFromFlag:       modelFromFlag,
+		Effort:              effort,
+		EffortFromFlag:      effortFromFlag,
+	}, config, legacy, routing.DefaultAvailability())
+	if err != nil {
+		return routing.ResolvedRoute{}, classifyResolutionError(err, harnessName, harnessFromFlag)
+	}
+	return resolved, nil
+}
+
+func classifyResolutionError(err error, harnessName string, harnessFromFlag bool) error {
+	var validationErr *brief.ValidationError
+	if errors.As(err, &validationErr) {
+		return Precondition(err)
+	}
+	if harnessFromFlag && !harness.IsSupported(harnessName) {
+		return Usage(err)
+	}
+	return Precondition(err)
+}
+
+func (r *Runtime) preflightExecution(route routing.ResolvedRoute, clonePath string) error {
+	return r.preflightBrief(brief.Declaration{
+		ExecutionClass: route.ExecutionClass,
+		PlannedAgainst: route.PlannedAgainst,
+	}, clonePath)
+}
+
+func currentAdapterOverride(value string, fromFlag bool) bool {
+	return fromFlag || value != ""
 }
 
 func workerDefault(homeDir, key, harnessName string) string {

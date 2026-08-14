@@ -13,6 +13,7 @@ import (
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
 )
@@ -198,7 +199,8 @@ func TestSpawnMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) 
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
-	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Grok})
+	addHarnessToPath(t, harness.Grok)
+	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Grok, HarnessFromFlag: true})
 	assertPreconditionError(t, err)
 	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
 		t.Fatalf("error = %q, want capability guidance", err)
@@ -376,7 +378,8 @@ func TestReopenMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T)
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
-	_, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: harness.Grok})
+	addHarnessToPath(t, harness.Grok)
+	_, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: harness.Grok, HarnessFromFlag: true})
 	assertPreconditionError(t, err)
 	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
 		t.Fatalf("error = %q, want capability guidance", err)
@@ -476,7 +479,8 @@ func TestPromoteMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
-	_, err = r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: harness.Grok})
+	addHarnessToPath(t, harness.Grok)
+	_, err = r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: harness.Grok, HarnessFromFlag: true})
 	assertPreconditionError(t, err)
 	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
 		t.Fatalf("error = %q, want capability guidance", err)
@@ -507,12 +511,16 @@ func TestNonMechanicalPlansKeepLaunchingWithHarnessWithoutPromptCapability(t *te
 					calls := &executionPlanCalls{}
 					r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("b", 40), nil })
 
-					result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harnessName})
+					addHarnessToPath(t, harnessName)
+					result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harnessName, HarnessFromFlag: true})
 					if err != nil {
 						t.Fatalf("Spawn() = %v, want compatibility launch", err)
 					}
-					if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "launching anyway") {
+					if class == "" && (len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "launching anyway")) {
 						t.Fatalf("warnings = %v, want launching-anyway capability warning", result.Warnings)
+					}
+					if class != "" && len(result.Warnings) != 0 {
+						t.Fatalf("warnings = %v, want strict profiled dispatch without compatibility warning", result.Warnings)
 					}
 					if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
 						t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
@@ -529,7 +537,8 @@ func TestSpawnMechanicalPlanRejectsPiWithoutPromptCapability(t *testing.T) {
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
-	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Pi})
+	addHarnessToPath(t, harness.Pi)
+	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Pi, HarnessFromFlag: true})
 	assertPreconditionError(t, err)
 	assertNoLaunchingAnywayWarning(t, err)
 	assertNoProvisioningSideEffects(t, home, calls)
@@ -704,6 +713,17 @@ func executionPlanHome(t *testing.T, briefText string) string {
 	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
 		t.Fatal(err)
 	}
+	if err := routing.WriteProfile(home, routing.Profile{Name: "default", Harness: harness.Claude}); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range routing.TaskKinds() {
+		for _, class := range routing.ExecutionClasses() {
+			if err := routing.WriteRoute(home, routing.Route{Kind: kind, ExecutionClass: class, Profile: "default"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	addHarnessToPath(t, harness.Claude)
 	return home
 }
 

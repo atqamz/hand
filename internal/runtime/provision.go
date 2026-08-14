@@ -69,11 +69,6 @@ type provisioningRequest struct {
 	projectName         string
 	clonePath           string
 	briefPath           string
-	harness             string
-	model               string
-	effort              string
-	executionClass      brief.ExecutionClass
-	plannedAgainst      string
 	briefHasFrontMatter bool
 	attempt             state.Attempt
 }
@@ -98,7 +93,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnLease(lease, true))
 	}
 	var releaseWorktree func()
-	if req.executionClass == brief.ExecutionClassMechanical {
+	if brief.ExecutionClass(req.attempt.ExecutionClass) == brief.ExecutionClassMechanical {
 		releaseWorktree, err = state.Lock(req.home, "worktree:"+worktreePath)
 		if err != nil {
 			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("lock worktree %q: %w", worktreePath, err))
@@ -108,8 +103,8 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		if err != nil {
 			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("verify mechanical worktree HEAD: %w; refusing to launch", err)))
 		}
-		if actual != req.plannedAgainst {
-			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("mechanical plan became stale during worktree acquisition: planned against %s, acquired worktree is %s; refusing to launch; re-check and rewrite the brief before dispatch", req.plannedAgainst, actual)))
+		if actual != req.attempt.PlannedAgainst {
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("mechanical plan became stale during worktree acquisition: planned against %s, acquired worktree is %s; refusing to launch; re-check and rewrite the brief before dispatch", req.attempt.PlannedAgainst, actual)))
 		}
 	}
 	if err := r.afterPhase(phaseWorktreeRecorded); err != nil {
@@ -154,9 +149,9 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return fail(err)
 	}
 
-	launchCommand, err := r.deps.buildHarness(req.harness, harness.Options{
-		Worktree: worktreePath, Brief: req.briefPath, FleetHome: req.home, Model: req.model, Effort: req.effort,
-		ExecutionClass: req.executionClass, BriefHasFrontMatter: req.briefHasFrontMatter,
+	launchCommand, err := r.deps.buildHarness(req.attempt.Harness, harness.Options{
+		Worktree: worktreePath, Brief: req.briefPath, FleetHome: req.home, Model: req.attempt.Model, Effort: req.attempt.Effort,
+		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter,
 	})
 	if err != nil {
 		return fail(err)
@@ -171,7 +166,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return fail(err)
 	}
 
-	if err := r.deps.confirmLaunch(client, pane.PaneID, req.harness); err != nil {
+	if err := r.deps.confirmLaunch(client, pane.PaneID, req.attempt.Harness); err != nil {
 		return fail(fmt.Errorf("confirm worker started: %w", err))
 	}
 	if err := state.MarkLaunchConfirmed(req.home, req.attempt.TaskID, req.attempt.ID, r.deps.now().Format(time.RFC3339)); err != nil {

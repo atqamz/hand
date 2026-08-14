@@ -80,30 +80,42 @@ type SpawnRequest struct {
 	ID              string
 	Project         string
 	Kind            string
+	Profile         string
+	ProfileFromFlag bool
 	Harness         string
 	HarnessFromFlag bool
 	Model           string
+	ModelFromFlag   bool
 	Effort          string
+	EffortFromFlag  bool
 	SkipGateCheck   bool
 }
 
 type ReopenRequest struct {
 	Home            string
 	ID              string
+	Profile         string
+	ProfileFromFlag bool
 	Harness         string
 	HarnessFromFlag bool
 	Model           string
+	ModelFromFlag   bool
 	Effort          string
+	EffortFromFlag  bool
 	SkipGateCheck   bool
 }
 
 type PromoteRequest struct {
 	Home            string
 	ID              string
+	Profile         string
+	ProfileFromFlag bool
 	Harness         string
 	HarnessFromFlag bool
 	Model           string
+	ModelFromFlag   bool
 	Effort          string
+	EffortFromFlag  bool
 	SkipGateCheck   bool
 }
 

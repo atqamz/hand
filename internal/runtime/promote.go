@@ -70,34 +70,28 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		return Result{}, err
 	}
 	fail := func(err error) (Result, error) { return Result{}, WithWarnings(err, warnings) }
-	harnessName, err := requestedHarness(req.Harness, req.HarnessFromFlag)
+	route, err := resolveExecution(req.Home, briefPath, state.KindShip, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, currentAdapterOverride(req.Model, req.ModelFromFlag), req.Effort, currentAdapterOverride(req.Effort, req.EffortFromFlag))
 	if err != nil {
 		return fail(err)
 	}
-	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
-	if err != nil {
-		return fail(classifyTierError(err))
-	}
-	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
-		return fail(err)
-	}
-	warnings = append(warnings, tier.Warnings...)
+	warnings = append(warnings, route.Warnings...)
 
 	var releaseProject func()
-	if tier.ExecutionClass == brief.ExecutionClassMechanical {
+	if route.ExecutionClass == brief.ExecutionClassMechanical {
 		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
 		if err != nil {
 			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
 		}
 		defer releaseProject()
-		if err := r.preflightTier(tier, clonePath); err != nil {
+		if err := r.preflightExecution(route, clonePath); err != nil {
 			return fail(err)
 		}
 	}
 
 	createdAt := r.deps.now().Format(time.RFC3339)
 	shipAttempt, err := state.PromoteTask(req.Home, req.ID, scout.ID, scout.Lifecycle, state.Attempt{
-		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: tier.Model, Effort: tier.Effort, CreatedAt: createdAt,
+		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write promoted provisioning state: %w", err))
@@ -122,8 +116,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 
 	worktreePath, err := r.provisionLocked(ctx, provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass, plannedAgainst: tier.PlannedAgainst,
-		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: shipAttempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, attempt: shipAttempt,
 	})
 	if err != nil {
 		return fail(err)
@@ -132,7 +125,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		warnings = append(warnings, fmt.Sprintf("warning: clear usage-limit hold failed: %v", err))
 	}
 	return Result{
-		ID: req.ID, Project: projectInfo.Name, Kind: state.KindShip, Was: state.KindScout, Harness: harnessName, Worktree: worktreePath,
+		ID: req.ID, Project: projectInfo.Name, Kind: state.KindShip, Was: state.KindScout, Harness: shipAttempt.Harness, Worktree: worktreePath,
 		Warnings: warnings,
 		Help:     []string{"The scout's worktree and pane are gone; run `hand status " + req.ID + "` to read the ship worker", "The scout's delivery no longer counts for this task, so `hand deliver " + req.ID + "` runs again on the code"},
 	}, nil
