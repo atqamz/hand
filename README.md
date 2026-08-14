@@ -143,7 +143,7 @@ Task kind and execution class are orthogonal.
 For example, `ship + mechanical`, `ship + standard`, `ship + deep`, and `scout + deep` are meaningful combinations.
 Execution classes describe remaining judgment, not task size, line count, file count, worker role, model, or cost.
 
-A brief may declare the class and the project revision used for a mechanical plan:
+A supervisor-created execution-class brief records the project revision it was planned against:
 
 ```yaml
 ---
@@ -153,8 +153,10 @@ planned_against: <full commit ID>
 ```
 
 `planned_against` is the full commit ID of the registered project's verified local default branch in `<home>/projects/<project>`.
-Hand refuses a mechanical dispatch when that project base no longer matches exactly, before provisioning begins.
-Because Treehouse may refresh a leased worktree during acquisition, Hand also verifies the acquired worktree `HEAD` against the same commit and returns it before Herdr or worker launch when it differs.
+For `mechanical`, Hand refuses dispatch when that project base no longer matches exactly, before provisioning begins.
+For `standard` and `deep`, the value is provenance only and does not trigger the mechanical exact-match refusal.
+Because Treehouse may refresh a leased worktree during acquisition, Hand also verifies the acquired worktree `HEAD` against the same commit and refuses to launch when it differs.
+Mechanical dispatch also requires a harness capable of carrying the shared mechanical worker guidance; unsupported harnesses fail as a precondition before lifecycle mutation.
 The supervisor must re-check the plan and rewrite or revalidate it before recording a new revision.
 
 These fields are optional, so briefs without them and legacy `model`/`effort` front matter retain their existing behavior.

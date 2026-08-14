@@ -273,6 +273,20 @@ func TestBuildCodexFrontMatterDisclaimer(t *testing.T) {
 	}
 }
 
+func TestBuildFrontMatterDisclaimerCoversAllRecognizedDispatchMetadata(t *testing.T) {
+	for _, name := range []string{Claude, Codex, OpenCode} {
+		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range []string{"model", "effort", "execution_class", "planned_against"} {
+			if !strings.Contains(got, field) {
+				t.Fatalf("Build(%q) = %q, want recognized dispatch field %q in disclaimer", name, got, field)
+			}
+		}
+	}
+}
+
 // Pins the only channel that rule has: a worker's worktree is never under the fleet home, so the
 // AGENTS.md copy of it never reaches the worker.
 func TestBuildCarriesOperatorDecisionRule(t *testing.T) {

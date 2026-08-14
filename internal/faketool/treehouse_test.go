@@ -97,6 +97,42 @@ func TestTreehouseGetCanModelAnAcquisitionHeadReset(t *testing.T) {
 	}
 }
 
+func TestTreehouseConditionalReturnRequiresTheCurrentLeaseIdentity(t *testing.T) {
+	slot := filepath.Join(t.TempDir(), "slot")
+	InitRepo(t, slot)
+	Treehouse{Slots: []string{slot}, Held: []string{slot}, LeaseIDs: map[string]string{slot: "lease-0"}}.Install(t, Bin(t))
+
+	if _, stderr, code := runTreehouse(t, t.TempDir(), "return", "--force", "--if-lease-id", "lease-0", slot); code != 0 {
+		t.Fatalf("matching conditional return: code=%d stderr=%q", code, stderr)
+	}
+	if _, _, code := runTreehouse(t, t.TempDir(), "get", "--lease", "--json"); code != 0 {
+		t.Fatalf("slot was not released after matching conditional return: code=%d", code)
+	}
+}
+
+func TestTreehouseConditionalReturnPreservesAReusedLease(t *testing.T) {
+	slot := filepath.Join(t.TempDir(), "slot")
+	InitRepo(t, slot)
+	Treehouse{Slots: []string{slot}, Held: []string{slot}, LeaseIDs: map[string]string{slot: "lease-0"}}.Install(t, Bin(t))
+
+	if _, _, code := runTreehouse(t, t.TempDir(), "return", "--force", "--if-lease-id", "lease-0", slot); code != 0 {
+		t.Fatalf("initial conditional return: code=%d", code)
+	}
+	lease, _, code := runTreehouse(t, t.TempDir(), "get", "--lease", "--json")
+	if code != 0 {
+		t.Fatalf("reacquire slot: code=%d", code)
+	}
+	if strings.Contains(lease, "lease-0") {
+		t.Fatalf("reacquired lease = %q, want a new identity", lease)
+	}
+	if _, stderr, code := runTreehouse(t, t.TempDir(), "return", "--force", "--if-lease-id", "lease-0", slot); code == 0 {
+		t.Fatalf("stale conditional return succeeded: stderr=%q", stderr)
+	}
+	if _, _, code := runTreehouse(t, t.TempDir(), "get", "--lease", "--json"); code == 0 {
+		t.Fatal("stale conditional return released the current lease")
+	}
+}
+
 func TestTreehouseReturnsIdempotentlyAndRefusesAnUnmanagedPath(t *testing.T) {
 	bin := Bin(t)
 	slot := filepath.Join(t.TempDir(), "wt")

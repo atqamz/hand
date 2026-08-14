@@ -65,6 +65,13 @@ func classifyTierError(err error) error {
 	return err
 }
 
+func preflightExecutionClass(executionClass brief.ExecutionClass, harnessName string) error {
+	if executionClass == brief.ExecutionClassMechanical && !harness.CarriesPrompt(harnessName) {
+		return Precondition(fmt.Errorf("mechanical execution requires a prompt-capable harness: harness %q cannot carry the required mechanical worker guidance", harnessName))
+	}
+	return nil
+}
+
 func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string) error {
 	if declaration.ExecutionClass != brief.ExecutionClassMechanical {
 		return nil

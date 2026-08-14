@@ -87,7 +87,7 @@ func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 			wantFlags: []string{
 				"--model 'claude-opus-5'",
 				"--effort 'high'",
-				"are dispatch metadata, not task content",
+				"are dispatch metadata, not task instructions",
 			},
 			denyFlags: []string{"claude-sonnet-5"},
 		},
@@ -105,7 +105,7 @@ func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 			brief:     plain,
 			wantModel: "claude-sonnet-5",
 			wantFlags: []string{"--model 'claude-sonnet-5'"},
-			denyFlags: []string{"--effort", "are dispatch metadata, not task content"},
+			denyFlags: []string{"--effort", "are dispatch metadata, not task instructions"},
 		},
 	}
 

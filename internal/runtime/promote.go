@@ -12,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/worktree"
 )
 
 func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, error) {
@@ -78,6 +79,9 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		return fail(classifyTierError(err))
 	}
 	warnings = append(warnings, tier.Warnings...)
+	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
+		return fail(err)
+	}
 
 	var releaseProject func()
 	if tier.ExecutionClass == brief.ExecutionClassMechanical {
@@ -175,7 +179,7 @@ func (r *Runtime) cleanupScout(homeDir, taskID string, scout state.Attempt) ([]s
 		default:
 			if err := setState("worktree", state.TeardownResourceReleasing); err != nil {
 				warnings = append(warnings, fmt.Sprintf("warning: record scout worktree release phase failed: %v", err))
-			} else if err := r.deps.worktree.returnWorktree(scout.Worktree, true); err != nil {
+			} else if err := r.deps.worktree.returnLease(worktree.Lease{Path: scout.Worktree, ID: scout.LeaseID}, true); err != nil {
 				_ = setState("worktree", state.TeardownResourceAmbiguous)
 				warnings = append(warnings, fmt.Sprintf("warning: return scout worktree failed: %v", err))
 			} else if err := setState("worktree", state.TeardownResourceReleased); err != nil {

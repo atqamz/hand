@@ -192,6 +192,23 @@ func TestSpawnMechanicalPlanStopsBeforeAttemptAndExternalProvisioning(t *testing
 	}
 }
 
+func TestSpawnMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) {
+	planned := strings.Repeat("a", 40)
+	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
+
+	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Grok})
+	assertPreconditionError(t, err)
+	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
+		t.Fatalf("error = %q, want capability guidance", err)
+	}
+	assertNoProvisioningSideEffects(t, home, calls)
+	if _, err := state.ReadHistory(home, "task-1"); !errors.Is(err, state.ErrTaskNotFound) {
+		t.Fatalf("history after refused Spawn = %v, want no Task/Attempt", err)
+	}
+}
+
 func TestSpawnMechanicalPlanRejectsWorktreeHeadDriftBeforeHerdr(t *testing.T) {
 	planned := strings.Repeat("a", 40)
 	acquired := strings.Repeat("b", 40)
@@ -202,7 +219,7 @@ func TestSpawnMechanicalPlanRejectsWorktreeHeadDriftBeforeHerdr(t *testing.T) {
 
 	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: "claude"})
 	assertPreconditionError(t, err)
-	for _, want := range []string{planned, acquired, "returned without launching"} {
+	for _, want := range []string{planned, acquired, "refusing to launch"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %q, want %q", err, want)
 		}
@@ -216,6 +233,42 @@ func TestSpawnMechanicalPlanRejectsWorktreeHeadDriftBeforeHerdr(t *testing.T) {
 	}
 	if history.ActiveAttempt == nil || history.ActiveAttempt.Worktree != "" {
 		t.Fatalf("attempt after rejected worktree = %+v, want no worktree evidence", history.ActiveAttempt)
+	}
+}
+
+func TestSpawnMechanicalPlanRetainsWorktreeEvidenceWhenLeaseChangesDuringCleanup(t *testing.T) {
+	planned := strings.Repeat("a", 40)
+	acquired := strings.Repeat("b", 40)
+	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
+	r.deps.worktree.headCommit = func(string) (string, error) { return acquired, nil }
+	r.deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+		if path == "" || leaseID != "lease-1" || !force {
+			t.Fatalf("returnWithID(%q, %q, %t), want acquired lease-1 with force", path, leaseID, force)
+		}
+		return errors.New("conditional lease return refused: current lease is lease-2")
+	}
+
+	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: "claude"})
+	assertPreconditionError(t, err)
+	for _, want := range []string{planned, acquired, "refusing to launch", "cleanup failed", "conditional lease return refused"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "returned without launching") {
+		t.Fatalf("error = %q, must not claim cleanup succeeded", err)
+	}
+	if calls.herdrGets != 0 || calls.harnessBuilds != 0 {
+		t.Fatalf("provisioning calls = %+v, want no Herdr or harness launch", calls)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Worktree == "" || history.ActiveAttempt.LeaseID != "lease-1" {
+		t.Fatalf("attempt after failed conditional cleanup = %+v, want truthful lease evidence", history.ActiveAttempt)
 	}
 }
 
@@ -315,6 +368,28 @@ func TestReopenMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.T
 	}
 }
 
+func TestReopenMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) {
+	planned := strings.Repeat("a", 40)
+	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
+	createTerminalExecutionTask(t, home)
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
+
+	_, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: harness.Grok})
+	assertPreconditionError(t, err)
+	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
+		t.Fatalf("error = %q, want capability guidance", err)
+	}
+	assertNoProvisioningSideEffects(t, home, calls)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || len(history.Attempts) != 1 {
+		t.Fatalf("history after refused Reopen = %+v, want unchanged terminal task and one attempt", history)
+	}
+}
+
 func TestReopenLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T) {
 	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
 	createTerminalExecutionTask(t, home)
@@ -379,6 +454,65 @@ func TestPromoteMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.
 	}
 	if history.Task.Kind != state.KindScout || len(history.Attempts) != 1 || history.ActiveAttempt == nil {
 		t.Fatalf("history after stale promote = %+v, want unchanged scout task and attempt", history)
+	}
+}
+
+func TestPromoteMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) {
+	planned := strings.Repeat("a", 40)
+	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Lifecycle: state.TaskOpen}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/old/worktree",
+		Herdr: state.Herdr{WorkspaceID: "old-ws", TabID: "old-tab", PaneID: "old-pane"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markExecutionAttemptRunning(t, home, attempt.ID)
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
+
+	_, err = r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: harness.Grok})
+	assertPreconditionError(t, err)
+	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
+		t.Fatalf("error = %q, want capability guidance", err)
+	}
+	if calls.worktreeGets != 0 || calls.harnessBuilds != 0 || calls.herdrGets != 1 {
+		t.Fatalf("provisioning calls = %+v, want only the completed-scout Herdr probe", calls)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Kind != state.KindScout || len(history.Attempts) != 1 || history.ActiveAttempt == nil {
+		t.Fatalf("history after refused Promote = %+v, want unchanged scout task and attempt", history)
+	}
+}
+
+func TestNonMechanicalPlansKeepLaunchingWithHarnessWithoutPromptCapability(t *testing.T) {
+	for _, class := range []string{"", "standard", "deep"} {
+		t.Run(map[string]string{"": "legacy", "standard": "standard", "deep": "deep"}[class], func(t *testing.T) {
+			briefText := "brief\n"
+			if class != "" {
+				briefText = "---\nexecution_class: " + class + "\n---\nbrief\n"
+			}
+			home := executionPlanHome(t, briefText)
+			calls := &executionPlanCalls{}
+			r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("b", 40), nil })
+
+			result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Grok})
+			if err != nil {
+				t.Fatalf("Spawn() = %v, want compatibility launch", err)
+			}
+			if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "cannot carry") {
+				t.Fatalf("warnings = %v, want capability warning", result.Warnings)
+			}
+			if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
+				t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
+			}
+		})
 	}
 }
 

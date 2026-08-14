@@ -31,6 +31,7 @@ type worktreeDependencies struct {
 	get            func(string, string) (worktree.Lease, error)
 	headCommit     func(string) (string, error)
 	returnWorktree func(string, bool) error
+	returnWithID   func(string, string, bool) error
 	checkCollision func(string, worktree.Lease, string) (string, error)
 	verifyLease    func(string, string) error
 }
@@ -54,7 +55,7 @@ func defaultDependencies() dependencies {
 	return dependencies{
 		now:               func() time.Time { return time.Now().UTC() },
 		herdr:             newHerdrClient,
-		worktree:          worktreeDependencies{get: worktree.Get, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
+		worktree:          worktreeDependencies{get: worktree.Get, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
 		projectBaseCommit: projectBaseCommit,
 		buildHarness:      harness.Build,
 		confirmLaunch:     confirmLaunch,
@@ -94,52 +95,52 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	}
 	worktreePath := lease.Path
 	if err := state.RecordAttemptWorktree(req.home, req.attempt.TaskID, req.attempt.ID, worktreePath, lease.ID); err != nil {
-		return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnWorktree(worktreePath, true))
+		return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnLease(lease, true))
 	}
 	var releaseWorktree func()
 	if req.executionClass == brief.ExecutionClassMechanical {
 		releaseWorktree, err = state.Lock(req.home, "worktree:"+worktreePath)
 		if err != nil {
-			return "", r.failProvision(req, worktreePath, nil, false, fmt.Errorf("lock worktree %q: %w", worktreePath, err))
+			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("lock worktree %q: %w", worktreePath, err))
 		}
 		defer releaseWorktree()
 		actual, err := r.deps.worktree.headCommit(worktreePath)
 		if err != nil {
-			return "", r.failProvision(req, worktreePath, nil, false, Precondition(fmt.Errorf("verify mechanical worktree HEAD: %w; returned without launching", err)))
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("verify mechanical worktree HEAD: %w; refusing to launch", err)))
 		}
 		if actual != req.plannedAgainst {
-			return "", r.failProvision(req, worktreePath, nil, false, Precondition(fmt.Errorf("mechanical plan became stale during worktree acquisition: planned against %s, acquired worktree is %s; returned without launching; re-check and rewrite the brief before dispatch", req.plannedAgainst, actual)))
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("mechanical plan became stale during worktree acquisition: planned against %s, acquired worktree is %s; refusing to launch; re-check and rewrite the brief before dispatch", req.plannedAgainst, actual)))
 		}
 	}
 	if err := r.afterPhase(phaseWorktreeRecorded); err != nil {
-		return "", r.failProvision(req, worktreePath, nil, false, err)
+		return "", r.failProvision(req, lease, nil, false, err)
 	}
 
 	if releaseWorktree == nil {
 		releaseWorktree, err = state.Lock(req.home, "worktree:"+worktreePath)
 		if err != nil {
-			return "", r.failProvision(req, worktreePath, nil, false, fmt.Errorf("lock worktree %q: %w", worktreePath, err))
+			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("lock worktree %q: %w", worktreePath, err))
 		}
 		defer releaseWorktree()
 	}
 
 	conflict, err := r.deps.worktree.checkCollision(req.home, lease, req.attempt.TaskID)
 	if err != nil {
-		return "", r.failProvision(req, worktreePath, nil, false, err)
+		return "", r.failProvision(req, lease, nil, false, err)
 	}
 	if conflict != "" {
 		err := Precondition(fmt.Errorf("worktree collision: %s already holds %s", conflict, worktreePath))
-		return "", r.failProvision(req, worktreePath, nil, false, err)
+		return "", r.failProvision(req, lease, nil, false, err)
 	}
 
 	client := r.deps.herdr()
 	workspace, tab, pane, rollback, err := acquireTaskWorkspace(client, worktreePath, req.attempt.TaskID, req.projectName)
 	if err != nil {
-		return "", r.failProvision(req, worktreePath, nil, false, err)
+		return "", r.failProvision(req, lease, nil, false, err)
 	}
 	herdrRecorded := false
 	fail := func(cause error) (string, error) {
-		return "", r.failProvision(req, worktreePath, rollback, herdrRecorded, cause)
+		return "", r.failProvision(req, lease, rollback, herdrRecorded, cause)
 	}
 
 	startedAt := r.deps.now().Format(time.RFC3339)
@@ -187,7 +188,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 
 func (r *Runtime) afterPhase(phase lifecyclePhase) error { return r.deps.phase(phase) }
 
-func (r *Runtime) failProvision(req provisioningRequest, worktreePath string, rollback func() error, herdrRecorded bool, cause error) error {
+func (r *Runtime) failProvision(req provisioningRequest, lease worktree.Lease, rollback func() error, herdrRecorded bool, cause error) error {
 	var cleanup []error
 	if rollback != nil {
 		if err := rollback(); err != nil {
@@ -198,20 +199,30 @@ func (r *Runtime) failProvision(req provisioningRequest, worktreePath string, ro
 			}
 		}
 	}
-	if worktreePath != "" {
-		if err := r.returnProvisioningWorktree(req.home, req.attempt.TaskID, req.attempt.ID, worktreePath); err != nil {
+	if lease.Path != "" {
+		if err := r.returnProvisioningWorktree(req.home, req.attempt.TaskID, req.attempt.ID, lease); err != nil {
 			cleanup = append(cleanup, err)
 		}
 	}
 	return reportCleanup(cause, cleanup...)
 }
 
-func (r *Runtime) returnProvisioningWorktree(home, taskID string, attemptID int64, path string) error {
-	if err := r.deps.worktree.returnWorktree(path, true); err != nil {
+func (r *Runtime) returnProvisioningWorktree(home, taskID string, attemptID int64, lease worktree.Lease) error {
+	if err := r.deps.worktree.returnLease(lease, true); err != nil {
 		return err
 	}
 	if err := state.ClearAttemptWorktree(home, taskID, attemptID); err != nil {
 		return fmt.Errorf("clear returned worktree evidence: %w", err)
 	}
 	return nil
+}
+
+func (d worktreeDependencies) returnLease(lease worktree.Lease, force bool) error {
+	if lease.ID != "" && d.returnWithID != nil {
+		return d.returnWithID(lease.Path, lease.ID, force)
+	}
+	if d.returnWorktree != nil {
+		return d.returnWorktree(lease.Path, force)
+	}
+	return worktree.ReturnLease(lease.Path, lease.ID, force)
 }

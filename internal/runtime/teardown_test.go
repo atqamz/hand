@@ -416,9 +416,12 @@ func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 		verified++
 		return nil
 	}
-	deps.worktree.returnWorktree = func(path string, force bool) error {
+	deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
 		if path != worktreePath {
-			t.Fatalf("returnWorktree path = %q, want %q", path, worktreePath)
+			t.Fatalf("returnWithID path = %q, want %q", path, worktreePath)
+		}
+		if leaseID != "lease-1" {
+			t.Fatalf("returnWithID lease ID = %q, want lease-1", leaseID)
 		}
 		returns++
 		if !force {
@@ -450,6 +453,44 @@ func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 	}
 	if history.Attempts[0].Lifecycle != state.AttemptCompleted {
 		t.Fatalf("attempt lifecycle = %s, want completed", history.Attempts[0].Lifecycle)
+	}
+}
+
+func TestTeardownUsesConditionalReturnForKnownLease(t *testing.T) {
+	home, worktreePath := teardownFixture(t, true)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history.ActiveAttempt.LeaseID = "lease-1"
+	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	deps := defaultDependencies()
+	deps.worktree.verifyLease = func(path, leaseID string) error {
+		if path != worktreePath || leaseID != "lease-1" {
+			t.Fatalf("verifyLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
+		}
+		return nil
+	}
+	deps.worktree.returnWorktree = func(string, bool) error {
+		t.Fatal("teardown used path-only return for a known lease")
+		return nil
+	}
+	deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+		if path != worktreePath || leaseID != "lease-1" || force {
+			t.Fatalf("returnWithID(%q, %q, %t), want (%q, %q, false)", path, leaseID, force, worktreePath, "lease-1")
+		}
+		called = true
+		return nil
+	}
+
+	if err := (&Runtime{deps: deps}).releaseWorktree(home, "task-1", *history.ActiveAttempt, false); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("releaseWorktree did not use the identity-targeted return")
 	}
 }
 

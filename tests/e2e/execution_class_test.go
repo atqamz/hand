@@ -81,7 +81,7 @@ func TestMechanicalPlanRefusesWhenTreehouseAcquiresADifferentHead(t *testing.T) 
 	got := runHand(t, home, "spawn", "task-1", "demo")
 	assertInvocation(t, got, 3, "mechanical plan became stale during worktree acquisition")
 	message := errorMessage(t, got.stderr)
-	for _, want := range []string{planned, acquired, "returned without launching"} {
+	for _, want := range []string{planned, acquired, "refusing to launch"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("error = %q, want %q", message, want)
 		}

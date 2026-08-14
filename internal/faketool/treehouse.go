@@ -192,10 +192,28 @@ func treehouseStatus(spec treehouseSpec) int {
 }
 
 func treehouseReturn(spec treehouseSpec, args []string) int {
-	if len(args) < 2 {
+	var slot, expectedLeaseID string
+	forced := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--force":
+			forced = true
+		case "--if-lease-id":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return fail("missing lease ID for --if-lease-id")
+			}
+			expectedLeaseID = args[i+1]
+			i++
+		default:
+			if slot != "" {
+				return fail("unexpected treehouse invocation: %s", strings.Join(args, " "))
+			}
+			slot = args[i]
+		}
+	}
+	if slot == "" {
 		return fail("unexpected treehouse invocation: %s", strings.Join(args, " "))
 	}
-	slot := args[1]
 	marker := ""
 	for _, managed := range append(append([]string{}, spec.Slots...), spec.Held...) {
 		if managed == slot {
@@ -206,10 +224,13 @@ func treehouseReturn(spec treehouseSpec, args []string) int {
 	if marker == "" {
 		return fail("worktree %s is not managed by treehouse", slot)
 	}
-	forced := false
-	for _, arg := range args[2:] {
-		if arg == "--force" {
-			forced = true
+	if expectedLeaseID != "" {
+		current, err := os.ReadFile(marker)
+		if err != nil && !os.IsNotExist(err) {
+			return fail("inspect treehouse lease: %v", err)
+		}
+		if strings.TrimSpace(string(current)) != expectedLeaseID {
+			return fail("lease identity mismatch: expected %s, current %s", expectedLeaseID, strings.TrimSpace(string(current)))
 		}
 	}
 	dirty, err := treehouseDirty(slot)

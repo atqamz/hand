@@ -59,6 +59,9 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		return fail(classifyTierError(err))
 	}
 	warnings = append(warnings, tier.Warnings...)
+	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
+		return fail(err)
+	}
 	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
 	var releaseProject func()
 	if tier.ExecutionClass == brief.ExecutionClassMechanical {

@@ -149,6 +149,57 @@ func TestReturnPassesForceFlag(t *testing.T) {
 	}
 }
 
+func TestReturnLeasePassesConditionalLeaseIdentity(t *testing.T) {
+	wt := t.TempDir()
+	writeFakeTreehouse(t, faketool.TreehouseResponse{
+		Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", wt},
+	})
+	if err := ReturnLease(wt, "lease-1", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReturnLeaseRejectsMismatchedIdentityAndKeepsLease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-2"}}.Install(t, faketool.Bin(t))
+
+	if err := ReturnLease(path, "lease-1", true); err == nil {
+		t.Fatal("ReturnLease() succeeded for a mismatched lease identity")
+	}
+	if _, err := Get(path, "hand:still-held"); err == nil {
+		t.Fatal("mismatched ReturnLease() released the current lease")
+	}
+}
+
+func TestReturnLeaseProtectsAReusedPathFromAStaleLease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-original"}}.Install(t, faketool.Bin(t))
+
+	if err := ReturnLease(path, "lease-original", true); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := Get(path, "hand:l2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ReturnLease(path, "lease-original", true); err == nil {
+		t.Fatal("stale ReturnLease() released the reused path")
+	}
+	if _, err := Get(path, "hand:still-held"); err == nil {
+		t.Fatalf("stale ReturnLease() released current lease %q", l2.ID)
+	}
+}
+
+func TestReturnLeaseFallsBackForAnEmptyLeaseIdentity(t *testing.T) {
+	wt := t.TempDir()
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Args: []string{wt, "--force"}})
+	if err := ReturnLease(wt, "", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReturnFailsOnNonZeroExit(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Stderr: "worktree busy\n", Exit: 1})
 	if err := Return(t.TempDir(), false); err == nil || !strings.Contains(err.Error(), "worktree busy") {

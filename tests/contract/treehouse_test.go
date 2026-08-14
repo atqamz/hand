@@ -132,6 +132,22 @@ func TestTreehouseGetCanAdvanceAWorktreeToTheRemoteDefaultBranch(t *testing.T) {
 	run(t, pool, "treehouse", "return", "--force", lease.Path).requireCode(t, 0)
 }
 
+func TestTreehouseConditionalReturnProtectsAReusedLease(t *testing.T) {
+	requireBin(t, "treehouse")
+	pool := newPool(t, 1)
+	l1 := acquire(t, pool, "hand:contract-l1")
+	run(t, pool, "treehouse", "return", "--force", "--if-lease-id", l1.LeaseID, l1.Path).requireCode(t, 0)
+	l2 := acquire(t, pool, "hand:contract-l2")
+	if l2.Path != l1.Path || l2.LeaseID == l1.LeaseID {
+		t.Fatalf("reused lease = %+v, want path %q and a new identity after %q", l2, l1.Path, l1.LeaseID)
+	}
+	run(t, pool, "treehouse", "return", "--force", "--if-lease-id", l1.LeaseID, l1.Path).
+		requireCode(t, 1).
+		requireStderrContains(t, "lease")
+	run(t, pool, "treehouse", "get", "--lease", "--json").requireCode(t, 1)
+	run(t, pool, "treehouse", "return", "--force", "--if-lease-id", l2.LeaseID, l2.Path).requireCode(t, 0)
+}
+
 func TestTreehouseStatusReportsTheCurrentLeaseIdentity(t *testing.T) {
 	requireBin(t, "treehouse")
 	dir := newPool(t, 1)

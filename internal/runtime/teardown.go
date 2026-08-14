@@ -241,7 +241,7 @@ func (r *Runtime) releaseWorktree(home, taskID string, attempt state.Attempt, fo
 	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
 		return fmt.Errorf("record worktree release phase: %w", err)
 	}
-	if err := r.deps.worktree.returnWorktree(attempt.Worktree, force); err != nil {
+	if err := r.deps.worktree.returnLease(worktree.Lease{Path: attempt.Worktree, ID: attempt.LeaseID}, force); err != nil {
 		if errors.Is(err, worktree.ErrReturnAborted) {
 			if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceRetryable); stateErr != nil {
 				return fmt.Errorf("record retryable worktree return: %w", stateErr)

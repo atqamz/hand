@@ -64,6 +64,9 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 		return fail(classifyTierError(err))
 	}
 	warnings = append(warnings, tier.Warnings...)
+	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
+		return fail(err)
+	}
 	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
 	var releaseProject func()
 	if tier.ExecutionClass == brief.ExecutionClassMechanical {
