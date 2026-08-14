@@ -13,6 +13,8 @@ import (
 var preconditionSentinels = []error{
 	state.ErrTaskNotFound,
 	state.ErrTaskActive,
+	state.ErrLifecycleConflict,
+	state.ErrOwnershipConflict,
 	state.ErrHoldNotFound,
 	project.ErrNotFound,
 	home.ErrNotFound,

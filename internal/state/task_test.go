@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/store"
@@ -225,6 +226,32 @@ func TestTryLockReportsBusyInsteadOfWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	second()
+}
+
+func TestAttemptSendBookkeepingDoesNotNestTaskLock(t *testing.T) {
+	dir := t.TempDir()
+	attempt, err := CreateTaskWithAttempt(dir, Task{ID: "task-1", Lifecycle: TaskOpen}, Attempt{TaskID: "task-1", Lifecycle: AttemptProvisioning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := Lock(dir, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- SetAttemptSendTrace(dir, "task-1", attempt.ID, AttemptProvisioning, "message", "2026-08-14T00:00:00Z")
+	}()
+	select {
+	case err := <-result:
+		release()
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		release()
+		t.Fatal("attempt bookkeeping waited on the task lock")
+	}
 }
 
 func TestWriteOverwritesExisting(t *testing.T) {

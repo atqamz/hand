@@ -400,11 +400,11 @@ func TestNextLimitRetryIsBounded(t *testing.T) {
 // A steer that never landed is one lost attempt, not a task that becomes due again on
 // every tick - which is the retry storm the whole mechanism is bounded to avoid.
 func TestAFailedSteerStillConsumesItsAttempt(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	ts := &TaskState{LimitRetryAt: time.Now().Add(-time.Minute)}
 	client := &steerFailingPane{}
-	cfg := Config{Home: t.TempDir()}
-	task := state.Task{ID: "task-1"}
-	attempt := state.Attempt{Herdr: state.Herdr{PaneID: "p1"}}
+	cfg := Config{Home: home}
+	task, attempt := readTaskAttempt(t, home, "task-1")
 	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
 	var errBuf bytes.Buffer
 
@@ -465,6 +465,61 @@ func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
 	}
 }
 
+func TestAnAttemptYieldsToTaskOwnershipChangeAfterSendLock(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	release, err := state.TryLock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	due := time.Now().Add(-time.Minute)
+	ts := &TaskState{LimitRetryAt: due}
+	client := &countingPane{}
+	cfg := Config{Home: home}
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
+	var errBuf bytes.Buffer
+
+	if e := classifyUsageLimit(cfg, client, ts, task, attempt, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
+		t.Fatalf("event = %+v, want none", e)
+	}
+	if client.reads != 0 || client.steers != 0 {
+		t.Fatalf("reads = %d, steers = %d, want neither while task ownership changes", client.reads, client.steers)
+	}
+}
+
+// A tick reads its Task and Attempt before it takes either lock, so `hand teardown` can terminalize both
+// in between. The steer would then reach a pane the fleet has taken back, and the hold write would put a
+// limit hold on a terminal id, which refuses `hand reopen` and `hand spawn` until it is cleared by hand.
+func TestAnAttemptYieldsWhenTeardownReplacedTheOwnershipItRead(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+
+	due := time.Now().Add(-time.Minute)
+	ts := &TaskState{LimitRetryAt: due}
+	client := &countingPane{}
+	cfg := Config{Home: home}
+	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
+	var errBuf bytes.Buffer
+
+	if e := classifyUsageLimit(cfg, client, ts, task, attempt, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
+		t.Fatalf("event = %+v, want none", e)
+	}
+	if client.reads != 0 || client.steers != 0 {
+		t.Fatalf("reads = %d, steers = %d, want neither: the attempt this tick read is no longer the fleet's", client.reads, client.steers)
+	}
+	if ts.LimitAttempts != 0 || !ts.LimitRetryAt.Equal(due) {
+		t.Fatalf("LimitAttempts = %d, LimitRetryAt = %s, want the schedule left alone", ts.LimitAttempts, ts.LimitRetryAt)
+	}
+	if h, exists := limitHold(t, home, "task-1"); exists {
+		t.Fatalf("hold = %+v, want none: a limit hold on a terminal task blocks hand reopen and hand spawn", h)
+	}
+}
+
 // The hold is only a projection of the schedule, and an operator's hold on the same id is a question of
 // their own. Overwriting it would not merely hide that question: the clear at the end of the limit
 // matches on kind, so the row - operator hold and all - would be deleted once the worker ran again.
@@ -481,8 +536,7 @@ func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
 	ts := &TaskState{}
 	client := &countingPane{}
 	cfg := Config{Home: home}
-	task := state.Task{ID: "task-1"}
-	attempt := state.Attempt{Herdr: state.Herdr{PaneID: "p1"}}
+	task, attempt := readTaskAttempt(t, home, "task-1")
 	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
 	var errBuf bytes.Buffer
 

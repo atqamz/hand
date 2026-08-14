@@ -50,6 +50,56 @@ func TestSendHappyPathWhenIdle(t *testing.T) {
 	}
 }
 
+func TestSendRefusesUnconfirmedProvisioningAttempt(t *testing.T) {
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "hello worker"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want exit code 3", err)
+	}
+	if !strings.Contains(err.Error(), "confirmed running attempt") {
+		t.Fatalf("got err %v, want unconfirmed-attempt refusal", err)
+	}
+}
+
+func TestSendReachesRunningAttemptCarryingNoLaunchEvidence(t *testing.T) {
+	// What a pre-split row and a legacy JSON import both look like: running, with no launch stamps to
+	// read. The attempt is genuinely alive, so refusing it would strand every fleet migrated into this
+	// schema (atqamz/hand#194).
+	logPath := filepath.Join(t.TempDir(), "sent.log")
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readTaskAttempt(t, home, "task-1"); got.LaunchSubmittedAt != "" || got.LaunchConfirmedAt != "" {
+		t.Fatalf("attempt carries launch evidence %q/%q, so this is not the migrated case", got.LaunchSubmittedAt, got.LaunchConfirmedAt)
+	}
+
+	cmd := newSendCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "hello worker"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "result: sent\n") {
+		t.Fatalf("output = %q, want a sent result", out.String())
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimRight(string(got), "\n") != "hello worker" {
+		t.Fatalf("sent text = %q, want the message delivered to the pane", got)
+	}
+}
+
 func TestSendFailsWhenPaneNotFound(t *testing.T) {
 	// "pane get" is a query command (call(), client.go); call() checks env.Error before runErr, so this fake
 	// would behave identically without the exit 1 - kept only because it is a plausible real exit status for
@@ -82,6 +132,29 @@ func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 	cmd.SetArgs([]string{"task-1", "hello"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSendDoesNotSteerAnAttemptWhileTaskOwnershipIsChanging(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "sent.log")
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := state.TryLock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "do not send"})
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "changed while sending") {
+		t.Fatalf("got err %v, want an ownership conflict before pane send", err)
+	}
+	if _, readErr := os.ReadFile(logPath); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("sent log read error = %v, want no pane send", readErr)
 	}
 }
 

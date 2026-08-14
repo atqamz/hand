@@ -47,11 +47,12 @@ func newDeliverCmd() *cobra.Command {
 			// Re-running with a new reason is a correction, not a conflict: nothing
 			// downstream has consumed the mark until teardown reads it, and the last
 			// word on what was delivered is the one worth keeping.
-			t.DeliveredAt = time.Now().UTC().Format(time.RFC3339)
-			t.DeliveredReason = reason
-			if err := state.UpdateTask(home, t); err != nil {
+			deliveredAt := time.Now().UTC().Format(time.RFC3339)
+			if err := state.SetTaskDelivery(home, t.ID, deliveredAt, reason); err != nil {
 				return fmt.Errorf("write task state: %w", err)
 			}
+			t.DeliveredAt = deliveredAt
+			t.DeliveredReason = reason
 
 			var doc axi.Doc
 			doc.Field("id", id)

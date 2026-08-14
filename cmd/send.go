@@ -59,14 +59,13 @@ func newSendCmd() *cobra.Command {
 				return usageValue(waitFromFlag, fmt.Errorf("invalid wait duration %q: %w", wait, err))
 			}
 
-			// Serializes concurrent sends to the same task: two retry loops racing against the same busy
-			// composer is the exact hazard atqamz/hand#102 traced a lost steer to. A second send waits
-			// behind the first, its own --wait clock starting only once it holds this lock.
-			release, err := state.Lock(home, "send:"+id)
+			// Send holds send across the composer wait, then takes task only for the short external-send
+			// boundary. Blocking promote and teardown for the whole --wait bound is avoided.
+			releaseSend, err := state.Lock(home, "send:"+id)
 			if err != nil {
 				return fmt.Errorf("lock send %q: %w", id, err)
 			}
-			defer release()
+			defer releaseSend()
 
 			active, err := state.ActiveAttempt(home, id)
 			if err != nil {
@@ -78,8 +77,8 @@ func newSendCmd() *cobra.Command {
 				}
 				return fmt.Errorf("read active attempt for task %q: %w", id, err)
 			}
-			if active.Lifecycle != state.AttemptProvisioning && active.Lifecycle != state.AttemptRunning {
-				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
+			if active.Lifecycle != state.AttemptRunning {
+				return &ExitError{Err: fmt.Errorf("task %q has no confirmed running attempt", id), Code: 3}
 			}
 
 			client := herdr.NewClient()
@@ -96,7 +95,7 @@ func newSendCmd() *cobra.Command {
 					if !errors.Is(waitErr, herdr.ErrComposerBusyTimeout) {
 						return fmt.Errorf("herdr pane %s not found: %w", active.Herdr.PaneID, waitErr)
 					}
-					if err := recordUndeliveredSend(home, id, message); err != nil {
+					if err := recordUndeliveredSend(home, id, active.ID, active.Lifecycle, message); err != nil {
 						return fmt.Errorf("%w; record undelivered send: %w", waitErr, err)
 					}
 					// Code 6: the composer stayed busy for the whole --wait bound, so the message never reached
@@ -106,17 +105,35 @@ func newSendCmd() *cobra.Command {
 				}
 			}
 
+			// The composer wait can overlap promote or teardown. Take the task lock only for the short
+			// external send boundary, then verify the exact Attempt snapshot still owns the task.
+			releaseTask, err := state.TryLock(home, "task:"+id)
+			if err != nil {
+				if errors.Is(err, state.ErrLockBusy) {
+					return asPrecondition(fmt.Errorf("%w: task %q changed while sending; retry", state.ErrOwnershipConflict, id))
+				}
+				return fmt.Errorf("lock task %q before send: %w", id, err)
+			}
+			defer releaseTask()
+			current, err := state.ActiveAttempt(home, id)
+			if err != nil {
+				return asPrecondition(fmt.Errorf("re-read active attempt for task %q before send: %w", id, err))
+			}
+			if current.ID != active.ID || current.TaskID != active.TaskID || current.Lifecycle != active.Lifecycle || current.Herdr.PaneID != active.Herdr.PaneID {
+				return asPrecondition(fmt.Errorf("%w: task %q changed while sending; retry", state.ErrOwnershipConflict, id))
+			}
+
 			// Both delivery failures leave the steer undemonstrated in the pane -
 			// text that never left, and text sitting unsubmitted in the composer -
 			// so both owe the operator the same durable trace the wait bound does.
 			if err := client.PaneSendText(active.Herdr.PaneID, message); err != nil {
-				return withUndeliveredSend(home, id, message, fmt.Errorf("send message failed: %w", err))
+				return withUndeliveredSend(home, id, active.ID, active.Lifecycle, message, fmt.Errorf("send message failed: %w", err))
 			}
 			if err := client.PaneSendKeys(active.Herdr.PaneID, "Enter"); err != nil {
-				return withUndeliveredSend(home, id, message, fmt.Errorf("submit message failed: %w", err))
+				return withUndeliveredSend(home, id, active.ID, active.Lifecycle, message, fmt.Errorf("submit message failed: %w", err))
 			}
 
-			if err := clearUndeliveredSend(home, id); err != nil {
+			if err := clearUndeliveredSend(home, id, active.ID, active.Lifecycle); err != nil {
 				// The message is already in the pane, so failing here would invite a
 				// retry that double-sends the steer; a stale trace is the lesser harm.
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear undelivered send trace: %v\n", err); printErr != nil {
@@ -140,8 +157,8 @@ func newSendCmd() *cobra.Command {
 
 // Records the trace alongside a delivery failure, keeping the cause as the returned error so the exit
 // code of the failing path is unchanged.
-func withUndeliveredSend(home, id, message string, cause error) error {
-	if err := recordUndeliveredSend(home, id, message); err != nil {
+func withUndeliveredSend(home, id string, attemptID int64, expected state.AttemptLifecycle, message string, cause error) error {
+	if err := recordUndeliveredSend(home, id, attemptID, expected, message); err != nil {
 		return fmt.Errorf("%w; record undelivered send: %w", cause, err)
 	}
 	return cause
@@ -149,33 +166,16 @@ func withUndeliveredSend(home, id, message string, cause error) error {
 
 // Durably records the message hand send could not demonstrably deliver, so an operator or worker learns
 // the steer never arrived instead of it vanishing with the process that attempted it.
-func recordUndeliveredSend(home, id, message string) error {
-	return setUndeliveredSend(home, id, message, time.Now().UTC().Format(time.RFC3339))
+func recordUndeliveredSend(home, id string, attemptID int64, expected state.AttemptLifecycle, message string) error {
+	return setUndeliveredSend(home, id, attemptID, expected, message, time.Now().UTC().Format(time.RFC3339))
 }
 
 // Runs after every send that actually reaches the pane, whatever message that send carries: the trace's
 // job is telling the operator their last attempt did not land, and any successful send moots it.
-func clearUndeliveredSend(home, id string) error {
-	return setUndeliveredSend(home, id, "", "")
+func clearUndeliveredSend(home, id string, attemptID int64, expected state.AttemptLifecycle) error {
+	return setUndeliveredSend(home, id, attemptID, expected, "", "")
 }
 
-func setUndeliveredSend(home, id, message, at string) error {
-	// A short-lived task-row lock, separate from the send lock the command holds across its whole wait,
-	// so a long busy wait never blocks an unrelated reader like hand watch or hand status.
-	release, err := state.Lock(home, "task:"+id)
-	if err != nil {
-		return fmt.Errorf("lock task %q: %w", id, err)
-	}
-	defer release()
-
-	active, err := state.ActiveAttempt(home, id)
-	if err != nil {
-		return err
-	}
-	if active.SendUndeliveredMessage == message && active.SendUndeliveredAt == at {
-		return nil
-	}
-	active.SendUndeliveredMessage = message
-	active.SendUndeliveredAt = at
-	return state.UpdateAttempt(home, active)
+func setUndeliveredSend(home, id string, attemptID int64, expected state.AttemptLifecycle, message, at string) error {
+	return state.SetAttemptSendTrace(home, id, attemptID, expected, message, at)
 }

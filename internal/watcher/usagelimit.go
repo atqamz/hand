@@ -98,7 +98,7 @@ func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task,
 
 	ts.LimitAttempts = 0
 	ts.LimitRetryAt = nextLimitRetry(reset, 0, now)
-	writeLimitHold(cfg.Home, t.ID, ts, errOut)
+	writeLimitHoldForAttempt(cfg, t, a, ts, errOut)
 	return &Event{
 		TaskID: t.ID,
 		Kind:   KindUsageLimit,
@@ -129,10 +129,9 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 // decides whether the limit is over - the next tick's clear check does that, by seeing whether the pane
 // started working.
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
-	// The same `send:<id>` lock hand send holds, because two writers racing one composer is the lost
-	// steer atqamz/hand#102 traced. TryLock, never Lock: a tick must not block behind an operator's
-	// whole --wait, and an operator send landing right now is itself the thing that ends the limit.
-	release, err := state.TryLock(cfg.Home, "send:"+t.ID)
+	// Send before task is the shared order with hand send. The task lock is held only while the
+	// short external steer runs, so promotion and teardown cannot replace the Attempt mid-steer.
+	releaseSend, err := state.TryLock(cfg.Home, "send:"+t.ID)
 	if err != nil {
 		if !errors.Is(err, state.ErrLockBusy) {
 			_, _ = fmt.Fprintf(errOut, "watch: lock send %s failed: %v\n", t.ID, err)
@@ -140,7 +139,19 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		// A busy lock spends no attempt: the schedule is left untouched, so the next tick finds it due.
 		return nil
 	}
-	defer release()
+	defer releaseSend()
+	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
+		}
+		return nil
+	}
+	defer releaseTask()
+
+	if !ownsAttempt(cfg.Home, t, a, errOut) {
+		return nil
+	}
 
 	// Read first: the freshest refusal on screen is the harness's own latest prediction of when its quota
 	// returns, and scheduling from it keeps a genuinely long limit off the backoff's much shorter clock.
@@ -171,6 +182,23 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		Text:   fmt.Sprintf("usage-limit-stuck %s: %s", t.ID, limitReason(ts)),
 		Reason: limitReason(ts),
 	}
+}
+
+// The Task and Attempt a tick carries were read before the locks above, so a teardown or promotion that
+// landed in between describes execution this fleet has moved past: steering it pokes a pane the run no
+// longer owns, and the hold write would put a limit hold back on an id nothing is waiting for.
+func ownsAttempt(home string, t state.Task, a state.Attempt, errOut io.Writer) bool {
+	history, err := state.ReadHistory(home, t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrTaskNotFound) {
+			_, _ = fmt.Fprintf(errOut, "watch: re-read task %s failed: %v\n", t.ID, err)
+		}
+		return false
+	}
+	current := history.ActiveAttempt
+	return history.Task.ID == t.ID && history.Task.Lifecycle == state.TaskOpen &&
+		current != nil && current.ID == a.ID && current.TaskID == t.ID &&
+		current.Lifecycle == state.AttemptRunning && current.Herdr.PaneID == a.Herdr.PaneID
 }
 
 // Forgets the schedule and the operator-visible hold together, so the two cannot disagree about whether
@@ -282,4 +310,19 @@ func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) {
 	if !written {
 		_, _ = fmt.Fprintf(errOut, "watch: hold on %s is not of kind limit; usage-limit wait left unprojected: %s\n", id, limitReason(ts))
 	}
+}
+
+func writeLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) {
+	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
+		}
+		return
+	}
+	defer releaseTask()
+	if !ownsAttempt(cfg.Home, t, a, errOut) {
+		return
+	}
+	writeLimitHold(cfg.Home, t.ID, ts, errOut)
 }

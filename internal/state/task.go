@@ -70,6 +70,8 @@ func Claim(homeDir, id string) (func(), error) {
 }
 
 func Lock(homeDir, name string) (func(), error) {
+	// Lifecycle commands acquire task, then project, then worktree. Send and watcher resume acquire send,
+	// then task only for the short external-send boundary; attempt writes remain ID-targeted.
 	return store.Lock(homeDir, name, false)
 }
 
@@ -159,6 +161,15 @@ func ActiveAttempt(homeDir, id string) (Attempt, error) {
 	return *history.ActiveAttempt, nil
 }
 
+func ReadAttempt(homeDir string, attemptID int64) (Attempt, bool, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return Attempt{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ReadAttempt(attemptID)
+}
+
 func Write(homeDir string, t Task) error {
 	if err := ValidateID(t.ID); err != nil {
 		return err
@@ -188,6 +199,23 @@ func CreateTask(homeDir string, t Task) error {
 	}
 	defer func() { _ = db.Close() }()
 	return db.CreateTask(t)
+}
+
+func CreateTaskWithAttempt(homeDir string, t Task, a Attempt) (Attempt, error) {
+	if err := ValidateID(t.ID); err != nil {
+		return Attempt{}, err
+	}
+	if a.TaskID != "" {
+		if err := ValidateID(a.TaskID); err != nil {
+			return Attempt{}, err
+		}
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return Attempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.CreateTaskWithAttempt(t, a)
 }
 
 func UpdateTask(homeDir string, t Task) error {
@@ -239,6 +267,165 @@ func TransitionTask(homeDir, id string, from, to TaskLifecycle) error {
 	}
 	defer func() { _ = db.Close() }()
 	return db.TransitionTask(id, from, to)
+}
+
+func PromoteTask(homeDir, id string, scoutAttemptID int64, scoutFrom AttemptLifecycle, ship Attempt) (Attempt, error) {
+	if err := ValidateID(id); err != nil {
+		return Attempt{}, err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return Attempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.PromoteTask(id, scoutAttemptID, scoutFrom, ship)
+}
+
+func TerminalizeTaskAndAttempt(homeDir, taskID string, attemptID int64, attemptFrom, attemptTo AttemptLifecycle) error {
+	if err := ValidateID(taskID); err != nil {
+		return err
+	}
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.TerminalizeTaskAndAttempt(taskID, attemptID, attemptFrom, attemptTo)
+}
+
+func SetTaskPR(homeDir, id, pr string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskPR(id, pr)
+}
+
+func SetTaskKind(homeDir, id, kind string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskKind(id, kind)
+}
+
+func SetTaskMergeAnnounced(homeDir, id string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskMergeAnnounced(id)
+}
+
+func SetTaskDelivery(homeDir, id, deliveredAt, reason string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskDelivery(id, deliveredAt, reason)
+}
+
+func SetTaskMerge(homeDir, id, mergedAt string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskMerge(id, mergedAt)
+}
+
+func SetTaskReportState(homeDir, id string, offset int64, digest string, mergeAnnounced bool) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskReportState(id, offset, digest, mergeAnnounced)
+}
+
+func RecordAttemptWorktree(homeDir, taskID string, attemptID int64, worktree, leaseID string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.RecordAttemptWorktree(taskID, attemptID, worktree, leaseID)
+}
+
+func ClearAttemptWorktree(homeDir, taskID string, attemptID int64) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ClearAttemptWorktree(taskID, attemptID)
+}
+
+func RecordAttemptHerdr(homeDir, taskID string, attemptID int64, herdr Herdr, paneStartedAt string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.RecordAttemptHerdr(taskID, attemptID, herdr, paneStartedAt)
+}
+
+func ClearAttemptHerdr(homeDir, taskID string, attemptID int64) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ClearAttemptHerdr(taskID, attemptID)
+}
+
+func MarkLaunchSubmitted(homeDir, taskID string, attemptID int64, at string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.MarkLaunchSubmitted(taskID, attemptID, at)
+}
+
+func MarkLaunchConfirmed(homeDir, taskID string, attemptID int64, at string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.MarkLaunchConfirmed(taskID, attemptID, at)
+}
+
+func MarkAttemptRunning(homeDir, taskID string, attemptID int64) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.MarkAttemptRunning(taskID, attemptID)
+}
+
+func SetAttemptSendTrace(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, message, at string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetAttemptSendTrace(taskID, attemptID, expected, message, at)
+}
+
+func UpdateAttemptObservation(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, statusChangedAt, statusChangedFor string, doneVerified bool, lastReportState, lastReportNote, parkedFiredFor, usageLimitRetryAt string, usageLimitAttempts int) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.UpdateAttemptObservation(taskID, attemptID, expected, statusChangedAt, statusChangedFor, doneVerified, lastReportState, lastReportNote, parkedFiredFor, usageLimitRetryAt, usageLimitAttempts)
 }
 
 func ReopenTask(homeDir string, a Attempt) (Attempt, error) {

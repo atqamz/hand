@@ -28,6 +28,11 @@ type (
 	AttemptLifecycle = store.AttemptLifecycle
 )
 
+var (
+	ErrLifecycleConflict = store.ErrLifecycleConflict
+	ErrOwnershipConflict = store.ErrOwnershipConflict
+)
+
 const (
 	TaskOpen     = store.TaskOpen
 	TaskTerminal = store.TaskTerminal
