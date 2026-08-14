@@ -84,9 +84,10 @@ func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string
 }
 
 func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag bool, harnessName string, harnessFromFlag bool, model string, modelFromFlag bool, effort string, effortFromFlag bool) (routing.ResolvedRoute, error) {
+	harnessProvided := harnessFromFlag || harnessName != ""
 	declaration, frontMatter, err := brief.Parse(briefPath)
 	if err != nil {
-		return routing.ResolvedRoute{}, classifyResolutionError(fmt.Errorf("parse brief %s: %w", briefPath, err), harnessName, harnessFromFlag)
+		return routing.ResolvedRoute{}, classifyResolutionError(fmt.Errorf("parse brief %s: %w", briefPath, err), harnessName, harnessProvided)
 	}
 	config := routing.Config{}
 	if declaration.ExecutionClass != "" || profileFromFlag {
@@ -96,10 +97,10 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 		}
 	}
 	detectedHarness := ""
-	if !harnessFromFlag && !profileFromFlag {
+	if !harnessProvided && !profileFromFlag {
 		detected, detectErr := harness.DetectCurrent()
 		if detectErr != nil {
-			return routing.ResolvedRoute{}, classifyResolutionError(detectErr, harnessName, harnessFromFlag)
+			return routing.ResolvedRoute{}, classifyResolutionError(detectErr, harnessName, harnessProvided)
 		}
 		detectedHarness = detected.Name
 	}
@@ -114,14 +115,14 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 		Profile:             profile,
 		ProfileFromFlag:     profileFromFlag,
 		Harness:             harnessName,
-		HarnessFromFlag:     harnessFromFlag,
+		HarnessFromFlag:     harnessProvided,
 		Model:               model,
 		ModelFromFlag:       modelFromFlag,
 		Effort:              effort,
 		EffortFromFlag:      effortFromFlag,
 	}, config, legacy, routing.DefaultAvailability())
 	if err != nil {
-		return routing.ResolvedRoute{}, classifyResolutionError(err, harnessName, harnessFromFlag)
+		return routing.ResolvedRoute{}, classifyResolutionError(err, harnessName, harnessProvided)
 	}
 	return resolved, nil
 }
