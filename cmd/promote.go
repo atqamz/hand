@@ -119,6 +119,17 @@ func newPromoteCmd() *cobra.Command {
 			oldWorktree := active.Worktree
 			oldWorkspaceID := active.Herdr.WorkspaceID
 			oldTabID := active.Herdr.TabID
+			// The scout Attempt is terminal from the promotion above, so its tab and worktree are this
+			// command's to release however the ship Attempt ends: leaving them to the success path leaks
+			// a leased slot and a pane that nothing points at on every later failure.
+			defer func() {
+				if closeErr := closeTaskTab(client, oldWorkspaceID, oldTabID); closeErr != nil {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", closeErr)
+				}
+				if returnErr := worktree.Return(oldWorktree, true); returnErr != nil {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: return scout worktree failed: %v\n", returnErr)
+				}
+			}()
 
 			lease, err := worktree.Get(clonePath, "hand:"+id)
 			if err != nil {
@@ -191,17 +202,6 @@ func newPromoteCmd() *cobra.Command {
 			promoted = true
 			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {
 				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: clear usage-limit hold failed: %v\n", err); printErr != nil {
-					return printErr
-				}
-			}
-
-			if err := closeTaskTab(client, oldWorkspaceID, oldTabID); err != nil {
-				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: herdr tab close failed: %v\n", err); printErr != nil {
-					return printErr
-				}
-			}
-			if err := worktree.Return(oldWorktree, true); err != nil {
-				if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: return scout worktree failed: %v\n", err); printErr != nil {
 					return printErr
 				}
 			}

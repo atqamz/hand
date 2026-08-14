@@ -52,8 +52,12 @@ func newTeardownCmd() *cobra.Command {
 			originalTask := t
 			active := *history.ActiveAttempt
 
+			// An attempt still provisioning never ran an agent, so there is no landed work to check for
+			// and no completion to claim: it can only be torn down as interrupted.
+			launched := active.Lifecycle != state.AttemptProvisioning
+
 			dirtWasSafe := false
-			if !force {
+			if !force && launched {
 				updated, safeDirt, err := checkLandedWork(cmd.Context(), home, t, active)
 				if err != nil {
 					return err
@@ -84,7 +88,7 @@ func newTeardownCmd() *cobra.Command {
 			// Everything the record claims (landed work, a returned worktree) is already true by this
 			// line, --force or not, so a fault after it lands cannot make the record inaccurate, only
 			// late to terminalize its source.
-			record := completionFor(t, force)
+			record := completionFor(t, force, launched)
 			record.TornDownAt = time.Now().UTC().Format(time.RFC3339)
 
 			if t.PR != originalTask.PR {
@@ -98,7 +102,7 @@ func newTeardownCmd() *cobra.Command {
 			}
 
 			terminalAttempt := state.AttemptCompleted
-			if force {
+			if force || !launched {
 				terminalAttempt = state.AttemptInterrupted
 			}
 			if err := state.TerminalizeTaskAndAttempt(home, id, active.ID, active.Lifecycle, terminalAttempt); err != nil {
@@ -123,7 +127,11 @@ func newTeardownCmd() *cobra.Command {
 			doc.Field("kind", record.Kind)
 			doc.Field("outcome", record.Outcome)
 			doc.Field("detail", orNone(record.Detail))
-			doc.Field("worktree", "returned")
+			worktreeResult := "returned"
+			if active.Worktree == "" {
+				worktreeResult = "none"
+			}
+			doc.Field("worktree", worktreeResult)
 			doc.Help("This task remains inspectable with `hand status " + id + "`; use `hand reopen " + id + "` for another attempt")
 			return doc.Render(cmd.OutOrStdout())
 		},
@@ -133,12 +141,17 @@ func newTeardownCmd() *cobra.Command {
 	return cmd
 }
 
-func completionFor(t state.Task, forced bool) completion.Record {
+func completionFor(t state.Task, forced, launched bool) completion.Record {
 	c := completion.Record{ID: t.ID, Project: t.Project, Kind: t.Kind}
 	// The delivered case sits ahead of the merge cases below only while no merge is on the row: a
 	// delivery that then genuinely landed has the stronger fact to record, so an observed or executed
 	// merge outranks the mark.
 	switch {
+	// Ahead of every case below, including the forced one: none of them can be true of an attempt
+	// whose agent never started, and recording a merge or a delivery for it would be a false fact.
+	case !launched:
+		c.Outcome = "torn-down"
+		c.Detail = "attempt never launched"
 	case forced:
 		c.Outcome = "torn-down"
 		c.Detail = "forced (landed-work checks skipped)"
@@ -494,6 +507,10 @@ func currentBranch(worktreePath string) (string, error) {
 // workspace either way, so this says so rather than leaving it to a side effect
 // (internal/faketool/FIDELITY.md).
 func closeTaskTab(client *herdr.Client, workspaceID, tabID string) error {
+	// An attempt that never reached a pane has no tab to close.
+	if workspaceID == "" || tabID == "" {
+		return nil
+	}
 	tabs, err := client.TabList(workspaceID)
 	if err != nil {
 		return err

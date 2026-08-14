@@ -242,18 +242,6 @@ func CreateAttempt(homeDir string, a Attempt) (Attempt, error) {
 	return db.CreateAttempt(a)
 }
 
-func CreateAttemptIfOpenAndInactive(homeDir string, a Attempt) (Attempt, error) {
-	if err := ValidateID(a.TaskID); err != nil {
-		return Attempt{}, err
-	}
-	db, err := store.Open(homeDir)
-	if err != nil {
-		return Attempt{}, err
-	}
-	defer func() { _ = db.Close() }()
-	return db.CreateAttemptIfOpenAndInactive(a)
-}
-
 func UpdateAttempt(homeDir string, a Attempt) error {
 	db, err := store.Open(homeDir)
 	if err != nil {

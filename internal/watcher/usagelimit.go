@@ -129,8 +129,8 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 // decides whether the limit is over - the next tick's clear check does that, by seeing whether the pane
 // started working.
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
-	// Follow foreground send's task -> send order, so promotion and teardown cannot replace the
-	// Attempt while this resume steers its pane. TryLock keeps the poll loop moving.
+	// Task before send, the documented order, so promotion and teardown cannot replace the Attempt
+	// while this resume steers its pane. TryLock keeps the poll loop moving.
 	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
 	if err != nil {
 		if !errors.Is(err, state.ErrLockBusy) {

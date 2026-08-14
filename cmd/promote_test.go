@@ -59,7 +59,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 	t.Setenv("HERDR_CALL_LOG", callLog)
 	herdr.Log = callLog
 	herdr.Install(t, bin)
-	faketool.Treehouse{Slots: []string{newWorktree, oldWorktree}}.Install(t, bin)
+	faketool.Treehouse{Slots: []string{newWorktree, oldWorktree}, Log: callLog}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	return home
@@ -436,6 +436,42 @@ func TestPromoteKeepsShipAfterScoutCleanupFailure(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "result: promoted\n") {
 		t.Fatalf("output = %q, want promotion success after cleanup warning", out.String())
+	}
+}
+
+// The promotion terminalizes the scout Attempt before any ship resource exists, so from that line on
+// nothing else will ever point at the scout's slot and pane. A launch failure after it must still hand
+// them back, or they stay leased with no state left to find them from (atqamz/hand#194).
+func TestPromoteReturnsScoutResourcesWhenTheShipLaunchFails(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	home := setupPromoteHome(t, oldWt, newWt, promoteLeakHerdr(true))
+	callLog := setupSpawnLeakEnv(t, true)
+
+	var errOut strings.Builder
+	cmd := newPromoteCmd()
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected promote to fail")
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "treehouse return "+oldWt) {
+		t.Fatalf("calls = %q, want the scout worktree returned", calls)
+	}
+	if !strings.Contains(string(calls), "tab close wA:tOld") {
+		t.Fatalf("calls = %q, want the scout tab closed", calls)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Worktree != newWt {
+		t.Fatalf("history after launch failure = %+v, want the ship attempt keeping its own worktree", history)
 	}
 }
 

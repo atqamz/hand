@@ -53,6 +53,10 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 // no-op success; an aborted one exits 0 with the slot still leased, so the exit
 // status alone cannot say a return happened. See internal/faketool/FIDELITY.md.
 func Return(worktreePath string, force bool) error {
+	// An attempt that never reached a lease has no slot to release.
+	if worktreePath == "" {
+		return nil
+	}
 	args := []string{"return", worktreePath}
 	if force {
 		args = append(args, "--force")

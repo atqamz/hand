@@ -469,6 +469,44 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	}
 }
 
+// A spawn that failed before it leased anything leaves exactly this Attempt: provisioning, with no
+// worktree and no pane. Teardown is the only way out of it, so it has to tolerate the missing
+// resources and terminalize through a transition provisioning actually allows (atqamz/hand#194).
+func TestTeardownReleasesAnAttemptThatNeverReachedItsResources(t *testing.T) {
+	home, _ := setupTeardownHome(t)
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"},
+		state.Attempt{Lifecycle: state.AttemptProvisioning}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.Task.ActiveAttemptID != 0 ||
+		len(history.Attempts) != 1 || history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("unprovisioned teardown history = %+v", history)
+	}
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome != "torn-down" || records[0].Detail != "attempt never launched" {
+		t.Fatalf("completions = %+v, want one never-launched record", records)
+	}
+	if !strings.Contains(out.String(), "worktree: none\n") {
+		t.Fatalf("output = %q, want no worktree claimed", out.String())
+	}
+}
+
 // Teardown must survive a fault in its last step, which takes both halves of "retryable". Reverting
 // either half fails this test: the ordering leaves nothing to retry, the idempotency leaves the retry
 // dying on a tab herdr no longer lists.

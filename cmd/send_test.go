@@ -68,6 +68,38 @@ func TestSendRefusesUnconfirmedProvisioningAttempt(t *testing.T) {
 	}
 }
 
+func TestSendReachesRunningAttemptCarryingNoLaunchEvidence(t *testing.T) {
+	// What a pre-split row and a legacy JSON import both look like: running, with no launch stamps to
+	// read. The attempt is genuinely alive, so refusing it would strand every fleet migrated into this
+	// schema (atqamz/hand#194).
+	logPath := filepath.Join(t.TempDir(), "sent.log")
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readTaskAttempt(t, home, "task-1"); got.LaunchSubmittedAt != "" || got.LaunchConfirmedAt != "" {
+		t.Fatalf("attempt carries launch evidence %q/%q, so this is not the migrated case", got.LaunchSubmittedAt, got.LaunchConfirmedAt)
+	}
+
+	cmd := newSendCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "hello worker"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "result: sent\n") {
+		t.Fatalf("output = %q, want a sent result", out.String())
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimRight(string(got), "\n") != "hello worker" {
+		t.Fatalf("sent text = %q, want the message delivered to the pane", got)
+	}
+}
+
 func TestSendFailsWhenPaneNotFound(t *testing.T) {
 	// "pane get" is a query command (call(), client.go); call() checks env.Error before runErr, so this fake
 	// would behave identically without the exit 1 - kept only because it is a plausible real exit status for

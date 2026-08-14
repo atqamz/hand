@@ -59,14 +59,9 @@ func newSendCmd() *cobra.Command {
 				return usageValue(waitFromFlag, fmt.Errorf("invalid wait duration %q: %w", wait, err))
 			}
 
-			// Task ownership covers the whole external interaction, so promote and teardown cannot replace
-			// the Attempt after this command resolves it. The nested send lock keeps explicit sends and
-			// watcher resume serialized with the same task -> send ordering.
-			releaseTask, err := state.Lock(home, "task:"+id)
-			if err != nil {
-				return fmt.Errorf("lock task %q: %w", id, err)
-			}
-			defer releaseTask()
+			// Send holds send only, never a task lock under it: the composer wait runs for the whole
+			// --wait bound, and blocking promote and teardown for that long is worse than the write
+			// they may race, which the store rejects on its own preconditions anyway.
 			releaseSend, err := state.Lock(home, "send:"+id)
 			if err != nil {
 				return fmt.Errorf("lock send %q: %w", id, err)
@@ -83,7 +78,7 @@ func newSendCmd() *cobra.Command {
 				}
 				return fmt.Errorf("read active attempt for task %q: %w", id, err)
 			}
-			if active.Lifecycle != state.AttemptRunning || active.LaunchConfirmedAt == "" {
+			if active.Lifecycle != state.AttemptRunning {
 				return &ExitError{Err: fmt.Errorf("task %q has no confirmed running attempt", id), Code: 3}
 			}
 

@@ -40,6 +40,10 @@ var ErrLifecycleConflict = errors.New("lifecycle conflict")
 
 var ErrOwnershipConflict = errors.New("attempt ownership conflict")
 
+// SQLITE_BUSY means the write lost the database lock rather than losing a lifecycle race, so the
+// caller may retry it instead of being told a precondition it never violated failed.
+var ErrContention = errors.New("database contention")
+
 // Wrapped by ClearHold, rendered by callers as `hold "<id>" not found`.
 var ErrHoldNotFound = errors.New("not found")
 
@@ -241,7 +245,7 @@ func open(path string) (*sql.DB, error) {
 	}
 	// The pragmas need a file: URI, and a URI means sqlite reads `%`, `#` and
 	// `?` in the fleet home's path as syntax rather than as filename.
-	uri := "file:" + (&url.URL{Path: path}).EscapedPath() + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	uri := "file:" + (&url.URL{Path: path}).EscapedPath() + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
@@ -525,7 +529,10 @@ func (db *DB) CreateTaskWithAttempt(t Task, a Attempt) (Attempt, error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.Exec(`INSERT INTO task (`+taskColumns+`) VALUES (`+placeholders(len(taskColumnNames))+`)`, taskValues(t)...); err != nil {
-		if isSQLiteConstraint(err) || isSQLiteBusy(err) {
+		if isSQLiteBusy(err) {
+			return Attempt{}, contention("create task", t.ID, err)
+		}
+		if isSQLiteConstraint(err) {
 			return Attempt{}, fmt.Errorf("%w: task %q already exists", ErrLifecycleConflict, t.ID)
 		}
 		return Attempt{}, fmt.Errorf("create task %q: %w", t.ID, err)
@@ -582,14 +589,12 @@ func (db *DB) createAttempt(a Attempt, requireInactive bool) (Attempt, error) {
 	if requireInactive && isActiveAttempt(a.Lifecycle) && activeID.Valid {
 		return Attempt{}, fmt.Errorf("%w: task %q already owns attempt %d", ErrLifecycleConflict, a.TaskID, activeID.Int64)
 	}
-	if a.Ordinal == 0 {
-		if err := tx.QueryRow(`SELECT COALESCE(MAX(ordinal), 0) + 1 FROM attempt WHERE task_id = ?`, a.TaskID).Scan(&a.Ordinal); err != nil {
-			return Attempt{}, fmt.Errorf("next attempt ordinal for task %q: %w", a.TaskID, err)
-		}
-	}
 	created, err := insertAttemptTx(tx, a)
 	if err != nil {
-		if isSQLiteBusy(err) || isSQLiteConstraint(err) {
+		if isSQLiteBusy(err) {
+			return Attempt{}, contention("create attempt", a.TaskID, err)
+		}
+		if isSQLiteConstraint(err) {
 			if isActiveAttempt(a.Lifecycle) && activeAttemptExistsTx(tx, a.TaskID) {
 				return Attempt{}, fmt.Errorf("%w: task %q already owns an active attempt", ErrLifecycleConflict, a.TaskID)
 			}
@@ -647,6 +652,10 @@ func insertAttemptTx(tx *sql.Tx, a Attempt) (Attempt, error) {
 func activeAttemptExistsTx(tx *sql.Tx, taskID string) bool {
 	var one int
 	return tx.QueryRow(`SELECT 1 FROM attempt WHERE task_id = ? AND lifecycle IN ('provisioning', 'running') LIMIT 1`, taskID).Scan(&one) == nil
+}
+
+func contention(operation, taskID string, err error) error {
+	return fmt.Errorf("%w: %s for task %q lost the database write lock, retry it: %w", ErrContention, operation, taskID, err)
 }
 
 func isSQLiteBusy(err error) bool {
@@ -845,7 +854,10 @@ func (db *DB) ReopenTask(taskID string, a Attempt) (Attempt, error) {
 	}
 	result, err := insertAttemptTx(tx, a)
 	if err != nil {
-		if isSQLiteBusy(err) || isSQLiteConstraint(err) {
+		if isSQLiteBusy(err) {
+			return Attempt{}, contention("reopen task", taskID, err)
+		}
+		if isSQLiteConstraint(err) {
 			return Attempt{}, fmt.Errorf("%w: task %q is being reopened by another writer", ErrLifecycleConflict, taskID)
 		}
 		return Attempt{}, fmt.Errorf("create reopened attempt for task %q: %w", taskID, err)
@@ -903,7 +915,10 @@ func (db *DB) PromoteTask(taskID string, scoutAttemptID int64, scoutFrom Attempt
 	}
 	created, err := insertAttemptTx(tx, ship)
 	if err != nil {
-		if isSQLiteBusy(err) || isSQLiteConstraint(err) {
+		if isSQLiteBusy(err) {
+			return Attempt{}, contention("promote task", taskID, err)
+		}
+		if isSQLiteConstraint(err) {
 			return Attempt{}, fmt.Errorf("%w: task %q is being promoted by another writer", ErrLifecycleConflict, taskID)
 		}
 		return Attempt{}, fmt.Errorf("create ship attempt for task %q: %w", taskID, err)
