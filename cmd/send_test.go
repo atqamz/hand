@@ -50,6 +50,24 @@ func TestSendHappyPathWhenIdle(t *testing.T) {
 	}
 }
 
+func TestSendRefusesUnconfirmedProvisioningAttempt(t *testing.T) {
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "hello worker"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want exit code 3", err)
+	}
+	if !strings.Contains(err.Error(), "confirmed running attempt") {
+		t.Fatalf("got err %v, want unconfirmed-attempt refusal", err)
+	}
+}
+
 func TestSendFailsWhenPaneNotFound(t *testing.T) {
 	// "pane get" is a query command (call(), client.go); call() checks env.Error before runErr, so this fake
 	// would behave identically without the exit 1 - kept only because it is a plausible real exit status for

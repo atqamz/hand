@@ -186,6 +186,9 @@ func TestSpawnHappyPath(t *testing.T) {
 	if active.LeaseID != "lease-1" {
 		t.Fatalf("got lease id %q, want the identity treehouse handed back", active.LeaseID)
 	}
+	if active.LaunchSubmittedAt == "" || active.LaunchConfirmedAt == "" || active.StatusChangedAt == "" {
+		t.Fatalf("launch evidence = %+v, want submitted, confirmed, and running timestamps", active)
+	}
 	for _, want := range []string{
 		"id: task-1\n",
 		"result: spawned\n",
@@ -423,8 +426,9 @@ func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.
 		t.Fatalf("got err %v, want collision", err)
 	}
 
-	if exists, err := state.Exists(home, "task-1"); err != nil || exists {
-		t.Fatalf("state written after collision: exists=%v err=%v", exists, err)
+	got, err := state.ReadHistory(home, "task-1")
+	if err != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt {
+		t.Fatalf("provisioning evidence after collision = %+v err=%v", got, err)
 	}
 }
 
@@ -503,8 +507,9 @@ func TestSpawnRollsBackWhenWorkerNeverStarts(t *testing.T) {
 		t.Fatalf("got err %v, want the spawn to fail on launch confirmation", err)
 	}
 
-	if exists, existsErr := state.Exists(home, "task-1"); existsErr != nil || exists {
-		t.Fatalf("state written for a worker that never started: exists=%v err=%v", exists, existsErr)
+	got, readErr := state.ReadHistory(home, "task-1")
+	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt || got.ActiveAttempt.Herdr.PaneID != "wA:pC" || got.ActiveAttempt.LaunchSubmittedAt == "" || got.ActiveAttempt.LaunchConfirmedAt != "" {
+		t.Fatalf("provisioning evidence after confirmation failure = %+v err=%v", got, readErr)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {
@@ -550,8 +555,9 @@ func TestSpawnPartialWorkspaceCreateLeavesNoWorkspaceBehind(t *testing.T) {
 		t.Fatalf("got err %v, want the partial workspace_created response rejected", err)
 	}
 
-	if exists, existsErr := state.Exists(home, "task-1"); existsErr != nil || exists {
-		t.Fatalf("state written for a partial workspace_created response: exists=%v err=%v", exists, existsErr)
+	got, readErr := state.ReadHistory(home, "task-1")
+	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt {
+		t.Fatalf("provisioning evidence after partial workspace response = %+v err=%v", got, readErr)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {
@@ -580,8 +586,9 @@ func TestSpawnTabRenameFailureClosesWorkspaceItCreated(t *testing.T) {
 		t.Fatalf("got err %v, want the tab rename failure surfaced", err)
 	}
 
-	if exists, existsErr := state.Exists(home, "task-1"); existsErr != nil || exists {
-		t.Fatalf("state written for a failed tab rename: exists=%v err=%v", exists, existsErr)
+	got, readErr := state.ReadHistory(home, "task-1")
+	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt {
+		t.Fatalf("provisioning evidence after tab rename failure = %+v err=%v", got, readErr)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {

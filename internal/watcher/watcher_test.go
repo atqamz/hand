@@ -1457,6 +1457,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	before := TaskState{
 		CreatedAt:               "created-marker",
 		AttemptID:               99,
+		AttemptLifecycle:        state.AttemptRunning,
 		Status:                  herdr.Status("scout-status"),
 		Probed:                  true,
 		ChangedAt:               time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -1494,6 +1495,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	carried := map[string]bool{
 		"CreatedAt":               true,
 		"AttemptID":               true,
+		"AttemptLifecycle":        true,
 		"PRMerged":                true,
 		"ReportCursor":            true,
 		"PersistedCursor":         true,
@@ -1612,6 +1614,10 @@ func TestSyncTaskStateDropsCachePromoteInvalidatedMidTick(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	_, observed := readTaskAttempt(t, home, "task-1")
+	ts.AttemptID = observed.ID
+	ts.AttemptLifecycle = observed.Lifecycle
+
 	var errBuf bytes.Buffer
 	syncTaskState(home, "task-1", ts, now, &errBuf)
 	if errBuf.Len() != 0 {
@@ -1658,11 +1664,13 @@ func TestSyncTaskStateKeepsTheReportCursorWhenTheAttemptIsGone(t *testing.T) {
 	}
 
 	ts := &TaskState{
-		Status:          herdr.StatusWorking,
-		Probed:          true,
-		ChangedAt:       now,
-		PersistedPaneID: "p1",
-		ReportCursor:    state.ReportCursor{Offset: 128, Digest: "consumed-digest"},
+		Status:           herdr.StatusWorking,
+		AttemptID:        attempt.ID,
+		AttemptLifecycle: attempt.Lifecycle,
+		Probed:           true,
+		ChangedAt:        now,
+		PersistedPaneID:  "p1",
+		ReportCursor:     state.ReportCursor{Offset: 128, Digest: "consumed-digest"},
 	}
 
 	var errBuf bytes.Buffer

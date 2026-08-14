@@ -139,8 +139,8 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 	}
 }
 
-// Confirms every active task's pane answers before RunUntilEvent arms, since an unprobed task would
-// otherwise wait out the timeout with no distinguishing signal.
+// Confirms every running task's pane answers before RunUntilEvent arms; provisioning has no pane
+// contract yet and is intentionally left for a later tick after launch confirmation.
 func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error {
 	histories, err := state.ListOpenHistories(home)
 	if err != nil {
@@ -152,6 +152,9 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 			if history.ActiveAttempt == nil {
 				done <- fmt.Errorf("%w: %s has no active attempt", ErrArmFailed, history.Task.ID)
 				return
+			}
+			if history.ActiveAttempt.Lifecycle == state.AttemptProvisioning {
+				continue
 			}
 			if _, err := client.PaneGetContext(ctx, history.ActiveAttempt.Herdr.PaneID); err != nil {
 				done <- fmt.Errorf("%w: %s: %v", ErrArmFailed, history.Task.ID, err)
@@ -193,6 +196,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		}
 		attempt := *history.ActiveAttempt
 		seen[t.ID] = true
+		if attempt.Lifecycle == state.AttemptProvisioning {
+			continue
+		}
 		pane, probeErr := client.PaneGetContext(ctx, attempt.Herdr.PaneID)
 		if ctx.Err() != nil {
 			return
@@ -206,7 +212,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		// Inheriting the previous run's TaskState would suppress the new task's verified done forever -
 		// syncTaskState writes that inherited done_verified onto the fresh row, making the suppression
 		// durable - and absorb its first unexplained stop.
-		if tracked && (ts.CreatedAt != t.CreatedAt || ts.AttemptID != t.ActiveAttemptID) {
+		if tracked && (ts.CreatedAt != t.CreatedAt || ts.AttemptID != t.ActiveAttemptID || ts.AttemptLifecycle != attempt.Lifecycle) {
 			tracked = false
 		}
 		if !tracked {
@@ -284,6 +290,7 @@ func resumeTaskState(t state.Task, a state.Attempt, status herdr.Status, now tim
 	ts.PersistedPaneID = a.Herdr.PaneID
 	ts.CreatedAt = t.CreatedAt
 	ts.AttemptID = t.ActiveAttemptID
+	ts.AttemptLifecycle = a.Lifecycle
 	ts.ReportCursor = state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest}
 	ts.PersistedCursor = ts.ReportCursor
 	ts.PRMerged = t.MergeAnnounced
@@ -569,8 +576,7 @@ func recordAutoPR(home, id, url string) error {
 	if t.PR != "" {
 		return nil
 	}
-	t.PR = url
-	if err := state.UpdateTask(home, t); err != nil {
+	if err := state.SetTaskPR(home, id, url); err != nil {
 		return fmt.Errorf("write task %s: %w", id, err)
 	}
 	return nil
@@ -626,37 +632,33 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		_, _ = fmt.Fprintf(errOut, "watch: read task %s failed: %v\n", id, err)
 		return
 	}
-	t.ReportOffset = ts.ReportCursor.Offset
-	t.ReportDigest = ts.ReportCursor.Digest
-	t.MergeAnnounced = t.MergeAnnounced || ts.PRMerged
 	// The report cursor is task-owned and lands before the attempt is resolved: dropping it because a
 	// task terminalized mid-tick would replay lines this watcher already consumed, which re-raises
 	// resolved decisions and can auto-record a stale PR URL.
-	if err := state.UpdateTask(home, t); err != nil {
+	if err := state.SetTaskReportState(home, id, ts.ReportCursor.Offset, ts.ReportCursor.Digest, ts.PRMerged); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist task %s failed: %v\n", id, err)
 		return
 	}
 	ts.PersistedCursor = ts.ReportCursor
 	ts.PersistedPRMerged = ts.PRMerged
 
-	active, err := state.ActiveAttempt(home, id)
+	active, found, err := state.ReadAttempt(home, ts.AttemptID)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read active attempt %s failed: %v\n", id, err)
+		return
+	}
+	if !found || active.TaskID != id || t.ActiveAttemptID != ts.AttemptID || active.Lifecycle != ts.AttemptLifecycle {
+		_, _ = fmt.Fprintf(errOut, "watch: read active attempt %s failed: attempt ownership changed\n", id)
 		return
 	}
 	// A promote may have landed since this tick's state.List. Writing the cached values back would
 	// erase its restamp and leave the disk value matching what this watcher persisted, so no later
 	// tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, active, now)
-	active.DoneVerified = active.DoneVerified || ts.DoneVerified
-	active.StatusChangedAt = ts.ChangedAt.UTC().Format(time.RFC3339)
-	active.StatusChangedFor = string(ts.Status)
-	active.LastReportState = ts.LastReportState
-	active.LastReportNote = ts.LastReportNote
-	active.ParkedFiredFor = parkedFiredStamp(ts.ParkedFiredFor)
-	active.UsageLimitRetryAt = limitRetryStamp(ts.LimitRetryAt)
-	active.UsageLimitAttempts = ts.LimitAttempts
-	if err := state.UpdateAttempt(home, active); err != nil {
+	if err := state.UpdateAttemptObservation(home, id, ts.AttemptID, ts.AttemptLifecycle,
+		ts.ChangedAt.UTC().Format(time.RFC3339), string(ts.Status), ts.DoneVerified,
+		ts.LastReportState, ts.LastReportNote, parkedFiredStamp(ts.ParkedFiredFor),
+		limitRetryStamp(ts.LimitRetryAt), ts.LimitAttempts); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist attempt %s failed: %v\n", id, err)
 		return
 	}

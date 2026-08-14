@@ -401,12 +401,12 @@ func TestPromoteFailureClosesWorkspaceItCreated(t *testing.T) {
 	if !strings.Contains(string(calls), "workspace close wA") {
 		t.Fatalf("calls = %q, want the workspace hand created to be closed", calls)
 	}
-	got, err := state.Read(home, "task-1")
+	got, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Kind != state.KindScout {
-		t.Fatalf("kind = %q, want the task left as a scout", got.Kind)
+	if got.Task.Kind != state.KindShip || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != newWt || got.ActiveAttempt.Herdr.PaneID != "wA:pNew" {
+		t.Fatalf("provisioning evidence after launch failure = %+v, want ship ownership preserved", got)
 	}
 }
 

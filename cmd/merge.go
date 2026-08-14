@@ -125,11 +125,12 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		return fmt.Errorf("gh pr merge failed: %s", strings.TrimSpace(string(out)))
 	}
 
-	t.MergeExecuted = true
-	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := state.UpdateTask(home, t); err != nil {
+	mergedAt := time.Now().UTC().Format(time.RFC3339)
+	if err := state.SetTaskMerge(home, t.ID, mergedAt); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}
+	t.MergeExecuted = true
+	t.MergeExecutedAt = mergedAt
 
 	if proj, exists, err := project.Find(home, t.Project); err != nil {
 		return err
@@ -196,11 +197,12 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task, active state.A
 		return &ExitError{Err: fmt.Errorf("fast-forward not possible: %s", strings.TrimSpace(string(out))), Code: 3}
 	}
 
-	t.MergeExecuted = true
-	t.MergeExecutedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := state.UpdateTask(home, t); err != nil {
+	mergedAt := time.Now().UTC().Format(time.RFC3339)
+	if err := state.SetTaskMerge(home, t.ID, mergedAt); err != nil {
 		return fmt.Errorf("write task state: %w", err)
 	}
+	t.MergeExecuted = true
+	t.MergeExecutedAt = mergedAt
 
 	var doc axi.Doc
 	doc.Field("id", t.ID)

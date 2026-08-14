@@ -90,6 +90,23 @@ func newSpawnCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			kind := state.KindShip
+			if scout {
+				kind = state.KindScout
+			}
+			spawnedAt := time.Now().UTC().Format(time.RFC3339)
+			task := state.Task{
+				ID: id, Project: proj.Name, Kind: kind, Brief: briefRel,
+				Lifecycle: state.TaskOpen, CreatedAt: spawnedAt,
+			}
+			attempt, err := state.CreateTaskWithAttempt(home, task, state.Attempt{
+				TaskID: id, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: model, Effort: effort,
+				CreatedAt: spawnedAt,
+			})
+			if err != nil {
+				return asPrecondition(fmt.Errorf("write provisioning state: %w", err))
+			}
 			releaseProject, err := state.Lock(home, "project:"+proj.Name)
 			if err != nil {
 				return fmt.Errorf("lock project %q: %w", proj.Name, err)
@@ -101,6 +118,9 @@ func newSpawnCmd() *cobra.Command {
 				return fmt.Errorf("acquire treehouse worktree: %w", err)
 			}
 			wt := lease.Path
+			if err := state.RecordAttemptWorktree(home, id, attempt.ID, wt, lease.ID); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record worktree ownership: %w", err), worktree.Return(wt, true))
+			}
 			releaseWorktree, err := state.Lock(home, "worktree:"+wt)
 			if err != nil {
 				return reportSpawnCleanup(fmt.Errorf("lock worktree %q: %w", wt, err), worktree.Return(wt, true))
@@ -118,9 +138,6 @@ func newSpawnCmd() *cobra.Command {
 			if err != nil {
 				return reportSpawnCleanup(err, worktree.Return(wt, true))
 			}
-
-			// Disarms the rollback below once state has durably recorded the task: from that point
-			// its workspace and tab are owned by the running task, not by this call.
 			spawned := false
 			defer func() {
 				if spawned {
@@ -130,6 +147,10 @@ func newSpawnCmd() *cobra.Command {
 					err = reportSpawnCleanup(err, closeErr)
 				}
 			}()
+			paneStartedAt := time.Now().UTC().Format(time.RFC3339)
+			if err := state.RecordAttemptHerdr(home, id, attempt.ID, state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID}, paneStartedAt); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record Herdr ownership: %w", err), worktree.Return(wt, true))
+			}
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{
 				Worktree:            wt,
@@ -146,34 +167,18 @@ func newSpawnCmd() *cobra.Command {
 			if err := client.PaneRun(pane.PaneID, launchCmd); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), worktree.Return(wt, true))
 			}
+			if err := state.MarkLaunchSubmitted(home, id, attempt.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record launch submission: %w", err), worktree.Return(wt, true))
+			}
 
 			if err := confirmLaunch(client, pane.PaneID, harnessName); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), worktree.Return(wt, true))
 			}
-
-			kind := state.KindShip
-			if scout {
-				kind = state.KindScout
+			if err := state.MarkLaunchConfirmed(home, id, attempt.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record launch confirmation: %w", err), worktree.Return(wt, true))
 			}
-
-			spawnedAt := time.Now().UTC().Format(time.RFC3339)
-			task := state.Task{
-				ID:        id,
-				Project:   proj.Name,
-				Kind:      kind,
-				Brief:     briefRel,
-				Lifecycle: state.TaskOpen,
-				CreatedAt: spawnedAt,
-			}
-			if err := state.CreateTask(home, task); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("write task state: %w", err), worktree.Return(wt, true))
-			}
-			if _, err := state.CreateAttempt(home, state.Attempt{
-				TaskID: id, Lifecycle: state.AttemptRunning, Harness: harnessName, Model: model, Effort: effort,
-				Worktree: wt, LeaseID: lease.ID, Herdr: state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID},
-				CreatedAt: spawnedAt, PaneStartedAt: spawnedAt,
-			}); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("write attempt state: %w", err), worktree.Return(wt, true))
+			if err := state.MarkAttemptRunning(home, id, attempt.ID); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record running attempt: %w", err), worktree.Return(wt, true))
 			}
 			spawned = true
 

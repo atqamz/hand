@@ -32,7 +32,7 @@ func setupCollisionHome(t *testing.T) (string, string) {
 
 // Proves worktree.CheckCollision is actually wired into the built spawn command, not just unit-tested in
 // isolation: a second spawn onto a slot a surviving task row still names must be refused before it ever
-// reaches herdr, and must leave no trace of task-2.
+// reaches herdr, while its provisioning attempt preserves the failed boundary.
 func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 	home, dir := setupCollisionHome(t)
 
@@ -53,8 +53,12 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 		t.Fatalf("collision stderr = %q, want it to name the conflicting task task-1", second.stderr)
 	}
 
-	if exists, err := state.Exists(home, "task-2"); err != nil || exists {
-		t.Fatalf("state.Exists(task-2) = %v, %v, want the collision to leave no task-2 state", exists, err)
+	if exists, err := state.Exists(home, "task-2"); err != nil || !exists {
+		t.Fatalf("state.Exists(task-2) = %v, %v, want the provisioning attempt preserved", exists, err)
+	}
+	task2, attempt2 := readTaskAttempt(t, home, "task-2")
+	if task2.Lifecycle != state.TaskOpen || attempt2.Lifecycle != state.AttemptProvisioning || attempt2.Worktree != sharedWorktree {
+		t.Fatalf("task-2 state = %+v / %+v, want the acquired worktree preserved on the provisioning attempt", task2, attempt2)
 	}
 	task1, attempt1 := readTaskAttempt(t, home, "task-1")
 	if attempt1.Worktree != sharedWorktree {

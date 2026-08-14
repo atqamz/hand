@@ -117,15 +117,16 @@ type TaskState struct {
 	// CreatedAt pairs with AttemptID as the tracked execution identity, not just a timestamp:
 	// the poll loop compares both against the task on disk so a reopened or promoted ID is
 	// re-seeded from scratch instead of inheriting this state.
-	CreatedAt    string
-	AttemptID    int64
-	Status       herdr.Status
-	Probed       bool
-	ChangedAt    time.Time
-	Blocked      bool
-	Stale        bool
-	PRMerged     bool
-	ReportCursor state.ReportCursor
+	CreatedAt        string
+	AttemptID        int64
+	AttemptLifecycle state.AttemptLifecycle
+	Status           herdr.Status
+	Probed           bool
+	ChangedAt        time.Time
+	Blocked          bool
+	Stale            bool
+	PRMerged         bool
+	ReportCursor     state.ReportCursor
 	// The Persisted* fields mirror what the task's durable state already carries,
 	// so a write skipped for lock contention is retried on the next tick instead
 	// of silently lost.

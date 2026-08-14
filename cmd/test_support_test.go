@@ -14,6 +14,10 @@ func writeTaskAttempt(t *testing.T, home string, task state.Task, attempt state.
 		t.Fatal(err)
 	}
 	attempt.TaskID = task.ID
+	if attempt.Lifecycle == state.AttemptRunning && attempt.LaunchConfirmedAt == "" {
+		attempt.LaunchSubmittedAt = "test-submitted"
+		attempt.LaunchConfirmedAt = "test-confirmed"
+	}
 	if _, err := state.CreateAttempt(home, attempt); err != nil {
 		t.Fatal(err)
 	}

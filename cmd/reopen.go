@@ -87,6 +87,14 @@ func newReopenCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			startedAt := time.Now().UTC().Format(time.RFC3339)
+			attempt, err := state.ReopenTask(homeDir, state.Attempt{
+				TaskID: id, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: model, Effort: effort,
+				CreatedAt: startedAt,
+			})
+			if err != nil {
+				return asPrecondition(fmt.Errorf("write reopened provisioning state: %w", err))
+			}
 
 			releaseProject, err := state.Lock(homeDir, "project:"+proj.Name)
 			if err != nil {
@@ -98,6 +106,9 @@ func newReopenCmd() *cobra.Command {
 				return fmt.Errorf("acquire treehouse worktree: %w", err)
 			}
 			wt := lease.Path
+			if err := state.RecordAttemptWorktree(homeDir, id, attempt.ID, wt, lease.ID); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record worktree ownership: %w", err), worktree.Return(wt, true))
+			}
 			releaseWorktree, err := state.Lock(homeDir, "worktree:"+wt)
 			if err != nil {
 				return reportSpawnCleanup(fmt.Errorf("lock worktree %q: %w", wt, err), worktree.Return(wt, true))
@@ -123,6 +134,10 @@ func newReopenCmd() *cobra.Command {
 					err = reportSpawnCleanup(err, closeErr)
 				}
 			}()
+			paneStartedAt := time.Now().UTC().Format(time.RFC3339)
+			if err := state.RecordAttemptHerdr(homeDir, id, attempt.ID, state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID}, paneStartedAt); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record Herdr ownership: %w", err), worktree.Return(wt, true))
+			}
 
 			launchCmd, err := harness.Build(harnessName, harness.Options{Worktree: wt, Brief: briefAbs, FleetHome: homeDir, Model: model, Effort: effort, BriefHasFrontMatter: briefHasFrontMatter})
 			if err != nil {
@@ -131,13 +146,17 @@ func newReopenCmd() *cobra.Command {
 			if err := client.PaneRun(pane.PaneID, launchCmd); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), worktree.Return(wt, true))
 			}
+			if err := state.MarkLaunchSubmitted(homeDir, id, attempt.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record launch submission: %w", err), worktree.Return(wt, true))
+			}
 			if err := confirmLaunch(client, pane.PaneID, harnessName); err != nil {
 				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), worktree.Return(wt, true))
 			}
-
-			startedAt := time.Now().UTC().Format(time.RFC3339)
-			if _, err := state.ReopenTask(homeDir, state.Attempt{TaskID: id, Lifecycle: state.AttemptRunning, Harness: harnessName, Model: model, Effort: effort, Worktree: wt, LeaseID: lease.ID, Herdr: state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID}, CreatedAt: startedAt, PaneStartedAt: startedAt}); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("write reopened attempt: %w", err), worktree.Return(wt, true))
+			if err := state.MarkLaunchConfirmed(homeDir, id, attempt.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record launch confirmation: %w", err), worktree.Return(wt, true))
+			}
+			if err := state.MarkAttemptRunning(homeDir, id, attempt.ID); err != nil {
+				return reportSpawnCleanup(fmt.Errorf("record running attempt: %w", err), worktree.Return(wt, true))
 			}
 			started = true
 

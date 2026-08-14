@@ -49,6 +49,7 @@ func newTeardownCmd() *cobra.Command {
 				return &ExitError{Err: fmt.Errorf("task %q has no active attempt", id), Code: 3}
 			}
 			t := history.Task
+			originalTask := t
 			active := *history.ActiveAttempt
 
 			dirtWasSafe := false
@@ -86,8 +87,10 @@ func newTeardownCmd() *cobra.Command {
 			record := completionFor(t, force)
 			record.TornDownAt = time.Now().UTC().Format(time.RFC3339)
 
-			if err := state.UpdateTask(home, t); err != nil {
-				return fmt.Errorf("record task facts: %w", err)
+			if t.PR != originalTask.PR {
+				if err := state.SetTaskPR(home, id, t.PR); err != nil {
+					return fmt.Errorf("record task facts: %w", err)
+				}
 			}
 
 			if err := completion.Append(home, record); err != nil {
@@ -98,10 +101,7 @@ func newTeardownCmd() *cobra.Command {
 			if force {
 				terminalAttempt = state.AttemptInterrupted
 			}
-			if err := state.TransitionAttempt(home, active.ID, active.Lifecycle, terminalAttempt); err != nil {
-				return fmt.Errorf("record attempt completion: %w", err)
-			}
-			if err := state.TransitionTask(home, id, state.TaskOpen, state.TaskTerminal); err != nil {
+			if err := state.TerminalizeTaskAndAttempt(home, id, active.ID, active.Lifecycle, terminalAttempt); err != nil {
 				return fmt.Errorf("record task completion: %w", err)
 			}
 

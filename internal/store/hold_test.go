@@ -150,3 +150,49 @@ func TestListHoldsSurfacesEveryRowRegardlessOfKind(t *testing.T) {
 		t.Fatalf("ListHolds = %+v, want the inconsistent row untouched", holds)
 	}
 }
+
+func TestConditionalMachineHoldCannotOverwriteOperatorHold(t *testing.T) {
+	db, _ := openTemp(t)
+	operator := sampleHold()
+	if err := db.SetHold(operator); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := db.SetHoldIfNotOtherKind(Hold{ID: operator.ID, Kind: HoldKindLimit, Reason: "quota"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written {
+		t.Fatal("SetHoldIfNotOtherKind = true, want operator hold to win")
+	}
+	got, found, err := db.ReadHold(operator.ID)
+	if err != nil || !found {
+		t.Fatalf("ReadHold = %+v, %v, want operator hold", got, err)
+	}
+	if got != operator {
+		t.Fatalf("hold = %+v, want %+v", got, operator)
+	}
+}
+
+func TestConditionalMachineClearCannotDeleteOperatorReplacement(t *testing.T) {
+	db, _ := openTemp(t)
+	if err := db.SetHold(Hold{ID: "fix-login", Kind: HoldKindLimit, Reason: "quota"}); err != nil {
+		t.Fatal(err)
+	}
+	operator := sampleHold()
+	if err := db.SetHold(operator); err != nil {
+		t.Fatal(err)
+	}
+
+	cleared, err := db.ClearHoldIfKind(operator.ID, HoldKindLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared {
+		t.Fatal("ClearHoldIfKind = true, want operator replacement to remain")
+	}
+	got, found, err := db.ReadHold(operator.ID)
+	if err != nil || !found || got != operator {
+		t.Fatalf("ReadHold = %+v, %v, want %+v", got, found, operator)
+	}
+}

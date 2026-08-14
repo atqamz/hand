@@ -129,10 +129,17 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 // decides whether the limit is over - the next tick's clear check does that, by seeing whether the pane
 // started working.
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
-	// The same `send:<id>` lock hand send holds, because two writers racing one composer is the lost
-	// steer atqamz/hand#102 traced. TryLock, never Lock: a tick must not block behind an operator's
-	// whole --wait, and an operator send landing right now is itself the thing that ends the limit.
-	release, err := state.TryLock(cfg.Home, "send:"+t.ID)
+	// Follow foreground send's task -> send order, so promotion and teardown cannot replace the
+	// Attempt while this resume steers its pane. TryLock keeps the poll loop moving.
+	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
+		}
+		return nil
+	}
+	defer releaseTask()
+	releaseSend, err := state.TryLock(cfg.Home, "send:"+t.ID)
 	if err != nil {
 		if !errors.Is(err, state.ErrLockBusy) {
 			_, _ = fmt.Fprintf(errOut, "watch: lock send %s failed: %v\n", t.ID, err)
@@ -140,7 +147,7 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		// A busy lock spends no attempt: the schedule is left untouched, so the next tick finds it due.
 		return nil
 	}
-	defer release()
+	defer releaseSend()
 
 	// Read first: the freshest refusal on screen is the harness's own latest prediction of when its quota
 	// returns, and scheduling from it keeps a genuinely long limit off the backoff's much shorter clock.

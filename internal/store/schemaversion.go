@@ -99,11 +99,15 @@ var migrations = []string{
 	ALTER TABLE task_v8 RENAME TO task;
 	ALTER TABLE attempt_v8 RENAME TO attempt;
 	CREATE UNIQUE INDEX attempt_one_active ON attempt(task_id) WHERE lifecycle IN ('provisioning', 'running');`,
+	`ALTER TABLE attempt ADD COLUMN launch_submitted_at TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN launch_confirmed_at TEXT NOT NULL DEFAULT '';`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
 // layout has every earlier migration folded into it, whatever user_version claims.
 const splitVersion = 8
+
+const launchEvidenceVersion = splitVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -114,6 +118,14 @@ func (db *DB) taskIsSplit() (bool, error) {
 		return false, fmt.Errorf("detect the split task layout: %w", err)
 	}
 	return count != 0, nil
+}
+
+func (db *DB) hasLaunchEvidenceColumns() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('launch_submitted_at', 'launch_confirmed_at')`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect launch evidence columns: %w", err)
+	}
+	return count == 2, nil
 }
 
 func (db *DB) schemaVersion() (int, error) {
@@ -188,16 +200,39 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 		if split {
-			if _, err := db.sql.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, splitVersion)); err != nil {
-				return fmt.Errorf("record schema version %d: %w", splitVersion, err)
+			stamp := splitVersion
+			complete, err := db.hasLaunchEvidenceColumns()
+			if err != nil {
+				return err
 			}
-			current = splitVersion
+			if complete && latest >= launchEvidenceVersion {
+				stamp = launchEvidenceVersion
+			}
+			if err := db.stampSchemaVersion(stamp); err != nil {
+				return err
+			}
+			current = stamp
 		}
 	}
 	for version := current; version < latest; version++ {
 		if err := db.applyMigration(version); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (db *DB) stampSchemaVersion(version int) error {
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return fmt.Errorf("begin schema version stamp %d: %w", version, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := recordSchemaVersion(tx, version); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("record schema version %d: %w", version, err)
 	}
 	return nil
 }
