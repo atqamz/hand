@@ -93,7 +93,7 @@ claude
 
 The generated `AGENTS.md` block tells the harness to run `hand session start` before responding or acting; that command loads bounded fleet context and reports the first next action, and refuses outright inside a worker's isolated worktree. Any other supported harness reads the same instructions from `AGENTS.md` directly.
 
-On the first session, the supervisor may ask which worker harness, model, or effort level you want. Your answers are persisted with `hand config`; nothing is guessed on your behalf.
+On the first session, the supervisor inspects `hand config`, asks only unresolved configuration policy questions, and persists accepted profile and route choices through the CLI.
 
 ### 5. Give it work
 
@@ -161,7 +161,8 @@ The supervisor must re-check the plan and rewrite or revalidate it before record
 
 These fields are optional, so briefs without them and legacy `model`/`effort` front matter retain their existing behavior.
 Execution-ready body sections such as goal, verified current state, locked decisions, implementation steps, invariants, tests, verification, non-goals, and stop conditions are recommendations for mechanical briefs, not required syntax.
-Concrete profile and model routing is deferred to atqamz/hand#215.
+Classified briefs use the configured execution-profile route for their Task kind and execution class.
+The supervisor inspects `hand config`, creates profiles with `hand config profile set`, and binds each kind-and-class combination with `hand config route set`.
 
 ## What `hand` manages
 
@@ -235,11 +236,16 @@ Without an override, workers inherit the harness detected as the current supervi
 hand config
 hand config set harness claude
 hand config set model claude-opus-5
+hand config profile set claude --harness claude
+hand config route set ship standard claude
 ```
 
-Model and effort support depends on the harness: `hand config` reports each as `native-default`, `configured`, or `unsupported` instead of silently storing a setting a harness cannot carry. Overrides are stored per harness, so switching harnesses never hands a worker a model or effort chosen for a different tool.
+The `harnesses` table lists supported harnesses and whether each is installed on `PATH`.
+Model and effort support depends on the harness: `hand config` reports each as `native-default`, `configured`, or `unsupported` instead of silently storing a setting a harness cannot carry.
+Overrides are stored per harness, so switching harnesses never hands a worker a model or effort chosen for a different tool.
 
-A task brief can also declare model and effort for that specific worker; explicit spawn or promote flags win over brief values, which win over these defaults.
+Normally, a task brief omits model and effort front matter so its configured route controls execution.
+Use those values as explicit overrides only for a genuine task-specific need; explicit spawn or promote flags win over brief values, which win over profile values.
 
 ## Fleet home
 

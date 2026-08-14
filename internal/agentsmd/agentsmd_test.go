@@ -171,6 +171,34 @@ func TestSupervisorInstructionsCoverExecutionPlanningContract(t *testing.T) {
 	}
 }
 
+func TestSupervisorInstructionsCoverProfileAndRouteConfiguration(t *testing.T) {
+	got := strings.Join(SupervisorInstructions(), "\n")
+	for _, want := range []string{
+		"`hand config`",
+		"supported harnesses",
+		"installed on `PATH`",
+		"Profile or Route is missing",
+		"structural options",
+		"entitlement, quality, or cost",
+		"only unresolved operator policy",
+		"routine confirmation",
+		"Classify the task's execution class",
+		"`hand config profile set <name> --harness <harness>`",
+		"`hand config route set <kind> <execution-class> <profile>`",
+		"omit `model` and `effort` front matter",
+		"genuine task-specific need",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("got supervisor instructions %q, want profile-and-route configuration rule %q", got, want)
+		}
+	}
+	for _, forbidden := range []string{"cheap", "expensive", "premium", "best model", "high-quality", "low-quality"} {
+		if strings.Contains(strings.ToLower(got), forbidden) {
+			t.Fatalf("got supervisor instructions %q, want no semantic harness or model label %q", got, forbidden)
+		}
+	}
+}
+
 func TestSupervisorInstructionsReturnsClone(t *testing.T) {
 	first := SupervisorInstructions()
 	first[0] = "changed by caller"
