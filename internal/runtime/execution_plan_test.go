@@ -203,6 +203,7 @@ func TestSpawnMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) 
 	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
 		t.Fatalf("error = %q, want capability guidance", err)
 	}
+	assertNoLaunchingAnywayWarning(t, err)
 	assertNoProvisioningSideEffects(t, home, calls)
 	if _, err := state.ReadHistory(home, "task-1"); !errors.Is(err, state.ErrTaskNotFound) {
 		t.Fatalf("history after refused Spawn = %v, want no Task/Attempt", err)
@@ -380,6 +381,7 @@ func TestReopenMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T)
 	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
 		t.Fatalf("error = %q, want capability guidance", err)
 	}
+	assertNoLaunchingAnywayWarning(t, err)
 	assertNoProvisioningSideEffects(t, home, calls)
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
@@ -479,6 +481,7 @@ func TestPromoteMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T
 	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
 		t.Fatalf("error = %q, want capability guidance", err)
 	}
+	assertNoLaunchingAnywayWarning(t, err)
 	if calls.worktreeGets != 0 || calls.harnessBuilds != 0 || calls.herdrGets != 1 {
 		t.Fatalf("provisioning calls = %+v, want only the completed-scout Herdr probe", calls)
 	}
@@ -494,25 +497,50 @@ func TestPromoteMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T
 func TestNonMechanicalPlansKeepLaunchingWithHarnessWithoutPromptCapability(t *testing.T) {
 	for _, class := range []string{"", "standard", "deep"} {
 		t.Run(map[string]string{"": "legacy", "standard": "standard", "deep": "deep"}[class], func(t *testing.T) {
-			briefText := "brief\n"
-			if class != "" {
-				briefText = "---\nexecution_class: " + class + "\n---\nbrief\n"
-			}
-			home := executionPlanHome(t, briefText)
-			calls := &executionPlanCalls{}
-			r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("b", 40), nil })
+			for _, harnessName := range []string{harness.Grok, harness.Pi} {
+				t.Run(harnessName, func(t *testing.T) {
+					briefText := "brief\n"
+					if class != "" {
+						briefText = "---\nexecution_class: " + class + "\n---\nbrief\n"
+					}
+					home := executionPlanHome(t, briefText)
+					calls := &executionPlanCalls{}
+					r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("b", 40), nil })
 
-			result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Grok})
-			if err != nil {
-				t.Fatalf("Spawn() = %v, want compatibility launch", err)
-			}
-			if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "cannot carry") {
-				t.Fatalf("warnings = %v, want capability warning", result.Warnings)
-			}
-			if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
-				t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
+					result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harnessName})
+					if err != nil {
+						t.Fatalf("Spawn() = %v, want compatibility launch", err)
+					}
+					if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "launching anyway") {
+						t.Fatalf("warnings = %v, want launching-anyway capability warning", result.Warnings)
+					}
+					if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
+						t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
+					}
+				})
 			}
 		})
+	}
+}
+
+func TestSpawnMechanicalPlanRejectsPiWithoutPromptCapability(t *testing.T) {
+	planned := strings.Repeat("a", 40)
+	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
+
+	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Pi})
+	assertPreconditionError(t, err)
+	assertNoLaunchingAnywayWarning(t, err)
+	assertNoProvisioningSideEffects(t, home, calls)
+}
+
+func assertNoLaunchingAnywayWarning(t *testing.T, err error) {
+	t.Helper()
+	for _, warning := range Warnings(err) {
+		if strings.Contains(warning, "launching anyway") {
+			t.Fatalf("runtime warnings = %v, must not claim refused dispatch will launch", Warnings(err))
+		}
 	}
 }
 

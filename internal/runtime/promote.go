@@ -78,10 +78,10 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if err != nil {
 		return fail(classifyTierError(err))
 	}
-	warnings = append(warnings, tier.Warnings...)
 	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
 		return fail(err)
 	}
+	warnings = append(warnings, tier.Warnings...)
 
 	var releaseProject func()
 	if tier.ExecutionClass == brief.ExecutionClassMechanical {
