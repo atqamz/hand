@@ -53,6 +53,26 @@ func TestGetAcceptsAPayloadWithoutALeaseIdentity(t *testing.T) {
 	}
 }
 
+func TestHeadCommitReturnsTheWorktreeCommit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "worktree")
+	faketool.InitRepo(t, path)
+	command := exec.Command("git", "rev-parse", "HEAD")
+	command.Dir = path
+	output, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSpace(string(output))
+
+	got, err := HeadCommit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want || len(got) != 40 {
+		t.Fatalf("HeadCommit() = %q, want %q", got, want)
+	}
+}
+
 func TestGetPassesLeaseHolder(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{
 		Command: "get", Args: []string{"--lease", "--json", "--lease-holder", "hand:task-1"},

@@ -65,6 +65,7 @@ The recognized machine-readable contract is limited to those fields and the exis
 
 For a mechanical brief, `planned_against` is the full commit ID of the registered project's verified local default branch.
 Hand compares it with exact equality before provisioning and refuses a stale plan.
+Hand also verifies the acquired worktree `HEAD` before Herdr or worker launch because Treehouse may refresh a lease during acquisition.
 If the project advances, the Supervisor must re-check the plan rather than merely replacing the commit ID.
 
 ### Execution class

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,6 +55,14 @@ func ResolveTier(homeDir, briefPath, harnessName, model, effort string) (TierRes
 		result.Warnings = []string{fmt.Sprintf("warning: harness %q cannot carry %s; launching anyway", harnessName, strings.Join(dropped, ", "))}
 	}
 	return result, nil
+}
+
+func classifyTierError(err error) error {
+	var validationErr *brief.ValidationError
+	if errors.As(err, &validationErr) {
+		return Precondition(err)
+	}
+	return err
 }
 
 func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string) error {

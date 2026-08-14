@@ -36,6 +36,19 @@ func TestPreflightBriefAllowsLegacyStandardAndDeep(t *testing.T) {
 	}
 }
 
+func TestClassifyTierErrorOnlyClassifiesBriefValidation(t *testing.T) {
+	internalErr := errors.New("brief storage unavailable")
+	if got := classifyTierError(internalErr); got != internalErr {
+		t.Fatalf("classifyTierError(internal) = %v, want original error", got)
+	}
+	validationErr := &brief.ValidationError{Field: "execution_class", Value: "cheap", Want: "mechanical, standard, or deep"}
+	classified := classifyTierError(validationErr)
+	var runtimeErr *Error
+	if !errors.As(classified, &runtimeErr) || runtimeErr.Kind != ErrorPrecondition {
+		t.Fatalf("classifyTierError(validation) = %v, want precondition", classified)
+	}
+}
+
 func TestPreflightBriefAllowsExactMechanicalPlan(t *testing.T) {
 	commit := strings.Repeat("a", 40)
 	r := &Runtime{deps: dependencies{
@@ -131,6 +144,38 @@ func TestProjectBaseCommitResolvesLocalDefaultBranchCommit(t *testing.T) {
 	}
 }
 
+func TestProjectBaseCommitDoesNotQueryRemoteToResolveBranch(t *testing.T) {
+	clonePath := filepath.Join(t.TempDir(), "clone")
+	initRuntimeGitRepo(t, clonePath)
+	runRuntimeGit(t, clonePath, "remote", "add", "origin", "ssh://example.invalid/review/repo.git")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "remote-show-called")
+	fakeDir := t.TempDir()
+	fakeGit := filepath.Join(fakeDir, "git")
+	script := "#!/bin/sh\nif [ \"$1\" = remote ] && [ \"$2\" = show ] && [ \"$3\" = origin ]; then\n  echo queried > \"$HAND_GIT_QUERY_MARKER\"\n  exit 1\nfi\nexec \"$HAND_REAL_GIT\" \"$@\"\n"
+	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HAND_GIT_QUERY_MARKER", marker)
+	t.Setenv("HAND_REAL_GIT", realGit)
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	want := gitOutput(t, clonePath, "rev-parse", "refs/heads/main")
+	got, err := projectBaseCommit(clonePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("projectBaseCommit() = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("remote show marker exists with err %v, want no remote query", err)
+	}
+}
+
 func TestSpawnMechanicalPlanStopsBeforeAttemptAndExternalProvisioning(t *testing.T) {
 	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+strings.Repeat("a", 40)+"\n---\nbrief\n")
 	calls := &executionPlanCalls{}
@@ -144,6 +189,33 @@ func TestSpawnMechanicalPlanStopsBeforeAttemptAndExternalProvisioning(t *testing
 	assertNoProvisioningSideEffects(t, home, calls)
 	if _, err := state.ReadHistory(home, "task-1"); !errors.Is(err, state.ErrTaskNotFound) {
 		t.Fatalf("history after refused Spawn = %v, want no Task/Attempt", err)
+	}
+}
+
+func TestSpawnMechanicalPlanRejectsWorktreeHeadDriftBeforeHerdr(t *testing.T) {
+	planned := strings.Repeat("a", 40)
+	acquired := strings.Repeat("b", 40)
+	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
+	r.deps.worktree.headCommit = func(string) (string, error) { return acquired, nil }
+
+	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: "claude"})
+	assertPreconditionError(t, err)
+	for _, want := range []string{planned, acquired, "returned without launching"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+	if calls.worktreeReturns != 1 || calls.herdrGets != 0 || calls.harnessBuilds != 0 {
+		t.Fatalf("provisioning calls = %+v, want one safe return and no Herdr or harness", calls)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Worktree != "" {
+		t.Fatalf("attempt after rejected worktree = %+v, want no worktree evidence", history.ActiveAttempt)
 	}
 }
 
@@ -189,6 +261,42 @@ func TestSpawnStandardAndDeepDoNotApplyMechanicalExactMatch(t *testing.T) {
 	}
 }
 
+func TestSpawnLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	releaseProject, err := state.Lock(home, "project:demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			releaseProject()
+		}
+	}()
+
+	spawnDone := make(chan error, 1)
+	go func() {
+		_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: "claude"})
+		spawnDone <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		history, readErr := state.ReadHistory(home, "task-1")
+		if readErr == nil && history.ActiveAttempt != nil {
+			released = true
+			releaseProject()
+			if err := <-spawnDone; err != nil {
+				t.Fatalf("Spawn() = %v, want success after project lock release", err)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("legacy Spawn did not create its provisioning Attempt before waiting for project lock")
+}
+
 func TestReopenMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.T) {
 	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+strings.Repeat("a", 40)+"\n---\nbrief\n")
 	createTerminalExecutionTask(t, home)
@@ -205,6 +313,43 @@ func TestReopenMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.T
 	if history.Task.Lifecycle != state.TaskTerminal || len(history.Attempts) != 1 {
 		t.Fatalf("history after stale reopen = %+v, want unchanged terminal task and one attempt", history)
 	}
+}
+
+func TestReopenLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+	createTerminalExecutionTask(t, home)
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	releaseProject, err := state.Lock(home, "project:demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			releaseProject()
+		}
+	}()
+
+	reopenDone := make(chan error, 1)
+	go func() {
+		_, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: "claude"})
+		reopenDone <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		history, readErr := state.ReadHistory(home, "task-1")
+		if readErr == nil && len(history.Attempts) == 2 && history.ActiveAttempt != nil {
+			released = true
+			releaseProject()
+			if err := <-reopenDone; err != nil {
+				t.Fatalf("Reopen() = %v, want success after project lock release", err)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("legacy Reopen did not create its provisioning Attempt before waiting for project lock")
 }
 
 func TestPromoteMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.T) {
@@ -225,7 +370,9 @@ func TestPromoteMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.
 
 	_, err = r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: "claude"})
 	assertPreconditionError(t, err)
-	assertNoProvisioningSideEffects(t, home, calls)
+	if calls.worktreeGets != 0 || calls.herdrGets != 1 || calls.harnessBuilds != 0 {
+		t.Fatalf("provisioning calls = %+v, want only the completed-scout Herdr probe", calls)
+	}
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
@@ -233,6 +380,77 @@ func TestPromoteMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.
 	if history.Task.Kind != state.KindScout || len(history.Attempts) != 1 || history.ActiveAttempt == nil {
 		t.Fatalf("history after stale promote = %+v, want unchanged scout task and attempt", history)
 	}
+}
+
+func TestPromoteChecksScoutEligibilityBeforeBriefValidation(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: invalid\n---\nbrief\n")
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Lifecycle: state.TaskOpen}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Herdr: state.Herdr{PaneID: "pane-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markExecutionAttemptRunning(t, home, attempt.ID)
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+	_, err = r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: "claude"})
+	assertPreconditionError(t, err)
+	if !strings.Contains(err.Error(), "invalid execution_class") {
+		t.Fatalf("error = %q, want brief validation after scout eligibility", err)
+	}
+	if calls.herdrGets != 1 {
+		t.Fatalf("Herdr clients = %d, want eligibility probe before brief validation", calls.herdrGets)
+	}
+}
+
+func TestPromoteLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Lifecycle: state.TaskOpen}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markExecutionAttemptRunning(t, home, attempt.ID)
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	releaseProject, err := state.Lock(home, "project:demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			releaseProject()
+		}
+	}()
+
+	promoteDone := make(chan error, 1)
+	go func() {
+		_, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: "claude"})
+		promoteDone <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		history, readErr := state.ReadHistory(home, "task-1")
+		if readErr == nil && len(history.Attempts) == 2 && history.Task.Kind == state.KindShip {
+			released = true
+			releaseProject()
+			if err := <-promoteDone; err != nil {
+				t.Fatalf("Promote() = %v, want success after project lock release", err)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("legacy Promote did not create its ship Attempt before waiting for project lock")
 }
 
 func TestSpawnHoldsProjectLockFromMechanicalCheckThroughWorktree(t *testing.T) {
@@ -306,6 +524,7 @@ func TestSpawnHoldsProjectLockFromMechanicalCheckThroughWorktree(t *testing.T) {
 type executionPlanCalls struct {
 	baseLookups      int
 	worktreeGets     int
+	worktreeReturns  int
 	herdrGets        int
 	harnessBuilds    int
 	projectLockProbe error
@@ -341,6 +560,11 @@ func executionPlanRuntime(t *testing.T, calls *executionPlanCalls, base func(str
 	r.deps.worktree.get = func(path, holder string) (worktree.Lease, error) {
 		calls.worktreeGets++
 		return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
+	}
+	r.deps.worktree.headCommit = func(string) (string, error) { return strings.Repeat("a", 40), nil }
+	r.deps.worktree.returnWorktree = func(string, bool) error {
+		calls.worktreeReturns++
+		return nil
 	}
 	r.deps.buildHarness = func(string, harness.Options) (string, error) {
 		calls.harnessBuilds++

@@ -65,6 +65,38 @@ func TestTreehouseLeasesEachSlotOnceUntilItIsReturned(t *testing.T) {
 	}
 }
 
+func TestTreehouseGetCanModelAnAcquisitionHeadReset(t *testing.T) {
+	bin := Bin(t)
+	slot := filepath.Join(t.TempDir(), "wt")
+	InitRepo(t, slot)
+	command := exec.Command("git", "commit", "--allow-empty", "-q", "-m", "advance")
+	command.Dir = slot
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("advance git repo: %v: %s", err, output)
+	}
+	command = exec.Command("git", "rev-parse", "HEAD")
+	command.Dir = slot
+	output, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSpace(string(output))
+	Treehouse{Slots: []string{slot}, AcquireHeads: map[string]string{slot: want}}.Install(t, bin)
+
+	if _, _, code := runTreehouse(t, t.TempDir(), "get", "--lease", "--json"); code != 0 {
+		t.Fatalf("get exit %d, want success", code)
+	}
+	command = exec.Command("git", "rev-parse", "HEAD")
+	command.Dir = slot
+	output, err = command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(output)); got != want {
+		t.Fatalf("acquired HEAD = %q, want %q", got, want)
+	}
+}
+
 func TestTreehouseReturnsIdempotentlyAndRefusesAnUnmanagedPath(t *testing.T) {
 	bin := Bin(t)
 	slot := filepath.Join(t.TempDir(), "wt")

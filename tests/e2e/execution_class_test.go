@@ -60,6 +60,47 @@ func TestMechanicalPlanRefusesBeforeWorktreeAcquisitionWhenBaseIsStale(t *testin
 	}
 }
 
+func TestMechanicalPlanRefusesWhenTreehouseAcquiresADifferentHead(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "local-only")
+	clonePath := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clonePath)
+	planned := strings.TrimSpace(runGitIn(t, clonePath, "rev-parse", "refs/heads/main^{commit}"))
+	tree := strings.TrimSpace(runGitIn(t, clonePath, "rev-parse", "refs/heads/main^{tree}"))
+	acquired := strings.TrimSpace(runGitIn(t, clonePath, "commit-tree", tree, "-p", planned, "-m", "remote advance"))
+	worktree := filepath.Join(home, "wt-task-1")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "task-1-branch", worktree)
+	writeBriefWith(t, home, "task-1", mechanicalBrief(planned))
+
+	dir := binDir(t)
+	treehouseLog := filepath.Join(t.TempDir(), "treehouse.log")
+	herdrLog := filepath.Join(t.TempDir(), "herdr.log")
+	faketool.Treehouse{Slots: []string{worktree}, Log: treehouseLog, AcquireHeads: map[string]string{worktree: acquired}}.Install(t, dir)
+	writeFakeHerdrStaticLogged(t, dir, herdrLog, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
+
+	got := runHand(t, home, "spawn", "task-1", "demo")
+	assertInvocation(t, got, 3, "mechanical plan became stale during worktree acquisition")
+	message := errorMessage(t, got.stderr)
+	for _, want := range []string{planned, acquired, "returned without launching"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error = %q, want %q", message, want)
+		}
+	}
+	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") || !strings.Contains(log, "treehouse return") {
+		t.Fatalf("treehouse log = %q, want acquisition followed by safe return", log)
+	}
+	if log := readOptionalLog(t, herdrLog); log != "" {
+		t.Fatalf("herdr log = %q, want no pane or launch activity", log)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state.Exists = %v, %v, want provisioning evidence for the rejected acquisition", exists, err)
+	}
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.Worktree != "" || attempt.Herdr.PaneID != "" || attempt.LaunchSubmittedAt != "" {
+		t.Fatalf("rejected attempt = %+v, want no retained worktree, Herdr, or launch evidence", attempt)
+	}
+}
+
 func TestStandardAndDeepPlansDoNotUseMechanicalStaleRefusal(t *testing.T) {
 	for _, class := range []string{"standard", "deep"} {
 		t.Run(class, func(t *testing.T) {

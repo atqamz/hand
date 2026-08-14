@@ -159,6 +159,8 @@ func TestSupervisorInstructionsCoverExecutionPlanningContract(t *testing.T) {
 		"not task size",
 		"headings are recommendations",
 		"re-check",
+		"every new execution-class brief",
+		"standard and deep retain it as provenance",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("got supervisor instructions %q, want durable execution-planning concept %q", got, want)

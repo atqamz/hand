@@ -15,6 +15,16 @@ type Declaration struct {
 	PlannedAgainst string
 }
 
+type ValidationError struct {
+	Field string
+	Value string
+	Want  string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("invalid %s %q: want %s", e.Field, e.Value, e.Want)
+}
+
 type ExecutionClass string
 
 const (
@@ -79,10 +89,10 @@ func Parse(path string) (Declaration, bool, error) {
 
 func validateDeclaration(d Declaration, executionClassSet, plannedAgainstSet bool) error {
 	if executionClassSet && !d.ExecutionClass.Valid() {
-		return fmt.Errorf("invalid execution_class %q: want mechanical, standard, or deep", d.ExecutionClass)
+		return &ValidationError{Field: "execution_class", Value: string(d.ExecutionClass), Want: "mechanical, standard, or deep"}
 	}
 	if plannedAgainstSet && !validObjectID(d.PlannedAgainst) {
-		return fmt.Errorf("invalid planned_against %q: want a full hexadecimal Git object ID", d.PlannedAgainst)
+		return &ValidationError{Field: "planned_against", Value: d.PlannedAgainst, Want: "a full hexadecimal Git object ID"}
 	}
 	return nil
 }

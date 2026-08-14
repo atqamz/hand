@@ -22,6 +22,7 @@ type Treehouse struct {
 	NoLeaseIdentity bool
 	Banner          string
 	Log             string
+	AcquireHeads    map[string]string
 	Responses       []TreehouseResponse
 }
 
@@ -41,6 +42,7 @@ type treehouseSpec struct {
 	Banner          string
 	StateDir        string
 	Log             string
+	AcquireHeads    map[string]string
 	Responses       []TreehouseResponse
 }
 
@@ -63,7 +65,7 @@ func (th Treehouse) Install(t *testing.T, bin string) {
 	}
 	installConfig(t, bin, "treehouse", "treehouse", treehouseSpec{
 		Slots: th.Slots, Held: th.Held, LeaseIDs: th.LeaseIDs, NoLeaseIdentity: th.NoLeaseIdentity,
-		Banner: banner, StateDir: state, Log: th.Log, Responses: th.Responses,
+		Banner: banner, StateDir: state, Log: th.Log, AcquireHeads: th.AcquireHeads, Responses: th.Responses,
 	})
 }
 
@@ -111,6 +113,11 @@ func treehouseGet(spec treehouseSpec) int {
 		}
 		if leased {
 			continue
+		}
+		if head := spec.AcquireHeads[slot]; head != "" {
+			if output, err := exec.Command("git", "-C", slot, "reset", "--hard", "-q", head).CombinedOutput(); err != nil {
+				return fail("reset acquired worktree: %v: %s", err, output)
+			}
 		}
 		counter := treehouseCounter(spec.StateDir)
 		if err := atomicWrite(treehouseCounterPath(spec.StateDir), fmt.Sprintf("%d\n", counter+1)); err != nil {

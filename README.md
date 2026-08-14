@@ -154,6 +154,7 @@ planned_against: <full commit ID>
 
 `planned_against` is the full commit ID of the registered project's verified local default branch in `<home>/projects/<project>`.
 Hand refuses a mechanical dispatch when that project base no longer matches exactly, before provisioning begins.
+Because Treehouse may refresh a leased worktree during acquisition, Hand also verifies the acquired worktree `HEAD` against the same commit and returns it before Herdr or worker launch when it differs.
 The supervisor must re-check the plan and rewrite or revalidate it before recording a new revision.
 
 These fields are optional, so briefs without them and legacy `model`/`effort` front matter retain their existing behavior.

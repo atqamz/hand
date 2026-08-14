@@ -2,6 +2,7 @@ package brief
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,6 +133,20 @@ func TestParseRejectsInvalidExecutionClass(t *testing.T) {
 				t.Fatalf("Parse() = %v, want execution_class error naming %q", err, value)
 			}
 		})
+	}
+}
+
+func TestParseRecognizedMetadataErrorsAreTyped(t *testing.T) {
+	_, _, err := Parse(writeBrief(t, "---\nexecution_class: cheap\n---\n# Title\n"))
+	if err == nil {
+		t.Fatal("Parse() = nil, want validation error")
+	}
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("Parse() = %T %v, want ValidationError", err, err)
+	}
+	if validationErr.Field != "execution_class" {
+		t.Fatalf("ValidationError.Field = %q, want execution_class", validationErr.Field)
 	}
 }
 
