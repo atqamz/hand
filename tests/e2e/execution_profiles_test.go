@@ -163,7 +163,7 @@ func TestClassifiedRoutingRefusalsStopBeforeStateAndProvisioning(t *testing.T) {
 			if test.configure != nil {
 				test.configure(t, home, bin)
 			}
-			writeBriefWith(t, home, "task-1", executionBrief(test.class, "planned-revision"))
+			writeBriefWith(t, home, "task-1", executionBrief(test.class, strings.Repeat("a", 40)))
 
 			args := append([]string{"spawn", "task-1", "demo", "--skip-gate-check"}, test.args...)
 			got := runHand(t, home, args...)
