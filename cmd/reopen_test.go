@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/faketool"
@@ -41,9 +42,27 @@ func TestReopenCreatesANewAttemptWithoutResurrectingTheOldOne(t *testing.T) {
 	}
 
 	reopen := newReopenCmd()
+	var out strings.Builder
+	reopen.SetOut(&out)
 	reopen.SetArgs([]string{"task-1", "--harness", harness.Codex, "--model", "new-model", "--effort", "high"})
 	if err := reopen.Execute(); err != nil {
 		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"id: task-1\n",
+		"result: reopened\n",
+		"attempt: new\n",
+		"project: myproj\n",
+		"kind: ship\n",
+		"execution_class: none\n",
+		"profile: none\n",
+		"harness: codex\n",
+		"model: new-model\n",
+		"effort: high\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output = %q, want field %q", out.String(), want)
+		}
 	}
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {

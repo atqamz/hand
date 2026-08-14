@@ -125,7 +125,8 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		warnings = append(warnings, fmt.Sprintf("warning: clear usage-limit hold failed: %v", err))
 	}
 	return Result{
-		ID: req.ID, Project: projectInfo.Name, Kind: state.KindShip, Was: state.KindScout, Harness: shipAttempt.Harness, Worktree: worktreePath,
+		ID: req.ID, Project: projectInfo.Name, Kind: state.KindShip, Was: state.KindScout, ExecutionClass: shipAttempt.ExecutionClass, Profile: shipAttempt.RequestedProfile,
+		RoutingSource: shipAttempt.RoutingSource, PlannedAgainst: shipAttempt.PlannedAgainst, Harness: shipAttempt.Harness, Model: shipAttempt.Model, Effort: shipAttempt.Effort, Worktree: worktreePath,
 		Warnings: warnings,
 		Help:     []string{"The scout's worktree and pane are gone; run `hand status " + req.ID + "` to read the ship worker", "The scout's delivery no longer counts for this task, so `hand deliver " + req.ID + "` runs again on the code"},
 	}, nil

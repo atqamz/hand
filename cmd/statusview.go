@@ -103,6 +103,8 @@ var taskFields = []axi.Column[taskView]{
 	{Name: "id", Value: func(v taskView) string { return v.task.ID }},
 	{Name: "project", Value: func(v taskView) string { return v.task.Project }},
 	{Name: "kind", Value: func(v taskView) string { return v.task.Kind }},
+	{Name: "execution_class", Value: func(v taskView) string { return orNone(v.execution().ExecutionClass) }},
+	{Name: "profile", Value: func(v taskView) string { return orNone(v.execution().RequestedProfile) }},
 	{Name: "task_lifecycle", Value: func(v taskView) string { return string(v.task.Lifecycle) }},
 	{Name: "attempt_ordinal", Value: func(v taskView) string {
 		if v.attempt == nil {
@@ -119,6 +121,8 @@ var taskFields = []axi.Column[taskView]{
 	{Name: "harness", Value: func(v taskView) string { return orNone(v.execution().Harness) }},
 	{Name: "model", Value: func(v taskView) string { return orNone(v.execution().Model) }},
 	{Name: "effort", Value: func(v taskView) string { return orNone(v.execution().Effort) }},
+	{Name: "planned_against", Value: func(v taskView) string { return orNone(v.execution().PlannedAgainst) }},
+	{Name: "routing_source", Value: func(v taskView) string { return orNone(v.execution().RoutingSource) }},
 	{Name: "state", Value: func(v taskView) string { return v.agentState }},
 	{Name: "reported", Value: func(v taskView) string {
 		if v.unreadable {
@@ -162,7 +166,7 @@ var fleetDefaultFields = []string{"id", "state", "reported", "age", "flags"}
 // The single-task view is one item, not a list, so it defaults to everything
 // the plain-text detail view printed.
 var detailDefaultFields = []string{
-	"id", "project", "kind", "task_lifecycle", "attempt_ordinal", "attempt_lifecycle", "harness", "model", "state", "worktree", "herdr",
+	"id", "project", "kind", "execution_class", "profile", "planned_against", "routing_source", "task_lifecycle", "attempt_ordinal", "attempt_lifecycle", "harness", "model", "effort", "state", "worktree", "herdr",
 	"age", "last_report", "pr", "reported", "report", "delivered", "held", "gate", "flags", "report_file",
 }
 

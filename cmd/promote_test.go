@@ -72,9 +72,27 @@ func TestPromoteUsesDetectedHarnessWithoutConfiguredOverride(t *testing.T) {
 	t.Setenv("HAND_HARNESS", harness.Codex)
 
 	cmd := newPromoteCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"id: task-1\n",
+		"result: promoted\n",
+		"kind: ship\n",
+		"was: scout\n",
+		"project: myproj\n",
+		"execution_class: none\n",
+		"profile: none\n",
+		"harness: codex\n",
+		"model: none\n",
+		"effort: none\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output = %q, want field %q", out.String(), want)
+		}
 	}
 
 	history, err := state.ReadHistory(home, "task-1")

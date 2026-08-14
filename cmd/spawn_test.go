@@ -201,7 +201,11 @@ func TestSpawnHappyPath(t *testing.T) {
 		"result: spawned\n",
 		"project: myproj\n",
 		"kind: ship\n",
+		"execution_class: none\n",
+		"profile: none\n",
 		"harness: claude\n",
+		"model: none\n",
+		"effort: none\n",
 		"worktree: " + axi.Value(wt) + "\n",
 	} {
 		if !strings.Contains(out.String(), want) {

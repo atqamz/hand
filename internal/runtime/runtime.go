@@ -62,17 +62,23 @@ func classify(kind ErrorKind, err error) error {
 }
 
 type Result struct {
-	ID       string
-	Attempt  string
-	Project  string
-	Kind     string
-	Was      string
-	Harness  string
-	Worktree string
-	Outcome  string
-	Detail   string
-	Warnings []string
-	Help     []string
+	ID             string
+	Attempt        string
+	Project        string
+	Kind           string
+	Was            string
+	ExecutionClass string
+	Profile        string
+	RoutingSource  string
+	PlannedAgainst string
+	Harness        string
+	Model          string
+	Effort         string
+	Worktree       string
+	Outcome        string
+	Detail         string
+	Warnings       []string
+	Help           []string
 }
 
 type SpawnRequest struct {

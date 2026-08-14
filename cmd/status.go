@@ -123,6 +123,8 @@ type statusJSON struct {
 	ID               string        `json:"id"`
 	Project          string        `json:"project"`
 	Kind             string        `json:"kind"`
+	ExecutionClass   string        `json:"execution_class,omitempty"`
+	Profile          string        `json:"profile,omitempty"`
 	TaskLifecycle    string        `json:"task_lifecycle"`
 	AttemptOrdinal   int           `json:"attempt_ordinal,omitempty"`
 	AttemptLifecycle string        `json:"attempt_lifecycle,omitempty"`
@@ -150,12 +152,14 @@ type statusJSON struct {
 }
 
 type attemptJSON struct {
-	Ordinal   int    `json:"ordinal"`
-	Lifecycle string `json:"lifecycle"`
-	Harness   string `json:"harness,omitempty"`
-	Model     string `json:"model,omitempty"`
-	Effort    string `json:"effort,omitempty"`
-	Worktree  string `json:"worktree,omitempty"`
+	Ordinal        int    `json:"ordinal"`
+	Lifecycle      string `json:"lifecycle"`
+	Harness        string `json:"harness,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	ExecutionClass string `json:"execution_class,omitempty"`
+	Profile        string `json:"profile,omitempty"`
+	Worktree       string `json:"worktree,omitempty"`
 }
 
 // Wraps the task rows with the fleet's holds, which name any id - not only an open task - so a
@@ -479,10 +483,10 @@ func (v taskView) json() statusJSON {
 	attempts := recentAttempts(v.attempts)
 	history := make([]attemptJSON, len(attempts))
 	for i, attempt := range attempts {
-		history[i] = attemptJSON{Ordinal: attempt.Ordinal, Lifecycle: string(attempt.Lifecycle), Harness: attempt.Harness, Model: attempt.Model, Effort: attempt.Effort, Worktree: attempt.Worktree}
+		history[i] = attemptJSON{Ordinal: attempt.Ordinal, Lifecycle: string(attempt.Lifecycle), ExecutionClass: attempt.ExecutionClass, Profile: attempt.RequestedProfile, Harness: attempt.Harness, Model: attempt.Model, Effort: attempt.Effort, Worktree: attempt.Worktree}
 	}
 	return statusJSON{
-		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, TaskLifecycle: string(v.task.Lifecycle), AttemptOrdinal: e.Ordinal, AttemptLifecycle: string(e.Lifecycle), Harness: e.Harness, Model: e.Model, Effort: e.Effort,
+		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, ExecutionClass: e.ExecutionClass, Profile: e.RequestedProfile, TaskLifecycle: string(v.task.Lifecycle), AttemptOrdinal: e.Ordinal, AttemptLifecycle: string(e.Lifecycle), Harness: e.Harness, Model: e.Model, Effort: e.Effort,
 		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR,
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,

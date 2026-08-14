@@ -14,6 +14,7 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 )
@@ -210,6 +211,80 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	}
 	if got := detailField(t, out.String(), "state"); got != "idle" {
 		t.Fatalf("state = %q, want idle", got)
+	}
+}
+
+func TestStatusSingleTaskExecutionSnapshotSurvivesRoutingEdits(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := routing.WriteProfile(home, routing.Profile{Name: "snapshot", Harness: "claude", Model: "initial-model", Effort: "medium"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := routing.WriteProfile(home, routing.Profile{Name: "changed", Harness: "codex", Model: "changed-model", Effort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := routing.WriteRoute(home, routing.Route{Kind: routing.TaskKindShip, ExecutionClass: routing.ExecutionClassStandard, Profile: "snapshot"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}, state.Attempt{
+		Lifecycle: state.AttemptRunning, Harness: "codex", ExecutionClass: "standard", PlannedAgainst: "abc123",
+		RequestedProfile: "snapshot", RoutingSource: "route", Herdr: state.Herdr{PaneID: "wA:pB"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) string {
+		cmd := newStatusCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	toon := run("task-1")
+	json := run("task-1", "--json")
+
+	if err := routing.WriteProfile(home, routing.Profile{Name: "snapshot", Harness: "claude", Model: "edited-model", Effort: "low"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := routing.WriteRoute(home, routing.Route{Kind: routing.TaskKindShip, ExecutionClass: routing.ExecutionClassStandard, Profile: "changed"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := run("task-1"); got != toon {
+		t.Fatalf("TOON status after routing edits = %q, want persisted snapshot %q", got, toon)
+	}
+	if got := run("task-1", "--json"); got != json {
+		t.Fatalf("JSON status after routing edits = %q, want persisted snapshot %q", got, json)
+	}
+	for name, want := range map[string]string{
+		"kind":            "ship",
+		"execution_class": "standard",
+		"profile":         "snapshot",
+		"harness":         "codex",
+		"model":           "none",
+		"effort":          "none",
+		"planned_against": "abc123",
+		"routing_source":  "route",
+	} {
+		if got := detailField(t, toon, name); got != want {
+			t.Fatalf("%s = %q, want persisted snapshot %q", name, got, want)
+		}
+	}
+	for _, want := range []string{
+		`"execution_class": "standard"`,
+		`"profile": "snapshot"`,
+		`"planned_against": "abc123"`,
+		`"routing_source": "route"`,
+	} {
+		if !strings.Contains(json, want) {
+			t.Fatalf("JSON status = %q, want snapshot field %s", json, want)
+		}
 	}
 }
 

@@ -99,7 +99,8 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		return fail(err)
 	}
 	return Result{
-		ID: req.ID, Project: projectInfo.Name, Kind: kind, Harness: attempt.Harness, Worktree: worktreePath,
+		ID: req.ID, Project: projectInfo.Name, Kind: kind, ExecutionClass: attempt.ExecutionClass, Profile: attempt.RequestedProfile,
+		RoutingSource: attempt.RoutingSource, PlannedAgainst: attempt.PlannedAgainst, Harness: attempt.Harness, Model: attempt.Model, Effort: attempt.Effort, Worktree: worktreePath,
 		Warnings: warnings, Help: []string{"Run `hand status " + req.ID + "` to read what this worker reports", "Run `hand send " + req.ID + " <message>` to steer it"},
 	}, nil
 }
