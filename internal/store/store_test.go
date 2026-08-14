@@ -42,6 +42,7 @@ func sampleTask() Task {
 func sampleAttempt() Attempt {
 	return Attempt{
 		TaskID: "fix-login", Lifecycle: AttemptRunning, Harness: "claude", Model: "opus", Effort: "high", Worktree: "/w/nsr",
+		ExecutionClass: "deep", PlannedAgainst: "2026-08-14T00:00:00Z", RequestedProfile: "brain", RoutingSource: "route",
 		Herdr:        Herdr{Session: "default", WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pC"},
 		DoneVerified: true, StatusChangedAt: "2026-07-24T11:00:00Z", StatusChangedFor: "working",
 		LastReportState: "working", LastReportNote: "on it", PaneStartedAt: "2026-07-24T10:30:00Z",
@@ -275,6 +276,10 @@ func TestOpenImportsLegacyTaskFiles(t *testing.T) {
 	got := history.Attempts[0]
 	wantAttempt := sampleAttempt()
 	wantAttempt.ID, wantAttempt.Ordinal, wantAttempt.Lifecycle = got.ID, got.Ordinal, got.Lifecycle
+	wantAttempt.ExecutionClass = ""
+	wantAttempt.PlannedAgainst = ""
+	wantAttempt.RequestedProfile = ""
+	wantAttempt.RoutingSource = ""
 	if got != wantAttempt {
 		t.Fatalf("import lost execution state: got %+v want %+v", got, wantAttempt)
 	}

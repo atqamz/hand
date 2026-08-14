@@ -106,6 +106,10 @@ var migrations = []string{
 	ALTER TABLE attempt ADD COLUMN teardown_herdr_state TEXT NOT NULL DEFAULT '';
 	ALTER TABLE attempt ADD COLUMN teardown_worktree_state TEXT NOT NULL DEFAULT '';
 	ALTER TABLE attempt ADD COLUMN teardown_completion_state TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE attempt ADD COLUMN execution_class TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN planned_against TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN requested_profile TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN routing_source TEXT NOT NULL DEFAULT '';`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -115,6 +119,8 @@ const splitVersion = 8
 const launchEvidenceVersion = splitVersion + 1
 
 const teardownEvidenceVersion = launchEvidenceVersion + 1
+
+const routingProvenanceVersion = teardownEvidenceVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -141,6 +147,14 @@ func (db *DB) hasTeardownEvidenceColumns() (bool, error) {
 		return false, fmt.Errorf("detect teardown evidence columns: %w", err)
 	}
 	return count == 5, nil
+}
+
+func (db *DB) hasRoutingProvenanceColumns() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('execution_class', 'planned_against', 'requested_profile', 'routing_source')`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect routing provenance columns: %w", err)
+	}
+	return count == 4, nil
 }
 
 func (db *DB) schemaVersion() (int, error) {
@@ -228,6 +242,13 @@ func (db *DB) migrateSchema() error {
 				}
 				if teardownComplete && latest >= teardownEvidenceVersion {
 					stamp = teardownEvidenceVersion
+					routingComplete, err := db.hasRoutingProvenanceColumns()
+					if err != nil {
+						return err
+					}
+					if routingComplete && latest >= routingProvenanceVersion {
+						stamp = routingProvenanceVersion
+					}
 				}
 			}
 			if err := db.stampSchemaVersion(stamp); err != nil {

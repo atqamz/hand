@@ -115,6 +115,10 @@ type Attempt struct {
 	Harness                 string           `json:"harness"`
 	Model                   string           `json:"model"`
 	Effort                  string           `json:"effort"`
+	ExecutionClass          string           `json:"execution_class"`
+	PlannedAgainst          string           `json:"planned_against"`
+	RequestedProfile        string           `json:"requested_profile"`
+	RoutingSource           string           `json:"routing_source"`
 	Worktree                string           `json:"worktree"`
 	LeaseID                 string           `json:"lease_id"`
 	Herdr                   Herdr            `json:"herdr"`
@@ -210,6 +214,10 @@ CREATE TABLE IF NOT EXISTS attempt (
 	harness                TEXT NOT NULL DEFAULT '',
 	model                  TEXT NOT NULL DEFAULT '',
 	effort                 TEXT NOT NULL DEFAULT '',
+	execution_class        TEXT NOT NULL DEFAULT '',
+	planned_against        TEXT NOT NULL DEFAULT '',
+	requested_profile      TEXT NOT NULL DEFAULT '',
+	routing_source        TEXT NOT NULL DEFAULT '',
 	worktree               TEXT NOT NULL DEFAULT '',
 	lease_id               TEXT NOT NULL DEFAULT '',
 	herdr_session          TEXT NOT NULL DEFAULT '',
@@ -361,7 +369,8 @@ var taskColumnNames = []string{
 var taskColumns = strings.Join(taskColumnNames, ", ")
 
 var attemptColumnNames = []string{
-	"id", "task_id", "ordinal", "lifecycle", "harness", "model", "effort", "worktree", "lease_id",
+	"id", "task_id", "ordinal", "lifecycle", "harness", "model", "effort",
+	"execution_class", "planned_against", "requested_profile", "routing_source", "worktree", "lease_id",
 	"herdr_session", "herdr_workspace_id", "herdr_tab_id", "herdr_pane_id", "created_at", "pane_started_at",
 	"launch_submitted_at", "launch_confirmed_at",
 	"status_changed_at", "status_changed_for", "done_verified", "last_report_state", "last_report_note",
@@ -404,7 +413,8 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 }
 
 func attemptValues(a Attempt) []any {
-	return []any{a.ID, a.TaskID, a.Ordinal, a.Lifecycle, a.Harness, a.Model, a.Effort, a.Worktree, a.LeaseID,
+	return []any{a.ID, a.TaskID, a.Ordinal, a.Lifecycle, a.Harness, a.Model, a.Effort,
+		a.ExecutionClass, a.PlannedAgainst, a.RequestedProfile, a.RoutingSource, a.Worktree, a.LeaseID,
 		a.Herdr.Session, a.Herdr.WorkspaceID, a.Herdr.TabID, a.Herdr.PaneID, a.CreatedAt, a.PaneStartedAt,
 		a.LaunchSubmittedAt, a.LaunchConfirmedAt,
 		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
@@ -414,7 +424,8 @@ func attemptValues(a Attempt) []any {
 
 func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
 	var a Attempt
-	err := row.Scan(&a.ID, &a.TaskID, &a.Ordinal, &a.Lifecycle, &a.Harness, &a.Model, &a.Effort, &a.Worktree, &a.LeaseID,
+	err := row.Scan(&a.ID, &a.TaskID, &a.Ordinal, &a.Lifecycle, &a.Harness, &a.Model, &a.Effort,
+		&a.ExecutionClass, &a.PlannedAgainst, &a.RequestedProfile, &a.RoutingSource, &a.Worktree, &a.LeaseID,
 		&a.Herdr.Session, &a.Herdr.WorkspaceID, &a.Herdr.TabID, &a.Herdr.PaneID, &a.CreatedAt, &a.PaneStartedAt,
 		&a.LaunchSubmittedAt, &a.LaunchConfirmedAt,
 		&a.StatusChangedAt, &a.StatusChangedFor, &a.DoneVerified, &a.LastReportState, &a.LastReportNote,
@@ -736,13 +747,13 @@ func (db *DB) ListAttempts(taskID string) ([]Attempt, error) {
 }
 
 func (db *DB) UpdateAttempt(a Attempt) error {
-	_, err := db.sql.Exec(`UPDATE attempt SET task_id = ?, ordinal = ?, lifecycle = ?, harness = ?, model = ?, effort = ?,
+	_, err := db.sql.Exec(`UPDATE attempt SET task_id = ?, ordinal = ?, lifecycle = ?,
 		worktree = ?, lease_id = ?, herdr_session = ?, herdr_workspace_id = ?, herdr_tab_id = ?, herdr_pane_id = ?,
 		created_at = ?, pane_started_at = ?, launch_submitted_at = ?, launch_confirmed_at = ?, status_changed_at = ?, status_changed_for = ?, done_verified = ?,
 		last_report_state = ?, last_report_note = ?, send_undelivered_message = ?, send_undelivered_at = ?,
 		parked_fired_for = ?, usage_limit_retry_at = ?, usage_limit_attempts = ?, teardown_terminal_attempt = ?, teardown_disposition = ?,
 		teardown_herdr_state = ?, teardown_worktree_state = ?, teardown_completion_state = ? WHERE id = ?`,
-		a.TaskID, a.Ordinal, a.Lifecycle, a.Harness, a.Model, a.Effort, a.Worktree, a.LeaseID,
+		a.TaskID, a.Ordinal, a.Lifecycle, a.Worktree, a.LeaseID,
 		a.Herdr.Session, a.Herdr.WorkspaceID, a.Herdr.TabID, a.Herdr.PaneID, a.CreatedAt, a.PaneStartedAt,
 		a.LaunchSubmittedAt, a.LaunchConfirmedAt,
 		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
