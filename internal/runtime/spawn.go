@@ -14,7 +14,7 @@ import (
 )
 
 func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
-	projectInfo, exists, err := project.Find(req.Home, req.Project)
+	projectInfo, exists, err := project.FindReadOnly(req.Home, req.Project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -26,6 +26,27 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		return Result{}, err
 	}
 	fail := func(err error) (Result, error) { return Result{}, WithWarnings(err, warnings) }
+	briefRel := filepath.Join("data", req.ID, "brief.md")
+	briefPath := filepath.Join(req.Home, briefRel)
+	if _, err := os.Stat(briefPath); err != nil {
+		return fail(Precondition(fmt.Errorf("brief not found at %s", briefRel)))
+	}
+	kind := req.Kind
+	if kind == "" {
+		kind = state.KindShip
+	}
+	route, err := resolveExecution(req.Home, briefPath, kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, req.ModelFromFlag, req.Effort, req.EffortFromFlag)
+	if err != nil {
+		return fail(err)
+	}
+	warnings = append(warnings, route.Warnings...)
+	projectInfo, exists, err = project.Find(req.Home, req.Project)
+	if err != nil {
+		return fail(err)
+	}
+	if !exists {
+		return fail(Precondition(fmt.Errorf("project %q not registered", req.Project)))
+	}
 
 	releaseClaim, err := state.Claim(req.Home, req.ID)
 	if err != nil {
@@ -44,20 +65,6 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		return fail(Precondition(fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", req.ID, held.Kind, held.Reason, req.ID)))
 	}
 
-	briefRel := filepath.Join("data", req.ID, "brief.md")
-	briefPath := filepath.Join(req.Home, briefRel)
-	if _, err := os.Stat(briefPath); err != nil {
-		return fail(Precondition(fmt.Errorf("brief not found at %s", briefRel)))
-	}
-	kind := req.Kind
-	if kind == "" {
-		kind = state.KindShip
-	}
-	route, err := resolveExecution(req.Home, briefPath, kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, req.ModelFromFlag, req.Effort, req.EffortFromFlag)
-	if err != nil {
-		return fail(err)
-	}
-	warnings = append(warnings, route.Warnings...)
 	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
 	var releaseProject func()
 	if route.ExecutionClass == brief.ExecutionClassMechanical {

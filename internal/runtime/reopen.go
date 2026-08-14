@@ -14,13 +14,7 @@ import (
 )
 
 func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error) {
-	release, err := state.Lock(req.Home, "task:"+req.ID)
-	if err != nil {
-		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
-	}
-	defer release()
-
-	history, err := state.ReadHistory(req.Home, req.ID)
+	history, err := state.ReadHistoryReadOnly(req.Home, req.ID)
 	if err != nil {
 		if errors.Is(err, state.ErrTaskNotFound) {
 			return Result{}, Precondition(err)
@@ -30,14 +24,15 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 	if history.Task.Lifecycle != state.TaskTerminal {
 		return Result{}, Precondition(fmt.Errorf("task %q is already open", req.ID))
 	}
-	if held, hasHold, err := state.ReadHold(req.Home, req.ID); err != nil {
+	initialTask := history.Task
+	if held, hasHold, err := state.ReadHoldReadOnly(req.Home, req.ID); err != nil {
 		return Result{}, err
 	} else if hasHold {
 		return Result{}, Precondition(fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", req.ID, held.Kind, held.Reason, req.ID))
 	}
 
-	task := history.Task
-	projectInfo, exists, err := project.Find(req.Home, task.Project)
+	task := initialTask
+	projectInfo, exists, err := project.FindReadOnly(req.Home, task.Project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -60,6 +55,41 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 		return fail(err)
 	}
 	warnings = append(warnings, route.Warnings...)
+	history, err = state.ReadHistory(req.Home, req.ID)
+	if err != nil {
+		return fail(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.Task.Project != task.Project || history.Task.Kind != task.Kind || history.Task.Brief != task.Brief {
+		return fail(Precondition(fmt.Errorf("task %q changed while preparing reopen; retry", req.ID)))
+	}
+	projectInfo, exists, err = project.Find(req.Home, task.Project)
+	if err != nil {
+		return fail(err)
+	}
+	if !exists {
+		return fail(Precondition(fmt.Errorf("project %q not registered", task.Project)))
+	}
+	release, err := state.Lock(req.Home, "task:"+req.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
+	}
+	defer release()
+	latest, err := state.ReadHistory(req.Home, req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if latest.Task.Lifecycle != state.TaskTerminal {
+		return Result{}, Precondition(fmt.Errorf("task %q is already open", req.ID))
+	}
+	if latest.Task.Project != task.Project || latest.Task.Kind != task.Kind || latest.Task.Brief != task.Brief {
+		return Result{}, Precondition(fmt.Errorf("task %q changed while preparing reopen; retry", req.ID))
+	}
+	if held, hasHold, err := state.ReadHold(req.Home, req.ID); err != nil {
+		return Result{}, err
+	} else if hasHold {
+		return Result{}, Precondition(fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", req.ID, held.Kind, held.Reason, req.ID))
+	}
+	history = latest
 	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
 	var releaseProject func()
 	if route.ExecutionClass == brief.ExecutionClassMechanical {

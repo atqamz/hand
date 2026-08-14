@@ -2,10 +2,14 @@ package routing
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestValidateProfileNameAcceptsArbitrarySafeNames(t *testing.T) {
@@ -421,4 +425,276 @@ func hasProblemForProfile(problems []ConfigProblem, profile string, want ConfigP
 		}
 	}
 	return false
+}
+
+func TestProfileReplacementPublishesOnlyCompleteGenerations(t *testing.T) {
+	home := t.TempDir()
+	old := Profile{Name: "daily", Harness: "claude", Model: "old-model", Effort: "high"}
+	new := Profile{Name: "daily", Harness: "codex", Model: "new-model", Effort: "medium"}
+	if err := WriteProfile(home, old); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, phase := range []profileWritePhase{
+		profilePhaseStagingCreated,
+		profilePhaseHarnessWritten,
+		profilePhaseModelWritten,
+		profilePhaseEffortWritten,
+		profilePhaseGenerationComplete,
+	} {
+		t.Run(string(phase), func(t *testing.T) {
+			wantErr := errors.New("interrupt profile replacement")
+			err := writeProfileWithHook(home, new, func(got profileWritePhase) error {
+				if got == phase {
+					return wantErr
+				}
+				return nil
+			})
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("writeProfileWithHook() = %v, want %v", err, wantErr)
+			}
+			if got := configuredProfile(t, home); got != old {
+				t.Fatalf("profile after interrupted %s = %+v, want old %+v", phase, got, old)
+			}
+		})
+	}
+
+	wantErr := errors.New("interrupt after profile publish")
+	err := writeProfileWithHook(home, new, func(phase profileWritePhase) error {
+		if phase == profilePhasePublished {
+			return wantErr
+		}
+		return nil
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("writeProfileWithHook() after publish = %v, want %v", err, wantErr)
+	}
+	if got := configuredProfile(t, home); got != new {
+		t.Fatalf("profile after interrupted publish = %+v, want new %+v", got, new)
+	}
+}
+
+func TestConcurrentProfileSetAndReadSeesCompleteProfiles(t *testing.T) {
+	home := t.TempDir()
+	profiles := []Profile{
+		{Name: "daily", Harness: "claude", Model: "old-model", Effort: "high"},
+		{Name: "daily", Harness: "codex", Model: "new-model", Effort: "medium"},
+	}
+	if err := WriteProfile(home, profiles[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 4)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 32; i++ {
+			if err := WriteProfile(home, profiles[i%len(profiles)]); err != nil {
+				errs <- err
+				return
+			}
+		}
+	}()
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 64; j++ {
+				got := configuredProfile(t, home)
+				if got != profiles[0] && got != profiles[1] {
+					errs <- fmt.Errorf("mixed profile read: %+v", got)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+}
+
+func TestRouteSetAndProfileRemoveCannotCreateDanglingRoute(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	validated := make(chan struct{})
+	release := make(chan struct{})
+	routeDone := make(chan error, 1)
+	go func() {
+		routeDone <- writeRouteWithHook(home, Route{Kind: TaskKindShip, ExecutionClass: ExecutionClassStandard, Profile: "daily"}, func(phase configMutationPhase) error {
+			if phase == configPhaseRouteProfileValidated {
+				close(validated)
+				<-release
+			}
+			return nil
+		})
+	}()
+	waitForConfigPhase(t, validated)
+
+	removeDone := make(chan error, 1)
+	go func() { removeDone <- RemoveProfile(home, "daily") }()
+	select {
+	case err := <-removeDone:
+		t.Fatalf("RemoveProfile() completed before route set, error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if err := <-routeDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-removeDone; err == nil || !strings.Contains(err.Error(), "still referenced") {
+		t.Fatalf("RemoveProfile() = %v, want reference refusal", err)
+	}
+	config, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Profiles) != 1 || len(config.Routes) != 1 || len(config.Problems) != 5 {
+		t.Fatalf("final config = %+v, want referenced complete config", config)
+	}
+}
+
+func TestRouteRemoveAndProfileRemoveCannotLeaveInvalidConfiguration(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	route := Route{Kind: TaskKindShip, ExecutionClass: ExecutionClassStandard, Profile: "daily"}
+	if err := WriteRoute(home, route); err != nil {
+		t.Fatal(err)
+	}
+	checked := make(chan struct{})
+	release := make(chan struct{})
+	removeProfileDone := make(chan error, 1)
+	go func() {
+		removeProfileDone <- removeProfileWithHook(home, "daily", func(phase configMutationPhase) error {
+			if phase == configPhaseProfileReferencesChecked {
+				close(checked)
+				<-release
+			}
+			return nil
+		})
+	}()
+	waitForConfigPhase(t, checked)
+
+	removeRouteDone := make(chan error, 1)
+	go func() { removeRouteDone <- RemoveRoute(home, route.Kind, route.ExecutionClass) }()
+	select {
+	case err := <-removeRouteDone:
+		t.Fatalf("RemoveRoute() completed before Profile removal, error = %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if err := <-removeProfileDone; err == nil || !strings.Contains(err.Error(), "still referenced") {
+		t.Fatalf("removeProfileWithHook() = %v, want reference refusal", err)
+	}
+	if err := <-removeRouteDone; err != nil {
+		t.Fatal(err)
+	}
+	config, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Profiles) != 1 || len(config.Routes) != 0 || len(config.Problems) != 6 {
+		t.Fatalf("final config = %+v, want Profile without Route", config)
+	}
+}
+
+func TestAbandonedProfileGenerationsAreIgnoredAndActiveGenerationIsDiagnosable(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	generations := filepath.Join(home, "config", "profiles", "daily", "generations")
+	if err := os.MkdirAll(filepath.Join(generations, ".staging-abandoned"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := configuredProfile(t, home); got.Harness != "claude" {
+		t.Fatalf("profile with abandoned staging = %+v, want active Profile", got)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "profiles", "daily", "current"), []byte("../escape\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Profiles) != 0 || !hasProblemForProfile(config.Problems, "daily", ConfigProblemMalformedProfile) {
+		t.Fatalf("config with malformed active generation = %+v, want actionable Profile problem", config)
+	}
+}
+
+func TestActiveProfileGenerationSymlinkIsRejected(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	profileDir := filepath.Join(home, "config", "profiles", "daily")
+	generationID, err := os.ReadFile(filepath.Join(profileDir, "current"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Join(profileDir, "generations", strings.TrimSpace(string(generationID)))
+	if err := os.RemoveAll(generation); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, generation); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	config, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Profiles) != 0 || !hasProblemForProfile(config.Problems, "daily", ConfigProblemMalformedProfile) {
+		t.Fatalf("config with symlinked active generation = %+v, want actionable Profile problem", config)
+	}
+}
+
+func TestRemoveProfileDoesNotTraverseGenerationSymlink(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	profileDir := filepath.Join(home, "config", "profiles", "daily")
+	outside := t.TempDir()
+	marker := filepath.Join(outside, "marker")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(profileDir, "generations", "external")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	if err := RemoveProfile(home, "daily"); err == nil {
+		t.Fatal("RemoveProfile() = nil, want symlink refusal")
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("external marker after refused removal: %v", err)
+	}
+}
+
+func configuredProfile(t *testing.T, home string) Profile {
+	t.Helper()
+	config, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Profiles) != 1 {
+		t.Fatalf("Load().Profiles = %+v, want one Profile", config.Profiles)
+	}
+	return config.Profiles[0]
+}
+
+func waitForConfigPhase(t *testing.T, phase <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-phase:
+	case <-time.After(2 * time.Second):
+		t.Fatal("configuration phase hook was not reached")
+	}
 }

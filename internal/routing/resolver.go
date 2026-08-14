@@ -26,9 +26,15 @@ type Request struct {
 }
 
 type LegacyDefaults struct {
-	Harness string
-	Models  map[string]string
-	Efforts map[string]string
+	Harness           string
+	ConfiguredHarness string
+	Models            map[string]string
+	Efforts           map[string]string
+}
+
+type ExecutionSnapshot struct {
+	Config Config
+	Legacy LegacyDefaults
 }
 
 type Availability struct {
@@ -62,11 +68,21 @@ func DefaultAvailability() Availability {
 }
 
 func LoadLegacyDefaults(home, detectedHarness string) (LegacyDefaults, error) {
+	var defaults LegacyDefaults
+	err := withLock(home, func() error {
+		var err error
+		defaults, err = loadLegacyDefaults(home, detectedHarness)
+		return err
+	})
+	return defaults, err
+}
+
+func loadLegacyDefaults(home, detectedHarness string) (LegacyDefaults, error) {
 	configuredHarness, err := readLegacyDefault(home, "harness")
 	if err != nil {
 		return LegacyDefaults{}, err
 	}
-	defaults := LegacyDefaults{Harness: configuredHarness}
+	defaults := LegacyDefaults{Harness: configuredHarness, ConfiguredHarness: configuredHarness}
 	if defaults.Harness == "" {
 		defaults.Harness = detectedHarness
 	}
@@ -85,6 +101,22 @@ func LoadLegacyDefaults(home, detectedHarness string) (LegacyDefaults, error) {
 		defaults.Efforts[name] = effort
 	}
 	return defaults, nil
+}
+
+func LoadExecutionSnapshot(home, detectedHarness string, includeRouting bool) (ExecutionSnapshot, error) {
+	var snapshot ExecutionSnapshot
+	err := withLock(home, func() error {
+		var err error
+		snapshot.Legacy, err = loadLegacyDefaults(home, detectedHarness)
+		if err != nil {
+			return err
+		}
+		if includeRouting {
+			snapshot.Config, err = loadConfig(home)
+		}
+		return err
+	})
+	return snapshot, err
 }
 
 func Resolve(request Request, config Config, legacy LegacyDefaults, availability Availability) (ResolvedRoute, error) {

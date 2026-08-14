@@ -11,6 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/sessionhook"
 	"github.com/spf13/cobra"
 )
@@ -153,7 +154,15 @@ func initLayout(home string) error {
 	if err := initDirs(home); err != nil {
 		return err
 	}
-	return initSkeletonFiles(home)
+	if err := initSkeletonFiles(home); err != nil {
+		return err
+	}
+	release, err := routing.Lock(home)
+	if err != nil {
+		return err
+	}
+	release()
+	return nil
 }
 
 func initDirs(home string) error {

@@ -312,6 +312,47 @@ func Find(homeDir, name string) (Project, bool, error) {
 	return Project{}, false, nil
 }
 
+// Presentation callers use the existing registry snapshot without importing legacy files.
+func FindReadOnly(homeDir, name string) (Project, bool, error) {
+	db, err := store.OpenReadOnly(homeDir)
+	if err != nil {
+		projects, parseErr := parseRegistryFile(homeDir)
+		if parseErr != nil {
+			return Project{}, false, parseErr
+		}
+		for _, p := range projects {
+			if p.Name == name {
+				return p, true, nil
+			}
+		}
+		return Project{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	projects, err := db.ListProjects()
+	if err != nil {
+		return Project{}, false, err
+	}
+	for _, p := range projects {
+		if p.Name == name {
+			return p, true, nil
+		}
+	}
+	done, err := db.Migrated(legacyRegistryKey)
+	if err != nil || done {
+		return Project{}, false, err
+	}
+	projects, err = parseRegistryFile(homeDir)
+	if err != nil {
+		return Project{}, false, err
+	}
+	for _, p := range projects {
+		if p.Name == name {
+			return p, true, nil
+		}
+	}
+	return Project{}, false, nil
+}
+
 // GateState is the result of asking the no-mistakes binary whether a repo's gate is initialized.
 type GateState int
 

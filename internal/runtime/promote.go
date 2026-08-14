@@ -16,13 +16,7 @@ import (
 )
 
 func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, error) {
-	release, err := state.Lock(req.Home, "task:"+req.ID)
-	if err != nil {
-		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
-	}
-	defer release()
-
-	history, err := state.ReadHistory(req.Home, req.ID)
+	history, err := state.ReadHistoryReadOnly(req.Home, req.ID)
 	if err != nil {
 		if errors.Is(err, state.ErrTaskNotFound) {
 			return Result{}, Precondition(err)
@@ -57,7 +51,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if _, err := os.Stat(briefPath); err != nil {
 		return Result{}, Precondition(fmt.Errorf("brief not found at %s", briefRel))
 	}
-	projectInfo, exists, err := project.Find(req.Home, task.Project)
+	projectInfo, exists, err := project.FindReadOnly(req.Home, task.Project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -75,6 +69,42 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		return fail(err)
 	}
 	warnings = append(warnings, route.Warnings...)
+	history, err = state.ReadHistory(req.Home, req.ID)
+	if err != nil {
+		return fail(err)
+	}
+	if history.Task.Kind != state.KindScout || history.ActiveAttempt == nil || history.Task.Project != task.Project || history.Task.Kind != task.Kind || history.ActiveAttempt.ID != scout.ID || history.ActiveAttempt.Lifecycle != scout.Lifecycle {
+		return fail(Precondition(fmt.Errorf("task %q changed while preparing promotion; retry", req.ID)))
+	}
+	task = history.Task
+	scout = *history.ActiveAttempt
+	projectInfo, exists, err = project.Find(req.Home, task.Project)
+	if err != nil {
+		return fail(err)
+	}
+	if !exists {
+		return fail(Precondition(fmt.Errorf("project %q not registered", task.Project)))
+	}
+	release, err := state.Lock(req.Home, "task:"+req.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
+	}
+	defer release()
+	latest, err := state.ReadHistory(req.Home, req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if latest.Task.Kind != state.KindScout || latest.ActiveAttempt == nil {
+		return Result{}, Precondition(fmt.Errorf("task %q changed while preparing promotion; retry", req.ID))
+	}
+	if latest.ActiveAttempt.ID != scout.ID || latest.ActiveAttempt.Lifecycle != scout.Lifecycle {
+		return Result{}, Precondition(fmt.Errorf("task %q scout attempt changed while preparing promotion; retry", req.ID))
+	}
+	if latest.Task.Project != task.Project || latest.Task.Kind != task.Kind {
+		return Result{}, Precondition(fmt.Errorf("task %q changed while preparing promotion; retry", req.ID))
+	}
+	task = latest.Task
+	scout = *latest.ActiveAttempt
 
 	var releaseProject func()
 	if route.ExecutionClass == brief.ExecutionClassMechanical {

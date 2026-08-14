@@ -101,6 +101,7 @@ type workerConfig struct {
 	detection harness.Detection
 	harness   string
 	settings  []workerSetting
+	legacy    routing.LegacyDefaults
 }
 
 func newConfigCmd() *cobra.Command {
@@ -113,15 +114,16 @@ func newConfigCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			cfg, err := currentWorkerConfig(fleetHome)
+			detection, err := harness.DetectCurrent()
 			if err != nil {
 				return err
 			}
-			routes, err := routing.Load(fleetHome)
+			snapshot, err := routing.LoadExecutionSnapshot(fleetHome, detection.Name, true)
 			if err != nil {
 				return err
 			}
-			problems := configurationProblems(fleetHome, cfg, routes)
+			cfg := workerConfigFromLegacy(detection, snapshot.Legacy)
+			problems := configurationProblems(cfg, snapshot.Config)
 			detected := orNone(cfg.detection.Name)
 			detectionSource := orNone(cfg.detection.Source)
 
@@ -132,8 +134,8 @@ func newConfigCmd() *cobra.Command {
 			doc.Field("harness", orNone(cfg.harness))
 			appendWorkerConfig(&doc, cfg)
 			axi.Table(&doc, "harnesses", harness.Names(), harnessFields)
-			axi.Table(&doc, "profiles", routes.Profiles, profileFields)
-			axi.Table(&doc, "routes", routeCells(routes), routeCellFields)
+			axi.Table(&doc, "profiles", snapshot.Config.Profiles, profileFields)
+			axi.Table(&doc, "routes", routeCells(snapshot.Config), routeCellFields)
 			axi.Table(&doc, "problems", problems, configProblemFields)
 			doc.Help(workerConfigHelp(cfg)...)
 			return doc.Render(cmd.OutOrStdout())
@@ -154,15 +156,22 @@ func newConfigSetCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			cfg, err := currentWorkerConfig(fleetHome)
+			detected, err := harness.DetectCurrent()
 			if err != nil {
 				return err
 			}
-			rel, err := writeWorkerSetting(fleetHome, key, value, cfg.harness)
+			release, err := routing.Lock(fleetHome)
 			if err != nil {
+				return err
+			}
+			cfg := readWorkerConfig(fleetHome, detected)
+			rel, err := writeWorkerSettingLocked(fleetHome, key, value, cfg.harness)
+			if err != nil {
+				release()
 				return err
 			}
 			cfg = readWorkerConfig(fleetHome, cfg.detection)
+			release()
 
 			var doc axi.Doc
 			doc.Field("result", "set")
@@ -414,7 +423,7 @@ func routeKey(kind routing.TaskKind, class routing.ExecutionClass) string {
 	return string(kind) + "." + string(class)
 }
 
-func configurationProblems(fleetHome string, cfg workerConfig, config routing.Config) []configProblem {
+func configurationProblems(cfg workerConfig, config routing.Config) []configProblem {
 	problems := make([]configProblem, 0, len(config.Problems)+len(config.Profiles)+3)
 	for _, problem := range config.Problems {
 		problems = append(problems, configProblem{
@@ -443,7 +452,11 @@ func configurationProblems(fleetHome string, cfg workerConfig, config routing.Co
 				{key: settingModel, supported: harness.SupportsModel(cfg.harness), code: routing.ConfigProblemUnsupportedModel},
 				{key: settingEffort, supported: harness.SupportsEffort(cfg.harness), code: routing.ConfigProblemUnsupportedEffort},
 			} {
-				if setting.supported || configDefault(fleetHome, harnessSettingKey(setting.key, cfg.harness), "") == "" {
+				value := cfg.legacy.Models[cfg.harness]
+				if setting.key == settingEffort {
+					value = cfg.legacy.Efforts[cfg.harness]
+				}
+				if setting.supported || value == "" {
 					continue
 				}
 				problems = append(problems, configProblem{
@@ -497,21 +510,44 @@ func currentWorkerConfig(fleetHome string) (workerConfig, error) {
 	if err != nil {
 		return workerConfig{}, err
 	}
+	release, err := routing.Lock(fleetHome)
+	if err != nil {
+		return workerConfig{}, err
+	}
+	defer release()
 	return readWorkerConfig(fleetHome, detected), nil
 }
 
 // Effective model and effort overrides are read from files keyed to the selected harness, never from a
 // bare config/model: a value chosen for one harness is not a default for the next one.
 func readWorkerConfig(fleetHome string, detected harness.Detection) workerConfig {
-	cfg := workerConfig{detection: detected}
 	configured := configDefault(fleetHome, settingHarness, "")
+	legacy := routing.LegacyDefaults{
+		Harness:           configured,
+		ConfiguredHarness: configured,
+		Models:            make(map[string]string),
+		Efforts:           make(map[string]string),
+	}
+	if legacy.Harness == "" {
+		legacy.Harness = detected.Name
+	}
+	for _, name := range harness.Names() {
+		legacy.Models[name] = configDefault(fleetHome, harnessSettingKey(settingModel, name), "")
+		legacy.Efforts[name] = configDefault(fleetHome, harnessSettingKey(settingEffort, name), "")
+	}
+	return workerConfigFromLegacy(detected, legacy)
+}
+
+func workerConfigFromLegacy(detected harness.Detection, legacy routing.LegacyDefaults) workerConfig {
+	harnessName := legacy.Harness
+	if legacy.ConfiguredHarness == "" && !harness.IsSupported(detected.Name) {
+		harnessName = ""
+	}
+	cfg := workerConfig{detection: detected, harness: harnessName, legacy: legacy}
 	harnessState := stateMissing
-	switch {
-	case configured != "":
-		cfg.harness = configured
+	if legacy.ConfiguredHarness != "" {
 		harnessState = stateConfigured
-	case harness.IsSupported(detected.Name):
-		cfg.harness = detected.Name
+	} else if harness.IsSupported(detected.Name) {
 		harnessState = stateDetected
 	}
 	cfg.settings = []workerSetting{{key: settingHarness, state: harnessState, value: cfg.harness}}
@@ -523,7 +559,11 @@ func readWorkerConfig(fleetHome string, detected harness.Detection) workerConfig
 		case !harnessCarries(key, cfg.harness):
 			s.state = stateUnsupported
 		default:
-			s.value = configDefault(fleetHome, harnessSettingKey(key, cfg.harness), "")
+			if key == settingModel {
+				s.value = legacy.Models[cfg.harness]
+			} else {
+				s.value = legacy.Efforts[cfg.harness]
+			}
 			s.state = stateConfigured
 			if s.value == "" {
 				s.state = stateNativeDefault
@@ -553,7 +593,7 @@ func onPath(name string) bool {
 // Harness names are validated against internal/harness, and effort and model are not: hand knows which
 // launch flags a harness takes, and a model identifier belongs to the harness's own catalog, which a
 // release of hand cannot keep up with.
-func writeWorkerSetting(fleetHome, key, value, currentHarness string) (string, error) {
+func writeWorkerSettingLocked(fleetHome, key, value, currentHarness string) (string, error) {
 	if !slices.Contains(workerSettingKeys, key) {
 		return "", &ExitError{Err: fmt.Errorf("unknown setting %q: want one of %s", key, strings.Join(workerSettingKeys, ", ")), Code: 2}
 	}
@@ -590,6 +630,15 @@ func writeWorkerSetting(fleetHome, key, value, currentHarness string) (string, e
 // moved. Left unkeyed, that value would become the default for whatever harness the home switches to
 // next, which is how a claude model identifier reaches an opencode worker.
 func migrateWorkerSettings(fleetHome string) ([]string, error) {
+	release, err := routing.Lock(fleetHome)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return migrateWorkerSettingsLocked(fleetHome)
+}
+
+func migrateWorkerSettingsLocked(fleetHome string) ([]string, error) {
 	harnessName := configDefault(fleetHome, settingHarness, "")
 	if harnessName == "" {
 		return nil, nil

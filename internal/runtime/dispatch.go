@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/atqamz/hand/internal/brief"
@@ -30,12 +28,16 @@ func ResolveTier(homeDir, briefPath, harnessName, model, effort string) (TierRes
 	}
 
 	result := TierResult{
-		Model:               cmp.Or(model, declaration.Model, workerDefault(homeDir, "model", harnessName)),
-		Effort:              cmp.Or(effort, declaration.Effort, workerDefault(homeDir, "effort", harnessName)),
 		ExecutionClass:      declaration.ExecutionClass,
 		PlannedAgainst:      declaration.PlannedAgainst,
 		BriefHasFrontMatter: frontMatter,
 	}
+	legacy, err := routing.LoadLegacyDefaults(homeDir, "")
+	if err != nil {
+		return TierResult{}, err
+	}
+	result.Model = cmp.Or(model, declaration.Model, legacy.Models[harnessName])
+	result.Effort = cmp.Or(effort, declaration.Effort, legacy.Efforts[harnessName])
 	var dropped []string
 	if result.Model != "" && !harness.SupportsModel(harnessName) {
 		dropped = append(dropped, fmt.Sprintf("model %q", result.Model))
@@ -89,13 +91,6 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 	if err != nil {
 		return routing.ResolvedRoute{}, classifyResolutionError(fmt.Errorf("parse brief %s: %w", briefPath, err), harnessName, harnessProvided)
 	}
-	config := routing.Config{}
-	if declaration.ExecutionClass != "" || profileFromFlag {
-		config, err = routing.Load(homeDir)
-		if err != nil {
-			return routing.ResolvedRoute{}, err
-		}
-	}
 	detectedHarness := ""
 	if !harnessProvided && !profileFromFlag {
 		detected, detectErr := harness.DetectCurrent()
@@ -104,7 +99,8 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 		}
 		detectedHarness = detected.Name
 	}
-	legacy, err := routing.LoadLegacyDefaults(homeDir, detectedHarness)
+	includeRouting := declaration.ExecutionClass != "" || profileFromFlag
+	snapshot, err := routing.LoadExecutionSnapshot(homeDir, detectedHarness, includeRouting)
 	if err != nil {
 		return routing.ResolvedRoute{}, err
 	}
@@ -120,7 +116,7 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 		ModelFromFlag:       modelFromFlag,
 		Effort:              effort,
 		EffortFromFlag:      effortFromFlag,
-	}, config, legacy, routing.DefaultAvailability())
+	}, snapshot.Config, snapshot.Legacy, routing.DefaultAvailability())
 	if err != nil {
 		return routing.ResolvedRoute{}, classifyResolutionError(err, harnessName, harnessProvided)
 	}
@@ -143,14 +139,6 @@ func (r *Runtime) preflightExecution(route routing.ResolvedRoute, clonePath stri
 		ExecutionClass: route.ExecutionClass,
 		PlannedAgainst: route.PlannedAgainst,
 	}, clonePath)
-}
-
-func workerDefault(homeDir, key, harnessName string) string {
-	data, err := os.ReadFile(filepath.Join(homeDir, "config", key+"."+harnessName))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
 }
 
 func (r *Runtime) gatePreflight(projectInfo project.Project, clonePath string, skip bool) ([]string, error) {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/brief"
 )
@@ -37,6 +38,47 @@ func TestResolveUsesEveryCanonicalRouteCell(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestLoadExecutionSnapshotUsesOneRoutingLockForLegacyAndRoutes(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude", Model: "old-model", Effort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRoute(home, Route{Kind: TaskKindShip, ExecutionClass: ExecutionClassStandard, Profile: "daily"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "model.claude"), []byte("legacy-model\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	release, err := Lock(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := make(chan ExecutionSnapshot, 1)
+	loadErr := make(chan error, 1)
+	go func() {
+		snapshot, err := LoadExecutionSnapshot(home, "claude", true)
+		loaded <- snapshot
+		loadErr <- err
+	}()
+	select {
+	case <-loaded:
+		t.Fatal("LoadExecutionSnapshot() completed while routing lock was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	release()
+	if err := <-loadErr; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := <-loaded
+	if len(snapshot.Config.Profiles) != 1 || len(snapshot.Config.Routes) != 1 || len(snapshot.Config.Problems) != 5 {
+		t.Fatalf("snapshot config = %+v, want one route/profile and five missing routes", snapshot.Config)
+	}
+	if got := snapshot.Legacy.Models["claude"]; got != "legacy-model" {
+		t.Fatalf("snapshot legacy model = %q, want legacy-model", got)
 	}
 }
 
