@@ -88,21 +88,21 @@ func LoadLegacyDefaults(home, detectedHarness string) (LegacyDefaults, error) {
 }
 
 func Resolve(request Request, config Config, legacy LegacyDefaults, availability Availability) (ResolvedRoute, error) {
+	if err := ValidateTaskKind(request.Kind); err != nil {
+		return ResolvedRoute{}, err
+	}
 	result := ResolvedRoute{
 		ExecutionClass:      request.Declaration.ExecutionClass,
 		PlannedAgainst:      request.Declaration.PlannedAgainst,
 		BriefHasFrontMatter: request.BriefHasFrontMatter,
 	}
-	if request.Declaration.ExecutionClass == "" && request.Profile == "" && !request.ProfileFromFlag {
+	if request.Declaration.ExecutionClass == "" && !request.ProfileFromFlag {
 		return resolveLegacy(request, legacy, availability, result)
 	}
 	return resolveProfiled(request, config, legacy, availability, result)
 }
 
 func resolveProfiled(request Request, config Config, legacy LegacyDefaults, availability Availability, result ResolvedRoute) (ResolvedRoute, error) {
-	if err := ValidateTaskKind(request.Kind); err != nil {
-		return ResolvedRoute{}, err
-	}
 	if request.Declaration.ExecutionClass != "" {
 		if err := ValidateExecutionClass(ExecutionClass(request.Declaration.ExecutionClass)); err != nil {
 			return ResolvedRoute{}, err
@@ -119,7 +119,7 @@ func resolveProfiled(request Request, config Config, legacy LegacyDefaults, avai
 
 	result.Profile = profile.Name
 	result.Source = source
-	result.Harness = firstNonEmpty(request.Harness, profile.Harness, legacy.Harness)
+	result.Harness = firstNonEmpty(flagValue(request.Harness, request.HarnessFromFlag), profile.Harness, legacy.Harness)
 	if result.Harness == "" {
 		return ResolvedRoute{}, missingHarnessError()
 	}
@@ -129,8 +129,8 @@ func resolveProfiled(request Request, config Config, legacy LegacyDefaults, avai
 	if !available(availability.OnPath, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("harness %q is not installed on PATH", result.Harness)
 	}
-	result.Model = firstNonEmpty(request.Model, request.Declaration.Model, profile.Model, legacy.Models[result.Harness])
-	result.Effort = firstNonEmpty(request.Effort, request.Declaration.Effort, profile.Effort, legacy.Efforts[result.Harness])
+	result.Model = firstNonEmpty(flagValue(request.Model, request.ModelFromFlag), request.Declaration.Model, profile.Model, legacy.Models[result.Harness])
+	result.Effort = firstNonEmpty(flagValue(request.Effort, request.EffortFromFlag), request.Declaration.Effort, profile.Effort, legacy.Efforts[result.Harness])
 	if result.Model != "" && !available(availability.SupportsModel, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("harness %q takes no model", result.Harness)
 	}
@@ -148,24 +148,26 @@ func resolveProfiled(request Request, config Config, legacy LegacyDefaults, avai
 
 func resolveLegacy(request Request, legacy LegacyDefaults, availability Availability, result ResolvedRoute) (ResolvedRoute, error) {
 	result.Source = RoutingSourceLegacy
-	result.Harness = firstNonEmpty(request.Harness, legacy.Harness)
+	result.Harness = firstNonEmpty(flagValue(request.Harness, request.HarnessFromFlag), legacy.Harness)
 	if result.Harness == "" {
 		return ResolvedRoute{}, missingHarnessError()
 	}
 	if !available(availability.IsSupported, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("harness %q not recognized", result.Harness)
 	}
-	result.Model = firstNonEmpty(request.Model, request.Declaration.Model, legacy.Models[result.Harness])
-	result.Effort = firstNonEmpty(request.Effort, request.Declaration.Effort, legacy.Efforts[result.Harness])
+	result.Model = firstNonEmpty(flagValue(request.Model, request.ModelFromFlag), request.Declaration.Model, legacy.Models[result.Harness])
+	result.Effort = firstNonEmpty(flagValue(request.Effort, request.EffortFromFlag), request.Declaration.Effort, legacy.Efforts[result.Harness])
 	result.Warnings = legacyWarnings(result, availability)
 	return result, nil
 }
 
 func selectedProfile(request Request, config Config) (Profile, RoutingSource, error) {
-	name := request.Profile
-	source := RoutingSourceExplicitProfile
-	if name == "" && !request.ProfileFromFlag {
-		source = RoutingSourceRoute
+	name := ""
+	source := RoutingSourceRoute
+	if request.ProfileFromFlag {
+		name = request.Profile
+		source = RoutingSourceExplicitProfile
+	} else {
 		route, found := findRoute(config.Routes, request.Kind, ExecutionClass(request.Declaration.ExecutionClass))
 		if !found {
 			return Profile{}, "", fmt.Errorf("route %s.%s is not configured", request.Kind, request.Declaration.ExecutionClass)
@@ -243,6 +245,13 @@ func firstNonEmpty(values ...string) string {
 		if value != "" {
 			return value
 		}
+	}
+	return ""
+}
+
+func flagValue(value string, fromFlag bool) string {
+	if fromFlag {
+		return value
 	}
 	return ""
 }

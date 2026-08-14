@@ -184,6 +184,53 @@ func TestResolveExplicitProfileWithoutExecutionClassUsesProfile(t *testing.T) {
 	}
 }
 
+func TestResolveNonExplicitValuesKeepUnclassifiedRequestLegacy(t *testing.T) {
+	resolved, err := Resolve(Request{
+		Kind:        TaskKindShip,
+		Declaration: brief.Declaration{Model: "brief-model"},
+		Profile:     "ignored-profile",
+		Harness:     "codex",
+		Model:       "ignored-model",
+		Effort:      "ignored-effort",
+	}, Config{}, LegacyDefaults{
+		Harness: "claude",
+		Models:  map[string]string{"claude": "legacy-model"},
+		Efforts: map[string]string{"claude": "legacy-effort"},
+	}, testAvailability())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Source != RoutingSourceLegacy || resolved.Profile != "" || resolved.Harness != "claude" || resolved.Model != "brief-model" || resolved.Effort != "legacy-effort" {
+		t.Fatalf("Resolve() = %+v, want legacy defaults and brief precedence", resolved)
+	}
+}
+
+func TestResolveIgnoresNonExplicitExecutionValuesOnProfiledRequest(t *testing.T) {
+	resolved, err := Resolve(Request{
+		Kind:        TaskKindShip,
+		Declaration: brief.Declaration{ExecutionClass: brief.ExecutionClassStandard},
+		Harness:     "codex",
+		Model:       "ignored-model",
+		Effort:      "ignored-effort",
+	}, Config{
+		Profiles: []Profile{{Name: "daily", Harness: "claude", Model: "profile-model", Effort: "profile-effort"}},
+		Routes:   []Route{{Kind: TaskKindShip, ExecutionClass: ExecutionClassStandard, Profile: "daily"}},
+	}, LegacyDefaults{Harness: "codex"}, testAvailability())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Source != RoutingSourceRoute || resolved.Harness != "claude" || resolved.Model != "profile-model" || resolved.Effort != "profile-effort" {
+		t.Fatalf("Resolve() = %+v, want route profile values", resolved)
+	}
+}
+
+func TestResolveRejectsInvalidLegacyTaskKind(t *testing.T) {
+	_, err := Resolve(Request{Kind: "invalid"}, Config{}, LegacyDefaults{Harness: "claude"}, testAvailability())
+	if err == nil || !strings.Contains(err.Error(), "invalid task kind") {
+		t.Fatalf("Resolve() error = %v, want invalid task kind", err)
+	}
+}
+
 func TestResolveRejectsExplicitEmptyProfileInsteadOfUsingRoute(t *testing.T) {
 	_, err := Resolve(Request{
 		Kind:            TaskKindScout,
