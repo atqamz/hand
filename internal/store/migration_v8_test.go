@@ -61,6 +61,13 @@ func TestMigrationV8ConvertsReal040Database(t *testing.T) {
 	if attempt.Herdr.PaneID != "wA:pC" || attempt.LastReportState != "working" || attempt.UsageLimitAttempts != 2 || attempt.SendUndeliveredMessage != "stop" {
 		t.Fatalf("attempt bookkeeping was not preserved: %+v", attempt)
 	}
+	var teardownColumns int
+	if err := migrated.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('teardown_terminal_attempt', 'teardown_disposition', 'teardown_herdr_state', 'teardown_worktree_state', 'teardown_completion_state')`).Scan(&teardownColumns); err != nil {
+		t.Fatal(err)
+	}
+	if teardownColumns != 5 {
+		t.Fatalf("teardown evidence columns after upgrade = %d, want 5", teardownColumns)
+	}
 	if _, err := migrated.sql.Query(`SELECT harness FROM task`); err == nil {
 		t.Fatal("old execution columns remain authoritative on task")
 	}

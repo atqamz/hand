@@ -18,6 +18,7 @@ const TreehouseBanner = "treehouse 2.1.0"
 type Treehouse struct {
 	Slots           []string
 	Held            []string
+	LeaseIDs        map[string]string
 	NoLeaseIdentity bool
 	Banner          string
 	Log             string
@@ -35,6 +36,7 @@ type TreehouseResponse struct {
 type treehouseSpec struct {
 	Slots           []string
 	Held            []string
+	LeaseIDs        map[string]string
 	NoLeaseIdentity bool
 	Banner          string
 	StateDir        string
@@ -46,14 +48,21 @@ func (th Treehouse) Install(t *testing.T, bin string) {
 	t.Helper()
 	state := stateDir(t, bin, "treehouse")
 	for _, slot := range th.Held {
-		ensureFile(t, treehouseMarker(state, slot), "leased\n")
+		leaseID := th.LeaseIDs[slot]
+		if leaseID == "" {
+			leaseID = "held-" + key(slot)
+		}
+		if th.NoLeaseIdentity {
+			leaseID = "leased"
+		}
+		ensureFile(t, treehouseMarker(state, slot), leaseID+"\n")
 	}
 	banner := th.Banner
 	if banner == "" {
 		banner = TreehouseBanner
 	}
 	installConfig(t, bin, "treehouse", "treehouse", treehouseSpec{
-		Slots: th.Slots, Held: th.Held, NoLeaseIdentity: th.NoLeaseIdentity,
+		Slots: th.Slots, Held: th.Held, LeaseIDs: th.LeaseIDs, NoLeaseIdentity: th.NoLeaseIdentity,
 		Banner: banner, StateDir: state, Log: th.Log, Responses: th.Responses,
 	})
 }
@@ -84,6 +93,8 @@ func runTreehouseFromPayload(payload json.RawMessage, args []string) int {
 		return treehouseGet(spec)
 	case "return":
 		return treehouseReturn(spec, args)
+	case "status":
+		return treehouseStatus(spec)
 	case "init":
 		return treehouseInit()
 	default:
@@ -105,19 +116,72 @@ func treehouseGet(spec treehouseSpec) int {
 		if err := atomicWrite(treehouseCounterPath(spec.StateDir), fmt.Sprintf("%d\n", counter+1)); err != nil {
 			return fail("write treehouse lease counter: %v", err)
 		}
-		if err := atomicWrite(marker, "leased\n"); err != nil {
+		leaseID := fmt.Sprintf("lease-%d", counter+1)
+		markerValue := leaseID
+		if spec.NoLeaseIdentity {
+			markerValue = "leased"
+		}
+		if err := atomicWrite(marker, markerValue+"\n"); err != nil {
 			return fail("lease treehouse slot: %v", err)
 		}
 		_, _ = fmt.Fprintln(os.Stderr, spec.Banner)
 		if spec.NoLeaseIdentity {
 			_, _ = fmt.Fprintf(os.Stdout, "{\"path\":%s}\n", jsonQuote(slot))
 		} else {
-			_, _ = fmt.Fprintf(os.Stdout, "{\"path\":%s,\"lease_id\":\"lease-%d\",\"lease_holder\":\"\",\"leased_at\":\"2026-01-01T00:00:00Z\"}\n", jsonQuote(slot), counter+1)
+			_, _ = fmt.Fprintf(os.Stdout, "{\"path\":%s,\"lease_id\":%q,\"lease_holder\":\"\",\"leased_at\":\"2026-01-01T00:00:00Z\"}\n", jsonQuote(slot), leaseID)
 		}
 		return 0
 	}
 	_, _ = fmt.Fprintf(os.Stderr, "all %d worktrees are in use or dirty (max_trees = %d). Run 'treehouse status' to see details, or increase max_trees in treehouse.toml\n", len(spec.Slots), len(spec.Slots))
 	return 1
+}
+
+func treehouseStatus(spec treehouseSpec) int {
+	if err := exec.Command("git", "rev-parse", "--show-toplevel").Run(); err != nil {
+		return fail("not in a git repository")
+	}
+	paths := make([]string, 0, len(spec.Slots)+len(spec.Held))
+	seen := make(map[string]struct{}, len(spec.Slots)+len(spec.Held))
+	for _, path := range append(append([]string{}, spec.Slots...), spec.Held...) {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	entries := make([]map[string]any, 0, len(paths))
+	for _, path := range paths {
+		marker := treehouseMarker(spec.StateDir, path)
+		data, err := os.ReadFile(marker)
+		if err != nil && !os.IsNotExist(err) {
+			return fail("inspect treehouse status: %v", err)
+		}
+		leased := strings.TrimSpace(string(data)) != ""
+		leaseID := strings.TrimSpace(string(data))
+		if spec.NoLeaseIdentity {
+			leaseID = ""
+		}
+		entry := map[string]any{
+			"name":     key(path),
+			"path":     path,
+			"status":   "available",
+			"lease_id": "",
+		}
+		if leased {
+			entry["status"] = "leased"
+			entry["lease_id"] = leaseID
+			entry["lease_holder"] = ""
+			entry["leased_at"] = "2026-01-01T00:00:00Z"
+		} else {
+			entry["lease_holder"] = ""
+			entry["leased_at"] = nil
+		}
+		entries = append(entries, entry)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(entries); err != nil {
+		return fail("write treehouse status: %v", err)
+	}
+	return 0
 }
 
 func treehouseReturn(spec treehouseSpec, args []string) int {

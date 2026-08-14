@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/worktree"
 )
 
 func TestTeardownFailureAfterWorktreeReturnPreservesOwnershipEvidence(t *testing.T) {
@@ -191,6 +193,377 @@ func TestTeardownSecondInvocationRefusesWithoutRepeatingCompletion(t *testing.T)
 	}
 	if len(records) != 1 {
 		t.Fatalf("completions after repeated teardown = %+v, want one record", records)
+	}
+}
+
+func TestTeardownDoesNotUseAnOlderSameSecondCompletion(t *testing.T) {
+	home, _ := teardownFixture(t, false)
+	first, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", first.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	old := completion.Record{ID: "task-1", Project: "demo", Kind: state.KindScout, Outcome: "done", Detail: "old-without-attempt-id", TornDownAt: first.CreatedAt}
+	if err := completion.Append(home, old); err != nil {
+		t.Fatal(err)
+	}
+	identifiedOld := old
+	identifiedOld.Detail = "old-attempt-1"
+	identifiedOld.AttemptID = first.ID
+	if err := completion.Append(home, identifiedOld); err != nil {
+		t.Fatal(err)
+	}
+	second, err := state.ReopenTask(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptProvisioning, CreatedAt: first.CreatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("reopened attempt ID = %d, want a fresh attempt", second.ID)
+	}
+	deps := defaultDependencies()
+	deps.appendCompletion = completion.Append
+	result, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Detail != "attempt never launched" {
+		t.Fatalf("result detail = %q, want fresh attempt teardown detail", result.Detail)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Attempts) != 2 || history.Attempts[1].ID != second.ID || history.Attempts[1].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("attempt history = %+v, want second attempt interrupted", history.Attempts)
+	}
+}
+
+func TestTeardownDecisionKeepsLaunchedProvisioningDetail(t *testing.T) {
+	terminal, disposition := teardownDecision(false, true, state.AttemptProvisioning, false)
+	if terminal != state.AttemptInterrupted {
+		t.Fatalf("terminal lifecycle = %s, want interrupted", terminal)
+	}
+	if disposition != state.TeardownDispositionLaunchedProvisioning {
+		t.Fatalf("disposition = %q, want launched-provisioning", disposition)
+	}
+	record := completionFor(state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, PR: "https://example.com/pr/1"}, disposition, true)
+	if record.Detail == "attempt never launched" {
+		t.Fatalf("completion = %+v, launched provisioning must keep landed-work detail", record)
+	}
+}
+
+func TestTeardownRetryPreservesForcedDisposition(t *testing.T) {
+	home, _ := teardownFixture(t, false)
+	phaseFailure := true
+	deps := defaultDependencies()
+	deps.phase = func(phase lifecyclePhase) error {
+		if phase == phaseCompletionAppended && phaseFailure {
+			phaseFailure = false
+			return errors.New("crash after forced completion")
+		}
+		return nil
+	}
+	runtime := &Runtime{deps: deps}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true}); err == nil {
+		t.Fatal("forced teardown succeeded across injected crash")
+	}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("attempt lifecycle = %s, want interrupted", history.Attempts[0].Lifecycle)
+	}
+	records, err := completion.List(home)
+	if err != nil || len(records) != 1 || records[0].Detail != "forced (landed-work checks skipped)" {
+		t.Fatalf("completion records = %+v, err=%v", records, err)
+	}
+}
+
+func TestTeardownForcedRetryKeepsForcedWorktreeReturn(t *testing.T) {
+	home, worktree := teardownFixture(t, true)
+	phaseFailure := true
+	returned := 0
+	deps := defaultDependencies()
+	deps.worktree.returnWorktree = func(path string, force bool) error {
+		if path != worktree || !force {
+			t.Fatalf("returnWorktree(%q, %t), want (%q, true)", path, force, worktree)
+		}
+		returned++
+		return nil
+	}
+	deps.phase = func(phase lifecyclePhase) error {
+		if phase == phaseHerdrReleased && phaseFailure {
+			phaseFailure = false
+			return errors.New("stop before worktree return")
+		}
+		return nil
+	}
+	runtime := &Runtime{deps: deps}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true}); err == nil {
+		t.Fatal("forced teardown succeeded across injected pre-return failure")
+	}
+	result, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returned != 1 || result.Detail != "forced (landed-work checks skipped)" {
+		t.Fatalf("retry returned=%d result=%+v, want forced return and detail", returned, result)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("attempt lifecycle = %s, want interrupted", history.Attempts[0].Lifecycle)
+	}
+}
+
+func TestTeardownRetryPreservesCompletedDisposition(t *testing.T) {
+	home, _ := teardownFixture(t, false)
+	phaseFailure := true
+	deps := defaultDependencies()
+	deps.phase = func(phase lifecyclePhase) error {
+		if phase == phaseCompletionAppended && phaseFailure {
+			phaseFailure = false
+			return errors.New("crash after completed completion")
+		}
+		return nil
+	}
+	runtime := &Runtime{deps: deps}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err == nil {
+		t.Fatal("teardown succeeded across injected crash")
+	}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].Lifecycle != state.AttemptCompleted {
+		t.Fatalf("attempt lifecycle = %s, want completed", history.Attempts[0].Lifecycle)
+	}
+}
+
+func TestTeardownRetrySkipsReleasedWorktreeAfterLeaseReused(t *testing.T) {
+	home, worktree := teardownFixture(t, true)
+	returns := 0
+	reacquired := false
+	phaseFailure := true
+	deps := defaultDependencies()
+	deps.worktree.returnWorktree = func(path string, force bool) error {
+		if path != worktree || force {
+			t.Fatalf("returnWorktree(%q, %t), want (%q, false)", path, force, worktree)
+		}
+		if reacquired {
+			t.Fatal("stale teardown attempted to return the recycled L2 lease")
+		}
+		returns++
+		return nil
+	}
+	deps.phase = func(phase lifecyclePhase) error {
+		if phase == phaseWorktreeReturned && phaseFailure {
+			phaseFailure = false
+			return errors.New("crash after lease L1 returned")
+		}
+		return nil
+	}
+	runtime := &Runtime{deps: deps}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err == nil {
+		t.Fatal("teardown succeeded across injected lease-reuse crash")
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.TeardownWorktreeState != state.TeardownResourceReleased {
+		t.Fatalf("worktree teardown state = %+v, want released evidence", history.ActiveAttempt)
+	}
+	// The fake Treehouse can now assign this path to another holder. The stale retry must not call
+	// its path-addressed return operation again.
+	reacquired = true
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if returns != 1 {
+		t.Fatalf("worktree return count = %d, want one release", returns)
+	}
+}
+
+func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
+	home, worktreePath := teardownFixture(t, true)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history.ActiveAttempt.LeaseID = "lease-1"
+	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
+		t.Fatal(err)
+	}
+	returns := 0
+	verified := 0
+	deps := defaultDependencies()
+	deps.worktree.verifyLease = func(path, leaseID string) error {
+		if path != worktreePath || leaseID != "lease-1" {
+			t.Fatalf("verifyLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
+		}
+		verified++
+		return nil
+	}
+	deps.worktree.returnWorktree = func(path string, force bool) error {
+		if path != worktreePath {
+			t.Fatalf("returnWorktree path = %q, want %q", path, worktreePath)
+		}
+		returns++
+		if !force {
+			return worktree.ErrReturnAborted
+		}
+		return nil
+	}
+	runtime := &Runtime{deps: deps}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); !errors.Is(err, worktree.ErrReturnAborted) {
+		t.Fatalf("first Teardown() = %v, want aborted-return error", err)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.TeardownWorktreeState != state.TeardownResourceRetryable {
+		t.Fatalf("worktree state after aborted return = %+v, want retryable evidence", history.ActiveAttempt)
+	}
+	result, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returns != 2 || verified != 1 || result.Detail != "report data/task-1/report.md" {
+		t.Fatalf("retry returns=%d verified=%d result=%+v, want verified forced retry and unchanged detail", returns, verified, result)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].Lifecycle != state.AttemptCompleted {
+		t.Fatalf("attempt lifecycle = %s, want completed", history.Attempts[0].Lifecycle)
+	}
+}
+
+func TestTeardownRetryRefusesARecycledWorktreeLease(t *testing.T) {
+	home, worktreePath := teardownFixture(t, true)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history.ActiveAttempt.LeaseID = "lease-1"
+	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
+		t.Fatal(err)
+	}
+	returns := 0
+	deps := defaultDependencies()
+	deps.worktree.verifyLease = func(path, leaseID string) error {
+		if path != worktreePath || leaseID != "lease-1" {
+			t.Fatalf("verifyLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
+		}
+		return errors.New("treehouse lease belongs to another attempt")
+	}
+	deps.worktree.returnWorktree = func(string, bool) error {
+		returns++
+		return worktree.ErrReturnAborted
+	}
+	runtime := &Runtime{deps: deps}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err == nil {
+		t.Fatal("first Teardown() succeeded, want known abort")
+	}
+	result, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true})
+	if err == nil || !strings.Contains(err.Error(), "verify worktree ownership") {
+		t.Fatalf("forced retry = %+v, %v, want verification refusal", result, err)
+	}
+	if returns != 1 {
+		t.Fatalf("worktree return count = %d, want no destructive retry after the first abort", returns)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.TeardownWorktreeState != state.TeardownResourceAmbiguous {
+		t.Fatalf("worktree state after lease mismatch = %+v, want ambiguous", history.ActiveAttempt)
+	}
+}
+
+func TestTeardownRetryRefusesWorktreeWithoutLeaseIdentity(t *testing.T) {
+	home, worktreePath := teardownFixture(t, true)
+	returns := 0
+	verified := 0
+	deps := defaultDependencies()
+	deps.worktree.verifyLease = func(path, leaseID string) error {
+		if path != worktreePath || leaseID != "" {
+			t.Fatalf("verifyLease(%q, %q), want (%q, empty)", path, leaseID, worktreePath)
+		}
+		verified++
+		return errors.New("missing lease identity")
+	}
+	deps.worktree.returnWorktree = func(string, bool) error {
+		returns++
+		return worktree.ErrReturnAborted
+	}
+	runtime := &Runtime{deps: deps}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); !errors.Is(err, worktree.ErrReturnAborted) {
+		t.Fatalf("first Teardown() = %v, want known abort", err)
+	}
+	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true}); err == nil {
+		t.Fatal("forced retry succeeded without a lease identity")
+	}
+	if returns != 1 || verified != 1 {
+		t.Fatalf("retry returns=%d verified=%d, want one initial return and one failed verification", returns, verified)
+	}
+}
+
+func TestBranchIsMergedUsesOriginDefaultBranch(t *testing.T) {
+	clonePath := filepath.Join(t.TempDir(), "clone")
+	initRuntimeGitRepo(t, clonePath)
+	runRuntimeGit(t, clonePath, "branch", "release")
+	runRuntimeGit(t, clonePath, "branch", "task-1")
+	runRuntimeGit(t, clonePath, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	runRuntimeGit(t, clonePath, "update-ref", "refs/remotes/origin/main", "refs/heads/main")
+	worktreePath := filepath.Join(t.TempDir(), "worktree")
+	runRuntimeGit(t, clonePath, "worktree", "add", "-q", worktreePath, "task-1")
+	if err := os.WriteFile(filepath.Join(worktreePath, "feature.txt"), []byte("feature"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, worktreePath, "add", "feature.txt")
+	runRuntimeGit(t, worktreePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "feature")
+	runRuntimeGit(t, clonePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "merge", "--no-ff", "-q", "task-1", "-m", "merge task")
+	runRuntimeGit(t, clonePath, "checkout", "-q", "release")
+	merged, err := branchIsMerged(clonePath, worktreePath)
+	if err != nil || !merged {
+		t.Fatalf("branchIsMerged() = %t, %v, want true", merged, err)
+	}
+}
+
+func initRuntimeGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, dir, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, dir, "add", "README.md")
+	runRuntimeGit(t, dir, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "initial commit")
+}
+
+func runRuntimeGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v: %s", args, err, output)
 	}
 }
 

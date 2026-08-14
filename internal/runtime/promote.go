@@ -87,6 +87,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if err := r.afterPhase(phaseAttemptCreated); err != nil {
 		return fail(err)
 	}
+	scout.Lifecycle = state.AttemptCompleted
 
 	releaseProject, err := state.Lock(req.Home, "project:"+projectInfo.Name)
 	if err != nil {
@@ -120,18 +121,51 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 func (r *Runtime) cleanupScout(homeDir, taskID string, scout state.Attempt) ([]string, error) {
 	client := r.deps.herdr()
 	var warnings []string
-	if err := incompleteHerdrOwnership(scout.Herdr); err != nil {
-		warnings = append(warnings, fmt.Sprintf("warning: Herdr ownership incomplete: %v", err))
-	} else if err := closeTaskTab(client, scout.Herdr.WorkspaceID, scout.Herdr.TabID); err != nil {
-		warnings = append(warnings, fmt.Sprintf("warning: herdr tab close failed: %v", err))
+	setState := func(resource, next string) error {
+		if scout.ID == 0 {
+			return nil
+		}
+		return state.SetAttemptTeardownResourceState(homeDir, taskID, scout.ID, scout.Lifecycle, resource, next)
+	}
+	if scout.Herdr.WorkspaceID != "" || scout.Herdr.TabID != "" || scout.Herdr.PaneID != "" {
+		switch scout.TeardownHerdrState {
+		case state.TeardownResourceReleased:
+		case state.TeardownResourceReleasing, state.TeardownResourceAmbiguous:
+			warnings = append(warnings, fmt.Sprintf("warning: Herdr ownership for attempt %d is ambiguous; refusing destructive retry", scout.ID))
+		default:
+			if err := incompleteHerdrOwnership(scout.Herdr); err != nil {
+				_ = setState("herdr", state.TeardownResourceAmbiguous)
+				warnings = append(warnings, fmt.Sprintf("warning: Herdr ownership incomplete: %v", err))
+			} else if err := setState("herdr", state.TeardownResourceReleasing); err != nil {
+				warnings = append(warnings, fmt.Sprintf("warning: record Herdr release phase failed: %v", err))
+			} else if err := closeTaskTab(client, scout.Herdr.WorkspaceID, scout.Herdr.TabID); err != nil {
+				_ = setState("herdr", state.TeardownResourceAmbiguous)
+				warnings = append(warnings, fmt.Sprintf("warning: herdr tab close failed: %v", err))
+			} else if err := setState("herdr", state.TeardownResourceReleased); err != nil {
+				warnings = append(warnings, fmt.Sprintf("warning: record Herdr release evidence failed: %v", err))
+			}
+		}
 	}
 	if err := r.afterPhase(phaseScoutPaneReleased); err != nil {
 		return warnings, err
 	}
 	if scout.Worktree == "" {
 		warnings = append(warnings, "warning: return scout worktree failed: no owned worktree path")
-	} else if err := r.deps.worktree.returnWorktree(scout.Worktree, true); err != nil {
-		warnings = append(warnings, fmt.Sprintf("warning: return scout worktree failed: %v", err))
+	} else {
+		switch scout.TeardownWorktreeState {
+		case state.TeardownResourceReleased:
+		case state.TeardownResourceReleasing, state.TeardownResourceAmbiguous:
+			warnings = append(warnings, fmt.Sprintf("warning: worktree ownership for attempt %d is ambiguous; refusing destructive retry", scout.ID))
+		default:
+			if err := setState("worktree", state.TeardownResourceReleasing); err != nil {
+				warnings = append(warnings, fmt.Sprintf("warning: record scout worktree release phase failed: %v", err))
+			} else if err := r.deps.worktree.returnWorktree(scout.Worktree, true); err != nil {
+				_ = setState("worktree", state.TeardownResourceAmbiguous)
+				warnings = append(warnings, fmt.Sprintf("warning: return scout worktree failed: %v", err))
+			} else if err := setState("worktree", state.TeardownResourceReleased); err != nil {
+				warnings = append(warnings, fmt.Sprintf("warning: record scout worktree release evidence failed: %v", err))
+			}
+		}
 	}
 	if err := r.afterPhase(phaseScoutWorktreeReturned); err != nil {
 		return warnings, err

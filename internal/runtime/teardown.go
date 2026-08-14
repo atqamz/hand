@@ -15,6 +15,7 @@ import (
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/worktree"
 )
 
 func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, error) {
@@ -46,13 +47,30 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 	warnings := []string{}
 	fail := func(err error) (Result, error) { return Result{}, WithWarnings(err, warnings) }
 	launched := active.Lifecycle != state.AttemptProvisioning || active.LaunchSubmittedAt != "" || active.LaunchConfirmedAt != ""
-	if record, found, err := completionAppendedForAttempt(req.Home, task, active); err != nil {
-		return fail(fmt.Errorf("check completion record: %w", err))
-	} else if found {
-		return r.finishTeardown(req, record, active, launched, warnings)
+	if active.TeardownCompletionState != "" {
+		record, found, err := completion.FindAttempt(req.Home, active.ID)
+		if err != nil {
+			return fail(fmt.Errorf("recover completion record: %w", err))
+		}
+		if found {
+			if active.TeardownCompletionState != state.TeardownCompletionAppended {
+				if err := state.SetAttemptTeardownCompletionState(req.Home, req.ID, active.ID, active.Lifecycle, state.TeardownCompletionAppended); err != nil {
+					return fail(fmt.Errorf("record recovered completion state: %w", err))
+				}
+			}
+			return r.finishTeardown(req, record, active, warnings)
+		}
+		if active.TeardownCompletionState == state.TeardownCompletionAppended {
+			return fail(fmt.Errorf("completion state for attempt %d has no exact completion record", active.ID))
+		}
 	}
 	dirtWasSafe := false
-	if !req.Force && launched {
+	terminalAttempt := active.TeardownTerminalAttempt
+	disposition := active.TeardownDisposition
+	if disposition == state.TeardownDispositionCompletedSafeDirt {
+		dirtWasSafe = true
+	}
+	if terminalAttempt == "" && !req.Force && launched {
 		if active.Lifecycle == state.AttemptProvisioning && active.Worktree == "" {
 			return fail(Precondition(fmt.Errorf("task %q has launch evidence but no worktree to inspect; rerun with --force to interrupt it", req.ID)))
 		}
@@ -63,27 +81,34 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 		task = updated
 		dirtWasSafe = safeDirt
 	}
+	if terminalAttempt == "" {
+		terminalAttempt, disposition = teardownDecision(req.Force, launched, active.Lifecycle, dirtWasSafe)
+		if err := state.SetAttemptTeardownDecision(req.Home, req.ID, active.ID, terminalAttempt, disposition); err != nil {
+			return fail(fmt.Errorf("record teardown decision: %w", err))
+		}
+	} else if disposition == "" {
+		return fail(fmt.Errorf("attempt %d has teardown lifecycle without disposition", active.ID))
+	}
 	releaseProject, err := state.Lock(req.Home, "project:"+task.Project)
 	if err != nil {
 		return fail(fmt.Errorf("lock project %q: %w", task.Project, err))
 	}
 	defer releaseProject()
 
-	if err := incompleteHerdrOwnership(active.Herdr); err != nil {
-		warnings = append(warnings, fmt.Sprintf("warning: Herdr ownership incomplete: %v", err))
-	} else if err := closeTaskTab(r.deps.herdr(), active.Herdr.WorkspaceID, active.Herdr.TabID); err != nil {
-		warnings = append(warnings, fmt.Sprintf("warning: herdr tab close failed: %v", err))
+	if err := r.releaseHerdr(req.Home, req.ID, active, &warnings); err != nil {
+		return fail(err)
 	}
-	if active.Worktree != "" {
-		if err := r.deps.worktree.returnWorktree(active.Worktree, req.Force || dirtWasSafe); err != nil {
-			return fail(err)
-		}
-		if err := r.afterPhase(phaseWorktreeReturned); err != nil {
-			return fail(err)
-		}
+	if err := r.afterPhase(phaseHerdrReleased); err != nil {
+		return fail(err)
+	}
+	returnForce := teardownReturnForce(req.Force, dirtWasSafe, disposition)
+	if err := r.releaseWorktree(req.Home, req.ID, active, returnForce); err != nil {
+		return fail(err)
 	}
 
-	record := completionFor(task, req.Force, launched)
+	record := completionFor(task, disposition, launched)
+	record.AttemptID = active.ID
+	record.AttemptLifecycle = string(terminalAttempt)
 	record.TornDownAt = r.deps.now().Format(time.RFC3339)
 	if task.PR != originalTask.PR {
 		if err := state.SetTaskPR(req.Home, req.ID, task.PR); err != nil {
@@ -100,19 +125,32 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 			return fail(fmt.Errorf("record merge announcement: %w", err))
 		}
 	}
+	if err := state.SetAttemptTeardownCompletionState(req.Home, req.ID, active.ID, active.Lifecycle, state.TeardownCompletionPending); err != nil {
+		return fail(fmt.Errorf("record completion phase: %w", err))
+	}
 	if err := r.deps.appendCompletion(req.Home, record); err != nil {
 		return fail(fmt.Errorf("record completion: %w", err))
+	}
+	if err := state.SetAttemptTeardownCompletionState(req.Home, req.ID, active.ID, active.Lifecycle, state.TeardownCompletionAppended); err != nil {
+		return fail(fmt.Errorf("record completion evidence: %w", err))
 	}
 	if err := r.afterPhase(phaseCompletionAppended); err != nil {
 		return fail(err)
 	}
-	return r.finishTeardown(req, record, active, launched, warnings)
+	return r.finishTeardown(req, record, active, warnings)
 }
 
-func (r *Runtime) finishTeardown(req TeardownRequest, record completion.Record, active state.Attempt, launched bool, warnings []string) (Result, error) {
-	terminalAttempt := state.AttemptCompleted
-	if req.Force || !launched || active.Lifecycle == state.AttemptProvisioning {
-		terminalAttempt = state.AttemptInterrupted
+func teardownReturnForce(requestForce, dirtWasSafe bool, disposition string) bool {
+	return requestForce || dirtWasSafe || disposition == state.TeardownDispositionForced || disposition == state.TeardownDispositionCompletedSafeDirt
+}
+
+func (r *Runtime) finishTeardown(req TeardownRequest, record completion.Record, active state.Attempt, warnings []string) (Result, error) {
+	terminalAttempt := active.TeardownTerminalAttempt
+	if terminalAttempt == "" && record.AttemptLifecycle != "" {
+		terminalAttempt = state.AttemptLifecycle(record.AttemptLifecycle)
+	}
+	if terminalAttempt == "" {
+		return Result{}, WithWarnings(fmt.Errorf("attempt %d has no durable teardown terminal lifecycle", active.ID), warnings)
 	}
 	if err := state.TerminalizeTaskAndAttempt(req.Home, req.ID, active.ID, active.Lifecycle, terminalAttempt); err != nil {
 		return Result{}, WithWarnings(fmt.Errorf("record task completion: %w", err), warnings)
@@ -130,32 +168,104 @@ func (r *Runtime) finishTeardown(req TeardownRequest, record completion.Record, 
 	}, nil
 }
 
-func completionAppendedForAttempt(homeDir string, task state.Task, active state.Attempt) (completion.Record, bool, error) {
-	if active.CreatedAt == "" {
-		return completion.Record{}, false, nil
+func (r *Runtime) releaseHerdr(home, taskID string, attempt state.Attempt, warnings *[]string) error {
+	if attempt.Herdr.WorkspaceID == "" && attempt.Herdr.TabID == "" && attempt.Herdr.PaneID == "" {
+		return nil
 	}
-	createdAt, err := time.Parse(time.RFC3339, active.CreatedAt)
-	if err != nil {
-		return completion.Record{}, false, nil
+	if attempt.TeardownHerdrState == state.TeardownResourceReleased {
+		return nil
 	}
-	records, err := completion.List(homeDir)
-	if err != nil {
-		return completion.Record{}, false, err
+	if attempt.TeardownHerdrState == state.TeardownResourceReleasing || attempt.TeardownHerdrState == state.TeardownResourceAmbiguous {
+		*warnings = append(*warnings, fmt.Sprintf("warning: Herdr ownership for attempt %d is ambiguous; refusing destructive retry", attempt.ID))
+		return nil
 	}
-	for i := len(records) - 1; i >= 0; i-- {
-		record := records[i]
-		if record.ID != task.ID || record.Project != task.Project || record.Kind != task.Kind || record.TornDownAt == "" {
-			continue
+	if err := incompleteHerdrOwnership(attempt.Herdr); err != nil {
+		if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceAmbiguous); stateErr != nil {
+			return fmt.Errorf("record incomplete Herdr ownership: %w", stateErr)
 		}
-		tornDownAt, err := time.Parse(time.RFC3339, record.TornDownAt)
-		if err == nil && !tornDownAt.Before(createdAt) {
-			return record, true, nil
-		}
+		*warnings = append(*warnings, fmt.Sprintf("warning: Herdr ownership incomplete: %v", err))
+		return nil
 	}
-	return completion.Record{}, false, nil
+	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleasing); err != nil {
+		return fmt.Errorf("record Herdr release phase: %w", err)
+	}
+	if err := closeTaskTab(r.deps.herdr(), attempt.Herdr.WorkspaceID, attempt.Herdr.TabID); err != nil {
+		if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceAmbiguous); stateErr != nil {
+			return fmt.Errorf("record failed Herdr release: %w", stateErr)
+		}
+		*warnings = append(*warnings, fmt.Sprintf("warning: herdr tab close failed: %v", err))
+		return nil
+	}
+	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleased); err != nil {
+		return fmt.Errorf("record Herdr release evidence: %w", err)
+	}
+	return nil
 }
 
-func completionFor(t state.Task, forced, launched bool) completion.Record {
+func (r *Runtime) releaseWorktree(home, taskID string, attempt state.Attempt, force bool) error {
+	if attempt.Worktree == "" {
+		return nil
+	}
+	switch attempt.TeardownWorktreeState {
+	case state.TeardownResourceReleased:
+		return nil
+	case state.TeardownResourceReleasing, state.TeardownResourceAmbiguous:
+		return fmt.Errorf("worktree ownership for attempt %d is ambiguous; refusing destructive retry", attempt.ID)
+	case state.TeardownResourceRetryable:
+		if !force {
+			return fmt.Errorf("worktree for attempt %d remains leased; retry with --force", attempt.ID)
+		}
+		verifyLease := r.deps.worktree.verifyLease
+		if verifyLease == nil {
+			verifyLease = worktree.VerifyLease
+		}
+		if err := verifyLease(attempt.Worktree, attempt.LeaseID); err != nil {
+			if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceAmbiguous); stateErr != nil {
+				return fmt.Errorf("record unverified worktree ownership: %w", stateErr)
+			}
+			return fmt.Errorf("verify worktree ownership before forced retry: %w", err)
+		}
+	}
+	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
+		return fmt.Errorf("record worktree release phase: %w", err)
+	}
+	if err := r.deps.worktree.returnWorktree(attempt.Worktree, force); err != nil {
+		if errors.Is(err, worktree.ErrReturnAborted) {
+			if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceRetryable); stateErr != nil {
+				return fmt.Errorf("record retryable worktree return: %w", stateErr)
+			}
+			return err
+		}
+		if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceAmbiguous); stateErr != nil {
+			return fmt.Errorf("record failed worktree release: %w", stateErr)
+		}
+		return err
+	}
+	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleased); err != nil {
+		return fmt.Errorf("record worktree release evidence: %w", err)
+	}
+	if err := r.afterPhase(phaseWorktreeReturned); err != nil {
+		return err
+	}
+	return nil
+}
+func teardownDecision(forced, launched bool, lifecycle state.AttemptLifecycle, dirtWasSafe bool) (state.AttemptLifecycle, string) {
+	if forced {
+		return state.AttemptInterrupted, state.TeardownDispositionForced
+	}
+	if !launched {
+		return state.AttemptInterrupted, state.TeardownDispositionNeverLaunched
+	}
+	if lifecycle == state.AttemptProvisioning {
+		return state.AttemptInterrupted, state.TeardownDispositionLaunchedProvisioning
+	}
+	if dirtWasSafe {
+		return state.AttemptCompleted, state.TeardownDispositionCompletedSafeDirt
+	}
+	return state.AttemptCompleted, state.TeardownDispositionCompleted
+}
+
+func completionFor(t state.Task, disposition string, launched bool) completion.Record {
 	c := completion.Record{ID: t.ID, Project: t.Project, Kind: t.Kind}
 	// The delivered case sits ahead of the merge cases below only while no merge is on the row: a
 	// delivery that then genuinely landed has the stronger fact to record, so an observed or executed
@@ -163,10 +273,10 @@ func completionFor(t state.Task, forced, launched bool) completion.Record {
 	switch {
 	// Ahead of every case below, including the forced one: none of them can be true of an attempt
 	// whose agent never started, and recording a merge or a delivery for it would be a false fact.
-	case !launched:
+	case disposition == state.TeardownDispositionNeverLaunched || !launched:
 		c.Outcome = "torn-down"
 		c.Detail = "attempt never launched"
-	case forced:
+	case disposition == state.TeardownDispositionForced:
 		c.Outcome = "torn-down"
 		c.Detail = "forced (landed-work checks skipped)"
 	// A task whose landing was never ours to decide has to stay distinguishable from a merged one in

@@ -17,6 +17,17 @@ func TestFreshOpenRecordsSchemaVersionAtLatest(t *testing.T) {
 	}
 }
 
+func TestFreshSchemaIncludesTeardownEvidence(t *testing.T) {
+	db, _ := openTemp(t)
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('teardown_terminal_attempt', 'teardown_disposition', 'teardown_herdr_state', 'teardown_worktree_state', 'teardown_completion_state')`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 5 {
+		t.Fatalf("teardown evidence columns = %d, want 5", count)
+	}
+}
+
 func TestExistingBaselineDatabaseOpensCleanly(t *testing.T) {
 	home := t.TempDir()
 	db, err := Open(home)

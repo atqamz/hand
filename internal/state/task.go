@@ -410,6 +410,33 @@ func MarkAttemptRunning(homeDir, taskID string, attemptID int64) error {
 	return db.MarkAttemptRunning(taskID, attemptID)
 }
 
+func SetAttemptTeardownDecision(homeDir, taskID string, attemptID int64, terminal AttemptLifecycle, disposition string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetAttemptTeardownDecision(taskID, attemptID, terminal, disposition)
+}
+
+func SetAttemptTeardownResourceState(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, resource, next string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetAttemptTeardownResourceState(taskID, attemptID, expected, resource, next)
+}
+
+func SetAttemptTeardownCompletionState(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, next string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetAttemptTeardownCompletionState(taskID, attemptID, expected, next)
+}
+
 func SetAttemptSendTrace(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, message, at string) error {
 	db, err := store.Open(homeDir)
 	if err != nil {

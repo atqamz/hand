@@ -49,6 +49,12 @@ type lease struct {
 	LeaseID string `json:"lease_id"`
 }
 
+type statusEntry struct {
+	Path    string `json:"path"`
+	Status  string `json:"status"`
+	LeaseID string `json:"lease_id"`
+}
+
 func acquire(t *testing.T, dir, holder string) lease {
 	t.Helper()
 	res := run(t, dir, "treehouse", "get", "--lease", "--json", "--lease-holder", holder).requireCode(t, 0)
@@ -95,6 +101,22 @@ func TestTreehouseLeaseIsExclusiveUntilReturned(t *testing.T) {
 		t.Fatalf("lease identity %q reused across acquisitions, so CheckCollision cannot tell them apart", second.LeaseID)
 	}
 	run(t, dir, "treehouse", "return", second.Path).requireCode(t, 0)
+}
+
+func TestTreehouseStatusReportsTheCurrentLeaseIdentity(t *testing.T) {
+	requireBin(t, "treehouse")
+	dir := newPool(t, 1)
+	lease := acquire(t, dir, "hand:contract-status")
+
+	status := run(t, dir, "treehouse", "status", "--json").requireCode(t, 0).stdout
+	var entries []statusEntry
+	if err := json.Unmarshal([]byte(status), &entries); err != nil {
+		t.Fatalf("parse status %q: %v", status, err)
+	}
+	if len(entries) != 1 || entries[0].Path != lease.Path || entries[0].Status != "leased" || entries[0].LeaseID != lease.LeaseID {
+		t.Fatalf("status = %+v, want current lease %s at %s", entries, lease.LeaseID, lease.Path)
+	}
+	run(t, dir, "treehouse", "return", lease.Path).requireCode(t, 0)
 }
 
 func TestTreehouseRefusesAnUnmanagedPath(t *testing.T) {

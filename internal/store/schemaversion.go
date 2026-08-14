@@ -101,6 +101,11 @@ var migrations = []string{
 	CREATE UNIQUE INDEX attempt_one_active ON attempt(task_id) WHERE lifecycle IN ('provisioning', 'running');`,
 	`ALTER TABLE attempt ADD COLUMN launch_submitted_at TEXT NOT NULL DEFAULT '';
 	ALTER TABLE attempt ADD COLUMN launch_confirmed_at TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE attempt ADD COLUMN teardown_terminal_attempt TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN teardown_disposition TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN teardown_herdr_state TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN teardown_worktree_state TEXT NOT NULL DEFAULT '';
+	ALTER TABLE attempt ADD COLUMN teardown_completion_state TEXT NOT NULL DEFAULT '';`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -108,6 +113,8 @@ var migrations = []string{
 const splitVersion = 8
 
 const launchEvidenceVersion = splitVersion + 1
+
+const teardownEvidenceVersion = launchEvidenceVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -126,6 +133,14 @@ func (db *DB) hasLaunchEvidenceColumns() (bool, error) {
 		return false, fmt.Errorf("detect launch evidence columns: %w", err)
 	}
 	return count == 2, nil
+}
+
+func (db *DB) hasTeardownEvidenceColumns() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('teardown_terminal_attempt', 'teardown_disposition', 'teardown_herdr_state', 'teardown_worktree_state', 'teardown_completion_state')`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect teardown evidence columns: %w", err)
+	}
+	return count == 5, nil
 }
 
 func (db *DB) schemaVersion() (int, error) {
@@ -207,6 +222,13 @@ func (db *DB) migrateSchema() error {
 			}
 			if complete && latest >= launchEvidenceVersion {
 				stamp = launchEvidenceVersion
+				teardownComplete, err := db.hasTeardownEvidenceColumns()
+				if err != nil {
+					return err
+				}
+				if teardownComplete && latest >= teardownEvidenceVersion {
+					stamp = teardownEvidenceVersion
+				}
 			}
 			if err := db.stampSchemaVersion(stamp); err != nil {
 				return err

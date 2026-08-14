@@ -34,14 +34,15 @@ func TestTeardownRefusesAnAbortedWorktreeReturn(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "data", "scout-1", "report.md"), []byte("# report\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	const leaseID = "lease-scout-1"
 	now := time.Now().UTC().Format(time.RFC3339)
 	writeTaskAttempt(t, home, state.Task{ID: "scout-1", Project: "demo", Kind: state.KindScout,
 		CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
-		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}})
+		LeaseID: leaseID, Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}})
 
 	dir := binDir(t)
 	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
-	writeFakeTreehouse(t, dir, worktree, worktree)
+	faketool.Treehouse{Slots: []string{worktree}, Held: []string{worktree}, LeaseIDs: map[string]string{worktree: leaseID}}.Install(t, dir)
 	faketool.Herdr{Workspaces: []faketool.HerdrWorkspace{{ID: "ws-1", Label: "demo", Tabs: []faketool.HerdrTab{
 		{ID: "tab-1", Label: "scout-1", Pane: "pane-1"},
 		{ID: "tab-2", Label: "task-9", Pane: "pane-2"},

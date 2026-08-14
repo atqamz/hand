@@ -19,6 +19,7 @@ const (
 	phaseHerdrRecorded         lifecyclePhase = "herdr-recorded"
 	phaseLaunchSubmitted       lifecyclePhase = "launch-submitted"
 	phaseLaunchConfirmed       lifecyclePhase = "launch-confirmed"
+	phaseHerdrReleased         lifecyclePhase = "herdr-released"
 	phaseScoutPaneReleased     lifecyclePhase = "scout-pane-released"
 	phaseScoutWorktreeReturned lifecyclePhase = "scout-worktree-returned"
 	phaseCompletionAppended    lifecyclePhase = "completion-appended"
@@ -29,6 +30,7 @@ type worktreeDependencies struct {
 	get            func(string, string) (worktree.Lease, error)
 	returnWorktree func(string, bool) error
 	checkCollision func(string, worktree.Lease, string) (string, error)
+	verifyLease    func(string, string) error
 }
 
 type dependencies struct {
@@ -49,7 +51,7 @@ func defaultDependencies() dependencies {
 	return dependencies{
 		now:              func() time.Time { return time.Now().UTC() },
 		herdr:            newHerdrClient,
-		worktree:         worktreeDependencies{get: worktree.Get, returnWorktree: worktree.Return, checkCollision: worktree.CheckCollision},
+		worktree:         worktreeDependencies{get: worktree.Get, returnWorktree: worktree.Return, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
 		buildHarness:     harness.Build,
 		confirmLaunch:    confirmLaunch,
 		appendCompletion: completion.Append,

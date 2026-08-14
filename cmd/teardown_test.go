@@ -458,7 +458,6 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
-
 	cmd := newTeardownCmd()
 	cmd.SetArgs([]string{"task-1"})
 	if err := cmd.Execute(); err != nil {
@@ -669,6 +668,10 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
+	active, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	before := time.Now().UTC().Truncate(time.Second)
 	cmd := newTeardownCmd()
@@ -695,7 +698,7 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 		t.Fatalf("TornDownAt %v predates teardown start %v", torndownAt, before)
 	}
 	got.TornDownAt = ""
-	want := completion.Record{ID: "task-1", Project: "myproj", Kind: "ship", Outcome: "merged", Detail: "PR https://example.com/pr/1"}
+	want := completion.Record{ID: "task-1", Project: "myproj", Kind: "ship", Outcome: "merged", Detail: "PR https://example.com/pr/1", AttemptID: active.ID, AttemptLifecycle: string(state.AttemptCompleted)}
 	if got != want {
 		t.Fatalf("record = %+v, want %+v", got, want)
 	}
@@ -890,42 +893,6 @@ func TestTeardownShipLocalOnlyFailsWhenBranchNotMerged(t *testing.T) {
 	assertExitCode3(t, err)
 	if !strings.Contains(err.Error(), "not merged into the default branch") {
 		t.Fatalf("got err %v, want branch not merged", err)
-	}
-}
-
-func TestBranchIsMergedUsesOriginDefaultBranch(t *testing.T) {
-	clonePath := filepath.Join(t.TempDir(), "clone")
-	initGitRepo(t, clonePath)
-
-	runGit := func(dir string, args ...string) {
-		t.Helper()
-		c := exec.Command("git", args...)
-		c.Dir = dir
-		if out, err := c.CombinedOutput(); err != nil {
-			t.Fatalf("git %v failed: %v: %s", args, err, out)
-		}
-	}
-	runGit(clonePath, "branch", "release")
-	runGit(clonePath, "branch", "task-1")
-	runGit(clonePath, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-	runGit(clonePath, "update-ref", "refs/remotes/origin/main", "refs/heads/main")
-
-	worktreePath := filepath.Join(t.TempDir(), "worktree")
-	runGit(clonePath, "worktree", "add", "-q", worktreePath, "task-1")
-	if err := os.WriteFile(filepath.Join(worktreePath, "feature.txt"), []byte("feature"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runGit(worktreePath, "add", "feature.txt")
-	runGit(worktreePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "feature")
-	runGit(clonePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "merge", "--no-ff", "-q", "task-1", "-m", "merge task")
-	runGit(clonePath, "checkout", "-q", "release")
-
-	merged, err := branchIsMerged(clonePath, worktreePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !merged {
-		t.Fatal("task branch should be merged into origin default branch")
 	}
 }
 

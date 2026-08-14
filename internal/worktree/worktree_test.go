@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,6 +77,50 @@ func TestGetFailsOnMissingPath(t *testing.T) {
 	}
 }
 
+func TestVerifyLeaseRequiresAnExactLeasedIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-1"}}.Install(t, faketool.Bin(t))
+	if err := VerifyLease(path, "lease-1"); err != nil {
+		t.Fatalf("VerifyLease() = %v, want exact lease match", err)
+	}
+}
+
+func TestVerifyLeaseRunsStatusFromTheWorktreeRepository(t *testing.T) {
+	worktreePath := filepath.Join(t.TempDir(), "worktree")
+	faketool.InitRepo(t, worktreePath)
+	faketool.Treehouse{Slots: []string{worktreePath}}.Install(t, faketool.Bin(t))
+
+	lease, err := Get(worktreePath, "hand:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyLease(worktreePath, lease.ID); err != nil {
+		t.Fatalf("VerifyLease() = %v, want the lease visible from the worktree repository", err)
+	}
+}
+
+func TestVerifyLeaseRejectsARecycledOrMissingIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-2"}}.Install(t, faketool.Bin(t))
+	if err := VerifyLease(path, "lease-1"); err == nil {
+		t.Fatal("VerifyLease() accepted a recycled lease identity")
+	}
+	if err := VerifyLease(path, ""); err == nil {
+		t.Fatal("VerifyLease() accepted an empty expected lease identity")
+	}
+}
+
+func TestVerifyLeaseRejectsAnAvailableStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	faketool.Treehouse{Slots: []string{path}}.Install(t, faketool.Bin(t))
+	if err := VerifyLease(path, "lease-1"); err == nil {
+		t.Fatal("VerifyLease() accepted an available entry")
+	}
+}
+
 func TestReturnPassesForceFlag(t *testing.T) {
 	wt := t.TempDir()
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Args: []string{wt, "--force"}})
@@ -132,6 +177,9 @@ func TestReturnFailsWhenAnUnforcedDirtyReturnAborts(t *testing.T) {
 	err := Return(wt, false)
 	if err == nil || !strings.Contains(err.Error(), "still leased") {
 		t.Fatalf("got err %v, want the aborted return reported as a failure", err)
+	}
+	if !errors.Is(err, ErrReturnAborted) {
+		t.Fatalf("got err %v, want ErrReturnAborted", err)
 	}
 	if out, gitErr := exec.Command("git", "-C", wt, "status", "--porcelain").Output(); gitErr != nil || len(out) == 0 {
 		t.Fatalf("worktree cleaned by an aborted return: %q %v", out, gitErr)

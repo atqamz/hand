@@ -38,6 +38,18 @@ A treehouse older than v2.1.0 reports `path` alone with no identity, which stays
 
 State left behind: the slot is leased and is not handed out again until it is returned.
 
+### `treehouse status --json`
+
+Exit 0 with a JSON array on stdout.
+Each pool entry includes `path`, `status`, `lease_id`, `lease_holder` and `leased_at`.
+Hand uses `path`, requires `status` to be `leased`, and compares `lease_id` exactly before retrying a forced return of a previously aborted lease.
+An available entry has an empty `lease_id` and a null `leased_at`.
+A leased entry from a backend without lease identities still has `status` `leased`, with an empty `lease_id`.
+The command requires a git repository as its working directory.
+
+State left behind: the command only observes the current pool state.
+The lease identity is durable for the current acquisition and changes when a returned slot is handed out again.
+
 ### `treehouse get` with every slot leased or dirty
 
 Exit 1, stderr:
