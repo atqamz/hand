@@ -57,8 +57,8 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 		t.Fatalf("state.Exists(task-2) = %v, %v, want the provisioning attempt preserved", exists, err)
 	}
 	task2, attempt2 := readTaskAttempt(t, home, "task-2")
-	if task2.Lifecycle != state.TaskOpen || attempt2.Lifecycle != state.AttemptProvisioning || attempt2.Worktree != sharedWorktree {
-		t.Fatalf("task-2 state = %+v / %+v, want the acquired worktree preserved on the provisioning attempt", task2, attempt2)
+	if task2.Lifecycle != state.TaskOpen || attempt2.Lifecycle != state.AttemptProvisioning || attempt2.Worktree != "" || attempt2.LeaseID != "" {
+		t.Fatalf("task-2 state = %+v / %+v, want returned resource ownership cleared on the provisioning attempt", task2, attempt2)
 	}
 	task1, attempt1 := readTaskAttempt(t, home, "task-1")
 	if attempt1.Worktree != sharedWorktree {

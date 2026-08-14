@@ -427,8 +427,8 @@ func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.
 	}
 
 	got, err := state.ReadHistory(home, "task-1")
-	if err != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt {
-		t.Fatalf("provisioning evidence after collision = %+v err=%v", got, err)
+	if err != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != "" || got.ActiveAttempt.LeaseID != "" {
+		t.Fatalf("provisioning evidence after collision = %+v err=%v, want returned resource ownership cleared", got, err)
 	}
 }
 
@@ -508,8 +508,8 @@ func TestSpawnRollsBackWhenWorkerNeverStarts(t *testing.T) {
 	}
 
 	got, readErr := state.ReadHistory(home, "task-1")
-	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt || got.ActiveAttempt.Herdr.PaneID != "wA:pC" || got.ActiveAttempt.LaunchSubmittedAt == "" || got.ActiveAttempt.LaunchConfirmedAt != "" {
-		t.Fatalf("provisioning evidence after confirmation failure = %+v err=%v", got, readErr)
+	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != "" || got.ActiveAttempt.LeaseID != "" || got.ActiveAttempt.Herdr.PaneID != "" || got.ActiveAttempt.LaunchSubmittedAt == "" || got.ActiveAttempt.LaunchConfirmedAt != "" {
+		t.Fatalf("provisioning evidence after confirmation failure = %+v err=%v, want launch evidence without released resources", got, readErr)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {
@@ -556,8 +556,8 @@ func TestSpawnPartialWorkspaceCreateLeavesNoWorkspaceBehind(t *testing.T) {
 	}
 
 	got, readErr := state.ReadHistory(home, "task-1")
-	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt {
-		t.Fatalf("provisioning evidence after partial workspace response = %+v err=%v", got, readErr)
+	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != "" || got.ActiveAttempt.Herdr.PaneID != "" {
+		t.Fatalf("provisioning evidence after partial workspace response = %+v err=%v, want released resources cleared", got, readErr)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {
@@ -587,8 +587,8 @@ func TestSpawnTabRenameFailureClosesWorkspaceItCreated(t *testing.T) {
 	}
 
 	got, readErr := state.ReadHistory(home, "task-1")
-	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != wt {
-		t.Fatalf("provisioning evidence after tab rename failure = %+v err=%v", got, readErr)
+	if readErr != nil || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != "" || got.ActiveAttempt.Herdr.PaneID != "" {
+		t.Fatalf("provisioning evidence after tab rename failure = %+v err=%v, want released resources cleared", got, readErr)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {

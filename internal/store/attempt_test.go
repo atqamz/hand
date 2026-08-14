@@ -208,6 +208,33 @@ func TestProvisioningEvidenceIsIncrementalAndRequiredBeforeRunning(t *testing.T)
 	}
 }
 
+func TestReleasedProvisioningResourcesDoNotLeaveStaleOwnershipEvidence(t *testing.T) {
+	db, _ := openTemp(t)
+	created, err := db.CreateTaskWithAttempt(Task{ID: "task-1", Lifecycle: TaskOpen}, Attempt{TaskID: "task-1", Lifecycle: AttemptProvisioning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "lease-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordAttemptHerdr("task-1", created.ID, Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, "2026-08-14T00:00:01Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ClearAttemptWorktree("task-1", created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ClearAttemptHerdr("task-1", created.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := db.ReadAttempt(created.ID)
+	if err != nil || !found {
+		t.Fatalf("ReadAttempt = %+v, %v, %v", got, found, err)
+	}
+	if got.Worktree != "" || got.LeaseID != "" || got.Herdr != (Herdr{}) || got.PaneStartedAt != "" {
+		t.Fatalf("released provisioning evidence = %+v, want no current resource ownership", got)
+	}
+}
+
 func TestTerminalTaskRejectsOrdinaryAttemptCreation(t *testing.T) {
 	db, _ := openTemp(t)
 	if err := db.CreateTask(Task{ID: "task-1", Lifecycle: TaskTerminal}); err != nil {

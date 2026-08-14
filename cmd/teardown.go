@@ -96,6 +96,16 @@ func newTeardownCmd() *cobra.Command {
 					return fmt.Errorf("record task facts: %w", err)
 				}
 			}
+			if t.Kind != originalTask.Kind {
+				if err := state.SetTaskKind(home, id, string(t.Kind)); err != nil {
+					return fmt.Errorf("record task kind: %w", err)
+				}
+			}
+			if t.MergeAnnounced && !originalTask.MergeAnnounced {
+				if err := state.SetTaskMergeAnnounced(home, id); err != nil {
+					return fmt.Errorf("record merge announcement: %w", err)
+				}
+			}
 
 			if err := completion.Append(home, record); err != nil {
 				return fmt.Errorf("record completion: %w", err)

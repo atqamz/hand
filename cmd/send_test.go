@@ -135,6 +135,29 @@ func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 	}
 }
 
+func TestSendDoesNotSteerAnAttemptWhileTaskOwnershipIsChanging(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "sent.log")
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := state.TryLock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "do not send"})
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "changed while sending") {
+		t.Fatalf("got err %v, want an ownership conflict before pane send", err)
+	}
+	if _, readErr := os.ReadFile(logPath); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("sent log read error = %v, want no pane send", readErr)
+	}
+}
+
 func TestSendReadsMessageFromFile(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "sent.log")
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})

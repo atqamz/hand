@@ -465,6 +465,30 @@ func TestAnAttemptYieldsToASendHoldingTheLock(t *testing.T) {
 	}
 }
 
+func TestAnAttemptYieldsToTaskOwnershipChangeAfterSendLock(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	release, err := state.TryLock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	due := time.Now().Add(-time.Minute)
+	ts := &TaskState{LimitRetryAt: due}
+	client := &countingPane{}
+	cfg := Config{Home: home}
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
+	var errBuf bytes.Buffer
+
+	if e := classifyUsageLimit(cfg, client, ts, task, attempt, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
+		t.Fatalf("event = %+v, want none", e)
+	}
+	if client.reads != 0 || client.steers != 0 {
+		t.Fatalf("reads = %d, steers = %d, want neither while task ownership changes", client.reads, client.steers)
+	}
+}
+
 // A tick reads its Task and Attempt before it takes either lock, so `hand teardown` can terminalize both
 // in between. The steer would then reach a pane the fleet has taken back, and the hold write would put a
 // limit hold on a terminal id, which refuses `hand reopen` and `hand spawn` until it is cleared by hand.
@@ -512,8 +536,7 @@ func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
 	ts := &TaskState{}
 	client := &countingPane{}
 	cfg := Config{Home: home}
-	task := state.Task{ID: "task-1"}
-	attempt := state.Attempt{Herdr: state.Herdr{PaneID: "p1"}}
+	task, attempt := readTaskAttempt(t, home, "task-1")
 	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
 	var errBuf bytes.Buffer
 

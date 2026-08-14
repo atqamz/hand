@@ -98,7 +98,7 @@ func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task,
 
 	ts.LimitAttempts = 0
 	ts.LimitRetryAt = nextLimitRetry(reset, 0, now)
-	writeLimitHold(cfg.Home, t.ID, ts, errOut)
+	writeLimitHoldForAttempt(cfg, t, a, ts, errOut)
 	return &Event{
 		TaskID: t.ID,
 		Kind:   KindUsageLimit,
@@ -129,16 +129,8 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 // decides whether the limit is over - the next tick's clear check does that, by seeing whether the pane
 // started working.
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
-	// Task before send, the documented order, so promotion and teardown cannot replace the Attempt
-	// while this resume steers its pane. TryLock keeps the poll loop moving.
-	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
-	if err != nil {
-		if !errors.Is(err, state.ErrLockBusy) {
-			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
-		}
-		return nil
-	}
-	defer releaseTask()
+	// Send before task is the shared order with hand send. The task lock is held only while the
+	// short external steer runs, so promotion and teardown cannot replace the Attempt mid-steer.
 	releaseSend, err := state.TryLock(cfg.Home, "send:"+t.ID)
 	if err != nil {
 		if !errors.Is(err, state.ErrLockBusy) {
@@ -148,6 +140,14 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		return nil
 	}
 	defer releaseSend()
+	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
+		}
+		return nil
+	}
+	defer releaseTask()
 
 	if !ownsAttempt(cfg.Home, t, a, errOut) {
 		return nil
@@ -310,4 +310,19 @@ func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) {
 	if !written {
 		_, _ = fmt.Fprintf(errOut, "watch: hold on %s is not of kind limit; usage-limit wait left unprojected: %s\n", id, limitReason(ts))
 	}
+}
+
+func writeLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) {
+	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
+		}
+		return
+	}
+	defer releaseTask()
+	if !ownsAttempt(cfg.Home, t, a, errOut) {
+		return
+	}
+	writeLimitHold(cfg.Home, t.ID, ts, errOut)
 }

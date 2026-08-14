@@ -141,33 +141,39 @@ func newPromoteCmd() *cobra.Command {
 			}
 			releaseWorktree, err := state.Lock(home, "worktree:"+wt)
 			if err != nil {
-				return reportSpawnCleanup(fmt.Errorf("lock worktree %q: %w", wt, err), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("lock worktree %q: %w", wt, err), returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 			defer releaseWorktree()
 
 			if conflict, err := worktree.CheckCollision(home, lease, id); err != nil {
-				return reportSpawnCleanup(err, worktree.Return(wt, true))
+				return reportSpawnCleanup(err, returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			} else if conflict != "" {
-				return reportSpawnCleanup(&ExitError{Err: fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), Code: 3}, worktree.Return(wt, true))
+				return reportSpawnCleanup(&ExitError{Err: fmt.Errorf("worktree collision: %s already holds %s", conflict, wt), Code: 3}, returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 
 			ws, tab, pane, rollback, err := acquireTaskWorkspace(client, wt, id, proj.Name)
 			if err != nil {
-				return reportSpawnCleanup(err, worktree.Return(wt, true))
+				return reportSpawnCleanup(err, returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 			promoted := false
+			herdrRecorded := false
 			defer func() {
 				if promoted {
 					return
 				}
 				if closeErr := rollback(); closeErr != nil {
 					err = reportSpawnCleanup(err, closeErr)
+				} else if herdrRecorded {
+					if clearErr := state.ClearAttemptHerdr(home, id, shipAttempt.ID); clearErr != nil {
+						err = reportSpawnCleanup(err, clearErr)
+					}
 				}
 			}()
 			paneStartedAt := time.Now().UTC().Format(time.RFC3339)
 			if err := state.RecordAttemptHerdr(home, id, shipAttempt.ID, state.Herdr{Session: "default", WorkspaceID: ws.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID}, paneStartedAt); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("record Herdr ownership: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("record Herdr ownership: %w", err), returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
+			herdrRecorded = true
 
 			// Provisioning evidence is durable before launch; rollback still releases resources when
 			// this call fails, while the partial Attempt remains truthful for later inspection.
@@ -180,24 +186,24 @@ func newPromoteCmd() *cobra.Command {
 				BriefHasFrontMatter: briefHasFrontMatter,
 			})
 			if err != nil {
-				return reportSpawnCleanup(err, worktree.Return(wt, true))
+				return reportSpawnCleanup(err, returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 
 			if err := client.PaneRun(pane.PaneID, launchCmd); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("send launch command failed: %w", err), returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 			if err := state.MarkLaunchSubmitted(home, id, shipAttempt.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("record launch submission: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("record launch submission: %w", err), returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 
 			if err := confirmLaunch(client, pane.PaneID, harnessName); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("confirm worker started: %w", err), returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 			if err := state.MarkLaunchConfirmed(home, id, shipAttempt.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("record launch confirmation: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("record launch confirmation: %w", err), returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 			if err := state.MarkAttemptRunning(home, id, shipAttempt.ID); err != nil {
-				return reportSpawnCleanup(fmt.Errorf("record running attempt: %w", err), worktree.Return(wt, true))
+				return reportSpawnCleanup(fmt.Errorf("record running attempt: %w", err), returnProvisioningWorktree(home, id, shipAttempt.ID, wt))
 			}
 			promoted = true
 			if err := state.ClearHoldIfKind(home, id, state.HoldKindLimit); err != nil {

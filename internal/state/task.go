@@ -70,8 +70,8 @@ func Claim(homeDir, id string) (func(), error) {
 }
 
 func Lock(homeDir, name string) (func(), error) {
-	// Lifecycle commands acquire task, then project, then worktree. Send owns send only; its database
-	// bookkeeping is attempt-targeted so it never nests a task lock under send.
+	// Lifecycle commands acquire task, then project, then worktree. Send and watcher resume acquire send,
+	// then task only for the short external-send boundary; attempt writes remain ID-targeted.
 	return store.Lock(homeDir, name, false)
 }
 
@@ -302,6 +302,24 @@ func SetTaskPR(homeDir, id, pr string) error {
 	return db.SetTaskPR(id, pr)
 }
 
+func SetTaskKind(homeDir, id, kind string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskKind(id, kind)
+}
+
+func SetTaskMergeAnnounced(homeDir, id string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskMergeAnnounced(id)
+}
+
 func SetTaskDelivery(homeDir, id, deliveredAt, reason string) error {
 	db, err := store.Open(homeDir)
 	if err != nil {
@@ -338,6 +356,15 @@ func RecordAttemptWorktree(homeDir, taskID string, attemptID int64, worktree, le
 	return db.RecordAttemptWorktree(taskID, attemptID, worktree, leaseID)
 }
 
+func ClearAttemptWorktree(homeDir, taskID string, attemptID int64) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ClearAttemptWorktree(taskID, attemptID)
+}
+
 func RecordAttemptHerdr(homeDir, taskID string, attemptID int64, herdr Herdr, paneStartedAt string) error {
 	db, err := store.Open(homeDir)
 	if err != nil {
@@ -345,6 +372,15 @@ func RecordAttemptHerdr(homeDir, taskID string, attemptID int64, herdr Herdr, pa
 	}
 	defer func() { _ = db.Close() }()
 	return db.RecordAttemptHerdr(taskID, attemptID, herdr, paneStartedAt)
+}
+
+func ClearAttemptHerdr(homeDir, taskID string, attemptID int64) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ClearAttemptHerdr(taskID, attemptID)
 }
 
 func MarkLaunchSubmitted(homeDir, taskID string, attemptID int64, at string) error {

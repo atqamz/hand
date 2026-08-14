@@ -878,6 +878,10 @@ func TestTeardownAcceptsAShipRowThatDeliveredAScoutReport(t *testing.T) {
 	if records[0].Kind != state.KindScout || records[0].Outcome != "done" {
 		t.Fatalf("completion = %+v, want kind scout outcome done", records[0])
 	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil || history.Task.Kind != state.KindScout {
+		t.Fatalf("task after teardown = %+v, want inferred scout kind persisted", history.Task)
+	}
 }
 
 // The half of atqamz/hand#129's fix that matters: the scout-deliverable path must not become "no PR

@@ -106,6 +106,24 @@ func newSendCmd() *cobra.Command {
 				}
 			}
 
+			// The composer wait can overlap promote or teardown. Take the task lock only for the short
+			// external send boundary, then verify the exact Attempt snapshot still owns the task.
+			releaseTask, err := state.TryLock(home, "task:"+id)
+			if err != nil {
+				if errors.Is(err, state.ErrLockBusy) {
+					return asPrecondition(fmt.Errorf("%w: task %q changed while sending; retry", state.ErrOwnershipConflict, id))
+				}
+				return fmt.Errorf("lock task %q before send: %w", id, err)
+			}
+			defer releaseTask()
+			current, err := state.ActiveAttempt(home, id)
+			if err != nil {
+				return asPrecondition(fmt.Errorf("re-read active attempt for task %q before send: %w", id, err))
+			}
+			if current.ID != active.ID || current.TaskID != active.TaskID || current.Lifecycle != active.Lifecycle || current.Herdr.PaneID != active.Herdr.PaneID {
+				return asPrecondition(fmt.Errorf("%w: task %q changed while sending; retry", state.ErrOwnershipConflict, id))
+			}
+
 			// Both delivery failures leave the steer undemonstrated in the pane -
 			// text that never left, and text sitting unsubmitted in the composer -
 			// so both owe the operator the same durable trace the wait bound does.

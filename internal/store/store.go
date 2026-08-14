@@ -523,7 +523,7 @@ func (db *DB) CreateTaskWithAttempt(t Task, a Attempt) (Attempt, error) {
 	}
 	t.ActiveAttemptID = 0
 	a.Ordinal = 0
-	tx, err := db.sql.Begin()
+	tx, err := db.beginLifecycleTx("create task", t.ID)
 	if err != nil {
 		return Attempt{}, fmt.Errorf("begin task creation: %w", err)
 	}
@@ -572,7 +572,7 @@ func (db *DB) createAttempt(a Attempt, requireInactive bool) (Attempt, error) {
 	if a.Lifecycle == "" {
 		a.Lifecycle = AttemptProvisioning
 	}
-	tx, err := db.sql.Begin()
+	tx, err := db.beginLifecycleTx("create attempt", a.TaskID)
 	if err != nil {
 		return Attempt{}, fmt.Errorf("begin attempt creation: %w", err)
 	}
@@ -658,6 +658,14 @@ func contention(operation, taskID string, err error) error {
 	return fmt.Errorf("%w: %s for task %q lost the database write lock, retry it: %w", ErrContention, operation, taskID, err)
 }
 
+func (db *DB) beginLifecycleTx(operation, taskID string) (*sql.Tx, error) {
+	tx, err := db.sql.Begin()
+	if isSQLiteBusy(err) {
+		return nil, contention(operation, taskID, err)
+	}
+	return tx, err
+}
+
 func isSQLiteBusy(err error) bool {
 	var sqliteErr *sqlite.Error
 	return errors.As(err, &sqliteErr) && sqliteErr.Code()&0xff == sqlite3.SQLITE_BUSY
@@ -721,7 +729,7 @@ func (db *DB) TransitionAttempt(id int64, from, to AttemptLifecycle) error {
 	if !validAttemptTransition(from, to) {
 		return fmt.Errorf("%w: attempt %s -> %s", ErrInvalidTransition, from, to)
 	}
-	tx, err := db.sql.Begin()
+	tx, err := db.beginLifecycleTx("transition attempt", fmt.Sprintf("attempt:%d", id))
 	if err != nil {
 		return fmt.Errorf("begin attempt transition: %w", err)
 	}
@@ -839,7 +847,7 @@ func (db *DB) ReopenTask(taskID string, a Attempt) (Attempt, error) {
 	a.TaskID = taskID
 	a.ID = 0
 	a.Ordinal = 0
-	tx, err := db.sql.Begin()
+	tx, err := db.beginLifecycleTx("reopen task", taskID)
 	if err != nil {
 		return Attempt{}, fmt.Errorf("begin task reopen: %w", err)
 	}
@@ -888,7 +896,7 @@ func (db *DB) PromoteTask(taskID string, scoutAttemptID int64, scoutFrom Attempt
 	ship.TaskID = taskID
 	ship.ID = 0
 	ship.Ordinal = 0
-	tx, err := db.sql.Begin()
+	tx, err := db.beginLifecycleTx("promote task", taskID)
 	if err != nil {
 		return Attempt{}, fmt.Errorf("begin task promotion: %w", err)
 	}
@@ -943,7 +951,7 @@ func (db *DB) TerminalizeTaskAndAttempt(taskID string, attemptID int64, attemptF
 	if !validAttemptTransition(attemptFrom, attemptTo) || isActiveAttempt(attemptTo) {
 		return fmt.Errorf("%w: attempt %s -> %s", ErrInvalidTransition, attemptFrom, attemptTo)
 	}
-	tx, err := db.sql.Begin()
+	tx, err := db.beginLifecycleTx("terminalize task", taskID)
 	if err != nil {
 		return fmt.Errorf("begin task terminalization: %w", err)
 	}
@@ -976,6 +984,16 @@ func (db *DB) TerminalizeTaskAndAttempt(taskID string, attemptID int64, attemptF
 func (db *DB) SetTaskPR(id, pr string) error {
 	result, err := db.sql.Exec(`UPDATE task SET pr = ? WHERE id = ?`, pr, id)
 	return updateTaskFact(result, err, "set PR", id)
+}
+
+func (db *DB) SetTaskKind(id, kind string) error {
+	result, err := db.sql.Exec(`UPDATE task SET kind = ? WHERE id = ? AND lifecycle = 'open'`, kind, id)
+	return updateTaskFact(result, err, "set kind", id)
+}
+
+func (db *DB) SetTaskMergeAnnounced(id string) error {
+	result, err := db.sql.Exec(`UPDATE task SET merge_announced = 1 WHERE id = ?`, id)
+	return updateTaskFact(result, err, "set merge announcement", id)
 }
 
 func (db *DB) SetTaskDelivery(id, deliveredAt, reason string) error {
@@ -1014,11 +1032,25 @@ func (db *DB) RecordAttemptWorktree(taskID string, attemptID int64, worktree, le
 	return updateAttemptOwnership(result, err, "record worktree", taskID, attemptID)
 }
 
+func (db *DB) ClearAttemptWorktree(taskID string, attemptID int64) error {
+	result, err := db.sql.Exec(`UPDATE attempt SET worktree = '', lease_id = ''
+		WHERE id = ? AND task_id = ? AND lifecycle = 'provisioning'
+		AND EXISTS (SELECT 1 FROM task WHERE id = ? AND lifecycle = 'open' AND active_attempt_id = ?)`, attemptID, taskID, taskID, attemptID)
+	return updateAttemptOwnership(result, err, "clear returned worktree", taskID, attemptID)
+}
+
 func (db *DB) RecordAttemptHerdr(taskID string, attemptID int64, herdr Herdr, paneStartedAt string) error {
 	result, err := db.sql.Exec(`UPDATE attempt SET herdr_session = ?, herdr_workspace_id = ?, herdr_tab_id = ?, herdr_pane_id = ?, pane_started_at = ?
 		WHERE id = ? AND task_id = ? AND lifecycle = 'provisioning'
 		AND EXISTS (SELECT 1 FROM task WHERE id = ? AND lifecycle = 'open' AND active_attempt_id = ?)`, herdr.Session, herdr.WorkspaceID, herdr.TabID, herdr.PaneID, paneStartedAt, attemptID, taskID, taskID, attemptID)
 	return updateAttemptOwnership(result, err, "record Herdr identity", taskID, attemptID)
+}
+
+func (db *DB) ClearAttemptHerdr(taskID string, attemptID int64) error {
+	result, err := db.sql.Exec(`UPDATE attempt SET herdr_session = '', herdr_workspace_id = '', herdr_tab_id = '', herdr_pane_id = '', pane_started_at = ''
+		WHERE id = ? AND task_id = ? AND lifecycle = 'provisioning'
+		AND EXISTS (SELECT 1 FROM task WHERE id = ? AND lifecycle = 'open' AND active_attempt_id = ?)`, attemptID, taskID, taskID, attemptID)
+	return updateAttemptOwnership(result, err, "clear released Herdr identity", taskID, attemptID)
 }
 
 func (db *DB) MarkLaunchSubmitted(taskID string, attemptID int64, at string) error {

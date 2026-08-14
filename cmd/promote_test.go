@@ -405,8 +405,8 @@ func TestPromoteFailureClosesWorkspaceItCreated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Task.Kind != state.KindShip || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != newWt || got.ActiveAttempt.Herdr.PaneID != "wA:pNew" {
-		t.Fatalf("provisioning evidence after launch failure = %+v, want ship ownership preserved", got)
+	if got.Task.Kind != state.KindShip || got.ActiveAttempt == nil || got.ActiveAttempt.Lifecycle != state.AttemptProvisioning || got.ActiveAttempt.Worktree != "" || got.ActiveAttempt.LeaseID != "" || got.ActiveAttempt.Herdr.PaneID != "" {
+		t.Fatalf("provisioning evidence after launch failure = %+v, want ship identity with released resources cleared", got)
 	}
 }
 
@@ -470,8 +470,8 @@ func TestPromoteReturnsScoutResourcesWhenTheShipLaunchFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.ActiveAttempt == nil || history.ActiveAttempt.Worktree != newWt {
-		t.Fatalf("history after launch failure = %+v, want the ship attempt keeping its own worktree", history)
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Worktree != "" || history.ActiveAttempt.Herdr.PaneID != "" {
+		t.Fatalf("history after launch failure = %+v, want the ship attempt without released resource evidence", history)
 	}
 }
 
