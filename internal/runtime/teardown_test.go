@@ -441,7 +441,7 @@ func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if returns != 2 || verified != 1 || result.Detail != "report data/task-1/report.md" {
+	if returns != 2 || verified != 1 || result.Detail != "report "+filepath.Join("data", "task-1", "report.md") {
 		t.Fatalf("retry returns=%d verified=%d result=%+v, want verified forced retry and unchanged detail", returns, verified, result)
 	}
 	history, err = state.ReadHistory(home, "task-1")
