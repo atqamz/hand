@@ -2,57 +2,15 @@ package cmd
 
 import (
 	"context"
-	"strings"
 	"time"
 
-	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/runtime"
 	"github.com/atqamz/hand/internal/state"
 )
 
-// Looks for a PR whose head ref is t's current branch, for a task whose PR was never recorded because a
-// no-mistakes gate opened it directly instead of going through hand pr (atqamz/hand#69). Called only
-// where t.PR == "" already, so a task with a PR on record never reaches here.
 func detectPR(ctx context.Context, home string, t state.Task, active state.Attempt, proj project.Project) (state.Task, error) {
-	branch, err := currentBranch(active.Worktree)
-	if err != nil {
-		return t, err
-	}
-	repoSlug, err := project.RepoSlug(home, proj)
-	if err != nil {
-		return t, err
-	}
-	targets := []ghutil.PRSearchTarget{{Repo: repoSlug}}
-	// EqualFold, not ==: GitHub slugs are case-insensitive, so an upstream declared
-	// as the project's own repo in different casing would otherwise be searched
-	// twice and make every PR its own same-tier duplicate.
-	if proj.Upstream != "" && !strings.EqualFold(proj.Upstream, repoSlug) {
-		// A fork project's PR lives on the upstream while hand pushes the branch to the fork
-		// (atqamz/hand#78), so the upstream is searched too, restricted to head refs in the fork - it
-		// also carries same-named branches from every other contributor's fork.
-		targets = append(targets, ghutil.PRSearchTarget{Repo: proj.Upstream, HeadRepo: repoSlug})
-	}
-	// A PR matching in both repos is ambiguous, resolved by FindPRByBranch's own tier rule rather than by
-	// preferring either repo.
-	url, merged, found, err := ghutil.FindPRByBranch(ctx, branch, targets...)
-	if err != nil {
-		return t, err
-	}
-	if !found {
-		return t, nil
-	}
-	if merged {
-		// MergeAnnounced (pr_merged_observed) reused for "already merged, not by hand merge" rather than a new
-		// field - the same meaning the watcher's own gh poll gives it for an externally merged PR.
-		t.MergeAnnounced = true
-	}
-	// Recorded through recordPR, so a detected PR is subject to the exact same conflict guard and repo
-	// check hand pr itself enforces.
-	updated, _, err := recordPR(ctx, home, t, url)
-	if err != nil {
-		return t, err
-	}
-	return updated, nil
+	return runtime.DetectPR(ctx, home, t, active, proj)
 }
 
 // detectPR made safe for a read command: it never fails the command, so a task with no branch, an

@@ -4,6 +4,7 @@ package worktree
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -11,11 +12,28 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
+// Known non-force aborts are classified while the same lease remains held.
+var ErrReturnAborted = errors.New("treehouse return aborted while lease remains owned")
+
+type returnAbortedError struct {
+	message string
+}
+
+func (e *returnAbortedError) Error() string { return e.message }
+
+func (e *returnAbortedError) Unwrap() error { return ErrReturnAborted }
+
 // Lease is one acquisition of a treehouse pool slot. ID is empty when treehouse
 // reported no identity, which a version older than v2.1.0 does.
 type Lease struct {
 	Path string
 	ID   string
+}
+
+type statusEntry struct {
+	Path    string `json:"path"`
+	Status  string `json:"status"`
+	LeaseID string `json:"lease_id"`
 }
 
 // Get acquires a worktree from the project clone's treehouse pool. clonePath must be the project
@@ -66,9 +84,31 @@ func Return(worktreePath string, force bool) error {
 		return fmt.Errorf("treehouse return failed: %s", strings.TrimSpace(string(out)))
 	}
 	if !force && strings.Contains(string(out), "Aborted") {
-		return fmt.Errorf("treehouse return aborted, worktree %s is still leased: %s", worktreePath, strings.TrimSpace(string(out)))
+		return &returnAbortedError{message: fmt.Sprintf("treehouse return aborted, worktree %s is still leased: %s", worktreePath, strings.TrimSpace(string(out)))}
 	}
 	return nil
+}
+
+func VerifyLease(worktreePath, expectedLeaseID string) error {
+	if worktreePath == "" || expectedLeaseID == "" {
+		return fmt.Errorf("cannot verify treehouse lease without path and lease ID")
+	}
+	cmd := exec.Command("treehouse", "status", "--json")
+	cmd.Dir = worktreePath
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("treehouse status failed: %w", err)
+	}
+	var entries []statusEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		return fmt.Errorf("parse treehouse status output: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Path == worktreePath && entry.Status == "leased" && entry.LeaseID == expectedLeaseID {
+			return nil
+		}
+	}
+	return fmt.Errorf("treehouse lease for %s does not match expected lease %s", worktreePath, expectedLeaseID)
 }
 
 // CheckCollision cross-checks a freshly acquired lease against every other task's recorded one,

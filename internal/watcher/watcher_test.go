@@ -1218,7 +1218,7 @@ func TestTickAnnouncesAVerifiedDoneAfterARestartThatMissedTheEvidence(t *testing
 }
 
 // A promoted task keeps CreatedAt, so tick's identity check never fires and
-// clearing the disk field in cmd/promote.go alone is not enough.
+// clearing the disk field in internal/runtime/promote.go alone is not enough.
 func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1255,7 +1255,7 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 		t.Fatal("task.DoneVerified = false, want the scout's announcement persisted")
 	}
 
-	// hand promote: same rewrite cmd/promote.go makes - kind and pane change,
+	// hand promote: same rewrite internal/runtime/promote.go makes - kind and pane change,
 	// CreatedAt and the report channel do not - with the DoneVerified reset this
 	// test exists to cover.
 	task.Kind = state.KindShip

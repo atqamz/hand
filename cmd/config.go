@@ -200,10 +200,6 @@ func readWorkerConfig(fleetHome string, detected harness.Detection) workerConfig
 	return cfg
 }
 
-func workerDefault(fleetHome, key, harnessName string) string {
-	return configDefault(fleetHome, harnessSettingKey(key, harnessName), "")
-}
-
 func harnessSettingKey(key, harnessName string) string {
 	return key + "." + harnessName
 }

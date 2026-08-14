@@ -5,6 +5,7 @@ import (
 
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/runtime"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -24,6 +25,15 @@ var preconditionSentinels = []error{
 func asPrecondition(err error) error {
 	if err == nil {
 		return nil
+	}
+	var classified *runtime.Error
+	if errors.As(err, &classified) {
+		switch classified.Kind {
+		case runtime.ErrorUsage:
+			return &ExitError{Err: err, Code: 2}
+		case runtime.ErrorPrecondition:
+			return &ExitError{Err: err, Code: 3}
+		}
 	}
 	for _, sentinel := range preconditionSentinels {
 		if errors.Is(err, sentinel) {

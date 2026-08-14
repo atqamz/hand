@@ -45,3 +45,17 @@ const (
 	AttemptFailed       = store.AttemptFailed
 	AttemptInterrupted  = store.AttemptInterrupted
 )
+
+const (
+	TeardownResourceReleasing               = store.TeardownResourceReleasing
+	TeardownResourceReleased                = store.TeardownResourceReleased
+	TeardownResourceAmbiguous               = store.TeardownResourceAmbiguous
+	TeardownResourceRetryable               = store.TeardownResourceRetryable
+	TeardownCompletionPending               = store.TeardownCompletionPending
+	TeardownCompletionAppended              = store.TeardownCompletionAppended
+	TeardownDispositionCompleted            = store.TeardownDispositionCompleted
+	TeardownDispositionCompletedSafeDirt    = store.TeardownDispositionCompletedSafeDirt
+	TeardownDispositionForced               = store.TeardownDispositionForced
+	TeardownDispositionNeverLaunched        = store.TeardownDispositionNeverLaunched
+	TeardownDispositionLaunchedProvisioning = store.TeardownDispositionLaunchedProvisioning
+)

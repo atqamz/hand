@@ -75,6 +75,20 @@ const (
 	AttemptInterrupted  AttemptLifecycle = "interrupted"
 )
 
+const (
+	TeardownResourceReleasing               = "releasing"
+	TeardownResourceReleased                = "released"
+	TeardownResourceAmbiguous               = "ambiguous"
+	TeardownResourceRetryable               = "retryable"
+	TeardownCompletionPending               = "pending"
+	TeardownCompletionAppended              = "appended"
+	TeardownDispositionCompleted            = "completed"
+	TeardownDispositionCompletedSafeDirt    = "completed-safe-dirt"
+	TeardownDispositionForced               = "forced"
+	TeardownDispositionNeverLaunched        = "never-launched"
+	TeardownDispositionLaunchedProvisioning = "launched-provisioning"
+)
+
 type Task struct {
 	ID              string        `json:"id"`
 	Project         string        `json:"project"`
@@ -94,30 +108,35 @@ type Task struct {
 }
 
 type Attempt struct {
-	ID                     int64            `json:"id"`
-	TaskID                 string           `json:"task_id"`
-	Ordinal                int              `json:"ordinal"`
-	Lifecycle              AttemptLifecycle `json:"lifecycle"`
-	Harness                string           `json:"harness"`
-	Model                  string           `json:"model"`
-	Effort                 string           `json:"effort"`
-	Worktree               string           `json:"worktree"`
-	LeaseID                string           `json:"lease_id"`
-	Herdr                  Herdr            `json:"herdr"`
-	CreatedAt              string           `json:"created_at"`
-	PaneStartedAt          string           `json:"pane_started_at"`
-	LaunchSubmittedAt      string           `json:"launch_submitted_at"`
-	LaunchConfirmedAt      string           `json:"launch_confirmed_at"`
-	StatusChangedAt        string           `json:"status_changed_at"`
-	StatusChangedFor       string           `json:"status_changed_for"`
-	DoneVerified           bool             `json:"done_verified"`
-	LastReportState        string           `json:"last_report_state"`
-	LastReportNote         string           `json:"last_report_note"`
-	SendUndeliveredMessage string           `json:"send_undelivered_message"`
-	SendUndeliveredAt      string           `json:"send_undelivered_at"`
-	ParkedFiredFor         string           `json:"parked_fired_for"`
-	UsageLimitRetryAt      string           `json:"usage_limit_retry_at"`
-	UsageLimitAttempts     int              `json:"usage_limit_attempts"`
+	ID                      int64            `json:"id"`
+	TaskID                  string           `json:"task_id"`
+	Ordinal                 int              `json:"ordinal"`
+	Lifecycle               AttemptLifecycle `json:"lifecycle"`
+	Harness                 string           `json:"harness"`
+	Model                   string           `json:"model"`
+	Effort                  string           `json:"effort"`
+	Worktree                string           `json:"worktree"`
+	LeaseID                 string           `json:"lease_id"`
+	Herdr                   Herdr            `json:"herdr"`
+	CreatedAt               string           `json:"created_at"`
+	PaneStartedAt           string           `json:"pane_started_at"`
+	LaunchSubmittedAt       string           `json:"launch_submitted_at"`
+	LaunchConfirmedAt       string           `json:"launch_confirmed_at"`
+	StatusChangedAt         string           `json:"status_changed_at"`
+	StatusChangedFor        string           `json:"status_changed_for"`
+	DoneVerified            bool             `json:"done_verified"`
+	LastReportState         string           `json:"last_report_state"`
+	LastReportNote          string           `json:"last_report_note"`
+	SendUndeliveredMessage  string           `json:"send_undelivered_message"`
+	SendUndeliveredAt       string           `json:"send_undelivered_at"`
+	ParkedFiredFor          string           `json:"parked_fired_for"`
+	UsageLimitRetryAt       string           `json:"usage_limit_retry_at"`
+	UsageLimitAttempts      int              `json:"usage_limit_attempts"`
+	TeardownTerminalAttempt AttemptLifecycle `json:"teardown_terminal_attempt,omitempty"`
+	TeardownDisposition     string           `json:"teardown_disposition,omitempty"`
+	TeardownHerdrState      string           `json:"teardown_herdr_state,omitempty"`
+	TeardownWorktreeState   string           `json:"teardown_worktree_state,omitempty"`
+	TeardownCompletionState string           `json:"teardown_completion_state,omitempty"`
 }
 
 type TaskHistory struct {
@@ -211,6 +230,11 @@ CREATE TABLE IF NOT EXISTS attempt (
 	parked_fired_for       TEXT NOT NULL DEFAULT '',
 	usage_limit_retry_at   TEXT NOT NULL DEFAULT '',
 	usage_limit_attempts   INTEGER NOT NULL DEFAULT 0,
+	teardown_terminal_attempt TEXT NOT NULL DEFAULT '',
+	teardown_disposition TEXT NOT NULL DEFAULT '',
+	teardown_herdr_state TEXT NOT NULL DEFAULT '',
+	teardown_worktree_state TEXT NOT NULL DEFAULT '',
+	teardown_completion_state TEXT NOT NULL DEFAULT '',
 	UNIQUE (task_id, ordinal)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS attempt_one_active
@@ -342,6 +366,7 @@ var attemptColumnNames = []string{
 	"launch_submitted_at", "launch_confirmed_at",
 	"status_changed_at", "status_changed_for", "done_verified", "last_report_state", "last_report_note",
 	"send_undelivered_message", "send_undelivered_at", "parked_fired_for", "usage_limit_retry_at", "usage_limit_attempts",
+	"teardown_terminal_attempt", "teardown_disposition", "teardown_herdr_state", "teardown_worktree_state", "teardown_completion_state",
 }
 
 var attemptColumns = strings.Join(attemptColumnNames, ", ")
@@ -383,7 +408,8 @@ func attemptValues(a Attempt) []any {
 		a.Herdr.Session, a.Herdr.WorkspaceID, a.Herdr.TabID, a.Herdr.PaneID, a.CreatedAt, a.PaneStartedAt,
 		a.LaunchSubmittedAt, a.LaunchConfirmedAt,
 		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
-		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts}
+		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts,
+		a.TeardownTerminalAttempt, a.TeardownDisposition, a.TeardownHerdrState, a.TeardownWorktreeState, a.TeardownCompletionState}
 }
 
 func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
@@ -392,7 +418,8 @@ func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
 		&a.Herdr.Session, &a.Herdr.WorkspaceID, &a.Herdr.TabID, &a.Herdr.PaneID, &a.CreatedAt, &a.PaneStartedAt,
 		&a.LaunchSubmittedAt, &a.LaunchConfirmedAt,
 		&a.StatusChangedAt, &a.StatusChangedFor, &a.DoneVerified, &a.LastReportState, &a.LastReportNote,
-		&a.SendUndeliveredMessage, &a.SendUndeliveredAt, &a.ParkedFiredFor, &a.UsageLimitRetryAt, &a.UsageLimitAttempts)
+		&a.SendUndeliveredMessage, &a.SendUndeliveredAt, &a.ParkedFiredFor, &a.UsageLimitRetryAt, &a.UsageLimitAttempts,
+		&a.TeardownTerminalAttempt, &a.TeardownDisposition, &a.TeardownHerdrState, &a.TeardownWorktreeState, &a.TeardownCompletionState)
 	return a, err
 }
 
@@ -713,12 +740,14 @@ func (db *DB) UpdateAttempt(a Attempt) error {
 		worktree = ?, lease_id = ?, herdr_session = ?, herdr_workspace_id = ?, herdr_tab_id = ?, herdr_pane_id = ?,
 		created_at = ?, pane_started_at = ?, launch_submitted_at = ?, launch_confirmed_at = ?, status_changed_at = ?, status_changed_for = ?, done_verified = ?,
 		last_report_state = ?, last_report_note = ?, send_undelivered_message = ?, send_undelivered_at = ?,
-		parked_fired_for = ?, usage_limit_retry_at = ?, usage_limit_attempts = ? WHERE id = ?`,
+		parked_fired_for = ?, usage_limit_retry_at = ?, usage_limit_attempts = ?, teardown_terminal_attempt = ?, teardown_disposition = ?,
+		teardown_herdr_state = ?, teardown_worktree_state = ?, teardown_completion_state = ? WHERE id = ?`,
 		a.TaskID, a.Ordinal, a.Lifecycle, a.Harness, a.Model, a.Effort, a.Worktree, a.LeaseID,
 		a.Herdr.Session, a.Herdr.WorkspaceID, a.Herdr.TabID, a.Herdr.PaneID, a.CreatedAt, a.PaneStartedAt,
 		a.LaunchSubmittedAt, a.LaunchConfirmedAt,
 		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
-		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts, a.ID)
+		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts,
+		a.TeardownTerminalAttempt, a.TeardownDisposition, a.TeardownHerdrState, a.TeardownWorktreeState, a.TeardownCompletionState, a.ID)
 	if err != nil {
 		return fmt.Errorf("update attempt %d: %w", a.ID, err)
 	}
@@ -1100,6 +1129,108 @@ func (db *DB) MarkAttemptRunning(taskID string, attemptID int64) error {
 		return fmt.Errorf("%w: attempt launch is not confirmed", ErrInvalidTransition)
 	}
 	return fmt.Errorf("%w: attempt %d is already %s", ErrLifecycleConflict, attemptID, lifecycle)
+}
+
+func (db *DB) SetAttemptTeardownDecision(taskID string, attemptID int64, terminal AttemptLifecycle, disposition string) error {
+	if terminal != AttemptCompleted && terminal != AttemptInterrupted {
+		return fmt.Errorf("%w: teardown terminal lifecycle %s", ErrInvalidTransition, terminal)
+	}
+	result, err := db.sql.Exec(`UPDATE attempt SET teardown_terminal_attempt = ?, teardown_disposition = ?
+		WHERE id = ? AND task_id = ? AND lifecycle IN ('provisioning', 'running')
+		AND teardown_terminal_attempt = ''
+		AND EXISTS (SELECT 1 FROM task WHERE id = ? AND lifecycle = 'open' AND active_attempt_id = ?)`, terminal, disposition, attemptID, taskID, taskID, attemptID)
+	if err != nil {
+		return fmt.Errorf("record teardown decision for attempt %d: %w", attemptID, err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("record teardown decision for attempt %d: %w", attemptID, err)
+	} else if affected == 1 {
+		return nil
+	}
+	var current AttemptLifecycle
+	var currentDisposition string
+	if err := db.sql.QueryRow(`SELECT teardown_terminal_attempt, teardown_disposition FROM attempt WHERE id = ? AND task_id = ?`, attemptID, taskID).Scan(&current, &currentDisposition); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: task %q no longer owns active attempt %d", ErrOwnershipConflict, taskID, attemptID)
+	} else if err != nil {
+		return fmt.Errorf("read teardown decision for attempt %d: %w", attemptID, err)
+	}
+	if current == terminal && currentDisposition == disposition {
+		return nil
+	}
+	return fmt.Errorf("%w: teardown decision for attempt %d is already %s/%s", ErrLifecycleConflict, attemptID, current, currentDisposition)
+}
+
+func (db *DB) SetAttemptTeardownResourceState(taskID string, attemptID int64, expected AttemptLifecycle, resource, next string) error {
+	column := ""
+	switch resource {
+	case "herdr":
+		column = "teardown_herdr_state"
+	case "worktree":
+		column = "teardown_worktree_state"
+	default:
+		return fmt.Errorf("%w: unknown teardown resource %q", ErrInvalidTransition, resource)
+	}
+	if next != TeardownResourceReleasing && next != TeardownResourceReleased && next != TeardownResourceAmbiguous && next != TeardownResourceRetryable {
+		return fmt.Errorf("%w: unknown teardown resource state %q", ErrInvalidTransition, next)
+	}
+	currentAllowed := "''"
+	switch next {
+	case TeardownResourceReleasing:
+		currentAllowed = "'', 'retryable'"
+	case TeardownResourceReleased, TeardownResourceRetryable:
+		currentAllowed = "'releasing'"
+	case TeardownResourceAmbiguous:
+		currentAllowed = "'releasing', 'retryable', ''"
+	}
+	query := `UPDATE attempt SET ` + column + ` = ? WHERE id = ? AND task_id = ? AND lifecycle = ? AND ` + column + ` IN (` + currentAllowed + `)`
+	result, err := db.sql.Exec(query, next, attemptID, taskID, expected)
+	if err != nil {
+		return fmt.Errorf("record teardown %s state for attempt %d: %w", resource, attemptID, err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("record teardown %s state for attempt %d: %w", resource, attemptID, err)
+	} else if affected == 1 {
+		return nil
+	}
+	var current string
+	if err := db.sql.QueryRow(`SELECT `+column+` FROM attempt WHERE id = ? AND task_id = ?`, attemptID, taskID).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: task %q no longer owns attempt %d", ErrOwnershipConflict, taskID, attemptID)
+	} else if err != nil {
+		return fmt.Errorf("read teardown %s state for attempt %d: %w", resource, attemptID, err)
+	}
+	if current == next {
+		return nil
+	}
+	return fmt.Errorf("%w: teardown %s state for attempt %d is already %q", ErrLifecycleConflict, resource, attemptID, current)
+}
+
+func (db *DB) SetAttemptTeardownCompletionState(taskID string, attemptID int64, expected AttemptLifecycle, next string) error {
+	if next != TeardownCompletionPending && next != TeardownCompletionAppended {
+		return fmt.Errorf("%w: unknown teardown completion state %q", ErrInvalidTransition, next)
+	}
+	allowed := "''"
+	if next == TeardownCompletionAppended {
+		allowed = "'pending'"
+	}
+	result, err := db.sql.Exec(`UPDATE attempt SET teardown_completion_state = ? WHERE id = ? AND task_id = ? AND lifecycle = ? AND teardown_completion_state IN (`+allowed+`)`, next, attemptID, taskID, expected)
+	if err != nil {
+		return fmt.Errorf("record teardown completion state for attempt %d: %w", attemptID, err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("record teardown completion state for attempt %d: %w", attemptID, err)
+	} else if affected == 1 {
+		return nil
+	}
+	var current string
+	if err := db.sql.QueryRow(`SELECT teardown_completion_state FROM attempt WHERE id = ? AND task_id = ?`, attemptID, taskID).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: task %q no longer owns attempt %d", ErrOwnershipConflict, taskID, attemptID)
+	} else if err != nil {
+		return fmt.Errorf("read teardown completion state for attempt %d: %w", attemptID, err)
+	}
+	if current == next {
+		return nil
+	}
+	return fmt.Errorf("%w: teardown completion state for attempt %d is already %q", ErrLifecycleConflict, attemptID, current)
 }
 
 func (db *DB) SetAttemptSendTrace(taskID string, attemptID int64, expected AttemptLifecycle, message, at string) error {

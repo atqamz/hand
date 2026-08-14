@@ -124,3 +124,60 @@ func TestTreehouseHeldSlotStartsLeasedAndIsReturnable(t *testing.T) {
 		t.Fatalf("return of a seeded lease exit %d, want 0", code)
 	}
 }
+
+func TestTreehouseStatusReportsDurableLeaseIdentity(t *testing.T) {
+	bin := Bin(t)
+	slot := filepath.Join(t.TempDir(), "wt")
+	InitRepo(t, slot)
+	Treehouse{Slots: []string{slot}}.Install(t, bin)
+
+	got, _, code := runTreehouse(t, slot, "get", "--lease", "--json")
+	if code != 0 {
+		t.Fatalf("get exit %d, want 0", code)
+	}
+	var lease struct {
+		Path    string `json:"path"`
+		LeaseID string `json:"lease_id"`
+	}
+	if err := json.Unmarshal([]byte(got), &lease); err != nil {
+		t.Fatalf("parse get output %q: %v", got, err)
+	}
+	status, _, code := runTreehouse(t, slot, "status", "--json")
+	if code != 0 {
+		t.Fatalf("status exit %d, want 0", code)
+	}
+	var entries []struct {
+		Path    string `json:"path"`
+		Status  string `json:"status"`
+		LeaseID string `json:"lease_id"`
+	}
+	if err := json.Unmarshal([]byte(status), &entries); err != nil {
+		t.Fatalf("parse status output %q: %v", status, err)
+	}
+	if len(entries) != 1 || entries[0].Path != lease.Path || entries[0].Status != "leased" || entries[0].LeaseID != lease.LeaseID {
+		t.Fatalf("status = %+v, want leased %s with identity %s", entries, lease.Path, lease.LeaseID)
+	}
+}
+
+func TestTreehouseStatusKeepsHeldStateWithoutLeaseIdentity(t *testing.T) {
+	bin := Bin(t)
+	slot := filepath.Join(t.TempDir(), "wt")
+	InitRepo(t, slot)
+	Treehouse{Slots: []string{slot}, Held: []string{slot}, NoLeaseIdentity: true}.Install(t, bin)
+
+	status, _, code := runTreehouse(t, slot, "status", "--json")
+	if code != 0 {
+		t.Fatalf("status exit %d, want 0", code)
+	}
+	var entries []struct {
+		Path    string `json:"path"`
+		Status  string `json:"status"`
+		LeaseID string `json:"lease_id"`
+	}
+	if err := json.Unmarshal([]byte(status), &entries); err != nil {
+		t.Fatalf("parse status output %q: %v", status, err)
+	}
+	if len(entries) != 1 || entries[0].Path != slot || entries[0].Status != "leased" || entries[0].LeaseID != "" {
+		t.Fatalf("status = %+v, want leased %s without an identity", entries, slot)
+	}
+}

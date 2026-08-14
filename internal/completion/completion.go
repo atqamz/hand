@@ -16,12 +16,14 @@ import (
 
 // Record is one task's teardown outcome.
 type Record struct {
-	ID         string `json:"id"`
-	Project    string `json:"project"`
-	Kind       string `json:"kind"`
-	Outcome    string `json:"outcome"`
-	Detail     string `json:"detail"`
-	TornDownAt string `json:"torndown_at"`
+	ID               string `json:"id"`
+	Project          string `json:"project"`
+	Kind             string `json:"kind"`
+	Outcome          string `json:"outcome"`
+	Detail           string `json:"detail"`
+	TornDownAt       string `json:"torndown_at"`
+	AttemptID        int64  `json:"attempt_id,omitempty"`
+	AttemptLifecycle string `json:"attempt_lifecycle,omitempty"`
 }
 
 func Path(homeDir string) string {
@@ -93,4 +95,38 @@ func List(homeDir string) ([]Record, error) {
 		return nil, fmt.Errorf("read completions store: %w", err)
 	}
 	return records, nil
+}
+
+// Recovery lookup reads the append-only audit file only for a known teardown
+// attempt. An absent AttemptID is intentionally never inferred.
+func FindAttempt(homeDir string, attemptID int64) (Record, bool, error) {
+	if attemptID == 0 {
+		return Record{}, false, nil
+	}
+	f, err := os.Open(Path(homeDir))
+	if os.IsNotExist(err) {
+		return Record{}, false, nil
+	}
+	if err != nil {
+		return Record{}, false, fmt.Errorf("open completions store: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var record Record
+		if err := json.Unmarshal(line, &record); err != nil || record.AttemptID != attemptID {
+			continue
+		}
+		return record, true, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return Record{}, false, fmt.Errorf("read completions store: %w", err)
+	}
+	return Record{}, false, nil
 }

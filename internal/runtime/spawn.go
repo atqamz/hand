@@ -1,0 +1,103 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/state"
+)
+
+func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
+	projectInfo, exists, err := project.Find(req.Home, req.Project)
+	if err != nil {
+		return Result{}, err
+	}
+	if !exists {
+		return Result{}, Precondition(fmt.Errorf("project %q not registered", req.Project))
+	}
+	warnings, err := r.gatePreflight(projectInfo, filepath.Join(req.Home, "projects", projectInfo.Name), req.SkipGateCheck)
+	if err != nil {
+		return Result{}, err
+	}
+	fail := func(err error) (Result, error) { return Result{}, WithWarnings(err, warnings) }
+
+	releaseClaim, err := state.Claim(req.Home, req.ID)
+	if err != nil {
+		if errors.Is(err, state.ErrTaskActive) {
+			return fail(Precondition(err))
+		}
+		return fail(err)
+	}
+	defer releaseClaim()
+
+	held, hasHold, err := state.ReadHold(req.Home, req.ID)
+	if err != nil {
+		return fail(err)
+	}
+	if hasHold {
+		return fail(Precondition(fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", req.ID, held.Kind, held.Reason, req.ID)))
+	}
+
+	briefRel := filepath.Join("data", req.ID, "brief.md")
+	briefPath := filepath.Join(req.Home, briefRel)
+	if _, err := os.Stat(briefPath); err != nil {
+		return fail(Precondition(fmt.Errorf("brief not found at %s", briefRel)))
+	}
+	harnessName, err := requestedHarness(req.Harness, req.HarnessFromFlag)
+	if err != nil {
+		return fail(err)
+	}
+	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
+	if err != nil {
+		return fail(err)
+	}
+	warnings = append(warnings, tier.Warnings...)
+
+	kind := req.Kind
+	if kind == "" {
+		kind = state.KindShip
+	}
+	createdAt := r.deps.now().Format(time.RFC3339)
+	attempt, err := state.CreateTaskWithAttempt(req.Home, state.Task{
+		ID: req.ID, Project: projectInfo.Name, Kind: kind, Brief: briefRel, Lifecycle: state.TaskOpen, CreatedAt: createdAt,
+	}, state.Attempt{
+		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: tier.Model, Effort: tier.Effort, CreatedAt: createdAt,
+	})
+	if err != nil {
+		return fail(fmt.Errorf("write provisioning state: %w", err))
+	}
+	if err := r.afterPhase(phaseAttemptCreated); err != nil {
+		return fail(err)
+	}
+
+	worktreePath, err := r.provision(ctx, provisioningRequest{
+		home: req.Home, projectName: projectInfo.Name, clonePath: filepath.Join(req.Home, "projects", projectInfo.Name), briefPath: briefPath,
+		harness: harnessName, model: tier.Model, effort: tier.Effort, briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	return Result{
+		ID: req.ID, Project: projectInfo.Name, Kind: kind, Harness: harnessName, Worktree: worktreePath,
+		Warnings: warnings, Help: []string{"Run `hand status " + req.ID + "` to read what this worker reports", "Run `hand send " + req.ID + " <message>` to steer it"},
+	}, nil
+}
+
+func requestedHarness(name string, fromFlag bool) (string, error) {
+	if name == "" {
+		return "", Precondition(fmt.Errorf("current supervisor harness is unknown and no worker harness override is configured; run hand config set harness <name>"))
+	}
+	if harness.IsSupported(name) {
+		return name, nil
+	}
+	if fromFlag {
+		return "", Usage(fmt.Errorf("harness %q not recognized", name))
+	}
+	return "", fmt.Errorf("harness %q not recognized", name)
+}
