@@ -103,8 +103,8 @@ func incompleteHerdrOwnership(ownership state.Herdr) error {
 	if ownership.WorkspaceID == "" && ownership.TabID == "" && ownership.PaneID == "" {
 		return nil
 	}
-	if ownership.WorkspaceID == "" || ownership.TabID == "" {
-		return fmt.Errorf("workspace and tab identity are incomplete (workspace=%q, tab=%q, pane=%q)", ownership.WorkspaceID, ownership.TabID, ownership.PaneID)
+	if ownership.WorkspaceID == "" || ownership.TabID == "" || ownership.PaneID == "" {
+		return fmt.Errorf("workspace, tab, and pane identity are incomplete (workspace=%q, tab=%q, pane=%q)", ownership.WorkspaceID, ownership.TabID, ownership.PaneID)
 	}
 	return nil
 }

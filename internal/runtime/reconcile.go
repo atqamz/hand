@@ -527,10 +527,6 @@ func (r *Runtime) classifyHerdrTab(home string, client herdrClient, workspace he
 			release()
 			return nil, nil
 		}
-		if state.ValidateID(freshTab.Label) != nil {
-			release()
-			return unattributedHerdrAnomaly(workspace, freshTab), nil
-		}
 		anomaly, matched, err := classifyLockedHerdrHistory(client, workspace, freshTab, history)
 		release()
 		if err != nil {
@@ -898,7 +894,7 @@ func terminalRepairEvidenceResolved(code string, attempt state.Attempt) bool {
 
 func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attempt) (reconciliationObservation, error) {
 	observation := reconciliationObservation{}
-	skipHerdrObservation := attempt.Lifecycle == state.AttemptProvisioning && attempt.Herdr.PaneID != "" && attempt.LaunchSubmittedAt == ""
+	skipHerdrObservation := attempt.Lifecycle == state.AttemptProvisioning && attempt.Herdr.WorkspaceID != "" && attempt.Herdr.TabID != "" && attempt.Herdr.PaneID != "" && attempt.LaunchSubmittedAt == ""
 	if attempt.Worktree != "" {
 		observeLease := r.deps.worktree.observeLease
 		if observeLease == nil {
@@ -921,7 +917,7 @@ func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attemp
 			observation.Worktree.State = worktreeState(clean)
 		}
 	}
-	if attempt.Herdr.PaneID != "" && !skipHerdrObservation {
+	if hasHerdrIdentity(attempt.Herdr) && !skipHerdrObservation {
 		var err error
 		observation.Herdr, err = observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
@@ -1052,10 +1048,8 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 }
 
 func decideProvisioning(attempt state.Attempt, observation reconciliationObservation, decision reconciliationDecision) reconciliationDecision {
-	if attempt.Herdr.WorkspaceID != "" || attempt.Herdr.TabID != "" {
-		if attempt.Herdr.PaneID == "" {
-			return repairDecision(decision, repairCodeHerdrOwnershipIncomplete, "persisted Herdr workspace or tab identity has no pane identity")
-		}
+	if hasHerdrIdentity(attempt.Herdr) && incompleteHerdrOwnership(attempt.Herdr) != nil {
+		return repairDecision(decision, repairCodeHerdrOwnershipIncomplete, "persisted Herdr ownership identity is incomplete")
 	}
 	if attempt.Herdr.PaneID != "" {
 		if attempt.LaunchSubmittedAt == "" {

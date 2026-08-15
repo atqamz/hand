@@ -186,6 +186,25 @@ func TestObserveHerdrOwnershipRequiresAllDurableIdentityEdges(t *testing.T) {
 	}
 }
 
+func TestObserveHerdrOwnershipRejectsEachIncompleteIdentity(t *testing.T) {
+	client := &reconcileHerdrClient{}
+	for name, ownership := range map[string]state.Herdr{
+		"missing workspace": {TabID: "tab-1", PaneID: "pane-1"},
+		"missing tab":       {WorkspaceID: "ws-1", PaneID: "pane-1"},
+		"missing pane":      {WorkspaceID: "ws-1", TabID: "tab-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			observation, err := observeHerdrOwnership(client, ownership, "task-1", "demo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observation.State != herdrOwnershipIncomplete {
+				t.Fatalf("observation = %+v, want incomplete ownership", observation)
+			}
+		})
+	}
+}
+
 func TestObserveHerdrOwnershipPreservesObservationFailures(t *testing.T) {
 	client := &reconcileHerdrClient{err: errors.New("herdr service unavailable")}
 	_, err := observeHerdrOwnership(client, state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, "task-1", "demo")
@@ -1404,7 +1423,7 @@ func (*releasedInventoryReconcileHerdr) WorkspaceList() ([]herdr.Workspace, erro
 }
 
 func (*releasedInventoryReconcileHerdr) TabList(string) ([]herdr.Tab, error) {
-	return []herdr.Tab{{TabID: "tab-released", WorkspaceID: "ws-released", Label: "task-1"}}, nil
+	return []herdr.Tab{{TabID: "tab-released", WorkspaceID: "ws-released", Label: "malformed label"}}, nil
 }
 
 func (*releasedInventoryReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
