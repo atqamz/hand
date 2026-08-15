@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -574,15 +575,58 @@ func TestReconcileDoesNotClearUnknownRepairAfterTerminalTeardown(t *testing.T) {
 	if err := state.SetTaskRepair(home, "task-1", "operator-review-required", "unknown contradiction", attempt.ID, "2026-08-15T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+	report, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.Task.RepairCode != "operator-review-required" {
+	if len(report.Results) != 1 || report.Results[0].Outcome != reconcileOutcomeRepair || report.Results[0].RepairCode != "operator-review-required" || history.Task.RepairCode != "operator-review-required" {
 		t.Fatalf("repair code = %q, want unknown marker retained", history.Task.RepairCode)
+	}
+}
+
+func TestReconcileRunningOwnershipRepairClearsWithDirtyExactLease(t *testing.T) {
+	task := state.Task{ID: "task-1", RepairCode: repairCodeWorktreeOwnershipMismatch, RepairAttemptID: 7}
+	attempt := state.Attempt{ID: 7, Lifecycle: state.AttemptRunning, Worktree: "/pool/1", LeaseID: "lease-1"}
+	observation := reconciliationObservation{
+		Treehouse: treehouseObservation{State: treehouseLeaseExact},
+		Worktree:  worktreeObservation{State: worktreeDirty},
+	}
+	if !shouldClearRepair(task, attempt, observation) {
+		t.Fatal("shouldClearRepair() = false, want exact running lease to clear ownership-only repair despite dirt")
+	}
+}
+
+func TestReconcileClearsRunningOwnershipRepairWithDirtyWorktree(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskRepair(home, "task-1", repairCodeWorktreeOwnershipMismatch, "previous lease observation was mismatched", attempt.ID, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.worktree.observeClean = func(string) (worktree.Cleanliness, error) { return worktree.Dirty, nil }
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Outcome != reconcileOutcomeHealthy || history.Task.RepairCode != "" || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("report=%+v history=%+v, want healthy running Attempt with ownership repair cleared", report, history)
 	}
 }
 
@@ -974,6 +1018,77 @@ func TestReconcileLocalMergeObservationFailureDoesNotCreateRepair(t *testing.T) 
 	}
 }
 
+func TestReconcileLocalMergeDoesNotInspectReusedTreehousePath(t *testing.T) {
+	home := reconcileFixture(t)
+	_, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/shared", LeaseID: "lease-a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskMerge(home, "task-1", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, Brief: "data/task-2/brief.md"}, state.Attempt{
+		TaskID: "task-2", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/shared", LeaseID: "lease-b",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	observed := 0
+	r.deps.worktree.observeLease = func(path, leaseID string) (worktree.LeaseObservation, error) {
+		observed++
+		if path != "/pool/shared" || leaseID != "lease-a" {
+			t.Fatalf("observeLease(%q, %q), want Task 1 lease", path, leaseID)
+		}
+		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-b"}, nil
+	}
+	branchChecks := 0
+	r.deps.branchMerged = func(string, string) (bool, error) {
+		branchChecks++
+		return false, nil
+	}
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err == nil {
+		t.Fatal("Reconcile succeeded without proving the historical lease")
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed != 1 || branchChecks != 0 || history.Task.RepairCode == repairCodeMergeFactMismatch || report.Results[0].Outcome != reconcileOutcomeBlocked {
+		t.Fatalf("report=%+v history=%+v observed=%d branchChecks=%d, want blocked ABA-safe observation", report, history.Task, observed, branchChecks)
+	}
+}
+
+func TestReconcileLocalMergeHoldsProjectAndWorktreeLocks(t *testing.T) {
+	home := reconcileFixture(t)
+	if _, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/shared", LeaseID: "lease-a",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskMerge(home, "task-1", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.branchMerged = func(string, string) (bool, error) {
+		for _, lockName := range []string{"project:demo", "worktree:/pool/shared"} {
+			release, err := state.TryLock(home, lockName)
+			if release != nil {
+				release()
+			}
+			if !errors.Is(err, state.ErrLockBusy) {
+				return false, fmt.Errorf("%s was not held during local Git observation", lockName)
+			}
+		}
+		return true, nil
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReconcileResumesPartialTeardownWithoutChangingDisposition(t *testing.T) {
 	home := reconcileFixture(t)
 	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
@@ -1021,6 +1136,91 @@ func TestReconcileFleetReportsUnattributedHandTabWithoutClaimingOwnership(t *tes
 	anomaly := report.Anomalies[0]
 	if anomaly.Kind != "unattributed-herdr-tab" || anomaly.WorkspaceID != "ws-orphan" || anomaly.TabID != "tab-orphan" || anomaly.OwnerAttemptID != 0 {
 		t.Fatalf("anomaly = %+v, want unattributed identity without owner", anomaly)
+	}
+}
+
+func TestObserveHerdrOrphansRechecksOwnershipAfterTaskLock(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &inventoryRaceReconcileHerdr{}
+	client.beforeWorkspaceList = func() error {
+		release, err := state.Lock(home, "task:task-1")
+		if err != nil {
+			return err
+		}
+		defer release()
+		return state.RecordAttemptHerdr(home, "task-1", attempt.ID, state.Herdr{Session: "default", WorkspaceID: "ws-race", TabID: "tab-race", PaneID: "pane-race"}, "2026-08-15T00:00:00Z")
+	}
+	r := reconcileRuntime(client, nil)
+	anomalies, err := r.observeHerdrOrphans(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.beforeWorkspaceListCalls != 1 || client.tabListCalls < 2 || len(anomalies) != 0 {
+		t.Fatalf("calls=%d tabs=%d anomalies=%+v, want locked fresh ownership with no anomaly", client.beforeWorkspaceListCalls, client.tabListCalls, anomalies)
+	}
+}
+
+func TestObserveHerdrOrphansReportsReleasedHistoricalResource(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Herdr: state.Herdr{Session: "default", WorkspaceID: "ws-released", TabID: "tab-released", PaneID: "pane-released"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptProvisioning, state.AttemptInterrupted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptInterrupted, "herdr", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptInterrupted, "herdr", state.TeardownResourceReleased); err != nil {
+		t.Fatal(err)
+	}
+	client := &releasedInventoryReconcileHerdr{}
+	anomalies, err := reconcileRuntime(client, nil).observeHerdrOrphans(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anomalies) != 1 || anomalies[0].Kind != "released-herdr-resource" || anomalies[0].OwnerAttemptID != attempt.ID {
+		t.Fatalf("anomalies=%+v, want attributed released-resource anomaly for Attempt %d", anomalies, attempt.ID)
+	}
+}
+
+func TestObserveHerdrOrphansReportsReleasedIdentityAlongsideReopenedAttempt(t *testing.T) {
+	home := reconcileFixture(t)
+	identity := state.Herdr{Session: "default", WorkspaceID: "ws-reused", TabID: "tab-reused", PaneID: "pane-reused"}
+	oldAttempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Herdr: identity,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", oldAttempt.ID, state.AttemptProvisioning, state.AttemptInterrupted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", oldAttempt.ID, state.AttemptInterrupted, "herdr", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", oldAttempt.ID, state.AttemptInterrupted, "herdr", state.TeardownResourceReleased); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ReopenTask(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Herdr: identity}); err != nil {
+		t.Fatal(err)
+	}
+	client := &releasedReopenInventoryReconcileHerdr{}
+	anomalies, err := reconcileRuntime(client, nil).observeHerdrOrphans(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anomalies) != 1 || anomalies[0].Kind != "released-herdr-resource" || anomalies[0].OwnerAttemptID != oldAttempt.ID {
+		t.Fatalf("anomalies=%+v, want released historical Attempt %d anomaly despite active reuse", anomalies, oldAttempt.ID)
 	}
 }
 
@@ -1079,12 +1279,71 @@ type missingReconcileHerdr struct{ healthyReconcileHerdr }
 
 type inventoryReconcileHerdr struct{ healthyReconcileHerdr }
 
+type inventoryRaceReconcileHerdr struct {
+	healthyReconcileHerdr
+	beforeWorkspaceList      func() error
+	beforeWorkspaceListCalls int
+	tabListCalls             int
+}
+
+type releasedInventoryReconcileHerdr struct{ healthyReconcileHerdr }
+
+type releasedReopenInventoryReconcileHerdr struct{ healthyReconcileHerdr }
+
 func (*inventoryReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) {
 	return []herdr.Workspace{{WorkspaceID: "ws-orphan", Label: "hand:demo"}}, nil
 }
 
 func (*inventoryReconcileHerdr) TabList(string) ([]herdr.Tab, error) {
 	return []herdr.Tab{{TabID: "tab-orphan", WorkspaceID: "ws-orphan", Label: "orphan-task"}}, nil
+}
+
+func (f *inventoryRaceReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) {
+	f.beforeWorkspaceListCalls++
+	if f.beforeWorkspaceList != nil {
+		if err := f.beforeWorkspaceList(); err != nil {
+			return nil, err
+		}
+		f.beforeWorkspaceList = nil
+	}
+	return []herdr.Workspace{{WorkspaceID: "ws-race", Label: "hand:demo"}}, nil
+}
+
+func (f *inventoryRaceReconcileHerdr) TabList(string) ([]herdr.Tab, error) {
+	f.tabListCalls++
+	return []herdr.Tab{{TabID: "tab-race", WorkspaceID: "ws-race", Label: "task-1"}}, nil
+}
+
+func (f *inventoryRaceReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
+	return herdr.Workspace{WorkspaceID: "ws-race", Label: "hand:demo"}, true, nil
+}
+
+func (f *inventoryRaceReconcileHerdr) PaneGet(string) (herdr.Pane, error) {
+	return herdr.Pane{PaneID: "pane-race", TabID: "tab-race", WorkspaceID: "ws-race", Agent: "claude"}, nil
+}
+
+func (*releasedInventoryReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) {
+	return []herdr.Workspace{{WorkspaceID: "ws-released", Label: "hand:demo"}}, nil
+}
+
+func (*releasedInventoryReconcileHerdr) TabList(string) ([]herdr.Tab, error) {
+	return []herdr.Tab{{TabID: "tab-released", WorkspaceID: "ws-released", Label: "task-1"}}, nil
+}
+
+func (*releasedInventoryReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
+	return herdr.Workspace{WorkspaceID: "ws-released", Label: "hand:demo"}, true, nil
+}
+
+func (*releasedInventoryReconcileHerdr) PaneGet(string) (herdr.Pane, error) {
+	return herdr.Pane{PaneID: "pane-released", TabID: "tab-released", WorkspaceID: "ws-released", Agent: "claude"}, nil
+}
+
+func (*releasedReopenInventoryReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) {
+	return []herdr.Workspace{{WorkspaceID: "ws-reused", Label: "hand:demo"}}, nil
+}
+
+func (*releasedReopenInventoryReconcileHerdr) TabList(string) ([]herdr.Tab, error) {
+	return []herdr.Tab{{TabID: "tab-reused", WorkspaceID: "ws-reused", Label: "task-1"}}, nil
 }
 
 func (*missingReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {

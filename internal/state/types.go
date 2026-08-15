@@ -20,6 +20,7 @@ const (
 // to, and a second definition would be one more place to forget a field.
 type (
 	Herdr            = store.Herdr
+	HerdrOwnership   = store.HerdrOwnership
 	Task             = store.Task
 	Attempt          = store.Attempt
 	TaskHistory      = store.TaskHistory

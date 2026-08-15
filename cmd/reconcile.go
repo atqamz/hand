@@ -64,7 +64,11 @@ func renderReconcileReport(cmd *cobra.Command, report runtime.ReconcileReport, a
 	if len(report.Anomalies) > 0 {
 		anomalies := make([]string, 0, len(report.Anomalies))
 		for _, anomaly := range report.Anomalies {
-			anomalies = append(anomalies, fmt.Sprintf("%s:%s/%s", anomaly.Kind, anomaly.WorkspaceID, anomaly.TabID))
+			owner := "unattributed"
+			if anomaly.OwnerAttemptID != 0 {
+				owner = fmt.Sprintf("%d", anomaly.OwnerAttemptID)
+			}
+			anomalies = append(anomalies, fmt.Sprintf("%s:%s/%s owner_attempt=%s reason=%s", anomaly.Kind, anomaly.WorkspaceID, anomaly.TabID, owner, anomaly.Reason))
 		}
 		doc.List("anomalies", anomalies)
 	}

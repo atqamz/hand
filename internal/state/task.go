@@ -540,7 +540,7 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 	return db.ListReconciliationHistories()
 }
 
-func ListHerdrOwnerships(homeDir string) ([]Herdr, error) {
+func ListHerdrOwnerships(homeDir string) ([]HerdrOwnership, error) {
 	db, err := store.Open(homeDir)
 	if err != nil {
 		return nil, err

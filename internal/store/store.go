@@ -58,6 +58,17 @@ type Herdr struct {
 	PaneID      string `json:"pane_id"`
 }
 
+type HerdrOwnership struct {
+	AttemptID          int64            `json:"attempt_id"`
+	TaskID             string           `json:"task_id"`
+	Lifecycle          AttemptLifecycle `json:"lifecycle"`
+	TeardownHerdrState string           `json:"teardown_herdr_state,omitempty"`
+	Session            string           `json:"session"`
+	WorkspaceID        string           `json:"workspace_id"`
+	TabID              string           `json:"tab_id"`
+	PaneID             string           `json:"pane_id"`
+}
+
 type TaskLifecycle string
 
 const (
@@ -766,16 +777,16 @@ func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
 	return histories, nil
 }
 
-func (db *DB) ListHerdrOwnerships() ([]Herdr, error) {
-	rows, err := db.sql.Query(`SELECT herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id FROM attempt WHERE herdr_workspace_id <> '' OR herdr_tab_id <> '' OR herdr_pane_id <> '' ORDER BY id`)
+func (db *DB) ListHerdrOwnerships() ([]HerdrOwnership, error) {
+	rows, err := db.sql.Query(`SELECT id, task_id, lifecycle, teardown_herdr_state, herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id FROM attempt WHERE herdr_workspace_id <> '' OR herdr_tab_id <> '' OR herdr_pane_id <> '' ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list Herdr ownerships: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var ownerships []Herdr
+	var ownerships []HerdrOwnership
 	for rows.Next() {
-		var ownership Herdr
-		if err := rows.Scan(&ownership.Session, &ownership.WorkspaceID, &ownership.TabID, &ownership.PaneID); err != nil {
+		var ownership HerdrOwnership
+		if err := rows.Scan(&ownership.AttemptID, &ownership.TaskID, &ownership.Lifecycle, &ownership.TeardownHerdrState, &ownership.Session, &ownership.WorkspaceID, &ownership.TabID, &ownership.PaneID); err != nil {
 			return nil, fmt.Errorf("list Herdr ownerships: %w", err)
 		}
 		ownerships = append(ownerships, ownership)

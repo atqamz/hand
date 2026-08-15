@@ -96,6 +96,36 @@ func TestListReconciliationHistoriesIsSortedAndIncludesRepairTasks(t *testing.T)
 	}
 }
 
+func TestListHerdrOwnershipsIncludesLifecycleAndTeardownMetadata(t *testing.T) {
+	home := t.TempDir()
+	attempt, err := CreateTaskWithAttempt(home, Task{ID: "task-1", Project: "demo", Kind: KindShip, Brief: "data/task-1/brief.md"}, Attempt{
+		TaskID: "task-1", Lifecycle: AttemptProvisioning, Harness: "claude", Herdr: Herdr{Session: "default", WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, AttemptProvisioning, AttemptInterrupted); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAttemptTeardownResourceState(home, "task-1", attempt.ID, AttemptInterrupted, "herdr", TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAttemptTeardownResourceState(home, "task-1", attempt.ID, AttemptInterrupted, "herdr", TeardownResourceReleased); err != nil {
+		t.Fatal(err)
+	}
+	ownerships, err := ListHerdrOwnerships(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ownerships) != 1 {
+		t.Fatalf("ownerships = %+v, want one row", ownerships)
+	}
+	got := ownerships[0]
+	if got.AttemptID != attempt.ID || got.TaskID != "task-1" || got.Lifecycle != AttemptInterrupted || got.TeardownHerdrState != TeardownResourceReleased || got.WorkspaceID != "ws-1" || got.TabID != "tab-1" || got.PaneID != "pane-1" {
+		t.Fatalf("ownership = %+v, want durable lifecycle and teardown metadata", got)
+	}
+}
+
 func TestReadHistoryReadOnlySupportsSchemaV10(t *testing.T) {
 	home := t.TempDir()
 	if _, err := CreateTaskWithAttempt(home, Task{ID: "task-1", Project: "demo", Kind: KindShip, Brief: "data/task-1/brief.md"}, Attempt{
