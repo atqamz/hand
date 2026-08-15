@@ -82,6 +82,9 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 
 	client, err := connect(ctx)
 	if err != nil {
+		if errors.Is(err, ErrNoEvent) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("%w within %s: %w", ErrNoEvent, cfg.Timeout, err)
+		}
 		return err
 	}
 
