@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
@@ -106,6 +107,64 @@ func incompleteHerdrOwnership(ownership state.Herdr) error {
 		return fmt.Errorf("workspace and tab identity are incomplete (workspace=%q, tab=%q, pane=%q)", ownership.WorkspaceID, ownership.TabID, ownership.PaneID)
 	}
 	return nil
+}
+
+func hasHerdrIdentity(ownership state.Herdr) bool {
+	return ownership.WorkspaceID != "" || ownership.TabID != "" || ownership.PaneID != ""
+}
+
+func observeHerdrOwnership(client herdrClient, expected state.Herdr, taskID, projectName string) (herdrObservation, error) {
+	if err := incompleteHerdrOwnership(expected); err != nil {
+		return herdrObservation{State: herdrOwnershipIncomplete}, nil
+	}
+	if expected.WorkspaceID == "" && expected.TabID == "" && expected.PaneID == "" {
+		return herdrObservation{State: herdrOwnershipUnobserved}, nil
+	}
+	workspace, found, err := client.FindWorkspaceByLabel(herdrWorkspaceLabel(projectName))
+	if err != nil {
+		return herdrObservation{}, fmt.Errorf("find Herdr workspace: %w", err)
+	}
+	if !found {
+		return herdrObservation{State: herdrOwnershipAbsent}, nil
+	}
+	if workspace.WorkspaceID != expected.WorkspaceID || workspace.Label != herdrWorkspaceLabel(projectName) {
+		return herdrObservation{State: herdrOwnershipMismatch}, nil
+	}
+	tabs, err := client.TabList(workspace.WorkspaceID)
+	if err != nil {
+		return herdrObservation{}, fmt.Errorf("list Herdr tabs: %w", err)
+	}
+	var tab herdr.Tab
+	foundTab := false
+	for _, candidate := range tabs {
+		if candidate.TabID == expected.TabID {
+			tab = candidate
+			foundTab = true
+			break
+		}
+	}
+	if !foundTab {
+		return herdrObservation{State: herdrOwnershipAbsent}, nil
+	}
+	if tab.WorkspaceID != expected.WorkspaceID || tab.Label != taskID {
+		return herdrObservation{State: herdrOwnershipMismatch}, nil
+	}
+	pane, err := client.PaneGet(expected.PaneID)
+	if err != nil {
+		if isHerdrNotFound(err) {
+			return herdrObservation{State: herdrOwnershipAbsent}, nil
+		}
+		return herdrObservation{}, fmt.Errorf("read Herdr pane: %w", err)
+	}
+	if pane.PaneID != expected.PaneID || pane.TabID != expected.TabID || pane.WorkspaceID != expected.WorkspaceID {
+		return herdrObservation{State: herdrOwnershipMismatch}, nil
+	}
+	return herdrObservation{State: herdrOwnershipExact, Agent: pane.Agent}, nil
+}
+
+func isHerdrNotFound(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "not_found") || strings.Contains(message, "not found")
 }
 
 // CloseTaskTab closes a task-owned tab without touching unrelated tabs.

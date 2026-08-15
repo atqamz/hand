@@ -43,6 +43,59 @@ func TestWriteReadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRepairMarkerRequiresMatchingEvidenceToClear(t *testing.T) {
+	home := t.TempDir()
+	if _, err := CreateTaskWithAttempt(home, Task{ID: "task-1", Project: "demo", Kind: KindShip, Brief: "data/task-1/brief.md"}, Attempt{
+		TaskID: "task-1", Lifecycle: AttemptProvisioning, Harness: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetTaskRepair(home, "task-1", "running-pane-missing", "persisted running Attempt has no matching Herdr pane", 1, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClearTaskRepair(home, "task-1", "different-code"); err == nil {
+		t.Fatal("ClearTaskRepair with stale code succeeded")
+	}
+	history, err := ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != "running-pane-missing" || history.Task.RepairAttemptID != 1 {
+		t.Fatalf("stale clear changed repair marker: %+v", history.Task)
+	}
+	if err := ClearTaskRepair(home, "task-1", "running-pane-missing"); err != nil {
+		t.Fatal(err)
+	}
+	history, err = ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != "" || history.Task.RepairReason != "" || history.Task.RepairAttemptID != 0 || history.Task.RepairObservedAt != "" {
+		t.Fatalf("matching clear left repair marker: %+v", history.Task)
+	}
+}
+
+func TestListReconciliationHistoriesIsSortedAndIncludesRepairTasks(t *testing.T) {
+	home := t.TempDir()
+	for _, id := range []string{"zebra", "apple"} {
+		if _, err := CreateTaskWithAttempt(home, Task{ID: id, Project: "demo", Kind: KindShip, Brief: "data/" + id + "/brief.md"}, Attempt{
+			TaskID: id, Lifecycle: AttemptProvisioning, Harness: "claude",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := SetTaskRepair(home, "zebra", "worktree-dirty", "worktree is dirty", 2, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	histories, err := ListReconciliationHistories(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(histories) != 2 || histories[0].Task.ID != "apple" || histories[1].Task.ID != "zebra" {
+		t.Fatalf("candidate order = %+v", histories)
+	}
+}
+
 func TestReadHistoryReadOnlySupportsSchemaV10(t *testing.T) {
 	home := t.TempDir()
 	if _, err := CreateTaskWithAttempt(home, Task{ID: "task-1", Project: "demo", Kind: KindShip, Brief: "data/task-1/brief.md"}, Attempt{

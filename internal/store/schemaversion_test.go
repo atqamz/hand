@@ -40,6 +40,69 @@ func TestFreshSchemaIncludesAttemptRoutingProvenance(t *testing.T) {
 	}
 }
 
+func TestFreshSchemaIncludesTaskRepairMetadata(t *testing.T) {
+	db, _ := openTemp(t)
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name IN ('repair_code', 'repair_reason', 'repair_attempt_id', 'repair_observed_at')`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 4 {
+		t.Fatalf("task repair columns = %d, want 4", count)
+	}
+}
+
+func TestMigrationV12AddsEmptyTaskRepairMetadata(t *testing.T) {
+	home := t.TempDir()
+	sqlDB, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &DB{sql: sqlDB, home: home}
+	preV12Schema := strings.NewReplacer(
+		"\tcreated_at        TEXT NOT NULL DEFAULT '',\n", "\tcreated_at        TEXT NOT NULL DEFAULT ''\n",
+		"\trepair_code       TEXT NOT NULL DEFAULT '',\n", "",
+		"\trepair_reason     TEXT NOT NULL DEFAULT '',\n", "",
+		"\trepair_attempt_id INTEGER NOT NULL DEFAULT 0,\n\trepair_observed_at TEXT NOT NULL DEFAULT ''\n", "",
+	).Replace(schema)
+	if _, err := db.sql.Exec(preV12Schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO task (id, project, kind, lifecycle, created_at) VALUES ('legacy', 'demo', 'ship', 'open', '2026-08-15T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO attempt (task_id, ordinal, lifecycle, harness, model, effort, execution_class, planned_against, requested_profile, routing_source) VALUES ('legacy', 1, 'running', 'claude', 'opus', 'high', 'deep', 'base', 'brain', 'route')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`UPDATE task SET active_attempt_id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`PRAGMA user_version = 11`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrated.Close() }()
+	if version, err := migrated.schemaVersion(); err != nil || version != 12 {
+		t.Fatalf("schemaVersion = %d, %v, want 12", version, err)
+	}
+	history, found, err := migrated.ReadTaskHistory("legacy")
+	if err != nil || !found || history.ActiveAttempt == nil {
+		t.Fatalf("ReadTaskHistory = %+v, %v, %v", history, found, err)
+	}
+	if history.Task.RepairCode != "" || history.Task.RepairReason != "" || history.Task.RepairAttemptID != 0 || history.Task.RepairObservedAt != "" {
+		t.Fatalf("migration invented repair state: %+v", history.Task)
+	}
+	if got := history.ActiveAttempt; got.Harness != "claude" || got.Model != "opus" || got.Effort != "high" || got.ExecutionClass != "deep" || got.PlannedAgainst != "base" || got.RequestedProfile != "brain" || got.RoutingSource != "route" {
+		t.Fatalf("migration lost Attempt execution identity: %+v", got)
+	}
+}
+
 func TestMigrationV11AddsEmptyAttemptRoutingProvenance(t *testing.T) {
 	home := t.TempDir()
 	sqlDB, err := open(Path(home))
@@ -48,10 +111,14 @@ func TestMigrationV11AddsEmptyAttemptRoutingProvenance(t *testing.T) {
 	}
 	db := &DB{sql: sqlDB, home: home}
 	preV11Schema := strings.NewReplacer(
+		"\tcreated_at        TEXT NOT NULL DEFAULT '',\n", "\tcreated_at        TEXT NOT NULL DEFAULT ''\n",
 		"\texecution_class        TEXT NOT NULL DEFAULT '',\n", "",
 		"\tplanned_against        TEXT NOT NULL DEFAULT '',\n", "",
 		"\trequested_profile      TEXT NOT NULL DEFAULT '',\n", "",
 		"\trouting_source        TEXT NOT NULL DEFAULT '',\n", "",
+		"\trepair_code       TEXT NOT NULL DEFAULT '',\n", "",
+		"\trepair_reason     TEXT NOT NULL DEFAULT '',\n", "",
+		"\trepair_attempt_id INTEGER NOT NULL DEFAULT 0,\n\trepair_observed_at TEXT NOT NULL DEFAULT ''\n", "",
 	).Replace(schema)
 	if _, err := db.sql.Exec(preV11Schema); err != nil {
 		t.Fatal(err)
@@ -74,8 +141,8 @@ func TestMigrationV11AddsEmptyAttemptRoutingProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = migrated.Close() }()
-	if version, err := migrated.schemaVersion(); err != nil || version != 11 {
-		t.Fatalf("schemaVersion = %d, %v, want 11", version, err)
+	if version, err := migrated.schemaVersion(); err != nil || version != 12 {
+		t.Fatalf("schemaVersion = %d, %v, want 12", version, err)
 	}
 	history, found, err := migrated.ReadTaskHistory("legacy")
 	if err != nil || !found || len(history.Attempts) != 1 {
@@ -90,7 +157,7 @@ func TestMigrationV11AddsEmptyAttemptRoutingProvenance(t *testing.T) {
 	}
 }
 
-func TestUnstampedCurrentSchemaDetectsRoutingProvenance(t *testing.T) {
+func TestUnstampedCurrentSchemaDetectsLatestLayout(t *testing.T) {
 	home := t.TempDir()
 	db, err := Open(home)
 	if err != nil {
@@ -108,8 +175,8 @@ func TestUnstampedCurrentSchemaDetectsRoutingProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = reopened.Close() }()
-	if version, err := reopened.schemaVersion(); err != nil || version != routingProvenanceVersion {
-		t.Fatalf("schemaVersion = %d, %v, want %d", version, err, routingProvenanceVersion)
+	if version, err := reopened.schemaVersion(); err != nil || version != len(migrations) {
+		t.Fatalf("schemaVersion = %d, %v, want %d", version, err, len(migrations))
 	}
 }
 

@@ -52,6 +52,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newProjectCmd())
 	root.AddCommand(newSpawnCmd())
 	root.AddCommand(newStatusCmd())
+	root.AddCommand(newReconcileCmd())
 	root.AddCommand(newSessionCmd(info.Version))
 	root.AddCommand(newSendCmd())
 	root.AddCommand(newHoldCmd())

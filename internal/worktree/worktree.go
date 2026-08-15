@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -34,6 +35,70 @@ type statusEntry struct {
 	Path    string `json:"path"`
 	Status  string `json:"status"`
 	LeaseID string `json:"lease_id"`
+}
+
+type LeaseObservationState string
+
+const (
+	LeaseExact      LeaseObservationState = "exact"
+	LeaseAbsent     LeaseObservationState = "absent"
+	LeaseMismatch   LeaseObservationState = "mismatch"
+	LeaseUnprovable LeaseObservationState = "unprovable"
+)
+
+type LeaseObservation struct {
+	State   LeaseObservationState
+	LeaseID string
+}
+
+type Cleanliness string
+
+const (
+	Clean Cleanliness = "clean"
+	Dirty Cleanliness = "dirty"
+)
+
+func ObserveLease(worktreePath, expectedLeaseID string) (LeaseObservation, error) {
+	if worktreePath == "" {
+		return LeaseObservation{State: LeaseAbsent}, nil
+	}
+	entries, err := treehouseStatus(worktreePath)
+	if err != nil {
+		return LeaseObservation{}, err
+	}
+	for _, entry := range entries {
+		if entry.Path != worktreePath {
+			continue
+		}
+		if entry.Status != "leased" {
+			return LeaseObservation{State: LeaseAbsent, LeaseID: entry.LeaseID}, nil
+		}
+		if expectedLeaseID == "" || entry.LeaseID == "" {
+			return LeaseObservation{State: LeaseUnprovable, LeaseID: entry.LeaseID}, nil
+		}
+		if entry.LeaseID == expectedLeaseID {
+			return LeaseObservation{State: LeaseExact, LeaseID: entry.LeaseID}, nil
+		}
+		return LeaseObservation{State: LeaseMismatch, LeaseID: entry.LeaseID}, nil
+	}
+	if _, err := os.Stat(worktreePath); err == nil {
+		return LeaseObservation{State: LeaseUnprovable}, nil
+	} else if !os.IsNotExist(err) {
+		return LeaseObservation{}, fmt.Errorf("inspect worktree path: %w", err)
+	}
+	return LeaseObservation{State: LeaseAbsent}, nil
+}
+
+func ObserveCleanliness(worktreePath string) (Cleanliness, error) {
+	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain", "--untracked-files=all")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git worktree status failed: %w", err)
+	}
+	if len(out) != 0 {
+		return Dirty, nil
+	}
+	return Clean, nil
 }
 
 // Get acquires a worktree from the project clone's treehouse pool. clonePath must be the project
@@ -125,22 +190,28 @@ func VerifyLease(worktreePath, expectedLeaseID string) error {
 	if worktreePath == "" || expectedLeaseID == "" {
 		return fmt.Errorf("cannot verify treehouse lease without path and lease ID")
 	}
+	observation, err := ObserveLease(worktreePath, expectedLeaseID)
+	if err != nil {
+		return err
+	}
+	if observation.State == LeaseExact {
+		return nil
+	}
+	return fmt.Errorf("treehouse lease for %s does not match expected lease %s", worktreePath, expectedLeaseID)
+}
+
+func treehouseStatus(worktreePath string) ([]statusEntry, error) {
 	cmd := exec.Command("treehouse", "status", "--json")
 	cmd.Dir = worktreePath
 	out, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("treehouse status failed: %w", err)
+		return nil, fmt.Errorf("treehouse status failed: %w", err)
 	}
 	var entries []statusEntry
 	if err := json.Unmarshal(out, &entries); err != nil {
-		return fmt.Errorf("parse treehouse status output: %w", err)
+		return nil, fmt.Errorf("parse treehouse status output: %w", err)
 	}
-	for _, entry := range entries {
-		if entry.Path == worktreePath && entry.Status == "leased" && entry.LeaseID == expectedLeaseID {
-			return nil
-		}
-	}
-	return fmt.Errorf("treehouse lease for %s does not match expected lease %s", worktreePath, expectedLeaseID)
+	return entries, nil
 }
 
 // CheckCollision cross-checks a freshly acquired lease against every other task's recorded one,

@@ -177,6 +177,11 @@ Workers run interactively inside [herdr](https://github.com/ogulcancelik/herdr),
 ### Durable fleet state
 
 Machine state lives in SQLite while operator context, briefs, reports, backlog history, and learnings remain plain files. The fleet survives the supervising agent's session, so a later session can pick up where the previous one stopped.
+SQLite is durable intent and history, while Git, treehouse, herdr, and worker processes are observed reality.
+`hand reconcile` compares those independently owned facts and applies only deterministic, ownership-proven convergence.
+An ambiguous or dirty resource becomes a durable `needs-repair` marker instead of being destroyed.
+Existing Attempts keep their persisted execution snapshot during recovery, so profile changes never reroute them and a missing running pane never causes a silent relaunch.
+`hand status` remains read-only and displays repair markers without attempting cleanup.
 
 ### Safe lifecycle boundaries
 
@@ -407,6 +412,7 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
 | `hand reopen <id>` | Reopen a terminal Task by creating a new Attempt. |
 | `hand status` | Read fleet or task state. |
+| `hand reconcile [id]` | Reconcile one Task or the bounded fleet candidate set with observed external reality. |
 | `hand watch` | Wait for actionable fleet events. |
 | `hand send` | Steer a running worker. |
 | `hand merge` | Merge completed work after authorization. |

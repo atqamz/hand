@@ -390,8 +390,8 @@ func TestReopenSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
 	if _, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatalf("Reopen() = %v, want schema v10 upgrade after route validation", err)
 	}
-	if got := runtimeStoreSchemaVersion(t, home); got != 11 {
-		t.Fatalf("schema version after valid Reopen = %d, want 11", got)
+	if got := runtimeStoreSchemaVersion(t, home); got != 12 {
+		t.Fatalf("schema version after valid Reopen = %d, want 12", got)
 	}
 }
 
@@ -414,8 +414,8 @@ func TestPromoteSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
 	if _, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatalf("Promote() = %v, want schema v10 upgrade after route validation", err)
 	}
-	if got := runtimeStoreSchemaVersion(t, home); got != 11 {
-		t.Fatalf("schema version after valid Promote = %d, want 11", got)
+	if got := runtimeStoreSchemaVersion(t, home); got != 12 {
+		t.Fatalf("schema version after valid Promote = %d, want 12", got)
 	}
 }
 
@@ -519,6 +519,11 @@ func downgradeRuntimeStoreToV10(t *testing.T, home string) {
 	defer func() { _ = db.Close() }()
 	for _, column := range []string{"execution_class", "planned_against", "requested_profile", "routing_source"} {
 		if _, err := db.Exec("ALTER TABLE attempt DROP COLUMN " + column); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, column := range []string{"repair_code", "repair_reason", "repair_attempt_id", "repair_observed_at"} {
+		if _, err := db.Exec("ALTER TABLE task DROP COLUMN " + column); err != nil {
 			t.Fatal(err)
 		}
 	}

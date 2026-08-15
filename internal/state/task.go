@@ -354,6 +354,24 @@ func SetTaskReportState(homeDir, id string, offset int64, digest string, mergeAn
 	return db.SetTaskReportState(id, offset, digest, mergeAnnounced)
 }
 
+func SetTaskRepair(homeDir, id, code, reason string, attemptID int64, observedAt string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskRepair(id, code, reason, attemptID, observedAt)
+}
+
+func ClearTaskRepair(homeDir, id, expectedCode string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ClearTaskRepair(id, expectedCode)
+}
+
 func RecordAttemptWorktree(homeDir, taskID string, attemptID int64, worktree, leaseID string) error {
 	db, err := store.Open(homeDir)
 	if err != nil {
@@ -502,6 +520,24 @@ func ListOpenHistories(homeDir string) ([]TaskHistory, error) {
 	}
 	defer func() { _ = db.Close() }()
 	return db.ListOpenTaskHistories()
+}
+
+func ListReconciliationHistories(homeDir string) ([]TaskHistory, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ListReconciliationHistories()
+}
+
+func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) {
+	db, err := store.OpenReadOnly(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ListReconciliationHistories()
 }
 
 // ListOpenHistoriesReadOnly is ListOpenHistories for a presentation reader: same open-only fleet, off

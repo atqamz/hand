@@ -214,6 +214,40 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	}
 }
 
+func TestStatusRendersRepairWithoutMutatingIt(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskRepair(home, "task-1", "running-pane-missing", "persisted running Attempt has no matching Herdr pane", 1, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "repair: needs-repair") || !strings.Contains(out.String(), "repair_code: running-pane-missing") || !strings.Contains(out.String(), "repair_attempt: 1") {
+		t.Fatalf("status = %q, want repair evidence", out.String())
+	}
+	after, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Task.RepairCode != before.Task.RepairCode || after.Task.RepairReason != before.Task.RepairReason || after.Task.RepairAttemptID != before.Task.RepairAttemptID || after.Task.RepairObservedAt != before.Task.RepairObservedAt {
+		t.Fatalf("status mutated repair marker: before=%+v after=%+v", before.Task, after.Task)
+	}
+}
+
 func TestStatusSingleTaskExecutionSnapshotSurvivesRoutingEdits(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

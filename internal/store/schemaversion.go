@@ -110,6 +110,10 @@ var migrations = []string{
 	ALTER TABLE attempt ADD COLUMN planned_against TEXT NOT NULL DEFAULT '';
 	ALTER TABLE attempt ADD COLUMN requested_profile TEXT NOT NULL DEFAULT '';
 	ALTER TABLE attempt ADD COLUMN routing_source TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE task ADD COLUMN repair_code TEXT NOT NULL DEFAULT '';
+	ALTER TABLE task ADD COLUMN repair_reason TEXT NOT NULL DEFAULT '';
+	ALTER TABLE task ADD COLUMN repair_attempt_id INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE task ADD COLUMN repair_observed_at TEXT NOT NULL DEFAULT '';`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -121,6 +125,8 @@ const launchEvidenceVersion = splitVersion + 1
 const teardownEvidenceVersion = launchEvidenceVersion + 1
 
 const routingProvenanceVersion = teardownEvidenceVersion + 1
+
+const repairMetadataVersion = routingProvenanceVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -153,6 +159,14 @@ func (db *DB) hasRoutingProvenanceColumns() (bool, error) {
 	var count int
 	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('execution_class', 'planned_against', 'requested_profile', 'routing_source')`).Scan(&count); err != nil {
 		return false, fmt.Errorf("detect routing provenance columns: %w", err)
+	}
+	return count == 4, nil
+}
+
+func (db *DB) hasRepairMetadataColumns() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name IN ('repair_code', 'repair_reason', 'repair_attempt_id', 'repair_observed_at')`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect repair metadata columns: %w", err)
 	}
 	return count == 4, nil
 }
@@ -248,6 +262,13 @@ func (db *DB) migrateSchema() error {
 					}
 					if routingComplete && latest >= routingProvenanceVersion {
 						stamp = routingProvenanceVersion
+						repairComplete, err := db.hasRepairMetadataColumns()
+						if err != nil {
+							return err
+						}
+						if repairComplete && latest >= repairMetadataVersion {
+							stamp = repairMetadataVersion
+						}
 					}
 				}
 			}
