@@ -173,6 +173,8 @@ Every worker operates in a git worktree leased through [treehouse](https://githu
 ### Live supervision
 
 Workers run interactively inside [herdr](https://github.com/ogulcancelik/herdr), so the supervisor can observe semantic agent state, send follow-up instructions with `hand send`, and react to fleet events with `hand watch` without scraping a terminal for meaning.
+Each send records its Attempt and terminal-delivery outcome, including `uncertain` when the terminal may have accepted input but Hand cannot prove submission.
+Uncertain sends are not automatically resent; inspect `hand status <id>` and use operator judgment before steering again.
 
 ### Durable fleet state
 
