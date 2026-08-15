@@ -3,7 +3,7 @@
 - Date: 2026-08-15
 - Status: accepted
 - Issues: atqamz/hand#196
-- PRs: none single
+- PRs: atqamz/hand#229
 
 ## Context
 
@@ -22,6 +22,7 @@ Repair metadata is Task-addressed and orthogonal to Attempt lifecycle.
 It stores a stable machine-readable code, bounded reason, relevant Attempt ID, and observation timestamp.
 The marker remains until the same contradiction is proven gone or a safe lifecycle transition resolves it.
 Observation failures never become contradiction evidence and do not clear an existing marker.
+Unknown Herdr failures follow the same rule, including when a running Attempt's worktree is dirty.
 
 An existing Attempt is never rerouted during reconciliation.
 Its persisted harness, model, effort, execution class, planned-against commit, requested profile, and routing source remain the only execution identity.
@@ -29,6 +30,7 @@ There is no automatic worker, harness, model, or profile fallback.
 
 Automatic resource cleanup requires exact ownership proof and a clean worktree.
 Dirty worktrees, incomplete or reused identities, missing running workers, and ambiguous launch evidence become `needs-repair`.
+Released historical Herdr resources remain attributed anomalies when matching live identities are observed; reconciliation reports them without closing the resource.
 The reconciler does not run as a daemon and does not implement the send protocol.
 
 The detailed recovery matrix belongs in the reconciliation decision and observation tests under `internal/runtime`.

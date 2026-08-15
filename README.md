@@ -178,9 +178,8 @@ Workers run interactively inside [herdr](https://github.com/ogulcancelik/herdr),
 
 Machine state lives in SQLite while operator context, briefs, reports, backlog history, and learnings remain plain files. The fleet survives the supervising agent's session, so a later session can pick up where the previous one stopped.
 SQLite is durable intent and history, while Git, treehouse, herdr, and worker processes are observed reality.
-`hand reconcile` compares those independently owned facts and applies only deterministic, ownership-proven convergence.
-An ambiguous or dirty resource becomes a durable `needs-repair` marker instead of being destroyed.
-Existing Attempts keep their persisted execution snapshot during recovery, so profile changes never reroute them and a missing running pane never causes a silent relaunch.
+`hand reconcile` compares those independently owned facts and records `needs-repair` when safe convergence cannot be proven.
+The [deterministic reconciliation decision record](docs/adr/deterministic-reconciliation-observes-before-mutating.md) owns the recovery invariants.
 `hand status` remains read-only and displays repair markers without attempting cleanup.
 
 ### Safe lifecycle boundaries
