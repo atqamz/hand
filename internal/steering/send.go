@@ -35,12 +35,13 @@ type Request struct {
 }
 
 type Faults struct {
-	AfterPending  error
-	BeforeText    error
-	AfterText     error
-	BeforeEnter   error
-	AfterEnter    error
-	BeforePersist error
+	AfterPending   error
+	BeforeTaskLock func()
+	BeforeText     error
+	AfterText      error
+	BeforeEnter    error
+	AfterEnter     error
+	BeforePersist  error
 }
 
 type Result struct {
@@ -113,6 +114,9 @@ func Execute(req Request) (Result, error) {
 		return Result{}, &Error{Cause: err, Precondition: true, AttemptID: active.ID}
 	}
 	if found {
+		if req.Faults.BeforeTaskLock != nil {
+			req.Faults.BeforeTaskLock()
+		}
 		unlockTask, err := taskLock(req, "task:"+req.TaskID)
 		if err != nil {
 			return Result{}, precondition(fmt.Errorf("lock task %q to recover pending send: %w", req.TaskID, err))
@@ -133,6 +137,9 @@ func Execute(req Request) (Result, error) {
 		}
 	}
 
+	if req.Faults.BeforeTaskLock != nil {
+		req.Faults.BeforeTaskLock()
+	}
 	unlockTask, err := taskLock(req, "task:"+req.TaskID)
 	if err != nil {
 		if errors.Is(err, state.ErrLockBusy) {

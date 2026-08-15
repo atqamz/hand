@@ -148,20 +148,26 @@ func TestExecuteLeavesPendingOnCrashAfterTextAndStaleRecoveryMakesItUncertain(t 
 	_ = attempt
 }
 
-func TestRefusePendingSurfacesConcurrentRecoveryWithoutStartingAnotherSend(t *testing.T) {
+func TestExecuteSurfacesConcurrentRecoveryWithoutStartingAnotherSend(t *testing.T) {
 	home, attempt := newSteeringHome(t)
 	const recoveredAt = "2026-08-15T12:00:00.123456789Z"
 	pending, err := state.BeginSend(home, "task-1", attempt.ID, attempt.Herdr, state.SendOriginOperator, "hello", recoveredAt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.NormalizePendingSends(home, "task-1", "reconcile-stale-pending", recoveredAt); err != nil {
-		t.Fatal(err)
-	}
-	err = refusePending(Request{Home: home, TaskID: "task-1", Now: func() time.Time { return time.Now() }}, attempt, &pending)
+	pane := &testPane{pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle}}
+	_, err = Execute(Request{Home: home, TaskID: "task-1", Message: "next", Origin: state.SendOriginOperator, Client: pane,
+		Faults: Faults{BeforeTaskLock: func() {
+			if _, normalizeErr := state.NormalizePendingSends(home, "task-1", "reconcile-stale-pending", recoveredAt); normalizeErr != nil {
+				t.Fatal(normalizeErr)
+			}
+		}}})
 	var sendErr *Error
 	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendUncertain {
 		t.Fatalf("err=%v, want concurrent recovery surfaced as uncertain", err)
+	}
+	if len(pane.textCalls) != 0 || len(pane.keyCalls) != 0 {
+		t.Fatalf("calls=%v/%v, want no external mutation", pane.textCalls, pane.keyCalls)
 	}
 	if got, found, err := state.ReadSend(home, pending.ID); err != nil || !found || got.State != state.SendUncertain {
 		t.Fatalf("send=%+v found=%v err=%v, want unchanged uncertain row", got, found, err)

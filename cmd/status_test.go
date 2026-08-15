@@ -1587,6 +1587,23 @@ func TestAppendFleetStateKeepsTheStatusBlocksExact(t *testing.T) {
 	}
 }
 
+func TestBuildTaskViewUsesSendFromActiveAttempt(t *testing.T) {
+	active := state.Attempt{ID: 2, TaskID: "task-1", Lifecycle: state.AttemptRunning}
+	history := state.TaskHistory{
+		Task:          state.Task{ID: "task-1"},
+		ActiveAttempt: &active,
+		Attempts:      []state.Attempt{{ID: 1, TaskID: "task-1", Lifecycle: state.AttemptCompleted}, active},
+		Sends: []state.SendAttempt{
+			{ID: 1, TaskID: "task-1", AttemptID: 1, State: state.SendUncertain},
+			{ID: 2, TaskID: "task-1", AttemptID: 2, State: state.SendSubmitted},
+		},
+	}
+	view, _ := buildTaskView(t.TempDir(), nil, history, false)
+	if view.latestSend == nil || view.latestSend.ID != 2 || view.latestSend.AttemptID != active.ID {
+		t.Fatalf("latest send = %+v, want active Attempt send", view.latestSend)
+	}
+}
+
 // --fields narrows what is emitted, and the schema header has to narrow with
 // it: a header promising columns the rows do not carry is worse than no header.
 func TestStatusFleetFieldsNarrowsTheSchemaHeaderWithTheRows(t *testing.T) {

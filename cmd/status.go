@@ -481,9 +481,14 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 		unacked:      unacked,
 		reported:     reportedFrom(last, len(lines) > 0, readErr),
 	}
-	if len(history.Sends) != 0 {
-		latest := history.Sends[len(history.Sends)-1]
-		v.latestSend = &latest
+	if attempt != nil {
+		for i := len(history.Sends) - 1; i >= 0; i-- {
+			if history.Sends[i].AttemptID == attempt.ID {
+				latest := history.Sends[i]
+				v.latestSend = &latest
+				break
+			}
+		}
 	}
 	if reportedOK {
 		v.reportedState = reported.State

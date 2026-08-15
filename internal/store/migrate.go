@@ -1,7 +1,9 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -103,7 +105,11 @@ func (db *DB) migrateLegacy(archive bool) error {
 			}
 			attemptID = created.ID
 		} else if lifecycle == TaskOpen && attempts == 1 {
-			legacyAttemptMatches(db, task.ID, legacy, &attemptID)
+			matched, err := legacyAttemptMatches(db, task.ID, legacy)
+			if err != nil {
+				return fmt.Errorf("match imported attempt for task %q: %w", task.ID, err)
+			}
+			attemptID = matched
 		}
 		if legacy.SendUndeliveredMessage != "" && attemptID != 0 {
 			createdAt := legacy.SendUndeliveredAt
@@ -133,14 +139,21 @@ func (db *DB) migrateLegacy(archive bool) error {
 	return nil
 }
 
-func legacyAttemptMatches(db *DB, taskID string, legacy legacyTask, attemptID *int64) bool {
+func legacyAttemptMatches(db *DB, taskID string, legacy legacyTask) (int64, error) {
+	var attemptID int64
 	err := db.sql.QueryRow(`SELECT id FROM attempt
 		WHERE task_id = ? AND ordinal = 1 AND harness = ? AND model = ? AND effort = ?
 		AND worktree = ? AND lease_id = ? AND herdr_session = ? AND herdr_workspace_id = ?
 		AND herdr_tab_id = ? AND herdr_pane_id = ? AND created_at = ?`,
 		taskID, legacy.Harness, legacy.Model, legacy.Effort, legacy.Worktree, legacy.LeaseID,
-		legacy.Herdr.Session, legacy.Herdr.WorkspaceID, legacy.Herdr.TabID, legacy.Herdr.PaneID, legacy.CreatedAt).Scan(attemptID)
-	return err == nil
+		legacy.Herdr.Session, legacy.Herdr.WorkspaceID, legacy.Herdr.TabID, legacy.Herdr.PaneID, legacy.CreatedAt).Scan(&attemptID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return attemptID, nil
 }
 
 type legacyTask struct {
