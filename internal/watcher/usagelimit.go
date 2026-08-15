@@ -113,7 +113,7 @@ func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task,
 	ts.LimitEpisode++
 	ts.LimitAttempts = 0
 	ts.LimitRetryAt = nextLimitRetry(reset, 0, now)
-	if !writeLimitHoldForAttempt(cfg, t, a, ts, errOut) {
+	if writeLimitHoldForAttempt(cfg, t, a, ts, errOut) == limitHoldProjectionFailed {
 		return nil
 	}
 	return &Event{
@@ -189,7 +189,7 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		ts.LimitRetryAt = nextLimitRetry(time.Time{}, ts.LimitAttempts, now)
 		_, _ = fmt.Fprintf(errOut, "watch: resume %s submitted to the terminal pane; waiting for worker observation\n", t.ID)
 	}
-	if !writeLimitHoldForAttempt(cfg, t, a, ts, errOut) {
+	if writeLimitHoldForAttempt(cfg, t, a, ts, errOut) == limitHoldProjectionFailed {
 		return nil
 	}
 	return observeBlockedUsageLimit(cfg, ts, t, a, false, errOut)
@@ -251,7 +251,7 @@ func clearUsageLimit(cfg Config, ts *TaskState, t state.Task, a state.Attempt, e
 }
 
 func observeBlockedUsageLimit(cfg Config, ts *TaskState, t state.Task, a state.Attempt, advance bool, errOut io.Writer) *Event {
-	if !writeLimitHoldForAttempt(cfg, t, a, ts, errOut) {
+	if writeLimitHoldForAttempt(cfg, t, a, ts, errOut) == limitHoldProjectionFailed {
 		return nil
 	}
 	if advance && ts.LimitAttempts < limitStuckAfter {
@@ -342,7 +342,15 @@ func limitReason(ts *TaskState) string {
 // Makes the limit visible where an operator already looks, and blocks `hand spawn` from reusing the id
 // out from under a worker that is only waiting on quota. A failure is loud but never fatal: the schedule
 // in task state is what resumes the worker, and losing its projection must not cost the resume.
-func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) bool {
+type limitHoldProjection uint8
+
+const (
+	limitHoldProjectionFailed limitHoldProjection = iota
+	limitHoldProjectionWritten
+	limitHoldProjectionBlocked
+)
+
+func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) limitHoldProjection {
 	h := state.Hold{
 		ID:     id,
 		Kind:   state.HoldKindLimit,
@@ -352,32 +360,32 @@ func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) bool {
 	written, err := state.SetHoldIfNotOtherKind(home, h)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: set usage-limit hold on %s failed: %v\n", id, err)
-		return false
+		return limitHoldProjectionFailed
 	}
 	if !written {
 		_, _ = fmt.Fprintf(errOut, "watch: hold on %s is not of kind limit; usage-limit wait left unprojected: %s\n", id, limitReason(ts))
+		return limitHoldProjectionBlocked
 	}
-	return written
+	return limitHoldProjectionWritten
 }
 
-func writeLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) bool {
+func writeLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) limitHoldProjection {
 	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
 	if err != nil {
 		if !errors.Is(err, state.ErrLockBusy) {
 			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
 		}
-		return false
+		return limitHoldProjectionFailed
 	}
 	defer releaseTask()
 	return writeLimitHoldForOwnedAttempt(cfg, t, a, ts, errOut)
 }
 
-func writeLimitHoldForOwnedAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) bool {
+func writeLimitHoldForOwnedAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) limitHoldProjection {
 	if !ownsAttempt(cfg.Home, t, a, errOut) {
-		return false
+		return limitHoldProjectionFailed
 	}
-	writeLimitHold(cfg.Home, t.ID, ts, errOut)
-	return true
+	return writeLimitHold(cfg.Home, t.ID, ts, errOut)
 }
 
 func clearLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, errOut io.Writer) bool {
