@@ -12,19 +12,7 @@ import (
 )
 
 func DetectPR(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, error) {
-	branch, err := currentBranch(active.Worktree)
-	if err != nil {
-		return task, err
-	}
-	repoSlug, err := project.RepoSlug(homeDir, projectInfo)
-	if err != nil {
-		return task, err
-	}
-	targets := []ghutil.PRSearchTarget{{Repo: repoSlug}}
-	if projectInfo.Upstream != "" && !strings.EqualFold(projectInfo.Upstream, repoSlug) {
-		targets = append(targets, ghutil.PRSearchTarget{Repo: projectInfo.Upstream, HeadRepo: repoSlug})
-	}
-	url, merged, found, err := ghutil.FindPRByBranch(ctx, branch, targets...)
+	url, merged, found, err := findPR(ctx, homeDir, active, projectInfo)
 	if err != nil {
 		return task, err
 	}
@@ -39,6 +27,37 @@ func DetectPR(ctx context.Context, homeDir string, task state.Task, active state
 		return task, err
 	}
 	return updated, nil
+}
+
+func DetectPRReadOnly(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, error) {
+	url, merged, found, err := findPR(ctx, homeDir, active, projectInfo)
+	if err != nil {
+		return task, err
+	}
+	if !found {
+		return task, nil
+	}
+	task.PR = url
+	if merged {
+		task.MergeAnnounced = true
+	}
+	return task, nil
+}
+
+func findPR(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) (string, bool, bool, error) {
+	branch, err := currentBranch(active.Worktree)
+	if err != nil {
+		return "", false, false, err
+	}
+	repoSlug, err := project.RepoSlug(homeDir, projectInfo)
+	if err != nil {
+		return "", false, false, err
+	}
+	targets := []ghutil.PRSearchTarget{{Repo: repoSlug}}
+	if projectInfo.Upstream != "" && !strings.EqualFold(projectInfo.Upstream, repoSlug) {
+		targets = append(targets, ghutil.PRSearchTarget{Repo: projectInfo.Upstream, HeadRepo: repoSlug})
+	}
+	return ghutil.FindPRByBranch(ctx, branch, targets...)
 }
 
 func RecordPR(ctx context.Context, homeDir string, task state.Task, url string) (state.Task, bool, error) {

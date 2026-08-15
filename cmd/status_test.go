@@ -483,12 +483,12 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 		t.Fatalf("got %q, want the detected PR shown", out.String())
 	}
 
-	got, err := state.Read(home, "task-1")
+	got, err := state.ReadHistoryReadOnly(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.PR != "https://github.com/owner/repo/pull/9" {
-		t.Fatalf("task.PR = %q, want status to have recorded the detected PR", got.PR)
+	if got.Task.PR != "" {
+		t.Fatalf("task.PR = %q, want status to leave persisted state unchanged", got.Task.PR)
 	}
 }
 

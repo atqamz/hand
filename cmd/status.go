@@ -521,7 +521,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if err != nil {
 		return asPrecondition(err)
 	}
-	history.Task = detectPRForStatus(cmd.Context(), home, history.Task)
+	history.Task = detectPRForStatus(cmd.Context(), home, history)
 	t := history.Task
 
 	// An unreadable report degrades exactly as it does in the fleet view: the
