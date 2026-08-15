@@ -307,9 +307,7 @@ func Open(homeDir string) (*DB, error) {
 	return db, nil
 }
 
-// Presentation readers use an existing-file handle so SELECTs cannot create schema or
-// import legacy state. An older layout has to cross an explicit migration boundary first.
-func OpenReadOnly(homeDir string) (*DB, error) {
+func openReadOnly(homeDir string) (*DB, error) {
 	path := Path(homeDir)
 	uri := "file:" + (&url.URL{Path: path}).EscapedPath() + "?mode=ro&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=query_only(1)"
 	sqlDB, err := sql.Open("sqlite", uri)
@@ -317,22 +315,78 @@ func OpenReadOnly(homeDir string) (*DB, error) {
 		return nil, fmt.Errorf("open %s read-only: %w", path, err)
 	}
 	sqlDB.SetMaxOpenConns(1)
-	db := &DB{sql: sqlDB, home: homeDir}
+	return &DB{sql: sqlDB, home: homeDir}, nil
+}
+
+// Presentation readers use an existing-file handle so SELECTs cannot create schema or
+// import legacy state. An older layout has to cross an explicit migration boundary first.
+func OpenReadOnly(homeDir string) (*DB, error) {
+	db, err := openReadOnly(homeDir)
+	if err != nil {
+		return nil, err
+	}
 	current, err := db.schemaVersion()
 	if err != nil {
-		_ = sqlDB.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	latest := len(migrations)
 	if err := schemaVersionError(current, latest); err != nil {
-		_ = sqlDB.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	if current < latest {
-		_ = sqlDB.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("state/hand.db is schema version %d, older than this build of hand requires (version %d) - run `hand init %s` before opening it read-only", current, latest, shellquote.Quote(homeDir))
 	}
 	return db, nil
+}
+
+func openReadOnlyForLifecycle(homeDir string) (*DB, int, error) {
+	db, err := openReadOnly(homeDir)
+	if err != nil {
+		return nil, 0, err
+	}
+	current, err := db.schemaVersion()
+	if err != nil {
+		_ = db.Close()
+		return nil, 0, err
+	}
+	latest := len(migrations)
+	if err := schemaVersionError(current, latest); err != nil {
+		_ = db.Close()
+		return nil, 0, err
+	}
+	if current < teardownEvidenceVersion {
+		_ = db.Close()
+		return nil, 0, fmt.Errorf("state/hand.db is schema version %d, older than this build of hand requires (version %d) - run `hand init %s` before opening it read-only", current, latest, shellquote.Quote(homeDir))
+	}
+	return db, current, nil
+}
+
+// Lifecycle preflight accepts the immediately previous schema because it needs task identity
+// before routing validation, while migration must wait until after that validation.
+func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
+	db, current, err := openReadOnlyForLifecycle(homeDir)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	if current == len(migrations) {
+		return db.ReadTaskHistory(id)
+	}
+	return db.readTaskHistoryBeforeRouting(id)
+}
+
+// Lifecycle preflight can inspect holds from the current or immediately previous schema
+// without importing legacy state or migrating the database.
+func ReadHoldReadOnly(homeDir, id string) (Hold, bool, error) {
+	db, _, err := openReadOnlyForLifecycle(homeDir)
+	if err != nil {
+		return Hold{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ReadHold(id)
 }
 
 func (db *DB) Close() error {
@@ -379,6 +433,8 @@ var attemptColumnNames = []string{
 }
 
 var attemptColumns = strings.Join(attemptColumnNames, ", ")
+
+var attemptColumnsBeforeRouting = strings.Join(append(append([]string{}, attemptColumnNames[:7]...), attemptColumnNames[11:]...), ", ")
 
 func placeholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", count), ", ")
@@ -428,6 +484,17 @@ func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
 		&a.ExecutionClass, &a.PlannedAgainst, &a.RequestedProfile, &a.RoutingSource, &a.Worktree, &a.LeaseID,
 		&a.Herdr.Session, &a.Herdr.WorkspaceID, &a.Herdr.TabID, &a.Herdr.PaneID, &a.CreatedAt, &a.PaneStartedAt,
 		&a.LaunchSubmittedAt, &a.LaunchConfirmedAt,
+		&a.StatusChangedAt, &a.StatusChangedFor, &a.DoneVerified, &a.LastReportState, &a.LastReportNote,
+		&a.SendUndeliveredMessage, &a.SendUndeliveredAt, &a.ParkedFiredFor, &a.UsageLimitRetryAt, &a.UsageLimitAttempts,
+		&a.TeardownTerminalAttempt, &a.TeardownDisposition, &a.TeardownHerdrState, &a.TeardownWorktreeState, &a.TeardownCompletionState)
+	return a, err
+}
+
+func scanAttemptBeforeRouting(row interface{ Scan(...any) error }) (Attempt, error) {
+	var a Attempt
+	err := row.Scan(&a.ID, &a.TaskID, &a.Ordinal, &a.Lifecycle, &a.Harness, &a.Model, &a.Effort,
+		&a.Worktree, &a.LeaseID, &a.Herdr.Session, &a.Herdr.WorkspaceID, &a.Herdr.TabID, &a.Herdr.PaneID,
+		&a.CreatedAt, &a.PaneStartedAt, &a.LaunchSubmittedAt, &a.LaunchConfirmedAt,
 		&a.StatusChangedAt, &a.StatusChangedFor, &a.DoneVerified, &a.LastReportState, &a.LastReportNote,
 		&a.SendUndeliveredMessage, &a.SendUndeliveredAt, &a.ParkedFiredFor, &a.UsageLimitRetryAt, &a.UsageLimitAttempts,
 		&a.TeardownTerminalAttempt, &a.TeardownDisposition, &a.TeardownHerdrState, &a.TeardownWorktreeState, &a.TeardownCompletionState)
@@ -499,6 +566,40 @@ func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
 	attempts, err := db.ListAttempts(id)
 	if err != nil {
 		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+func (db *DB) readTaskHistoryBeforeRouting(id string) (TaskHistory, bool, error) {
+	task, found, err := db.ReadTask(id)
+	if err != nil || !found {
+		return TaskHistory{}, found, err
+	}
+	rows, err := db.sql.Query(`SELECT `+attemptColumnsBeforeRouting+` FROM attempt WHERE task_id = ? ORDER BY ordinal`, id)
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", id, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var attempts []Attempt
+	for rows.Next() {
+		attempt, err := scanAttemptBeforeRouting(rows)
+		if err != nil {
+			return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", id, err)
+		}
+		attempts = append(attempts, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", id, err)
 	}
 	history := TaskHistory{Task: task, Attempts: attempts}
 	for i := range attempts {

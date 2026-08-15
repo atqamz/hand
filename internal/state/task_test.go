@@ -1,6 +1,7 @@
 package state
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -39,6 +40,60 @@ func TestWriteReadRoundTrip(t *testing.T) {
 	}
 	if history.ActiveAttempt == nil || history.ActiveAttempt.Harness != attempt.Harness || history.ActiveAttempt.Model != attempt.Model || history.ActiveAttempt.Effort != attempt.Effort || history.ActiveAttempt.Worktree != attempt.Worktree || history.ActiveAttempt.Herdr != attempt.Herdr {
 		t.Fatalf("attempt got %+v, want %+v", history.ActiveAttempt, attempt)
+	}
+}
+
+func TestReadHistoryReadOnlySupportsSchemaV10(t *testing.T) {
+	home := t.TempDir()
+	if _, err := CreateTaskWithAttempt(home, Task{ID: "task-1", Project: "demo", Kind: KindShip, Brief: "data/task-1/brief.md"}, Attempt{
+		TaskID: "task-1", Lifecycle: AttemptProvisioning, Harness: "claude", Model: "old-model", Effort: "high",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := ReadHistory(home, "task-1")
+	if err != nil || history.ActiveAttempt == nil {
+		t.Fatalf("initial history = %+v, %v", history, err)
+	}
+	if err := MarkLaunchSubmitted(home, "task-1", history.ActiveAttempt.ID, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkLaunchConfirmed(home, "task-1", history.ActiveAttempt.ID, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkAttemptRunning(home, "task-1", history.ActiveAttempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransitionAttempt(home, history.ActiveAttempt.ID, AttemptRunning, AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := TransitionTask(home, "task-1", TaskOpen, TaskTerminal); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", store.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"execution_class", "planned_against", "requested_profile", "routing_source"} {
+		if _, err := db.Exec("ALTER TABLE attempt DROP COLUMN " + column); err != nil {
+			_ = db.Close()
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec("PRAGMA user_version = 10"); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadHistoryReadOnly(home, "task-1")
+	if err != nil {
+		t.Fatalf("ReadHistoryReadOnly() = %v, want schema v10 compatibility", err)
+	}
+	if got.Task.Lifecycle != TaskTerminal || len(got.Attempts) != 1 || got.Attempts[0].Harness != "claude" || got.Attempts[0].Model != "old-model" || got.Attempts[0].Effort != "high" {
+		t.Fatalf("history = %+v, want the v10 task and attempt identity", got)
 	}
 }
 

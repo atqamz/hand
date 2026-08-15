@@ -178,6 +178,7 @@ func writeProfile(home string, profile Profile, hook func(profileWritePhase) err
 	if err := writeProfileMirror(dir, profile); err != nil {
 		return err
 	}
+	_ = cleanupProfileGenerations(dir, generationID)
 	return nil
 }
 
@@ -188,11 +189,15 @@ func RemoveProfile(home, name string) error {
 type configMutationPhase string
 
 const (
+	configPhaseMutationStarted          configMutationPhase = "mutation-started"
 	configPhaseRouteProfileValidated    configMutationPhase = "route-profile-validated"
 	configPhaseProfileReferencesChecked configMutationPhase = "profile-references-checked"
 )
 
 func removeProfileWithHook(home, name string, hook func(configMutationPhase) error) error {
+	if err := runConfigMutationHook(hook, configPhaseMutationStarted); err != nil {
+		return err
+	}
 	return withLock(home, func() error {
 		return removeProfile(home, name, hook)
 	})
@@ -240,6 +245,9 @@ func WriteRoute(home string, route Route) error {
 }
 
 func writeRouteWithHook(home string, route Route, hook func(configMutationPhase) error) error {
+	if err := runConfigMutationHook(hook, configPhaseMutationStarted); err != nil {
+		return err
+	}
 	return withLock(home, func() error {
 		return writeRoute(home, route, hook)
 	})
@@ -273,6 +281,13 @@ func writeRoute(home string, route Route, hook func(configMutationPhase) error) 
 }
 
 func RemoveRoute(home string, kind TaskKind, class ExecutionClass) error {
+	return removeRouteWithHook(home, kind, class, nil)
+}
+
+func removeRouteWithHook(home string, kind TaskKind, class ExecutionClass, hook func(configMutationPhase) error) error {
+	if err := runConfigMutationHook(hook, configPhaseMutationStarted); err != nil {
+		return err
+	}
 	return withLock(home, func() error {
 		return removeRoute(home, kind, class)
 	})
@@ -521,6 +536,36 @@ func generationDirectory(profileDir, generationID string) (string, error) {
 		return "", fmt.Errorf("profile generation %q escapes generations directory", generationID)
 	}
 	return path, nil
+}
+
+func cleanupProfileGenerations(profileDir, activeID string) error {
+	generations := filepath.Join(profileDir, "generations")
+	if err := inspectRequiredDirectory(generations, "profile generations directory"); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(generations)
+	if err != nil {
+		return fmt.Errorf("read profile generations directory: %w", err)
+	}
+	var firstErr error
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == activeID || !ownedGenerationName(name) {
+			continue
+		}
+		path := filepath.Join(generations, name)
+		if err := removeOwnedDirectory(path); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("remove inactive profile generation %q: %w", name, err)
+		}
+	}
+	return firstErr
+}
+
+func ownedGenerationName(name string) bool {
+	if strings.HasPrefix(name, ".staging-") {
+		return true
+	}
+	return strings.HasPrefix(name, "generation-") && validateGenerationID(name) == nil
 }
 
 func validateGenerationID(id string) error {

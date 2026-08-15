@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 )
 
 func TestSpawnClassifiedRoutingFailuresPrecedeLifecycleSideEffects(t *testing.T) {
@@ -150,6 +152,20 @@ func TestSpawnClassifiedRoutePersistsImmutableExecutionSnapshot(t *testing.T) {
 	got = *history.ActiveAttempt
 	if got.Harness != "claude" || got.Model != "profile-model" || got.Effort != "high" || got.RequestedProfile != "brain" {
 		t.Fatalf("attempt after config change = %+v, want original snapshot", got)
+	}
+}
+
+func TestClassifiedRouteDoesNotRequireSupervisorHarnessDetection(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+	t.Setenv("HAND_HARNESS", "stale-unsupported-name")
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+	result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Kind: state.KindShip})
+	if err != nil {
+		t.Fatalf("Spawn() = %v, want the routed Profile to resolve without supervisor detection", err)
+	}
+	if result.Harness != harness.Claude || result.ExecutionClass != string(routing.ExecutionClassStandard) {
+		t.Fatalf("result = %+v, want the routed Profile execution", result)
 	}
 }
 
@@ -364,6 +380,64 @@ func TestReopenResolvesCurrentProfileIntoNewAttempt(t *testing.T) {
 	}
 }
 
+func TestReopenSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: deep\n---\nbrief\n")
+	createTerminalExecutionTask(t, home)
+	configureRoute(t, home, state.KindShip, routing.ExecutionClassDeep, routing.Profile{Name: "daily", Harness: "claude", Model: "new-model", Effort: "high"})
+	downgradeRuntimeStoreToV10(t, home)
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+	if _, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Reopen() = %v, want schema v10 upgrade after route validation", err)
+	}
+	if got := runtimeStoreSchemaVersion(t, home); got != 11 {
+		t.Fatalf("schema version after valid Reopen = %d, want 11", got)
+	}
+}
+
+func TestPromoteSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scout, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Lifecycle: state.TaskOpen}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/old/worktree",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markExecutionAttemptRunning(t, home, scout.ID)
+	configureRoute(t, home, state.KindShip, routing.ExecutionClassStandard, routing.Profile{Name: "deliver", Harness: "claude"})
+	downgradeRuntimeStoreToV10(t, home)
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+	if _, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Promote() = %v, want schema v10 upgrade after route validation", err)
+	}
+	if got := runtimeStoreSchemaVersion(t, home); got != 11 {
+		t.Fatalf("schema version after valid Promote = %d, want 11", got)
+	}
+}
+
+func TestSchemaV10InvalidRouteDoesNotMigrateBeforeRefusal(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: deep\n---\nbrief\n")
+	createTerminalExecutionTask(t, home)
+	if err := routing.RemoveRoute(home, routing.TaskKindShip, routing.ExecutionClassDeep); err != nil {
+		t.Fatal(err)
+	}
+	downgradeRuntimeStoreToV10(t, home)
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+
+	_, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1"})
+	assertPreconditionError(t, err)
+	if !strings.Contains(err.Error(), "route ship.deep is not configured") {
+		t.Fatalf("Reopen() error = %v, want missing route", err)
+	}
+	if got := runtimeStoreSchemaVersion(t, home); got != 10 {
+		t.Fatalf("schema version after invalid Reopen = %d, want unchanged v10", got)
+	}
+}
+
 func TestPromoteResolvesShipRouteBeforeScoutMutation(t *testing.T) {
 	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
 	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("report\n"), 0o644); err != nil {
@@ -434,6 +508,37 @@ func configureRoute(t *testing.T, home, kind string, class routing.ExecutionClas
 	if err := routing.WriteRoute(home, routing.Route{Kind: routing.TaskKind(kind), ExecutionClass: class, Profile: profile.Name}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func downgradeRuntimeStoreToV10(t *testing.T, home string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", store.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, column := range []string{"execution_class", "planned_against", "requested_profile", "routing_source"} {
+		if _, err := db.Exec("ALTER TABLE attempt DROP COLUMN " + column); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec("PRAGMA user_version = 10"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runtimeStoreSchemaVersion(t *testing.T, home string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", store.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	return version
 }
 
 func writeRoutingFile(t *testing.T, home, name, value string) {

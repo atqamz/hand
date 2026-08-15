@@ -92,14 +92,14 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 		return routing.ResolvedRoute{}, classifyResolutionError(fmt.Errorf("parse brief %s: %w", briefPath, err), harnessName, harnessProvided)
 	}
 	detectedHarness := ""
-	if !harnessProvided && !profileFromFlag {
+	includeRouting := declaration.ExecutionClass != "" || profileFromFlag
+	if !harnessProvided && !includeRouting {
 		detected, detectErr := harness.DetectCurrent()
 		if detectErr != nil {
 			return routing.ResolvedRoute{}, classifyResolutionError(detectErr, harnessName, harnessProvided)
 		}
 		detectedHarness = detected.Name
 	}
-	includeRouting := declaration.ExecutionClass != "" || profileFromFlag
 	snapshot, err := routing.LoadExecutionSnapshot(homeDir, detectedHarness, includeRouting)
 	if err != nil {
 		return routing.ResolvedRoute{}, err

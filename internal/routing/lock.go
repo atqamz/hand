@@ -7,7 +7,8 @@ import (
 )
 
 // Routing reads and mutations share this advisory lock namespace.
-// Runtime callers release it before taking task, project, worktree, or launch locks.
+// Runtime callers release it before task, project, worktree, or launch locks; profile publication
+// uses immutable generations and an atomic pointer, and readers hold it only for the snapshot.
 const ConfigLockName = "config:routing"
 
 func Lock(home string) (func(), error) {

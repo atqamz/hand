@@ -453,7 +453,11 @@ func TestProfileReplacementPublishesOnlyCompleteGenerations(t *testing.T) {
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("writeProfileWithHook() = %v, want %v", err, wantErr)
 			}
-			if got := configuredProfile(t, home); got != old {
+			got, err := configuredProfile(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != old {
 				t.Fatalf("profile after interrupted %s = %+v, want old %+v", phase, got, old)
 			}
 		})
@@ -469,7 +473,11 @@ func TestProfileReplacementPublishesOnlyCompleteGenerations(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("writeProfileWithHook() after publish = %v, want %v", err, wantErr)
 	}
-	if got := configuredProfile(t, home); got != new {
+	got, err := configuredProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != new {
 		t.Fatalf("profile after interrupted publish = %+v, want new %+v", got, new)
 	}
 }
@@ -501,7 +509,11 @@ func TestConcurrentProfileSetAndReadSeesCompleteProfiles(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 64; j++ {
-				got := configuredProfile(t, home)
+				got, err := configuredProfile(home)
+				if err != nil {
+					errs <- err
+					return
+				}
 				if got != profiles[0] && got != profiles[1] {
 					errs <- fmt.Errorf("mixed profile read: %+v", got)
 					return
@@ -522,6 +534,7 @@ func TestRouteSetAndProfileRemoveCannotCreateDanglingRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	validated := make(chan struct{})
+	removeStarted := make(chan struct{})
 	release := make(chan struct{})
 	routeDone := make(chan error, 1)
 	go func() {
@@ -536,12 +549,15 @@ func TestRouteSetAndProfileRemoveCannotCreateDanglingRoute(t *testing.T) {
 	waitForConfigPhase(t, validated)
 
 	removeDone := make(chan error, 1)
-	go func() { removeDone <- RemoveProfile(home, "daily") }()
-	select {
-	case err := <-removeDone:
-		t.Fatalf("RemoveProfile() completed before route set, error = %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
+	go func() {
+		removeDone <- removeProfileWithHook(home, "daily", func(phase configMutationPhase) error {
+			if phase == configPhaseMutationStarted {
+				close(removeStarted)
+			}
+			return nil
+		})
+	}()
+	waitForConfigPhase(t, removeStarted)
 	close(release)
 	if err := <-routeDone; err != nil {
 		t.Fatal(err)
@@ -568,6 +584,7 @@ func TestRouteRemoveAndProfileRemoveCannotLeaveInvalidConfiguration(t *testing.T
 		t.Fatal(err)
 	}
 	checked := make(chan struct{})
+	routeRemoveStarted := make(chan struct{})
 	release := make(chan struct{})
 	removeProfileDone := make(chan error, 1)
 	go func() {
@@ -582,12 +599,15 @@ func TestRouteRemoveAndProfileRemoveCannotLeaveInvalidConfiguration(t *testing.T
 	waitForConfigPhase(t, checked)
 
 	removeRouteDone := make(chan error, 1)
-	go func() { removeRouteDone <- RemoveRoute(home, route.Kind, route.ExecutionClass) }()
-	select {
-	case err := <-removeRouteDone:
-		t.Fatalf("RemoveRoute() completed before Profile removal, error = %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
+	go func() {
+		removeRouteDone <- removeRouteWithHook(home, route.Kind, route.ExecutionClass, func(phase configMutationPhase) error {
+			if phase == configPhaseMutationStarted {
+				close(routeRemoveStarted)
+			}
+			return nil
+		})
+	}()
+	waitForConfigPhase(t, routeRemoveStarted)
 	close(release)
 	if err := <-removeProfileDone; err == nil || !strings.Contains(err.Error(), "still referenced") {
 		t.Fatalf("removeProfileWithHook() = %v, want reference refusal", err)
@@ -613,7 +633,11 @@ func TestAbandonedProfileGenerationsAreIgnoredAndActiveGenerationIsDiagnosable(t
 	if err := os.MkdirAll(filepath.Join(generations, ".staging-abandoned"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := configuredProfile(t, home); got.Harness != "claude" {
+	got, err := configuredProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Harness != "claude" {
 		t.Fatalf("profile with abandoned staging = %+v, want active Profile", got)
 	}
 	if err := os.WriteFile(filepath.Join(home, "config", "profiles", "daily", "current"), []byte("../escape\n"), 0o644); err != nil {
@@ -625,6 +649,63 @@ func TestAbandonedProfileGenerationsAreIgnoredAndActiveGenerationIsDiagnosable(t
 	}
 	if len(config.Profiles) != 0 || !hasProblemForProfile(config.Problems, "daily", ConfigProblemMalformedProfile) {
 		t.Fatalf("config with malformed active generation = %+v, want actionable Profile problem", config)
+	}
+}
+
+func TestProfileMutationCleansInactiveGenerationsAndStaging(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude", Model: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "codex", Model: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	generations := filepath.Join(home, "config", "profiles", "daily", "generations")
+	if err := os.Mkdir(filepath.Join(generations, ".staging-abandoned"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude", Model: "latest"}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(generations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() == ".staging-abandoned" {
+		t.Fatalf("profile generations after cleanup = %+v, want only active generation", entries)
+	}
+	got, err := configuredProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Harness != "claude" || got.Model != "latest" {
+		t.Fatalf("active profile after cleanup = %+v, want latest generation", got)
+	}
+}
+
+func TestProfileGenerationCleanupFailureDoesNotBreakPublishedProfile(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "claude", Model: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	generations := filepath.Join(home, "config", "profiles", "daily", "generations")
+	outside := t.TempDir()
+	link := filepath.Join(generations, "generation-stale")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("create generation symlink: %v", err)
+	}
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "codex", Model: "new"}); err != nil {
+		t.Fatalf("WriteProfile() = %v, want cleanup failure to be non-fatal", err)
+	}
+	got, err := configuredProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Harness != "codex" || got.Model != "new" {
+		t.Fatalf("active profile after cleanup failure = %+v, want published profile", got)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("generation symlink after cleanup failure: %v", err)
 	}
 }
 
@@ -678,16 +759,15 @@ func TestRemoveProfileDoesNotTraverseGenerationSymlink(t *testing.T) {
 	}
 }
 
-func configuredProfile(t *testing.T, home string) Profile {
-	t.Helper()
+func configuredProfile(home string) (Profile, error) {
 	config, err := Load(home)
 	if err != nil {
-		t.Fatal(err)
+		return Profile{}, err
 	}
 	if len(config.Profiles) != 1 {
-		t.Fatalf("Load().Profiles = %+v, want one Profile", config.Profiles)
+		return Profile{}, fmt.Errorf("Load().Profiles = %+v, want one Profile", config.Profiles)
 	}
-	return config.Profiles[0]
+	return config.Profiles[0], nil
 }
 
 func waitForConfigPhase(t *testing.T, phase <-chan struct{}) {
