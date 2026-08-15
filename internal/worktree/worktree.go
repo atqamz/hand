@@ -62,6 +62,12 @@ func ObserveLease(worktreePath, expectedLeaseID string) (LeaseObservation, error
 	if worktreePath == "" {
 		return LeaseObservation{State: LeaseAbsent}, nil
 	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		if os.IsNotExist(err) {
+			return LeaseObservation{State: LeaseAbsent}, nil
+		}
+		return LeaseObservation{}, fmt.Errorf("inspect worktree path: %w", err)
+	}
 	entries, err := treehouseStatus(worktreePath)
 	if err != nil {
 		return LeaseObservation{}, err

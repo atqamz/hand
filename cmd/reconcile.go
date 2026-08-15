@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/atqamz/hand/internal/axi"
@@ -29,13 +30,7 @@ func newReconcileCmd() *cobra.Command {
 			if err := renderReconcileReport(cmd, report, asJSON); err != nil {
 				return err
 			}
-			if repair := firstRepair(report); repair != nil {
-				return asPrecondition(runtime.Precondition(fmt.Errorf("task %q needs repair: %s", repair.ID, repair.RepairCode)))
-			}
-			if reconcileErr != nil {
-				return asPrecondition(reconcileErr)
-			}
-			return nil
+			return reconcileReportError(report, reconcileErr)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON instead of TOON")
@@ -62,8 +57,35 @@ func renderReconcileReport(cmd *cobra.Command, report runtime.ReconcileReport, a
 			doc.Field("repair_code", result.RepairCode)
 			doc.Field("repair_reason", result.RepairReason)
 		}
+		if result.Error != "" {
+			doc.Field("error", result.Error)
+		}
+	}
+	if len(report.Anomalies) > 0 {
+		anomalies := make([]string, 0, len(report.Anomalies))
+		for _, anomaly := range report.Anomalies {
+			anomalies = append(anomalies, fmt.Sprintf("%s:%s/%s", anomaly.Kind, anomaly.WorkspaceID, anomaly.TabID))
+		}
+		doc.List("anomalies", anomalies)
+	}
+	if len(report.Errors) > 0 {
+		doc.List("errors", report.Errors)
 	}
 	return doc.Render(cmd.OutOrStdout())
+}
+
+func reconcileReportError(report runtime.ReconcileReport, reconcileErr error) error {
+	var errs []error
+	if repair := firstRepair(report); repair != nil {
+		errs = append(errs, runtime.Precondition(fmt.Errorf("task %q needs repair: %s", repair.ID, repair.RepairCode)))
+	}
+	if anomaly := firstAnomaly(report); anomaly != nil {
+		errs = append(errs, runtime.Precondition(fmt.Errorf("unattributed Herdr resource %s/%s", anomaly.WorkspaceID, anomaly.TabID)))
+	}
+	if reconcileErr != nil {
+		errs = append(errs, reconcileErr)
+	}
+	return asPrecondition(errors.Join(errs...))
 }
 
 func firstRepair(report runtime.ReconcileReport) *runtime.ReconcileResult {
@@ -73,4 +95,11 @@ func firstRepair(report runtime.ReconcileReport) *runtime.ReconcileResult {
 		}
 	}
 	return nil
+}
+
+func firstAnomaly(report runtime.ReconcileReport) *runtime.ReconcileAnomaly {
+	if len(report.Anomalies) == 0 {
+		return nil
+	}
+	return &report.Anomalies[0]
 }

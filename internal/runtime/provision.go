@@ -48,6 +48,7 @@ type dependencies struct {
 	confirmLaunch     func(herdrClient, string, string) error
 	appendCompletion  func(string, completion.Record) error
 	prMerged          func(context.Context, string) (bool, error)
+	branchMerged      func(string, string) (bool, error)
 	phase             func(lifecyclePhase) error
 }
 
@@ -65,6 +66,7 @@ func defaultDependencies() dependencies {
 		confirmLaunch:     confirmLaunch,
 		appendCompletion:  completion.Append,
 		prMerged:          ghutil.PRIsMerged,
+		branchMerged:      branchIsMerged,
 		phase:             func(lifecyclePhase) error { return nil },
 	}
 }

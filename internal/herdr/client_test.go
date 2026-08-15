@@ -188,6 +188,21 @@ func TestCallReturnsErrorOnEnvelopeError(t *testing.T) {
 	}
 }
 
+func TestCallClassifiesStructuredNotFoundWithoutClassifyingProcessText(t *testing.T) {
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"pane missing\"}}", Exit: 1})
+	c := NewClient()
+	_, err := c.PaneGet("wA:pB")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("structured pane_not_found error = %v, want ErrNotFound", err)
+	}
+
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stderr: "binary reported not found\n", Exit: 1})
+	_, err = c.PaneGet("wA:pB")
+	if errors.Is(err, ErrNotFound) {
+		t.Fatalf("process failure was classified as ErrNotFound: %v", err)
+	}
+}
+
 func TestCallFailsOnNonZeroExitWithNoStdout(t *testing.T) {
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stderr: "binary crashed\n", Exit: 1})
 	c := NewClient()

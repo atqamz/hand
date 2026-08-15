@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/brief"
@@ -68,6 +70,9 @@ const (
 	repairCodeWorktreeDirty               = "worktree-dirty"
 	repairCodeWorktreeOwnershipMismatch   = "worktree-ownership-mismatch"
 	repairCodeLegacyWorktreeUnprovable    = "legacy-worktree-ownership-unprovable"
+	repairCodeTeardownResourceAmbiguous   = "teardown-resource-ambiguous"
+	repairCodeCompletionEvidenceMismatch  = "completion-evidence-mismatch"
+	repairCodeMergeFactMismatch           = "merge-fact-mismatch"
 )
 
 type treehouseObservation struct {
@@ -124,10 +129,23 @@ type ReconcileResult struct {
 	Profile        string `json:"profile,omitempty"`
 	PlannedAgainst string `json:"planned_against,omitempty"`
 	RoutingSource  string `json:"routing_source,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+type ReconcileAnomaly struct {
+	Kind           string `json:"kind"`
+	WorkspaceID    string `json:"workspace_id"`
+	WorkspaceLabel string `json:"workspace_label"`
+	TabID          string `json:"tab_id"`
+	TabLabel       string `json:"tab_label"`
+	OwnerAttemptID int64  `json:"owner_attempt,omitempty"`
+	Reason         string `json:"reason"`
 }
 
 type ReconcileReport struct {
-	Results []ReconcileResult `json:"results"`
+	Results   []ReconcileResult  `json:"results"`
+	Anomalies []ReconcileAnomaly `json:"anomalies,omitempty"`
+	Errors    []string           `json:"errors,omitempty"`
 }
 
 const (
@@ -147,6 +165,9 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	}
 	if req.ID != "" {
 		result, err := r.reconcileTask(ctx, req.Home, req.ID)
+		if err != nil {
+			result.Error = err.Error()
+		}
 		return ReconcileReport{Results: []ReconcileResult{result}}, err
 	}
 	histories, err := state.ListReconciliationHistories(req.Home)
@@ -157,10 +178,20 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	var errs []error
 	for _, history := range histories {
 		result, err := r.reconcileTask(ctx, req.Home, history.Task.ID)
+		if err != nil {
+			result.Error = err.Error()
+		}
 		report.Results = append(report.Results, result)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("task %q: %w", history.Task.ID, err))
 		}
+	}
+	anomalies, err := r.observeHerdrOrphans(req.Home)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+		errs = append(errs, fmt.Errorf("observe Herdr inventory: %w", err))
+	} else {
+		report.Anomalies = anomalies
 	}
 	return report, errors.Join(errs...)
 }
@@ -180,13 +211,17 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 		if err != nil {
 			return result, err
 		}
-		mergeObserved, mergeMismatch, err := r.observeMerge(ctx, history.Task)
+		mergeObserved, mergeMismatch, mergeSource, err := r.observeMerge(ctx, home, history)
 		if err != nil {
 			result.Outcome = reconcileOutcomeBlocked
 			return result, err
 		}
 		if mergeMismatch {
-			decision := repairDecision(reconciliationDecision{}, "merge-fact-mismatch", "durable state claims a merged PR but authoritative GitHub evidence says it is not merged")
+			reason := "durable state claims a merged PR but authoritative GitHub evidence says it is not merged"
+			if mergeSource == "local-git" {
+				reason = "durable state claims a merged branch but authoritative local Git evidence says it is not merged"
+			}
+			decision := repairDecision(reconciliationDecision{}, repairCodeMergeFactMismatch, reason)
 			attemptID := int64(0)
 			if history.ActiveAttempt != nil {
 				attemptID = history.ActiveAttempt.ID
@@ -197,7 +232,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 			result.Outcome, result.RepairCode, result.RepairReason = reconcileOutcomeRepair, decision.RepairCode, decision.RepairReason
 			return result, nil
 		}
-		if mergeObserved && history.Task.RepairCode == "merge-fact-mismatch" {
+		if mergeObserved && history.Task.RepairCode == repairCodeMergeFactMismatch {
 			if err := state.ClearTaskRepair(home, id, history.Task.RepairCode); err != nil {
 				return result, err
 			}
@@ -227,6 +262,12 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 				result.Outcome = reconcileOutcomeRecovered
 				continue
 			}
+		}
+		if cleared, err := clearResolvedTerminalRepair(home, history); err != nil {
+			return result, err
+		} else if cleared {
+			result.Outcome = reconcileOutcomeRecovered
+			continue
 		}
 		if history.ActiveAttempt == nil {
 			result.Outcome = reconcileOutcomeHealthy
@@ -300,19 +341,106 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 	return result, nil
 }
 
-func (r *Runtime) observeMerge(ctx context.Context, task state.Task) (bool, bool, error) {
-	if task.PR == "" || (!task.MergeExecuted && !task.MergeAnnounced) {
-		return false, false, nil
+func (r *Runtime) observeMerge(ctx context.Context, home string, history state.TaskHistory) (bool, bool, string, error) {
+	task := history.Task
+	if !task.MergeExecuted && !task.MergeAnnounced {
+		return false, false, "", nil
 	}
-	prMerged := r.deps.prMerged
-	if prMerged == nil {
-		prMerged = ghutil.PRIsMerged
+	if task.PR != "" {
+		prMerged := r.deps.prMerged
+		if prMerged == nil {
+			prMerged = ghutil.PRIsMerged
+		}
+		merged, err := prMerged(ctx, task.PR)
+		if err != nil {
+			return false, false, "github-pr", fmt.Errorf("observe merged PR %s: %w", task.PR, err)
+		}
+		return merged, !merged, "github-pr", nil
 	}
-	merged, err := prMerged(ctx, task.PR)
+	projectInfo, found, err := project.FindReadOnly(home, task.Project)
 	if err != nil {
-		return false, false, fmt.Errorf("observe merged PR %s: %w", task.PR, err)
+		return false, false, "local-git", fmt.Errorf("observe local merge project %q: %w", task.Project, err)
 	}
-	return merged, !merged, nil
+	if !found {
+		return false, false, "local-git", fmt.Errorf("observe local merge project %q: project is not registered", task.Project)
+	}
+	if projectInfo.Mode != project.ModeLocalOnly {
+		return false, false, "local-git", fmt.Errorf("observe local merge for task %q: project mode %q has no local merge evidence", task.ID, projectInfo.Mode)
+	}
+	worktreePath := ""
+	if history.ActiveAttempt != nil {
+		worktreePath = history.ActiveAttempt.Worktree
+	}
+	if worktreePath == "" {
+		for i := len(history.Attempts) - 1; i >= 0; i-- {
+			if history.Attempts[i].Worktree != "" {
+				worktreePath = history.Attempts[i].Worktree
+				break
+			}
+		}
+	}
+	if worktreePath == "" {
+		return false, false, "local-git", fmt.Errorf("observe local merge for task %q: no Attempt worktree is available", task.ID)
+	}
+	branchMerged := r.deps.branchMerged
+	if branchMerged == nil {
+		branchMerged = branchIsMerged
+	}
+	merged, err := branchMerged(filepath.Join(home, "projects", task.Project), worktreePath)
+	if err != nil {
+		return false, false, "local-git", fmt.Errorf("observe local merged branch for task %q: %w", task.ID, err)
+	}
+	return merged, !merged, "local-git", nil
+}
+
+func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
+	client := r.deps.herdr()
+	ownerships, err := state.ListHerdrOwnerships(home)
+	if err != nil {
+		return nil, err
+	}
+	ownedTabs := make(map[string]struct{}, len(ownerships))
+	for _, ownership := range ownerships {
+		if ownership.WorkspaceID != "" && ownership.TabID != "" {
+			ownedTabs[ownership.WorkspaceID+"\x00"+ownership.TabID] = struct{}{}
+		}
+	}
+	workspaces, err := client.WorkspaceList()
+	if err != nil {
+		return nil, fmt.Errorf("list Herdr workspaces: %w", err)
+	}
+	sort.Slice(workspaces, func(i, j int) bool {
+		if workspaces[i].Label != workspaces[j].Label {
+			return workspaces[i].Label < workspaces[j].Label
+		}
+		return workspaces[i].WorkspaceID < workspaces[j].WorkspaceID
+	})
+	var anomalies []ReconcileAnomaly
+	for _, workspace := range workspaces {
+		if !strings.HasPrefix(workspace.Label, "hand:") {
+			continue
+		}
+		tabs, err := client.TabList(workspace.WorkspaceID)
+		if err != nil {
+			return nil, fmt.Errorf("list Herdr tabs for workspace %s: %w", workspace.WorkspaceID, err)
+		}
+		sort.Slice(tabs, func(i, j int) bool {
+			if tabs[i].TabID != tabs[j].TabID {
+				return tabs[i].TabID < tabs[j].TabID
+			}
+			return tabs[i].Label < tabs[j].Label
+		})
+		for _, tab := range tabs {
+			if _, owned := ownedTabs[workspace.WorkspaceID+"\x00"+tab.TabID]; owned {
+				continue
+			}
+			anomalies = append(anomalies, ReconcileAnomaly{
+				Kind: "unattributed-herdr-tab", WorkspaceID: workspace.WorkspaceID, WorkspaceLabel: workspace.Label,
+				TabID: tab.TabID, TabLabel: tab.Label, Reason: "Hand namespace tab has no exact durable Attempt owner",
+			})
+		}
+	}
+	return anomalies, nil
 }
 
 func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) (*state.Attempt, error) {
@@ -345,9 +473,9 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 		}
 		switch observation.State {
 		case herdrOwnershipIncomplete, herdrOwnershipMismatch:
-			return false, repairDecision(reconciliationDecision{}, "teardown-resource-ambiguous", "historical Herdr resource ownership cannot be proven safely"), nil
+			return false, repairDecision(reconciliationDecision{}, repairCodeTeardownResourceAmbiguous, "historical Herdr resource ownership cannot be proven safely"), nil
 		case herdrOwnershipAbsent:
-			if cleared, err := clearHistoricalRepair(home, task, attempt, "teardown-resource-ambiguous", "herdr-ownership-mismatch"); err != nil {
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeTeardownResourceAmbiguous, repairCodeHerdrOwnershipMismatch); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
@@ -357,7 +485,7 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			}
 			return true, reconciliationDecision{}, nil
 		case herdrOwnershipExact:
-			if cleared, err := clearHistoricalRepair(home, task, attempt, "teardown-resource-ambiguous", "herdr-ownership-mismatch"); err != nil {
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeTeardownResourceAmbiguous, repairCodeHerdrOwnershipMismatch); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
@@ -389,7 +517,7 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 		}
 		switch lease.State {
 		case worktree.LeaseUnprovable:
-			return false, repairDecision(reconciliationDecision{}, "legacy-worktree-ownership-unprovable", "historical worktree has no exact lease identity"), nil
+			return false, repairDecision(reconciliationDecision{}, repairCodeLegacyWorktreeUnprovable, "historical worktree has no exact lease identity"), nil
 		case worktree.LeaseMismatch:
 			if attempt.TeardownWorktreeState == state.TeardownResourceReleasing {
 				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleased); err != nil {
@@ -454,9 +582,9 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			return false, reconciliationDecision{}, err
 		}
 		if !found {
-			return false, repairDecision(reconciliationDecision{}, "completion-evidence-mismatch", "durable completion state says appended but no exact completion record exists"), nil
+			return false, repairDecision(reconciliationDecision{}, repairCodeCompletionEvidenceMismatch, "durable completion state says appended but no exact completion record exists"), nil
 		}
-		if cleared, err := clearHistoricalRepair(home, task, attempt, "completion-evidence-mismatch"); err != nil {
+		if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeCompletionEvidenceMismatch); err != nil {
 			return false, reconciliationDecision{}, err
 		} else if cleared {
 			return true, reconciliationDecision{}, nil
@@ -515,11 +643,57 @@ func clearHistoricalRepair(home string, task state.Task, attempt state.Attempt, 
 	return false, nil
 }
 
+func clearResolvedTerminalRepair(home string, history state.TaskHistory) (bool, error) {
+	task := history.Task
+	if task.RepairCode == "" || task.RepairAttemptID == 0 || !terminalRepairCanBeResolved(task.RepairCode) {
+		return false, nil
+	}
+	var attempt *state.Attempt
+	for i := range history.Attempts {
+		if history.Attempts[i].ID == task.RepairAttemptID {
+			attempt = &history.Attempts[i]
+			break
+		}
+	}
+	if attempt == nil || attempt.Lifecycle == state.AttemptProvisioning || attempt.Lifecycle == state.AttemptRunning {
+		return false, nil
+	}
+	if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
+		return false, nil
+	}
+	if attempt.Worktree != "" && attempt.TeardownWorktreeState != state.TeardownResourceReleased {
+		return false, nil
+	}
+	if attempt.TeardownCompletionState != state.TeardownCompletionAppended {
+		return false, nil
+	}
+	if _, found, err := completion.FindAttempt(home, attempt.ID); err != nil {
+		return false, err
+	} else if !found {
+		return false, nil
+	}
+	if err := state.ClearTaskRepair(home, task.ID, task.RepairCode); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func terminalRepairCanBeResolved(code string) bool {
+	switch code {
+	case repairCodeProvisioningLaunchAmbiguous, repairCodeProvisioningPaneMissing, repairCodeLaunchSubmittedPaneMissing,
+		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
+		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeWorktreeDirty,
+		repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeTeardownResourceAmbiguous,
+		repairCodeCompletionEvidenceMismatch:
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attempt) (reconciliationObservation, error) {
 	observation := reconciliationObservation{}
-	if attempt.Lifecycle == state.AttemptProvisioning && attempt.Herdr.PaneID != "" && attempt.LaunchSubmittedAt == "" {
-		return observation, nil
-	}
+	skipHerdrObservation := attempt.Lifecycle == state.AttemptProvisioning && attempt.Herdr.PaneID != "" && attempt.LaunchSubmittedAt == ""
 	if attempt.Worktree != "" {
 		observeLease := r.deps.worktree.observeLease
 		if observeLease == nil {
@@ -542,7 +716,7 @@ func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attemp
 			observation.Worktree.State = worktreeState(clean)
 		}
 	}
-	if attempt.Herdr.PaneID != "" {
+	if attempt.Herdr.PaneID != "" && !skipHerdrObservation {
 		var err error
 		observation.Herdr, err = observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
@@ -629,6 +803,18 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 	if observation.ObservationError {
 		decision.Action = reconciliationActionBlocked
 		return decision
+	}
+	if attempt.Worktree != "" {
+		switch observation.Treehouse.State {
+		case treehouseLeaseMismatch:
+			return repairDecision(decision, repairCodeWorktreeOwnershipMismatch, "recorded worktree path is leased under a different Treehouse lease ID")
+		case treehouseLeaseUnprovable:
+			return repairDecision(decision, repairCodeLegacyWorktreeUnprovable, "recorded worktree ownership has no provable Treehouse lease identity")
+		case treehouseLeaseAbsent:
+			return repairDecision(decision, repairCodeWorktreeOwnershipMismatch, "recorded Treehouse lease is absent")
+		case treehouseLeaseUnobserved:
+			return repairDecision(decision, repairCodeWorktreeOwnershipMismatch, "recorded Treehouse lease was not observed")
+		}
 	}
 
 	if attempt.Lifecycle == state.AttemptProvisioning {

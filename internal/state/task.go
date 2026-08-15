@@ -540,6 +540,15 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 	return db.ListReconciliationHistories()
 }
 
+func ListHerdrOwnerships(homeDir string) ([]Herdr, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ListHerdrOwnerships()
+}
+
 // ListOpenHistoriesReadOnly is ListOpenHistories for a presentation reader: same open-only fleet, off
 // a handle that cannot create schema or import legacy state. A torn-down task is history, not fleet.
 func ListOpenHistoriesReadOnly(homeDir string) ([]TaskHistory, error) {

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/runtime"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -55,5 +57,16 @@ func TestReconcileCommandRendersNeedsRepairAndReturnsPrecondition(t *testing.T) 
 	}
 	if !bytes.Contains(out.Bytes(), []byte("repair_code: running-pane-missing")) || !bytes.Contains(out.Bytes(), []byte("result: needs-repair")) {
 		t.Fatalf("reconcile output = %q, want repair result", out.String())
+	}
+}
+
+func TestReconcileCommandPreservesRepairAndObservationErrors(t *testing.T) {
+	report := runtime.ReconcileReport{Results: []runtime.ReconcileResult{
+		{ID: "task-a", Outcome: "needs-repair", RepairCode: "running-pane-missing"},
+		{ID: "task-b", Outcome: "blocked", Error: "Herdr service unavailable"},
+	}}
+	err := reconcileReportError(report, errors.New("task-b: Herdr service unavailable"))
+	if err == nil || !strings.Contains(err.Error(), "running-pane-missing") || !strings.Contains(err.Error(), "Herdr service unavailable") {
+		t.Fatalf("reconcile error = %v, want repair and observation diagnostics", err)
 	}
 }

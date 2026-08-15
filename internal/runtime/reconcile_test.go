@@ -114,6 +114,26 @@ func TestDecideReconciliationProvisioningMatrix(t *testing.T) {
 			wantAction:  reconciliationActionNeedsRepair,
 			wantCode:    repairCodeRunningPaneMissing,
 		},
+		{
+			name:    "running absent lease",
+			attempt: state.Attempt{Lifecycle: state.AttemptRunning, Worktree: "/pool/1", LeaseID: "lease-1", Herdr: state.Herdr{WorkspaceID: "ws", TabID: "tab", PaneID: "pane"}},
+			observation: reconciliationObservation{
+				Treehouse: treehouseObservation{State: treehouseLeaseAbsent},
+				Herdr:     herdrObservation{State: herdrOwnershipExact, Agent: "claude"},
+			},
+			wantAction: reconciliationActionNeedsRepair,
+			wantCode:   repairCodeWorktreeOwnershipMismatch,
+		},
+		{
+			name:    "running unprovable lease",
+			attempt: state.Attempt{Lifecycle: state.AttemptRunning, Worktree: "/pool/1", LeaseID: "lease-1", Herdr: state.Herdr{WorkspaceID: "ws", TabID: "tab", PaneID: "pane"}},
+			observation: reconciliationObservation{
+				Treehouse: treehouseObservation{State: treehouseLeaseUnprovable},
+				Herdr:     herdrObservation{State: herdrOwnershipExact, Agent: "claude"},
+			},
+			wantAction: reconciliationActionNeedsRepair,
+			wantCode:   repairCodeLegacyWorktreeUnprovable,
+		},
 	}
 
 	for _, tt := range tests {
@@ -186,6 +206,7 @@ func (f *reconcileHerdrClient) FindWorkspaceByLabel(string) (herdr.Workspace, bo
 	}
 	return f.workspace, f.workspace.WorkspaceID != "", nil
 }
+func (f *reconcileHerdrClient) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
 func (f *reconcileHerdrClient) WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
 	return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, errors.New("unused")
 }
@@ -397,6 +418,171 @@ func TestReconcileRunningMissingPaneRecordsRepairWithoutReplacement(t *testing.T
 	}
 	if history.Task.RepairCode != repairCodeRunningPaneMissing || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
 		t.Fatalf("history=%+v, want running Attempt and repair marker", history)
+	}
+}
+
+func TestReconcileRunningWorktreeLeaseMismatchWinsOverHealthyPane(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "old-lease",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.worktree.observeLease = func(string, string) (worktree.LeaseObservation, error) {
+		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}, nil
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != repairCodeWorktreeOwnershipMismatch || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("history = %+v, want lease repair and unchanged running Attempt", history)
+	}
+}
+
+func TestDecideRunningKeepsDirtyWorktreeWhenLeaseAndPaneAreExact(t *testing.T) {
+	decision := decideReconciliation(state.Task{ID: "task-1"}, state.Attempt{
+		Lifecycle: state.AttemptRunning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	}, reconciliationObservation{
+		Treehouse: treehouseObservation{State: treehouseLeaseExact},
+		Worktree:  worktreeObservation{State: worktreeDirty},
+		Herdr:     herdrObservation{State: herdrOwnershipExact, Agent: "claude"},
+	})
+	if decision.Action != reconciliationActionKeep {
+		t.Fatalf("decision = %+v, want keep despite worker edits", decision)
+	}
+}
+
+func TestReconcileClearsRepairAfterTeardownAndReopenResolvesOldAttempt(t *testing.T) {
+	home := reconcileFixture(t)
+	oldAttempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+		Herdr:             state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", oldAttempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil || history.Task.RepairCode != repairCodeRunningPaneMissing {
+		t.Fatalf("repair history = %+v, err=%v", history, err)
+	}
+
+	if err := state.SetAttemptTeardownDecision(home, "task-1", oldAttempt.ID, state.AttemptInterrupted, state.TeardownDispositionForced); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", oldAttempt.ID, state.AttemptRunning, "herdr", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", oldAttempt.ID, state.AttemptRunning, state.AttemptInterrupted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", oldAttempt.ID, state.AttemptInterrupted, "herdr", state.TeardownResourceReleased); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", oldAttempt.ID, state.AttemptInterrupted, state.TeardownCompletionPending); err != nil {
+		t.Fatal(err)
+	}
+	if err := completion.Append(home, completion.Record{ID: "task-1", Project: "demo", Outcome: "torn-down", Detail: "forced", AttemptID: oldAttempt.ID, AttemptLifecycle: string(state.AttemptInterrupted)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", oldAttempt.ID, state.AttemptInterrupted, state.TeardownCompletionAppended); err != nil {
+		t.Fatal(err)
+	}
+
+	newAttempt, err := state.ReopenTask(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newWorktree := filepath.Join(home, "reopened-worktree")
+	if err := state.RecordAttemptWorktree(home, "task-1", newAttempt.ID, newWorktree, "lease-new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.RecordAttemptHerdr(home, "task-1", newAttempt.ID, state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, "2026-08-15T00:00:02Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkLaunchSubmitted(home, "task-1", newAttempt.ID, "2026-08-15T00:00:03Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkLaunchConfirmed(home, "task-1", newAttempt.ID, "2026-08-15T00:00:04Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", newAttempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != "" || history.Task.RepairAttemptID != 0 {
+		t.Fatalf("stale repair marker after resolved teardown and reopen: %+v", history.Task)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.ID != newAttempt.ID {
+		t.Fatalf("active attempt = %+v, want reopened attempt %d", history.ActiveAttempt, newAttempt.ID)
+	}
+}
+
+func TestReconcileDoesNotClearUnknownRepairAfterTerminalTeardown(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownDecision(home, "task-1", attempt.ID, state.AttemptInterrupted, state.TeardownDispositionForced); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptProvisioning, "herdr", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptProvisioning, state.AttemptInterrupted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptInterrupted, "herdr", state.TeardownResourceReleased); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptInterrupted, state.TeardownCompletionPending); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptInterrupted, state.TeardownCompletionAppended); err != nil {
+		t.Fatal(err)
+	}
+	if err := completion.Append(home, completion.Record{ID: "task-1", Project: "demo", Outcome: "torn-down", Detail: "forced", AttemptID: attempt.ID, AttemptLifecycle: string(state.AttemptInterrupted)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskRepair(home, "task-1", "operator-review-required", "unknown contradiction", attempt.ID, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != "operator-review-required" {
+		t.Fatalf("repair code = %q, want unknown marker retained", history.Task.RepairCode)
 	}
 }
 
@@ -739,6 +925,55 @@ func TestReconcileMergeObservationFailureLeavesRepairMarkerUnchanged(t *testing.
 	}
 }
 
+func TestReconcileLocalMergeMismatchNeedsRepairWithoutRewritingHistory(t *testing.T) {
+	home := reconcileFixture(t)
+	if _, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskMerge(home, "task-1", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.branchMerged = func(string, string) (bool, error) { return false, nil }
+	result, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Results[0].Outcome != reconcileOutcomeRepair || history.Task.RepairCode != "merge-fact-mismatch" || !history.Task.MergeExecuted {
+		t.Fatalf("result=%+v task=%+v, want local merge contradiction repair", result, history.Task)
+	}
+}
+
+func TestReconcileLocalMergeObservationFailureDoesNotCreateRepair(t *testing.T) {
+	home := reconcileFixture(t)
+	if _, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskMerge(home, "task-1", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.branchMerged = func(string, string) (bool, error) { return false, errors.New("git unavailable") }
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err == nil {
+		t.Fatal("Reconcile succeeded through local Git observation failure")
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != "" {
+		t.Fatalf("local Git observation failure created repair marker: %+v", history.Task)
+	}
+}
+
 func TestReconcileResumesPartialTeardownWithoutChangingDisposition(t *testing.T) {
 	home := reconcileFixture(t)
 	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
@@ -769,6 +1004,23 @@ func TestReconcileResumesPartialTeardownWithoutChangingDisposition(t *testing.T)
 	}
 	if history.Task.Lifecycle != state.TaskTerminal || history.ActiveAttempt != nil || history.Attempts[0].TeardownDisposition != state.TeardownDispositionCompleted || history.Attempts[0].TeardownHerdrState != state.TeardownResourceReleased || history.Attempts[0].TeardownWorktreeState != state.TeardownResourceReleased || history.Attempts[0].TeardownCompletionState != state.TeardownCompletionAppended || returns != 1 || client.closed != 1 {
 		t.Fatalf("history=%+v returns=%d closes=%d, want resumed terminal teardown", history, returns, client.closed)
+	}
+}
+
+func TestReconcileFleetReportsUnattributedHandTabWithoutClaimingOwnership(t *testing.T) {
+	home := reconcileFixture(t)
+	client := &inventoryReconcileHerdr{}
+	r := reconcileRuntime(client, nil)
+	report, err := r.Reconcile(ReconcileRequest{Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Anomalies) != 1 {
+		t.Fatalf("anomalies = %+v, want one unattributed Herdr tab", report.Anomalies)
+	}
+	anomaly := report.Anomalies[0]
+	if anomaly.Kind != "unattributed-herdr-tab" || anomaly.WorkspaceID != "ws-orphan" || anomaly.TabID != "tab-orphan" || anomaly.OwnerAttemptID != 0 {
+		t.Fatalf("anomaly = %+v, want unattributed identity without owner", anomaly)
 	}
 }
 
@@ -825,6 +1077,16 @@ type healthyReconcileHerdr struct {
 
 type missingReconcileHerdr struct{ healthyReconcileHerdr }
 
+type inventoryReconcileHerdr struct{ healthyReconcileHerdr }
+
+func (*inventoryReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) {
+	return []herdr.Workspace{{WorkspaceID: "ws-orphan", Label: "hand:demo"}}, nil
+}
+
+func (*inventoryReconcileHerdr) TabList(string) ([]herdr.Tab, error) {
+	return []herdr.Tab{{TabID: "tab-orphan", WorkspaceID: "ws-orphan", Label: "orphan-task"}}, nil
+}
+
 func (*missingReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
 	return herdr.Workspace{}, false, nil
 }
@@ -832,6 +1094,7 @@ func (*missingReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, boo
 func (f *healthyReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
 	return herdr.Workspace{WorkspaceID: "ws-1", Label: "hand:demo"}, true, nil
 }
+func (f *healthyReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
 func (f *healthyReconcileHerdr) WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
 	return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, errors.New("unused")
 }

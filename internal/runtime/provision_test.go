@@ -210,6 +210,8 @@ func (f *provisionHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, er
 	return herdr.Workspace{WorkspaceID: "ws-1"}, true, nil
 }
 
+func (f *provisionHerdr) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
+
 func (f *provisionHerdr) WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
 	return herdr.Workspace{WorkspaceID: "ws-1"}, herdr.Tab{TabID: "tab-1"}, herdr.Pane{PaneID: "pane-1"}, nil
 }

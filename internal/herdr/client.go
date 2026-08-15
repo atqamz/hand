@@ -48,6 +48,26 @@ type envelope struct {
 	Error  *errorBody      `json:"error"`
 }
 
+var ErrNotFound = errors.New("herdr resource not found")
+
+type APIError struct {
+	Operation string
+	Code      string
+	Message   string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("herdr %s: %s: %s", e.Operation, e.Code, e.Message)
+}
+
+func (e *APIError) Unwrap() error {
+	code := strings.ToLower(e.Code)
+	if code == "not_found" || strings.HasSuffix(code, "_not_found") {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Execs herdr and returns its trimmed stdout and trimmed stderr alongside the process error,
 // letting call and callVoid share one invocation path.
 func (c *Client) run(args ...string) ([]byte, string, error) {
@@ -92,7 +112,7 @@ func (c *Client) callContext(ctx context.Context, args ...string) (json.RawMessa
 		return nil, err
 	}
 	if env.Error != nil {
-		return nil, fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), env.Error.Code, env.Error.Message)
+		return nil, &APIError{Operation: strings.Join(args, " "), Code: env.Error.Code, Message: env.Error.Message}
 	}
 	if runErr != nil {
 		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
@@ -128,7 +148,7 @@ func (c *Client) callVoid(args ...string) error {
 		return err
 	}
 	if env.Error != nil {
-		return fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), env.Error.Code, env.Error.Message)
+		return &APIError{Operation: strings.Join(args, " "), Code: env.Error.Code, Message: env.Error.Message}
 	}
 	if runErr != nil {
 		return fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)

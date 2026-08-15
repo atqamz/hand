@@ -147,6 +147,16 @@ func TestObserveLeaseReportsAbsentAfterReturn(t *testing.T) {
 	}
 }
 
+func TestObserveLeaseReportsAbsentWhenTheRecordedPathIsGone(t *testing.T) {
+	got, err := ObserveLease(filepath.Join(t.TempDir(), "gone"), "lease-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != LeaseAbsent {
+		t.Fatalf("ObserveLease() = %+v, want absent", got)
+	}
+}
+
 func TestObserveCleanlinessIncludesUntrackedFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wt-1")
 	faketool.InitRepo(t, path)

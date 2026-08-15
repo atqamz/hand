@@ -3,7 +3,6 @@ package runtime
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
@@ -11,6 +10,7 @@ import (
 
 type herdrClient interface {
 	FindWorkspaceByLabel(string) (herdr.Workspace, bool, error)
+	WorkspaceList() ([]herdr.Workspace, error)
 	WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error)
 	WorkspaceClose(string) error
 	TabList(string) ([]herdr.Tab, error)
@@ -163,8 +163,7 @@ func observeHerdrOwnership(client herdrClient, expected state.Herdr, taskID, pro
 }
 
 func isHerdrNotFound(err error) bool {
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "not_found") || strings.Contains(message, "not found")
+	return errors.Is(err, herdr.ErrNotFound)
 }
 
 // CloseTaskTab closes a task-owned tab without touching unrelated tabs.

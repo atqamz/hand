@@ -766,6 +766,26 @@ func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
 	return histories, nil
 }
 
+func (db *DB) ListHerdrOwnerships() ([]Herdr, error) {
+	rows, err := db.sql.Query(`SELECT herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id FROM attempt WHERE herdr_workspace_id <> '' OR herdr_tab_id <> '' OR herdr_pane_id <> '' ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list Herdr ownerships: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ownerships []Herdr
+	for rows.Next() {
+		var ownership Herdr
+		if err := rows.Scan(&ownership.Session, &ownership.WorkspaceID, &ownership.TabID, &ownership.PaneID); err != nil {
+			return nil, fmt.Errorf("list Herdr ownerships: %w", err)
+		}
+		ownerships = append(ownerships, ownership)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list Herdr ownerships: %w", err)
+	}
+	return ownerships, nil
+}
+
 func (db *DB) CreateTaskWithAttempt(t Task, a Attempt) (Attempt, error) {
 	if t.Lifecycle == "" {
 		t.Lifecycle = TaskOpen
