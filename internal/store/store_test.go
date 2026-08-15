@@ -646,14 +646,21 @@ func TestOpenReadOnlyMissingDatabaseDoesNotCreateState(t *testing.T) {
 	home := t.TempDir()
 	before := snapshotStoreTree(t, home)
 	db, err := OpenReadOnly(home)
-	if db != nil {
-		_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err == nil {
-		t.Fatal("OpenReadOnly created or opened a missing database")
+	tasks, err := db.ListTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("OpenReadOnly missing database returned tasks: %+v", tasks)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
 	}
 	if after := snapshotStoreTree(t, home); !slices.Equal(after, before) {
-		t.Fatalf("missing-database open changed the fleet:\nbefore: %v\nafter:  %v", before, after)
+		t.Fatalf("missing-database open changed the fleet:\nbefore: %v\nafter: %v", before, after)
 	}
 }
 

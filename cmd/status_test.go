@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -214,6 +215,110 @@ func TestStatusSingleTaskDetail(t *testing.T) {
 	}
 }
 
+func TestStatusRendersRepairWithoutMutatingIt(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskRepair(home, "task-1", "running-pane-missing", "persisted running Attempt has no matching Herdr pane", 1, "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "repair: needs-repair") || !strings.Contains(out.String(), "repair_code: running-pane-missing") || !strings.Contains(out.String(), "repair_attempt: 1") {
+		t.Fatalf("status = %q, want repair evidence", out.String())
+	}
+	after, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Task.RepairCode != before.Task.RepairCode || after.Task.RepairReason != before.Task.RepairReason || after.Task.RepairAttemptID != before.Task.RepairAttemptID || after.Task.RepairObservedAt != before.Task.RepairObservedAt {
+		t.Fatalf("status mutated repair marker: before=%+v after=%+v", before.Task, after.Task)
+	}
+}
+
+func TestStatusDoesNotImportLegacyState(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	legacy, err := json.Marshal(store.Task{ID: "task-1", Project: "myproj", Kind: store.KindShip, CreatedAt: "2026-08-15T00:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(home, "state", "task-1.json")
+	if err := os.WriteFile(legacyPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(home, "state", "hand.db")
+	dbBefore, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{nil, {"task-1"}} {
+		cmd := newStatusCmd()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("status %v succeeded, want missing current database error", args)
+		}
+		dbAfter, err := os.ReadFile(dbPath)
+		if err != nil {
+			t.Fatalf("status %v removed hand.db: %v", args, err)
+		}
+		if !bytes.Equal(dbAfter, dbBefore) {
+			t.Fatalf("status %v mutated hand.db", args)
+		}
+		if _, err := os.Stat(legacyPath); err != nil {
+			t.Fatalf("status %v consumed legacy state: %v", args, err)
+		}
+	}
+}
+
+func TestRootStatusObservesLegacyStateWithoutCreatingDatabase(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	dbPath := filepath.Join(home, "state", "hand.db")
+	if err := os.Remove(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(home, "state", "task-1.json")
+	if err := os.WriteFile(legacyPath, []byte(`{"id":"task-1","project":"myproj","kind":"ship","created_at":"2026-08-15T00:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	root := newRootCmd(devBuild("test"))
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"status", "task-1"})
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "task-1") {
+		t.Fatalf("status = %q, want the observed legacy task", out.String())
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v, want status not to create it", dbPath, err)
+	}
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("stat %s: %v, want status to leave it untouched", legacyPath, err)
+	}
+}
+
 func TestStatusSingleTaskExecutionSnapshotSurvivesRoutingEdits(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -410,12 +515,12 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 		t.Fatalf("got %q, want the detected PR shown", out.String())
 	}
 
-	got, err := state.Read(home, "task-1")
+	got, err := state.ReadHistoryReadOnly(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.PR != "https://github.com/owner/repo/pull/9" {
-		t.Fatalf("task.PR = %q, want status to have recorded the detected PR", got.PR)
+	if got.Task.PR != "" {
+		t.Fatalf("task.PR = %q, want status to leave persisted state unchanged", got.Task.PR)
 	}
 }
 

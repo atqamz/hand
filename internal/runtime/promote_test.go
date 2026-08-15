@@ -165,6 +165,6 @@ func TestPromotePersistsPartialOldScoutCleanupWithoutMovingOwnership(t *testing.
 func scoutAttempt(worktreePath, workspaceID, tabID string) state.Attempt {
 	return state.Attempt{
 		TaskID: "task-1", Lifecycle: state.AttemptCompleted, Worktree: worktreePath,
-		Herdr: state.Herdr{WorkspaceID: workspaceID, TabID: tabID},
+		Herdr: state.Herdr{WorkspaceID: workspaceID, TabID: tabID, PaneID: "old-pane"},
 	}
 }

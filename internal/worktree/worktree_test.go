@@ -106,6 +106,73 @@ func TestVerifyLeaseRequiresAnExactLeasedIdentity(t *testing.T) {
 	}
 }
 
+func TestObserveLeaseDistinguishesExactMissingReusedAndLegacyOwnership(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	for _, test := range []struct {
+		name    string
+		leaseID string
+		want    LeaseObservationState
+	}{
+		{name: "exact", leaseID: "lease-1", want: LeaseExact},
+		{name: "reused", leaseID: "lease-old", want: LeaseMismatch},
+		{name: "legacy", leaseID: "", want: LeaseUnprovable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-1"}}.Install(t, faketool.Bin(t))
+			got, err := ObserveLease(path, test.leaseID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.State != test.want {
+				t.Fatalf("ObserveLease() = %+v, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestObserveLeaseReportsAbsentAfterReturn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-1"}}.Install(t, faketool.Bin(t))
+	if err := ReturnLease(path, "lease-1", true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ObserveLease(path, "lease-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != LeaseAbsent {
+		t.Fatalf("ObserveLease() = %+v, want absent", got)
+	}
+}
+
+func TestObserveLeaseReportsAbsentWhenTheRecordedPathIsGone(t *testing.T) {
+	got, err := ObserveLease(filepath.Join(t.TempDir(), "gone"), "lease-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != LeaseAbsent {
+		t.Fatalf("ObserveLease() = %+v, want absent", got)
+	}
+}
+
+func TestObserveCleanlinessIncludesUntrackedFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wt-1")
+	faketool.InitRepo(t, path)
+	got, err := ObserveCleanliness(path)
+	if err != nil || got != Clean {
+		t.Fatalf("clean worktree = %q, %v", got, err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "untracked"), []byte("dirty"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err = ObserveCleanliness(path)
+	if err != nil || got != Dirty {
+		t.Fatalf("dirty worktree = %q, %v", got, err)
+	}
+}
+
 func TestVerifyLeaseRunsStatusFromTheWorktreeRepository(t *testing.T) {
 	worktreePath := filepath.Join(t.TempDir(), "worktree")
 	faketool.InitRepo(t, worktreePath)

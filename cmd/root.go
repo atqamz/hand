@@ -10,7 +10,9 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +24,14 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if fleetHome, err := home.Resolve(); err == nil {
 				startupOverview := cmd.Name() == "hand" || cmd.CommandPath() == "hand session start"
-				if cmd.Name() != "init" && !startupOverview {
+				if cmd.Name() != "init" && !startupOverview && cmd.Name() != "status" {
+					if _, statErr := os.Stat(store.Path(fleetHome)); os.IsNotExist(statErr) {
+						if err := project.Migrate(fleetHome); err != nil {
+							return err
+						}
+					} else if statErr != nil {
+						return fmt.Errorf("check state/hand.db: %w", statErr)
+					}
 					if _, err := migrateWorkerSettings(fleetHome); err != nil {
 						return err
 					}
@@ -52,6 +61,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newProjectCmd())
 	root.AddCommand(newSpawnCmd())
 	root.AddCommand(newStatusCmd())
+	root.AddCommand(newReconcileCmd())
 	root.AddCommand(newSessionCmd(info.Version))
 	root.AddCommand(newSendCmd())
 	root.AddCommand(newHoldCmd())

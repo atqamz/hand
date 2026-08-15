@@ -81,13 +81,16 @@ func taskFlags(v taskView) []string {
 	if v.gateIssue != "" {
 		flags = append(flags, "gate-"+strings.ReplaceAll(v.gateIssue, " ", "-"))
 	}
+	if v.task.RepairCode != "" {
+		flags = append(flags, "needs-repair")
+	}
 	return flags
 }
 
 // The predicate behind the fleet view's attention aggregate: a supervisor reading only the count knows
 // whether any row is asking for something without reading the rows.
 func needsAttention(v taskView) bool {
-	if v.unreadable || v.unacked || v.gateIssue != "" {
+	if v.unreadable || v.unacked || v.gateIssue != "" || v.task.RepairCode != "" {
 		return true
 	}
 	switch v.reportedState {
@@ -156,6 +159,21 @@ var taskFields = []axi.Column[taskView]{
 	{Name: "gate", Value: func(v taskView) string { return orNone(v.gateIssue) }},
 	{Name: "report_file", Value: func(v taskView) string { return orNone(v.reportFile) }},
 	{Name: "flags", Value: func(v taskView) string { return orNone(strings.Join(taskFlags(v), " ")) }},
+	{Name: "repair", Value: func(v taskView) string {
+		if v.task.RepairCode == "" {
+			return "none"
+		}
+		return "needs-repair"
+	}},
+	{Name: "repair_code", Value: func(v taskView) string { return orNone(v.task.RepairCode) }},
+	{Name: "repair_attempt", Value: func(v taskView) string {
+		if v.task.RepairAttemptID == 0 {
+			return "none"
+		}
+		return fmt.Sprintf("%d", v.task.RepairAttemptID)
+	}},
+	{Name: "repair_reason", Value: func(v taskView) string { return orNone(v.task.RepairReason) }},
+	{Name: "repair_observed_at", Value: func(v taskView) string { return orNone(v.task.RepairObservedAt) }},
 }
 
 // The fleet view answers "what is running and what wants me", so it defaults to

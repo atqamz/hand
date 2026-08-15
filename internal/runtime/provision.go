@@ -7,6 +7,7 @@ import (
 
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/completion"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
@@ -29,6 +30,8 @@ const (
 
 type worktreeDependencies struct {
 	get            func(string, string) (worktree.Lease, error)
+	observeLease   func(string, string) (worktree.LeaseObservation, error)
+	observeClean   func(string) (worktree.Cleanliness, error)
 	headCommit     func(string) (string, error)
 	returnWorktree func(string, bool) error
 	returnWithID   func(string, string, bool) error
@@ -44,6 +47,8 @@ type dependencies struct {
 	buildHarness      func(string, harness.Options) (string, error)
 	confirmLaunch     func(herdrClient, string, string) error
 	appendCompletion  func(string, completion.Record) error
+	prMerged          func(context.Context, string) (bool, error)
+	branchMerged      func(string, string) (bool, error)
 	phase             func(lifecyclePhase) error
 }
 
@@ -55,11 +60,13 @@ func defaultDependencies() dependencies {
 	return dependencies{
 		now:               func() time.Time { return time.Now().UTC() },
 		herdr:             newHerdrClient,
-		worktree:          worktreeDependencies{get: worktree.Get, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
+		worktree:          worktreeDependencies{get: worktree.Get, observeLease: worktree.ObserveLease, observeClean: worktree.ObserveCleanliness, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
 		projectBaseCommit: projectBaseCommit,
 		buildHarness:      harness.Build,
 		confirmLaunch:     confirmLaunch,
 		appendCompletion:  completion.Append,
+		prMerged:          ghutil.PRIsMerged,
+		branchMerged:      branchIsMerged,
 		phase:             func(lifecyclePhase) error { return nil },
 	}
 }
@@ -70,6 +77,7 @@ type provisioningRequest struct {
 	clonePath           string
 	briefPath           string
 	briefHasFrontMatter bool
+	resumeExisting      bool
 	attempt             state.Attempt
 }
 
@@ -84,13 +92,19 @@ func (r *Runtime) provision(ctx context.Context, req provisioningRequest) (strin
 
 func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) (string, error) {
 	_ = ctx
-	lease, err := r.deps.worktree.get(req.clonePath, "hand:"+req.attempt.TaskID)
-	if err != nil {
-		return "", fmt.Errorf("acquire treehouse worktree: %w", err)
+	lease := worktree.Lease{Path: req.attempt.Worktree, ID: req.attempt.LeaseID}
+	var err error
+	if lease.Path == "" {
+		lease, err = r.deps.worktree.get(req.clonePath, "hand:"+req.attempt.TaskID)
+		if err != nil {
+			return "", fmt.Errorf("acquire treehouse worktree: %w", err)
+		}
 	}
 	worktreePath := lease.Path
-	if err := state.RecordAttemptWorktree(req.home, req.attempt.TaskID, req.attempt.ID, worktreePath, lease.ID); err != nil {
-		return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnLease(lease, true))
+	if req.attempt.Worktree == "" {
+		if err := state.RecordAttemptWorktree(req.home, req.attempt.TaskID, req.attempt.ID, worktreePath, lease.ID); err != nil {
+			return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnLease(lease, true))
+		}
 	}
 	var releaseWorktree func()
 	if brief.ExecutionClass(req.attempt.ExecutionClass) == brief.ExecutionClassMechanical {
@@ -126,6 +140,19 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	if conflict != "" {
 		err := Precondition(fmt.Errorf("worktree collision: %s already holds %s", conflict, worktreePath))
 		return "", r.failProvision(req, lease, nil, false, err)
+	}
+	if req.resumeExisting {
+		observeLease := r.deps.worktree.observeLease
+		if observeLease == nil {
+			observeLease = worktree.ObserveLease
+		}
+		observation, err := observeLease(worktreePath, lease.ID)
+		if err != nil {
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("verify resumed worktree lease: %w; refusing to launch", err)))
+		}
+		if observation.State != worktree.LeaseExact {
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("resumed worktree lease is %s; refusing to launch", observation.State)))
+		}
 	}
 
 	client := r.deps.herdr()
@@ -194,7 +221,7 @@ func (r *Runtime) failProvision(req provisioningRequest, lease worktree.Lease, r
 			}
 		}
 	}
-	if lease.Path != "" {
+	if lease.Path != "" && !req.resumeExisting {
 		if err := r.returnProvisioningWorktree(req.home, req.attempt.TaskID, req.attempt.ID, lease); err != nil {
 			cleanup = append(cleanup, err)
 		}

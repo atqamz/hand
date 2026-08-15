@@ -147,6 +147,10 @@ type statusJSON struct {
 	ReportHistory    []string      `json:"report_history,omitempty"`
 	Held             *holdJSON     `json:"held,omitempty"`
 	GateRunIssue     string        `json:"gate_run_issue,omitempty"`
+	RepairCode       string        `json:"repair_code,omitempty"`
+	RepairReason     string        `json:"repair_reason,omitempty"`
+	RepairAttemptID  int64         `json:"repair_attempt,omitempty"`
+	RepairObservedAt string        `json:"repair_observed_at,omitempty"`
 	// Omitted when false so a consumer written before this field sees no change
 	// on the fleet it already understands.
 	Unacknowledged bool          `json:"unacknowledged,omitempty"`
@@ -286,7 +290,7 @@ func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Projec
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
-	views, holds, err := fleetViews(cmd, home, client, false)
+	views, holds, err := fleetViews(cmd, home, client, true)
 	if err != nil {
 		return err
 	}
@@ -336,11 +340,11 @@ func appendFleetState(doc *axi.Doc, views []taskView, holds []state.Hold, cols [
 }
 
 func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly bool) ([]taskView, []state.Hold, error) {
-	listHistories := state.ListOpenHistories
+	listHistories := state.ListReconciliationHistories
 	listHolds := state.ListHolds
 	listProjects := project.List
 	if readOnly {
-		listHistories = state.ListOpenHistoriesReadOnly
+		listHistories = state.ListReconciliationHistoriesReadOnly
 		listHolds = state.ListHoldsReadOnly
 		listProjects = project.ListReadOnly
 	}
@@ -495,7 +499,7 @@ func (v taskView) json() statusJSON {
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
-		Reported: v.reported, GateRunIssue: v.gateIssue, Unacknowledged: v.unacked, Attempts: history,
+		Reported: v.reported, GateRunIssue: v.gateIssue, RepairCode: v.task.RepairCode, RepairReason: v.task.RepairReason, RepairAttemptID: v.task.RepairAttemptID, RepairObservedAt: v.task.RepairObservedAt, Unacknowledged: v.unacked, Attempts: history,
 	}
 }
 
@@ -513,11 +517,11 @@ func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
 }
 
 func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool, cols []axi.Column[taskView]) error {
-	history, err := state.ReadHistory(home, id)
+	history, err := state.ReadHistoryReadOnly(home, id)
 	if err != nil {
 		return asPrecondition(err)
 	}
-	history.Task = detectPRForStatus(cmd.Context(), home, history.Task)
+	history.Task = detectPRForStatus(cmd.Context(), home, history)
 	t := history.Task
 
 	// An unreadable report degrades exactly as it does in the fleet view: the
@@ -526,7 +530,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	v, reportLines := buildTaskView(home, client, history, full)
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
-	hold, held, err := state.ReadHold(home, id)
+	hold, held, err := state.ReadHoldReadOnly(home, id)
 	if err != nil {
 		return err
 	}
@@ -536,7 +540,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// fail the command.
 	reportedDone := v.reportedState == state.ReportDone
 	if gateRunApplies(t, reportedDone) {
-		p, registered, err := project.Find(home, t.Project)
+		p, registered, err := project.FindReadOnly(home, t.Project)
 		// Propagated, not degraded: a single task's own project is the one fact this check is about, unlike
 		// the fleet view's best-effort lookup across every task's project at once.
 		if err != nil {
@@ -573,6 +577,13 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	var doc axi.Doc
 	for _, c := range cols {
 		doc.Field(c.Name, c.Value(v))
+	}
+	if v.task.RepairCode != "" {
+		doc.Field("repair", "needs-repair")
+		doc.Field("repair_code", v.task.RepairCode)
+		doc.Field("repair_attempt", fmt.Sprintf("%d", v.task.RepairAttemptID))
+		doc.Field("repair_reason", v.task.RepairReason)
+		doc.Field("repair_observed_at", v.task.RepairObservedAt)
 	}
 	doc.List("report_history", historyBlock(v, tail, full))
 	doc.List("attempts", attemptHistoryBlock(v))

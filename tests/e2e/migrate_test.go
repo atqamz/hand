@@ -59,20 +59,26 @@ func TestMigrationImportsALegacyHomeAndIsIdempotent(t *testing.T) {
 		}
 	}
 
-	if _, err := os.Stat(filepath.Join(home, "state", "task-1.json")); !os.IsNotExist(err) {
-		t.Fatalf("stat state/task-1.json: %v, want the imported file moved aside", err)
+	if _, err := os.Stat(filepath.Join(home, "state", "task-1.json")); err != nil {
+		t.Fatalf("stat state/task-1.json: %v, want status to leave the legacy file untouched", err)
 	}
 	archived := filepath.Join(store.LegacyDir(home), "task-1.json")
-	if _, err := os.Stat(archived); err != nil {
-		t.Fatalf("stat %s: %v, want the imported file kept for the operator", archived, err)
+	if _, err := os.Stat(archived); !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v, want status not to archive the legacy file", archived, err)
 	}
-	if _, err := os.Stat(store.Path(home)); err != nil {
-		t.Fatalf("stat machine state database: %v", err)
+	if _, err := os.Stat(store.Path(home)); !os.IsNotExist(err) {
+		t.Fatalf("stat machine state database: %v, want status not to create it", err)
 	}
 
 	projects := runHand(t, home, "project", "list")
 	if projects.code != 0 || !strings.Contains(projects.stdout, "demo") {
 		t.Fatalf("project list: exit %d, stdout %q, want the registry imported from prose", projects.code, projects.stdout)
+	}
+	if _, err := os.Stat(archived); err != nil {
+		t.Fatalf("stat %s: %v, want the later mutating command to archive the legacy file", archived, err)
+	}
+	if _, err := os.Stat(store.Path(home)); err != nil {
+		t.Fatalf("stat machine state database: %v, want the later mutating command to create it", err)
 	}
 
 	second := runHand(t, home, "status")
@@ -95,6 +101,12 @@ func TestMigrationDoesNotLetARestoredLegacyFileOverwriteNewerState(t *testing.T)
 	home := legacyHome(t)
 	if got := runHand(t, home, "status", "task-1"); got.code != 0 {
 		t.Fatalf("status after migration: exit %d, stderr %q", got.code, got.stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home, "state", "task-1.json")); err != nil {
+		t.Fatalf("stat state/task-1.json: %v, want status to leave the legacy file untouched", err)
+	}
+	if got := runHand(t, home, "project", "list"); got.code != 0 {
+		t.Fatalf("project list after read-only status: exit %d, stderr %q", got.code, got.stderr)
 	}
 
 	restored, err := os.ReadFile(filepath.Join(store.LegacyDir(home), "task-1.json"))

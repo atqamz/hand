@@ -35,18 +35,21 @@ func legacyTaskFiles(homeDir string) ([]string, error) {
 // Reading the JSON directly is the point: recovering an existing fleet must
 // not depend on the binary that wrote it still working. A second run is a
 // no-op, because it finds no JSON left to import.
-func (db *DB) migrateLegacy() error {
+func (db *DB) migrateLegacy(archive bool) error {
 	names, err := legacyTaskFiles(db.home)
 	if err != nil || len(names) == 0 {
 		return err
 	}
 	// Unlocked, a process that parsed a file before another one imported it and
 	// deleted the row lands its own insert afterwards and resurrects the task.
-	unlock, err := Lock(db.home, MigrationLock, false)
-	if err != nil {
-		return fmt.Errorf("lock migration: %w", err)
+	var unlock func()
+	if archive {
+		unlock, err = Lock(db.home, MigrationLock, false)
+		if err != nil {
+			return fmt.Errorf("lock migration: %w", err)
+		}
+		defer unlock()
 	}
-	defer unlock()
 
 	names, err = legacyTaskFiles(db.home)
 	if err != nil || len(names) == 0 {
@@ -99,6 +102,9 @@ func (db *DB) migrateLegacy() error {
 		}
 	}
 
+	if !archive {
+		return nil
+	}
 	if err := os.MkdirAll(LegacyDir(db.home), 0o755); err != nil {
 		return fmt.Errorf("create migrated directory: %w", err)
 	}
@@ -174,6 +180,9 @@ func readLegacyTask(path, id string) (legacyTask, error) {
 // import: a source that stays on disk afterwards cannot use its own absence as
 // the done marker.
 func (db *DB) Migrated(key string) (bool, error) {
+	if db.empty {
+		return false, nil
+	}
 	value, err := db.meta("migrated:" + key)
 	return value != "", err
 }

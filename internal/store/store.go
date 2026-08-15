@@ -58,6 +58,17 @@ type Herdr struct {
 	PaneID      string `json:"pane_id"`
 }
 
+type HerdrOwnership struct {
+	AttemptID          int64            `json:"attempt_id"`
+	TaskID             string           `json:"task_id"`
+	Lifecycle          AttemptLifecycle `json:"lifecycle"`
+	TeardownHerdrState string           `json:"teardown_herdr_state,omitempty"`
+	Session            string           `json:"session"`
+	WorkspaceID        string           `json:"workspace_id"`
+	TabID              string           `json:"tab_id"`
+	PaneID             string           `json:"pane_id"`
+}
+
 type TaskLifecycle string
 
 const (
@@ -90,21 +101,25 @@ const (
 )
 
 type Task struct {
-	ID              string        `json:"id"`
-	Project         string        `json:"project"`
-	Kind            string        `json:"kind"`
-	Brief           string        `json:"brief"`
-	Lifecycle       TaskLifecycle `json:"lifecycle"`
-	ActiveAttemptID int64         `json:"active_attempt_id"`
-	PR              string        `json:"pr"`
-	MergeExecuted   bool          `json:"merged"`
-	MergeExecutedAt string        `json:"merged_at"`
-	ReportOffset    int64         `json:"report_offset"`
-	ReportDigest    string        `json:"report_digest"`
-	MergeAnnounced  bool          `json:"pr_merged_observed"`
-	DeliveredAt     string        `json:"delivered_at"`
-	DeliveredReason string        `json:"delivered_reason"`
-	CreatedAt       string        `json:"created_at"`
+	ID               string        `json:"id"`
+	Project          string        `json:"project"`
+	Kind             string        `json:"kind"`
+	Brief            string        `json:"brief"`
+	Lifecycle        TaskLifecycle `json:"lifecycle"`
+	ActiveAttemptID  int64         `json:"active_attempt_id"`
+	PR               string        `json:"pr"`
+	MergeExecuted    bool          `json:"merged"`
+	MergeExecutedAt  string        `json:"merged_at"`
+	ReportOffset     int64         `json:"report_offset"`
+	ReportDigest     string        `json:"report_digest"`
+	MergeAnnounced   bool          `json:"pr_merged_observed"`
+	DeliveredAt      string        `json:"delivered_at"`
+	DeliveredReason  string        `json:"delivered_reason"`
+	CreatedAt        string        `json:"created_at"`
+	RepairCode       string        `json:"repair_code"`
+	RepairReason     string        `json:"repair_reason"`
+	RepairAttemptID  int64         `json:"repair_attempt_id"`
+	RepairObservedAt string        `json:"repair_observed_at"`
 }
 
 type Attempt struct {
@@ -181,8 +196,9 @@ func Path(homeDir string) string {
 }
 
 type DB struct {
-	sql  *sql.DB
-	home string
+	sql   *sql.DB
+	home  string
+	empty bool
 }
 
 // The version-0 baseline plus every registered migration folded in: a column
@@ -204,7 +220,11 @@ CREATE TABLE IF NOT EXISTS task (
 	delivered_reason  TEXT NOT NULL DEFAULT '',
 	report_offset     INTEGER NOT NULL DEFAULT 0,
 	report_digest     TEXT NOT NULL DEFAULT '',
-	created_at        TEXT NOT NULL DEFAULT ''
+	created_at        TEXT NOT NULL DEFAULT '',
+	repair_code       TEXT NOT NULL DEFAULT '',
+	repair_reason     TEXT NOT NULL DEFAULT '',
+	repair_attempt_id INTEGER NOT NULL DEFAULT 0,
+	repair_observed_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS attempt (
 	id                     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -300,7 +320,7 @@ func Open(homeDir string) (*DB, error) {
 		_ = sqlDB.Close()
 		return nil, err
 	}
-	if err := db.migrateLegacy(); err != nil {
+	if err := db.migrateLegacy(true); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
 	}
@@ -321,6 +341,30 @@ func openReadOnly(homeDir string) (*DB, error) {
 // Presentation readers use an existing-file handle so SELECTs cannot create schema or
 // import legacy state. An older layout has to cross an explicit migration boundary first.
 func OpenReadOnly(homeDir string) (*DB, error) {
+	if _, err := os.Stat(Path(homeDir)); os.IsNotExist(err) {
+		sqlDB, err := sql.Open("sqlite", ":memory:")
+		if err != nil {
+			return nil, fmt.Errorf("open read-only state: %w", err)
+		}
+		sqlDB.SetMaxOpenConns(1)
+		db := &DB{sql: sqlDB, home: homeDir, empty: true}
+		if err := db.createSchema(true, len(migrations)); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
+		if err := db.migrateLegacy(false); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
+		db.empty = false
+		if _, err := sqlDB.Exec("PRAGMA query_only = 1"); err != nil {
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("set read-only state: %w", err)
+		}
+		return db, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("check %s: %w", Path(homeDir), err)
+	}
 	db, err := openReadOnly(homeDir)
 	if err != nil {
 		return nil, err
@@ -331,6 +375,26 @@ func OpenReadOnly(homeDir string) (*DB, error) {
 		return nil, err
 	}
 	latest := len(migrations)
+	empty, err := db.isNewDatabase()
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if empty {
+		entries, err := os.ReadDir(Dir(homeDir))
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		for _, entry := range entries {
+			if filepath.Ext(entry.Name()) == ".json" {
+				_ = db.Close()
+				return nil, fmt.Errorf("state/hand.db is schema version %d, older than this build of hand requires (version %d) - run `hand init %s` before opening it read-only", current, latest, shellquote.Quote(homeDir))
+			}
+		}
+		db.empty = true
+		return db, nil
+	}
 	if err := schemaVersionError(current, latest); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -343,6 +407,15 @@ func OpenReadOnly(homeDir string) (*DB, error) {
 }
 
 func openReadOnlyForLifecycle(homeDir string) (*DB, int, error) {
+	if _, err := os.Stat(Path(homeDir)); os.IsNotExist(err) {
+		db, err := OpenReadOnly(homeDir)
+		if err != nil {
+			return nil, 0, err
+		}
+		return db, len(migrations), nil
+	} else if err != nil {
+		return nil, 0, fmt.Errorf("check %s: %w", Path(homeDir), err)
+	}
 	db, err := openReadOnly(homeDir)
 	if err != nil {
 		return nil, 0, err
@@ -356,6 +429,15 @@ func openReadOnlyForLifecycle(homeDir string) (*DB, int, error) {
 	if err := schemaVersionError(current, latest); err != nil {
 		_ = db.Close()
 		return nil, 0, err
+	}
+	empty, err := db.isNewDatabase()
+	if err != nil {
+		_ = db.Close()
+		return nil, 0, err
+	}
+	if empty {
+		db.empty = true
+		return db, current, nil
 	}
 	if current < teardownEvidenceVersion {
 		_ = db.Close()
@@ -374,6 +456,9 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	defer func() { _ = db.Close() }()
 	if current == len(migrations) {
 		return db.ReadTaskHistory(id)
+	}
+	if current == repairMetadataVersion-1 {
+		return db.readTaskHistoryBeforeRepair(id)
 	}
 	return db.readTaskHistoryBeforeRouting(id)
 }
@@ -417,10 +502,12 @@ func (db *DB) setMeta(key, value string) error {
 var taskColumnNames = []string{
 	"id", "project", "kind", "brief", "lifecycle", "active_attempt_id", "pr",
 	"merge_executed", "merge_executed_at", "merge_announced", "delivered_at", "delivered_reason",
-	"report_offset", "report_digest", "created_at",
+	"report_offset", "report_digest", "created_at", "repair_code", "repair_reason", "repair_attempt_id", "repair_observed_at",
 }
 
 var taskColumns = strings.Join(taskColumnNames, ", ")
+
+var taskColumnsBeforeRepair = strings.Join(taskColumnNames[:len(taskColumnNames)-4], ", ")
 
 var attemptColumnNames = []string{
 	"id", "task_id", "ordinal", "lifecycle", "harness", "model", "effort",
@@ -443,7 +530,7 @@ func placeholders(count int) string {
 func taskValues(t Task) []any {
 	return []any{t.ID, t.Project, t.Kind, t.Brief, t.Lifecycle, nullableAttemptID(t.ActiveAttemptID), t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
-		t.ReportOffset, t.ReportDigest, t.CreatedAt}
+		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt}
 }
 
 func nullableAttemptID(id int64) any {
@@ -454,6 +541,21 @@ func nullableAttemptID(id int64) any {
 }
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
+	var t Task
+	var activeID sql.NullInt64
+	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
+		&t.MergeExecuted, &t.MergeExecutedAt, &t.MergeAnnounced, &t.DeliveredAt, &t.DeliveredReason,
+		&t.ReportOffset, &t.ReportDigest, &t.CreatedAt, &t.RepairCode, &t.RepairReason, &t.RepairAttemptID, &t.RepairObservedAt)
+	if activeID.Valid {
+		t.ActiveAttemptID = activeID.Int64
+	}
+	if t.Lifecycle == "" {
+		t.Lifecycle = TaskOpen
+	}
+	return t, err
+}
+
+func scanTaskBeforeRepair(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var activeID sql.NullInt64
 	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
@@ -527,10 +629,10 @@ func (db *DB) CreateTask(t Task) error {
 func (db *DB) UpdateTask(t Task) error {
 	_, err := db.sql.Exec(`UPDATE task SET project = ?, kind = ?, brief = ?,
 		pr = ?, merge_executed = ?, merge_executed_at = ?, merge_announced = ?, delivered_at = ?, delivered_reason = ?,
-		report_offset = ?, report_digest = ?, created_at = ? WHERE id = ?`,
+		report_offset = ?, report_digest = ?, created_at = ?, repair_code = ?, repair_reason = ?, repair_attempt_id = ?, repair_observed_at = ? WHERE id = ?`,
 		t.Project, t.Kind, t.Brief, t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
-		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.ID)
+		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task %q: %w", t.ID, err)
 	}
@@ -559,6 +661,9 @@ func (db *DB) ListTasks() ([]Task, error) {
 }
 
 func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
 	task, found, err := db.ReadTask(id)
 	if err != nil || !found {
 		return TaskHistory{}, found, err
@@ -575,24 +680,43 @@ func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
 		}
 	}
 	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
-		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", id, task.ActiveAttemptID)
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
 	}
 	return history, true, nil
 }
 
 func (db *DB) readTaskHistoryBeforeRouting(id string) (TaskHistory, bool, error) {
-	task, found, err := db.ReadTask(id)
-	if err != nil || !found {
-		return TaskHistory{}, found, err
+	if db.empty {
+		return TaskHistory{}, false, nil
 	}
-	rows, err := db.sql.Query(`SELECT `+attemptColumnsBeforeRouting+` FROM attempt WHERE task_id = ? ORDER BY ordinal`, id)
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeRepair+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeRepair(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
+	}
+	return db.readTaskHistoryBeforeRoutingWithTask(task)
+}
+
+func (db *DB) readTaskHistoryBeforeRepair(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeRepair+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeRepair(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	rows, err := db.sql.Query(`SELECT `+attemptColumns+` FROM attempt WHERE task_id = ? ORDER BY ordinal`, id)
 	if err != nil {
 		return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", id, err)
 	}
 	defer func() { _ = rows.Close() }()
 	var attempts []Attempt
 	for rows.Next() {
-		attempt, err := scanAttemptBeforeRouting(rows)
+		attempt, err := scanAttempt(rows)
 		if err != nil {
 			return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", id, err)
 		}
@@ -609,12 +733,45 @@ func (db *DB) readTaskHistoryBeforeRouting(id string) (TaskHistory, bool, error)
 		}
 	}
 	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
-		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", id, task.ActiveAttemptID)
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+func (db *DB) readTaskHistoryBeforeRoutingWithTask(task Task) (TaskHistory, bool, error) {
+	rows, err := db.sql.Query(`SELECT `+attemptColumnsBeforeRouting+` FROM attempt WHERE task_id = ? ORDER BY ordinal`, task.ID)
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", task.ID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var attempts []Attempt
+	for rows.Next() {
+		attempt, err := scanAttemptBeforeRouting(rows)
+		if err != nil {
+			return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", task.ID, err)
+		}
+		attempts = append(attempts, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", task.ID, err)
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", task.ID, task.ActiveAttemptID)
 	}
 	return history, true, nil
 }
 
 func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
 	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list open tasks: %w", err)
@@ -648,6 +805,74 @@ func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
 		}
 	}
 	return histories, nil
+}
+
+func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
+	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+		SELECT 1 FROM attempt
+		WHERE attempt.task_id = task.id
+		AND attempt.lifecycle NOT IN ('provisioning', 'running')
+		AND (
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state <> 'released')
+			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
+			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
+		)
+	) ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list reconciliation tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list reconciliation tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list reconciliation tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.ListAttempts(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("task %q active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
+}
+
+func (db *DB) ListHerdrOwnerships() ([]HerdrOwnership, error) {
+	rows, err := db.sql.Query(`SELECT id, task_id, lifecycle, teardown_herdr_state, herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id FROM attempt WHERE herdr_workspace_id <> '' OR herdr_tab_id <> '' OR herdr_pane_id <> '' ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list Herdr ownerships: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ownerships []HerdrOwnership
+	for rows.Next() {
+		var ownership HerdrOwnership
+		if err := rows.Scan(&ownership.AttemptID, &ownership.TaskID, &ownership.Lifecycle, &ownership.TeardownHerdrState, &ownership.Session, &ownership.WorkspaceID, &ownership.TabID, &ownership.PaneID); err != nil {
+			return nil, fmt.Errorf("list Herdr ownerships: %w", err)
+		}
+		ownerships = append(ownerships, ownership)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list Herdr ownerships: %w", err)
+	}
+	return ownerships, nil
 }
 
 func (db *DB) CreateTaskWithAttempt(t Task, a Attempt) (Attempt, error) {
@@ -1152,6 +1377,30 @@ func (db *DB) SetTaskReportState(id string, offset int64, digest string, mergeAn
 	return updateTaskFact(result, err, "set report state", id)
 }
 
+func (db *DB) SetTaskRepair(id, code, reason string, attemptID int64, observedAt string) error {
+	result, err := db.sql.Exec(`UPDATE task SET repair_code = ?, repair_reason = ?, repair_attempt_id = ?, repair_observed_at = ? WHERE id = ?`, code, reason, attemptID, observedAt, id)
+	return updateTaskFact(result, err, "set repair", id)
+}
+
+func (db *DB) ClearTaskRepair(id, expectedCode string) error {
+	result, err := db.sql.Exec(`UPDATE task SET repair_code = '', repair_reason = '', repair_attempt_id = 0, repair_observed_at = '' WHERE id = ? AND repair_code = ?`, id, expectedCode)
+	if err != nil {
+		return fmt.Errorf("clear repair for task %q: %w", id, err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("clear repair for task %q: %w", id, err)
+	} else if affected == 1 {
+		return nil
+	}
+	var current string
+	if err := db.sql.QueryRow(`SELECT repair_code FROM task WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("task %q %w", id, ErrTaskNotFound)
+	} else if err != nil {
+		return fmt.Errorf("read repair for task %q: %w", id, err)
+	}
+	return fmt.Errorf("%w: task %q repair code is %q, expected %q", ErrLifecycleConflict, id, current, expectedCode)
+}
+
 func updateTaskFact(result sql.Result, err error, operation, id string) error {
 	if err != nil {
 		return fmt.Errorf("%s for task %q: %w", operation, id, err)
@@ -1417,6 +1666,9 @@ func (db *DB) DeleteTask(id string) error {
 }
 
 func (db *DB) ListProjects() ([]Project, error) {
+	if db.empty {
+		return nil, nil
+	}
 	rows, err := db.sql.Query(`SELECT name, url, mode, upstream FROM project ORDER BY position, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -1532,6 +1784,9 @@ func (db *DB) SetHoldIfNotOtherKind(h Hold) (bool, error) {
 }
 
 func (db *DB) ReadHold(id string) (Hold, bool, error) {
+	if db.empty {
+		return Hold{}, false, nil
+	}
 	row := db.sql.QueryRow(`SELECT `+holdColumns+` FROM hold WHERE id = ?`, id)
 	h, err := scanHold(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1547,6 +1802,9 @@ func (db *DB) ReadHold(id string) (Hold, bool, error) {
 // being consistent with kind, would let a row an external write left inconsistent disappear
 // from "what is held" instead of being reported as a hold that needs attention.
 func (db *DB) ListHolds() ([]Hold, error) {
+	if db.empty {
+		return nil, nil
+	}
 	rows, err := db.sql.Query(`SELECT ` + holdColumns + ` FROM hold ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list holds: %w", err)
