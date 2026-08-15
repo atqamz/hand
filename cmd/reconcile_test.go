@@ -81,6 +81,12 @@ func TestReconcileCommandPreservesRepairAndObservationErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "running-pane-missing") || !strings.Contains(err.Error(), "Herdr service unavailable") {
 		t.Fatalf("reconcile error = %v, want repair and observation diagnostics", err)
 	}
+	if !strings.Contains(err.Error(), "released-herdr-resource") || !strings.Contains(err.Error(), "attempt 7") {
+		t.Fatalf("reconcile error = %v, want the attributed anomaly classification", err)
+	}
+	if strings.Contains(err.Error(), "unattributed Herdr resource") {
+		t.Fatalf("reconcile error = %v, must not misclassify an attributed anomaly", err)
+	}
 }
 
 func TestReconcileCommandReportsUnknownRepairAsFailure(t *testing.T) {

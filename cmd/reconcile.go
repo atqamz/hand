@@ -84,7 +84,11 @@ func reconcileReportError(report runtime.ReconcileReport, reconcileErr error) er
 		errs = append(errs, runtime.Precondition(fmt.Errorf("task %q needs repair: %s", repair.ID, repair.RepairCode)))
 	}
 	if anomaly := firstAnomaly(report); anomaly != nil {
-		errs = append(errs, runtime.Precondition(fmt.Errorf("unattributed Herdr resource %s/%s", anomaly.WorkspaceID, anomaly.TabID)))
+		detail := fmt.Sprintf("Herdr anomaly %q at %s/%s", anomaly.Kind, anomaly.WorkspaceID, anomaly.TabID)
+		if anomaly.OwnerAttemptID != 0 {
+			detail += fmt.Sprintf(" (attempt %d)", anomaly.OwnerAttemptID)
+		}
+		errs = append(errs, runtime.Precondition(errors.New(detail)))
 	}
 	if reconcileErr != nil {
 		errs = append(errs, reconcileErr)
