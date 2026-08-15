@@ -347,6 +347,7 @@ func TestUsageLimitResumesAgainAfterACompletedEpisode(t *testing.T) {
 	tick(ctx, cfg, client, states, &buf, &buf)
 	setStatus(t, statusFile, "done")
 	tick(ctx, cfg, client, states, &buf, &buf)
+	states = make(map[string]*TaskState)
 	setLimitRetryAt(t, home, "task-1", time.Now().Add(-time.Minute))
 	tick(ctx, cfg, client, states, &buf, &buf)
 	tick(ctx, cfg, client, states, &buf, &buf)

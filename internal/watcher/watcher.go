@@ -697,7 +697,7 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	// tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, active, now)
 	if err := state.UpdateAttemptObservation(home, id, ts.AttemptID, ts.AttemptLifecycle,
-		ts.ChangedAt.UTC().Format(time.RFC3339), string(ts.Status), ts.DoneVerified,
+		ts.ChangedAt.UTC().Format(time.RFC3339Nano), string(ts.Status), ts.DoneVerified,
 		ts.LastReportState, ts.LastReportNote, parkedFiredStamp(ts.ParkedFiredFor),
 		limitRetryStamp(ts.LimitRetryAt), ts.LimitAttempts); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist attempt %s failed: %v\n", id, err)
