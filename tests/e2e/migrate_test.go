@@ -102,6 +102,12 @@ func TestMigrationDoesNotLetARestoredLegacyFileOverwriteNewerState(t *testing.T)
 	if got := runHand(t, home, "status", "task-1"); got.code != 0 {
 		t.Fatalf("status after migration: exit %d, stderr %q", got.code, got.stderr)
 	}
+	if _, err := os.Stat(filepath.Join(home, "state", "task-1.json")); err != nil {
+		t.Fatalf("stat state/task-1.json: %v, want status to leave the legacy file untouched", err)
+	}
+	if got := runHand(t, home, "project", "list"); got.code != 0 {
+		t.Fatalf("project list after read-only status: exit %d, stderr %q", got.code, got.stderr)
+	}
 
 	restored, err := os.ReadFile(filepath.Join(store.LegacyDir(home), "task-1.json"))
 	if err != nil {
