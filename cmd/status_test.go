@@ -287,6 +287,38 @@ func TestStatusDoesNotImportLegacyState(t *testing.T) {
 	}
 }
 
+func TestRootStatusObservesLegacyStateWithoutCreatingDatabase(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	dbPath := filepath.Join(home, "state", "hand.db")
+	if err := os.Remove(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(home, "state", "task-1.json")
+	if err := os.WriteFile(legacyPath, []byte(`{"id":"task-1","project":"myproj","kind":"ship","created_at":"2026-08-15T00:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	root := newRootCmd(devBuild("test"))
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"status", "task-1"})
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "task-1") {
+		t.Fatalf("status = %q, want the observed legacy task", out.String())
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v, want status not to create it", dbPath, err)
+	}
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("stat %s: %v, want status to leave it untouched", legacyPath, err)
+	}
+}
+
 func TestStatusSingleTaskExecutionSnapshotSurvivesRoutingEdits(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

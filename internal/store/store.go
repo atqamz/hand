@@ -320,7 +320,7 @@ func Open(homeDir string) (*DB, error) {
 		_ = sqlDB.Close()
 		return nil, err
 	}
-	if err := db.migrateLegacy(); err != nil {
+	if err := db.migrateLegacy(true); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
 	}
@@ -341,6 +341,30 @@ func openReadOnly(homeDir string) (*DB, error) {
 // Presentation readers use an existing-file handle so SELECTs cannot create schema or
 // import legacy state. An older layout has to cross an explicit migration boundary first.
 func OpenReadOnly(homeDir string) (*DB, error) {
+	if _, err := os.Stat(Path(homeDir)); os.IsNotExist(err) {
+		sqlDB, err := sql.Open("sqlite", ":memory:")
+		if err != nil {
+			return nil, fmt.Errorf("open read-only state: %w", err)
+		}
+		sqlDB.SetMaxOpenConns(1)
+		db := &DB{sql: sqlDB, home: homeDir, empty: true}
+		if err := db.createSchema(true, len(migrations)); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
+		if err := db.migrateLegacy(false); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
+		db.empty = false
+		if _, err := sqlDB.Exec("PRAGMA query_only = 1"); err != nil {
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("set read-only state: %w", err)
+		}
+		return db, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("check %s: %w", Path(homeDir), err)
+	}
 	db, err := openReadOnly(homeDir)
 	if err != nil {
 		return nil, err
@@ -383,6 +407,15 @@ func OpenReadOnly(homeDir string) (*DB, error) {
 }
 
 func openReadOnlyForLifecycle(homeDir string) (*DB, int, error) {
+	if _, err := os.Stat(Path(homeDir)); os.IsNotExist(err) {
+		db, err := OpenReadOnly(homeDir)
+		if err != nil {
+			return nil, 0, err
+		}
+		return db, len(migrations), nil
+	} else if err != nil {
+		return nil, 0, fmt.Errorf("check %s: %w", Path(homeDir), err)
+	}
 	db, err := openReadOnly(homeDir)
 	if err != nil {
 		return nil, 0, err

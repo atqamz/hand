@@ -24,7 +24,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if fleetHome, err := home.Resolve(); err == nil {
 				startupOverview := cmd.Name() == "hand" || cmd.CommandPath() == "hand session start"
-				if cmd.Name() != "init" && !startupOverview {
+				if cmd.Name() != "init" && !startupOverview && cmd.Name() != "status" {
 					if _, statErr := os.Stat(store.Path(fleetHome)); os.IsNotExist(statErr) {
 						if err := project.Migrate(fleetHome); err != nil {
 							return err
