@@ -196,8 +196,9 @@ func Path(homeDir string) string {
 }
 
 type DB struct {
-	sql  *sql.DB
-	home string
+	sql   *sql.DB
+	home  string
+	empty bool
 }
 
 // The version-0 baseline plus every registered migration folded in: a column
@@ -350,6 +351,26 @@ func OpenReadOnly(homeDir string) (*DB, error) {
 		return nil, err
 	}
 	latest := len(migrations)
+	empty, err := db.isNewDatabase()
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if empty {
+		entries, err := os.ReadDir(Dir(homeDir))
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		for _, entry := range entries {
+			if filepath.Ext(entry.Name()) == ".json" {
+				_ = db.Close()
+				return nil, fmt.Errorf("state/hand.db is schema version %d, older than this build of hand requires (version %d) - run `hand init %s` before opening it read-only", current, latest, shellquote.Quote(homeDir))
+			}
+		}
+		db.empty = true
+		return db, nil
+	}
 	if err := schemaVersionError(current, latest); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -375,6 +396,15 @@ func openReadOnlyForLifecycle(homeDir string) (*DB, int, error) {
 	if err := schemaVersionError(current, latest); err != nil {
 		_ = db.Close()
 		return nil, 0, err
+	}
+	empty, err := db.isNewDatabase()
+	if err != nil {
+		_ = db.Close()
+		return nil, 0, err
+	}
+	if empty {
+		db.empty = true
+		return db, current, nil
 	}
 	if current < teardownEvidenceVersion {
 		_ = db.Close()
@@ -598,6 +628,9 @@ func (db *DB) ListTasks() ([]Task, error) {
 }
 
 func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
 	task, found, err := db.ReadTask(id)
 	if err != nil || !found {
 		return TaskHistory{}, found, err
@@ -614,12 +647,15 @@ func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
 		}
 	}
 	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
-		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", id, task.ActiveAttemptID)
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
 	}
 	return history, true, nil
 }
 
 func (db *DB) readTaskHistoryBeforeRouting(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
 	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeRepair+` FROM task WHERE id = ?`, id)
 	task, err := scanTaskBeforeRepair(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -632,6 +668,9 @@ func (db *DB) readTaskHistoryBeforeRouting(id string) (TaskHistory, bool, error)
 }
 
 func (db *DB) readTaskHistoryBeforeRepair(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
 	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeRepair+` FROM task WHERE id = ?`, id)
 	task, err := scanTaskBeforeRepair(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -661,7 +700,7 @@ func (db *DB) readTaskHistoryBeforeRepair(id string) (TaskHistory, bool, error) 
 		}
 	}
 	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
-		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", id, task.ActiveAttemptID)
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
 	}
 	return history, true, nil
 }
@@ -691,12 +730,15 @@ func (db *DB) readTaskHistoryBeforeRoutingWithTask(task Task) (TaskHistory, bool
 		}
 	}
 	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
-		return TaskHistory{}, false, fmt.Errorf("task %q active attempt %d not found", task.ID, task.ActiveAttemptID)
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", task.ID, task.ActiveAttemptID)
 	}
 	return history, true, nil
 }
 
 func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
 	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list open tasks: %w", err)
@@ -733,6 +775,9 @@ func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
 }
 
 func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
 	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
 		SELECT 1 FROM attempt
 		WHERE attempt.task_id = task.id
@@ -1588,6 +1633,9 @@ func (db *DB) DeleteTask(id string) error {
 }
 
 func (db *DB) ListProjects() ([]Project, error) {
+	if db.empty {
+		return nil, nil
+	}
 	rows, err := db.sql.Query(`SELECT name, url, mode, upstream FROM project ORDER BY position, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -1703,6 +1751,9 @@ func (db *DB) SetHoldIfNotOtherKind(h Hold) (bool, error) {
 }
 
 func (db *DB) ReadHold(id string) (Hold, bool, error) {
+	if db.empty {
+		return Hold{}, false, nil
+	}
 	row := db.sql.QueryRow(`SELECT `+holdColumns+` FROM hold WHERE id = ?`, id)
 	h, err := scanHold(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1718,6 +1769,9 @@ func (db *DB) ReadHold(id string) (Hold, bool, error) {
 // being consistent with kind, would let a row an external write left inconsistent disappear
 // from "what is held" instead of being reported as a hold that needs attention.
 func (db *DB) ListHolds() ([]Hold, error) {
+	if db.empty {
+		return nil, nil
+	}
 	rows, err := db.sql.Query(`SELECT ` + holdColumns + ` FROM hold ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list holds: %w", err)

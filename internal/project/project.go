@@ -60,7 +60,19 @@ func ListReadOnly(homeDir string) ([]Project, error) {
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	return db.ListProjects()
+	projects, err := db.ListProjects()
+	if err != nil {
+		return nil, err
+	}
+	done, err := db.Migrated(legacyRegistryKey)
+	if err != nil || done {
+		return projects, err
+	}
+	legacy, err := parseRegistryFile(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	return append(projects, legacy...), nil
 }
 
 // Runs schema, legacy task, and legacy registry migrations through their existing

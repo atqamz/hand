@@ -174,6 +174,9 @@ func readLegacyTask(path, id string) (legacyTask, error) {
 // import: a source that stays on disk afterwards cannot use its own absence as
 // the done marker.
 func (db *DB) Migrated(key string) (bool, error) {
+	if db.empty {
+		return false, nil
+	}
 	value, err := db.meta("migrated:" + key)
 	return value != "", err
 }
