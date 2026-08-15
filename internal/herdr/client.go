@@ -50,6 +50,24 @@ type envelope struct {
 
 var ErrNotFound = errors.New("herdr resource not found")
 
+type ExecError struct {
+	Started bool
+	Err     error
+}
+
+func (e *ExecError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *ExecError) Unwrap() error {
+	return e.Err
+}
+
+func IsProcessNotStarted(err error) bool {
+	var execErr *ExecError
+	return errors.As(err, &execErr) && !execErr.Started
+}
+
 type APIError struct {
 	Operation              string
 	Code                   string
@@ -86,6 +104,9 @@ func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
+	if runErr != nil {
+		runErr = &ExecError{Started: cmd.ProcessState != nil, Err: runErr}
+	}
 	return bytes.TrimSpace(stdout.Bytes()), strings.TrimSpace(stderr.String()), runErr
 }
 
@@ -167,8 +188,11 @@ func (c *Client) callVoid(args ...string) error {
 func newAPIError(args []string, body *errorBody) *APIError {
 	operation := strings.Join(args, " ")
 	command := strings.Join(args[:minInt(len(args), 2)], " ")
-	preSideEffect := (command == "pane send-text" || command == "pane send-keys") &&
+	preSideEffect := command == "pane send-text" &&
 		(strings.EqualFold(body.Code, "pane_not_found") || strings.EqualFold(body.Code, "pane_send_failed"))
+	if command == "pane send-keys" && len(args) == 4 && strings.EqualFold(args[3], "Enter") {
+		preSideEffect = strings.EqualFold(body.Code, "pane_not_found") || strings.EqualFold(body.Code, "pane_send_failed")
+	}
 	return &APIError{Operation: operation, Code: body.Code, Message: body.Message, PreSideEffectRejection: preSideEffect}
 }
 

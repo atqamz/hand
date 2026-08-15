@@ -159,14 +159,16 @@ type statusJSON struct {
 }
 
 type sendJSON struct {
-	ID          int64  `json:"id"`
-	TaskID      string `json:"task_id"`
-	AttemptID   int64  `json:"attempt_id"`
-	Origin      string `json:"origin"`
-	State       string `json:"state"`
-	ReasonCode  string `json:"reason_code,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	FinalizedAt string `json:"finalized_at,omitempty"`
+	ID             int64  `json:"id"`
+	TaskID         string `json:"task_id"`
+	AttemptID      int64  `json:"attempt_id"`
+	Origin         string `json:"origin"`
+	State          string `json:"state"`
+	ReasonCode     string `json:"reason_code,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	FinalizedAt    string `json:"finalized_at,omitempty"`
+	NeedsAttention bool   `json:"needs_attention,omitempty"`
+	RetrySafe      bool   `json:"retry_safe,omitempty"`
 }
 
 type attemptJSON struct {
@@ -392,7 +394,7 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly 
 	views := make([]taskView, 0, len(histories))
 	for _, history := range histories {
 		t := history.Task
-		v, _ := buildTaskView(home, client, history, false)
+		v, _ := buildTaskView(home, client, history, false, readOnly)
 		p, registered := projectByName[t.Project]
 		v.gateIssue = gateRunIssue(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)
@@ -449,7 +451,7 @@ func unacknowledged(home string, t state.Task, reported state.ReportLine, report
 // Derives everything both status views show from one already-read history, and returns the report lines
 // alongside so the detail view's history block and the summary line above it can never come from two
 // reads of the file.
-func buildTaskView(home string, client *herdr.Client, history state.TaskHistory, full bool) (taskView, []state.ReportLine) {
+func buildTaskView(home string, client *herdr.Client, history state.TaskHistory, full, readOnly bool) (taskView, []state.ReportLine) {
 	t := history.Task
 	attempts := history.Attempts
 	attempt := history.ActiveAttempt
@@ -482,11 +484,19 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 		reported:     reportedFrom(last, len(lines) > 0, readErr),
 	}
 	if attempt != nil {
-		for i := len(history.Sends) - 1; i >= 0; i-- {
-			if history.Sends[i].AttemptID == attempt.ID {
-				latest := history.Sends[i]
-				v.latestSend = &latest
-				break
+		latestSend := state.LatestSendMetadata
+		if readOnly {
+			latestSend = state.LatestSendMetadataReadOnly
+		}
+		if latest, found, err := latestSend(home, t.ID, attempt.ID); err == nil && found {
+			v.latestSend = &latest
+		} else if len(history.Sends) != 0 {
+			for i := len(history.Sends) - 1; i >= 0; i-- {
+				if history.Sends[i].AttemptID == attempt.ID {
+					latest := history.Sends[i]
+					v.latestSend = &latest
+					break
+				}
 			}
 		}
 	}
@@ -529,7 +539,7 @@ func latestSendJSON(send *state.SendAttempt) *sendJSON {
 	if send == nil {
 		return nil
 	}
-	return &sendJSON{ID: send.ID, TaskID: send.TaskID, AttemptID: send.AttemptID, Origin: string(send.Origin), State: string(send.State), ReasonCode: send.ReasonCode, CreatedAt: send.CreatedAt, FinalizedAt: send.FinalizedAt}
+	return &sendJSON{ID: send.ID, TaskID: send.TaskID, AttemptID: send.AttemptID, Origin: string(send.Origin), State: string(send.State), ReasonCode: send.ReasonCode, CreatedAt: send.CreatedAt, FinalizedAt: send.FinalizedAt, NeedsAttention: state.SendNeedsAttention(*send), RetrySafe: state.SendRetrySafe(*send)}
 }
 
 func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
@@ -556,7 +566,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// An unreadable report degrades exactly as it does in the fleet view: the
 	// fault is named on the report field and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
-	v, reportLines := buildTaskView(home, client, history, full)
+	v, reportLines := buildTaskView(home, client, history, full, true)
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
 	hold, held, err := state.ReadHoldReadOnly(home, id)

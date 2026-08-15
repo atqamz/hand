@@ -78,6 +78,38 @@ func TestExecuteClassifiesAmbiguousTextFailureWithoutRetry(t *testing.T) {
 	}
 }
 
+func TestExecuteClassifiesHerdrProcessStartFailureAsRetrySafeNotSubmitted(t *testing.T) {
+	home, _ := newSteeringHome(t)
+	pane := &testPane{
+		pane:    herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		textErr: &herdr.ExecError{Err: errors.New("executable missing")},
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendNotSubmitted || !sendErr.RetrySafe || sendErr.PartialComposer {
+		t.Fatalf("err=%v, want retry-safe not-submitted result", err)
+	}
+	if len(pane.textCalls) != 1 || len(pane.keyCalls) != 0 {
+		t.Fatalf("calls=%v/%v, want one Text attempt and no Enter", pane.textCalls, pane.keyCalls)
+	}
+}
+
+func TestExecuteClassifiesEnterProcessStartFailureAsPartialNotSubmitted(t *testing.T) {
+	home, _ := newSteeringHome(t)
+	pane := &testPane{
+		pane:    herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		keysErr: &herdr.ExecError{Err: errors.New("argument list too long")},
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendNotSubmitted || sendErr.RetrySafe || !sendErr.PartialComposer {
+		t.Fatalf("err=%v, want partial not-submitted result after Enter process start failure", err)
+	}
+	if len(pane.textCalls) != 1 || len(pane.keyCalls) != 1 {
+		t.Fatalf("calls=%v/%v, want one Text and one Enter attempt", pane.textCalls, pane.keyCalls)
+	}
+}
+
 func TestExecuteRejectsStaleExpectedAttemptBeforePending(t *testing.T) {
 	home, attempt := newSteeringHome(t)
 	db, err := store.Open(home)

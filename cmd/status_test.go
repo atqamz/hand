@@ -1598,9 +1598,78 @@ func TestBuildTaskViewUsesSendFromActiveAttempt(t *testing.T) {
 			{ID: 2, TaskID: "task-1", AttemptID: 2, State: state.SendSubmitted},
 		},
 	}
-	view, _ := buildTaskView(t.TempDir(), nil, history, false)
+	view, _ := buildTaskView(t.TempDir(), nil, history, false, false)
 	if view.latestSend == nil || view.latestSend.ID != 2 || view.latestSend.AttemptID != active.ID {
 		t.Fatalf("latest send = %+v, want active Attempt send", view.latestSend)
+	}
+}
+
+func TestStatusFlagsPartialSendAfterFreshRead(t *testing.T) {
+	active := state.Attempt{ID: 2, TaskID: "task-1", Lifecycle: state.AttemptRunning}
+	base := state.TaskHistory{Task: state.Task{ID: "task-1"}, ActiveAttempt: &active}
+	tests := []struct {
+		name          string
+		send          state.SendAttempt
+		wantFlag      string
+		wantAttention bool
+		wantRetrySafe bool
+	}{
+		{name: "partial composer", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonEnterRejectedAfterTextStaged}, wantFlag: "send-partial", wantAttention: true},
+		{name: "retry-safe rejection", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonTextRejectedBeforeAcceptance}, wantAttention: false, wantRetrySafe: true},
+		{name: "pending", send: state.SendAttempt{State: state.SendPending}, wantFlag: "send-pending", wantAttention: true},
+		{name: "uncertain", send: state.SendAttempt{State: state.SendUncertain}, wantFlag: "send-uncertain", wantAttention: true},
+		{name: "submitted", send: state.SendAttempt{State: state.SendSubmitted}, wantAttention: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			history := base
+			history.Sends = []state.SendAttempt{{ID: 1, TaskID: "task-1", AttemptID: active.ID, State: test.send.State, ReasonCode: test.send.ReasonCode}}
+			view, _ := buildTaskView(t.TempDir(), nil, history, false, false)
+			flags := strings.Join(taskFlags(view), " ")
+			if test.wantFlag != "" && !strings.Contains(flags, test.wantFlag) {
+				t.Fatalf("flags = %q, want %q", flags, test.wantFlag)
+			}
+			if test.wantFlag == "" && strings.Contains(flags, "send-") {
+				t.Fatalf("flags = %q, want no send attention flag", flags)
+			}
+			if got := needsAttention(view); got != test.wantAttention {
+				t.Fatalf("needsAttention = %t, want %t", got, test.wantAttention)
+			}
+			got := latestSendJSON(view.latestSend)
+			if got == nil || got.NeedsAttention != test.wantAttention || got.RetrySafe != test.wantRetrySafe {
+				t.Fatalf("latest send JSON = %+v, want attention=%t retry_safe=%t", got, test.wantAttention, test.wantRetrySafe)
+			}
+		})
+	}
+}
+
+func TestStatusReadsPartialSendAttentionFromDurableMetadata(t *testing.T) {
+	home := t.TempDir()
+	task := state.Task{ID: "task-1", Lifecycle: state.TaskOpen}
+	if err := writeTaskAttempt(t, home, task, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "pane-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	attempt := readTaskAttempt(t, home, "task-1")
+	send, err := state.BeginSend(home, task.ID, attempt.ID, attempt.Herdr, state.SendOriginOperator, "staged", "2026-08-15T12:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.FinalizeSend(home, send.ID, task.ID, attempt.ID, state.SendNotSubmitted, state.SendReasonEnterRejectedAfterTextStaged, "2026-08-15T12:00:01Z"); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Sends != nil {
+		t.Fatalf("history.Sends = %+v, want metadata fetched by status only", history.Sends)
+	}
+	view, _ := buildTaskView(home, nil, history, false, false)
+	if !needsAttention(view) || !strings.Contains(strings.Join(taskFlags(view), " "), "send-partial") {
+		t.Fatalf("view flags=%v attention=%t, want durable partial send attention", taskFlags(view), needsAttention(view))
+	}
+	if got := latestSendJSON(view.latestSend); got == nil || !got.NeedsAttention || got.RetrySafe {
+		t.Fatalf("latest send JSON = %+v, want attention=true retry_safe=false", got)
 	}
 }
 

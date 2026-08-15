@@ -60,7 +60,14 @@ const (
 	SendOriginOperator          = store.SendOriginOperator
 	SendOriginUsageLimitResume  = store.SendOriginUsageLimitResume
 	SendOriginLegacyUndelivered = store.SendOriginLegacyUndelivered
+
+	SendReasonTextRejectedBeforeAcceptance = store.SendReasonTextRejectedBeforeAcceptance
+	SendReasonEnterRejectedAfterTextStaged = store.SendReasonEnterRejectedAfterTextStaged
 )
+
+func SendNeedsAttention(send SendAttempt) bool { return store.SendNeedsAttention(send) }
+
+func SendRetrySafe(send SendAttempt) bool { return store.SendRetrySafe(send) }
 
 const (
 	TeardownResourceReleasing               = store.TeardownResourceReleasing

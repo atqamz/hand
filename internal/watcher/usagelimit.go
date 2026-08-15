@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -69,10 +68,13 @@ func classifyUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 		return continueUsageLimit(cfg, client, ts, t, a, pane, status, now, errOut)
 	}
 	if ts.LimitResumeBlocked {
-		if status == herdr.StatusWorking || status == herdr.StatusBlocked || reportEndsTask(ts.LastReportState) {
-			return clearUsageLimit(cfg, ts, t, errOut)
+		if err := normalizePendingResume(cfg.Home, a, errOut); err != nil {
+			_, _ = fmt.Fprintf(errOut, "watch: recover pending resume for %s failed: %v\n", t.ID, err)
 		}
-		return nil
+		if status == herdr.StatusWorking || status == herdr.StatusBlocked || reportEndsTask(ts.LastReportState) {
+			return clearUsageLimit(cfg, ts, t, a, errOut)
+		}
+		return observeBlockedUsageLimit(cfg, ts, t, a, true, errOut)
 	}
 	// justStopped is computed before ClassifyStatus consumes the transition: it is what makes detection
 	// edge-triggered rather than a per-tick pane read. ts.LimitProbed is the other edge, covering what no
@@ -105,9 +107,15 @@ func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task,
 		return nil
 	}
 
+	if ts.LimitEpisode < a.UsageLimitEpisode {
+		ts.LimitEpisode = a.UsageLimitEpisode
+	}
+	ts.LimitEpisode++
 	ts.LimitAttempts = 0
 	ts.LimitRetryAt = nextLimitRetry(reset, 0, now)
-	writeLimitHoldForAttempt(cfg, t, a, ts, errOut)
+	if !writeLimitHoldForAttempt(cfg, t, a, ts, errOut) {
+		return nil
+	}
 	return &Event{
 		TaskID: t.ID,
 		Kind:   KindUsageLimit,
@@ -121,15 +129,15 @@ func detectUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task,
 // `hand send`, a human typing in the pane - and a visibly running worker must not keep collecting attempts.
 func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, status herdr.Status, now time.Time, errOut io.Writer) *Event {
 	if status == herdr.StatusWorking || status == herdr.StatusBlocked {
-		return clearUsageLimit(cfg, ts, t, errOut)
+		return clearUsageLimit(cfg, ts, t, a, errOut)
 	}
 	// A limited worker that has since reported done or failed said its own last word
 	// on the task. Whatever quota it is owed, nobody is waiting for it.
 	if reportEndsTask(ts.LastReportState) {
-		return clearUsageLimit(cfg, ts, t, errOut)
+		return clearUsageLimit(cfg, ts, t, a, errOut)
 	}
 	if ts.LimitResumeBlocked {
-		return nil
+		return observeBlockedUsageLimit(cfg, ts, t, a, true, errOut)
 	}
 	if now.Before(ts.LimitRetryAt) {
 		return nil
@@ -142,7 +150,7 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
 	result, err := steering.Execute(steering.Request{
 		Home: cfg.Home, TaskID: t.ID, Message: limitResumeMessage, Origin: state.SendOriginUsageLimitResume,
-		Client: client, TryLock: true, Expected: &a, Now: func() time.Time { return now },
+		Client: client, TryLock: true, Expected: &a, UsageLimitEpisode: ts.LimitEpisode, Now: func() time.Time { return now },
 	})
 	if err != nil {
 		var sendErr *steering.Error
@@ -151,10 +159,14 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 			return nil
 		}
 		if sendErr.Precondition {
-			if errors.Is(err, state.ErrLockBusy) || strings.Contains(err.Error(), "lock send") || strings.Contains(err.Error(), "lock task") {
+			if isSteeringLockBusy(err) {
 				return nil
 			}
-			_, _ = fmt.Fprintf(errOut, "watch: resume %s refused for stale ownership: %v\n", t.ID, err)
+			if errors.Is(err, steering.ErrOwnershipConflict) || errors.Is(err, steering.ErrPaneOwnershipMismatch) {
+				_, _ = fmt.Fprintf(errOut, "watch: resume %s refused for stale ownership: %v\n", t.ID, err)
+			} else {
+				_, _ = fmt.Fprintf(errOut, "watch: resume %s precondition failed: %v\n", t.ID, err)
+			}
 			return nil
 		}
 		if sendErr.State == "" {
@@ -163,7 +175,7 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 			_, _ = fmt.Fprintf(errOut, "watch: resume %s did not begin submission; retry scheduled: %v\n", t.ID, err)
 		} else if sendErr.State == state.SendNotSubmitted && sendErr.RetrySafe {
 			ts.LimitAttempts++
-			ts.LimitRetryAt = nextLimitRetry(limitReset(client, a, pane, t, errOut), ts.LimitAttempts, now)
+			ts.LimitRetryAt = nextLimitRetry(limitReset(client, a, pane, t, now, errOut), ts.LimitAttempts, now)
 		} else {
 			ts.LimitResumeBlocked = true
 			ts.LimitAttempts++
@@ -177,26 +189,23 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		ts.LimitRetryAt = nextLimitRetry(time.Time{}, ts.LimitAttempts, now)
 		_, _ = fmt.Fprintf(errOut, "watch: resume %s submitted to the terminal pane; waiting for worker observation\n", t.ID)
 	}
-	writeLimitHold(cfg.Home, t.ID, ts, errOut)
-
-	if ts.LimitAttempts != limitStuckAfter {
+	if !writeLimitHoldForAttempt(cfg, t, a, ts, errOut) {
 		return nil
 	}
-	return &Event{
-		TaskID: t.ID,
-		Kind:   KindUsageLimitStuck,
-		Text:   fmt.Sprintf("usage-limit-stuck %s: %s", t.ID, limitReason(ts)),
-		Reason: limitReason(ts),
-	}
+	return observeBlockedUsageLimit(cfg, ts, t, a, false, errOut)
 }
 
-func limitReset(client limitPane, attempt state.Attempt, pane herdr.Pane, task state.Task, errOut io.Writer) time.Time {
+func isSteeringLockBusy(err error) bool {
+	return errors.Is(err, state.ErrLockBusy)
+}
+
+func limitReset(client limitPane, attempt state.Attempt, pane herdr.Pane, task state.Task, now time.Time, errOut io.Writer) time.Time {
 	text, err := client.PaneRead(attempt.Herdr.PaneID, limitReadLines)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: read pane for %s failed: %v\n", task.ID, err)
 		return time.Time{}
 	}
-	reset, limited := harness.DetectUsageLimit(pane.Agent, text, time.Now())
+	reset, limited := harness.DetectUsageLimit(pane.Agent, text, now)
 	if !limited {
 		return time.Time{}
 	}
@@ -217,12 +226,15 @@ func ownsAttempt(home string, t state.Task, a state.Attempt, errOut io.Writer) b
 	current := history.ActiveAttempt
 	return history.Task.ID == t.ID && history.Task.Lifecycle == state.TaskOpen &&
 		current != nil && current.ID == a.ID && current.TaskID == t.ID &&
-		current.Lifecycle == state.AttemptRunning && current.Herdr.PaneID == a.Herdr.PaneID
+		current.Lifecycle == state.AttemptRunning && current.Herdr == a.Herdr
 }
 
 // Forgets the schedule and the operator-visible hold together, so the two cannot disagree about whether
 // a task is still waiting on quota.
-func clearUsageLimit(cfg Config, ts *TaskState, t state.Task, errOut io.Writer) *Event {
+func clearUsageLimit(cfg Config, ts *TaskState, t state.Task, a state.Attempt, errOut io.Writer) *Event {
+	if !clearLimitHoldForAttempt(cfg, t, a, errOut) {
+		return nil
+	}
 	attempts := ts.LimitAttempts
 	ts.LimitRetryAt = time.Time{}
 	ts.LimitAttempts = 0
@@ -230,14 +242,39 @@ func clearUsageLimit(cfg Config, ts *TaskState, t state.Task, errOut io.Writer) 
 	// The stop edge that stranded this worker is long consumed, so a limit hitting the
 	// same worker again needs a fresh probe to be found on.
 	ts.LimitProbed = false
-	if err := state.ClearHoldIfKind(cfg.Home, t.ID, state.HoldKindLimit); err != nil {
-		_, _ = fmt.Fprintf(errOut, "watch: clear usage-limit hold on %s failed: %v\n", t.ID, err)
-	}
 	return &Event{
 		TaskID: t.ID,
 		Kind:   KindUsageLimitResumed,
 		Text:   fmt.Sprintf("usage-limit-resumed %s: running again after %s", t.ID, attemptCount(attempts)),
 		Reason: fmt.Sprintf("running again after %s", attemptCount(attempts)),
+	}
+}
+
+func observeBlockedUsageLimit(cfg Config, ts *TaskState, t state.Task, a state.Attempt, advance bool, errOut io.Writer) *Event {
+	if !writeLimitHoldForAttempt(cfg, t, a, ts, errOut) {
+		return nil
+	}
+	if advance && ts.LimitAttempts < limitStuckAfter {
+		ts.LimitAttempts++
+	}
+	if ts.LimitAttempts < limitStuckAfter {
+		return nil
+	}
+	if ts.LimitEpisode == 0 {
+		if ts.LimitStuckEpisode == -1 {
+			return nil
+		}
+		ts.LimitStuckEpisode = -1
+	} else if ts.LimitStuckEpisode == ts.LimitEpisode {
+		return nil
+	} else {
+		ts.LimitStuckEpisode = ts.LimitEpisode
+	}
+	return &Event{
+		TaskID: t.ID,
+		Kind:   KindUsageLimitStuck,
+		Text:   fmt.Sprintf("usage-limit-stuck %s: %s", t.ID, limitReason(ts)),
+		Reason: limitReason(ts),
 	}
 }
 
@@ -305,7 +342,7 @@ func limitReason(ts *TaskState) string {
 // Makes the limit visible where an operator already looks, and blocks `hand spawn` from reusing the id
 // out from under a worker that is only waiting on quota. A failure is loud but never fatal: the schedule
 // in task state is what resumes the worker, and losing its projection must not cost the resume.
-func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) {
+func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) bool {
 	h := state.Hold{
 		ID:     id,
 		Kind:   state.HoldKindLimit,
@@ -315,24 +352,53 @@ func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) {
 	written, err := state.SetHoldIfNotOtherKind(home, h)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: set usage-limit hold on %s failed: %v\n", id, err)
-		return
+		return false
 	}
 	if !written {
 		_, _ = fmt.Fprintf(errOut, "watch: hold on %s is not of kind limit; usage-limit wait left unprojected: %s\n", id, limitReason(ts))
 	}
+	return written
 }
 
-func writeLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) {
+func writeLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) bool {
 	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
 	if err != nil {
 		if !errors.Is(err, state.ErrLockBusy) {
 			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
 		}
-		return
+		return false
 	}
 	defer releaseTask()
+	return writeLimitHoldForOwnedAttempt(cfg, t, a, ts, errOut)
+}
+
+func writeLimitHoldForOwnedAttempt(cfg Config, t state.Task, a state.Attempt, ts *TaskState, errOut io.Writer) bool {
 	if !ownsAttempt(cfg.Home, t, a, errOut) {
-		return
+		return false
 	}
 	writeLimitHold(cfg.Home, t.ID, ts, errOut)
+	return true
+}
+
+func clearLimitHoldForAttempt(cfg Config, t state.Task, a state.Attempt, errOut io.Writer) bool {
+	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
+	if err != nil {
+		if !errors.Is(err, state.ErrLockBusy) {
+			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
+		}
+		return false
+	}
+	defer releaseTask()
+	return clearLimitHoldForOwnedAttempt(cfg, t, a, errOut)
+}
+
+func clearLimitHoldForOwnedAttempt(cfg Config, t state.Task, a state.Attempt, errOut io.Writer) bool {
+	if !ownsAttempt(cfg.Home, t, a, errOut) {
+		return false
+	}
+	if err := state.ClearHoldIfKind(cfg.Home, t.ID, state.HoldKindLimit); err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: clear usage-limit hold on %s failed: %v\n", t.ID, err)
+		return false
+	}
+	return true
 }

@@ -3,7 +3,7 @@
 Date: 2026-08-15
 Status: accepted
 Issues: atqamz/hand#197, atqamz/hand#176
-Pull requests: none
+Pull requests: atqamz/hand#230
 
 ## Context
 
@@ -25,7 +25,7 @@ The steering lock is acquired before the task lock, and reconciliation normalize
 
 ## Rejected alternatives
 
-An outbox, broker, worker acknowledgement, or combined Herdr protocol would either broaden the system beyond terminal submission or claim exactly-once delivery that the PTY boundary cannot provide.
+An outbox, broker, worker acknowledgement, or combined Herdr protocol would either broaden the system beyond terminal submission or claim a guarantee that the PTY boundary cannot provide.
 
 Treating every command error as non-submission would risk duplicate operator messages.
 

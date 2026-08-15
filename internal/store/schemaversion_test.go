@@ -54,11 +54,11 @@ func TestFreshSchemaIncludesTaskRepairMetadata(t *testing.T) {
 func TestFreshSchemaIncludesSendAttemptAuthority(t *testing.T) {
 	db, _ := openTemp(t)
 	var count int
-	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('send_attempt') WHERE name IN ('task_id', 'attempt_id', 'origin', 'message', 'state', 'reason_code', 'created_at', 'finalized_at')`).Scan(&count); err != nil {
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('send_attempt') WHERE name IN ('task_id', 'attempt_id', 'origin', 'message', 'state', 'reason_code', 'created_at', 'finalized_at', 'usage_limit_episode')`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 8 {
-		t.Fatalf("send_attempt columns = %d, want 8", count)
+	if count != 9 {
+		t.Fatalf("send_attempt columns = %d, want 9", count)
 	}
 	var indexes int
 	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'send_attempt_one_pending'`).Scan(&indexes); err != nil {

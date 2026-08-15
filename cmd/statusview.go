@@ -86,9 +86,11 @@ func taskFlags(v taskView) []string {
 		flags = append(flags, "needs-repair")
 	}
 	if v.latestSend != nil {
-		switch v.latestSend.State {
-		case state.SendPending, state.SendUncertain:
+		switch {
+		case v.latestSend.State == state.SendPending, v.latestSend.State == state.SendUncertain:
 			flags = append(flags, "send-"+string(v.latestSend.State))
+		case state.SendNeedsAttention(*v.latestSend):
+			flags = append(flags, "send-partial")
 		}
 	}
 	return flags
@@ -100,7 +102,7 @@ func needsAttention(v taskView) bool {
 	if v.unreadable || v.unacked || v.gateIssue != "" || v.task.RepairCode != "" {
 		return true
 	}
-	if v.latestSend != nil && (v.latestSend.State == state.SendPending || v.latestSend.State == state.SendUncertain) {
+	if v.latestSend != nil && state.SendNeedsAttention(*v.latestSend) {
 		return true
 	}
 	switch v.reportedState {

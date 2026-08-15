@@ -158,14 +158,27 @@ func readHistory(homeDir, id string, readOnly bool) (TaskHistory, error) {
 }
 
 func ActiveAttempt(homeDir, id string) (Attempt, error) {
-	history, err := ReadHistory(homeDir, id)
+	if err := ValidateID(id); err != nil {
+		return Attempt{}, err
+	}
+	db, err := store.Open(homeDir)
 	if err != nil {
 		return Attempt{}, err
 	}
-	if history.ActiveAttempt == nil {
+	defer func() { _ = db.Close() }()
+	attempt, found, err := db.ReadActiveAttempt(id)
+	if err != nil {
+		return Attempt{}, err
+	}
+	if !found {
+		if _, taskFound, err := db.ReadTask(id); err != nil {
+			return Attempt{}, err
+		} else if !taskFound {
+			return Attempt{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
+		}
 		return Attempt{}, fmt.Errorf("task %q %w", id, ErrNoActiveAttempt)
 	}
-	return *history.ActiveAttempt, nil
+	return attempt, nil
 }
 
 func ReadAttempt(homeDir string, attemptID int64) (Attempt, bool, error) {
@@ -471,13 +484,13 @@ func SetAttemptSendTrace(homeDir, taskID string, attemptID int64, expected Attem
 	return db.SetAttemptSendTrace(taskID, attemptID, expected, message, at)
 }
 
-func BeginSend(homeDir, taskID string, attemptID int64, ownership Herdr, origin SendOrigin, message, createdAt string) (SendAttempt, error) {
+func BeginSend(homeDir, taskID string, attemptID int64, ownership Herdr, origin SendOrigin, message, createdAt string, usageLimitEpisode ...int64) (SendAttempt, error) {
 	db, err := store.Open(homeDir)
 	if err != nil {
 		return SendAttempt{}, err
 	}
 	defer func() { _ = db.Close() }()
-	return db.BeginSend(taskID, attemptID, ownership, origin, message, createdAt)
+	return db.BeginSend(taskID, attemptID, ownership, origin, message, createdAt, usageLimitEpisode...)
 }
 
 func FinalizeSend(homeDir string, id int64, taskID string, attemptID int64, next SendState, reasonCode, finalizedAt string) (SendAttempt, error) {
@@ -498,6 +511,15 @@ func ReadSend(homeDir string, id int64) (SendAttempt, bool, error) {
 	return db.ReadSend(id)
 }
 
+func ReadSendMetadata(homeDir string, id int64) (SendAttempt, bool, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ReadSendMetadata(id)
+}
+
 func ListSends(homeDir, taskID string) ([]SendAttempt, error) {
 	db, err := store.Open(homeDir)
 	if err != nil {
@@ -514,6 +536,28 @@ func LatestSend(homeDir string, taskID string, attemptID int64, origins ...SendO
 	}
 	defer func() { _ = db.Close() }()
 	return db.LatestSend(taskID, attemptID, origins...)
+}
+
+func PendingSend(homeDir, taskID string, attemptID int64) (SendAttempt, bool, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.PendingSend(taskID, attemptID)
+}
+
+func LatestSendMetadata(homeDir string, taskID string, attemptID int64, origins ...SendOrigin) (SendAttempt, bool, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.LatestSendMetadata(taskID, attemptID, origins...)
+}
+
+func LatestSendMetadataReadOnly(homeDir string, taskID string, attemptID int64, origins ...SendOrigin) (SendAttempt, bool, error) {
+	return store.LatestSendMetadataReadOnly(homeDir, taskID, attemptID, origins...)
 }
 
 func NormalizePendingSends(homeDir, taskID, reasonCode, finalizedAt string) (int64, error) {
@@ -534,13 +578,13 @@ func NormalizePendingSend(homeDir string, id int64, taskID string, attemptID int
 	return db.NormalizePendingSend(id, taskID, attemptID, reasonCode, finalizedAt)
 }
 
-func UpdateAttemptObservation(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, statusChangedAt, statusChangedFor string, doneVerified bool, lastReportState, lastReportNote, parkedFiredFor, usageLimitRetryAt string, usageLimitAttempts int) error {
+func UpdateAttemptObservation(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, statusChangedAt, statusChangedFor string, doneVerified bool, lastReportState, lastReportNote, parkedFiredFor, usageLimitRetryAt string, usageLimitAttempts int, usageLimitEpisode, usageLimitStuckEpisode int64) error {
 	db, err := store.Open(homeDir)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	return db.UpdateAttemptObservation(taskID, attemptID, expected, statusChangedAt, statusChangedFor, doneVerified, lastReportState, lastReportNote, parkedFiredFor, usageLimitRetryAt, usageLimitAttempts)
+	return db.UpdateAttemptObservation(taskID, attemptID, expected, statusChangedAt, statusChangedFor, doneVerified, lastReportState, lastReportNote, parkedFiredFor, usageLimitRetryAt, usageLimitAttempts, usageLimitEpisode, usageLimitStuckEpisode)
 }
 
 func ReopenTask(homeDir string, a Attempt) (Attempt, error) {
@@ -595,12 +639,7 @@ func ListReconciliationHistories(homeDir string) ([]TaskHistory, error) {
 }
 
 func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) {
-	db, err := store.OpenReadOnly(homeDir)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = db.Close() }()
-	return db.ListReconciliationHistories()
+	return store.ListReconciliationHistoriesReadOnly(homeDir)
 }
 
 func ListHerdrOwnerships(homeDir string) ([]HerdrOwnership, error) {

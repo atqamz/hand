@@ -20,18 +20,19 @@ type Client interface {
 }
 
 type Request struct {
-	Home         string
-	TaskID       string
-	Message      string
-	Origin       state.SendOrigin
-	Client       Client
-	Wait         time.Duration
-	WaitComposer func(paneID string, timeout time.Duration) error
-	TryLock      bool
-	TryTaskLock  bool
-	Expected     *state.Attempt
-	Now          func() time.Time
-	Faults       Faults
+	Home              string
+	TaskID            string
+	Message           string
+	Origin            state.SendOrigin
+	Client            Client
+	Wait              time.Duration
+	WaitComposer      func(paneID string, timeout time.Duration) error
+	TryLock           bool
+	TryTaskLock       bool
+	Expected          *state.Attempt
+	UsageLimitEpisode int64
+	Now               func() time.Time
+	Faults            Faults
 }
 
 type Faults struct {
@@ -162,7 +163,7 @@ func Execute(req Request) (Result, error) {
 		return Result{}, err
 	}
 
-	send, err := state.BeginSend(req.Home, req.TaskID, current.ID, current.Herdr, req.Origin, req.Message, req.Now().UTC().Format(time.RFC3339Nano))
+	send, err := state.BeginSend(req.Home, req.TaskID, current.ID, current.Herdr, req.Origin, req.Message, req.Now().UTC().Format(time.RFC3339Nano), req.UsageLimitEpisode)
 	if err != nil {
 		return Result{}, precondition(fmt.Errorf("begin send: %w", err))
 	}
@@ -173,8 +174,8 @@ func Execute(req Request) (Result, error) {
 		return Result{}, pendingError(send, req.Faults.BeforeText, "before-text")
 	}
 	if err := req.Client.PaneSendText(current.Herdr.PaneID, req.Message); err != nil {
-		if herdr.IsPreSideEffectRejection(err) {
-			return finalize(req, send, state.SendNotSubmitted, rejectionReason(err, "text-rejected-before-acceptance"), false, false)
+		if herdr.IsPreSideEffectRejection(err) || herdr.IsProcessNotStarted(err) {
+			return finalize(req, send, state.SendNotSubmitted, rejectionReason(err, state.SendReasonTextRejectedBeforeAcceptance), false, false)
 		}
 		return finalize(req, send, state.SendUncertain, "text-outcome-ambiguous", false, false)
 	}
@@ -185,8 +186,8 @@ func Execute(req Request) (Result, error) {
 		return Result{}, pendingError(send, req.Faults.BeforeEnter, "before-enter")
 	}
 	if err := req.Client.PaneSendKeys(current.Herdr.PaneID, "Enter"); err != nil {
-		if herdr.IsPreSideEffectRejection(err) {
-			return finalize(req, send, state.SendNotSubmitted, rejectionReason(err, "enter-rejected-after-text-staged"), false, true)
+		if herdr.IsPreSideEffectRejection(err) || herdr.IsProcessNotStarted(err) {
+			return finalize(req, send, state.SendNotSubmitted, rejectionReason(err, state.SendReasonEnterRejectedAfterTextStaged), false, true)
 		}
 		return finalize(req, send, state.SendUncertain, "enter-outcome-ambiguous", false, false)
 	}
@@ -242,56 +243,37 @@ func paneError(attempt state.Attempt, operation string, err error) error {
 }
 
 func refusePending(req Request, active state.Attempt, observed *state.SendAttempt) error {
-	sends, err := state.ListSends(req.Home, req.TaskID)
-	if err != nil {
-		return &Error{Cause: fmt.Errorf("read send records for task %q: %w", req.TaskID, err), Precondition: true, AttemptID: active.ID}
-	}
 	if observed != nil {
-		found := false
-		for _, send := range sends {
-			if send.ID != observed.ID {
-				continue
-			}
-			found = true
-			if send.State != state.SendPending {
-				return unresolved(send)
-			}
-			break
+		send, found, err := state.ReadSendMetadata(req.Home, observed.ID)
+		if err != nil {
+			return &Error{Cause: fmt.Errorf("read send %d: %w", observed.ID, err), Precondition: true, AttemptID: active.ID}
 		}
 		if !found {
 			return precondition(fmt.Errorf("send %d disappeared while recovering pending state", observed.ID))
 		}
-	}
-	for _, send := range sends {
-		if send.AttemptID != active.ID {
-			continue
-		}
 		if send.State != state.SendPending {
-			continue
+			return unresolved(send)
 		}
-		recovered, changed, err := state.NormalizePendingSend(req.Home, send.ID, req.TaskID, active.ID, "stale-pending-recovered", req.Now().UTC().Format(time.RFC3339Nano))
-		if err != nil {
-			return &Error{Cause: fmt.Errorf("recover pending send %d: %w", send.ID, err), Send: &send, AttemptID: send.AttemptID, State: state.SendPending, Reason: "stale-pending-recovery-failed"}
-		}
-		if !changed {
-			return unresolved(recovered)
-		}
+	}
+	send, found, err := state.PendingSend(req.Home, req.TaskID, active.ID)
+	if err != nil {
+		return &Error{Cause: fmt.Errorf("read pending send for task %q: %w", req.TaskID, err), Precondition: true, AttemptID: active.ID}
+	}
+	if !found {
+		return nil
+	}
+	recovered, changed, err := state.NormalizePendingSend(req.Home, send.ID, req.TaskID, active.ID, "stale-pending-recovered", req.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return &Error{Cause: fmt.Errorf("recover pending send %d: %w", send.ID, err), Send: &send, AttemptID: send.AttemptID, State: state.SendPending, Reason: "stale-pending-recovery-failed"}
+	}
+	if !changed {
 		return unresolved(recovered)
 	}
-	return nil
+	return unresolved(recovered)
 }
 
 func pendingSend(req Request, attemptID int64) (state.SendAttempt, bool, error) {
-	sends, err := state.ListSends(req.Home, req.TaskID)
-	if err != nil {
-		return state.SendAttempt{}, false, fmt.Errorf("read send records for task %q: %w", req.TaskID, err)
-	}
-	for _, send := range sends {
-		if send.AttemptID == attemptID && send.State == state.SendPending {
-			return send, true, nil
-		}
-	}
-	return state.SendAttempt{}, false, nil
+	return state.PendingSend(req.Home, req.TaskID, attemptID)
 }
 
 func unresolved(send state.SendAttempt) error {

@@ -158,11 +158,15 @@ type TaskState struct {
 	// Mirrors the task's durable usage-limit schedule: a non-zero retry instant is what makes the task
 	// limited, and the attempt count is what the backoff and the stuck bound are measured in. Persisted
 	// for ParkedFiredFor's reason, sharper - a re-derived schedule resumes against a still-limited account.
-	LimitRetryAt           time.Time
-	LimitAttempts          int
-	LimitResumeBlocked     bool
-	PersistedLimitRetryAt  time.Time
-	PersistedLimitAttempts int
+	LimitRetryAt               time.Time
+	LimitAttempts              int
+	LimitResumeBlocked         bool
+	LimitEpisode               int64
+	LimitStuckEpisode          int64
+	PersistedLimitRetryAt      time.Time
+	PersistedLimitAttempts     int
+	PersistedLimitEpisode      int64
+	PersistedLimitStuckEpisode int64
 	// Records that this watcher has read the pane looking for a limit message at least once for this
 	// task. Deliberately not persisted, and the reason a watcher starting against an already-limited
 	// worker still finds it: the stop predates this process, so a first sighting stands in for a transition.
