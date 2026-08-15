@@ -173,8 +173,8 @@ Every worker operates in a git worktree leased through [treehouse](https://githu
 ### Live supervision
 
 Workers run interactively inside [herdr](https://github.com/ogulcancelik/herdr), so the supervisor can observe semantic agent state, send follow-up instructions with `hand send`, and react to fleet events with `hand watch` without scraping a terminal for meaning.
-Once a terminal submission attempt begins, Hand records its Attempt and pane submission outcome, including `uncertain` when the terminal may have accepted input but Hand cannot prove submission.
-Uncertain sends are not automatically resent; inspect `hand status <id>` and use operator judgment before steering again.
+Send outcomes are recorded against the Attempt and visible in `hand status <id>`; unresolved outcomes require operator judgment before steering again.
+The [terminal submission uncertainty decision record](docs/adr/steering-records-terminal-submission-uncertainty.md) owns the outcome and recovery contract.
 
 ### Durable fleet state
 
