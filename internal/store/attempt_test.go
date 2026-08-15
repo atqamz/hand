@@ -15,6 +15,7 @@ func TestTaskAndAttemptHaveSeparateIdentityAndExecutionOwnership(t *testing.T) {
 	}
 	attempt, err := db.CreateAttempt(Attempt{
 		TaskID: task.ID, Lifecycle: AttemptRunning, Harness: "claude", Model: "opus", Effort: "high",
+		ExecutionClass: "standard", PlannedAgainst: "2026-08-14T00:00:00Z", RequestedProfile: "daily", RoutingSource: "route",
 		Worktree: "/tmp/wt-1", LeaseID: "lease-1", Herdr: Herdr{PaneID: "pane-1"}, CreatedAt: "2026-08-13T00:00:00Z",
 	})
 	if err != nil {
@@ -38,8 +39,60 @@ func TestTaskAndAttemptHaveSeparateIdentityAndExecutionOwnership(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("ReadAttempt = %+v, %v, want attempt", gotAttempt, err)
 	}
-	if gotAttempt.TaskID != task.ID || gotAttempt.Harness != "claude" || gotAttempt.Worktree != "/tmp/wt-1" {
+	if gotAttempt.TaskID != task.ID || gotAttempt.Harness != "claude" || gotAttempt.ExecutionClass != "standard" || gotAttempt.PlannedAgainst != "2026-08-14T00:00:00Z" || gotAttempt.RequestedProfile != "daily" || gotAttempt.RoutingSource != "route" || gotAttempt.Worktree != "/tmp/wt-1" {
 		t.Fatalf("attempt lost execution identity: %+v", gotAttempt)
+	}
+	attempts, err := db.ListAttempts(task.ID)
+	if err != nil || len(attempts) != 1 {
+		t.Fatalf("ListAttempts = %+v, %v", attempts, err)
+	}
+	if attempts[0].ExecutionClass != "standard" || attempts[0].PlannedAgainst != "2026-08-14T00:00:00Z" || attempts[0].RequestedProfile != "daily" || attempts[0].RoutingSource != "route" {
+		t.Fatalf("listed attempt lost routing snapshot: %+v", attempts[0])
+	}
+	history, found, err := db.ReadTaskHistory(task.ID)
+	if err != nil || !found || len(history.Attempts) != 1 {
+		t.Fatalf("ReadTaskHistory = %+v, %v, %v", history, found, err)
+	}
+	if history.Attempts[0].ExecutionClass != "standard" || history.Attempts[0].PlannedAgainst != "2026-08-14T00:00:00Z" || history.Attempts[0].RequestedProfile != "daily" || history.Attempts[0].RoutingSource != "route" {
+		t.Fatalf("history attempt lost routing snapshot: %+v", history.Attempts[0])
+	}
+}
+
+func TestAttemptUpdatesPreserveExecutionSnapshot(t *testing.T) {
+	db, _ := openTemp(t)
+	created, err := db.CreateTaskWithAttempt(Task{ID: "task-1", Lifecycle: TaskOpen}, Attempt{
+		TaskID: "task-1", Lifecycle: AttemptProvisioning, Harness: "claude", Model: "opus", Effort: "high",
+		ExecutionClass: "deep", PlannedAgainst: "plan-1", RequestedProfile: "brain", RoutingSource: "route",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "lease-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordAttemptHerdr("task-1", created.ID, Herdr{PaneID: "pane-1"}, "2026-08-14T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	updated, found, err := db.ReadAttempt(created.ID)
+	if err != nil || !found {
+		t.Fatalf("ReadAttempt = %+v, %v, %v", updated, found, err)
+	}
+	updated.Harness = "other"
+	updated.Model = "other-model"
+	updated.Effort = "other-effort"
+	updated.ExecutionClass = "mechanical"
+	updated.PlannedAgainst = "plan-2"
+	updated.RequestedProfile = "other-profile"
+	updated.RoutingSource = "explicit-profile"
+	if err := db.UpdateAttempt(updated); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := db.ReadAttempt(created.ID)
+	if err != nil || !found {
+		t.Fatalf("ReadAttempt = %+v, %v, %v", got, found, err)
+	}
+	if got.Harness != "claude" || got.Model != "opus" || got.Effort != "high" || got.ExecutionClass != "deep" || got.PlannedAgainst != "plan-1" || got.RequestedProfile != "brain" || got.RoutingSource != "route" {
+		t.Fatalf("execution snapshot changed after update: %+v", got)
 	}
 }
 

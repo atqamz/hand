@@ -16,13 +16,7 @@ import (
 )
 
 func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, error) {
-	release, err := state.Lock(req.Home, "task:"+req.ID)
-	if err != nil {
-		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
-	}
-	defer release()
-
-	history, err := state.ReadHistory(req.Home, req.ID)
+	history, err := state.ReadHistoryReadOnly(req.Home, req.ID)
 	if err != nil {
 		if errors.Is(err, state.ErrTaskNotFound) {
 			return Result{}, Precondition(err)
@@ -57,7 +51,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if _, err := os.Stat(briefPath); err != nil {
 		return Result{}, Precondition(fmt.Errorf("brief not found at %s", briefRel))
 	}
-	projectInfo, exists, err := project.Find(req.Home, task.Project)
+	projectInfo, exists, err := project.FindReadOnly(req.Home, task.Project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -70,34 +64,64 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		return Result{}, err
 	}
 	fail := func(err error) (Result, error) { return Result{}, WithWarnings(err, warnings) }
-	harnessName, err := requestedHarness(req.Harness, req.HarnessFromFlag)
+	route, err := resolveExecution(req.Home, briefPath, state.KindShip, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, req.ModelFromFlag, req.Effort, req.EffortFromFlag)
 	if err != nil {
 		return fail(err)
 	}
-	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
+	warnings = append(warnings, route.Warnings...)
+	history, err = state.ReadHistory(req.Home, req.ID)
 	if err != nil {
-		return fail(classifyTierError(err))
-	}
-	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
 		return fail(err)
 	}
-	warnings = append(warnings, tier.Warnings...)
+	if history.Task.Kind != state.KindScout || history.ActiveAttempt == nil || history.Task.Project != task.Project || history.Task.Kind != task.Kind || history.ActiveAttempt.ID != scout.ID || history.ActiveAttempt.Lifecycle != scout.Lifecycle {
+		return fail(Precondition(fmt.Errorf("task %q changed while preparing promotion; retry", req.ID)))
+	}
+	task = history.Task
+	scout = *history.ActiveAttempt
+	projectInfo, exists, err = project.Find(req.Home, task.Project)
+	if err != nil {
+		return fail(err)
+	}
+	if !exists {
+		return fail(Precondition(fmt.Errorf("project %q not registered", task.Project)))
+	}
+	release, err := state.Lock(req.Home, "task:"+req.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
+	}
+	defer release()
+	latest, err := state.ReadHistory(req.Home, req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if latest.Task.Kind != state.KindScout || latest.ActiveAttempt == nil {
+		return Result{}, Precondition(fmt.Errorf("task %q changed while preparing promotion; retry", req.ID))
+	}
+	if latest.ActiveAttempt.ID != scout.ID || latest.ActiveAttempt.Lifecycle != scout.Lifecycle {
+		return Result{}, Precondition(fmt.Errorf("task %q scout attempt changed while preparing promotion; retry", req.ID))
+	}
+	if latest.Task.Project != task.Project || latest.Task.Kind != task.Kind {
+		return Result{}, Precondition(fmt.Errorf("task %q changed while preparing promotion; retry", req.ID))
+	}
+	task = latest.Task
+	scout = *latest.ActiveAttempt
 
 	var releaseProject func()
-	if tier.ExecutionClass == brief.ExecutionClassMechanical {
+	if route.ExecutionClass == brief.ExecutionClassMechanical {
 		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
 		if err != nil {
 			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
 		}
 		defer releaseProject()
-		if err := r.preflightTier(tier, clonePath); err != nil {
+		if err := r.preflightExecution(route, clonePath); err != nil {
 			return fail(err)
 		}
 	}
 
 	createdAt := r.deps.now().Format(time.RFC3339)
 	shipAttempt, err := state.PromoteTask(req.Home, req.ID, scout.ID, scout.Lifecycle, state.Attempt{
-		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: tier.Model, Effort: tier.Effort, CreatedAt: createdAt,
+		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write promoted provisioning state: %w", err))
@@ -122,8 +146,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 
 	worktreePath, err := r.provisionLocked(ctx, provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass, plannedAgainst: tier.PlannedAgainst,
-		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: shipAttempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, attempt: shipAttempt,
 	})
 	if err != nil {
 		return fail(err)
@@ -132,7 +155,8 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		warnings = append(warnings, fmt.Sprintf("warning: clear usage-limit hold failed: %v", err))
 	}
 	return Result{
-		ID: req.ID, Project: projectInfo.Name, Kind: state.KindShip, Was: state.KindScout, Harness: harnessName, Worktree: worktreePath,
+		ID: req.ID, Project: projectInfo.Name, Kind: state.KindShip, Was: state.KindScout, ExecutionClass: shipAttempt.ExecutionClass, Profile: shipAttempt.RequestedProfile,
+		RoutingSource: shipAttempt.RoutingSource, PlannedAgainst: shipAttempt.PlannedAgainst, Harness: shipAttempt.Harness, Model: shipAttempt.Model, Effort: shipAttempt.Effort, Worktree: worktreePath,
 		Warnings: warnings,
 		Help:     []string{"The scout's worktree and pane are gone; run `hand status " + req.ID + "` to read the ship worker", "The scout's delivery no longer counts for this task, so `hand deliver " + req.ID + "` runs again on the code"},
 	}, nil

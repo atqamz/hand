@@ -75,7 +75,7 @@ func TestPromoteScoutToShip(t *testing.T) {
 	if promoted.code != 0 {
 		t.Fatalf("promote: exit %d, stderr %q", promoted.code, promoted.stderr)
 	}
-	if !strings.Contains(promoted.stdout, "result: promoted\nkind: ship\nwas: scout\nproject: demo\nharness: claude\n") {
+	if !strings.Contains(promoted.stdout, "result: promoted\nkind: ship\nwas: scout\nproject: demo\nexecution_class: none\nprofile: none\nharness: claude\n") {
 		t.Fatalf("promote stdout = %q, want it to announce the scout->ship transition", promoted.stdout)
 	}
 

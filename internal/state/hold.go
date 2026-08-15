@@ -82,6 +82,14 @@ func ReadHold(homeDir, id string) (Hold, bool, error) {
 	return db.ReadHold(id)
 }
 
+// A read-only hold lookup avoids schema migration and legacy import before dispatch routing.
+func ReadHoldReadOnly(homeDir, id string) (Hold, bool, error) {
+	if err := ValidateID(id); err != nil {
+		return Hold{}, false, err
+	}
+	return store.ReadHoldReadOnly(homeDir, id)
+}
+
 func ListHolds(homeDir string) ([]Hold, error) {
 	db, err := store.Open(homeDir)
 	if err != nil {

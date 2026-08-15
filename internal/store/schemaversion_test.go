@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -25,6 +26,90 @@ func TestFreshSchemaIncludesTeardownEvidence(t *testing.T) {
 	}
 	if count != 5 {
 		t.Fatalf("teardown evidence columns = %d, want 5", count)
+	}
+}
+
+func TestFreshSchemaIncludesAttemptRoutingProvenance(t *testing.T) {
+	db, _ := openTemp(t)
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('execution_class', 'planned_against', 'requested_profile', 'routing_source')`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 4 {
+		t.Fatalf("routing provenance columns = %d, want 4", count)
+	}
+}
+
+func TestMigrationV11AddsEmptyAttemptRoutingProvenance(t *testing.T) {
+	home := t.TempDir()
+	sqlDB, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &DB{sql: sqlDB, home: home}
+	preV11Schema := strings.NewReplacer(
+		"\texecution_class        TEXT NOT NULL DEFAULT '',\n", "",
+		"\tplanned_against        TEXT NOT NULL DEFAULT '',\n", "",
+		"\trequested_profile      TEXT NOT NULL DEFAULT '',\n", "",
+		"\trouting_source        TEXT NOT NULL DEFAULT '',\n", "",
+	).Replace(schema)
+	if _, err := db.sql.Exec(preV11Schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO task (id) VALUES ('legacy')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO attempt (task_id, ordinal, lifecycle, harness, model, effort) VALUES ('legacy', 1, 'running', 'claude', 'opus', 'high')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`PRAGMA user_version = 10`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrated.Close() }()
+	if version, err := migrated.schemaVersion(); err != nil || version != 11 {
+		t.Fatalf("schemaVersion = %d, %v, want 11", version, err)
+	}
+	history, found, err := migrated.ReadTaskHistory("legacy")
+	if err != nil || !found || len(history.Attempts) != 1 {
+		t.Fatalf("ReadTaskHistory = %+v, %v, %v", history, found, err)
+	}
+	attempt := history.Attempts[0]
+	if attempt.Harness != "claude" || attempt.Model != "opus" || attempt.Effort != "high" {
+		t.Fatalf("migration lost legacy execution identity: %+v", attempt)
+	}
+	if attempt.ExecutionClass != "" || attempt.PlannedAgainst != "" || attempt.RequestedProfile != "" || attempt.RoutingSource != "" {
+		t.Fatalf("migration invented routing provenance: %+v", attempt)
+	}
+}
+
+func TestUnstampedCurrentSchemaDetectsRoutingProvenance(t *testing.T) {
+	home := t.TempDir()
+	db, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	if version, err := reopened.schemaVersion(); err != nil || version != routingProvenanceVersion {
+		t.Fatalf("schemaVersion = %d, %v, want %d", version, err, routingProvenanceVersion)
 	}
 }
 

@@ -62,17 +62,23 @@ func classify(kind ErrorKind, err error) error {
 }
 
 type Result struct {
-	ID       string
-	Attempt  string
-	Project  string
-	Kind     string
-	Was      string
-	Harness  string
-	Worktree string
-	Outcome  string
-	Detail   string
-	Warnings []string
-	Help     []string
+	ID             string
+	Attempt        string
+	Project        string
+	Kind           string
+	Was            string
+	ExecutionClass string
+	Profile        string
+	RoutingSource  string
+	PlannedAgainst string
+	Harness        string
+	Model          string
+	Effort         string
+	Worktree       string
+	Outcome        string
+	Detail         string
+	Warnings       []string
+	Help           []string
 }
 
 type SpawnRequest struct {
@@ -80,30 +86,42 @@ type SpawnRequest struct {
 	ID              string
 	Project         string
 	Kind            string
+	Profile         string
+	ProfileFromFlag bool
 	Harness         string
 	HarnessFromFlag bool
 	Model           string
+	ModelFromFlag   bool
 	Effort          string
+	EffortFromFlag  bool
 	SkipGateCheck   bool
 }
 
 type ReopenRequest struct {
 	Home            string
 	ID              string
+	Profile         string
+	ProfileFromFlag bool
 	Harness         string
 	HarnessFromFlag bool
 	Model           string
+	ModelFromFlag   bool
 	Effort          string
+	EffortFromFlag  bool
 	SkipGateCheck   bool
 }
 
 type PromoteRequest struct {
 	Home            string
 	ID              string
+	Profile         string
+	ProfileFromFlag bool
 	Harness         string
 	HarnessFromFlag bool
 	Model           string
+	ModelFromFlag   bool
 	Effort          string
+	EffortFromFlag  bool
 	SkipGateCheck   bool
 }
 

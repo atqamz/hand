@@ -11,6 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -118,6 +119,28 @@ func TestSpawnExplicitHarnessOverridesConfiguredAndDetectedHarness(t *testing.T)
 	}
 }
 
+func TestSpawnExplicitProfileBypassesLegacyHarnessDetection(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr(harness.Codex))
+	bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
+	faketool.Command{Name: harness.Codex}.Install(t, bin)
+	if err := routing.WriteProfile(home, routing.Profile{Name: "direct", Harness: harness.Codex, Model: "profile-model"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HAND_HARNESS", "unknown")
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj", "--profile", "direct"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.Harness != harness.Codex || attempt.Model != "profile-model" || attempt.RequestedProfile != "direct" || attempt.RoutingSource != "explicit-profile" {
+		t.Fatalf("attempt = %+v, want direct profile snapshot", attempt)
+	}
+}
+
 func TestSpawnUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.T) {
 	home := setupSpawnHome(t, filepath.Join(t.TempDir(), "wt"), defaultSpawnHerdr("claude"))
 	t.Setenv("HAND_HARNESS", "unknown")
@@ -178,7 +201,11 @@ func TestSpawnHappyPath(t *testing.T) {
 		"result: spawned\n",
 		"project: myproj\n",
 		"kind: ship\n",
+		"execution_class: none\n",
+		"profile: none\n",
 		"harness: claude\n",
+		"model: none\n",
+		"effort: none\n",
 		"worktree: " + axi.Value(wt) + "\n",
 	} {
 		if !strings.Contains(out.String(), want) {

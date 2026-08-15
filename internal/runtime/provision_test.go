@@ -46,7 +46,6 @@ func TestProvisionFailureAfterWorktreeRecordClearsOnlyReturnedEvidence(t *testin
 		projectName: "demo",
 		clonePath:   filepath.Join(home, "projects", "demo"),
 		briefPath:   filepath.Join(home, "data", "task-1", "brief.md"),
-		harness:     "claude",
 		attempt:     attempt,
 	})
 	if !errors.Is(err, phaseErr) {
@@ -94,7 +93,6 @@ func TestProvisionFailurePreservesWorktreeEvidenceWhenReturnFails(t *testing.T) 
 		projectName: "demo",
 		clonePath:   filepath.Join(home, "projects", "demo"),
 		briefPath:   filepath.Join(home, "data", "task-1", "brief.md"),
-		harness:     "claude",
 		attempt:     attempt,
 	})
 	if !errors.Is(err, phaseErr) || !errors.Is(err, returnErr) {
@@ -126,7 +124,7 @@ func TestProvisionFailureAfterHerdrRecordPreservesAttemptAttribution(t *testing.
 
 	_, err := runtime.provision(context.Background(), provisioningRequest{
 		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
-		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), harness: "claude", attempt: attempt,
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
 	})
 	if !errors.Is(err, phaseErr) || !returned {
 		t.Fatalf("provision() = %v, returned=%v, want phase failure and worktree cleanup", err, returned)
@@ -157,7 +155,7 @@ func TestProvisionFailureAfterLaunchSubmissionKeepsSubmissionEvidence(t *testing
 
 	_, err := runtime.provision(context.Background(), provisioningRequest{
 		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
-		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), harness: "claude", attempt: attempt,
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
 	})
 	if !errors.Is(err, phaseErr) {
 		t.Fatalf("provision() = %v, want %v", err, phaseErr)
@@ -185,7 +183,7 @@ func TestProvisionFailureAfterLaunchConfirmationKeepsConfirmationEvidence(t *tes
 
 	_, err := runtime.provision(context.Background(), provisioningRequest{
 		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
-		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), harness: "claude", attempt: attempt,
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
 	})
 	if !errors.Is(err, phaseErr) {
 		t.Fatalf("provision() = %v, want %v", err, phaseErr)

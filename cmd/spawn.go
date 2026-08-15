@@ -17,6 +17,7 @@ import (
 
 func newSpawnCmd() *cobra.Command {
 	var scout bool
+	var profile string
 	var harnessName string
 	var model string
 	var effort string
@@ -31,22 +32,16 @@ func newSpawnCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			harnessFromFlag := harnessName != ""
-			if !harnessFromFlag {
-				cfg, err := currentWorkerConfig(fleetHome)
-				if err != nil {
-					return err
-				}
-				harnessName = cfg.harness
-			}
-
 			kind := state.KindShip
 			if scout {
 				kind = state.KindScout
 			}
 			result, err := runtime.New().Spawn(cmd.Context(), runtime.SpawnRequest{
 				Home: fleetHome, ID: args[0], Project: args[1], Kind: kind,
-				Harness: harnessName, HarnessFromFlag: harnessFromFlag, Model: model, Effort: effort,
+				Profile: profile, ProfileFromFlag: cmd.Flags().Changed("profile"),
+				Harness: harnessName, HarnessFromFlag: cmd.Flags().Changed("harness"),
+				Model: model, ModelFromFlag: cmd.Flags().Changed("model"),
+				Effort: effort, EffortFromFlag: cmd.Flags().Changed("effort"),
 				SkipGateCheck: skipGateCheck,
 			})
 			if err != nil {
@@ -64,7 +59,11 @@ func newSpawnCmd() *cobra.Command {
 			doc.Field("result", "spawned")
 			doc.Field("project", result.Project)
 			doc.Field("kind", result.Kind)
+			doc.Field("execution_class", orNone(result.ExecutionClass))
+			doc.Field("profile", orNone(result.Profile))
 			doc.Field("harness", result.Harness)
+			doc.Field("model", orNone(result.Model))
+			doc.Field("effort", orNone(result.Effort))
 			doc.Field("worktree", result.Worktree)
 			doc.Help(result.Help...)
 			return doc.Render(cmd.OutOrStdout())
@@ -72,6 +71,7 @@ func newSpawnCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&scout, "scout", false, "mark as scout task (deliverable is a report, not a PR)")
+	cmd.Flags().StringVar(&profile, "profile", "", "execution profile override")
 	cmd.Flags().StringVar(&harnessName, "harness", "", "agent harness to launch (default: config/harness, then the detected supervisor harness)")
 	cmd.Flags().StringVar(&model, "model", "", "model override for harnesses that support it")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort level for harnesses that support it")

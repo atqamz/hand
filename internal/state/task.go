@@ -131,10 +131,17 @@ func readHistory(homeDir, id string, readOnly bool) (TaskHistory, error) {
 	if err := ValidateID(id); err != nil {
 		return TaskHistory{}, err
 	}
-	open := store.Open
 	if readOnly {
-		open = store.OpenReadOnly
+		history, found, err := store.ReadTaskHistoryReadOnly(homeDir, id)
+		if err != nil {
+			return TaskHistory{}, err
+		}
+		if !found {
+			return TaskHistory{}, fmt.Errorf("task %q %w", id, ErrTaskNotFound)
+		}
+		return history, nil
 	}
+	open := store.Open
 	db, err := open(homeDir)
 	if err != nil {
 		return TaskHistory{}, err

@@ -14,13 +14,7 @@ import (
 )
 
 func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error) {
-	release, err := state.Lock(req.Home, "task:"+req.ID)
-	if err != nil {
-		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
-	}
-	defer release()
-
-	history, err := state.ReadHistory(req.Home, req.ID)
+	history, err := state.ReadHistoryReadOnly(req.Home, req.ID)
 	if err != nil {
 		if errors.Is(err, state.ErrTaskNotFound) {
 			return Result{}, Precondition(err)
@@ -30,14 +24,15 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 	if history.Task.Lifecycle != state.TaskTerminal {
 		return Result{}, Precondition(fmt.Errorf("task %q is already open", req.ID))
 	}
-	if held, hasHold, err := state.ReadHold(req.Home, req.ID); err != nil {
+	initialTask := history.Task
+	if held, hasHold, err := state.ReadHoldReadOnly(req.Home, req.ID); err != nil {
 		return Result{}, err
 	} else if hasHold {
 		return Result{}, Precondition(fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", req.ID, held.Kind, held.Reason, req.ID))
 	}
 
-	task := history.Task
-	projectInfo, exists, err := project.Find(req.Home, task.Project)
+	task := initialTask
+	projectInfo, exists, err := project.FindReadOnly(req.Home, task.Project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -55,34 +50,63 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 	if _, err := os.Stat(briefPath); err != nil {
 		return fail(Precondition(fmt.Errorf("brief not found at %s", briefRel)))
 	}
-	harnessName, err := requestedHarness(req.Harness, req.HarnessFromFlag)
+	route, err := resolveExecution(req.Home, briefPath, task.Kind, req.Profile, req.ProfileFromFlag, req.Harness, req.HarnessFromFlag, req.Model, req.ModelFromFlag, req.Effort, req.EffortFromFlag)
 	if err != nil {
 		return fail(err)
 	}
-	tier, err := ResolveTier(req.Home, briefPath, harnessName, req.Model, req.Effort)
+	warnings = append(warnings, route.Warnings...)
+	history, err = state.ReadHistory(req.Home, req.ID)
 	if err != nil {
-		return fail(classifyTierError(err))
-	}
-	if err := preflightExecutionClass(tier.ExecutionClass, harnessName); err != nil {
 		return fail(err)
 	}
-	warnings = append(warnings, tier.Warnings...)
+	if history.Task.Lifecycle != state.TaskTerminal || history.Task.Project != task.Project || history.Task.Kind != task.Kind || history.Task.Brief != task.Brief {
+		return fail(Precondition(fmt.Errorf("task %q changed while preparing reopen; retry", req.ID)))
+	}
+	projectInfo, exists, err = project.Find(req.Home, task.Project)
+	if err != nil {
+		return fail(err)
+	}
+	if !exists {
+		return fail(Precondition(fmt.Errorf("project %q not registered", task.Project)))
+	}
+	release, err := state.Lock(req.Home, "task:"+req.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)
+	}
+	defer release()
+	latest, err := state.ReadHistory(req.Home, req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if latest.Task.Lifecycle != state.TaskTerminal {
+		return Result{}, Precondition(fmt.Errorf("task %q is already open", req.ID))
+	}
+	if latest.Task.Project != task.Project || latest.Task.Kind != task.Kind || latest.Task.Brief != task.Brief {
+		return Result{}, Precondition(fmt.Errorf("task %q changed while preparing reopen; retry", req.ID))
+	}
+	if held, hasHold, err := state.ReadHold(req.Home, req.ID); err != nil {
+		return Result{}, err
+	} else if hasHold {
+		return Result{}, Precondition(fmt.Errorf("id %q has an open hold (%s: %s); clear it first: hand hold clear %s", req.ID, held.Kind, held.Reason, req.ID))
+	}
+	history = latest
 	clonePath := filepath.Join(req.Home, "projects", projectInfo.Name)
 	var releaseProject func()
-	if tier.ExecutionClass == brief.ExecutionClassMechanical {
+	if route.ExecutionClass == brief.ExecutionClassMechanical {
 		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
 		if err != nil {
 			return fail(fmt.Errorf("lock project %q: %w", projectInfo.Name, err))
 		}
 		defer releaseProject()
-		if err := r.preflightTier(tier, clonePath); err != nil {
+		if err := r.preflightExecution(route, clonePath); err != nil {
 			return fail(err)
 		}
 	}
 
 	createdAt := r.deps.now().Format(time.RFC3339)
 	attempt, err := state.ReopenTask(req.Home, state.Attempt{
-		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: harnessName, Model: tier.Model, Effort: tier.Effort, CreatedAt: createdAt,
+		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write reopened provisioning state: %w", err))
@@ -93,8 +117,7 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 
 	provisionRequest := provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		harness: harnessName, model: tier.Model, effort: tier.Effort, executionClass: tier.ExecutionClass, plannedAgainst: tier.PlannedAgainst,
-		briefHasFrontMatter: tier.BriefHasFrontMatter, attempt: attempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, attempt: attempt,
 	}
 	var worktreePath string
 	if releaseProject != nil {
@@ -106,7 +129,8 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 		return fail(err)
 	}
 	return Result{
-		ID: req.ID, Attempt: "new", Project: task.Project, Kind: task.Kind, Harness: harnessName, Worktree: worktreePath,
+		ID: req.ID, Attempt: "new", Project: task.Project, Kind: task.Kind, ExecutionClass: attempt.ExecutionClass, Profile: attempt.RequestedProfile,
+		RoutingSource: attempt.RoutingSource, PlannedAgainst: attempt.PlannedAgainst, Harness: attempt.Harness, Model: attempt.Model, Effort: attempt.Effort, Worktree: worktreePath,
 		Warnings: warnings, Help: []string{"Run `hand status " + req.ID + "` to read this attempt"},
 	}, nil
 }

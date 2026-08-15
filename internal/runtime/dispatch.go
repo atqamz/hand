@@ -4,13 +4,12 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/routing"
 )
 
 type TierResult struct {
@@ -29,12 +28,16 @@ func ResolveTier(homeDir, briefPath, harnessName, model, effort string) (TierRes
 	}
 
 	result := TierResult{
-		Model:               cmp.Or(model, declaration.Model, workerDefault(homeDir, "model", harnessName)),
-		Effort:              cmp.Or(effort, declaration.Effort, workerDefault(homeDir, "effort", harnessName)),
 		ExecutionClass:      declaration.ExecutionClass,
 		PlannedAgainst:      declaration.PlannedAgainst,
 		BriefHasFrontMatter: frontMatter,
 	}
+	legacy, err := routing.LoadLegacyDefaults(homeDir, "")
+	if err != nil {
+		return TierResult{}, err
+	}
+	result.Model = cmp.Or(model, declaration.Model, legacy.Models[harnessName])
+	result.Effort = cmp.Or(effort, declaration.Effort, legacy.Efforts[harnessName])
 	var dropped []string
 	if result.Model != "" && !harness.SupportsModel(harnessName) {
 		dropped = append(dropped, fmt.Sprintf("model %q", result.Model))
@@ -65,13 +68,6 @@ func classifyTierError(err error) error {
 	return err
 }
 
-func preflightExecutionClass(executionClass brief.ExecutionClass, harnessName string) error {
-	if executionClass == brief.ExecutionClassMechanical && !harness.CarriesPrompt(harnessName) {
-		return Precondition(fmt.Errorf("mechanical execution requires a prompt-capable harness: harness %q cannot carry the required mechanical worker guidance", harnessName))
-	}
-	return nil
-}
-
 func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string) error {
 	if declaration.ExecutionClass != brief.ExecutionClassMechanical {
 		return nil
@@ -89,19 +85,60 @@ func (r *Runtime) preflightBrief(declaration brief.Declaration, clonePath string
 	return nil
 }
 
-func (r *Runtime) preflightTier(tier TierResult, clonePath string) error {
-	return r.preflightBrief(brief.Declaration{
-		ExecutionClass: tier.ExecutionClass,
-		PlannedAgainst: tier.PlannedAgainst,
-	}, clonePath)
+func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag bool, harnessName string, harnessFromFlag bool, model string, modelFromFlag bool, effort string, effortFromFlag bool) (routing.ResolvedRoute, error) {
+	harnessProvided := harnessFromFlag || harnessName != ""
+	declaration, frontMatter, err := brief.Parse(briefPath)
+	if err != nil {
+		return routing.ResolvedRoute{}, classifyResolutionError(fmt.Errorf("parse brief %s: %w", briefPath, err), harnessName, harnessProvided)
+	}
+	detectedHarness := ""
+	includeRouting := declaration.ExecutionClass != "" || profileFromFlag
+	if !harnessProvided && !includeRouting {
+		detected, detectErr := harness.DetectCurrent()
+		if detectErr != nil {
+			return routing.ResolvedRoute{}, classifyResolutionError(detectErr, harnessName, harnessProvided)
+		}
+		detectedHarness = detected.Name
+	}
+	snapshot, err := routing.LoadExecutionSnapshot(homeDir, detectedHarness, includeRouting)
+	if err != nil {
+		return routing.ResolvedRoute{}, err
+	}
+	resolved, err := routing.Resolve(routing.Request{
+		Kind:                routing.TaskKind(kind),
+		Declaration:         declaration,
+		BriefHasFrontMatter: frontMatter,
+		Profile:             profile,
+		ProfileFromFlag:     profileFromFlag,
+		Harness:             harnessName,
+		HarnessFromFlag:     harnessProvided,
+		Model:               model,
+		ModelFromFlag:       modelFromFlag,
+		Effort:              effort,
+		EffortFromFlag:      effortFromFlag,
+	}, snapshot.Config, snapshot.Legacy, routing.DefaultAvailability())
+	if err != nil {
+		return routing.ResolvedRoute{}, classifyResolutionError(err, harnessName, harnessProvided)
+	}
+	return resolved, nil
 }
 
-func workerDefault(homeDir, key, harnessName string) string {
-	data, err := os.ReadFile(filepath.Join(homeDir, "config", key+"."+harnessName))
-	if err != nil {
-		return ""
+func classifyResolutionError(err error, harnessName string, harnessFromFlag bool) error {
+	var validationErr *brief.ValidationError
+	if errors.As(err, &validationErr) {
+		return Precondition(err)
 	}
-	return strings.TrimSpace(string(data))
+	if harnessFromFlag && !harness.IsSupported(harnessName) {
+		return Usage(err)
+	}
+	return Precondition(err)
+}
+
+func (r *Runtime) preflightExecution(route routing.ResolvedRoute, clonePath string) error {
+	return r.preflightBrief(brief.Declaration{
+		ExecutionClass: route.ExecutionClass,
+		PlannedAgainst: route.PlannedAgainst,
+	}, clonePath)
 }
 
 func (r *Runtime) gatePreflight(projectInfo project.Project, clonePath string, skip bool) ([]string, error) {

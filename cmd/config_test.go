@@ -41,6 +41,26 @@ func mustConfigSet(t *testing.T, args ...string) string {
 	return out
 }
 
+func runConfig(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	cmd := newConfigCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return out.String(), err
+}
+
+func mustConfig(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := runConfig(t, args...)
+	if err != nil {
+		t.Fatalf("hand config %v: %v", args, err)
+	}
+	return out
+}
+
 func assertExitCode(t *testing.T, err error, want int) {
 	t.Helper()
 	var exitErr *ExitError
@@ -391,6 +411,156 @@ func TestCommandStartupMigratesOlderWorkerDefaultsBeforeReportingConfig(t *testi
 		}
 		if _, err := os.Stat(filepath.Join(home, "config", name)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("legacy config/%s still exists: %v", name, err)
+		}
+	}
+}
+
+func TestConfigProfileCommandsPersistCompleteDefinitions(t *testing.T) {
+	home := setupConfigHome(t)
+
+	mustConfig(t, "profile", "set", "zeta", "--harness", harness.Claude, "--model", "claude-opus-5", "--effort", "high")
+	mustConfig(t, "profile", "set", "alpha", "--harness", harness.Codex)
+
+	out := mustConfig(t, "profile", "list")
+	alpha := "alpha,codex,none,none"
+	zeta := "zeta,claude,claude-opus-5,high"
+	if !strings.Contains(out, "profiles[2]{name,harness,model,effort}:\n") || !strings.Contains(out, alpha) || strings.Index(out, zeta) < strings.Index(out, alpha) {
+		t.Fatalf("profile list = %q, want alphabetical profiles", out)
+	}
+
+	mustConfig(t, "profile", "set", "zeta", "--harness", harness.Codex)
+	for _, setting := range []string{"model", "effort"} {
+		if _, err := os.Stat(filepath.Join(home, "config", "profiles", "zeta", setting)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("profile replacement left %s: %v", setting, err)
+		}
+	}
+
+	_, err := runConfig(t, "profile", "set", "../escape", "--harness", harness.Claude)
+	assertExitCode(t, err, 2)
+	_, err = runConfig(t, "profile", "set", "bad", "--harness", harness.Pi, "--model", "opaque")
+	assertExitCode(t, err, 2)
+}
+
+func TestConfigRouteCommandsCoverEveryCanonicalCell(t *testing.T) {
+	setupConfigHome(t)
+	mustConfig(t, "profile", "set", "daily", "--harness", harness.Codex)
+
+	for _, kind := range []string{"scout", "ship"} {
+		for _, class := range []string{"mechanical", "standard", "deep"} {
+			mustConfig(t, "route", "set", kind, class, "daily")
+		}
+	}
+
+	out := mustConfig(t, "route", "list")
+	want := []string{
+		"scout,mechanical,daily",
+		"scout,standard,daily",
+		"scout,deep,daily",
+		"ship,mechanical,daily",
+		"ship,standard,daily",
+		"ship,deep,daily",
+	}
+	last := -1
+	for _, row := range want {
+		at := strings.Index(out, row)
+		if at < 0 || at < last {
+			t.Fatalf("route list = %q, want canonical order %v", out, want)
+		}
+		last = at
+	}
+
+	_, err := runConfig(t, "profile", "remove", "daily")
+	assertExitCode(t, err, 3)
+
+	mustConfig(t, "route", "remove", "ship", "deep")
+	_, err = runConfig(t, "route", "set", "review", "standard", "daily")
+	assertExitCode(t, err, 2)
+	_, err = runConfig(t, "route", "set", "ship", "fast", "daily")
+	assertExitCode(t, err, 2)
+	_, err = runConfig(t, "route", "set", "ship", "deep", "missing")
+	assertExitCode(t, err, 3)
+
+	for _, kind := range []string{"scout", "ship"} {
+		for _, class := range []string{"mechanical", "standard", "deep"} {
+			if kind == "ship" && class == "deep" {
+				continue
+			}
+			mustConfig(t, "route", "remove", kind, class)
+		}
+	}
+	mustConfig(t, "profile", "remove", "daily")
+}
+
+func TestConfigSummaryReportsRoutingConfigurationAndProblems(t *testing.T) {
+	home := setupConfigHome(t)
+	t.Setenv("PATH", t.TempDir())
+
+	mustConfig(t, "profile", "set", "available", "--harness", harness.Claude)
+	for _, profile := range []struct {
+		name    string
+		harness string
+		model   string
+		effort  string
+	}{
+		{name: "unsupported", harness: "unknown"},
+		{name: "model", harness: harness.Pi, model: "opaque"},
+		{name: "effort", harness: harness.OpenCode, effort: "high"},
+	} {
+		dir := filepath.Join(home, "config", "profiles", profile.name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, setting := range []struct {
+			name  string
+			value string
+		}{
+			{name: "harness", value: profile.harness},
+			{name: "model", value: profile.model},
+			{name: "effort", value: profile.effort},
+		} {
+			if setting.value == "" {
+				continue
+			}
+			if err := os.WriteFile(filepath.Join(dir, setting.name), []byte(setting.value+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(home, "config", "routes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "routes", "scout.mechanical"), []byte("missing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "harness"), []byte(harness.Pi+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "model."+harness.Pi), []byte("opaque\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "effort."+harness.Pi), []byte("high\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := mustConfig(t)
+	for _, want := range []string{
+		"supervisor_harness: claude\n",
+		"harnesses[5]{name,installed,model,effort}:\n",
+		"config[3]{key,state,value}:\n",
+		"profiles[1]{name,harness,model,effort}:\n",
+		"routes[6]{kind,execution_class,profile,state}:\n",
+		"scout,mechanical,missing,configured",
+		"ship,deep,none,missing",
+		"problems[",
+		"missing-route",
+		"dangling-route",
+		"unsupported-harness",
+		"path-unavailable",
+		"unsupported-model",
+		"unsupported-effort",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("config summary = %q, want %q", out, want)
 		}
 	}
 }
