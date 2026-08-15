@@ -290,7 +290,7 @@ func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Projec
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
-	views, holds, err := fleetViews(cmd, home, client, false)
+	views, holds, err := fleetViews(cmd, home, client, true)
 	if err != nil {
 		return err
 	}
@@ -517,7 +517,7 @@ func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
 }
 
 func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool, cols []axi.Column[taskView]) error {
-	history, err := state.ReadHistory(home, id)
+	history, err := state.ReadHistoryReadOnly(home, id)
 	if err != nil {
 		return asPrecondition(err)
 	}
@@ -530,7 +530,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	v, reportLines := buildTaskView(home, client, history, full)
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
-	hold, held, err := state.ReadHold(home, id)
+	hold, held, err := state.ReadHoldReadOnly(home, id)
 	if err != nil {
 		return err
 	}
@@ -540,7 +540,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// fail the command.
 	reportedDone := v.reportedState == state.ReportDone
 	if gateRunApplies(t, reportedDone) {
-		p, registered, err := project.Find(home, t.Project)
+		p, registered, err := project.FindReadOnly(home, t.Project)
 		// Propagated, not degraded: a single task's own project is the one fact this check is about, unlike
 		// the fleet view's best-effort lookup across every task's project at once.
 		if err != nil {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -245,6 +246,44 @@ func TestStatusRendersRepairWithoutMutatingIt(t *testing.T) {
 	}
 	if after.Task.RepairCode != before.Task.RepairCode || after.Task.RepairReason != before.Task.RepairReason || after.Task.RepairAttemptID != before.Task.RepairAttemptID || after.Task.RepairObservedAt != before.Task.RepairObservedAt {
 		t.Fatalf("status mutated repair marker: before=%+v after=%+v", before.Task, after.Task)
+	}
+}
+
+func TestStatusDoesNotImportLegacyState(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	legacy, err := json.Marshal(store.Task{ID: "task-1", Project: "myproj", Kind: store.KindShip, CreatedAt: "2026-08-15T00:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(home, "state", "task-1.json")
+	if err := os.WriteFile(legacyPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(home, "state", "hand.db")
+	dbBefore, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{nil, {"task-1"}} {
+		cmd := newStatusCmd()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("status %v succeeded, want missing current database error", args)
+		}
+		dbAfter, err := os.ReadFile(dbPath)
+		if err != nil {
+			t.Fatalf("status %v removed hand.db: %v", args, err)
+		}
+		if !bytes.Equal(dbAfter, dbBefore) {
+			t.Fatalf("status %v mutated hand.db", args)
+		}
+		if _, err := os.Stat(legacyPath); err != nil {
+			t.Fatalf("status %v consumed legacy state: %v", args, err)
+		}
 	}
 }
 
