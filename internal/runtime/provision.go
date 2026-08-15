@@ -141,6 +141,19 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		err := Precondition(fmt.Errorf("worktree collision: %s already holds %s", conflict, worktreePath))
 		return "", r.failProvision(req, lease, nil, false, err)
 	}
+	if req.resumeExisting {
+		observeLease := r.deps.worktree.observeLease
+		if observeLease == nil {
+			observeLease = worktree.ObserveLease
+		}
+		observation, err := observeLease(worktreePath, lease.ID)
+		if err != nil {
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("verify resumed worktree lease: %w; refusing to launch", err)))
+		}
+		if observation.State != worktree.LeaseExact {
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("resumed worktree lease is %s; refusing to launch", observation.State)))
+		}
+	}
 
 	client := r.deps.herdr()
 	workspace, tab, pane, rollback, err := acquireTaskWorkspace(client, worktreePath, req.attempt.TaskID, req.projectName)

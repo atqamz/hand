@@ -68,6 +68,31 @@ func TestProvisionFailureAfterWorktreeRecordClearsOnlyReturnedEvidence(t *testin
 	}
 }
 
+func TestProvisionResumeRefusesChangedLeaseBeforeHerdrCreation(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	attempt.Worktree = "/tmp/hand-wt"
+	attempt.LeaseID = "lease-old"
+	fake := &provisionHerdr{}
+	runtime := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
+	runtime.deps.worktree.observeLease = func(path, leaseID string) (worktree.LeaseObservation, error) {
+		if path != attempt.Worktree || leaseID != attempt.LeaseID {
+			t.Fatalf("observeLease(%q, %q), want persisted lease", path, leaseID)
+		}
+		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-new"}, nil
+	}
+
+	_, err := runtime.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt, resumeExisting: true,
+	})
+	if err == nil {
+		t.Fatal("provision() succeeded through changed resumed lease")
+	}
+	if fake.createdWorkspace {
+		t.Fatal("provision() created a Herdr workspace after lease mismatch")
+	}
+}
+
 func TestProvisionFailurePreservesWorktreeEvidenceWhenReturnFails(t *testing.T) {
 	home, attempt := provisioningFixture(t)
 	phaseErr := errors.New("stop after worktree phase")
@@ -199,11 +224,12 @@ func TestProvisionFailureAfterLaunchConfirmationKeepsConfirmationEvidence(t *tes
 }
 
 type provisionHerdr struct {
-	closedWorkspace string
-	closedTab       string
-	tabCloseErr     error
-	tabs            []herdr.Tab
-	paneStatus      herdr.Status
+	closedWorkspace  string
+	createdWorkspace bool
+	closedTab        string
+	tabCloseErr      error
+	tabs             []herdr.Tab
+	paneStatus       herdr.Status
 }
 
 func (f *provisionHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
@@ -213,6 +239,7 @@ func (f *provisionHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, er
 func (f *provisionHerdr) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
 
 func (f *provisionHerdr) WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
+	f.createdWorkspace = true
 	return herdr.Workspace{WorkspaceID: "ws-1"}, herdr.Tab{TabID: "tab-1"}, herdr.Pane{PaneID: "pane-1"}, nil
 }
 
@@ -257,6 +284,9 @@ func testProvisionRuntime(client herdrClient, phase func(lifecyclePhase) error) 
 		worktree: worktreeDependencies{
 			get: func(path, holder string) (worktree.Lease, error) {
 				return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
+			},
+			observeLease: func(string, string) (worktree.LeaseObservation, error) {
+				return worktree.LeaseObservation{State: worktree.LeaseExact}, nil
 			},
 			returnWorktree: func(string, bool) error { return nil },
 			checkCollision: func(string, worktree.Lease, string) (string, error) { return "", nil },
