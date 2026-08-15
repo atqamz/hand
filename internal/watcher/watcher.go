@@ -291,6 +291,9 @@ func restoreLimitResumeState(home string, ts *TaskState, attempt state.Attempt, 
 	if err != nil || !found {
 		return err
 	}
+	if !resumeSendIsCurrentEpisode(send, attempt) {
+		return nil
+	}
 	if send.State == state.SendNotSubmitted && strings.HasPrefix(send.ReasonCode, "text-rejected-before-acceptance") {
 		return nil
 	}
@@ -300,6 +303,21 @@ func restoreLimitResumeState(home string, ts *TaskState, attempt state.Attempt, 
 		_, _ = fmt.Fprintf(errOut, "watch: usage-limit resume send %d remains pending; automatic resend disabled\n", send.ID)
 	}
 	return nil
+}
+
+func resumeSendIsCurrentEpisode(send state.SendAttempt, attempt state.Attempt) bool {
+	if !herdr.Status(attempt.StatusChangedFor).NotBusy() || attempt.StatusChangedAt == "" {
+		return true
+	}
+	episodeStarted, err := time.Parse(time.RFC3339, attempt.StatusChangedAt)
+	if err != nil {
+		return true
+	}
+	sendCreated, err := time.Parse(time.RFC3339Nano, send.CreatedAt)
+	if err != nil {
+		return true
+	}
+	return !sendCreated.Before(episodeStarted)
 }
 
 // Every restored fact comes from durable state: re-deriving what landed while the watcher was down

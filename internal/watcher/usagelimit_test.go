@@ -331,6 +331,41 @@ func TestUsageLimitDoesNotResendSubmittedResume(t *testing.T) {
 	}
 }
 
+func TestUsageLimitResumesAgainAfterACompletedEpisode(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	paneLog := paneScript(t, limitedPaneAgent, claudeLimitText)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	ctx := context.Background()
+	var buf bytes.Buffer
+	states := make(map[string]*TaskState)
+
+	tick(ctx, cfg, client, states, &buf, &buf)
+	setStatus(t, statusFile, "done")
+	tick(ctx, cfg, client, states, &buf, &buf)
+	setLimitRetryAt(t, home, "task-1", time.Now().Add(-time.Minute))
+	tick(ctx, cfg, client, states, &buf, &buf)
+	tick(ctx, cfg, client, states, &buf, &buf)
+
+	setStatus(t, statusFile, "working")
+	tick(ctx, cfg, client, states, &buf, &buf)
+	setStatus(t, statusFile, "done")
+	tick(ctx, cfg, client, states, &buf, &buf)
+
+	states = make(map[string]*TaskState)
+	setLimitRetryAt(t, home, "task-1", time.Now().Add(-time.Minute))
+	tick(ctx, cfg, client, states, &buf, &buf)
+	tick(ctx, cfg, client, states, &buf, &buf)
+
+	if got := strings.Count(paneCalls(t, paneLog), "send-text"); got != 2 {
+		t.Fatalf("send-text calls = %d, want one resume per limit episode", got)
+	}
+}
+
 // usage-limit-stuck is the one kind of the three that reaches config/notify. A limit
 // that clears on its own wakes nobody by design, so the other two must stay out.
 func TestOnlyTheStuckUsageLimitKindNotifies(t *testing.T) {
