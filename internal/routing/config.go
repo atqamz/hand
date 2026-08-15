@@ -112,7 +112,7 @@ func writeProfileWithHook(home string, profile Profile, hook func(profileWritePh
 }
 
 // A profile generation is immutable after its directory is published.
-// The current pointer becomes authoritative only after every required field is complete.
+// Replacing current is the publication point; mirrors and cleanup are post-commit best effort.
 func writeProfile(home string, profile Profile, hook func(profileWritePhase) error) error {
 	if err := ValidateProfile(profile); err != nil {
 		return err
@@ -175,9 +175,7 @@ func writeProfile(home string, profile Profile, hook func(profileWritePhase) err
 	if err := runProfileWriteHook(hook, profilePhasePublished); err != nil {
 		return err
 	}
-	if err := writeProfileMirror(dir, profile); err != nil {
-		return err
-	}
+	_ = writeProfileMirror(dir, profile)
 	_ = cleanupProfileGenerations(dir, generationID)
 	return nil
 }

@@ -482,6 +482,39 @@ func TestProfileReplacementPublishesOnlyCompleteGenerations(t *testing.T) {
 	}
 }
 
+func TestProfileMirrorFailureAfterPublishDoesNotReportCanonicalMutationFailure(t *testing.T) {
+	home := t.TempDir()
+	old := Profile{Name: "daily", Harness: "claude", Model: "old-model", Effort: "high"}
+	new := Profile{Name: "daily", Harness: "codex", Model: "new-model", Effort: "medium"}
+	if err := WriteProfile(home, old); err != nil {
+		t.Fatal(err)
+	}
+	mirror := filepath.Join(home, "config", "profiles", "daily", "harness")
+	if err := os.Remove(mirror); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(mirror, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteProfile(home, new); err != nil {
+		t.Fatalf("WriteProfile() = %v, want canonical publication success", err)
+	}
+	got, err := configuredProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != new {
+		t.Fatalf("active profile after mirror failure = %+v, want new canonical generation", got)
+	}
+	current, err := os.ReadFile(filepath.Join(home, "config", "profiles", "daily", "current"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(current)) == "" {
+		t.Fatal("current pointer is empty after canonical publication")
+	}
+}
+
 func TestConcurrentProfileSetAndReadSeesCompleteProfiles(t *testing.T) {
 	home := t.TempDir()
 	profiles := []Profile{
