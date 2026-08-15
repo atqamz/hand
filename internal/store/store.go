@@ -40,6 +40,12 @@ var ErrLifecycleConflict = errors.New("lifecycle conflict")
 
 var ErrOwnershipConflict = errors.New("attempt ownership conflict")
 
+var ErrSendOwnershipConflict = errors.New("send ownership conflict")
+
+var ErrSendInFlight = errors.New("send already in flight")
+
+var ErrInvalidSendTransition = errors.New("invalid send transition")
+
 // SQLITE_BUSY means the write lost the database lock rather than losing a lifecycle race, so the
 // caller may retry it instead of being told a precondition it never violated failed.
 var ErrContention = errors.New("database contention")
@@ -84,6 +90,23 @@ const (
 	AttemptCompleted    AttemptLifecycle = "completed"
 	AttemptFailed       AttemptLifecycle = "failed"
 	AttemptInterrupted  AttemptLifecycle = "interrupted"
+)
+
+type SendState string
+
+const (
+	SendPending      SendState = "pending"
+	SendNotSubmitted SendState = "not-submitted"
+	SendSubmitted    SendState = "submitted"
+	SendUncertain    SendState = "uncertain"
+)
+
+type SendOrigin string
+
+const (
+	SendOriginOperator          SendOrigin = "operator"
+	SendOriginUsageLimitResume  SendOrigin = "usage-limit-resume"
+	SendOriginLegacyUndelivered SendOrigin = "legacy-undelivered"
 )
 
 const (
@@ -158,10 +181,23 @@ type Attempt struct {
 	TeardownCompletionState string           `json:"teardown_completion_state,omitempty"`
 }
 
+type SendAttempt struct {
+	ID          int64      `json:"id"`
+	TaskID      string     `json:"task_id"`
+	AttemptID   int64      `json:"attempt_id"`
+	Origin      SendOrigin `json:"origin"`
+	Message     string     `json:"message"`
+	State       SendState  `json:"state"`
+	ReasonCode  string     `json:"reason_code"`
+	CreatedAt   string     `json:"created_at"`
+	FinalizedAt string     `json:"finalized_at"`
+}
+
 type TaskHistory struct {
-	Task          Task      `json:"task"`
-	ActiveAttempt *Attempt  `json:"active_attempt,omitempty"`
-	Attempts      []Attempt `json:"attempts"`
+	Task          Task          `json:"task"`
+	ActiveAttempt *Attempt      `json:"active_attempt,omitempty"`
+	Attempts      []Attempt     `json:"attempts"`
+	Sends         []SendAttempt `json:"sends,omitempty"`
 }
 
 // Upstream is the "owner/repo" a fork project opens its PRs against, empty when it contributes to
@@ -286,6 +322,23 @@ CREATE TABLE IF NOT EXISTS hold (
 	blocked_on TEXT NOT NULL DEFAULT '',
 	set_at     TEXT NOT NULL DEFAULT ''
 );
+`
+
+const sendSchema = `
+CREATE TABLE IF NOT EXISTS send_attempt (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	task_id      TEXT NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+	attempt_id   INTEGER NOT NULL REFERENCES attempt(id) ON DELETE CASCADE,
+	origin       TEXT NOT NULL CHECK (origin IN ('operator', 'usage-limit-resume', 'legacy-undelivered')),
+	message      TEXT NOT NULL,
+	state        TEXT NOT NULL CHECK (state IN ('pending', 'not-submitted', 'submitted', 'uncertain')),
+	reason_code  TEXT NOT NULL DEFAULT '',
+	created_at   TEXT NOT NULL,
+	finalized_at TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS send_attempt_one_pending
+ON send_attempt(attempt_id)
+WHERE state = 'pending';
 `
 
 // Shared by the machine-state database and the derived index. The busy timeout
@@ -456,6 +509,9 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	defer func() { _ = db.Close() }()
 	if current == len(migrations) {
 		return db.ReadTaskHistory(id)
+	}
+	if current == repairMetadataVersion {
+		return db.readTaskHistoryBeforeSend(id)
 	}
 	if current == repairMetadataVersion-1 {
 		return db.readTaskHistoryBeforeRepair(id)
@@ -672,7 +728,11 @@ func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
 	if err != nil {
 		return TaskHistory{}, false, err
 	}
-	history := TaskHistory{Task: task, Attempts: attempts}
+	sends, err := db.ListSends(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts, Sends: sends}
 	for i := range attempts {
 		if attempts[i].ID == task.ActiveAttemptID {
 			history.ActiveAttempt = &attempts[i]
@@ -724,6 +784,35 @@ func (db *DB) readTaskHistoryBeforeRepair(id string) (TaskHistory, bool, error) 
 	}
 	if err := rows.Err(); err != nil {
 		return TaskHistory{}, false, fmt.Errorf("list attempts for task %q: %w", id, err)
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+func (db *DB) readTaskHistoryBeforeSend(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
+	task, err := scanTask(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
+	}
+	attempts, err := db.ListAttempts(id)
+	if err != nil {
+		return TaskHistory{}, false, err
 	}
 	history := TaskHistory{Task: task, Attempts: attempts}
 	for i := range attempts {
@@ -794,6 +883,10 @@ func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
 			return nil, err
 		}
 		histories[i].Attempts = attempts
+		histories[i].Sends, err = db.ListSends(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
 		for j := range attempts {
 			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
 				histories[i].ActiveAttempt = &histories[i].Attempts[j]
@@ -842,6 +935,10 @@ func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
 			return nil, err
 		}
 		histories[i].Attempts = attempts
+		histories[i].Sends, err = db.ListSends(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
 		for j := range attempts {
 			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
 				histories[i].ActiveAttempt = &histories[i].Attempts[j]
@@ -1070,6 +1167,271 @@ func (db *DB) ListAttempts(taskID string) ([]Attempt, error) {
 		return nil, fmt.Errorf("list attempts for task %q: %w", taskID, err)
 	}
 	return attempts, nil
+}
+
+func (db *DB) BeginSend(taskID string, attemptID int64, ownership Herdr, origin SendOrigin, message, createdAt string) (SendAttempt, error) {
+	if !validSendOrigin(origin) {
+		return SendAttempt{}, fmt.Errorf("invalid send origin %q", origin)
+	}
+	tx, err := db.beginLifecycleTx("begin send", taskID)
+	if err != nil {
+		return SendAttempt{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var lifecycle TaskLifecycle
+	var activeID sql.NullInt64
+	if err := tx.QueryRow(`SELECT lifecycle, active_attempt_id FROM task WHERE id = ?`, taskID).Scan(&lifecycle, &activeID); errors.Is(err, sql.ErrNoRows) {
+		return SendAttempt{}, fmt.Errorf("task %q: %w", taskID, ErrSendOwnershipConflict)
+	} else if err != nil {
+		return SendAttempt{}, fmt.Errorf("read task %q before send: %w", taskID, err)
+	}
+	if lifecycle != TaskOpen || !activeID.Valid || activeID.Int64 != attemptID {
+		return SendAttempt{}, fmt.Errorf("task %q does not own running attempt %d: %w", taskID, attemptID, ErrSendOwnershipConflict)
+	}
+	var session, workspaceID, tabID, paneID string
+	var attemptLifecycle AttemptLifecycle
+	err = tx.QueryRow(`SELECT lifecycle, herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id
+		FROM attempt WHERE id = ? AND task_id = ?`, attemptID, taskID).Scan(&attemptLifecycle, &session, &workspaceID, &tabID, &paneID)
+	if errors.Is(err, sql.ErrNoRows) || attemptLifecycle != AttemptRunning || session != ownership.Session || workspaceID != ownership.WorkspaceID || tabID != ownership.TabID || paneID != ownership.PaneID {
+		return SendAttempt{}, fmt.Errorf("attempt %d ownership changed: %w", attemptID, ErrSendOwnershipConflict)
+	}
+	result, err := tx.Exec(`INSERT INTO send_attempt (task_id, attempt_id, origin, message, state, created_at)
+		VALUES (?, ?, ?, ?, 'pending', ?)`, taskID, attemptID, origin, message, createdAt)
+	if err != nil {
+		if isSQLiteConstraint(err) {
+			return SendAttempt{}, fmt.Errorf("attempt %d: %w", attemptID, ErrSendInFlight)
+		}
+		return SendAttempt{}, fmt.Errorf("begin send for task %q: %w", taskID, err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return SendAttempt{}, fmt.Errorf("read send ID: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return SendAttempt{}, fmt.Errorf("begin send for task %q: %w", taskID, err)
+	}
+	return SendAttempt{ID: id, TaskID: taskID, AttemptID: attemptID, Origin: origin, Message: message, State: SendPending, CreatedAt: createdAt}, nil
+}
+
+func (db *DB) FinalizeSend(id int64, taskID string, attemptID int64, next SendState, reasonCode, finalizedAt string) (SendAttempt, error) {
+	if !validSendTerminalState(next) {
+		return SendAttempt{}, fmt.Errorf("send %d cannot become %s: %w", id, next, ErrInvalidSendTransition)
+	}
+	tx, err := db.beginLifecycleTx("finalize send", taskID)
+	if err != nil {
+		return SendAttempt{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	send, found, err := readSendTx(tx, id)
+	if err != nil {
+		return SendAttempt{}, err
+	}
+	if !found {
+		return SendAttempt{}, fmt.Errorf("send %d: %w", id, ErrSendOwnershipConflict)
+	}
+	if send.TaskID != taskID || send.AttemptID != attemptID {
+		return SendAttempt{}, fmt.Errorf("send %d belongs to task %q attempt %d: %w", id, send.TaskID, send.AttemptID, ErrSendOwnershipConflict)
+	}
+	if send.State != SendPending {
+		if send.State == next {
+			return send, nil
+		}
+		return SendAttempt{}, fmt.Errorf("send %d is already %s: %w", id, send.State, ErrInvalidSendTransition)
+	}
+	result, err := tx.Exec(`UPDATE send_attempt SET state = ?, reason_code = ?, finalized_at = ?
+		WHERE id = ? AND task_id = ? AND attempt_id = ? AND state = 'pending'`, next, reasonCode, finalizedAt, id, taskID, attemptID)
+	if err != nil {
+		return SendAttempt{}, fmt.Errorf("finalize send %d: %w", id, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return SendAttempt{}, fmt.Errorf("finalize send %d: %w", id, err)
+	}
+	if affected != 1 {
+		return SendAttempt{}, fmt.Errorf("send %d changed while finalizing: %w", id, ErrSendOwnershipConflict)
+	}
+	if err := tx.Commit(); err != nil {
+		return SendAttempt{}, fmt.Errorf("finalize send %d: %w", id, err)
+	}
+	send.State, send.ReasonCode, send.FinalizedAt = next, reasonCode, finalizedAt
+	return send, nil
+}
+
+func (db *DB) NormalizePendingSends(taskID, reasonCode, finalizedAt string) (int64, error) {
+	result, err := db.sql.Exec(`UPDATE send_attempt SET state = 'uncertain', reason_code = ?, finalized_at = ?
+		WHERE task_id = ? AND state = 'pending'`, reasonCode, finalizedAt, taskID)
+	if err != nil {
+		return 0, fmt.Errorf("normalize pending sends for task %q: %w", taskID, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("normalize pending sends for task %q: %w", taskID, err)
+	}
+	return affected, nil
+}
+
+func (db *DB) NormalizePendingSend(id int64, taskID string, attemptID int64, reasonCode, finalizedAt string) (SendAttempt, bool, error) {
+	tx, err := db.beginLifecycleTx("normalize send", taskID)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	send, found, err := readSendTx(tx, id)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	if !found {
+		return SendAttempt{}, false, fmt.Errorf("send %d: %w", id, ErrSendOwnershipConflict)
+	}
+	if send.TaskID != taskID || send.AttemptID != attemptID {
+		return SendAttempt{}, false, fmt.Errorf("send %d belongs to task %q attempt %d: %w", id, send.TaskID, send.AttemptID, ErrSendOwnershipConflict)
+	}
+	if send.State != SendPending {
+		return send, false, nil
+	}
+	result, err := tx.Exec(`UPDATE send_attempt SET state = 'uncertain', reason_code = ?, finalized_at = ?
+		WHERE id = ? AND task_id = ? AND attempt_id = ? AND state = 'pending'`, reasonCode, finalizedAt, id, taskID, attemptID)
+	if err != nil {
+		return SendAttempt{}, false, fmt.Errorf("normalize send %d: %w", id, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return SendAttempt{}, false, fmt.Errorf("normalize send %d: %w", id, err)
+	}
+	if affected != 1 {
+		return SendAttempt{}, false, fmt.Errorf("send %d changed while normalizing: %w", id, ErrSendOwnershipConflict)
+	}
+	if err := tx.Commit(); err != nil {
+		return SendAttempt{}, false, fmt.Errorf("normalize send %d: %w", id, err)
+	}
+	send.State, send.ReasonCode, send.FinalizedAt = SendUncertain, reasonCode, finalizedAt
+	return send, true, nil
+}
+
+func (db *DB) ImportLegacySend(taskID string, attemptID int64, message, createdAt, finalizedAt string) error {
+	if message == "" {
+		return nil
+	}
+	if createdAt == "" {
+		createdAt = finalizedAt
+	}
+	tx, err := db.beginLifecycleTx("import legacy send", taskID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.Exec(`INSERT INTO send_attempt (task_id, attempt_id, origin, message, state, reason_code, created_at, finalized_at)
+		SELECT ?, ?, 'legacy-undelivered', ?, 'uncertain', 'legacy-undelivered-trace', ?, ?
+		WHERE EXISTS (SELECT 1 FROM task WHERE id = ?)
+		AND EXISTS (SELECT 1 FROM attempt WHERE id = ? AND task_id = ?)
+		AND NOT EXISTS (SELECT 1 FROM send_attempt WHERE task_id = ? AND attempt_id = ? AND origin = 'legacy-undelivered' AND message = ? AND created_at = ?)`,
+		taskID, attemptID, message, createdAt, finalizedAt, taskID, attemptID, taskID, taskID, attemptID, message, createdAt)
+	if err != nil {
+		return fmt.Errorf("import legacy send for task %q: %w", taskID, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("import legacy send for task %q: %w", taskID, err)
+	}
+	if affected == 0 {
+		var exists int
+		if err := tx.QueryRow(`SELECT 1 FROM attempt WHERE id = ? AND task_id = ?`, attemptID, taskID).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("attempt %d for task %q: %w", attemptID, taskID, ErrSendOwnershipConflict)
+		} else if err != nil {
+			return fmt.Errorf("check imported attempt %d: %w", attemptID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("import legacy send for task %q: %w", taskID, err)
+	}
+	return nil
+}
+
+func (db *DB) ReadSend(id int64) (SendAttempt, bool, error) {
+	send, found, err := readSendRow(db.sql.QueryRow(`SELECT id, task_id, attempt_id, origin, message, state, reason_code, created_at, finalized_at
+		FROM send_attempt WHERE id = ?`, id))
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	return send, found, nil
+}
+
+func (db *DB) ListSends(taskID string) ([]SendAttempt, error) {
+	rows, err := db.sql.Query(`SELECT id, task_id, attempt_id, origin, message, state, reason_code, created_at, finalized_at
+		FROM send_attempt WHERE task_id = ? ORDER BY id`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list sends for task %q: %w", taskID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var sends []SendAttempt
+	for rows.Next() {
+		send, err := scanSend(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list sends for task %q: %w", taskID, err)
+		}
+		sends = append(sends, send)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list sends for task %q: %w", taskID, err)
+	}
+	return sends, nil
+}
+
+func (db *DB) LatestSend(taskID string, attemptID int64, origins ...SendOrigin) (SendAttempt, bool, error) {
+	args := []any{taskID, attemptID}
+	query := `SELECT id, task_id, attempt_id, origin, message, state, reason_code, created_at, finalized_at
+		FROM send_attempt WHERE task_id = ? AND attempt_id = ?`
+	if len(origins) > 0 {
+		query += ` AND origin IN (` + placeholders(len(origins)) + `)`
+		for _, origin := range origins {
+			args = append(args, origin)
+		}
+	}
+	query += ` ORDER BY id DESC LIMIT 1`
+	send, found, err := readSendRow(db.sql.QueryRow(query, args...))
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	return send, found, nil
+}
+
+func validSendOrigin(origin SendOrigin) bool {
+	switch origin {
+	case SendOriginOperator, SendOriginUsageLimitResume, SendOriginLegacyUndelivered:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSendTerminalState(state SendState) bool {
+	return state == SendNotSubmitted || state == SendSubmitted || state == SendUncertain
+}
+
+type sendScanner interface {
+	Scan(...any) error
+}
+
+func readSendTx(tx *sql.Tx, id int64) (SendAttempt, bool, error) {
+	return readSendRow(tx.QueryRow(`SELECT id, task_id, attempt_id, origin, message, state, reason_code, created_at, finalized_at
+		FROM send_attempt WHERE id = ?`, id))
+}
+
+func readSendRow(row sendScanner) (SendAttempt, bool, error) {
+	send, err := scanSend(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SendAttempt{}, false, nil
+	}
+	if err != nil {
+		return SendAttempt{}, false, fmt.Errorf("read send: %w", err)
+	}
+	return send, true, nil
+}
+
+func scanSend(row sendScanner) (SendAttempt, error) {
+	var send SendAttempt
+	err := row.Scan(&send.ID, &send.TaskID, &send.AttemptID, &send.Origin, &send.Message, &send.State, &send.ReasonCode, &send.CreatedAt, &send.FinalizedAt)
+	return send, err
 }
 
 func (db *DB) UpdateAttempt(a Attempt) error {

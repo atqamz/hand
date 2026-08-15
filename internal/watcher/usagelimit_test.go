@@ -300,14 +300,12 @@ func TestTickReleasesALimitTheOperatorEndedItself(t *testing.T) {
 	}
 }
 
-// The mechanism says so once when it runs out of its own answers, and keeps trying
-// afterwards: a weekly limit is real and does eventually lift, so giving up would strand
-// the worker for the sake of a tidy failure.
-func TestUsageLimitAnnouncesItselfStuckExactlyOnce(t *testing.T) {
+// A submitted automatic resume is observed rather than repeated on later watcher restarts.
+func TestUsageLimitDoesNotResendSubmittedResume(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "done")
 	writeFakeHerdr(t, statusFile)
-	paneScript(t, limitedPaneAgent, "Claude usage limit reached.")
+	paneLog := paneScript(t, limitedPaneAgent, "Claude usage limit reached.")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
 		UsageLimitAttempts: limitStuckAfter - 1},
@@ -324,12 +322,12 @@ func TestUsageLimitAnnouncesItselfStuckExactlyOnce(t *testing.T) {
 		tick(ctx, cfg, client, states, &buf, &buf)
 	}
 
-	if got := strings.Count(buf.String(), "usage-limit-stuck task-1"); got != 1 {
-		t.Fatalf("usage-limit-stuck fired %d times, want exactly 1:\n%s", got, buf.String())
+	if got := strings.Count(paneCalls(t, paneLog), "send-text"); got != 1 {
+		t.Fatalf("send-text calls = %d, want one across watcher restarts", got)
 	}
 	_, attempt := readTaskAttempt(t, home, "task-1")
-	if got := attempt.UsageLimitAttempts; got != limitStuckAfter+2 {
-		t.Fatalf("usage_limit_attempts = %d, want %d: the attempts continue past the stuck announcement", got, limitStuckAfter+2)
+	if got := attempt.UsageLimitAttempts; got != limitStuckAfter {
+		t.Fatalf("usage_limit_attempts = %d, want the one submitted attempt recorded after the prior attempts", got)
 	}
 }
 
@@ -416,14 +414,18 @@ func TestAFailedSteerStillConsumesItsAttempt(t *testing.T) {
 		t.Fatalf("LimitAttempts = %d, want 1", ts.LimitAttempts)
 	}
 	if !ts.LimitRetryAt.After(now) {
-		t.Fatalf("LimitRetryAt = %s, want it pushed ahead of %s", ts.LimitRetryAt, now)
+		t.Fatalf("LimitRetryAt = %s, want it pushed ahead of %s; err=%q", ts.LimitRetryAt, now, errBuf.String())
 	}
-	if !strings.Contains(errBuf.String(), "resume task-1 after usage limit failed") {
-		t.Fatalf("errOut = %q, want the failed steer reported", errBuf.String())
+	if !strings.Contains(errBuf.String(), "no automatic resend") {
+		t.Fatalf("errOut = %q, want the ambiguous steer and resend suppression reported", errBuf.String())
 	}
 }
 
 type steerFailingPane struct{}
+
+func (p *steerFailingPane) PaneGet(string) (herdr.Pane, error) {
+	return herdr.Pane{PaneID: "p1", AgentStatus: herdr.StatusDone}, nil
+}
 
 func (p *steerFailingPane) PaneRead(string, int) (string, error) { return claudeLimitText, nil }
 
@@ -567,6 +569,10 @@ func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
 type countingPane struct {
 	reads  int
 	steers int
+}
+
+func (p *countingPane) PaneGet(string) (herdr.Pane, error) {
+	return herdr.Pane{PaneID: "p1", AgentStatus: herdr.StatusDone}, nil
 }
 
 func (p *countingPane) PaneRead(string, int) (string, error) {

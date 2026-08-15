@@ -471,6 +471,69 @@ func SetAttemptSendTrace(homeDir, taskID string, attemptID int64, expected Attem
 	return db.SetAttemptSendTrace(taskID, attemptID, expected, message, at)
 }
 
+func BeginSend(homeDir, taskID string, attemptID int64, ownership Herdr, origin SendOrigin, message, createdAt string) (SendAttempt, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.BeginSend(taskID, attemptID, ownership, origin, message, createdAt)
+}
+
+func FinalizeSend(homeDir string, id int64, taskID string, attemptID int64, next SendState, reasonCode, finalizedAt string) (SendAttempt, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.FinalizeSend(id, taskID, attemptID, next, reasonCode, finalizedAt)
+}
+
+func ReadSend(homeDir string, id int64) (SendAttempt, bool, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ReadSend(id)
+}
+
+func ListSends(homeDir, taskID string) ([]SendAttempt, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.ListSends(taskID)
+}
+
+func LatestSend(homeDir string, taskID string, attemptID int64, origins ...SendOrigin) (SendAttempt, bool, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.LatestSend(taskID, attemptID, origins...)
+}
+
+func NormalizePendingSends(homeDir, taskID, reasonCode, finalizedAt string) (int64, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.NormalizePendingSends(taskID, reasonCode, finalizedAt)
+}
+
+func NormalizePendingSend(homeDir string, id int64, taskID string, attemptID int64, reasonCode, finalizedAt string) (SendAttempt, bool, error) {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return SendAttempt{}, false, err
+	}
+	defer func() { _ = db.Close() }()
+	return db.NormalizePendingSend(id, taskID, attemptID, reasonCode, finalizedAt)
+}
+
 func UpdateAttemptObservation(homeDir, taskID string, attemptID int64, expected AttemptLifecycle, statusChangedAt, statusChangedFor string, doneVerified bool, lastReportState, lastReportNote, parkedFiredFor, usageLimitRetryAt string, usageLimitAttempts int) error {
 	db, err := store.Open(homeDir)
 	if err != nil {

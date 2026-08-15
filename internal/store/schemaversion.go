@@ -114,6 +114,25 @@ var migrations = []string{
 	ALTER TABLE task ADD COLUMN repair_reason TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN repair_attempt_id INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE task ADD COLUMN repair_observed_at TEXT NOT NULL DEFAULT '';`,
+	`CREATE TABLE IF NOT EXISTS send_attempt (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id TEXT NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+		attempt_id INTEGER NOT NULL REFERENCES attempt(id) ON DELETE CASCADE,
+		origin TEXT NOT NULL CHECK (origin IN ('operator', 'usage-limit-resume', 'legacy-undelivered')),
+		message TEXT NOT NULL,
+		state TEXT NOT NULL CHECK (state IN ('pending', 'not-submitted', 'submitted', 'uncertain')),
+		reason_code TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL,
+		finalized_at TEXT NOT NULL DEFAULT ''
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS send_attempt_one_pending ON send_attempt(attempt_id) WHERE state = 'pending';
+	INSERT INTO send_attempt (task_id, attempt_id, origin, message, state, reason_code, created_at, finalized_at)
+	SELECT task_id, id, 'legacy-undelivered', send_undelivered_message, 'uncertain',
+		'legacy-undelivered-trace',
+		CASE WHEN send_undelivered_at <> '' THEN send_undelivered_at ELSE created_at END,
+		send_undelivered_at
+	FROM attempt
+	WHERE send_undelivered_message <> '';`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -315,6 +334,9 @@ func (db *DB) createSchema(isNew bool, latest int) error {
 		return fmt.Errorf("create schema: %w", err)
 	}
 	if isNew {
+		if _, err := tx.Exec(sendSchema); err != nil {
+			return fmt.Errorf("create send schema: %w", err)
+		}
 		if err := recordSchemaVersion(tx, latest); err != nil {
 			return err
 		}

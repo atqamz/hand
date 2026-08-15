@@ -83,10 +83,9 @@ func TestConcurrentSendsToTheSameTaskSerialize(t *testing.T) {
 	}
 }
 
-// Covers the outcome an operator or a calling agent actually sees when a composer never frees: the
-// documented exit code off the real process, and a trace of the abandoned message that outlives the process
-// that tried to send it.
-func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
+// Covers the outcome an operator or a calling agent actually sees when a composer never frees: no durable
+// send exists because no external mutation began, and a later independent steer can proceed safely.
+func TestSendDoesNotCreateRecordBeforeComposerMutation(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 	seedSendTask(t, home)
@@ -99,11 +98,12 @@ func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 	writeFakeHerdrSend(t, dir, statusDir, herdrLog)
 
 	got := runHand(t, home, "send", "task-1", "stop and wait for review", "--wait", "400ms")
-	assertInvocation(t, got, 6, "composer still busy after 400ms, message recorded as undelivered")
+	assertInvocation(t, got, 6, "composer stayed busy for 400ms; no external message mutation occurred")
 
-	task, attempt := readTaskAttempt(t, home, "task-1")
-	if attempt.SendUndeliveredMessage != "stop and wait for review" || attempt.SendUndeliveredAt == "" {
-		t.Fatalf("task = %+v attempt = %+v, want the abandoned message and a timestamp recorded", task, attempt)
+	_, _ = readTaskAttempt(t, home, "task-1")
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 0 {
+		t.Fatalf("sends=%+v err=%v, want no durable send before mutation", sends, err)
 	}
 
 	setPaneStatus(t, statusDir, "pane-1", "idle")
@@ -113,9 +113,9 @@ func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 			delivered.code, delivered.stdout, delivered.stderr)
 	}
 
-	_, attempt = readTaskAttempt(t, home, "task-1")
-	if attempt.SendUndeliveredMessage != "" || attempt.SendUndeliveredAt != "" {
-		t.Fatalf("attempt = %+v, want the undelivered trace cleared by a send that reached the pane", attempt)
+	sends, err = state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted {
+		t.Fatalf("sends=%+v err=%v, want one submitted durable send", sends, err)
 	}
 }
 

@@ -1338,6 +1338,28 @@ func reconcileFixture(t *testing.T) string {
 	return home
 }
 
+func TestReconcileNormalizesPendingSendWithoutSteering(t *testing.T) {
+	home := reconcileFixture(t)
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning,
+		Herdr: state.Herdr{Session: "default", WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.BeginSend(home, "task-1", attempt.ID, attempt.Herdr, state.SendOriginOperator, "hello", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain || sends[0].ReasonCode != "reconcile-stale-pending" {
+		t.Fatalf("sends=%+v err=%v, want stale pending uncertain", sends, err)
+	}
+}
+
 func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lease, error)) *Runtime {
 	if get == nil {
 		get = func(path, holder string) (worktree.Lease, error) {

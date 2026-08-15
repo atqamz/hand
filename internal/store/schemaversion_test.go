@@ -51,6 +51,24 @@ func TestFreshSchemaIncludesTaskRepairMetadata(t *testing.T) {
 	}
 }
 
+func TestFreshSchemaIncludesSendAttemptAuthority(t *testing.T) {
+	db, _ := openTemp(t)
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('send_attempt') WHERE name IN ('task_id', 'attempt_id', 'origin', 'message', 'state', 'reason_code', 'created_at', 'finalized_at')`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 8 {
+		t.Fatalf("send_attempt columns = %d, want 8", count)
+	}
+	var indexes int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'send_attempt_one_pending'`).Scan(&indexes); err != nil {
+		t.Fatal(err)
+	}
+	if indexes != 1 {
+		t.Fatal("send_attempt pending index is missing")
+	}
+}
+
 func TestMigrationV12AddsEmptyTaskRepairMetadata(t *testing.T) {
 	home := t.TempDir()
 	sqlDB, err := open(Path(home))
@@ -88,8 +106,8 @@ func TestMigrationV12AddsEmptyTaskRepairMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = migrated.Close() }()
-	if version, err := migrated.schemaVersion(); err != nil || version != 12 {
-		t.Fatalf("schemaVersion = %d, %v, want 12", version, err)
+	if version, err := migrated.schemaVersion(); err != nil || version != len(migrations) {
+		t.Fatalf("schemaVersion = %d, %v, want %d", version, err, len(migrations))
 	}
 	history, found, err := migrated.ReadTaskHistory("legacy")
 	if err != nil || !found || history.ActiveAttempt == nil {
@@ -141,8 +159,8 @@ func TestMigrationV11AddsEmptyAttemptRoutingProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = migrated.Close() }()
-	if version, err := migrated.schemaVersion(); err != nil || version != 12 {
-		t.Fatalf("schemaVersion = %d, %v, want 12", version, err)
+	if version, err := migrated.schemaVersion(); err != nil || version != len(migrations) {
+		t.Fatalf("schemaVersion = %d, %v, want %d", version, err, len(migrations))
 	}
 	history, found, err := migrated.ReadTaskHistory("legacy")
 	if err != nil || !found || len(history.Attempts) != 1 {

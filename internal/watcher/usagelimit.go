@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/steering"
 )
 
 // The bounds on resuming a usage-limited worker. The failure mode designed against is a retry storm
@@ -43,6 +45,7 @@ const limitResumeMessage = "Your previous turn stopped on a usage limit. The lim
 // The herdr surface the usage-limit machinery needs, narrowed so a test can drive the whole
 // detect-attempt-resume cycle without a herdr daemon.
 type limitPane interface {
+	PaneGet(paneID string) (herdr.Pane, error)
 	PaneRead(paneID string, lines int) (string, error)
 	PaneSendText(paneID, text string) error
 	PaneSendKeys(paneID string, keys ...string) error
@@ -64,6 +67,12 @@ func classifyUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 	}
 	if !ts.LimitRetryAt.IsZero() {
 		return continueUsageLimit(cfg, client, ts, t, a, pane, status, now, errOut)
+	}
+	if ts.LimitResumeBlocked {
+		if status == herdr.StatusWorking || status == herdr.StatusBlocked || reportEndsTask(ts.LastReportState) {
+			return clearUsageLimit(cfg, ts, t, errOut)
+		}
+		return nil
 	}
 	// justStopped is computed before ClassifyStatus consumes the transition: it is what makes detection
 	// edge-triggered rather than a per-tick pane read. ts.LimitProbed is the other edge, covering what no
@@ -119,57 +128,54 @@ func continueUsageLimit(cfg Config, client limitPane, ts *TaskState, t state.Tas
 	if reportEndsTask(ts.LastReportState) {
 		return clearUsageLimit(cfg, ts, t, errOut)
 	}
+	if ts.LimitResumeBlocked {
+		return nil
+	}
 	if now.Before(ts.LimitRetryAt) {
 		return nil
 	}
 	return attemptUsageLimitResume(cfg, client, ts, t, a, pane, now, errOut)
 }
 
-// Steers the pane and schedules the next attempt. The attempt itself is the observation: nothing here
-// decides whether the limit is over - the next tick's clear check does that, by seeing whether the pane
-// started working.
+// Steers the pane and records the outcome. The next tick's clear check decides whether the limit is over
+// by seeing whether the pane started working.
 func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t state.Task, a state.Attempt, pane herdr.Pane, now time.Time, errOut io.Writer) *Event {
-	// Send before task is the shared order with hand send. The task lock is held only while the
-	// short external steer runs, so promotion and teardown cannot replace the Attempt mid-steer.
-	releaseSend, err := state.TryLock(cfg.Home, "send:"+t.ID)
+	result, err := steering.Execute(steering.Request{
+		Home: cfg.Home, TaskID: t.ID, Message: limitResumeMessage, Origin: state.SendOriginUsageLimitResume,
+		Client: client, TryLock: true, Expected: &a, Now: func() time.Time { return now },
+	})
 	if err != nil {
-		if !errors.Is(err, state.ErrLockBusy) {
-			_, _ = fmt.Fprintf(errOut, "watch: lock send %s failed: %v\n", t.ID, err)
+		var sendErr *steering.Error
+		if !errors.As(err, &sendErr) {
+			_, _ = fmt.Fprintf(errOut, "watch: resume %s after usage limit failed: %v\n", t.ID, err)
+			return nil
 		}
-		// A busy lock spends no attempt: the schedule is left untouched, so the next tick finds it due.
-		return nil
-	}
-	defer releaseSend()
-	releaseTask, err := state.TryLock(cfg.Home, "task:"+t.ID)
-	if err != nil {
-		if !errors.Is(err, state.ErrLockBusy) {
-			_, _ = fmt.Fprintf(errOut, "watch: lock task %s failed: %v\n", t.ID, err)
+		if sendErr.Precondition {
+			if errors.Is(err, state.ErrLockBusy) || strings.Contains(err.Error(), "lock send") || strings.Contains(err.Error(), "lock task") {
+				return nil
+			}
+			_, _ = fmt.Fprintf(errOut, "watch: resume %s refused for stale ownership: %v\n", t.ID, err)
+			return nil
 		}
-		return nil
-	}
-	defer releaseTask()
-
-	if !ownsAttempt(cfg.Home, t, a, errOut) {
-		return nil
-	}
-
-	// Read first: the freshest refusal on screen is the harness's own latest prediction of when its quota
-	// returns, and scheduling from it keeps a genuinely long limit off the backoff's much shorter clock.
-	reset := time.Time{}
-	if text, err := client.PaneRead(a.Herdr.PaneID, limitReadLines); err != nil {
-		_, _ = fmt.Fprintf(errOut, "watch: read pane for %s failed: %v\n", t.ID, err)
-	} else if at, limited := harness.DetectUsageLimit(pane.Agent, text, now); limited {
-		reset = at
-	}
-
-	ts.LimitAttempts++
-	ts.LimitRetryAt = nextLimitRetry(reset, ts.LimitAttempts, now)
-
-	if err := steerPane(client, a.Herdr.PaneID, limitResumeMessage); err != nil {
-		// The schedule above is kept deliberately: a steer that did not land is one
-		// lost attempt, and reverting the stamp would put this task back in the due
-		// state every tick, which is the storm.
-		_, _ = fmt.Fprintf(errOut, "watch: resume %s after usage limit failed: %v\n", t.ID, err)
+		if sendErr.State == "" {
+			ts.LimitAttempts++
+			ts.LimitRetryAt = nextLimitRetry(time.Time{}, ts.LimitAttempts, now)
+			_, _ = fmt.Fprintf(errOut, "watch: resume %s did not begin submission; retry scheduled: %v\n", t.ID, err)
+		} else if sendErr.State == state.SendNotSubmitted && sendErr.RetrySafe {
+			ts.LimitAttempts++
+			ts.LimitRetryAt = nextLimitRetry(limitReset(client, a, pane, t, errOut), ts.LimitAttempts, now)
+		} else {
+			ts.LimitResumeBlocked = true
+			ts.LimitAttempts++
+			ts.LimitRetryAt = nextLimitRetry(time.Time{}, ts.LimitAttempts, now)
+			_, _ = fmt.Fprintf(errOut, "watch: resume %s is %s; no automatic resend: %v\n", t.ID, sendErr.State, err)
+		}
+	} else {
+		_ = result
+		ts.LimitResumeBlocked = true
+		ts.LimitAttempts++
+		ts.LimitRetryAt = nextLimitRetry(time.Time{}, ts.LimitAttempts, now)
+		_, _ = fmt.Fprintf(errOut, "watch: resume %s submitted to the terminal pane; waiting for worker observation\n", t.ID)
 	}
 	writeLimitHold(cfg.Home, t.ID, ts, errOut)
 
@@ -182,6 +188,19 @@ func attemptUsageLimitResume(cfg Config, client limitPane, ts *TaskState, t stat
 		Text:   fmt.Sprintf("usage-limit-stuck %s: %s", t.ID, limitReason(ts)),
 		Reason: limitReason(ts),
 	}
+}
+
+func limitReset(client limitPane, attempt state.Attempt, pane herdr.Pane, task state.Task, errOut io.Writer) time.Time {
+	text, err := client.PaneRead(attempt.Herdr.PaneID, limitReadLines)
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "watch: read pane for %s failed: %v\n", task.ID, err)
+		return time.Time{}
+	}
+	reset, limited := harness.DetectUsageLimit(pane.Agent, text, time.Now())
+	if !limited {
+		return time.Time{}
+	}
+	return reset
 }
 
 // The Task and Attempt a tick carries were read before the locks above, so a teardown or promotion that
@@ -207,6 +226,7 @@ func clearUsageLimit(cfg Config, ts *TaskState, t state.Task, errOut io.Writer) 
 	attempts := ts.LimitAttempts
 	ts.LimitRetryAt = time.Time{}
 	ts.LimitAttempts = 0
+	ts.LimitResumeBlocked = false
 	// The stop edge that stranded this worker is long consumed, so a limit hitting the
 	// same worker again needs a fresh probe to be found on.
 	ts.LimitProbed = false
@@ -271,23 +291,13 @@ func reportEndsTask(lastState string) bool {
 	return lastState == state.ReportDone || lastState == state.ReportFailed
 }
 
-// The same two-call steer hand send performs: text into the composer, then Enter to submit it. Split
-// the same way, because text that arrived but was never submitted is a distinct failure from text that
-// never arrived.
-func steerPane(client limitPane, paneID, message string) error {
-	if err := client.PaneSendText(paneID, message); err != nil {
-		return fmt.Errorf("send message: %w", err)
-	}
-	if err := client.PaneSendKeys(paneID, "Enter"); err != nil {
-		return fmt.Errorf("submit message: %w", err)
-	}
-	return nil
-}
-
 // What an operator sees in hand status's held block, refreshed on every attempt: which attempt the
 // mechanism is on and when it next tries. The hold is the projection of the schedule, so it carries no
 // fact the schedule does not.
 func limitReason(ts *TaskState) string {
+	if ts.LimitResumeBlocked {
+		return "automatic usage-limit resume is unresolved or submitted; no automatic resend will be attempted"
+	}
 	return fmt.Sprintf("harness stopped on a usage limit; %s made, next try %s",
 		attemptCount(ts.LimitAttempts), ts.LimitRetryAt.UTC().Format(time.RFC3339))
 }

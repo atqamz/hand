@@ -51,9 +51,10 @@ type envelope struct {
 var ErrNotFound = errors.New("herdr resource not found")
 
 type APIError struct {
-	Operation string
-	Code      string
-	Message   string
+	Operation              string
+	Code                   string
+	Message                string
+	PreSideEffectRejection bool
 }
 
 func (e *APIError) Error() string {
@@ -66,6 +67,11 @@ func (e *APIError) Unwrap() error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func IsPreSideEffectRejection(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.PreSideEffectRejection
 }
 
 // Execs herdr and returns its trimmed stdout and trimmed stderr alongside the process error,
@@ -112,7 +118,7 @@ func (c *Client) callContext(ctx context.Context, args ...string) (json.RawMessa
 		return nil, err
 	}
 	if env.Error != nil {
-		return nil, &APIError{Operation: strings.Join(args, " "), Code: env.Error.Code, Message: env.Error.Message}
+		return nil, newAPIError(args, env.Error)
 	}
 	if runErr != nil {
 		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
@@ -130,14 +136,16 @@ func (c *Client) callContext(ctx context.Context, args ...string) (json.RawMessa
 	return result, nil
 }
 
-// For void commands (pane run/send-text/send-keys), whose real herdr response is empty stdout on
-// success and a JSON error envelope - with exit code 0 - on failure, so the envelope must be
-// checked ahead of, and independent from, the process exit status.
+// For void commands (pane run/send-text/send-keys), success has empty stdout. Failure may be a
+// structured envelope on stderr, so it must be checked ahead of the process exit status.
 func (c *Client) callVoid(args ...string) error {
 	trimmed, stderr, runErr := c.run(args...)
 
 	if len(trimmed) == 0 {
 		if runErr != nil {
+			if env, err := parseEnvelope(args, []byte(stderr)); err == nil && env.Error != nil {
+				return newAPIError(args, env.Error)
+			}
 			return fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
 		}
 		return nil
@@ -148,12 +156,27 @@ func (c *Client) callVoid(args ...string) error {
 		return err
 	}
 	if env.Error != nil {
-		return &APIError{Operation: strings.Join(args, " "), Code: env.Error.Code, Message: env.Error.Message}
+		return newAPIError(args, env.Error)
 	}
 	if runErr != nil {
 		return fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
 	}
 	return nil
+}
+
+func newAPIError(args []string, body *errorBody) *APIError {
+	operation := strings.Join(args, " ")
+	command := strings.Join(args[:minInt(len(args), 2)], " ")
+	preSideEffect := (command == "pane send-text" || command == "pane send-keys") &&
+		(strings.EqualFold(body.Code, "pane_not_found") || strings.EqualFold(body.Code, "pane_send_failed"))
+	return &APIError{Operation: operation, Code: body.Code, Message: body.Message, PreSideEffectRejection: preSideEffect}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (c *Client) WorkspaceList() ([]Workspace, error) {

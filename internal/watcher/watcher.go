@@ -225,6 +225,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 				status = herdr.StatusUnknown
 			}
 			ts = resumeTaskState(t, attempt, status, now)
+			if err := restoreLimitResumeState(cfg.Home, ts, attempt, errOut); err != nil {
+				_, _ = fmt.Fprintf(errOut, "watch: restore usage-limit resume state for %s failed: %v\n", t.ID, err)
+			}
 			// False starts ClassifyUnreachable's dwell clock immediately, instead of waiting for a second
 			// failed probe to notice this task at all.
 			ts.Probed = probeErr == nil
@@ -281,6 +284,22 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			delete(states, id)
 		}
 	}
+}
+
+func restoreLimitResumeState(home string, ts *TaskState, attempt state.Attempt, errOut io.Writer) error {
+	send, found, err := state.LatestSend(home, attempt.TaskID, attempt.ID, state.SendOriginUsageLimitResume)
+	if err != nil || !found {
+		return err
+	}
+	if send.State == state.SendNotSubmitted && strings.HasPrefix(send.ReasonCode, "text-rejected-before-acceptance") {
+		return nil
+	}
+	ts.LimitResumeBlocked = true
+	ts.LimitRetryAt = time.Time{}
+	if send.State == state.SendPending {
+		_, _ = fmt.Fprintf(errOut, "watch: usage-limit resume send %d remains pending; automatic resend disabled\n", send.ID)
+	}
+	return nil
 }
 
 // Every restored fact comes from durable state: re-deriving what landed while the watcher was down
@@ -390,6 +409,7 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, a state.Attempt, now tim
 	// state. Carrying the schedule over would steer the fresh pane on a clock the scout's refusal set.
 	ts.LimitRetryAt = time.Time{}
 	ts.LimitAttempts = 0
+	ts.LimitResumeBlocked = false
 	ts.LimitProbed = false
 	// Re-read from the promoted row rather than zeroed alongside the rest, so the columns get written
 	// clear here in the one case hand promote did not already clear them itself.

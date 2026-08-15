@@ -11,6 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/steering"
 	"github.com/spf13/cobra"
 )
 
@@ -245,7 +246,8 @@ func TestErrorDocumentNamesTheKindBehindEveryExitCode(t *testing.T) {
 		{3, "precondition"},
 		{4, "no-event"},
 		{5, "arm-failed"},
-		{6, "send-undelivered"},
+		{6, "send-not-submitted"},
+		{7, "send-uncertain"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			var out strings.Builder
@@ -257,6 +259,31 @@ func TestErrorDocumentNamesTheKindBehindEveryExitCode(t *testing.T) {
 				t.Fatalf("error document = %q, want it to start with %q", out.String(), want)
 			}
 		})
+	}
+}
+
+func TestErrorDocumentIncludesSendStateDetails(t *testing.T) {
+	var out strings.Builder
+	err := &steering.Error{
+		Cause:     errors.New("text outcome is ambiguous"),
+		Send:      &state.SendAttempt{ID: 7},
+		AttemptID: 42,
+		State:     state.SendUncertain,
+		Reason:    "text-outcome-ambiguous",
+	}
+	if renderErr := renderError(&out, err, 7, "hand send"); renderErr != nil {
+		t.Fatal(renderErr)
+	}
+	for _, want := range []string{
+		"send_id: 7\n",
+		"attempt: 42\n",
+		"send_state: uncertain\n",
+		"reason: text-outcome-ambiguous\n",
+		"do not blindly retry",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("error document = %q, want %q", out.String(), want)
+		}
 	}
 }
 

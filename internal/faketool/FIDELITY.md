@@ -148,6 +148,8 @@ The codes observed are `workspace_not_found`, `tab_not_found` and `pane_not_foun
 
 `pane run`, `pane send-text` and `pane send-keys` are void: empty stdout on success, and the same error envelope on stderr with exit 1 for a pane that is gone.
 A void command's error envelope carries `"id":"cli:request"` rather than a per-command id, so nothing may key on the id.
+For `pane send-text` and `pane send-keys`, `pane_send_failed` means the terminal runtime rejected the bytes before queue acceptance.
+That typed rejection is distinct from a process, transport or protocol failure, which does not prove whether the bytes were accepted.
 `pane read` is the one command whose success is bare text on stdout rather than an envelope.
 
 Identifiers are assigned by herdr: workspaces `wX`, their tabs `wX:t1`, their panes `wX:p1`.

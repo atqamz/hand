@@ -160,6 +160,7 @@ type TaskState struct {
 	// for ParkedFiredFor's reason, sharper - a re-derived schedule resumes against a still-limited account.
 	LimitRetryAt           time.Time
 	LimitAttempts          int
+	LimitResumeBlocked     bool
 	PersistedLimitRetryAt  time.Time
 	PersistedLimitAttempts int
 	// Records that this watcher has read the pane looking for a limit message at least once for this

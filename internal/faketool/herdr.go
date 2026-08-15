@@ -29,11 +29,12 @@ type HerdrWorkspace struct {
 // HerdrResponse overrides one command while keeping the shared executable and
 // invocation logging. It is useful for deliberately malformed or failed calls.
 type HerdrResponse struct {
-	Command string
-	Args    []string
-	Stdout  string
-	Stderr  string
-	Exit    int
+	Command              string
+	Args                 []string
+	Stdout               string
+	Stderr               string
+	Exit                 int
+	MutateBeforeResponse bool
 }
 
 // HerdrFrame supplies successive pane get/read observations.
@@ -67,6 +68,7 @@ type Herdr struct {
 	TextLogEnv         bool
 	ReadLogEnv         bool
 	AllowUnknownPane   bool
+	MutateBeforeHang   bool
 }
 
 const herdrDefaultPaneRead = "Welcome to Claude Code\n> \n  ? for shortcuts\n"
@@ -95,6 +97,7 @@ type herdrSpec struct {
 	TextLogEnv         bool
 	ReadLogEnv         bool
 	AllowUnknownPane   bool
+	MutateBeforeHang   bool
 }
 
 type herdrTabRef struct {
@@ -125,7 +128,7 @@ func (h Herdr) Install(t *testing.T, bin string) {
 		StateDir: state, Log: h.Log, LogCommands: h.LogCommands,
 		PaneAgentEnv: h.PaneAgentEnv, PaneReadFileEnv: h.PaneReadFileEnv,
 		KeyLogEnv: h.KeyLogEnv, TextLogEnv: h.TextLogEnv,
-		ReadLogEnv: h.ReadLogEnv, AllowUnknownPane: h.AllowUnknownPane,
+		ReadLogEnv: h.ReadLogEnv, AllowUnknownPane: h.AllowUnknownPane, MutateBeforeHang: h.MutateBeforeHang,
 	})
 }
 
@@ -140,6 +143,11 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 	command := args[0] + " " + args[1]
 	for _, blocked := range spec.Hang {
 		if blocked == command {
+			if spec.MutateBeforeHang {
+				if exit := runHerdrState(spec, command, args); exit != 0 {
+					return exit
+				}
+			}
 			if err := logHerdrInvocation(spec, args); err != nil {
 				return fail("log herdr invocation: %v", err)
 			}
@@ -156,6 +164,11 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 	}
 	for _, response := range spec.Responses {
 		if response.Command == command && (response.Args == nil || sameArgs(response.Args, args[2:])) {
+			if response.MutateBeforeResponse {
+				if exit := runHerdrState(spec, command, args); exit != 0 {
+					return exit
+				}
+			}
 			_, _ = io.WriteString(os.Stdout, response.Stdout)
 			_, _ = io.WriteString(os.Stderr, response.Stderr)
 			if err := logHerdrInvocation(spec, args); err != nil {

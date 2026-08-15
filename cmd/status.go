@@ -155,6 +155,18 @@ type statusJSON struct {
 	// on the fleet it already understands.
 	Unacknowledged bool          `json:"unacknowledged,omitempty"`
 	Attempts       []attemptJSON `json:"attempts,omitempty"`
+	LatestSend     *sendJSON     `json:"latest_send,omitempty"`
+}
+
+type sendJSON struct {
+	ID          int64  `json:"id"`
+	TaskID      string `json:"task_id"`
+	AttemptID   int64  `json:"attempt_id"`
+	Origin      string `json:"origin"`
+	State       string `json:"state"`
+	ReasonCode  string `json:"reason_code,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	FinalizedAt string `json:"finalized_at,omitempty"`
 }
 
 type attemptJSON struct {
@@ -469,6 +481,10 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 		unacked:      unacked,
 		reported:     reportedFrom(last, len(lines) > 0, readErr),
 	}
+	if len(history.Sends) != 0 {
+		latest := history.Sends[len(history.Sends)-1]
+		v.latestSend = &latest
+	}
 	if reportedOK {
 		v.reportedState = reported.State
 	}
@@ -500,7 +516,15 @@ func (v taskView) json() statusJSON {
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
 		Reported: v.reported, GateRunIssue: v.gateIssue, RepairCode: v.task.RepairCode, RepairReason: v.task.RepairReason, RepairAttemptID: v.task.RepairAttemptID, RepairObservedAt: v.task.RepairObservedAt, Unacknowledged: v.unacked, Attempts: history,
+		LatestSend: latestSendJSON(v.latestSend),
 	}
+}
+
+func latestSendJSON(send *state.SendAttempt) *sendJSON {
+	if send == nil {
+		return nil
+	}
+	return &sendJSON{ID: send.ID, TaskID: send.TaskID, AttemptID: send.AttemptID, Origin: string(send.Origin), State: string(send.State), ReasonCode: send.ReasonCode, CreatedAt: send.CreatedAt, FinalizedAt: send.FinalizedAt}
 }
 
 func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {

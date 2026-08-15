@@ -24,14 +24,20 @@ type (
 	Task             = store.Task
 	Attempt          = store.Attempt
 	TaskHistory      = store.TaskHistory
+	SendAttempt      = store.SendAttempt
 	Hold             = store.Hold
 	TaskLifecycle    = store.TaskLifecycle
 	AttemptLifecycle = store.AttemptLifecycle
+	SendState        = store.SendState
+	SendOrigin       = store.SendOrigin
 )
 
 var (
-	ErrLifecycleConflict = store.ErrLifecycleConflict
-	ErrOwnershipConflict = store.ErrOwnershipConflict
+	ErrLifecycleConflict     = store.ErrLifecycleConflict
+	ErrOwnershipConflict     = store.ErrOwnershipConflict
+	ErrSendOwnershipConflict = store.ErrSendOwnershipConflict
+	ErrSendInFlight          = store.ErrSendInFlight
+	ErrInvalidSendTransition = store.ErrInvalidSendTransition
 )
 
 const (
@@ -45,6 +51,15 @@ const (
 	AttemptCompleted    = store.AttemptCompleted
 	AttemptFailed       = store.AttemptFailed
 	AttemptInterrupted  = store.AttemptInterrupted
+
+	SendPending      = store.SendPending
+	SendNotSubmitted = store.SendNotSubmitted
+	SendSubmitted    = store.SendSubmitted
+	SendUncertain    = store.SendUncertain
+
+	SendOriginOperator          = store.SendOriginOperator
+	SendOriginUsageLimitResume  = store.SendOriginUsageLimitResume
+	SendOriginLegacyUndelivered = store.SendOriginLegacyUndelivered
 )
 
 const (

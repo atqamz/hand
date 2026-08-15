@@ -1478,6 +1478,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		PersistedParkedFiredFor: time.Date(2004, 4, 4, 0, 0, 0, 0, time.UTC),
 		LimitRetryAt:            time.Date(2005, 5, 5, 0, 0, 0, 0, time.UTC),
 		LimitAttempts:           3,
+		LimitResumeBlocked:      true,
 		PersistedLimitRetryAt:   time.Date(2006, 6, 6, 0, 0, 0, 0, time.UTC),
 		PersistedLimitAttempts:  4,
 		LimitProbed:             true,
