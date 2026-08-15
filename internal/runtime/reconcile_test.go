@@ -588,6 +588,83 @@ func TestReconcileDoesNotClearUnknownRepairAfterTerminalTeardown(t *testing.T) {
 	}
 }
 
+func TestClearResolvedTerminalRepairRequiresRepairEvidenceResolution(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		code       string
+		attempt    state.Attempt
+		completion bool
+	}{
+		{
+			name: "herdr repair retains recorded identity",
+			code: repairCodeRunningPaneMissing,
+			attempt: state.Attempt{Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{
+				WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1",
+			}},
+			completion: true,
+		},
+		{
+			name:       "worktree repair retains recorded ownership",
+			code:       repairCodeWorktreeDirty,
+			attempt:    state.Attempt{Lifecycle: state.AttemptProvisioning, Worktree: "/pool/1", LeaseID: "lease-1"},
+			completion: true,
+		},
+		{
+			name:       "completion mismatch never clears here",
+			code:       repairCodeCompletionEvidenceMismatch,
+			attempt:    state.Attempt{Lifecycle: state.AttemptProvisioning},
+			completion: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := reconcileFixture(t)
+			test.attempt.TaskID = "task-1"
+			attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, test.attempt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := state.SetAttemptTeardownDecision(home, "task-1", attempt.ID, state.AttemptInterrupted, state.TeardownDispositionForced); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptProvisioning, state.AttemptInterrupted); err != nil {
+				t.Fatal(err)
+			}
+			if test.completion {
+				if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptInterrupted, state.TeardownCompletionPending); err != nil {
+					t.Fatal(err)
+				}
+				if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptInterrupted, state.TeardownCompletionAppended); err != nil {
+					t.Fatal(err)
+				}
+				if err := completion.Append(home, completion.Record{ID: "task-1", Project: "demo", Outcome: "torn-down", AttemptID: attempt.ID, AttemptLifecycle: string(state.AttemptInterrupted)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := state.SetTaskRepair(home, "task-1", test.code, "unresolved evidence", attempt.ID, "2026-08-15T00:00:00Z"); err != nil {
+				t.Fatal(err)
+			}
+			history, err := state.ReadHistory(home, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleared, err := clearResolvedTerminalRepair(home, history)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cleared {
+				t.Fatal("clearResolvedTerminalRepair cleared unresolved repair evidence")
+			}
+			history, err = state.ReadHistory(home, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if history.Task.RepairCode != test.code {
+				t.Fatalf("repair code = %q, want %q retained", history.Task.RepairCode, test.code)
+			}
+		})
+	}
+}
+
 func TestReconcileRunningOwnershipRepairClearsWithDirtyExactLease(t *testing.T) {
 	task := state.Task{ID: "task-1", RepairCode: repairCodeWorktreeOwnershipMismatch, RepairAttemptID: 7}
 	attempt := state.Attempt{ID: 7, Lifecycle: state.AttemptRunning, Worktree: "/pool/1", LeaseID: "lease-1"}

@@ -854,10 +854,7 @@ func clearResolvedTerminalRepair(home string, history state.TaskHistory) (bool, 
 	if attempt == nil || attempt.Lifecycle == state.AttemptProvisioning || attempt.Lifecycle == state.AttemptRunning {
 		return false, nil
 	}
-	if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
-		return false, nil
-	}
-	if attempt.Worktree != "" && attempt.TeardownWorktreeState != state.TeardownResourceReleased {
+	if !terminalRepairEvidenceResolved(task.RepairCode, *attempt) {
 		return false, nil
 	}
 	if attempt.TeardownCompletionState != state.TeardownCompletionAppended {
@@ -879,9 +876,21 @@ func terminalRepairCanBeResolved(code string) bool {
 	case repairCodeProvisioningLaunchAmbiguous, repairCodeProvisioningPaneMissing, repairCodeLaunchSubmittedPaneMissing,
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeWorktreeDirty,
-		repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeTeardownResourceAmbiguous,
-		repairCodeCompletionEvidenceMismatch:
+		repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeTeardownResourceAmbiguous:
 		return true
+	default:
+		return false
+	}
+}
+
+func terminalRepairEvidenceResolved(code string, attempt state.Attempt) bool {
+	switch code {
+	case repairCodeProvisioningLaunchAmbiguous, repairCodeProvisioningPaneMissing, repairCodeLaunchSubmittedPaneMissing,
+		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
+		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeTeardownResourceAmbiguous:
+		return !hasHerdrIdentity(attempt.Herdr) || attempt.TeardownHerdrState == state.TeardownResourceReleased
+	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable:
+		return attempt.Worktree == "" || attempt.TeardownWorktreeState == state.TeardownResourceReleased
 	default:
 		return false
 	}
