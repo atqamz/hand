@@ -54,8 +54,8 @@ var ErrInterrupted = errors.New("watch interrupted")
 var ErrReplaced = errors.New("watch replaced by explicit takeover")
 
 // Classifies a canceled context into the one typed lifecycle result that fits:
-// explicit replacement beats generic interruption. A context deadline is not an
-// interruption and belongs to ErrNoEvent, decided by callers before here.
+// explicit replacement beats generic interruption. A context deadline belongs
+// to ErrNoEvent rather than either lifecycle cancellation result.
 func cancellationError(ctx context.Context) error {
 	if errors.Is(context.Cause(ctx), ErrReplaced) {
 		return ErrReplaced
@@ -63,14 +63,24 @@ func cancellationError(ctx context.Context) error {
 	return ErrInterrupted
 }
 
-// Run blocks, polling herdr agent states at cfg.PollInterval until ctx is canceled, returning nil on
-// clean cancellation or an error if herdr is unreachable at startup. out receives the actionable
-// event stream, while errOut receives internal diagnostics.
+func contextLifecycleError(ctx context.Context) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+		return ErrNoEvent
+	}
+	return cancellationError(ctx)
+}
+
+// Run blocks, polling herdr agent states at cfg.PollInterval until ctx is canceled, returning a
+// typed lifecycle result for cancellation or an error if herdr is unreachable at startup. out
+// receives the actionable event stream, while errOut receives internal diagnostics.
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect(ctx)
 	if err != nil {
-		if ctx.Err() != nil {
-			return cancellationError(ctx)
+		if lifecycleErr := contextLifecycleError(ctx); lifecycleErr != nil {
+			return lifecycleErr
 		}
 		return err
 	}
@@ -83,7 +93,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return cancellationError(ctx)
+			return contextLifecycleError(ctx)
 		case <-ticker.C:
 			tick(ctx, cfg, client, states, out, errOut)
 		}
@@ -124,10 +134,11 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	for {
 		select {
 		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			lifecycleErr := contextLifecycleError(ctx)
+			if errors.Is(lifecycleErr, ErrNoEvent) {
 				return fmt.Errorf("%w within %s", ErrNoEvent, cfg.Timeout)
 			}
-			return fmt.Errorf("%w", cancellationError(ctx))
+			return fmt.Errorf("%w", lifecycleErr)
 		case <-ticker.C:
 			var events bytes.Buffer
 			tick(ctx, cfg, client, states, &events, errOut)
@@ -150,11 +161,11 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 	// Losing the race is ErrNoEvent for the same reason probeAllTasks's is: the window closed during
 	// arming, which is exit 4 wherever in arming it happens.
 	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, fmt.Errorf("%w: timed out reaching herdr", ErrNoEvent)
-		}
-		return nil, fmt.Errorf("while reaching herdr: %w", cancellationError(ctx))
+		return nil, connectContextError(ctx)
 	case err := <-done:
+		if ctxErr := contextLifecycleError(ctx); ctxErr != nil {
+			return nil, connectContextError(ctx)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("herdr unreachable: %w", err)
 		}
@@ -190,13 +201,27 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 	// ErrNoEvent, not ErrArmFailed: the window is simply over, and no single task can be named as the
 	// cause the way ErrArmFailed's exit promises.
 	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("%w: timed out probing tasks before arming", ErrNoEvent)
-		}
-		return fmt.Errorf("while probing tasks before arming: %w", cancellationError(ctx))
+		return probeContextError(ctx)
 	case err := <-done:
+		if ctxErr := contextLifecycleError(ctx); ctxErr != nil {
+			return probeContextError(ctx)
+		}
 		return err
 	}
+}
+
+func connectContextError(ctx context.Context) error {
+	if errors.Is(contextLifecycleError(ctx), ErrNoEvent) {
+		return fmt.Errorf("%w: timed out reaching herdr", ErrNoEvent)
+	}
+	return fmt.Errorf("while reaching herdr: %w", cancellationError(ctx))
+}
+
+func probeContextError(ctx context.Context) error {
+	if errors.Is(contextLifecycleError(ctx), ErrNoEvent) {
+		return fmt.Errorf("%w: timed out probing tasks before arming", ErrNoEvent)
+	}
+	return fmt.Errorf("while probing tasks before arming: %w", cancellationError(ctx))
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {

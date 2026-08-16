@@ -3,8 +3,10 @@
 package watcher
 
 import (
+	"bufio"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +75,98 @@ func TestUnixTakeoverMalformedRequestDoesNotWake(t *testing.T) {
 	}
 }
 
+func TestUnixTakeoverRequiresPositiveAcknowledgment(t *testing.T) {
+	home := t.TempDir()
+	sock := takeoverSocketPath(home, genB)
+	listener, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = listener.Close()
+		_ = os.Remove(sock)
+	}()
+
+	served := make(chan struct{})
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			_ = conn.SetDeadline(time.Now().Add(time.Second))
+			_, _ = bufio.NewReader(conn).ReadString('\n')
+			_, _ = conn.Write([]byte("not-ok\n"))
+			_ = conn.Close()
+		}
+		close(served)
+	}()
+
+	if err := requestTakeover(home, genB); err == nil {
+		t.Fatal("requestTakeover accepted an invalid acknowledgment")
+	}
+	select {
+	case <-served:
+	case <-time.After(time.Second):
+		t.Fatal("test endpoint did not receive the request")
+	}
+}
+
+func TestRequestCurrentRetriesAfterFailedAcknowledgment(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(OwnerRecordPath(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishOwnerRecord(home, OwnerRecord{Version: ownerRecordVersion, Generation: genB, PID: os.Getpid() + 1}); err != nil {
+		t.Fatal(err)
+	}
+	sock := takeoverSocketPath(home, genB)
+	listener, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serve := func(reply string) <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				done <- acceptErr
+				return
+			}
+			_ = conn.SetDeadline(time.Now().Add(time.Second))
+			_, _ = bufio.NewReader(conn).ReadString('\n')
+			_, _ = conn.Write([]byte(reply))
+			_ = conn.Close()
+			done <- nil
+		}()
+		return done
+	}
+
+	requested := make(map[string]bool)
+	serverDone := serve("not-ok\n")
+	requestCurrent(home, requested)
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	if requested[genB] {
+		t.Fatal("failed acknowledgment marked the generation as requested")
+	}
+	_ = listener.Close()
+	_ = os.Remove(sock)
+
+	endpoint, err := newTakeoverEndpoint(home, genB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer endpoint.Close()
+	requestCurrent(home, requested)
+	if !requested[genB] {
+		t.Fatal("successful acknowledgment did not mark the generation as requested")
+	}
+	select {
+	case <-endpoint.Requested():
+	case <-time.After(time.Second):
+		t.Fatal("retry did not reach the generation endpoint")
+	}
+}
+
 // Closing the endpoint is teardown, never a takeover: the channel must stay
 // open and the socket must be removed.
 func TestUnixEndpointCloseDoesNotMasqueradeAsTakeover(t *testing.T) {
@@ -114,5 +208,24 @@ func TestUnixSocketPathStaysWithinSockaddrUnLimit(t *testing.T) {
 	home := t.TempDir()
 	if path := takeoverSocketPath(home, "deadbeef"+strings.Repeat("a", 24)); len(path) >= sockaddrUnLimit {
 		t.Fatalf("takeover socket path %q is %d bytes, want < %d (macOS bind limit)", path, len(path), sockaddrUnLimit)
+	}
+}
+
+func TestUnixSocketPathCanonicalizesEquivalentHomeAliases(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "fleet")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasRoot := t.TempDir()
+	alias := filepath.Join(aliasRoot, "alias")
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, equivalent := range []string{filepath.Join(home, "."), alias} {
+		if got, want := takeoverSocketPath(equivalent, genB), takeoverSocketPath(home, genB); got != want {
+			t.Fatalf("takeoverSocketPath(%q) = %q, want canonical identity %q", equivalent, got, want)
+		}
 	}
 }

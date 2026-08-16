@@ -19,6 +19,12 @@ const defaultParkedPausedBound = 3600 * time.Second
 const defaultParkedDoneBound = 5400 * time.Second
 const defaultParkedOtherBound = 1200 * time.Second
 
+var (
+	acquireWatcher    = watcher.Acquire
+	notifyWatchSignal = signal.Notify
+	stopWatchSignal   = signal.Stop
+)
+
 func newWatchCmd() *cobra.Command {
 	var poll string
 	var untilEvent bool
@@ -86,7 +92,11 @@ func newWatchCmd() *cobra.Command {
 				return err
 			}
 
-			ownership, err := watcher.Acquire(home, takeover)
+			sig := make(chan os.Signal, 1)
+			notifyWatchSignal(sig, os.Interrupt, syscall.SIGTERM)
+			defer stopWatchSignal(sig)
+
+			ownership, err := acquireWatcher(home, takeover)
 			if err != nil {
 				if errors.Is(err, watcher.ErrAttached) {
 					return &ExitError{Err: err, Code: 3}
@@ -94,10 +104,6 @@ func newWatchCmd() *cobra.Command {
 				return err
 			}
 			defer ownership.Release()
-
-			sig := make(chan os.Signal, 1)
-			signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-			defer signal.Stop(sig)
 
 			ctx, cancel := watchContext(cmd.Context(), sig, ownership.TakeoverRequested())
 			defer cancel()

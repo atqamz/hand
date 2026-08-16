@@ -14,6 +14,8 @@ import (
 
 const takeoverEventPrefix = "Global\\hand-watch-takeover-"
 
+var errTakeoverEndpointMissing = errors.New("takeover endpoint missing")
+
 // A short stable identity for a fleet home used to namespace the Windows named
 // event without embedding an arbitrary filesystem path in the event name.
 func homeID(homeDir string) string {
@@ -103,7 +105,7 @@ func requestTakeover(home, gen string) error {
 	}
 	event, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, name)
 	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
-		return nil
+		return fmt.Errorf("%w: %w", errTakeoverEndpointMissing, err)
 	}
 	if err != nil {
 		return fmt.Errorf("open takeover event: %w", err)

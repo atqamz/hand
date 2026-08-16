@@ -187,12 +187,12 @@ func (o *Ownership) PID() int {
 	return o.record.PID
 }
 
-// Handles lock contention. Without --takeover it refuses immediately, naming
-// the coherent incumbent. With --takeover it requests each observed generation
-// once and waits for the kernel lock, never targeting a process by pid.
+// Handles lock contention. Without --takeover it refuses immediately. With
+// --takeover it requests each observed generation once after delivery succeeds
+// and waits for the kernel lock, never targeting a process by pid.
 func contend(lockFile *os.File, home string, takeover bool) error {
 	if !takeover {
-		return fmt.Errorf("%w (pid %s) - stop it, or re-run with --takeover to replace it", ErrAttached, incumbentLabel(home))
+		return fmt.Errorf("%w - a watcher already holds the fleet-home lock; stop it through its owning session, or use --takeover for cooperative replacement", ErrAttached)
 	}
 
 	deadline := time.Now().Add(takeoverGrace)
@@ -209,8 +209,8 @@ func contend(lockFile *os.File, home string, takeover bool) error {
 		}
 		requestCurrent(home, requested)
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%w (pid %s) and it still holds %s %s after --takeover - stop it and retry",
-				ErrAttached, incumbentLabel(home), lockFile.Name(), takeoverGrace)
+			return fmt.Errorf("%w - the fleet-home lock did not release within %s after --takeover; stop the watcher through its owning session and retry",
+				ErrAttached, takeoverGrace)
 		}
 		time.Sleep(takeoverPoll)
 	}
@@ -227,12 +227,12 @@ func requestCurrent(home string, requested map[string]bool) {
 	if rec.PID == os.Getpid() || requested[rec.Generation] {
 		return
 	}
-	requested[rec.Generation] = true
 	if rErr := requestTakeover(home, rec.Generation); rErr != nil {
 		// Endpoint-gone or stale-generation here is not proof of ownership: the
 		// contender keeps waiting on the kernel lock, which is the only authority.
 		return
 	}
+	requested[rec.Generation] = true
 }
 
 // Returns the coherent current routing record, or an error for any malformed,
@@ -243,17 +243,6 @@ func readOwnerRecord(home string) (OwnerRecord, error) {
 		return OwnerRecord{}, err
 	}
 	return parseOwnerRecord(data)
-}
-
-// Names the attached watcher from a valid coherent owner record when one is
-// published, falling back to unknown rather than presenting a stale advisory pid
-// as current truth.
-func incumbentLabel(home string) string {
-	rec, err := readOwnerRecord(home)
-	if err != nil {
-		return "unknown"
-	}
-	return strconv.Itoa(rec.PID)
 }
 
 func lockOwner(file *os.File) error {

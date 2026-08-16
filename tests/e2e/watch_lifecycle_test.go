@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -43,6 +43,88 @@ func TestWatchUntilEventIncumbentIsReplacedByTakeover(t *testing.T) {
 	}
 
 	successor.interrupt(t, 10*time.Second)
+}
+
+func TestWatchConnectIsReplacedWhileHerdrIsBlocked(t *testing.T) {
+	home := newHome(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, binDir(t))
+
+	incumbent := startHandBackground(t, home, "watch", "--poll", "30ms")
+	waitForInvocation(t, callLog, "herdr workspace list", 10*time.Second)
+	successor := startHandBackground(t, home, "watch", "--poll", "30ms", "--takeover")
+
+	got := incumbent.waitForExit(t, 10*time.Second, "takeover during connect")
+	if got.code != 9 || !strings.Contains(got.stderr, "watch-replaced") || strings.TrimSpace(got.stdout) != "" {
+		t.Fatalf("blocked-connect incumbent: exit %d stdout %q stderr %q, want exit 9/watch-replaced and empty stdout", got.code, got.stdout, got.stderr)
+	}
+	waitForCoherentOwner(t, home, successor.cmd.Process.Pid)
+	successor.interrupt(t, 10*time.Second)
+}
+
+func TestWatchConnectInterruptionWhileHerdrIsBlocked(t *testing.T) {
+	home := newHome(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, binDir(t))
+
+	watch := startHandBackground(t, home, "watch", "--poll", "30ms")
+	waitForInvocation(t, callLog, "herdr workspace list", 10*time.Second)
+	got := watch.interrupt(t, 10*time.Second)
+	if got.code != 8 || !strings.Contains(got.stderr, "watch-interrupted") || strings.TrimSpace(got.stdout) != "" {
+		t.Fatalf("blocked-connect interruption: exit %d stdout %q stderr %q, want exit 8/watch-interrupted and empty stdout", got.code, got.stdout, got.stderr)
+	}
+}
+
+func TestWatchConnectTimeoutWhileHerdrIsBlocked(t *testing.T) {
+	home := newHome(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, binDir(t))
+
+	got := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "100ms")
+	if got.code != 4 || !strings.Contains(got.stderr, "no-event") || strings.TrimSpace(got.stdout) != "" {
+		t.Fatalf("blocked-connect timeout: exit %d stdout %q stderr %q, want exit 4/no-event and empty stdout", got.code, got.stdout, got.stderr)
+	}
+}
+
+func TestWatchArmProbeIsReplacedWhileHerdrIsBlocked(t *testing.T) {
+	home := seedOneTaskHome(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"pane get"}, Log: callLog, LogCommands: []string{"pane get"}, AllowUnknownPane: true}.Install(t, binDir(t))
+
+	incumbent := startHandBackground(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "60s")
+	waitForInvocation(t, callLog, "herdr pane get", 10*time.Second)
+	successor := startHandBackground(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "60s", "--takeover")
+
+	got := incumbent.waitForExit(t, 10*time.Second, "takeover during arm probe")
+	if got.code != 9 || strings.Contains(got.stderr, "arm-failed") || strings.TrimSpace(got.stdout) != "" {
+		t.Fatalf("blocked-arm incumbent: exit %d stdout %q stderr %q, want exit 9 without arm-failed or stdout", got.code, got.stdout, got.stderr)
+	}
+	waitForCoherentOwner(t, home, successor.cmd.Process.Pid)
+	successor.interrupt(t, 10*time.Second)
+}
+
+func TestWatchArmProbeInterruptionWhileHerdrIsBlocked(t *testing.T) {
+	home := seedOneTaskHome(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"pane get"}, Log: callLog, LogCommands: []string{"pane get"}, AllowUnknownPane: true}.Install(t, binDir(t))
+
+	watch := startHandBackground(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "60s")
+	waitForInvocation(t, callLog, "herdr pane get", 10*time.Second)
+	got := watch.interrupt(t, 10*time.Second)
+	if got.code != 8 || strings.Contains(got.stderr, "arm-failed") || strings.TrimSpace(got.stdout) != "" {
+		t.Fatalf("blocked-arm interruption: exit %d stdout %q stderr %q, want exit 8 without arm-failed or stdout", got.code, got.stdout, got.stderr)
+	}
+}
+
+func TestWatchArmProbeTimeoutWhileHerdrIsBlocked(t *testing.T) {
+	home := seedOneTaskHome(t)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"pane get"}, Log: callLog, LogCommands: []string{"pane get"}, AllowUnknownPane: true}.Install(t, binDir(t))
+
+	got := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "100ms")
+	if got.code != 4 || strings.Contains(got.stderr, "arm-failed") || strings.TrimSpace(got.stdout) != "" {
+		t.Fatalf("blocked-arm timeout: exit %d stdout %q stderr %q, want exit 4 without arm-failed or stdout", got.code, got.stdout, got.stderr)
+	}
 }
 
 // Ordinary commands never enter watcher ownership: with a live streaming
@@ -136,9 +218,6 @@ func setupSendFakeHome(t *testing.T, home string) string {
 // watch is still refused with exit 3).
 func assertWatcherUnaffected(t *testing.T, home string, watcher *backgroundHand, rec ownerPublication) {
 	t.Helper()
-	if err := watcher.cmd.Process.Signal(syscall.Signal(0)); err != nil {
-		t.Fatalf("incumbent watcher no longer running after an ordinary command: %v", err)
-	}
 	now, err := readOwnerPublication(t, home)
 	if err != nil {
 		t.Fatalf("read owner publication after ordinary command: %v", err)
@@ -148,9 +227,9 @@ func assertWatcherUnaffected(t *testing.T, home string, watcher *backgroundHand,
 			rec.PID, rec.Generation, now.PID, now.Generation)
 	}
 	refused := runHand(t, home, "watch", "--poll", "30ms")
-	if refused.code != 3 || !strings.Contains(refused.stderr, "pid "+strconv.Itoa(rec.PID)) {
-		t.Fatalf("after an ordinary command the incumbent no longer refuses ownership: exit %d stderr %q (want 3 naming pid %d)",
-			refused.code, refused.stderr, rec.PID)
+	if refused.code != 3 || !strings.Contains(refused.stderr, "already attached") {
+		t.Fatalf("after an ordinary command the incumbent no longer refuses ownership: exit %d stderr %q (want lock contention)",
+			refused.code, refused.stderr)
 	}
 }
 

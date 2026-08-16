@@ -300,6 +300,28 @@ func TestUsageErrorHelpNamesTheCommandThatRefused(t *testing.T) {
 	}
 }
 
+func TestLifecycleHelpDescribesInterruptionAndReplacementFacts(t *testing.T) {
+	interrupted := strings.Join(errorHelp(8, "hand watch"), " ")
+	for _, want := range []string{"generic interruption", "no fleet event", "releases ownership", "re-armed"} {
+		if !strings.Contains(interrupted, want) {
+			t.Fatalf("exit 8 help = %q, want %q", interrupted, want)
+		}
+	}
+	if strings.Contains(interrupted, "nothing was taken over") || strings.Contains(interrupted, "still holds") {
+		t.Fatalf("exit 8 help = %q, contains an obsolete ownership claim", interrupted)
+	}
+
+	replaced := strings.Join(errorHelp(9, "hand watch"), " ")
+	for _, want := range []string{"explicitly displaced", "no fleet event", "takeover successor", "acquires ownership"} {
+		if !strings.Contains(replaced, want) {
+			t.Fatalf("exit 9 help = %q, want %q", replaced, want)
+		}
+	}
+	if strings.Contains(replaced, "launch another") {
+		t.Fatalf("exit 9 help = %q, tells the displaced operator to launch another successor", replaced)
+	}
+}
+
 // A general error is the one code with no recovery a caller can be told in
 // advance, so it gets no help block rather than a line saying nothing.
 func TestGeneralErrorCarriesNoHelpBlock(t *testing.T) {

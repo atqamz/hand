@@ -112,19 +112,30 @@ func logPaneGets(t *testing.T) string {
 }
 
 func waitForPaneGets(t *testing.T, callLog string, want int) {
+	waitForHerdrCalls(t, callLog, "pane get", want)
+}
+
+func waitForHerdrCalls(t *testing.T, callLog, command string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
+	prefix := []byte("herdr " + command)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(callLog)
 		if err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
-		if bytes.Count(data, []byte("\n")) >= want {
+		calls := 0
+		for _, line := range bytes.Split(data, []byte("\n")) {
+			if bytes.HasPrefix(line, prefix) {
+				calls++
+			}
+		}
+		if calls >= want {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for %d pane get calls", want)
+	t.Fatalf("timed out waiting for %d %s calls", want, command)
 }
 
 func writeTaskAttempt(t *testing.T, home string, task state.Task, attempt state.Attempt) error {
@@ -1944,9 +1955,8 @@ func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
 }
 
 func TestRunReportsInterruptionOnContextCancel(t *testing.T) {
-	statusFile := filepath.Join(t.TempDir(), "status")
-	setStatus(t, statusFile, "working")
-	writeFakeHerdr(t, statusFile)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, faketool.Bin(t))
 
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
@@ -1959,7 +1969,7 @@ func TestRunReportsInterruptionOnContextCancel(t *testing.T) {
 		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForHerdrCalls(t, callLog, "workspace list", 1)
 	cancel()
 
 	select {
@@ -2174,18 +2184,17 @@ func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
 }
 
 func TestRunUntilEventReportsInterruptionOnContextCancel(t *testing.T) {
-	statusFile := filepath.Join(t.TempDir(), "status")
-	setStatus(t, statusFile, "working")
-	writeFakeHerdr(t, statusFile)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, faketool.Bin(t))
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	home := t.TempDir()
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- RunUntilEvent(ctx, cfg, &bytes.Buffer{}, io.Discard) }()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForHerdrCalls(t, callLog, "workspace list", 1)
 	cancel()
 
 	select {
@@ -2202,9 +2211,8 @@ func TestRunUntilEventReportsInterruptionOnContextCancel(t *testing.T) {
 // watch context) must surface as ErrReplaced all the way out of the runner, not
 // as a generic interruption or a no-event result.
 func TestRunReportsReplacementOnTakeoverCause(t *testing.T) {
-	statusFile := filepath.Join(t.TempDir(), "status")
-	setStatus(t, statusFile, "working")
-	writeFakeHerdr(t, statusFile)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, faketool.Bin(t))
 
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
@@ -2217,7 +2225,7 @@ func TestRunReportsReplacementOnTakeoverCause(t *testing.T) {
 		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForHerdrCalls(t, callLog, "workspace list", 1)
 	cancel(ErrReplaced)
 
 	select {
@@ -2231,18 +2239,17 @@ func TestRunReportsReplacementOnTakeoverCause(t *testing.T) {
 }
 
 func TestRunUntilEventReportsReplacementOnTakeoverCause(t *testing.T) {
-	statusFile := filepath.Join(t.TempDir(), "status")
-	setStatus(t, statusFile, "working")
-	writeFakeHerdr(t, statusFile)
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, faketool.Bin(t))
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	home := t.TempDir()
 	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
 
 	ctx, cancel := context.WithCancelCause(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- RunUntilEvent(ctx, cfg, &bytes.Buffer{}, io.Discard) }()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForHerdrCalls(t, callLog, "workspace list", 1)
 	cancel(ErrReplaced)
 
 	select {
@@ -2309,6 +2316,60 @@ func TestRunUntilEventReportsNoEventWhenTheArmProbeHangs(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("returned after %s, want --timeout to bound a hung pane probe", elapsed)
+	}
+}
+
+func TestRunUntilEventReportsInterruptionWhenTheArmProbeIsCanceled(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{{Command: "workspace list", Stdout: `{"id":"cli:1","result":{"workspaces":[]}}`}},
+		Hang:      []string{"pane get"},
+		Log:       callLog, LogCommands: []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunUntilEvent(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}, &bytes.Buffer{}, io.Discard)
+	}()
+	waitForPaneGets(t, callLog, 1)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrInterrupted) || errors.Is(err, ErrArmFailed) {
+			t.Fatalf("RunUntilEvent = %v, want ErrInterrupted and not ErrArmFailed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunUntilEvent did not exit after canceling its arm probe")
+	}
+}
+
+func TestRunUntilEventReportsReplacementWhenTheArmProbeIsCanceled(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{{Command: "workspace list", Stdout: `{"id":"cli:1","result":{"workspaces":[]}}`}},
+		Hang:      []string{"pane get"},
+		Log:       callLog, LogCommands: []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunUntilEvent(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}, &bytes.Buffer{}, io.Discard)
+	}()
+	waitForPaneGets(t, callLog, 1)
+	cancel(ErrReplaced)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrReplaced) || errors.Is(err, ErrArmFailed) {
+			t.Fatalf("RunUntilEvent = %v, want ErrReplaced and not ErrArmFailed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunUntilEvent did not exit after replacing its arm probe")
 	}
 }
 

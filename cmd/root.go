@@ -246,9 +246,9 @@ func errorHelp(code int, path string) []string {
 	case 7:
 		return []string{"Terminal submission is uncertain; do not blindly retry because the message may already be in the pane"}
 	case 8:
-		return []string{"The watcher was interrupted before it was replaced: nothing was taken over, so an existing watcher still holds the fleet home"}
+		return []string{"The watcher stopped because of a generic interruption; it emitted no fleet event, releases ownership as the command exits, and may be re-armed by a supervisor"}
 	case 9:
-		return []string{"An explicit takeover replaced this watcher: launch another `hand watch` and it will become the owner"}
+		return []string{"This watcher was explicitly displaced by another Hand watcher; it emitted no fleet event, and the takeover successor acquires ownership after release"}
 	}
 	return nil
 }

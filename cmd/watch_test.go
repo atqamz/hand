@@ -193,6 +193,55 @@ func TestWatchMapsContextCancelToInterruption(t *testing.T) {
 	}
 }
 
+func TestWatchRegistersSignalsBeforePublishingOwnership(t *testing.T) {
+	setupWatchHome(t)
+
+	oldAcquire := acquireWatcher
+	oldNotify := notifyWatchSignal
+	oldStop := stopWatchSignal
+	t.Cleanup(func() {
+		acquireWatcher = oldAcquire
+		notifyWatchSignal = oldNotify
+		stopWatchSignal = oldStop
+	})
+
+	registered := make(chan chan<- os.Signal, 1)
+	notifyWatchSignal = func(sig chan<- os.Signal, _ ...os.Signal) {
+		registered <- sig
+	}
+	stopWatchSignal = func(chan<- os.Signal) {}
+	acquireWatcher = func(home string, takeover bool) (*watcher.Ownership, error) {
+		var sig chan<- os.Signal
+		select {
+		case sig = <-registered:
+		default:
+			return nil, errors.New("watcher acquisition ran before signal registration")
+		}
+		sig <- os.Interrupt
+		return watcher.Acquire(home, takeover)
+	}
+
+	cmd := newWatchCmd()
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"--poll", "1h"})
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	err := cmd.Execute()
+	if err == nil || exitCodeFor(t, err) != 8 {
+		t.Fatalf("watch returned %v, want exit 8 after an interruption buffered before ownership publication", err)
+	}
+	if !errors.Is(err, watcher.ErrInterrupted) {
+		t.Fatalf("err = %v, want ErrInterrupted", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want no lifecycle pseudo-event", out.String())
+	}
+	if strings.Contains(errOut.String(), "watch-replaced") {
+		t.Fatalf("stderr = %q, want generic interruption rather than replacement", errOut.String())
+	}
+}
+
 func TestWatchRefusesWhenAWatcherIsAlreadyAttached(t *testing.T) {
 	home := setupWatchHome(t)
 

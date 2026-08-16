@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestAcquireRefusesASecondWatcherAndNamesTheIncumbent(t *testing.T) {
+func TestAcquireRefusesASecondWatcherWithoutTrustingAdvisoryPID(t *testing.T) {
 	home := t.TempDir()
 
 	ownership, err := Acquire(home, false)
@@ -31,8 +31,8 @@ func TestAcquireRefusesASecondWatcherAndNamesTheIncumbent(t *testing.T) {
 	if !strings.Contains(err.Error(), ErrAttached.Error()) {
 		t.Fatalf("got %v, want it to wrap ErrAttached", err)
 	}
-	if !strings.Contains(err.Error(), "pid "+strconv.Itoa(os.Getpid())) {
-		t.Fatalf("got %v, want the refusal to name the incumbent pid %d", err, os.Getpid())
+	if strings.Contains(err.Error(), "pid ") || !strings.Contains(err.Error(), "owning session") {
+		t.Fatalf("got %v, want no operator instruction based on advisory PID", err)
 	}
 	if !strings.Contains(err.Error(), "--takeover") {
 		t.Fatalf("got %v, want the refusal to name the remedy", err)

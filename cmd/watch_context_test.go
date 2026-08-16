@@ -60,3 +60,29 @@ func TestWatchContextFollowsParentCancellation(t *testing.T) {
 		t.Fatal("context did not cancel with its parent")
 	}
 }
+
+func TestWatchContextPrefersObservableTakeoverOverBufferedSignal(t *testing.T) {
+	sig := make(chan os.Signal, 1)
+	sig <- os.Interrupt
+	requested := make(chan struct{})
+	close(requested)
+
+	ctx, cancel := watchContext(context.Background(), sig, requested)
+	defer cancel()
+	if !errors.Is(context.Cause(ctx), watcher.ErrReplaced) {
+		t.Fatalf("cause = %v, want ErrReplaced when takeover and signal are both ready", context.Cause(ctx))
+	}
+}
+
+func TestWatchContextPrefersTakeoverOverAlreadyCanceledParent(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	cancelParent()
+	requested := make(chan struct{})
+	close(requested)
+
+	ctx, cancel := watchContext(parent, make(chan os.Signal), requested)
+	defer cancel()
+	if !errors.Is(context.Cause(ctx), watcher.ErrReplaced) {
+		t.Fatalf("cause = %v, want ErrReplaced when takeover is ready at the boundary", context.Cause(ctx))
+	}
+}

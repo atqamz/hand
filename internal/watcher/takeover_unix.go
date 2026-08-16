@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -33,6 +32,7 @@ type takeoverEndpoint struct {
 	requested  chan struct{}
 	signalOnce sync.Once
 	closeOnce  sync.Once
+	handlers   sync.WaitGroup
 	done       chan struct{}
 	sockPath   string
 }
@@ -43,8 +43,11 @@ func newTakeoverEndpoint(home, gen string) (*takeoverEndpoint, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen on takeover socket: %w", err)
 	}
-	// Restrictive permissions so only the owning fleet user can request a takeover.
-	_ = os.Chmod(sockPath, 0o600)
+	if err := os.Chmod(sockPath, 0o600); err != nil {
+		_ = ln.Close()
+		_ = os.Remove(sockPath)
+		return nil, fmt.Errorf("set takeover socket permissions: %w", err)
+	}
 
 	e := &takeoverEndpoint{
 		listener:  ln,
@@ -70,6 +73,7 @@ func (e *takeoverEndpoint) Close() {
 	e.closeOnce.Do(func() {
 		_ = e.listener.Close()
 		<-e.done
+		e.handlers.Wait()
 		_ = os.Remove(e.sockPath)
 	})
 }
@@ -82,11 +86,13 @@ func (e *takeoverEndpoint) accept(gen string) {
 			// Listener closed: normal teardown, never a takeover signal.
 			return
 		}
+		e.handlers.Add(1)
 		go e.handle(conn, gen)
 	}
 }
 
 func (e *takeoverEndpoint) handle(conn net.Conn, gen string) {
+	defer e.handlers.Done()
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(time.Second))
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
@@ -111,9 +117,12 @@ func requestTakeover(home, gen string) error {
 	if _, err := fmt.Fprintf(conn, "%s\n", gen); err != nil {
 		return err
 	}
-	reply, _ := bufio.NewReader(conn).ReadString('\n')
-	if strings.TrimSpace(reply) == "stale" {
-		return errors.New("stale takeover generation")
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read takeover acknowledgment: %w", err)
+	}
+	if reply != "ok\n" {
+		return fmt.Errorf("unexpected takeover acknowledgment %q", reply)
 	}
 	return nil
 }
