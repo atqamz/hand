@@ -1,7 +1,9 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,8 +87,9 @@ func (db *DB) migrateLegacy(archive bool) error {
 		// An id the database already owns attempts for keeps them, for the same reason the row
 		// itself wins: they postdate the snapshot. Attempting one anyway collides on the ordinal,
 		// or is refused outright once the task is terminal, and fails every command on this home.
+		var attemptID int64
 		if lifecycle == TaskOpen && attempts == 0 {
-			if _, err := db.CreateAttempt(Attempt{
+			created, err := db.CreateAttempt(Attempt{
 				TaskID: legacy.ID, Ordinal: 1, Lifecycle: AttemptRunning,
 				Harness: legacy.Harness, Model: legacy.Model, Effort: legacy.Effort,
 				Worktree: legacy.Worktree, LeaseID: legacy.LeaseID, Herdr: legacy.Herdr,
@@ -96,8 +99,25 @@ func (db *DB) migrateLegacy(archive bool) error {
 				LastReportNote: legacy.LastReportNote, SendUndeliveredMessage: legacy.SendUndeliveredMessage,
 				SendUndeliveredAt: legacy.SendUndeliveredAt, ParkedFiredFor: legacy.ParkedFiredFor,
 				UsageLimitRetryAt: legacy.UsageLimitRetryAt, UsageLimitAttempts: legacy.UsageLimitAttempts,
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("import attempt for task %q: %w", task.ID, err)
+			}
+			attemptID = created.ID
+		} else if lifecycle == TaskOpen && attempts == 1 {
+			matched, err := legacyAttemptMatches(db, task.ID, legacy)
+			if err != nil {
+				return fmt.Errorf("match imported attempt for task %q: %w", task.ID, err)
+			}
+			attemptID = matched
+		}
+		if legacy.SendUndeliveredMessage != "" && attemptID != 0 {
+			createdAt := legacy.SendUndeliveredAt
+			if createdAt == "" {
+				createdAt = legacy.CreatedAt
+			}
+			if err := db.ImportLegacySend(task.ID, attemptID, legacy.SendUndeliveredMessage, createdAt, legacy.SendUndeliveredAt); err != nil {
+				return fmt.Errorf("import send evidence for task %q: %w", task.ID, err)
 			}
 		}
 	}
@@ -117,6 +137,23 @@ func (db *DB) migrateLegacy(archive bool) error {
 		}
 	}
 	return nil
+}
+
+func legacyAttemptMatches(db *DB, taskID string, legacy legacyTask) (int64, error) {
+	var attemptID int64
+	err := db.sql.QueryRow(`SELECT id FROM attempt
+		WHERE task_id = ? AND ordinal = 1 AND harness = ? AND model = ? AND effort = ?
+		AND worktree = ? AND lease_id = ? AND herdr_session = ? AND herdr_workspace_id = ?
+		AND herdr_tab_id = ? AND herdr_pane_id = ? AND created_at = ?`,
+		taskID, legacy.Harness, legacy.Model, legacy.Effort, legacy.Worktree, legacy.LeaseID,
+		legacy.Herdr.Session, legacy.Herdr.WorkspaceID, legacy.Herdr.TabID, legacy.Herdr.PaneID, legacy.CreatedAt).Scan(&attemptID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return attemptID, nil
 }
 
 type legacyTask struct {

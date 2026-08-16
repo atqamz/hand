@@ -3,7 +3,9 @@ package watcher
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,14 +302,12 @@ func TestTickReleasesALimitTheOperatorEndedItself(t *testing.T) {
 	}
 }
 
-// The mechanism says so once when it runs out of its own answers, and keeps trying
-// afterwards: a weekly limit is real and does eventually lift, so giving up would strand
-// the worker for the sake of a tidy failure.
-func TestUsageLimitAnnouncesItselfStuckExactlyOnce(t *testing.T) {
+// A submitted automatic resume is observed rather than repeated on later watcher restarts.
+func TestUsageLimitDoesNotResendSubmittedResume(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "done")
 	writeFakeHerdr(t, statusFile)
-	paneScript(t, limitedPaneAgent, "Claude usage limit reached.")
+	paneLog := paneScript(t, limitedPaneAgent, "Claude usage limit reached.")
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
 		UsageLimitAttempts: limitStuckAfter - 1},
@@ -324,12 +324,210 @@ func TestUsageLimitAnnouncesItselfStuckExactlyOnce(t *testing.T) {
 		tick(ctx, cfg, client, states, &buf, &buf)
 	}
 
+	if got := strings.Count(paneCalls(t, paneLog), "send-text"); got != 1 {
+		t.Fatalf("send-text calls = %d, want one across watcher restarts", got)
+	}
 	if got := strings.Count(buf.String(), "usage-limit-stuck task-1"); got != 1 {
-		t.Fatalf("usage-limit-stuck fired %d times, want exactly 1:\n%s", got, buf.String())
+		t.Fatalf("usage-limit-stuck events = %d, want one across watcher restarts: output=%q", got, buf.String())
 	}
 	_, attempt := readTaskAttempt(t, home, "task-1")
-	if got := attempt.UsageLimitAttempts; got != limitStuckAfter+2 {
-		t.Fatalf("usage_limit_attempts = %d, want %d: the attempts continue past the stuck announcement", got, limitStuckAfter+2)
+	if got := attempt.UsageLimitAttempts; got != limitStuckAfter {
+		t.Fatalf("usage_limit_attempts = %d, want the one submitted attempt recorded after the prior attempts", got)
+	}
+}
+
+func TestUsageLimitResumesAgainAfterACompletedEpisode(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	paneLog := paneScript(t, limitedPaneAgent, claudeLimitText)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	ctx := context.Background()
+	var buf bytes.Buffer
+	states := make(map[string]*TaskState)
+
+	tick(ctx, cfg, client, states, &buf, &buf)
+	setStatus(t, statusFile, "done")
+	tick(ctx, cfg, client, states, &buf, &buf)
+	states = make(map[string]*TaskState)
+	setLimitRetryAt(t, home, "task-1", time.Now().Add(-time.Minute))
+	tick(ctx, cfg, client, states, &buf, &buf)
+	tick(ctx, cfg, client, states, &buf, &buf)
+
+	setStatus(t, statusFile, "working")
+	tick(ctx, cfg, client, states, &buf, &buf)
+
+	buf.Reset()
+	states = make(map[string]*TaskState)
+	setStatus(t, statusFile, "working")
+	tick(ctx, cfg, client, states, &buf, &buf)
+	tick(ctx, cfg, client, states, &buf, &buf)
+	if strings.Contains(buf.String(), "usage-limit-resumed") {
+		t.Fatalf("restart output = %q, want no resumed event for the completed historical episode", buf.String())
+	}
+
+	setStatus(t, statusFile, "done")
+	tick(ctx, cfg, client, states, &buf, &buf)
+
+	states = make(map[string]*TaskState)
+	setStatus(t, statusFile, "done")
+	setLimitRetryAt(t, home, "task-1", time.Now().Add(-time.Minute))
+	tick(ctx, cfg, client, states, &buf, &buf)
+	tick(ctx, cfg, client, states, &buf, &buf)
+
+	if got := strings.Count(paneCalls(t, paneLog), "send-text"); got != 2 {
+		t.Fatalf("send-text calls = %d, want one resume per limit episode", got)
+	}
+}
+
+func TestRestoreLimitResumeStateDoesNotResurrectClearedEpisode(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{
+		Lifecycle:       state.AttemptRunning,
+		Herdr:           state.Herdr{Session: "s", WorkspaceID: "w", TabID: "tab", PaneID: "p1"},
+		StatusChangedAt: "2026-08-15T12:00:00Z", StatusChangedFor: string(herdr.StatusWorking),
+	})
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	if _, err := state.BeginSend(home, task.ID, attempt.ID, attempt.Herdr, state.SendOriginUsageLimitResume, limitResumeMessage, "2026-08-15T12:01:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.FinalizeSend(home, 1, task.ID, attempt.ID, state.SendSubmitted, "text-and-enter-accepted", "2026-08-15T12:01:01Z"); err != nil {
+		t.Fatal(err)
+	}
+
+	var ts TaskState
+	if err := restoreLimitResumeState(home, &ts, attempt, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if ts.LimitResumeBlocked {
+		t.Fatal("cleared usage-limit episode was restored as blocked")
+	}
+}
+
+func TestRestoreLimitResumeStateRequiresTheActiveEpisodeIdentity(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{
+		Lifecycle:         state.AttemptRunning,
+		Herdr:             state.Herdr{Session: "s", WorkspaceID: "w", TabID: "tab", PaneID: "p1"},
+		UsageLimitEpisode: 7,
+		UsageLimitRetryAt: "2026-08-15T12:05:00Z",
+	})
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	old, err := state.BeginSend(home, task.ID, attempt.ID, attempt.Herdr, state.SendOriginUsageLimitResume, limitResumeMessage, "2026-08-15T12:01:00Z", 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.FinalizeSend(home, old.ID, task.ID, attempt.ID, state.SendSubmitted, "text-and-enter-accepted", "2026-08-15T12:01:01Z"); err != nil {
+		t.Fatal(err)
+	}
+	var ts TaskState
+	if err := restoreLimitResumeState(home, &ts, attempt, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if ts.LimitResumeBlocked {
+		t.Fatal("resume from episode 6 was restored for active episode 7")
+	}
+
+	current, err := state.BeginSend(home, task.ID, attempt.ID, attempt.Herdr, state.SendOriginUsageLimitResume, limitResumeMessage, "2026-08-15T12:02:00Z", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.FinalizeSend(home, current.ID, task.ID, attempt.ID, state.SendUncertain, "text-outcome-ambiguous", "2026-08-15T12:02:01Z"); err != nil {
+		t.Fatal(err)
+	}
+	ts = TaskState{}
+	if err := restoreLimitResumeState(home, &ts, attempt, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !ts.LimitResumeBlocked {
+		t.Fatal("matching unresolved usage-limit send was not restored as blocked")
+	}
+}
+
+func TestWatcherRestartRepairsTheAuthoritativeLimitHold(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      state.SendState
+		reason     string
+		finalized  bool
+		wantReason string
+	}{
+		{name: "submitted", state: state.SendSubmitted, reason: "text-and-enter-accepted", finalized: true},
+		{name: "uncertain", state: state.SendUncertain, reason: "enter-outcome-ambiguous", finalized: true},
+		{name: "partial", state: state.SendNotSubmitted, reason: state.SendReasonEnterRejectedAfterTextStaged, finalized: true},
+		{name: "pending", state: state.SendPending, reason: "", finalized: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+			home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{
+				Lifecycle:          state.AttemptRunning,
+				Herdr:              state.Herdr{Session: "s", WorkspaceID: "w", TabID: "tab", PaneID: "p1"},
+				UsageLimitEpisode:  1,
+				UsageLimitRetryAt:  now.Add(time.Hour).Format(time.RFC3339),
+				UsageLimitAttempts: 2,
+			})
+			task, attempt := readTaskAttempt(t, home, "task-1")
+			send, err := state.BeginSend(home, task.ID, attempt.ID, attempt.Herdr, state.SendOriginUsageLimitResume, limitResumeMessage, now.Format(time.RFC3339Nano), 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.finalized {
+				if _, err := state.FinalizeSend(home, send.ID, task.ID, attempt.ID, test.state, test.reason, now.Add(time.Second).Format(time.RFC3339Nano)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ts := resumeTaskState(task, attempt, herdr.StatusDone, now)
+			if err := restoreLimitResumeState(home, ts, attempt, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			if !ts.LimitResumeBlocked {
+				t.Fatal("restart did not restore the unresolved automatic resume as blocked")
+			}
+			if _, exists := limitHold(t, home, task.ID); exists {
+				t.Fatal("test setup unexpectedly has a limit hold")
+			}
+			var errBuf bytes.Buffer
+			syncTaskState(home, task.ID, ts, now, &errBuf)
+			if errBuf.Len() != 0 {
+				t.Fatalf("sync errOut = %q", errBuf.String())
+			}
+			hold, exists := limitHold(t, home, task.ID)
+			if !exists || hold.Kind != state.HoldKindLimit || !strings.Contains(hold.Reason, "no automatic resend") {
+				t.Fatalf("hold = %+v exists=%v, want the blocked authoritative reason", hold, exists)
+			}
+			before := hold
+			syncTaskState(home, task.ID, ts, now, &errBuf)
+			after, exists := limitHold(t, home, task.ID)
+			if !exists || after != before {
+				t.Fatalf("second projection = %+v exists=%v, want idempotent hold %+v", after, exists, before)
+			}
+		})
+	}
+}
+
+func TestWatcherDoesNotProjectAStaleAttemptHoldAfterReplacement(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{
+		Lifecycle:         state.AttemptRunning,
+		Herdr:             state.Herdr{Session: "s1", WorkspaceID: "w1", TabID: "tab1", PaneID: "p1"},
+		UsageLimitRetryAt: "2026-08-15T12:05:00Z",
+	})
+	task, old := readTaskAttempt(t, home, "task-1")
+	if err := state.TransitionAttempt(home, old.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateAttempt(home, state.Attempt{TaskID: task.ID, Lifecycle: state.AttemptRunning, Herdr: state.Herdr{Session: "s2", WorkspaceID: "w2", TabID: "tab2", PaneID: "p2"}}); err != nil {
+		t.Fatal(err)
+	}
+	ts := &TaskState{AttemptID: old.ID, AttemptLifecycle: old.Lifecycle, LimitRetryAt: time.Now().Add(time.Hour), LimitResumeBlocked: true}
+	var errBuf bytes.Buffer
+	syncTaskState(home, task.ID, ts, time.Now(), &errBuf)
+	if _, exists := limitHold(t, home, task.ID); exists {
+		t.Fatal("stale attempt projected a limit hold onto the replacement attempt")
+	}
+	if !strings.Contains(errBuf.String(), "ownership changed") {
+		t.Fatalf("errOut = %q, want stale ownership diagnostic", errBuf.String())
 	}
 }
 
@@ -345,6 +543,78 @@ func TestOnlyTheStuckUsageLimitKindNotifies(t *testing.T) {
 			t.Errorf("%s notifies, want it not to: the resume needs no human", kind)
 		}
 	}
+}
+
+func TestBlockedSubmittedResumeEscalatesWithoutResend(t *testing.T) {
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	ts := &TaskState{
+		LimitRetryAt:       time.Now().Add(-time.Minute),
+		LimitAttempts:      limitStuckAfter - 1,
+		LimitResumeBlocked: true,
+		LimitEpisode:       1,
+	}
+	client := &countingPane{}
+	pane := herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}
+	var errBuf bytes.Buffer
+	e := classifyUsageLimit(Config{Home: home}, client, ts, task, attempt, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf)
+	if e == nil || e.Kind != KindUsageLimitStuck {
+		t.Fatalf("event = %+v, want one usage-limit-stuck event", e)
+	}
+	if client.steers != 0 {
+		t.Fatalf("steers = %d, want no resend while escalation advances", client.steers)
+	}
+	if e := classifyUsageLimit(Config{Home: home}, client, taskStateForTest(ts), task, attempt, pane, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
+		t.Fatalf("repeat event = %+v, want one event per episode", e)
+	}
+}
+
+func TestBlockedPartialAndUncertainResumeEscalateWithoutResend(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		state  state.SendState
+		reason string
+	}{
+		{name: "uncertain", state: state.SendUncertain, reason: "enter-outcome-ambiguous"},
+		{name: "partial", state: state.SendNotSubmitted, reason: state.SendReasonEnterRejectedAfterTextStaged},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+			home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{
+				Lifecycle:          state.AttemptRunning,
+				Herdr:              state.Herdr{PaneID: "p1"},
+				UsageLimitEpisode:  1,
+				UsageLimitRetryAt:  now.Add(time.Hour).Format(time.RFC3339),
+				UsageLimitAttempts: limitStuckAfter - 1,
+			})
+			task, attempt := readTaskAttempt(t, home, "task-1")
+			send, err := state.BeginSend(home, task.ID, attempt.ID, attempt.Herdr, state.SendOriginUsageLimitResume, limitResumeMessage, now.Format(time.RFC3339Nano), 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := state.FinalizeSend(home, send.ID, task.ID, attempt.ID, test.state, test.reason, now.Add(time.Second).Format(time.RFC3339Nano)); err != nil {
+				t.Fatal(err)
+			}
+			ts := resumeTaskState(task, attempt, herdr.StatusDone, now)
+			if err := restoreLimitResumeState(home, ts, attempt, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			client := &countingPane{}
+			var errBuf bytes.Buffer
+			e := classifyUsageLimit(Config{Home: home}, client, ts, task, attempt, herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}, herdr.StatusDone, nil, false, now, &errBuf)
+			if e == nil || e.Kind != KindUsageLimitStuck {
+				t.Fatalf("event = %+v, want usage-limit-stuck", e)
+			}
+			if client.steers != 0 {
+				t.Fatalf("steers = %d, want no automatic resend", client.steers)
+			}
+		})
+	}
+}
+
+func taskStateForTest(ts *TaskState) *TaskState {
+	copy := *ts
+	return &copy
 }
 
 func TestNextLimitRetryIsBounded(t *testing.T) {
@@ -416,14 +686,58 @@ func TestAFailedSteerStillConsumesItsAttempt(t *testing.T) {
 		t.Fatalf("LimitAttempts = %d, want 1", ts.LimitAttempts)
 	}
 	if !ts.LimitRetryAt.After(now) {
-		t.Fatalf("LimitRetryAt = %s, want it pushed ahead of %s", ts.LimitRetryAt, now)
+		t.Fatalf("LimitRetryAt = %s, want it pushed ahead of %s; err=%q", ts.LimitRetryAt, now, errBuf.String())
 	}
-	if !strings.Contains(errBuf.String(), "resume task-1 after usage limit failed") {
-		t.Fatalf("errOut = %q, want the failed steer reported", errBuf.String())
+	if !strings.Contains(errBuf.String(), "no automatic resend") {
+		t.Fatalf("errOut = %q, want the ambiguous steer and resend suppression reported", errBuf.String())
+	}
+}
+
+func TestOnlyTypedLockBusyIsDeferred(t *testing.T) {
+	if !isSteeringLockBusy(fmt.Errorf("lock send task-1: %w", state.ErrLockBusy)) {
+		t.Fatal("typed lock busy was not recognized")
+	}
+	if isSteeringLockBusy(errors.New("lock send task-1: permission denied")) {
+		t.Fatal("operational lock failure was treated as contention")
+	}
+}
+
+func TestSteeringOperationalLockFailuresAreNotDeferredAsContention(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		lock string
+	}{
+		{name: "send lock", lock: "send:task-1"},
+		{name: "task lock", lock: "task:task-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+			lockPath := filepath.Join(state.Dir(home), fmt.Sprintf(".%x.lock", sha256.Sum256([]byte(test.lock))))
+			if err := os.Mkdir(lockPath, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ts := &TaskState{LimitRetryAt: time.Now().Add(-time.Minute)}
+			client := &countingPane{}
+			var errBuf bytes.Buffer
+			task, attempt := readTaskAttempt(t, home, "task-1")
+			if e := classifyUsageLimit(Config{Home: home}, client, ts, task, attempt, herdr.Pane{PaneID: "p1", Agent: limitedPaneAgent}, herdr.StatusDone, nil, false, time.Now(), &errBuf); e != nil {
+				t.Fatalf("event = %+v, want no event for an operational lock failure", e)
+			}
+			if ts.LimitAttempts != 0 || client.steers != 0 {
+				t.Fatalf("attempts=%d steers=%d, want no consumed automatic attempt", ts.LimitAttempts, client.steers)
+			}
+			if !strings.Contains(errBuf.String(), "precondition failed") {
+				t.Fatalf("errOut = %q, want operational lock failure surfaced distinctly", errBuf.String())
+			}
+		})
 	}
 }
 
 type steerFailingPane struct{}
+
+func (p *steerFailingPane) PaneGet(string) (herdr.Pane, error) {
+	return herdr.Pane{PaneID: "p1", AgentStatus: herdr.StatusDone}, nil
+}
 
 func (p *steerFailingPane) PaneRead(string, int) (string, error) { return claudeLimitText, nil }
 
@@ -567,6 +881,10 @@ func TestALimitLeavesAnOperatorHoldOnTheSameIDStanding(t *testing.T) {
 type countingPane struct {
 	reads  int
 	steers int
+}
+
+func (p *countingPane) PaneGet(string) (herdr.Pane, error) {
+	return herdr.Pane{PaneID: "p1", AgentStatus: herdr.StatusDone}, nil
 }
 
 func (p *countingPane) PaneRead(string, int) (string, error) {

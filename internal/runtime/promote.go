@@ -146,7 +146,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 
 	worktreePath, err := r.provisionLocked(ctx, provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		briefHasFrontMatter: route.BriefHasFrontMatter, attempt: shipAttempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, paneStartedAt: createdAt, attempt: shipAttempt,
 	})
 	if err != nil {
 		return fail(err)

@@ -205,6 +205,9 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 	defer release()
 
 	result := ReconcileResult{ID: id}
+	if _, err := state.NormalizePendingSends(home, id, "reconcile-stale-pending", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return result, fmt.Errorf("normalize pending sends for task %q: %w", id, err)
+	}
 	previousFingerprint := ""
 	for iteration := 1; iteration <= reconcileIterationLimit; iteration++ {
 		result.Iterations = iteration

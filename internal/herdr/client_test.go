@@ -251,6 +251,46 @@ func TestPaneSendTextSucceedsOnEmptyStdout(t *testing.T) {
 	}
 }
 
+func TestPaneSendErrorsExposeOnlyStructuredPreSideEffectRejections(t *testing.T) {
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane send-text", Stderr: "{\"error\":{\"code\":\"pane_send_failed\",\"message\":\"queue full\"}}", Exit: 1})
+	if err := NewClient().PaneSendText("wA:pB", "hello"); err == nil || !IsPreSideEffectRejection(err) {
+		t.Fatalf("structured send-text rejection = %v, want typed pre-side-effect error", err)
+	}
+
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane send-keys", Stdout: "{\"error\":{\"code\":\"pane_send_failed\",\"message\":\"queue full\"}}", Exit: 1})
+	if err := NewClient().PaneSendKeys("wA:pB", "Enter"); err == nil || !IsPreSideEffectRejection(err) {
+		t.Fatalf("structured send-keys rejection = %v, want typed pre-side-effect error", err)
+	}
+
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane send-text", Stderr: "transport failed\n", Exit: 1})
+	if err := NewClient().PaneSendText("wA:pB", "hello"); err == nil || IsPreSideEffectRejection(err) {
+		t.Fatalf("generic send-text failure = %v, want ambiguous error", err)
+	}
+}
+
+func TestPaneSendKeysDoesNotClaimMultiKeyFailureWasPreSideEffect(t *testing.T) {
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane send-keys", Stderr: "{\"error\":{\"code\":\"pane_send_failed\",\"message\":\"second key rejected\"}}", Exit: 1})
+	if err := NewClient().PaneSendKeys("wA:pB", "Enter", "Tab"); err == nil || IsPreSideEffectRejection(err) {
+		t.Fatalf("multi-key send failure = %v, want ambiguous failure", err)
+	}
+}
+
+func TestPaneSendTextReportsWhenHerdrProcessNeverStarted(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := NewClient().PaneSendText("wA:pB", "hello")
+	if err == nil || !IsProcessNotStarted(err) {
+		t.Fatalf("missing herdr executable error = %v, want process-not-started evidence", err)
+	}
+}
+
+func TestPaneSendFailureAfterHerdrStartsIsAmbiguous(t *testing.T) {
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane send-text", Stderr: "transport failed\n", Exit: 1})
+	err := NewClient().PaneSendText("wA:pB", "hello")
+	if err == nil || IsProcessNotStarted(err) || IsPreSideEffectRejection(err) {
+		t.Fatalf("started process failure = %v, want ambiguous failure", err)
+	}
+}
+
 func TestPaneSendKeysPassesKeys(t *testing.T) {
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane send-keys", Args: []string{"wA:pB", "Enter"}})
 	c := NewClient()

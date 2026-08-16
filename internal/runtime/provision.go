@@ -78,6 +78,7 @@ type provisioningRequest struct {
 	briefPath           string
 	briefHasFrontMatter bool
 	resumeExisting      bool
+	paneStartedAt       string
 	attempt             state.Attempt
 }
 
@@ -165,7 +166,10 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return "", r.failProvision(req, lease, rollback, herdrRecorded, cause)
 	}
 
-	startedAt := r.deps.now().Format(time.RFC3339)
+	startedAt := req.paneStartedAt
+	if startedAt == "" {
+		startedAt = r.deps.now().Format(time.RFC3339)
+	}
 	if err := state.RecordAttemptHerdr(req.home, req.attempt.TaskID, req.attempt.ID, state.Herdr{
 		Session: "default", WorkspaceID: workspace.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID,
 	}, startedAt); err != nil {

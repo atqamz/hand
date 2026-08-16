@@ -242,9 +242,7 @@ func TestSendFailsWhenPaneDisappearsDuringWait(t *testing.T) {
 	}
 }
 
-func TestSendRecordsUndeliveredMessageWhenSubmitFails(t *testing.T) {
-	// The text reached the composer but was never submitted - a steer with no
-	// evidence it landed, so it owes the same trace the wait bound does.
+func TestSendMarksAmbiguousEnterFailureUncertain(t *testing.T) {
 	home := setupSendHome(t, faketool.Herdr{
 		PaneStatus: "idle",
 		Responses: []faketool.HerdrResponse{{
@@ -261,26 +259,19 @@ func TestSendRecordsUndeliveredMessageWhenSubmitFails(t *testing.T) {
 	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
 	err := cmd.Execute()
 	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
-		t.Fatalf("got ExitError code %d, want a plain exit-1 error", exitErr.Code)
+	if !errors.As(err, &exitErr) || exitErr.Code != 7 {
+		t.Fatalf("got %v, want ExitError code 7", err)
 	}
-	if err == nil || !strings.Contains(err.Error(), "submit message failed") {
+	if err == nil || !strings.Contains(err.Error(), "uncertain") {
 		t.Fatalf("got err %v, want the submit failure", err)
 	}
-
-	active, err := state.ActiveAttempt(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if active.SendUndeliveredMessage != "stop and wait for review" {
-		t.Fatalf("SendUndeliveredMessage = %q, want the unsubmitted message", active.SendUndeliveredMessage)
-	}
-	if active.SendUndeliveredAt == "" {
-		t.Fatal("SendUndeliveredAt not recorded")
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain {
+		t.Fatalf("sends=%+v err=%v, want one uncertain send", sends, err)
 	}
 }
 
-func TestSendRecordsUndeliveredMessageWhenTextSendFails(t *testing.T) {
+func TestSendMarksAmbiguousTextFailureUncertain(t *testing.T) {
 	home := setupSendHome(t, faketool.Herdr{
 		PaneStatus: "idle",
 		Responses: []faketool.HerdrResponse{{
@@ -297,23 +288,44 @@ func TestSendRecordsUndeliveredMessageWhenTextSendFails(t *testing.T) {
 	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
 	err := cmd.Execute()
 	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
-		t.Fatalf("got ExitError code %d, want the underlying operational failure", exitErr.Code)
+	if !errors.As(err, &exitErr) || exitErr.Code != 7 {
+		t.Fatalf("got %v, want ExitError code 7", err)
 	}
-	if err == nil || !strings.Contains(err.Error(), "send message failed") {
+	if err == nil || !strings.Contains(err.Error(), "uncertain") {
 		t.Fatalf("got err %v, want the text-send failure", err)
 	}
-
-	active, err := state.ActiveAttempt(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if active.SendUndeliveredMessage != "stop and wait for review" || active.SendUndeliveredAt == "" {
-		t.Fatalf("undelivered trace = %q/%q, want the failed message and timestamp", active.SendUndeliveredMessage, active.SendUndeliveredAt)
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain {
+		t.Fatalf("sends=%+v err=%v, want one uncertain send", sends, err)
 	}
 }
 
-func TestSendRecordsUndeliveredMessageWhenComposerStaysBusy(t *testing.T) {
+func TestSendClassifiesStructuredPreTextRejectionAsNotSubmitted(t *testing.T) {
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus: "idle",
+		Responses: []faketool.HerdrResponse{{
+			Command: "pane send-text",
+			Stdout:  `{"id":"cli:1","error":{"code":"pane_send_failed","message":"queue full"}}`,
+			Exit:    1,
+		}},
+	})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "try again"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 6 {
+		t.Fatalf("got %v, want ExitError code 6", err)
+	}
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendNotSubmitted || sends[0].ReasonCode != "text-rejected-before-acceptance:pane_send_failed" {
+		t.Fatalf("sends=%+v err=%v, want typed not-submitted send", sends, err)
+	}
+}
+
+func TestSendDoesNotCreateRecordWhenComposerStaysBusy(t *testing.T) {
 	// The composer never frees, so WaitComposerEmpty always exhausts --wait;
 	// a short --wait keeps the test itself fast.
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "working"})
@@ -329,19 +341,13 @@ func TestSendRecordsUndeliveredMessageWhenComposerStaysBusy(t *testing.T) {
 		t.Fatalf("got %v, want ExitError code 6", err)
 	}
 
-	active, err := state.ActiveAttempt(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if active.SendUndeliveredMessage != "stop and wait for review" {
-		t.Fatalf("SendUndeliveredMessage = %q, want the abandoned message", active.SendUndeliveredMessage)
-	}
-	if active.SendUndeliveredAt == "" {
-		t.Fatal("SendUndeliveredAt not recorded")
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 0 {
+		t.Fatalf("sends=%+v err=%v, want no send before composer mutation", sends, err)
 	}
 }
 
-func TestSendClearsAPreviouslyRecordedUndeliveredSendOnSuccess(t *testing.T) {
+func TestSendKeepsLegacyTraceOutOfTheNewSendAuthority(t *testing.T) {
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}, SendUndeliveredMessage: "an earlier abandoned steer", SendUndeliveredAt: "2026-08-01T00:00:00Z"}); err != nil {
 		t.Fatal(err)
@@ -353,12 +359,9 @@ func TestSendClearsAPreviouslyRecordedUndeliveredSendOnSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	active, err := state.ActiveAttempt(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if active.SendUndeliveredMessage != "" || active.SendUndeliveredAt != "" {
-		t.Fatalf("undelivered send trace not cleared: %+v", active)
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted {
+		t.Fatalf("sends=%+v err=%v, want submitted durable send", sends, err)
 	}
 }
 

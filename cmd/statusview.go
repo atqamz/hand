@@ -24,6 +24,7 @@ type taskView struct {
 	unreadable    bool
 	unacked       bool
 	gateIssue     string
+	latestSend    *state.SendAttempt
 	held          bool
 	hold          state.Hold
 }
@@ -84,6 +85,14 @@ func taskFlags(v taskView) []string {
 	if v.task.RepairCode != "" {
 		flags = append(flags, "needs-repair")
 	}
+	if v.latestSend != nil {
+		switch {
+		case v.latestSend.State == state.SendPending, v.latestSend.State == state.SendUncertain:
+			flags = append(flags, "send-"+string(v.latestSend.State))
+		case state.SendNeedsAttention(*v.latestSend):
+			flags = append(flags, "send-partial")
+		}
+	}
 	return flags
 }
 
@@ -91,6 +100,9 @@ func taskFlags(v taskView) []string {
 // whether any row is asking for something without reading the rows.
 func needsAttention(v taskView) bool {
 	if v.unreadable || v.unacked || v.gateIssue != "" || v.task.RepairCode != "" {
+		return true
+	}
+	if v.latestSend != nil && state.SendNeedsAttention(*v.latestSend) {
 		return true
 	}
 	switch v.reportedState {
@@ -150,6 +162,36 @@ var taskFields = []axi.Column[taskView]{
 		}
 		return fmt.Sprintf("%s (%s)", v.task.DeliveredReason, v.task.DeliveredAt)
 	}},
+	{Name: "send_id", Value: func(v taskView) string {
+		if v.latestSend == nil {
+			return "none"
+		}
+		return fmt.Sprintf("%d", v.latestSend.ID)
+	}},
+	{Name: "send_attempt", Value: func(v taskView) string {
+		if v.latestSend == nil {
+			return "none"
+		}
+		return fmt.Sprintf("%d", v.latestSend.AttemptID)
+	}},
+	{Name: "send_state", Value: func(v taskView) string {
+		if v.latestSend == nil {
+			return "none"
+		}
+		return string(v.latestSend.State)
+	}},
+	{Name: "send_origin", Value: func(v taskView) string {
+		if v.latestSend == nil {
+			return "none"
+		}
+		return string(v.latestSend.Origin)
+	}},
+	{Name: "send_reason", Value: func(v taskView) string {
+		if v.latestSend == nil {
+			return "none"
+		}
+		return orNone(v.latestSend.ReasonCode)
+	}},
 	{Name: "held", Value: func(v taskView) string {
 		if !v.held {
 			return "none"
@@ -185,7 +227,7 @@ var fleetDefaultFields = []string{"id", "state", "reported", "age", "flags"}
 // the plain-text detail view printed.
 var detailDefaultFields = []string{
 	"id", "project", "kind", "execution_class", "profile", "planned_against", "routing_source", "task_lifecycle", "attempt_ordinal", "attempt_lifecycle", "harness", "model", "effort", "state", "worktree", "herdr",
-	"age", "last_report", "pr", "reported", "report", "delivered", "held", "gate", "flags", "report_file",
+	"age", "last_report", "pr", "reported", "report", "delivered", "send_id", "send_attempt", "send_state", "send_origin", "send_reason", "held", "gate", "flags", "report_file",
 }
 
 var holdFields = []axi.Column[state.Hold]{

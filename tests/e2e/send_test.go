@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -83,10 +84,9 @@ func TestConcurrentSendsToTheSameTaskSerialize(t *testing.T) {
 	}
 }
 
-// Covers the outcome an operator or a calling agent actually sees when a composer never frees: the
-// documented exit code off the real process, and a trace of the abandoned message that outlives the process
-// that tried to send it.
-func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
+// Covers the outcome an operator or a calling agent actually sees when a composer never frees: no durable
+// send exists because no external mutation began, and a later independent steer can proceed safely.
+func TestSendDoesNotCreateRecordBeforeComposerMutation(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 	seedSendTask(t, home)
@@ -99,11 +99,12 @@ func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 	writeFakeHerdrSend(t, dir, statusDir, herdrLog)
 
 	got := runHand(t, home, "send", "task-1", "stop and wait for review", "--wait", "400ms")
-	assertInvocation(t, got, 6, "composer still busy after 400ms, message recorded as undelivered")
+	assertInvocation(t, got, 6, "composer stayed busy for 400ms; no external message mutation occurred")
 
-	task, attempt := readTaskAttempt(t, home, "task-1")
-	if attempt.SendUndeliveredMessage != "stop and wait for review" || attempt.SendUndeliveredAt == "" {
-		t.Fatalf("task = %+v attempt = %+v, want the abandoned message and a timestamp recorded", task, attempt)
+	_, _ = readTaskAttempt(t, home, "task-1")
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 0 {
+		t.Fatalf("sends=%+v err=%v, want no durable send before mutation", sends, err)
 	}
 
 	setPaneStatus(t, statusDir, "pane-1", "idle")
@@ -113,9 +114,132 @@ func TestSendRecordsAnUndeliveredSteerAndExitsSix(t *testing.T) {
 			delivered.code, delivered.stdout, delivered.stderr)
 	}
 
-	_, attempt = readTaskAttempt(t, home, "task-1")
-	if attempt.SendUndeliveredMessage != "" || attempt.SendUndeliveredAt != "" {
-		t.Fatalf("attempt = %+v, want the undelivered trace cleared by a send that reached the pane", attempt)
+	sends, err = state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted {
+		t.Fatalf("sends=%+v err=%v, want one submitted durable send", sends, err)
+	}
+}
+
+func TestSendProcessDeathAfterTextSideEffectDoesNotResend(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	seedSendTask(t, home)
+	logPath := filepath.Join(t.TempDir(), "pane.log")
+	dir := binDir(t)
+	installCrashSendHerdr(t, dir, logPath, "pane send-text")
+
+	first := startHandBackground(t, home, "send", "task-1", "crash after text")
+	waitForInvocation(t, logPath+".invocations", "pane send-text", 10*time.Second)
+	if err := first.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	first.waitForExit(t, 10*time.Second, "process death after Text side effect")
+
+	second := runHand(t, home, "send", "task-1", "replacement")
+	if second.code != 7 || !strings.Contains(errorMessage(t, second.stderr), "do not blindly retry") {
+		t.Fatalf("recovery send = %+v, want exit 7 with uncertainty", second)
+	}
+	assertSendSideEffects(t, logPath, "crash after text", 0)
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain {
+		t.Fatalf("sends=%+v err=%v, want one uncertain send after restart", sends, err)
+	}
+}
+
+func TestSendProcessDeathAfterEnterSideEffectDoesNotResend(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	seedSendTask(t, home)
+	logPath := filepath.Join(t.TempDir(), "pane.log")
+	dir := binDir(t)
+	installCrashSendHerdr(t, dir, logPath, "pane send-keys")
+
+	first := startHandBackground(t, home, "send", "task-1", "crash after enter")
+	waitForInvocation(t, logPath+".invocations", "pane send-text", 10*time.Second)
+	waitForInvocation(t, logPath+".invocations", "pane send-keys", 10*time.Second)
+	if err := first.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	first.waitForExit(t, 10*time.Second, "process death after Enter side effect")
+
+	second := runHand(t, home, "send", "task-1", "replacement")
+	if second.code != 7 || !strings.Contains(errorMessage(t, second.stderr), "do not blindly retry") {
+		t.Fatalf("recovery send = %+v, want exit 7 with uncertainty", second)
+	}
+	assertSendSideEffects(t, logPath, "crash after enter", 1)
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain {
+		t.Fatalf("sends=%+v err=%v, want one uncertain send after restart", sends, err)
+	}
+}
+
+func TestWatcherRestartAfterResumeSideEffectDoesNotResend(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+	seedSendTask(t, home)
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	attempt.UsageLimitEpisode = 1
+	attempt.UsageLimitRetryAt = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
+	if err := state.UpdateAttempt(home, attempt); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "pane.log")
+	dir := binDir(t)
+	installCrashSendHerdrWithRead(t, dir, logPath, "pane send-text")
+
+	first := startHandBackground(t, home, "watch", "--poll", "20ms")
+	waitForInvocation(t, logPath+".invocations", "pane send-text", 10*time.Second)
+	if err := first.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	first.waitForExit(t, 10*time.Second, "watcher process death after resume Text side effect")
+
+	second := startHandBackground(t, home, "watch", "--poll", "20ms")
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(logPath)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if strings.Count(string(data), "Your previous turn stopped") > 1 {
+			t.Fatalf("watcher resent an unresolved resume after restart: %q", data)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	second.stop(t, 10*time.Second)
+	assertSendSideEffects(t, logPath, "Your previous turn stopped", 0)
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain {
+		t.Fatalf("sends=%+v err=%v, want one uncertain watcher send after restart", sends, err)
+	}
+}
+
+func installCrashSendHerdr(t *testing.T, dir, logPath, hang string) {
+	installCrashSendHerdrWithRead(t, dir, logPath, hang)
+}
+
+func installCrashSendHerdrWithRead(t *testing.T, dir, logPath, hang string) {
+	t.Helper()
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "workspace-1", Label: "demo", Tabs: []faketool.HerdrTab{{ID: "tab-1", Label: "task-1", Pane: "pane-1"}}}},
+		PaneAgent:  "claude", PaneStatus: "done", PaneReadOut: "Claude usage limit reached.", Hang: []string{hang},
+		MutateBeforeHang: true, TextLog: logPath, KeyLog: logPath,
+		Log:         logPath + ".invocations",
+		LogCommands: []string{"pane get", "pane send-text", "pane send-keys"},
+	}.Install(t, dir)
+}
+
+func assertSendSideEffects(t *testing.T, logPath, message string, enter int) {
+	t.Helper()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(data), message); got != 1 {
+		t.Fatalf("Text side effects = %d, want one %q: %q", got, message, data)
+	}
+	if got := strings.Count(string(data), "Enter"); got != enter {
+		t.Fatalf("Enter side effects = %d, want %d: %q", got, enter, data)
 	}
 }
 

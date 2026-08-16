@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -223,6 +224,25 @@ func TestHerdrVoidCommandsAnswerEmptyAndStillCheckThePane(t *testing.T) {
 	_, errOut, code := runHerdr(t, "pane", "run", "wA:p1", "echo hi")
 	if code != 1 || !strings.Contains(errOut, `"code":"pane_not_found"`) {
 		t.Fatalf("pane run on a closed pane = %q (exit %d), want pane_not_found", errOut, code)
+	}
+}
+
+func TestHerdrResponseCanModelAcceptedInputBeforeAmbiguousFailure(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "text.log")
+	h := twoTabWorkspace()
+	h.TextLog = log
+	h.Responses = []HerdrResponse{{Command: "pane send-text", Stdout: "", Stderr: "connection lost\n", Exit: 1, MutateBeforeResponse: true}}
+	h.Install(t, Bin(t))
+	_, stderr, code := runHerdr(t, "pane", "send-text", "wA:p1", "hello")
+	if code != 1 || !strings.Contains(stderr, "connection lost") {
+		t.Fatalf("send-text = %q (exit %d), want ambiguous failure", stderr, code)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "hello" {
+		t.Fatalf("text log = %q, want accepted text despite lost response", data)
 	}
 }
 

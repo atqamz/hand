@@ -180,7 +180,34 @@ func renderError(w io.Writer, err error, code int, path string) error {
 	doc.Field("error", err.Error())
 	doc.Field("kind", errorKind(code))
 	doc.Int("exit", code)
-	doc.Help(errorHelp(code, path)...)
+	help := errorHelp(code, path)
+	var details interface {
+		SendFields() (int64, int64, string, string, bool, bool)
+	}
+	if errors.As(err, &details) {
+		sendID, attemptID, sendState, reason, retrySafe, partial := details.SendFields()
+		if sendID != 0 {
+			doc.Field("send_id", fmt.Sprintf("%d", sendID))
+		}
+		if attemptID != 0 {
+			doc.Field("attempt", fmt.Sprintf("%d", attemptID))
+		}
+		if sendState != "" {
+			doc.Field("send_state", sendState)
+		}
+		if reason != "" {
+			doc.Field("reason", reason)
+		}
+		switch {
+		case partial:
+			help = []string{"The message was not submitted, but text may remain in the composer; do not blindly send the whole message again"}
+		case retrySafe:
+			help = []string{"No terminal submission occurred; retry is safe when the underlying precondition is ready"}
+		case sendState == "uncertain" || sendState == "pending":
+			help = []string{"Terminal submission is uncertain; do not blindly retry because the message may already be in the pane"}
+		}
+	}
+	doc.Help(help...)
 	return doc.Render(w)
 }
 
@@ -191,7 +218,8 @@ var errorKinds = map[int]string{
 	3: "precondition",
 	4: "no-event",
 	5: "arm-failed",
-	6: "send-undelivered",
+	6: "send-not-submitted",
+	7: "send-uncertain",
 }
 
 func errorKind(code int) string {
@@ -212,7 +240,9 @@ func errorHelp(code int, path string) []string {
 	case 5:
 		return []string{"A named task's pane failed its arm-time probe: run `hand status <id>` to read what that worker reports"}
 	case 6:
-		return []string{"The message never reached the pane: send it again, with a longer `--wait` if the composer stays busy"}
+		return []string{"No terminal submission occurred; retry after the underlying precondition is ready"}
+	case 7:
+		return []string{"Terminal submission is uncertain; do not blindly retry because the message may already be in the pane"}
 	}
 	return nil
 }

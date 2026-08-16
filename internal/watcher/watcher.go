@@ -225,6 +225,9 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 				status = herdr.StatusUnknown
 			}
 			ts = resumeTaskState(t, attempt, status, now)
+			if err := restoreLimitResumeState(cfg.Home, ts, attempt, errOut); err != nil {
+				_, _ = fmt.Fprintf(errOut, "watch: restore usage-limit resume state for %s failed: %v\n", t.ID, err)
+			}
 			// False starts ClassifyUnreachable's dwell clock immediately, instead of waiting for a second
 			// failed probe to notice this task at all.
 			ts.Probed = probeErr == nil
@@ -283,6 +286,80 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 }
 
+func restoreLimitResumeState(home string, ts *TaskState, attempt state.Attempt, errOut io.Writer) error {
+	send, found, err := state.LatestSendMetadata(home, attempt.TaskID, attempt.ID, state.SendOriginUsageLimitResume)
+	if err != nil || !found {
+		return err
+	}
+	if !resumeSendBelongsToActiveEpisode(send, attempt) {
+		return nil
+	}
+	if state.SendRetrySafe(send) {
+		return nil
+	}
+	ts.LimitResumeBlocked = true
+	ts.LimitRetryAt = time.Time{}
+	if send.State == state.SendPending {
+		_, _ = fmt.Fprintf(errOut, "watch: usage-limit resume send %d remains pending; automatic resend disabled\n", send.ID)
+		if err := normalizePendingResume(home, attempt, errOut); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func normalizePendingResume(home string, attempt state.Attempt, errOut io.Writer) error {
+	releaseSend, err := state.TryLock(home, "send:"+attempt.TaskID)
+	if err != nil {
+		if errors.Is(err, state.ErrLockBusy) {
+			return nil
+		}
+		return fmt.Errorf("lock send %s while recovering pending resume: %w", attempt.TaskID, err)
+	}
+	defer releaseSend()
+	releaseTask, err := state.TryLock(home, "task:"+attempt.TaskID)
+	if err != nil {
+		if errors.Is(err, state.ErrLockBusy) {
+			return nil
+		}
+		return fmt.Errorf("lock task %s while recovering pending resume: %w", attempt.TaskID, err)
+	}
+	defer releaseTask()
+	history, err := state.ReadHistory(home, attempt.TaskID)
+	if err != nil {
+		return fmt.Errorf("read task %s while recovering pending resume: %w", attempt.TaskID, err)
+	}
+	current := history.ActiveAttempt
+	if history.Task.Lifecycle != state.TaskOpen || current == nil || current.ID != attempt.ID || current.TaskID != attempt.TaskID || current.Lifecycle != state.AttemptRunning || current.Herdr != attempt.Herdr {
+		return nil
+	}
+	pending, found, err := state.PendingSend(home, attempt.TaskID, attempt.ID)
+	if err != nil {
+		return fmt.Errorf("read pending resume for task %s: %w", attempt.TaskID, err)
+	}
+	if !found || pending.Origin != state.SendOriginUsageLimitResume {
+		return nil
+	}
+	_, changed, err := state.NormalizePendingSend(home, pending.ID, attempt.TaskID, attempt.ID, "stale-pending-recovered", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("recover pending resume send %d: %w", pending.ID, err)
+	}
+	if changed {
+		_, _ = fmt.Fprintf(errOut, "watch: usage-limit resume send %d recovered as uncertain; automatic resend disabled\n", pending.ID)
+	}
+	return nil
+}
+
+func resumeSendBelongsToActiveEpisode(send state.SendAttempt, attempt state.Attempt) bool {
+	if attempt.UsageLimitRetryAt == "" {
+		return false
+	}
+	if attempt.UsageLimitEpisode == 0 {
+		return send.UsageLimitEpisode == 0
+	}
+	return send.UsageLimitEpisode == attempt.UsageLimitEpisode
+}
+
 // Every restored fact comes from durable state: re-deriving what landed while the watcher was down
 // would make new evidence look like an announcement that already went out.
 func resumeTaskState(t state.Task, a state.Attempt, status herdr.Status, now time.Time) *TaskState {
@@ -308,6 +385,10 @@ func resumeTaskState(t state.Task, a state.Attempt, status herdr.Status, now tim
 	ts.PersistedLimitRetryAt = ts.LimitRetryAt
 	ts.LimitAttempts = a.UsageLimitAttempts
 	ts.PersistedLimitAttempts = ts.LimitAttempts
+	ts.LimitEpisode = a.UsageLimitEpisode
+	ts.PersistedLimitEpisode = ts.LimitEpisode
+	ts.LimitStuckEpisode = a.UsageLimitStuckEpisode
+	ts.PersistedLimitStuckEpisode = ts.LimitStuckEpisode
 	return ts
 }
 
@@ -390,11 +471,16 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, a state.Attempt, now tim
 	// state. Carrying the schedule over would steer the fresh pane on a clock the scout's refusal set.
 	ts.LimitRetryAt = time.Time{}
 	ts.LimitAttempts = 0
+	ts.LimitResumeBlocked = false
+	ts.LimitEpisode = 0
+	ts.LimitStuckEpisode = 0
 	ts.LimitProbed = false
 	// Re-read from the promoted row rather than zeroed alongside the rest, so the columns get written
 	// clear here in the one case hand promote did not already clear them itself.
 	ts.PersistedLimitRetryAt = limitRetrySeed(a)
 	ts.PersistedLimitAttempts = a.UsageLimitAttempts
+	ts.PersistedLimitEpisode = a.UsageLimitEpisode
+	ts.PersistedLimitStuckEpisode = a.UsageLimitStuckEpisode
 	ts.LastReportState = a.LastReportState
 	ts.LastReportNote = a.LastReportNote
 }
@@ -614,7 +700,8 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	if ts.ReportCursor == ts.PersistedCursor && ts.PRMerged == ts.PersistedPRMerged &&
 		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) &&
 		ts.PersistedChangedFor == string(ts.Status) && ts.ParkedFiredFor.Equal(ts.PersistedParkedFiredFor) &&
-		ts.LimitRetryAt.Equal(ts.PersistedLimitRetryAt) && ts.LimitAttempts == ts.PersistedLimitAttempts {
+		ts.LimitRetryAt.Equal(ts.PersistedLimitRetryAt) && ts.LimitAttempts == ts.PersistedLimitAttempts &&
+		ts.LimitEpisode == ts.PersistedLimitEpisode && ts.LimitStuckEpisode == ts.PersistedLimitStuckEpisode {
 		return
 	}
 
@@ -654,14 +741,19 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		_, _ = fmt.Fprintf(errOut, "watch: read active attempt %s failed: attempt ownership changed\n", id)
 		return
 	}
+	if !ts.LimitRetryAt.IsZero() || ts.LimitResumeBlocked {
+		_ = writeLimitHoldForOwnedAttempt(Config{Home: home}, t, active, ts, errOut)
+	} else if !ts.PersistedLimitRetryAt.IsZero() || ts.PersistedLimitAttempts != 0 {
+		_ = clearLimitHoldForOwnedAttempt(Config{Home: home}, t, active, errOut)
+	}
 	// A promote may have landed since this tick's state.List. Writing the cached values back would
 	// erase its restamp and leave the disk value matching what this watcher persisted, so no later
 	// tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, active, now)
 	if err := state.UpdateAttemptObservation(home, id, ts.AttemptID, ts.AttemptLifecycle,
-		ts.ChangedAt.UTC().Format(time.RFC3339), string(ts.Status), ts.DoneVerified,
+		ts.ChangedAt.UTC().Format(time.RFC3339Nano), string(ts.Status), ts.DoneVerified,
 		ts.LastReportState, ts.LastReportNote, parkedFiredStamp(ts.ParkedFiredFor),
-		limitRetryStamp(ts.LimitRetryAt), ts.LimitAttempts); err != nil {
+		limitRetryStamp(ts.LimitRetryAt), ts.LimitAttempts, ts.LimitEpisode, ts.LimitStuckEpisode); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist attempt %s failed: %v\n", id, err)
 		return
 	}
@@ -671,6 +763,8 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 	ts.PersistedParkedFiredFor = ts.ParkedFiredFor
 	ts.PersistedLimitRetryAt = ts.LimitRetryAt
 	ts.PersistedLimitAttempts = ts.LimitAttempts
+	ts.PersistedLimitEpisode = ts.LimitEpisode
+	ts.PersistedLimitStuckEpisode = ts.LimitStuckEpisode
 }
 
 // EventFilter gates only the out write - events.log and the notify hook both

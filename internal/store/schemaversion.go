@@ -114,6 +114,30 @@ var migrations = []string{
 	ALTER TABLE task ADD COLUMN repair_reason TEXT NOT NULL DEFAULT '';
 	ALTER TABLE task ADD COLUMN repair_attempt_id INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE task ADD COLUMN repair_observed_at TEXT NOT NULL DEFAULT '';`,
+	`CREATE TABLE IF NOT EXISTS send_attempt (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id TEXT NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+		attempt_id INTEGER NOT NULL REFERENCES attempt(id) ON DELETE CASCADE,
+		origin TEXT NOT NULL CHECK (origin IN ('operator', 'usage-limit-resume', 'legacy-undelivered')),
+		message TEXT NOT NULL,
+		state TEXT NOT NULL CHECK (state IN ('pending', 'not-submitted', 'submitted', 'uncertain')),
+		reason_code TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL,
+		finalized_at TEXT NOT NULL DEFAULT '',
+		usage_limit_episode INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS send_attempt_one_pending ON send_attempt(attempt_id) WHERE state = 'pending';
+	CREATE INDEX IF NOT EXISTS send_attempt_latest ON send_attempt(task_id, attempt_id, origin, id DESC);
+	CREATE INDEX IF NOT EXISTS send_attempt_latest_any ON send_attempt(task_id, attempt_id, id DESC);
+	CREATE INDEX IF NOT EXISTS send_attempt_pending_lookup ON send_attempt(task_id, attempt_id, state);
+	INSERT INTO send_attempt (task_id, attempt_id, origin, message, state, reason_code, created_at, finalized_at)
+	SELECT task_id, id, 'legacy-undelivered', send_undelivered_message, 'uncertain',
+		'legacy-undelivered-trace',
+		CASE WHEN send_undelivered_at <> '' THEN send_undelivered_at ELSE created_at END,
+		send_undelivered_at
+	FROM attempt
+	WHERE send_undelivered_message <> '';`,
+	`SELECT 1;`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -127,6 +151,10 @@ const teardownEvidenceVersion = launchEvidenceVersion + 1
 const routingProvenanceVersion = teardownEvidenceVersion + 1
 
 const repairMetadataVersion = routingProvenanceVersion + 1
+
+const sendSchemaVersion = repairMetadataVersion + 1
+
+const sendHardeningMigrationVersion = sendSchemaVersion
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -315,6 +343,9 @@ func (db *DB) createSchema(isNew bool, latest int) error {
 		return fmt.Errorf("create schema: %w", err)
 	}
 	if isNew {
+		if _, err := tx.Exec(sendSchema); err != nil {
+			return fmt.Errorf("create send schema: %w", err)
+		}
 		if err := recordSchemaVersion(tx, latest); err != nil {
 			return err
 		}
@@ -361,8 +392,77 @@ func (db *DB) applyMigration(version int) error {
 	if _, err := tx.Exec(migrations[version]); err != nil {
 		return fmt.Errorf("migrate schema to version %d: %w", version+1, err)
 	}
+	if version == repairMetadataVersion {
+		if err := ensureUsageLimitEpisodeColumns(tx); err != nil {
+			return err
+		}
+	}
+	if version == sendHardeningMigrationVersion {
+		if err := ensureSendHardeningColumns(tx); err != nil {
+			return err
+		}
+	}
 	if err := recordSchemaVersion(tx, version+1); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func ensureUsageLimitEpisodeColumns(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT name FROM pragma_table_info('attempt') WHERE name IN ('usage_limit_episode', 'usage_limit_stuck_episode')`)
+	if err != nil {
+		return fmt.Errorf("inspect usage-limit episode columns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	found := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("inspect usage-limit episode columns: %w", err)
+		}
+		found[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("inspect usage-limit episode columns: %w", err)
+	}
+	for _, column := range []string{"usage_limit_episode", "usage_limit_stuck_episode"} {
+		if found[column] {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE attempt ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("add %s: %w", column, err)
+		}
+	}
+	return nil
+}
+
+func ensureSendHardeningColumns(tx *sql.Tx) error {
+	if err := ensureUsageLimitEpisodeColumns(tx); err != nil {
+		return err
+	}
+	var sendTable bool
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'send_attempt')`).Scan(&sendTable); err != nil {
+		return fmt.Errorf("inspect send-attempt table: %w", err)
+	}
+	if sendTable {
+		var episodeColumn bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info('send_attempt') WHERE name = 'usage_limit_episode')`).Scan(&episodeColumn); err != nil {
+			return fmt.Errorf("inspect send-attempt episode column: %w", err)
+		}
+		if !episodeColumn {
+			if _, err := tx.Exec(`ALTER TABLE send_attempt ADD COLUMN usage_limit_episode INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return fmt.Errorf("add send-attempt usage-limit episode: %w", err)
+			}
+		}
+		for _, index := range []string{
+			`CREATE INDEX IF NOT EXISTS send_attempt_latest ON send_attempt(task_id, attempt_id, origin, id DESC)`,
+			`CREATE INDEX IF NOT EXISTS send_attempt_latest_any ON send_attempt(task_id, attempt_id, id DESC)`,
+			`CREATE INDEX IF NOT EXISTS send_attempt_pending_lookup ON send_attempt(task_id, attempt_id, state)`,
+		} {
+			if _, err := tx.Exec(index); err != nil {
+				return fmt.Errorf("create send-attempt index: %w", err)
+			}
+		}
+	}
+	return nil
 }

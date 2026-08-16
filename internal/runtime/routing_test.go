@@ -390,8 +390,8 @@ func TestReopenSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
 	if _, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatalf("Reopen() = %v, want schema v10 upgrade after route validation", err)
 	}
-	if got := runtimeStoreSchemaVersion(t, home); got != 12 {
-		t.Fatalf("schema version after valid Reopen = %d, want 12", got)
+	if got := runtimeStoreSchemaVersion(t, home); got != 14 {
+		t.Fatalf("schema version after valid Reopen = %d, want 14", got)
 	}
 }
 
@@ -414,8 +414,8 @@ func TestPromoteSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
 	if _, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatalf("Promote() = %v, want schema v10 upgrade after route validation", err)
 	}
-	if got := runtimeStoreSchemaVersion(t, home); got != 12 {
-		t.Fatalf("schema version after valid Promote = %d, want 12", got)
+	if got := runtimeStoreSchemaVersion(t, home); got != 14 {
+		t.Fatalf("schema version after valid Promote = %d, want 14", got)
 	}
 }
 

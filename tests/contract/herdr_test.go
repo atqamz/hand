@@ -174,3 +174,37 @@ func TestHerdrPaneRunIsVoidAndPaneReadIsBareText(t *testing.T) {
 		requireCode(t, 1).
 		requireStderrContains(t, `"code":"pane_not_found"`)
 }
+
+func TestHerdrPaneSendTextAndKeysAreVoidAndRejectMissingPane(t *testing.T) {
+	requireBin(t, "herdr")
+	cwd := t.TempDir()
+	created := newWorkspace(t, cwd)
+	ws := created.Result.Workspace.WorkspaceID
+	pane := created.Result.RootPane.PaneID
+	marker := "contract-send-probe"
+	text := run(t, cwd, "herdr", "pane", "send-text", pane, "printf '"+marker+"\\n'").requireCode(t, 0)
+	if strings.TrimSpace(text.stdout) != "" {
+		t.Fatalf("pane send-text wrote %q to stdout, want a void command", text.stdout)
+	}
+	keys := run(t, cwd, "herdr", "pane", "send-keys", pane, "Enter").requireCode(t, 0)
+	if strings.TrimSpace(keys.stdout) != "" {
+		t.Fatalf("pane send-keys wrote %q to stdout, want a void command", keys.stdout)
+	}
+	var last string
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+		last = readPane(t, cwd, pane, "recent")
+		if strings.Contains(last, marker) {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if !strings.Contains(last, marker) {
+		t.Fatalf("recent read never showed sent text:\n%s", last)
+	}
+	run(t, cwd, "herdr", "pane", "send-text", pane, "true").requireCode(t, 0)
+	run(t, cwd, "herdr", "pane", "send-keys", pane, "Enter").requireCode(t, 0)
+	run(t, cwd, "herdr", "workspace", "close", ws).requireCode(t, 0)
+	run(t, cwd, "herdr", "pane", "send-text", pane, "true").
+		requireCode(t, 1).
+		requireStderrContains(t, `"code":"pane_not_found"`)
+}
