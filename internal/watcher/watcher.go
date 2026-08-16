@@ -43,6 +43,26 @@ var ErrNoEvent = errors.New("no event")
 // an exit from RunUntilEvent always means the whole fleet was actually watched.
 var ErrArmFailed = errors.New("could not arm")
 
+// ErrInterrupted is the typed result for a graceful watcher interruption that
+// is not proven to be an explicit Hand takeover - ctrl-C, an externally
+// delivered SIGTERM, or parent/command context cancellation. It maps to exit 8.
+var ErrInterrupted = errors.New("watch interrupted")
+
+// ErrReplaced is the typed result for an incumbent that received a valid explicit
+// Hand takeover request through its generation-bound endpoint. A plain signal
+// must never produce it. It maps to exit 9.
+var ErrReplaced = errors.New("watch replaced by explicit takeover")
+
+// Classifies a canceled context into the one typed lifecycle result that fits:
+// explicit replacement beats generic interruption. A context deadline is not an
+// interruption and belongs to ErrNoEvent, decided by callers before here.
+func cancellationError(ctx context.Context) error {
+	if errors.Is(context.Cause(ctx), ErrReplaced) {
+		return ErrReplaced
+	}
+	return ErrInterrupted
+}
+
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is canceled, returning nil on
 // clean cancellation or an error if herdr is unreachable at startup. out receives the actionable
 // event stream, while errOut receives internal diagnostics.
@@ -50,7 +70,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	client, err := connect(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil
+			return cancellationError(ctx)
 		}
 		return err
 	}
@@ -63,7 +83,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return cancellationError(ctx)
 		case <-ticker.C:
 			tick(ctx, cfg, client, states, out, errOut)
 		}
@@ -107,7 +127,7 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return fmt.Errorf("%w within %s", ErrNoEvent, cfg.Timeout)
 			}
-			return fmt.Errorf("%w: interrupted", ErrNoEvent)
+			return fmt.Errorf("%w", cancellationError(ctx))
 		case <-ticker.C:
 			var events bytes.Buffer
 			tick(ctx, cfg, client, states, &events, errOut)
@@ -133,7 +153,7 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, fmt.Errorf("%w: timed out reaching herdr", ErrNoEvent)
 		}
-		return nil, fmt.Errorf("%w: interrupted while reaching herdr", ErrNoEvent)
+		return nil, fmt.Errorf("while reaching herdr: %w", cancellationError(ctx))
 	case err := <-done:
 		if err != nil {
 			return nil, fmt.Errorf("herdr unreachable: %w", err)
@@ -173,7 +193,7 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fmt.Errorf("%w: timed out probing tasks before arming", ErrNoEvent)
 		}
-		return fmt.Errorf("%w: interrupted while probing tasks before arming", ErrNoEvent)
+		return fmt.Errorf("while probing tasks before arming: %w", cancellationError(ctx))
 	case err := <-done:
 		return err
 	}

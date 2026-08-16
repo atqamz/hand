@@ -206,7 +206,7 @@ func TestWatcherRestartAfterResumeSideEffectDoesNotResend(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	second.stop(t, 10*time.Second)
+	second.interrupt(t, 10*time.Second)
 	assertSendSideEffects(t, logPath, "Your previous turn stopped", 0)
 	sends, err := state.ListSends(home, "task-1")
 	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain {

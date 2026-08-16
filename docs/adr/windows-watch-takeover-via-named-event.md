@@ -1,7 +1,7 @@
 # Windows watch takeover uses a named event
 
 - Date: 2026-08-12
-- Status: accepted
+- Status: superseded by [Watcher takeover is generation-attributed](watcher-takeover-is-generation-attributed.md)
 - Issues: atqamz/hand#201
 - PRs: none
 

@@ -1,18 +1,33 @@
 package cmd
 
-import "context"
+import (
+	"context"
+	"os"
 
-func contextWithTakeover(parent context.Context, requested <-chan struct{}) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(parent)
-	if requested == nil {
-		return ctx, cancel
-	}
+	"github.com/atqamz/hand/internal/watcher"
+)
+
+// Wires parent context, the OS signal channel, and the ownership takeover
+// request into one context whose cancellation cause survives into watcher: a
+// takeover is ErrReplaced, an external signal or parent cancel is ErrInterrupted.
+func watchContext(parent context.Context, sig <-chan os.Signal, requested <-chan struct{}) (context.Context, func()) {
+	ctx, cancel := context.WithCancelCause(parent)
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
+		if ctx.Err() != nil {
+			return
+		}
 		select {
+		case <-sig:
+			cancel(watcher.ErrInterrupted)
 		case <-requested:
-			cancel()
+			cancel(watcher.ErrReplaced)
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, cancel
+	return ctx, func() {
+		cancel(watcher.ErrInterrupted)
+		<-stopped
+	}
 }

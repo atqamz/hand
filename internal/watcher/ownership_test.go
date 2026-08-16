@@ -1,12 +1,15 @@
 package watcher
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestAcquireRefusesASecondWatcherAndNamesTheIncumbent(t *testing.T) {
@@ -123,4 +126,142 @@ func readOwnerFile(t *testing.T, home string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// A stale advisory pid that happens to be a live innocent process must never be
+// attacked: when the kernel lock is free, Acquire ignores it entirely.
+func TestAcquireReplacesStaleLivePIDAndLeavesTheInnocentProcessAlone(t *testing.T) {
+	home := t.TempDir()
+	innocent := exec.Command("sleep", "3600")
+	if err := innocent.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = innocent.Process.Kill()
+		_ = innocent.Wait()
+	}()
+	writeOwnerFile(t, home, strconv.Itoa(innocent.Process.Pid)+"\n")
+
+	ownership, err := Acquire(home, false)
+	if err != nil {
+		t.Fatalf("Acquire over a stale live pid: %v", err)
+	}
+	ownership.Release()
+
+	// A zero signal is a liveness probe, never a delivered signal; it proves the
+	// innocent process was not terminated by any takeover handling.
+	if err := innocent.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("innocent process no longer exists after stale-pid handling: %v", err)
+	}
+	if got := readOwnerFile(t, home); got != "" {
+		t.Fatalf("owner file = %q after release, want it clear - not the innocent process's pid", got)
+	}
+}
+
+// Simulates a holder that has not (or no longer) published a coherent routing
+// record: a --takeover contender must perform no destructive action and simply
+// wait for the authoritative lock.
+func TestContenderWithNoRecordWaitsForTheLock(t *testing.T) {
+	home := t.TempDir()
+	holder, err := Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(OwnerRecordPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreTakeoverClocks(t)
+	takeoverGrace, takeoverPoll = 3*time.Second, 20*time.Millisecond
+
+	type outcome struct {
+		ownership *Ownership
+		err       error
+	}
+	done := make(chan outcome, 1)
+	go func() { o, e := Acquire(home, true); done <- outcome{o, e} }()
+
+	// Held, no record: contender waits, does nothing destructive, is not yet owner.
+	select {
+	case r := <-done:
+		t.Fatalf("contender returned early while the lock was held: %v / %v", r.ownership, r.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	holder.Release()
+
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("contender Acquire after release: %v", r.err)
+		}
+		r.ownership.Release()
+	case <-time.After(3 * time.Second):
+		t.Fatal("contender did not acquire once the holder released the lock")
+	}
+}
+
+// Same expectation with a malformed record: no destructive action, Safe keeps
+// waiting, and the lock alone decides ownership.
+func TestContenderWithMalformedRecordWaitsForTheLock(t *testing.T) {
+	home := t.TempDir()
+	holder, err := Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(OwnerRecordPath(home), []byte(`{truncated`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreTakeoverClocks(t)
+	takeoverGrace, takeoverPoll = 3*time.Second, 20*time.Millisecond
+
+	done := make(chan error, 1)
+	go func() { _, e := Acquire(home, true); done <- e }()
+	select {
+	case err := <-done:
+		t.Fatalf("contender returned early while the lock was held: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	holder.Release()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("contender Acquire after release: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("contender did not acquire once the holder released the lock")
+	}
+}
+
+// If safe takeover cannot complete before the grace bound because the lock
+// never releases, the contender fails and the incumbent stays the sole owner -
+// there are never two owners.
+func TestContenderFailsWithinGraceWithoutCreatingASecondOwner(t *testing.T) {
+	home := t.TempDir()
+	holder, err := Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+
+	restoreTakeoverClocks(t)
+	takeoverGrace, takeoverPoll = 200*time.Millisecond, 20*time.Millisecond
+
+	_, err = Acquire(home, true)
+	if !errors.Is(err, ErrAttached) {
+		t.Fatalf("takeover contender = %v, want ErrAttached when the lock never releases", err)
+	}
+	// The holder still owns the single lock.
+	if _, err := Acquire(home, true); !errors.Is(err, ErrAttached) {
+		t.Fatalf("after a failed contender the holder was displaced: %v", err)
+	}
+}
+
+func restoreTakeoverClocks(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		takeoverGrace = 5 * time.Second
+		takeoverPoll = 50 * time.Millisecond
+	})
 }

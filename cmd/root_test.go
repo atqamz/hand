@@ -248,6 +248,8 @@ func TestErrorDocumentNamesTheKindBehindEveryExitCode(t *testing.T) {
 		{5, "arm-failed"},
 		{6, "send-not-submitted"},
 		{7, "send-uncertain"},
+		{8, "watch-interrupted"},
+		{9, "watch-replaced"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			var out strings.Builder

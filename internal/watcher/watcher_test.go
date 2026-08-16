@@ -1943,7 +1943,7 @@ func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
 	}
 }
 
-func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
+func TestRunReportsInterruptionOnContextCancel(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -1964,8 +1964,8 @@ func TestRunExitsCleanlyOnContextCancel(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run returned %v, want nil", err)
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("Run returned %v, want ErrInterrupted so a caller can tell interruption from a real event", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit after context cancellation")
@@ -1992,8 +1992,8 @@ func TestRunExitsWhenPaneProbeIsCanceled(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run returned %v, want nil", err)
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("Run returned %v, want ErrInterrupted", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit after canceling a pane probe")
@@ -2173,7 +2173,7 @@ func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
 	}
 }
 
-func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
+func TestRunUntilEventReportsInterruptionOnContextCancel(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
@@ -2190,11 +2190,68 @@ func TestRunUntilEventReportsNoEventOnContextCancel(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if !errors.Is(err, ErrNoEvent) {
-			t.Fatalf("RunUntilEvent = %v, want ErrNoEvent", err)
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("RunUntilEvent = %v, want ErrInterrupted: a generic cancellation is not a no-event window", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunUntilEvent did not return after context cancellation")
+	}
+}
+
+// An explicit replacement cause (what ownership.TakeoverRequested() feeds the
+// watch context) must surface as ErrReplaced all the way out of the runner, not
+// as a generic interruption or a no-event result.
+func TestRunReportsReplacementOnTakeoverCause(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel(ErrReplaced)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrReplaced) {
+			t.Fatalf("Run returned %v, want ErrReplaced for an explicit takeover cause", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not exit after a replacement cause")
+	}
+}
+
+func TestRunUntilEventReportsReplacementOnTakeoverCause(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(ctx, cfg, &bytes.Buffer{}, io.Discard) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel(ErrReplaced)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrReplaced) {
+			t.Fatalf("RunUntilEvent = %v, want ErrReplaced for an explicit takeover cause", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunUntilEvent did not return after a replacement cause")
 	}
 }
 

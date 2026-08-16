@@ -3,6 +3,8 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,7 +152,7 @@ func TestWatchRejectsUnknownEventKind(t *testing.T) {
 	}
 }
 
-func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
+func TestWatchMapsContextCancelToInterruption(t *testing.T) {
 	setupWatchHome(t)
 
 	cmd := newWatchCmd()
@@ -177,8 +179,14 @@ func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("watch returned %v, want nil", err)
+		if err == nil {
+			t.Fatal("watch returned nil after interruption, want exit 8")
+		}
+		if code := exitCodeFor(t, err); code != 8 {
+			t.Fatalf("code = %d, want 8 (watch-interrupted), err = %v", code, err)
+		}
+		if !errors.Is(err, watcher.ErrInterrupted) {
+			t.Fatalf("err = %v, want it to wrap ErrInterrupted", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("watch did not exit after context cancellation")
@@ -226,5 +234,37 @@ func TestWatchRejectsAUsageErrorWithoutContendingForOwnership(t *testing.T) {
 	}
 	if code := exitCodeFor(t, err); code != 2 {
 		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
+func TestMapWatchResultClassifiesLifecycleResults(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"replacement", watcher.ErrReplaced, 9},
+		{"interruption", watcher.ErrInterrupted, 8},
+		{"no event", watcher.ErrNoEvent, 4},
+		{"arm failed", watcher.ErrArmFailed, 5},
+		{"general error stays general", errors.New("boom"), 1},
+		{"nil stays nil", nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mapWatchResult(tc.err)
+			if code := exitCodeFor(t, got); code != tc.code {
+				t.Fatalf("code = %d, want %d (err = %v)", code, tc.code, got)
+			}
+		})
+	}
+}
+
+// Wrapping must not defeat classification: the exit taxonomy resolves through
+// errors.Is.
+func TestMapWatchResultSurvivesWrapping(t *testing.T) {
+	got := mapWatchResult(fmt.Errorf("exit early: %w", watcher.ErrReplaced))
+	if code := exitCodeFor(t, got); code != 9 {
+		t.Fatalf("code = %d, want 9 through a wrapped replacement error", code)
 	}
 }

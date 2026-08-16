@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -18,82 +18,151 @@ import (
 // precondition failure rather than a general error.
 var ErrAttached = errors.New("a watcher is already attached to this fleet home")
 
-// How long Acquire waits for a signaled incumbent to release before reporting
-// that it did not, and how often it re-tries the lock in the meantime.
-const (
+// How long Acquire --takeover waits for a cooperatively-requested incumbent to
+// release before failing, and how often it re-tries the lock. Variables so a
+// test can shrink the wait without sleeping out the default grace.
+var (
 	takeoverGrace = 5 * time.Second
 	takeoverPoll  = 50 * time.Millisecond
 )
 
-// OwnerPath names the file that records the owning watcher's pid.
+// OwnerPath names the advisory file that records the owning watcher's pid.
+// Backward-compatible with what operators already read; OwnerRecordPath is the
+// coherent routing record #222 routes takeover through, and neither is authority.
 func OwnerPath(homeDir string) string {
 	return filepath.Join(state.Dir(homeDir), "watch.pid")
 }
 
+func stateDir(homeDir string) string {
+	return state.Dir(homeDir)
+}
+
+func atomicfileWrite(path string, data []byte) error {
+	return atomicfile.Write(path, ".atomic-", data, 0o644)
+}
+
 // Ownership keeps the files and endpoint that make a watcher the fleet-home owner.
 type Ownership struct {
-	ownerFile *os.File
-	lockFile  *os.File
-	endpoint  *takeoverEndpoint
-	once      sync.Once
+	home     string
+	lockFile *os.File
+	endpoint *takeoverEndpoint
+	record   OwnerRecord
+	once     sync.Once
 }
 
 // Acquire makes hand watch a singleton per fleet home. The kernel drops the lock when the holder dies.
 func Acquire(homeDir string, takeover bool) (*Ownership, error) {
-	path := OwnerPath(homeDir)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	home := canonicalHome(homeDir)
+	if err := os.MkdirAll(stateDir(home), 0o755); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
 	}
-	lockFile, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	lockPath := OwnerPath(home) + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("open %s.lock: %w", path, err)
+		return nil, fmt.Errorf("open %s: %w", lockPath, err)
 	}
 
 	if err := lockOwner(lockFile); err != nil {
 		if !errors.Is(err, filelock.ErrBusy) {
 			_ = lockFile.Close()
-			return nil, fmt.Errorf("lock %s: %w", path, err)
+			return nil, fmt.Errorf("lock %s: %w", lockPath, err)
 		}
-		if err := contend(lockFile, path, takeover); err != nil {
+		if err := contend(lockFile, home, takeover); err != nil {
 			_ = lockFile.Close()
 			return nil, err
 		}
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		releaseLock(lockFile)
-		return nil, fmt.Errorf("open %s: %w", path, err)
-	}
 
-	endpoint, err := newTakeoverEndpoint(os.Getpid())
+	ownership, err := publishNewOwner(home, lockFile)
 	if err != nil {
-		_ = file.Close()
-		releaseLock(lockFile)
+		_ = lockFile.Close()
 		return nil, err
 	}
-
-	// The pid is recorded inside the lock only so a refusal can name the incumbent and takeover can
-	// request it to stop.
-	if err := recordOwner(file); err != nil {
-		releaseOwner(file, lockFile)
-		endpoint.Close()
-		return nil, err
-	}
-	return &Ownership{ownerFile: file, lockFile: lockFile, endpoint: endpoint}, nil
+	return ownership, nil
 }
 
-// Release clears the recorded pid, releases the lock, and stops the endpoint listener.
+// Runs the new-owner publication protocol once while holding the authoritative
+// lock: stale record out, fresh generation, endpoint ready, advisory pid, then
+// the coherent watch.owner record LAST as the readiness barrier.
+func publishNewOwner(home string, lockFile *os.File) (*Ownership, error) {
+	if err := clearRoutingRecord(home); err != nil {
+		releaseLock(lockFile)
+		return nil, err
+	}
+
+	gen, err := newGeneration()
+	if err != nil {
+		releaseLock(lockFile)
+		return nil, err
+	}
+
+	endpoint, err := newTakeoverEndpoint(home, gen)
+	if err != nil {
+		releaseLock(lockFile)
+		return nil, err
+	}
+
+	if err := publishPID(home, os.Getpid()); err != nil {
+		endpoint.Close()
+		releaseLock(lockFile)
+		return nil, err
+	}
+
+	record := OwnerRecord{Version: ownerRecordVersion, Generation: gen, PID: os.Getpid()}
+	if err := publishOwnerRecord(home, record); err != nil {
+		endpoint.Close()
+		_ = clearPID(home)
+		releaseLock(lockFile)
+		return nil, err
+	}
+
+	return &Ownership{home: home, lockFile: lockFile, endpoint: endpoint, record: record}, nil
+}
+
+func publishPID(home string, pid int) error {
+	data := []byte(strconv.Itoa(pid) + "\n")
+	if err := atomicfileWrite(OwnerPath(home), data); err != nil {
+		return fmt.Errorf("record watcher pid in %s: %w", OwnerPath(home), err)
+	}
+	return nil
+}
+
+// Leaves the advisory pid file present but empty, so an operator reading it on
+// an unwatched home finds nothing rather than a dead process's number.
+func clearPID(home string) error {
+	if err := atomicfileWrite(OwnerPath(home), nil); err != nil {
+		return fmt.Errorf("clear %s: %w", OwnerPath(home), err)
+	}
+	return nil
+}
+
+// Removes any old watch.owner publication while holding the authoritative lock,
+// so a stale generation cannot route a takeover at a stale incumbent during the
+// publication window.
+func clearRoutingRecord(home string) error {
+	if err := os.Remove(OwnerRecordPath(home)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale owner record: %w", err)
+	}
+	return nil
+}
+
+// Release shuts ownership down in the order that keeps stale routing metadata
+// non-destructive: routing record unpublished and endpoint closed while the
+// authoritative lock is still held, pid cleared, then the lock released last.
 func (o *Ownership) Release() {
 	if o == nil {
 		return
 	}
 	o.once.Do(func() {
-		releaseOwner(o.ownerFile, o.lockFile)
+		_ = clearRoutingRecord(o.home)
 		o.endpoint.Close()
+		_ = clearPID(o.home)
+		releaseLock(o.lockFile)
 	})
 }
 
-// TakeoverRequested returns the one-shot incumbent shutdown notification.
+// TakeoverRequested returns the one-shot incumbent shutdown notification, set
+// only by a valid current-generation request through the handmade endpoint.
 func (o *Ownership) TakeoverRequested() <-chan struct{} {
 	if o == nil || o.endpoint == nil {
 		return nil
@@ -101,23 +170,35 @@ func (o *Ownership) TakeoverRequested() <-chan struct{} {
 	return o.endpoint.Requested()
 }
 
-// Decides what a lock another live watcher holds means. The pid is read after the lock attempt
-// failed, so it belongs to a process that still held the lock a moment ago rather than to some
-// long-dead predecessor.
-func contend(lockFile *os.File, ownerPath string, takeover bool) error {
-	pid := readOwner(ownerPath)
-	if !takeover {
-		return fmt.Errorf("%w (pid %s) - stop it, or re-run with --takeover to replace it", ErrAttached, ownerLabel(pid))
+// Generation is the ownership generation this watcher published, for
+// diagnostics and tests.
+func (o *Ownership) Generation() string {
+	if o == nil {
+		return ""
 	}
-	// Never this process: in production a watcher acquires once, but an
-	// in-process caller that acquired already would otherwise request itself.
-	if pid > 0 && pid != os.Getpid() {
-		if err := requestTakeover(pid); err != nil {
-			return fmt.Errorf("request takeover from watcher pid %d: %w", pid, err)
-		}
+	return o.record.Generation
+}
+
+// PID is the advisory pid published for operator diagnostics, never authority.
+func (o *Ownership) PID() int {
+	if o == nil {
+		return 0
+	}
+	return o.record.PID
+}
+
+// Handles lock contention. Without --takeover it refuses immediately, naming
+// the coherent incumbent. With --takeover it requests each observed generation
+// once and waits for the kernel lock, never targeting a process by pid.
+func contend(lockFile *os.File, home string, takeover bool) error {
+	if !takeover {
+		return fmt.Errorf("%w (pid %s) - stop it, or re-run with --takeover to replace it", ErrAttached, incumbentLabel(home))
 	}
 
 	deadline := time.Now().Add(takeoverGrace)
+	requested := make(map[string]bool)
+	requestCurrent(home, requested)
+
 	for {
 		err := lockOwner(lockFile)
 		if err == nil {
@@ -126,67 +207,60 @@ func contend(lockFile *os.File, ownerPath string, takeover bool) error {
 		if !errors.Is(err, filelock.ErrBusy) {
 			return fmt.Errorf("lock %s: %w", lockFile.Name(), err)
 		}
+		requestCurrent(home, requested)
 		if time.Now().After(deadline) {
-			// The pid may have been unreadable, in which case there was nothing to request and the
-			// honest remedy is the same either way.
-			return fmt.Errorf("%w (pid %s) and it still holds %s %s after --takeover - kill it and retry",
-				ErrAttached, ownerLabel(pid), lockFile.Name(), takeoverGrace)
+			return fmt.Errorf("%w (pid %s) and it still holds %s %s after --takeover - stop it and retry",
+				ErrAttached, incumbentLabel(home), lockFile.Name(), takeoverGrace)
 		}
 		time.Sleep(takeoverPoll)
 	}
+}
+
+// Asks the currently-published owner generation to step aside, exactly once per
+// observed generation. A malformed or absent record performs no action; there is
+// never a pid-based fallback.
+func requestCurrent(home string, requested map[string]bool) {
+	rec, err := readOwnerRecord(home)
+	if err != nil {
+		return
+	}
+	if rec.PID == os.Getpid() || requested[rec.Generation] {
+		return
+	}
+	requested[rec.Generation] = true
+	if rErr := requestTakeover(home, rec.Generation); rErr != nil {
+		// Endpoint-gone or stale-generation here is not proof of ownership: the
+		// contender keeps waiting on the kernel lock, which is the only authority.
+		return
+	}
+}
+
+// Returns the coherent current routing record, or an error for any malformed,
+// partial, or unsupported value - none of which is actionable.
+func readOwnerRecord(home string) (OwnerRecord, error) {
+	data, err := os.ReadFile(OwnerRecordPath(home))
+	if err != nil {
+		return OwnerRecord{}, err
+	}
+	return parseOwnerRecord(data)
+}
+
+// Names the attached watcher from a valid coherent owner record when one is
+// published, falling back to unknown rather than presenting a stale advisory pid
+// as current truth.
+func incumbentLabel(home string) string {
+	rec, err := readOwnerRecord(home)
+	if err != nil {
+		return "unknown"
+	}
+	return strconv.Itoa(rec.PID)
 }
 
 func lockOwner(file *os.File) error {
 	return filelock.Lock(file, false)
 }
 
-// Clears the pid before dropping the lock, so an operator reading state/watch.pid on an unwatched
-// home finds nothing rather than the number of a process that has exited.
-func releaseOwner(file, lockFile *os.File) {
-	_ = file.Truncate(0)
-	_ = file.Close()
-	releaseLock(lockFile)
-}
-
 func releaseLock(file *os.File) {
 	_ = filelock.Unlock(file)
 	_ = file.Close()
-}
-
-func recordOwner(file *os.File) error {
-	if err := file.Truncate(0); err != nil {
-		return fmt.Errorf("clear %s: %w", file.Name(), err)
-	}
-	if _, err := file.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0); err != nil {
-		return fmt.Errorf("record watcher pid in %s: %w", file.Name(), err)
-	}
-	return nil
-}
-
-// Reports the recorded pid, or 0 for anything it cannot read as one - a wrong pid here would be
-// used to request takeover from the wrong process.
-func readOwner(path string) int {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	line, _, terminated := strings.Cut(string(data), "\n")
-	// The terminating newline is required: the incumbent truncates before it writes, so a read racing
-	// that write sees an empty or partial value, and only a terminated line proves the whole pid
-	// reached disk.
-	if !terminated {
-		return 0
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(line))
-	if err != nil || pid <= 0 {
-		return 0
-	}
-	return pid
-}
-
-func ownerLabel(pid int) string {
-	if pid <= 0 {
-		return "unknown"
-	}
-	return strconv.Itoa(pid)
 }
