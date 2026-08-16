@@ -219,20 +219,25 @@ func TestContenderWithMalformedRecordWaitsForTheLock(t *testing.T) {
 	restoreTakeoverClocks(t)
 	takeoverGrace, takeoverPoll = 3*time.Second, 20*time.Millisecond
 
-	done := make(chan error, 1)
-	go func() { _, e := Acquire(home, true); done <- e }()
+	type outcome struct {
+		ownership *Ownership
+		err       error
+	}
+	done := make(chan outcome, 1)
+	go func() { o, e := Acquire(home, true); done <- outcome{o, e} }()
 	select {
-	case err := <-done:
-		t.Fatalf("contender returned early while the lock was held: %v", err)
+	case r := <-done:
+		t.Fatalf("contender returned early while the lock was held: %v", r.err)
 	case <-time.After(100 * time.Millisecond):
 	}
 	holder.Release()
 
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("contender Acquire after release: %v", err)
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("contender Acquire after release: %v", r.err)
 		}
+		r.ownership.Release()
 	case <-time.After(3 * time.Second):
 		t.Fatal("contender did not acquire once the holder released the lock")
 	}
