@@ -3,6 +3,8 @@
 package watcher
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -11,6 +13,13 @@ import (
 )
 
 const takeoverEventPrefix = "Global\\hand-watch-takeover-"
+
+// A short stable identity for a fleet home used to namespace the Windows named
+// event without embedding an arbitrary filesystem path in the event name.
+func homeID(homeDir string) string {
+	sum := sha256.Sum256([]byte(canonicalHome(homeDir)))
+	return hex.EncodeToString(sum[:8])
+}
 
 // Derives the generation-bound named event identity from the fleet-home identity
 // and ownership generation, never watch.pid.

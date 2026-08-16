@@ -3,7 +3,6 @@ package watcher
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -82,15 +81,6 @@ const ownerGenerationLen = 32
 // specific generation, alongside the advisory PID file OwnerPath names.
 func OwnerRecordPath(homeDir string) string {
 	return filepath.Join(stateDir(homeDir), "watch.owner")
-}
-
-// A short stable identity for a fleet home, used to derive platform-owned
-// takeover endpoint identities without embedding arbitrary filesystem paths in
-// a socket or named-event name.
-func homeID(homeDir string) string {
-	home := canonicalHome(homeDir)
-	sum := sha256.Sum256([]byte(home))
-	return hex.EncodeToString(sum[:8])
 }
 
 // Folds ordinary references to the same fleet home into one endpoint identity:

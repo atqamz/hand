@@ -6,7 +6,11 @@ import (
 	"testing"
 )
 
-const testGen = "0123456789abcdef0123456789abcdef"
+const (
+	testGen = "0123456789abcdef0123456789abcdef"
+	genA    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	genB    = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+)
 
 func validRecord() OwnerRecord {
 	return OwnerRecord{Version: ownerRecordVersion, Generation: testGen, PID: 12345}

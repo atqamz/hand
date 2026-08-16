@@ -4,6 +4,8 @@ package watcher
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -15,10 +17,11 @@ import (
 )
 
 // Derives the generation-bound Unix socket location from the fleet-home
-// identity and ownership generation, not watch.pid. A short name avoids macOS
-// sockaddr_un length failures and trusts no arbitrary path from metadata.
+// identity and ownership generation, not watch.pid. A short hashed name stays
+// under macOS's sockaddr_un path limit, trusting no arbitrary path from metadata.
 func takeoverSocketPath(home, gen string) string {
-	name := fmt.Sprintf("hw-%s-%s.sock", homeID(home), gen)
+	sum := sha256.Sum256([]byte(canonicalHome(home) + "\x00" + gen))
+	name := fmt.Sprintf("hw-%s.sock", hex.EncodeToString(sum[:])[:24])
 	return filepath.Join(os.TempDir(), name)
 }
 

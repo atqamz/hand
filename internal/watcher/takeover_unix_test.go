@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-const genA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-const genB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-
 // The deterministic core proof for the publication race: a stale generation-A
 // request must never wake the current generation-B endpoint, because each
 // generation owns a distinct socket derived from home identity + generation.
@@ -106,5 +103,16 @@ func TestUnixStaleSocketFailsSafely(t *testing.T) {
 	home := t.TempDir()
 	if err := requestTakeover(home, strings.Repeat("c", 32)); err == nil {
 		t.Fatal("dialing a non-existent socket succeeded, want a safe failure")
+	}
+}
+
+// macOS bounds sockaddr_un sun_path to 104 bytes; os.TempDir() alone is often
+// most of that, so the derived filename has to be compact. Rising over the
+// limit here is a bind: invalid argument failure on mac CI, so pin it.
+func TestUnixSocketPathStaysWithinSockaddrUnLimit(t *testing.T) {
+	const sockaddrUnLimit = 104
+	home := t.TempDir()
+	if path := takeoverSocketPath(home, "deadbeef"+strings.Repeat("a", 24)); len(path) >= sockaddrUnLimit {
+		t.Fatalf("takeover socket path %q is %d bytes, want < %d (macOS bind limit)", path, len(path), sockaddrUnLimit)
 	}
 }
