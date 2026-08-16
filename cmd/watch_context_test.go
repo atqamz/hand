@@ -74,6 +74,22 @@ func TestWatchContextPrefersObservableTakeoverOverBufferedSignal(t *testing.T) {
 	}
 }
 
+func TestWatchContextPrefersTakeoverAtEveryReadyCancellationBoundary(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		sig := make(chan os.Signal, 1)
+		sig <- os.Interrupt
+		requested := make(chan struct{})
+		close(requested)
+
+		ctx, cancel := watchContext(context.Background(), sig, requested)
+		if !errors.Is(context.Cause(ctx), watcher.ErrReplaced) {
+			cancel()
+			t.Fatalf("iteration %d cause = %v, want ErrReplaced", i, context.Cause(ctx))
+		}
+		cancel()
+	}
+}
+
 func TestWatchContextPrefersTakeoverOverAlreadyCanceledParent(t *testing.T) {
 	parent, cancelParent := context.WithCancel(context.Background())
 	cancelParent()

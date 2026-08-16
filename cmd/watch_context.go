@@ -26,30 +26,18 @@ func watchContext(parent context.Context, sig <-chan os.Signal, requested <-chan
 			return
 		}
 		if parent.Err() != nil {
-			if takeoverReady(requested) {
-				cancel(watcher.ErrReplaced)
-			} else {
-				cancel(watcher.ErrInterrupted)
-			}
+			cancelWithTakeoverPriority(cancel, requested)
 			return
 		}
 		select {
 		case <-requested:
 			cancel(watcher.ErrReplaced)
 		case <-sig:
-			if takeoverReady(requested) {
-				cancel(watcher.ErrReplaced)
-				return
-			}
-			cancel(watcher.ErrInterrupted)
+			cancelWithTakeoverPriority(cancel, requested)
 		case <-ctx.Done():
 			return
 		case <-parent.Done():
-			if takeoverReady(requested) {
-				cancel(watcher.ErrReplaced)
-			} else {
-				cancel(watcher.ErrInterrupted)
-			}
+			cancelWithTakeoverPriority(cancel, requested)
 		}
 	}()
 	return ctx, func() {
@@ -67,5 +55,16 @@ func takeoverReady(requested <-chan struct{}) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func cancelWithTakeoverPriority(cancel context.CancelCauseFunc, requested <-chan struct{}) {
+	// This select is the cancellation boundary: a later request belongs to the
+	// next lifecycle, while an already-observable request wins this one.
+	select {
+	case <-requested:
+		cancel(watcher.ErrReplaced)
+	default:
+		cancel(watcher.ErrInterrupted)
 	}
 }

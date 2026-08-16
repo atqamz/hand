@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -223,9 +222,8 @@ func (s *syncBuffer) String() string {
 	return s.buf.String()
 }
 
-// Drives a long-running hand command (only `watch` today) so a test can observe its streaming output and
-// stop it with the same SIGTERM signal.NotifyContext listens for in cmd/watch.go, rather than waiting for
-// it to exit on its own.
+// Drives a long-running hand command (only `watch` today) so a test can observe
+// its streaming output and stop it through a platform-specific helper.
 type backgroundHand struct {
 	cmd     *exec.Cmd
 	args    []string
@@ -267,24 +265,6 @@ func (b *backgroundHand) waitForStdout(t *testing.T, substr string, timeout time
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %q on stdout; stdout=%q stderr=%q", substr, b.stdout.String(), b.stderr.String())
-}
-
-// Sends SIGTERM - the signal cmd/watch.go treats as generic external
-// interruption - and asserts the watcher exits 8 / watch-interrupted. After
-// the attributable-takeover contract, this is no longer a "clean exit".
-func (b *backgroundHand) interrupt(t *testing.T, timeout time.Duration) invocation {
-	t.Helper()
-	if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatalf("signal hand watch: %v", err)
-	}
-	got := b.waitForExit(t, timeout, "SIGTERM interruption")
-	if got.code != 8 {
-		t.Fatalf("interrupted watch exit = %d, want 8 watch-interrupted (stdout %q, stderr %q)", got.code, got.stdout, got.stderr)
-	}
-	if !strings.Contains(got.stderr, "watch-interrupted") {
-		t.Fatalf("interrupted watch stderr = %q, want the watch-interrupted kind", got.stderr)
-	}
-	return got
 }
 
 // Reaps a process expected to exit on its own, unlike stop: that exit is the whole delivery mechanism of

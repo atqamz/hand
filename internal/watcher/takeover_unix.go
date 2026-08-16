@@ -16,6 +16,7 @@ import (
 )
 
 const sockaddrUnLimit = 104
+const takeoverSocketDir = "/tmp"
 
 // Derives the generation-bound Unix socket location from the fleet-home
 // identity and ownership generation, not watch.pid. A short hashed name stays
@@ -23,12 +24,7 @@ const sockaddrUnLimit = 104
 func takeoverSocketPath(home, gen string) string {
 	sum := sha256.Sum256([]byte(canonicalHome(home) + "\x00" + gen))
 	name := fmt.Sprintf("hw-%s.sock", hex.EncodeToString(sum[:])[:24])
-	dir := os.TempDir()
-	path := filepath.Join(dir, name)
-	if len(path) >= sockaddrUnLimit {
-		return filepath.Join("/tmp", name)
-	}
-	return path
+	return filepath.Join(takeoverSocketDir, name)
 }
 
 // Owns the generation-bound Unix socket that lets a takeover contender ask the

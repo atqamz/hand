@@ -158,8 +158,8 @@ func connect(ctx context.Context) (*herdr.Client, error) {
 	done := make(chan error, 1)
 	go func() { _, err := client.WorkspaceListContext(ctx); done <- err }()
 	select {
-	// Losing the race is ErrNoEvent for the same reason probeAllTasks's is: the window closed during
-	// arming, which is exit 4 wherever in arming it happens.
+	// Recheck lifecycle cause after the operation: a configured until-event timeout is ErrNoEvent,
+	// while generic cancellation and proven takeover retain their own typed results.
 	case <-ctx.Done():
 		return nil, connectContextError(ctx)
 	case err := <-done:
@@ -198,8 +198,7 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 		done <- nil
 	}()
 	select {
-	// ErrNoEvent, not ErrArmFailed: the window is simply over, and no single task can be named as the
-	// cause the way ErrArmFailed's exit promises.
+	// Recheck lifecycle cause after the operation so cancellation cannot be relabeled as an arm failure.
 	case <-ctx.Done():
 		return probeContextError(ctx)
 	case err := <-done:
