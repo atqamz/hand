@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -131,6 +132,9 @@ func readOwnerFile(t *testing.T, home string) string {
 // A stale advisory pid that happens to be a live innocent process must never be
 // attacked: when the kernel lock is free, Acquire ignores it entirely.
 func TestAcquireReplacesStaleLivePIDAndLeavesTheInnocentProcessAlone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not support the signal-zero liveness probe")
+	}
 	home := t.TempDir()
 	innocent := exec.Command("sleep", "3600")
 	if err := innocent.Start(); err != nil {

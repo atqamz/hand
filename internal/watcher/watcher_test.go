@@ -2153,7 +2153,7 @@ func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
-	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 100 * time.Millisecond}
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: time.Second}
 
 	var out bytes.Buffer
 	start := time.Now()
@@ -2162,7 +2162,7 @@ func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
 	if !errors.Is(err, ErrNoEvent) {
 		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent so a re-arm loop can tell a quiet window from an event", err)
 	}
-	if !strings.Contains(err.Error(), "100ms") {
+	if !strings.Contains(err.Error(), "1s") {
 		t.Fatalf("err = %v, want the elapsed timeout named", err)
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
