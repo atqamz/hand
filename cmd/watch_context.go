@@ -17,7 +17,7 @@ func watchContext(parent context.Context, sig <-chan os.Signal, requested <-chan
 		return ctx, func() {}
 	}
 
-	ctx, cancel := context.WithCancelCause(parent)
+	ctx, cancel := context.WithCancelCause(context.Background())
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -25,7 +25,12 @@ func watchContext(parent context.Context, sig <-chan os.Signal, requested <-chan
 			cancel(watcher.ErrReplaced)
 			return
 		}
-		if ctx.Err() != nil {
+		if parent.Err() != nil {
+			if takeoverReady(requested) {
+				cancel(watcher.ErrReplaced)
+			} else {
+				cancel(watcher.ErrInterrupted)
+			}
 			return
 		}
 		select {
@@ -38,8 +43,12 @@ func watchContext(parent context.Context, sig <-chan os.Signal, requested <-chan
 			}
 			cancel(watcher.ErrInterrupted)
 		case <-ctx.Done():
+			return
+		case <-parent.Done():
 			if takeoverReady(requested) {
 				cancel(watcher.ErrReplaced)
+			} else {
+				cancel(watcher.ErrInterrupted)
 			}
 		}
 	}()

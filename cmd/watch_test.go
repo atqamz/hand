@@ -210,7 +210,7 @@ func TestWatchRegistersSignalsBeforePublishingOwnership(t *testing.T) {
 		registered <- sig
 	}
 	stopWatchSignal = func(chan<- os.Signal) {}
-	acquireWatcher = func(home string, takeover bool) (*watcher.Ownership, error) {
+	acquireWatcher = func(_ context.Context, home string, takeover bool) (*watcher.Ownership, error) {
 		var sig chan<- os.Signal
 		select {
 		case sig = <-registered:
@@ -239,6 +239,59 @@ func TestWatchRegistersSignalsBeforePublishingOwnership(t *testing.T) {
 	}
 	if strings.Contains(errOut.String(), "watch-replaced") {
 		t.Fatalf("stderr = %q, want generic interruption rather than replacement", errOut.String())
+	}
+}
+
+func TestWatchInterruptsWhileOwnershipAcquisitionIsWaiting(t *testing.T) {
+	setupWatchHome(t)
+
+	oldAcquire := acquireWatcher
+	oldNotify := notifyWatchSignal
+	oldStop := stopWatchSignal
+	t.Cleanup(func() {
+		acquireWatcher = oldAcquire
+		notifyWatchSignal = oldNotify
+		stopWatchSignal = oldStop
+	})
+
+	registered := make(chan chan<- os.Signal, 1)
+	started := make(chan struct{})
+	notifyWatchSignal = func(sig chan<- os.Signal, _ ...os.Signal) {
+		registered <- sig
+	}
+	stopWatchSignal = func(chan<- os.Signal) {}
+	acquireWatcher = func(ctx context.Context, _ string, _ bool) (*watcher.Ownership, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, watcher.ErrInterrupted
+	}
+
+	cmd := newWatchCmd()
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"--takeover", "--poll", "1h"})
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+
+	var sig chan<- os.Signal
+	select {
+	case sig = <-registered:
+	case <-time.After(time.Second):
+		t.Fatal("watch did not register its signal channel")
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("watch did not enter ownership acquisition")
+	}
+	sig <- os.Interrupt
+
+	select {
+	case err := <-done:
+		if err == nil || exitCodeFor(t, err) != 8 || !errors.Is(err, watcher.ErrInterrupted) {
+			t.Fatalf("watch returned %v, want exit 8/ErrInterrupted while acquisition was waiting", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watch did not stop its interrupted ownership acquisition")
 	}
 }
 

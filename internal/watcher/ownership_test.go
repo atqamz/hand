@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -201,6 +202,76 @@ func TestContenderWithNoRecordWaitsForTheLock(t *testing.T) {
 		r.ownership.Release()
 	case <-time.After(3 * time.Second):
 		t.Fatal("contender did not acquire once the holder released the lock")
+	}
+}
+
+func TestContenderCannotActBetweenLockAcquisitionAndOwnerPublication(t *testing.T) {
+	home := t.TempDir()
+	incumbent, err := Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := incumbent.Generation()
+	incumbent.endpoint.Close()
+	releaseLock(incumbent.lockFile)
+	if err := publishOwnerRecord(home, OwnerRecord{Version: ownerRecordVersion, Generation: generation, PID: 424242}); err != nil {
+		t.Fatal(err)
+	}
+
+	publicationReached := make(chan struct{})
+	publicationContinue := make(chan struct{})
+	oldAfterLockAcquired := afterLockAcquired
+	afterLockAcquired = func() {
+		close(publicationReached)
+		<-publicationContinue
+	}
+	t.Cleanup(func() {
+		afterLockAcquired = oldAfterLockAcquired
+		select {
+		case <-publicationContinue:
+		default:
+			close(publicationContinue)
+		}
+	})
+
+	type outcome struct {
+		ownership *Ownership
+		err       error
+	}
+	successorDone := make(chan outcome, 1)
+	go func() {
+		ownership, acquireErr := Acquire(home, false)
+		successorDone <- outcome{ownership: ownership, err: acquireErr}
+	}()
+	select {
+	case <-publicationReached:
+	case <-time.After(time.Second):
+		t.Fatal("successor did not acquire the kernel lock before publication")
+	}
+
+	if _, err := os.Stat(OwnerRecordPath(home)); err != nil {
+		t.Fatalf("stale owner record disappeared before the successor reached publication: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	contender, err := AcquireContext(ctx, home, true)
+	cancel()
+	if contender != nil {
+		contender.Release()
+		t.Fatal("takeover contender became owner while the successor held the kernel lock")
+	}
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("takeover contender = %v, want interruption while the lock remains held", err)
+	}
+
+	close(publicationContinue)
+	select {
+	case result := <-successorDone:
+		if result.err != nil {
+			t.Fatalf("successor Acquire: %v", result.err)
+		}
+		result.ownership.Release()
+	case <-time.After(time.Second):
+		t.Fatal("successor did not finish owner publication")
 	}
 }
 

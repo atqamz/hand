@@ -1982,6 +1982,21 @@ func TestRunReportsInterruptionOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestRunReportsAParentDeadlineAsInterruption(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, faketool.Bin(t))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := Run(ctx, Config{Home: t.TempDir(), PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("Run returned %v, want ErrInterrupted for a caller deadline", err)
+	}
+	if errors.Is(err, ErrNoEvent) {
+		t.Fatal("Run returned ErrNoEvent for a caller deadline; only the until-event timeout is a no-event window")
+	}
+}
+
 func TestRunExitsWhenPaneProbeIsCanceled(t *testing.T) {
 	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
 	faketool.Herdr{
@@ -2204,6 +2219,21 @@ func TestRunUntilEventReportsInterruptionOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunUntilEvent did not return after context cancellation")
+	}
+}
+
+func TestRunUntilEventReportsAParentDeadlineAsInterruption(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Hang: []string{"workspace list"}, Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, faketool.Bin(t))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := RunUntilEvent(ctx, Config{Home: t.TempDir(), PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("RunUntilEvent returned %v, want ErrInterrupted for a parent deadline", err)
+	}
+	if errors.Is(err, ErrNoEvent) {
+		t.Fatal("RunUntilEvent returned ErrNoEvent for a parent deadline without Config.Timeout")
 	}
 }
 

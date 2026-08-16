@@ -204,10 +204,21 @@ func TestUnixStaleSocketFailsSafely(t *testing.T) {
 // most of that, so the derived filename has to be compact. Rising over the
 // limit here is a bind: invalid argument failure on mac CI, so pin it.
 func TestUnixSocketPathStaysWithinSockaddrUnLimit(t *testing.T) {
-	const sockaddrUnLimit = 104
 	home := t.TempDir()
 	if path := takeoverSocketPath(home, "deadbeef"+strings.Repeat("a", 24)); len(path) >= sockaddrUnLimit {
 		t.Fatalf("takeover socket path %q is %d bytes, want < %d (macOS bind limit)", path, len(path), sockaddrUnLimit)
+	}
+}
+
+func TestUnixSocketPathFallsBackFromAnOverlongTempDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("TMPDIR", filepath.Join(string(filepath.Separator), strings.Repeat("t", 120)))
+	path := takeoverSocketPath(home, genB)
+	if len(path) >= sockaddrUnLimit {
+		t.Fatalf("takeover socket path %q is %d bytes, want < %d", path, len(path), sockaddrUnLimit)
+	}
+	if !strings.HasPrefix(path, string(filepath.Separator)+"tmp"+string(filepath.Separator)) {
+		t.Fatalf("takeover socket path %q did not use the short fallback directory", path)
 	}
 }
 

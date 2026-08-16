@@ -53,10 +53,13 @@ var ErrInterrupted = errors.New("watch interrupted")
 // must never produce it. It maps to exit 9.
 var ErrReplaced = errors.New("watch replaced by explicit takeover")
 
-// Classifies a canceled context into the one typed lifecycle result that fits:
-// explicit replacement beats generic interruption. A context deadline belongs
-// to ErrNoEvent rather than either lifecycle cancellation result.
+// Classifies a canceled context into the one typed lifecycle result that fits.
+// Explicit replacement and the until-event timeout have distinct causes, while
+// every other parent or command cancellation is an interruption.
 func cancellationError(ctx context.Context) error {
+	if errors.Is(context.Cause(ctx), ErrNoEvent) {
+		return ErrNoEvent
+	}
 	if errors.Is(context.Cause(ctx), ErrReplaced) {
 		return ErrReplaced
 	}
@@ -66,9 +69,6 @@ func cancellationError(ctx context.Context) error {
 func contextLifecycleError(ctx context.Context) error {
 	if ctx.Err() == nil {
 		return nil
-	}
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
-		return ErrNoEvent
 	}
 	return cancellationError(ctx)
 }
@@ -106,13 +106,13 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		ctx, cancel = withWatchTimeout(ctx, cfg.Timeout)
 		defer cancel()
 	}
 
 	client, err := connect(ctx)
 	if err != nil {
-		if errors.Is(err, ErrNoEvent) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if errors.Is(err, ErrNoEvent) {
 			return fmt.Errorf("%w within %s: %w", ErrNoEvent, cfg.Timeout, err)
 		}
 		return err
@@ -222,6 +222,15 @@ func probeContextError(ctx context.Context) error {
 		return fmt.Errorf("%w: timed out probing tasks before arming", ErrNoEvent)
 	}
 	return fmt.Errorf("while probing tasks before arming: %w", cancellationError(ctx))
+}
+
+func withWatchTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	timer := time.AfterFunc(timeout, func() { cancel(ErrNoEvent) })
+	return ctx, func() {
+		timer.Stop()
+		cancel(nil)
+	}
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {

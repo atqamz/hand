@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -20,9 +21,9 @@ const defaultParkedDoneBound = 5400 * time.Second
 const defaultParkedOtherBound = 1200 * time.Second
 
 var (
-	acquireWatcher    = watcher.Acquire
-	notifyWatchSignal = signal.Notify
-	stopWatchSignal   = signal.Stop
+	acquireWatcher    func(context.Context, string, bool) (*watcher.Ownership, error) = watcher.AcquireContext
+	notifyWatchSignal                                                                 = signal.Notify
+	stopWatchSignal                                                                   = signal.Stop
 )
 
 func newWatchCmd() *cobra.Command {
@@ -96,16 +97,25 @@ func newWatchCmd() *cobra.Command {
 			notifyWatchSignal(sig, os.Interrupt, syscall.SIGTERM)
 			defer stopWatchSignal(sig)
 
-			ownership, err := acquireWatcher(home, takeover)
+			acquireCtx, stopAcquire := watchContext(cmd.Context(), sig, nil)
+			defer stopAcquire()
+
+			ownership, err := acquireWatcher(acquireCtx, home, takeover)
 			if err != nil {
 				if errors.Is(err, watcher.ErrAttached) {
 					return &ExitError{Err: err, Code: 3}
+				}
+				if errors.Is(err, watcher.ErrReplaced) {
+					return &ExitError{Err: err, Code: 9}
+				}
+				if errors.Is(err, watcher.ErrInterrupted) {
+					return &ExitError{Err: err, Code: 8}
 				}
 				return err
 			}
 			defer ownership.Release()
 
-			ctx, cancel := watchContext(cmd.Context(), sig, ownership.TakeoverRequested())
+			ctx, cancel := watchContext(acquireCtx, sig, ownership.TakeoverRequested())
 			defer cancel()
 
 			cfg := watcher.Config{

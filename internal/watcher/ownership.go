@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -22,8 +23,9 @@ var ErrAttached = errors.New("a watcher is already attached to this fleet home")
 // release before failing, and how often it re-tries the lock. Variables so a
 // test can shrink the wait without sleeping out the default grace.
 var (
-	takeoverGrace = 5 * time.Second
-	takeoverPoll  = 50 * time.Millisecond
+	takeoverGrace     = 5 * time.Second
+	takeoverPoll      = 50 * time.Millisecond
+	afterLockAcquired = func() {}
 )
 
 // OwnerPath names the advisory file that records the owning watcher's pid.
@@ -52,6 +54,14 @@ type Ownership struct {
 
 // Acquire makes hand watch a singleton per fleet home. The kernel drops the lock when the holder dies.
 func Acquire(homeDir string, takeover bool) (*Ownership, error) {
+	return AcquireContext(context.Background(), homeDir, takeover)
+}
+
+// Context-aware acquisition stops a takeover wait without changing lock authority.
+func AcquireContext(ctx context.Context, homeDir string, takeover bool) (*Ownership, error) {
+	if err := acquisitionContextError(ctx); err != nil {
+		return nil, err
+	}
 	home := canonicalHome(homeDir)
 	if err := os.MkdirAll(stateDir(home), 0o755); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
@@ -67,15 +77,20 @@ func Acquire(homeDir string, takeover bool) (*Ownership, error) {
 			_ = lockFile.Close()
 			return nil, fmt.Errorf("lock %s: %w", lockPath, err)
 		}
-		if err := contend(lockFile, home, takeover); err != nil {
+		if err := contend(ctx, lockFile, home, takeover); err != nil {
 			_ = lockFile.Close()
 			return nil, err
 		}
 	}
 
+	afterLockAcquired()
 	ownership, err := publishNewOwner(home, lockFile)
 	if err != nil {
 		_ = lockFile.Close()
+		return nil, err
+	}
+	if err := acquisitionContextError(ctx); err != nil {
+		ownership.Release()
 		return nil, err
 	}
 	return ownership, nil
@@ -190,7 +205,10 @@ func (o *Ownership) PID() int {
 // Handles lock contention. Without --takeover it refuses immediately. With
 // --takeover it requests each observed generation once after delivery succeeds
 // and waits for the kernel lock, never targeting a process by pid.
-func contend(lockFile *os.File, home string, takeover bool) error {
+func contend(ctx context.Context, lockFile *os.File, home string, takeover bool) error {
+	if err := acquisitionContextError(ctx); err != nil {
+		return err
+	}
 	if !takeover {
 		return fmt.Errorf("%w - a watcher already holds the fleet-home lock; stop it through its owning session, or use --takeover for cooperative replacement", ErrAttached)
 	}
@@ -200,6 +218,9 @@ func contend(lockFile *os.File, home string, takeover bool) error {
 	requestCurrent(home, requested)
 
 	for {
+		if err := acquisitionContextError(ctx); err != nil {
+			return err
+		}
 		err := lockOwner(lockFile)
 		if err == nil {
 			return nil
@@ -212,8 +233,23 @@ func contend(lockFile *os.File, home string, takeover bool) error {
 			return fmt.Errorf("%w - the fleet-home lock did not release within %s after --takeover; stop the watcher through its owning session and retry",
 				ErrAttached, takeoverGrace)
 		}
-		time.Sleep(takeoverPoll)
+		timer := time.NewTimer(takeoverPoll)
+		select {
+		case <-ctx.Done():
+			if err := acquisitionContextError(ctx); err != nil {
+				_ = timer.Stop()
+				return err
+			}
+		case <-timer.C:
+		}
 	}
+}
+
+func acquisitionContextError(ctx context.Context) error {
+	if ctx == nil || ctx.Err() == nil {
+		return nil
+	}
+	return cancellationError(ctx)
 }
 
 // Asks the currently-published owner generation to step aside, exactly once per
