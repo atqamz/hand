@@ -24,6 +24,8 @@ import (
 
 const maxEventLogLines = 200
 
+var afterWatchTick = func() {}
+
 type Config struct {
 	Home           string
 	PollInterval   time.Duration
@@ -134,14 +136,14 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	for {
 		select {
 		case <-ctx.Done():
-			lifecycleErr := contextLifecycleError(ctx)
-			if errors.Is(lifecycleErr, ErrNoEvent) {
-				return fmt.Errorf("%w within %s", ErrNoEvent, cfg.Timeout)
-			}
-			return fmt.Errorf("%w", lifecycleErr)
+			return runUntilEventContextError(ctx, cfg.Timeout)
 		case <-ticker.C:
 			var events bytes.Buffer
 			tick(ctx, cfg, client, states, &events, errOut)
+			afterWatchTick()
+			if ctxErr := contextLifecycleError(ctx); ctxErr != nil {
+				return runUntilEventContextError(ctx, cfg.Timeout)
+			}
 			if events.Len() == 0 {
 				continue
 			}
@@ -230,6 +232,14 @@ func withWatchTimeout(parent context.Context, timeout time.Duration) (context.Co
 		timer.Stop()
 		cancel(nil)
 	}
+}
+
+func runUntilEventContextError(ctx context.Context, timeout time.Duration) error {
+	lifecycleErr := contextLifecycleError(ctx)
+	if errors.Is(lifecycleErr, ErrNoEvent) {
+		return fmt.Errorf("%w within %s", ErrNoEvent, timeout)
+	}
+	return fmt.Errorf("%w", lifecycleErr)
 }
 
 func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[string]*TaskState, out, errOut io.Writer) {

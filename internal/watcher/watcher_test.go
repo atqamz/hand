@@ -2292,6 +2292,37 @@ func TestRunUntilEventReportsReplacementOnTakeoverCause(t *testing.T) {
 	}
 }
 
+func TestRunUntilEventDoesNotDeliverAnEventAfterCancellationAtTheTickBoundary(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	oldAfterWatchTick := afterWatchTick
+	t.Cleanup(func() { afterWatchTick = oldAfterWatchTick })
+	ticks := 0
+	afterWatchTick = func() {
+		ticks++
+		if ticks == 2 {
+			setStatus(t, statusFile, "done")
+		}
+		if ticks == 3 {
+			cancel(ErrReplaced)
+		}
+	}
+
+	var out bytes.Buffer
+	err := RunUntilEvent(ctx, Config{Home: home, PollInterval: 10 * time.Millisecond, Timeout: 10 * time.Second}, &out, io.Discard)
+	if !errors.Is(err, ErrReplaced) {
+		t.Fatalf("RunUntilEvent = %v, want ErrReplaced when cancellation follows event collection", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want no event after cancellation at the tick boundary", out.String())
+	}
+}
+
 func TestRunUntilEventFailsWhenHerdrUnreachable(t *testing.T) {
 	faketool.Herdr{Unreachable: true}.Install(t, faketool.Bin(t))
 
