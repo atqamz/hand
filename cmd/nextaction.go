@@ -7,8 +7,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// The one deterministic, machine-consumable classification hand session start reports:
-// the highest-priority fleet condition that objectively requires attention before fresh work starts.
+// An existing unresolved obligation always outranks fresh queued work.
 type nextAction struct {
 	Kind    string
 	Task    string
@@ -33,7 +32,6 @@ const (
 )
 
 // Ranks fleet conditions so an existing unresolved obligation always outranks fresh queued work.
-// atqamz/hand#234 owns the precedence table this sequence of guard clauses implements.
 func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSummary, views []taskView, holds []state.Hold) nextAction {
 	if cfg.harness == "" {
 		return nextAction{Kind: nextActionNeedsConfig, Command: "hand config set harness <name>", Reason: workerConfigHelp(cfg)[0]}
