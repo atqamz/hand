@@ -260,7 +260,7 @@ func TestTickClassifiesNotBusyAsIdleUnreportedRegardlessOfHerdrSpelling(t *testi
 
 func TestTickSuppressesStaleForTerminalAndDeliveredTasksUsingCurrentState(t *testing.T) {
 	writeFakeHerdrForPanes(t, "p1", "p2", "p3", "p4")
-	old := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	old := "2020-01-02T03:04:05Z"
 
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
@@ -347,7 +347,7 @@ func TestTickProcessesTerminalReportBeforeStale(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
-	old := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	old := "2020-01-02T03:04:05Z"
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Kind: state.KindShip, CreatedAt: old}, state.Attempt{
 		Lifecycle:        state.AttemptRunning,
@@ -380,7 +380,7 @@ func TestTickKeepsIdleUnreportedFactualAfterDelivery(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
-	old := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	old := "2020-01-02T03:04:05Z"
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Kind: state.KindShip, CreatedAt: old, DeliveredAt: old, DeliveredReason: "handed off"}, state.Attempt{
 		Lifecycle:        state.AttemptRunning,
@@ -2357,6 +2357,7 @@ func TestRunUntilEventSuppressesStaleAfterLiveTerminalAndDeliveryUpdates(t *test
 			"working", "working", "working",
 			"pane-gone", "pane-gone", "pane-gone",
 			"working", "working", "working",
+			"pane-gone", "pane-gone", "pane-gone",
 			"working", "working", "blocked",
 		},
 		Log: callLog, LogCommands: []string{"pane get"},
@@ -2389,13 +2390,14 @@ func TestRunUntilEventSuppressesStaleAfterLiveTerminalAndDeliveryUpdates(t *test
 		}, &out, io.Discard)
 	}()
 
-	waitForHerdrCalls(t, callLog, "pane get", 3)
+	waitForHerdrCalls(t, callLog, "pane get", 9)
 	if err := os.WriteFile(state.ReportPath(home, "terminal-task"), []byte("done: finished\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.SetTaskDelivery(home, "delivered-task", old, "handed off while watch was alive"); err != nil {
 		t.Fatal(err)
 	}
+	waitForHerdrCalls(t, callLog, "pane get", 15)
 	select {
 	case err := <-done:
 		if err != nil {
