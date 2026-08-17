@@ -28,7 +28,8 @@ An absent executable, a non-zero exit, unparsable output, an empty pool and a po
 Unproven ownership never authorizes a destructive command, and `--force` is not a way around that.
 `--force` still only chooses how a return whose ownership is already proven deals with dirty work.
 
-Nothing durable is recorded from an unprovable observation.
+No durable teardown resource state is recorded from an unprovable observation.
+The Task-addressed repair marker is recorded on purpose, names the failed probe, and is cleared when a later observation proves ownership or the resource settles, so it reports an unresolved condition rather than concluding one.
 Teardown that cannot observe the pool refuses and writes no resource state, so the next teardown with an observable pool proceeds normally.
 `ambiguous` remains reachable from provable contradiction, and it stops being a dead end: both teardown and reconciliation may leave it, but only behind a fresh `LeaseExact` observation of the same lease identity.
 
