@@ -3,12 +3,15 @@ package selfupdate
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
 )
+
+const edgeTestCommitA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func stableBuild(version string) BuildInfo {
 	return BuildInfo{Version: version, Channel: ChannelStable}
@@ -214,5 +217,141 @@ func TestCheckNoticeForBuildRefreshesCacheWhenChannelChanges(t *testing.T) {
 	}
 	if cache.Channel != ChannelEdge || cache.Commit != edgeTestCommit {
 		t.Fatalf("cache = %#v, want edge channel and commit", cache)
+	}
+}
+
+func TestReconcileNoticeReplacesARolledBackTarget(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCache(filepath.Join(home, "state", cacheFile), versionCache{
+		CheckedAt: time.Now(),
+		Channel:   ChannelEdge,
+		Latest:    "edge." + shortCommit(edgeTestCommit),
+		Commit:    edgeTestCommit,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	live := Target{Channel: ChannelEdge, Tag: ChannelEdge, Version: "edge." + shortCommit(edgeTestCommitA), Commit: edgeTestCommitA}
+	if err := ReconcileNotice(home, live); err != nil {
+		t.Fatal(err)
+	}
+
+	// A refusal fake: the reconciled cache must be fresh and match the
+	// installed build so no live gh call happens.
+	bin := faketool.Bin(t)
+	faketool.GH{}.Install(t, bin)
+	installed := BuildInfo{Version: "edge." + shortCommit(edgeTestCommitA), Channel: ChannelEdge, Commit: edgeTestCommitA}
+	if notice := CheckNoticeForBuild(home, "atqamz/hand", installed); notice != "" {
+		t.Fatalf("got %q, want no banner for the rolled-back build", notice)
+	}
+}
+
+func TestReconcileNoticeRecordsAForwardTarget(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCache(filepath.Join(home, "state", cacheFile), versionCache{
+		CheckedAt: time.Now(),
+		Channel:   ChannelEdge,
+		Latest:    "edge." + shortCommit(edgeTestCommitA),
+		Commit:    edgeTestCommitA,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	live := Target{Channel: ChannelEdge, Tag: ChannelEdge, Version: "edge." + shortCommit(edgeTestCommit), Commit: edgeTestCommit}
+	if err := ReconcileNotice(home, live); err != nil {
+		t.Fatal(err)
+	}
+
+	bin := faketool.Bin(t)
+	faketool.GH{}.Install(t, bin)
+	installed := BuildInfo{Version: "edge." + shortCommit(edgeTestCommitA), Channel: ChannelEdge, Commit: edgeTestCommitA}
+	notice := CheckNoticeForBuild(home, "atqamz/hand", installed)
+	want := "A new edge build of hand is available: " + shortCommit(edgeTestCommitA) + " -> " + shortCommit(edgeTestCommit) + "\nRun \"hand update\" to update"
+	if notice != want {
+		t.Fatalf("got %q, want %q", notice, want)
+	}
+}
+
+func TestReconcileNoticeSkipsHomeWithoutStateDir(t *testing.T) {
+	home := t.TempDir()
+
+	if err := ReconcileNotice(home, Target{Channel: ChannelEdge, Version: "edge." + shortCommit(edgeTestCommit), Commit: edgeTestCommit}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "state")); !os.IsNotExist(err) {
+		t.Fatalf("got state dir created, want none, err=%v", err)
+	}
+}
+
+func TestReconcileNoticeKeepsStableAndEdgeCachesSeparate(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	live := Target{Channel: ChannelEdge, Tag: ChannelEdge, Version: "edge." + shortCommit(edgeTestCommit), Commit: edgeTestCommit}
+	if err := ReconcileNotice(home, live); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFakeGH(t, "v0.5.0", t.TempDir())
+	notice := CheckNoticeForBuild(home, "atqamz/hand", stableBuild("v0.1.0"))
+	want := "A new version of hand is available: v0.1.0 -> v0.5.0\nRun \"hand update\" to update"
+	if notice != want {
+		t.Fatalf("got %q, want %q, an edge cache must not answer for a stable build", notice, want)
+	}
+	cache, err := readCache(filepath.Join(home, "state", cacheFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cache.Channel != ChannelStable || cache.Latest != "v0.5.0" {
+		t.Fatalf("cache = %#v, want a stable record after the stable check", cache)
+	}
+}
+
+func TestReconcileNoticeWriteFailureLeavesAPreviousRecordIntact(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce directory write permissions the same way")
+	}
+	home := t.TempDir()
+	stateDir := filepath.Join(home, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := versionCache{
+		CheckedAt: time.Now(),
+		Channel:   ChannelEdge,
+		Latest:    "edge." + shortCommit(edgeTestCommitA),
+		Commit:    edgeTestCommitA,
+	}
+	if err := writeCache(filepath.Join(stateDir, cacheFile), original); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(stateDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stateDir, 0o755) })
+
+	live := Target{Channel: ChannelEdge, Tag: ChannelEdge, Version: "edge." + shortCommit(edgeTestCommit), Commit: edgeTestCommit}
+	if err := ReconcileNotice(home, live); err == nil {
+		t.Fatal("want an error when state is not writable")
+	}
+
+	if err := os.Chmod(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := readCache(filepath.Join(stateDir, cacheFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cache.Channel != original.Channel || cache.Latest != original.Latest || cache.Commit != original.Commit {
+		t.Fatalf("cache = %#v, want the previous valid record unchanged: %#v", cache, original)
 	}
 }
