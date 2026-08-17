@@ -194,24 +194,24 @@ func TestWatcherRestartAfterResumeSideEffectDoesNotResend(t *testing.T) {
 	}
 	first.waitForExit(t, 10*time.Second, "watcher process death after resume Text side effect")
 
+	beforeRestart := countInvocations(t, logPath+".invocations", "pane get")
 	second := startHandBackground(t, home, "watch", "--poll", "20ms")
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(logPath)
-		if err != nil && !os.IsNotExist(err) {
-			t.Fatal(err)
-		}
-		if strings.Count(string(data), "Your previous turn stopped") > 1 {
-			t.Fatalf("watcher resent an unresolved resume after restart: %q", data)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitForInvocations(t, logPath+".invocations", "pane get", beforeRestart+2, 10*time.Second)
 	second.interrupt(t, 10*time.Second)
 	assertSendSideEffects(t, logPath, "Your previous turn stopped", 0)
 	sends, err := state.ListSends(home, "task-1")
 	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain {
 		t.Fatalf("sends=%+v err=%v, want one uncertain watcher send after restart", sends, err)
 	}
+}
+
+func countInvocations(t *testing.T, logPath, substr string) int {
+	t.Helper()
+	data, err := os.ReadFile(logPath)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return strings.Count(string(data), substr)
 }
 
 func installCrashSendHerdr(t *testing.T, dir, logPath, hang string) {
