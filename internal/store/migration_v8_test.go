@@ -45,8 +45,8 @@ func TestMigrationV8ConvertsReal040Database(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	if history.Task.Lifecycle != TaskOpen || history.Task.ActiveAttemptID == 0 {
-		t.Fatalf("task lifecycle/active attempt = %q/%d", history.Task.Lifecycle, history.Task.ActiveAttemptID)
+	if history.Task.ID != "legacy" || history.Task.Lifecycle != TaskOpen || history.Task.ActiveAttemptID == 0 {
+		t.Fatalf("task identity/lifecycle/active attempt = %q/%q/%d", history.Task.ID, history.Task.Lifecycle, history.Task.ActiveAttemptID)
 	}
 	if history.Task.Project != "nsr" || history.Task.Kind != "ship" || history.Task.Brief != "data/legacy/brief.md" || history.Task.ReportOffset != 41 || history.Task.ReportDigest != "digest-before-upgrade" || history.Task.PR != "https://github.com/o/nsr/pull/7" || !history.Task.MergeExecuted || history.Task.MergeExecutedAt != "2026-07-24T12:00:00Z" || !history.Task.MergeAnnounced || history.Task.DeliveredAt != "2026-07-24T13:00:00Z" || history.Task.DeliveredReason != "merged" || history.Task.CreatedAt != "2026-07-24T10:00:00Z" {
 		t.Fatalf("task-owned state was not preserved: %+v", history.Task)
@@ -55,7 +55,7 @@ func TestMigrationV8ConvertsReal040Database(t *testing.T) {
 		t.Fatalf("attempt count = %d, want 1", len(history.Attempts))
 	}
 	attempt := history.Attempts[0]
-	if attempt.Ordinal != 1 || attempt.Lifecycle != AttemptRunning || attempt.Harness != "claude" || attempt.Model != "opus" || attempt.Effort != "high" || attempt.Worktree != "/w/nsr" || attempt.LeaseID != "lease-7" || attempt.CreatedAt != "2026-07-24T10:00:00Z" || attempt.PaneStartedAt != "2026-07-24T10:30:00Z" || attempt.StatusChangedAt != "2026-07-24T11:00:00Z" || attempt.StatusChangedFor != "working" || !attempt.DoneVerified {
+	if attempt.ID == 0 || history.Task.ActiveAttemptID != attempt.ID || attempt.TaskID != "legacy" || attempt.Ordinal != 1 || attempt.Lifecycle != AttemptRunning || attempt.Harness != "claude" || attempt.Model != "opus" || attempt.Effort != "high" || attempt.Worktree != "/w/nsr" || attempt.LeaseID != "lease-7" || attempt.CreatedAt != "2026-07-24T10:00:00Z" || attempt.PaneStartedAt != "2026-07-24T10:30:00Z" || attempt.StatusChangedAt != "2026-07-24T11:00:00Z" || attempt.StatusChangedFor != "working" || !attempt.DoneVerified {
 		t.Fatalf("execution state was not preserved: %+v", attempt)
 	}
 	if attempt.Herdr.Session != "default" || attempt.Herdr.WorkspaceID != "wA" || attempt.Herdr.TabID != "wA:tB" || attempt.Herdr.PaneID != "wA:pC" || attempt.LastReportState != "working" || attempt.LastReportNote != "still working" || attempt.UsageLimitRetryAt != "2026-07-24T15:00:00Z" || attempt.UsageLimitAttempts != 2 || attempt.SendUndeliveredMessage != "stop" || attempt.SendUndeliveredAt != "2026-07-24T13:30:00Z" || attempt.ParkedFiredFor != "2026-07-24T11:30:00Z" {

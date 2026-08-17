@@ -194,9 +194,10 @@ func TestWatcherRestartAfterResumeSideEffectDoesNotResend(t *testing.T) {
 	}
 	first.waitForExit(t, 10*time.Second, "watcher process death after resume Text side effect")
 
-	beforeRestart := countInvocations(t, logPath+".invocations", "pane get")
+	const paneGetInvocation = "herdr pane get pane-1"
+	beforeRestart := countInvocations(t, logPath+".invocations", paneGetInvocation)
 	second := startHandBackground(t, home, "watch", "--poll", "20ms")
-	waitForInvocations(t, logPath+".invocations", "pane get", beforeRestart+2, 10*time.Second)
+	waitForInvocations(t, logPath+".invocations", paneGetInvocation, beforeRestart+2, 10*time.Second)
 	second.interrupt(t, 10*time.Second)
 	assertSendSideEffects(t, logPath, "Your previous turn stopped", 0)
 	sends, err := state.ListSends(home, "task-1")
@@ -211,7 +212,13 @@ func countInvocations(t *testing.T, logPath, substr string) int {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return strings.Count(string(data), substr)
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == substr {
+			count++
+		}
+	}
+	return count
 }
 
 func installCrashSendHerdr(t *testing.T, dir, logPath, hang string) {

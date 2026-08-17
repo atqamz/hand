@@ -78,7 +78,14 @@ func TestRuntimeRouteMatrixPersistsEveryCanonicalCell(t *testing.T) {
 		}
 		task, attempt := readTaskAttempt(t, home, id)
 		profile := fmt.Sprintf("operator-%s-%d", cell.class, i)
-		if task.Kind != cell.kind || attempt.ExecutionClass != cell.class || attempt.RequestedProfile != profile || attempt.Harness != "claude" || attempt.Model != "model-"+cell.class || attempt.Effort != "effort-"+cell.class || attempt.PlannedAgainst != plannedAgainst || attempt.RoutingSource != string(routing.RoutingSourceRoute) {
+		wantWorkspace := "workspace-0"
+		wantTab := "tab-0"
+		wantPane := "pane-0"
+		if i > 0 {
+			wantTab = fmt.Sprintf("tab-extra-%d", i)
+			wantPane = fmt.Sprintf("pane-extra-%d", i)
+		}
+		if task.ID != id || task.ActiveAttemptID != attempt.ID || task.Kind != cell.kind || attempt.TaskID != id || attempt.ExecutionClass != cell.class || attempt.RequestedProfile != profile || attempt.Harness != "claude" || attempt.Model != "model-"+cell.class || attempt.Effort != "effort-"+cell.class || attempt.PlannedAgainst != plannedAgainst || attempt.RoutingSource != string(routing.RoutingSourceRoute) || attempt.Herdr.WorkspaceID != wantWorkspace || attempt.Herdr.TabID != wantTab || attempt.Herdr.PaneID != wantPane {
 			t.Fatalf("%s.%s task=%+v attempt=%+v, want immutable route snapshot for %s", cell.kind, cell.class, task, attempt, profile)
 		}
 	}
@@ -137,19 +144,21 @@ func TestReopenUsesCurrentRouteWithoutMutatingHistoricalAttempt(t *testing.T) {
 		t.Fatalf("history = %+v, want two Attempts and one active replacement", history)
 	}
 	old, current := history.Attempts[0], *history.ActiveAttempt
-	if old.ID == current.ID || old.Lifecycle != state.AttemptCompleted {
+	if history.Task.ID != "task-1" || history.Task.ActiveAttemptID != current.ID || old.ID == 0 || current.ID == 0 || old.ID == current.ID || old.TaskID != "task-1" || current.TaskID != "task-1" || old.Ordinal != 1 || current.Ordinal != 2 || old.Lifecycle != state.AttemptCompleted {
 		t.Fatalf("old=%+v current=%+v, want distinct terminal historical Attempt", old, current)
 	}
-	if old.RequestedProfile != "route-a" || old.Model != "model-a" || old.Effort != "effort-a" || old.ExecutionClass != "standard" {
+	if old.RequestedProfile != "route-a" || old.Model != "model-a" || old.Effort != "effort-a" || old.ExecutionClass != "standard" || old.PlannedAgainst != plannedAgainst {
 		t.Fatalf("historical Attempt changed after route edit: %+v", old)
 	}
-	if current.RequestedProfile != "route-b" || current.Model != "model-b" || current.Effort != "effort-b" || current.ExecutionClass != "standard" {
+	if current.RequestedProfile != "route-b" || current.Model != "model-b" || current.Effort != "effort-b" || current.ExecutionClass != "standard" || current.PlannedAgainst != plannedAgainst {
 		t.Fatalf("reopened Attempt = %+v, want current route-b snapshot", current)
 	}
 }
 
 func TestSelectedProfileFailureDoesNotFallBackToAnotherProfile(t *testing.T) {
-	home, _, treehouseLog, herdrLog := setupClassifiedRoutingRefusal(t)
+	home, bin, treehouseLog, herdrLog := setupClassifiedRoutingRefusal(t)
+	workerLog := filepath.Join(t.TempDir(), "worker.log")
+	writeFakeBin(t, bin, "claude", fmt.Sprintf("echo launch >> %s\nexit 0\n", shellSingleQuote(workerLog)))
 	setExecutionProfile(t, home, "valid-alternative", "claude", "good-model", "high")
 	setExecutionProfile(t, home, "selected-incompatible", "grok", "", "")
 	setHardeningRoute(t, home, "ship", "standard", "selected-incompatible")
@@ -165,6 +174,9 @@ func TestSelectedProfileFailureDoesNotFallBackToAnotherProfile(t *testing.T) {
 	}
 	if log := readOptionalLog(t, herdrLog); log != "" {
 		t.Fatalf("herdr log = %q, want no resource creation after selected Profile failure", log)
+	}
+	if log := readOptionalLog(t, workerLog); log != "" {
+		t.Fatalf("worker log = %q, want no launch after selected Profile failure", log)
 	}
 }
 
