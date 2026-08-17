@@ -7,7 +7,7 @@
 
 ## Context
 
-`internal/store/lock.go:24-43` maps a logical lock key to a stable pathname: `sha256(key)` becomes
+`internal/store/lock.go:24-45` maps a logical lock key to a stable pathname: `sha256(key)` becomes
 `state/.<64hex>.lock`, opened with `O_CREATE|O_RDWR` and locked with `internal/filelock`. The mapping is
 one-way and permanent. No code path in the tree unlinks a hashed lock file, and the two wrappers above
 it, `internal/state/task.go`'s `Lock`/`TryLock`/`Claim` and `internal/routing/lock.go`'s `withLock`,
@@ -37,7 +37,7 @@ The pathname for a logical lock key is permanent for the life of the fleet home.
 acquisition and is never unlinked, by any caller, for any reason. Zero-byte size and an old modification
 time carry no information about whether the lock is currently held. The only authoritative signal of
 ownership is the kernel lock itself, `flock` on unix or `LockFileEx` on windows, which is released when
-every file descriptor or handle referencing it closes: on `internal/store/lock.go:39-42`'s ordinary
+every file descriptor or handle referencing it closes: on `internal/store/lock.go:42-45`'s ordinary
 release path, or on process death.
 
 This holds for all nine audited lock families, all classified `retain`:
