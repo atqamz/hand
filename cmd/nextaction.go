@@ -82,8 +82,14 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 			Reason: statusReason(v.task.ID, "act on its unacknowledged worker event")}
 	}
 	if h, ok := firstHold(holds); ok {
-		return nextAction{Kind: nextActionHold, Task: h.ID, Command: statusCommand(h.ID),
-			Reason: statusReason(h.ID, "resolve its active hold")}
+		for _, v := range views {
+			if v.task.ID == h.ID {
+				return nextAction{Kind: nextActionHold, Task: h.ID, Command: statusCommand(h.ID),
+					Reason: statusReason(h.ID, "resolve its active hold")}
+			}
+		}
+		return nextAction{Kind: nextActionHold, Task: h.ID, Command: "none",
+			Reason: "Operator or supervisor judgment is needed to resolve its active hold"}
 	}
 	if v, ok := firstView(sorted, func(v taskView) bool { return v.gateIssue != "" }); ok {
 		return nextAction{Kind: nextActionGate, Task: v.task.ID, Command: statusCommand(v.task.ID),

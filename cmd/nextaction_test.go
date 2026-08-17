@@ -112,8 +112,13 @@ func TestClassifyNextActionExactPrecedence(t *testing.T) {
 		},
 		{
 			"hold outranks needs-project",
-			configuredWorker, 0, backlogSummary{}, nil, []state.Hold{{ID: "held-task"}},
+			configuredWorker, 0, backlogSummary{}, []taskView{{task: state.Task{ID: "held-task"}}}, []state.Hold{{ID: "held-task"}},
 			nextAction{Kind: nextActionHold, Task: "held-task", Command: "hand status held-task", Reason: statusReason("held-task", "resolve its active hold")},
+		},
+		{
+			"hold without a task has no safe command",
+			configuredWorker, 0, backlogSummary{}, nil, []state.Hold{{ID: "orphan-hold"}},
+			nextAction{Kind: nextActionHold, Task: "orphan-hold", Command: "none", Reason: "Operator or supervisor judgment is needed to resolve its active hold"},
 		},
 		{
 			"gate outranks queued work",
