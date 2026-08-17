@@ -542,6 +542,7 @@ func checkedUpdateDoc(current, latest string, available bool) string {
 }
 
 func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
 	writeFakeGHReleaseView(t, "v0.5.0")
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -560,6 +561,7 @@ func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {
 // Up to date is an answer, not an absence: it renders the same schema as an
 // available update, differing only in the value of update_available.
 func TestUpdateCheckReportsUpToDate(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
 	writeFakeGHReleaseView(t, "v0.1.0")
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -576,6 +578,7 @@ func TestUpdateCheckReportsUpToDate(t *testing.T) {
 }
 
 func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
 	writeFakeGHReleaseView(t, "v0.1.0")
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -592,6 +595,7 @@ func TestUpdateWithoutCheckSkipsInstallWhenUpToDate(t *testing.T) {
 }
 
 func TestUpdateCheckReportsAvailableUpdateForDevBuild(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
 	writeFakeGHReleaseView(t, "v0.5.0")
 
 	cmd := newUpdateCmd(devBuild("dev"))
