@@ -20,7 +20,7 @@ That pool stays unobservable for as long as the remote URL stays changed, which 
 ## Decision
 
 A treehouse lease observation separates answers about the recorded lease from the absence of an answer.
-`LeaseExact`, `LeaseAbsent`, `LeaseMismatch` and `LeaseUnprovable` are all answers: the pool was observed and it either confirmed the identity, reported the slot available, named another identity, or offered no identity comparable with the recorded one.
+`LeaseExact`, `LeaseAbsent`, `LeaseMismatch` and `LeaseUnprovable` are all determinate answers: the worktree was confirmed owned by the expected lease, locally absent or absent from the observed pool, held by another identity, or offered no identity comparable with the recorded one.
 `LeaseUnknown` is the absence of an answer, and it travels to every caller as its own state in `worktree.LeaseObservation` together with the `worktree.LeaseProbe` that failed: the command run, the working directory that selected the pool, and the reason.
 `ObserveLease` therefore returns no error at all.
 An absent executable, a non-zero exit, unparsable output, an empty pool and a pool that describes other worktrees are all `LeaseUnknown`, because none of them disproves the recorded ownership.
