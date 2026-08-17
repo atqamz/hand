@@ -14,7 +14,6 @@ import (
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/shellquote"
-	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -114,7 +113,12 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	axi.Table(&doc, "projects", projects, sessionProjectFields)
 	doc.List("backlog", backlog.Items)
 	appendFleetState(&doc, views, holds, cols)
-	doc.Help(sessionNextAction(cfg, len(projects), backlog, views, holds))
+	next := classifyNextAction(cfg, len(projects), backlog, views, holds)
+	doc.Field("next_action_kind", next.Kind)
+	doc.Field("next_action_task", orNone(next.Task))
+	doc.Field("next_action_command", orNone(next.Command))
+	doc.Field("next_action_reason", next.Reason)
+	doc.Help(next.Reason)
 	return doc.Render(cmd.OutOrStdout())
 }
 
@@ -161,28 +165,4 @@ func readBacklogSummary(path string, limit int) (backlogSummary, error) {
 		summary.Items = append(summary.Items, "truncated: additional backlog identity lines omitted; read data/backlog.md for complete context")
 	}
 	return summary, nil
-}
-
-func sessionNextAction(cfg workerConfig, projectCount int, backlog backlogSummary, views []taskView, holds []state.Hold) string {
-	if cfg.harness == "" {
-		return workerConfigHelp(cfg)[0]
-	}
-	for _, view := range views {
-		if view.unacked {
-			return fmt.Sprintf("Run `hand status %s` and act on its unacknowledged worker event", view.task.ID)
-		}
-	}
-	if len(holds) > 0 {
-		return fmt.Sprintf("Run `hand status %s` and resolve its active hold", holds[0].ID)
-	}
-	if projectCount == 0 {
-		return "Run `hand project add <repo-url>` to register the first project"
-	}
-	if backlog.Queued > 0 {
-		return "Read `data/backlog.md` and prepare the queued task; dispatch it with `hand spawn <id> <project>` when its brief is ready"
-	}
-	if len(views) > 0 {
-		return "Run `hand watch --until-event` as a background task; re-arm it after an event or when intentionally resuming after interruption or takeover"
-	}
-	return "The fleet is ready and idle"
 }

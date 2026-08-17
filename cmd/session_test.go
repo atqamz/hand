@@ -20,7 +20,6 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/selfupdate"
-	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 )
 
@@ -528,32 +527,36 @@ func TestReadBacklogSummaryBoundsIdentityLinesAndCountsTheWholeQueue(t *testing.
 	}
 }
 
-func TestSessionNextActionUsesExactPriority(t *testing.T) {
-	unknownConfig := workerConfig{}
-	detectedConfig := workerConfig{harness: harness.Codex}
-	tests := []struct {
-		name     string
-		cfg      workerConfig
-		projects int
-		backlog  backlogSummary
-		views    []taskView
-		holds    []state.Hold
-		want     string
-	}{
-		{"unknown harness", unknownConfig, 0, backlogSummary{}, nil, nil, "hand config set harness"},
-		{"attention before hold", detectedConfig, 1, backlogSummary{}, []taskView{{task: state.Task{ID: "x"}, unacked: true}}, []state.Hold{{ID: "y"}}, "hand status x"},
-		{"hold before no projects", detectedConfig, 0, backlogSummary{}, nil, []state.Hold{{ID: "x"}}, "hand status x"},
-		{"first project", detectedConfig, 0, backlogSummary{}, nil, nil, "hand project add"},
-		{"queued work", detectedConfig, 1, backlogSummary{Queued: 1}, nil, nil, "prepare the queued task"},
-		{"active workers", detectedConfig, 1, backlogSummary{}, []taskView{{task: state.Task{ID: "x"}}}, nil, "hand watch --until-event"},
-		{"idle", detectedConfig, 1, backlogSummary{}, nil, nil, "fleet is ready and idle"},
+// classifyNextAction's own precedence and determinism coverage lives in cmd/nextaction_test.go; this
+// test is the session start integration boundary: the fleet-state-derived next_action_* fields and
+// help line actually reach the rendered document atqamz/hand#234 asks a supervisor to consume.
+func TestSessionStartRendersNextActionFromFleetState(t *testing.T) {
+	home := setupSessionHome(t)
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := sessionNextAction(test.cfg, test.projects, test.backlog, test.views, test.holds)
-			if !strings.Contains(got, test.want) {
-				t.Fatalf("action = %q, want it to contain %q", got, test.want)
-			}
-		})
+	if err := db.AddProject(store.Project{Name: "demo", URL: "local", Mode: "local-only"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(store.Task{ID: "needs-repair-task", Project: "demo", Kind: store.KindShip, RepairCode: "E_ORPHAN"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	writeSessionContext(t, home, "operator", "# Backlog\n\n## Queue\n- queued-task\n")
+
+	out := runSessionStartForTest(t)
+	for _, want := range []string{
+		"next_action_kind: needs-repair\n",
+		"next_action_task: needs-repair-task\n",
+		"next_action_command: hand status needs-repair-task\n",
+		"next_action_reason: Run `hand status needs-repair-task` and resolve its repair ambiguity\n",
+		"help[1]:\n  - Run `hand status needs-repair-task` and resolve its repair ambiguity\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out = %q, want %q", out, want)
+		}
 	}
 }
