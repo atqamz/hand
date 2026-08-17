@@ -160,7 +160,9 @@ func TestBlockingLockWaitsThenSucceeds(t *testing.T) {
 		release func()
 		err     error
 	}, 1)
+	entered := make(chan struct{})
 	go func() {
+		close(entered)
 		release, err := Lock(home, key, false)
 		done <- struct {
 			release func()
@@ -168,13 +170,11 @@ func TestBlockingLockWaitsThenSucceeds(t *testing.T) {
 		}{release, err}
 	}()
 
-	// The holder cannot have released yet: it is blocked on its own stdin read
-	// until this test writes to it below. A blocking Lock returning here would
-	// mean the lock was not actually exclusive, not a scheduling fluke.
+	<-entered
 	select {
 	case result := <-done:
 		t.Fatalf("blocking Lock returned (err=%v) before the holder released", result.err)
-	case <-time.After(200 * time.Millisecond):
+	default:
 	}
 
 	if _, err := io.WriteString(stdin, "release\n"); err != nil {
