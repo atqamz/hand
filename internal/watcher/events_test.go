@@ -144,22 +144,77 @@ func TestClassifyStaleFiresOncePerWindow(t *testing.T) {
 	ts := NewTaskState(herdr.StatusWorking, now)
 	threshold := 5 * time.Minute
 
-	if e := ClassifyStale(ts, "task-1", now.Add(time.Minute), threshold); e != nil {
+	if e := ClassifyStale(ts, "task-1", "", now.Add(time.Minute), threshold); e != nil {
 		t.Fatalf("got %+v, want no stale event before threshold", e)
 	}
-	if e := ClassifyStale(ts, "task-1", now.Add(6*time.Minute), threshold); e == nil || e.Kind != KindStale {
+	if e := ClassifyStale(ts, "task-1", "", now.Add(6*time.Minute), threshold); e == nil || e.Kind != KindStale {
 		t.Fatalf("got %+v, want stale event", e)
 	}
-	if e := ClassifyStale(ts, "task-1", now.Add(10*time.Minute), threshold); e != nil {
+	if e := ClassifyStale(ts, "task-1", "", now.Add(10*time.Minute), threshold); e != nil {
 		t.Fatalf("stale event fired again in the same window: %+v", e)
 	}
 
 	ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(11*time.Minute))
-	if e := ClassifyStale(ts, "task-1", now.Add(12*time.Minute), threshold); e != nil {
+	if e := ClassifyStale(ts, "task-1", "", now.Add(12*time.Minute), threshold); e != nil {
 		t.Fatalf("stale fired right after a status change reset the window: %+v", e)
 	}
-	if e := ClassifyStale(ts, "task-1", now.Add(17*time.Minute), threshold); e == nil || e.Kind != KindStale {
+	if e := ClassifyStale(ts, "task-1", "", now.Add(17*time.Minute), threshold); e == nil || e.Kind != KindStale {
 		t.Fatalf("got %+v, want stale again once the reset window elapsed: it is a wake trigger, so leaving and re-entering the condition is a second occurrence", e)
+	}
+}
+
+func TestClassifyStaleSuppressesTerminalWorkerReports(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	threshold := 5 * time.Minute
+
+	for _, reportState := range []string{state.ReportDone, state.ReportFailed} {
+		ts := NewTaskState(herdr.StatusWorking, now.Add(-threshold))
+		ts.LastReportState = reportState
+
+		if e := ClassifyStale(ts, "task-1", "", now, threshold); e != nil {
+			t.Fatalf("report state %q: got %+v, want no stale event", reportState, e)
+		}
+		if ts.Stale {
+			t.Fatalf("report state %q: stale latch changed without an event", reportState)
+		}
+	}
+}
+
+func TestClassifyStaleSuppressesDeliveredTaskWithoutTerminalReport(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	threshold := 5 * time.Minute
+	ts := NewTaskState(herdr.StatusWorking, now.Add(-threshold))
+	ts.LastReportState = state.ReportWorking
+
+	if e := ClassifyStale(ts, "task-1", "2026-08-17T00:00:00Z", now, threshold); e != nil {
+		t.Fatalf("got %+v, want no stale event for delivered work", e)
+	}
+	if ts.Stale {
+		t.Fatal("stale latch changed without an event for delivered work")
+	}
+}
+
+func TestClassifyStaleKeepsNonTerminalReportsEligible(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	threshold := 5 * time.Minute
+
+	for _, reportState := range []string{"", state.ReportWorking, state.ReportPaused, state.ReportBlocked, state.ReportNeedsDecision} {
+		ts := NewTaskState(herdr.StatusWorking, now.Add(-threshold))
+		ts.LastReportState = reportState
+
+		if e := ClassifyStale(ts, "task-1", "", now, threshold); e == nil || e.Kind != KindStale {
+			t.Fatalf("report state %q: got %+v, want stale event", reportState, e)
+		}
+	}
+}
+
+func TestClassifyStaleTreatsHerdrDoneAsNotBusyOnly(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	threshold := 5 * time.Minute
+	ts := NewTaskState(herdr.StatusDone, now.Add(-threshold))
+
+	if e := ClassifyStale(ts, "task-1", "", now, threshold); e == nil || e.Kind != KindStale {
+		t.Fatalf("got %+v, want stale event for unexplained herdr done", e)
 	}
 }
 
@@ -168,7 +223,7 @@ func TestClassifyStaleSkipsUnprobedTasks(t *testing.T) {
 	ts := NewTaskState(herdr.StatusWorking, now)
 	ClassifyStatus(ts, "task-1", "", errors.New("down"), now.Add(time.Second))
 
-	if e := ClassifyStale(ts, "task-1", now.Add(time.Hour), time.Minute); e != nil {
+	if e := ClassifyStale(ts, "task-1", "", now.Add(time.Hour), time.Minute); e != nil {
 		t.Fatalf("got %+v, want no stale event while probe is failing", e)
 	}
 }

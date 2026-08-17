@@ -312,7 +312,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if e := ClassifyUnreachable(ts, t.ID, now, cfg.StaleThreshold); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
-		if e := ClassifyStale(ts, t.ID, now, cfg.StaleThreshold); e != nil {
+		if e := ClassifyStale(ts, t.ID, t.DeliveredAt, now, cfg.StaleThreshold); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
 		if t.PR != "" && !ts.PRMerged {
