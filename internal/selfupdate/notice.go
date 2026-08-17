@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/atqamz/hand/internal/atomicfile"
 )
 
 const cacheFile = ".version-check"
@@ -70,6 +72,23 @@ func CheckNoticeForBuild(home, repo string, info BuildInfo) string {
 	return fmt.Sprintf("A new version of hand is available: %s -> %s\nRun \"hand update\" to update", info.Version, target.Version)
 }
 
+// ReconcileNotice rewrites the notice cache for home from an authoritative live
+// resolution, so a startup notice can never keep advertising a target a live
+// check has already superseded.
+func ReconcileNotice(home string, target Target) error {
+	stateDir := filepath.Join(home, "state")
+	if _, err := os.Stat(stateDir); err != nil {
+		return nil
+	}
+	cachePath := filepath.Join(stateDir, cacheFile)
+	return writeCache(cachePath, versionCache{
+		CheckedAt: time.Now(),
+		Channel:   target.Channel,
+		Latest:    target.Version,
+		Commit:    target.Commit,
+	})
+}
+
 func cacheChannel(cache versionCache) string {
 	if cache.Channel == "" {
 		return ChannelStable
@@ -94,5 +113,5 @@ func writeCache(path string, cache versionCache) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicfile.Write(path, ".version-check-", data, 0o644)
 }

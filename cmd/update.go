@@ -46,6 +46,19 @@ func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 				return err
 			}
 
+			reconcileHome, reconcileErr := home.Resolve()
+			switch {
+			case reconcileErr == nil:
+				reconcileErr = selfupdate.ReconcileNotice(reconcileHome, target)
+			case errors.Is(reconcileErr, home.ErrNotFound):
+				reconcileErr = nil
+			}
+			if reconcileErr != nil {
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: reconcile the version notice cache: %v\n", reconcileErr); err != nil {
+					return err
+				}
+			}
+
 			if !newer || checkOnly {
 				doc := updateDoc(info, target, newer, false, "not-applicable", "not-applicable", nil)
 				if newer {
