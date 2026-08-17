@@ -21,7 +21,9 @@ func newReconcileCmd() *cobra.Command {
 			"--abandon-worktree attests that Hand relinquishes a recorded Treehouse lease whose pool cannot be\n" +
 			"observed at all, for instance after the pool key moved. It needs an explicit task ID, it refuses any\n" +
 			"lease an observation can still prove or disprove, and it never returns, prunes or deletes a worktree:\n" +
-			"the worktree is left exactly as it is for the operator to reclaim through treehouse itself.",
+			"the worktree is left exactly as it is for the operator to reclaim through treehouse itself. The flag\n" +
+			"only adds this worktree attestation and leaves every other reconciliation action unchanged, including\n" +
+			"ordinary Herdr cleanup, which still requires proven ownership.",
 		Args: usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fleetHome, err := home.Resolve()

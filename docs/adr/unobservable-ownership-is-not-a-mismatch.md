@@ -33,7 +33,8 @@ Teardown that cannot observe the pool refuses and writes no resource state, so t
 `ambiguous` remains reachable from provable contradiction, and it stops being a dead end: both teardown and reconciliation may leave it, but only behind a fresh `LeaseExact` observation of the same lease identity.
 
 For the permanently unobservable pool there is one explicit operator gesture, `hand reconcile <task> --abandon-worktree`.
-It requires a task ID, it applies only through `reconcileHistoricalAttempt` so a running attempt's worktree can never be abandoned, it refuses any observed state other than `LeaseUnknown`, and it runs no treehouse command.
+It requires a task ID, it applies only through `reconcileHistoricalAttempt` so a running attempt's worktree can never be abandoned, and it refuses any observed state other than `LeaseUnknown`.
+The abandonment itself runs no treehouse command and records only the worktree resource state.
 It records the terminal resource state `abandoned`, which means Hand has relinquished its claim on a lease it can no longer observe, and reconciliation then converges the task through its ordinary path.
 The probe that justified the attestation is reported in the reconcile result rather than stored in a new column.
 
@@ -52,5 +53,6 @@ The real command's pool-resolution contract belongs to `internal/faketool/FIDELI
 
 A byte-identical lease identity is never accused of mismatching, and a diagnostic distinguishes "ownership could not be proven" from "ownership was disproven" in the structured result, not only in the rendered message.
 An operator who has independently established that a pool is gone has one supported, task-scoped gesture, and it is auditable in the reconcile output.
+`--abandon-worktree` adds the worktree attestation without narrowing reconciliation to a single action.
 Teardown of a lease whose pool is temporarily unobservable stays retryable forever without operator involvement, because it records nothing.
 Attempt lifecycle convergence after terminal worker completion stays with atqamz/hand#239; this record changes only how a worktree resource is observed and settled.
