@@ -156,26 +156,26 @@ func TestBlockingLockWaitsThenSucceeds(t *testing.T) {
 		t.Fatal("helper never reported acquiring the lock")
 	}
 
+	probeRelease, err := Lock(home, key, true)
+	if err == nil {
+		probeRelease()
+		t.Fatal("nonblocking Lock succeeded while the holder was active")
+	}
+	if err != filelock.ErrBusy {
+		t.Fatalf("nonblocking Lock while holder was active: got %v, want ErrBusy", err)
+	}
+
 	done := make(chan struct {
 		release func()
 		err     error
 	}, 1)
-	entered := make(chan struct{})
 	go func() {
-		close(entered)
 		release, err := Lock(home, key, false)
 		done <- struct {
 			release func()
 			err     error
 		}{release, err}
 	}()
-
-	<-entered
-	select {
-	case result := <-done:
-		t.Fatalf("blocking Lock returned (err=%v) before the holder released", result.err)
-	default:
-	}
 
 	if _, err := io.WriteString(stdin, "release\n"); err != nil {
 		t.Fatalf("signal the holder to release: %v", err)
