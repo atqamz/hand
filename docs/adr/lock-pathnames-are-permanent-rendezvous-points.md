@@ -3,7 +3,7 @@
 - Date: 2026-08-17
 - Status: accepted
 - Issues: atqamz/hand#224, after atqamz/hand#194
-- PRs: atqamz/hand#239
+- PRs: atqamz/hand#246
 
 ## Context
 
