@@ -48,3 +48,4 @@ Command rendering stays in Cobra, and status remains read-only.
 `hand reconcile [id]` is the explicit mutation boundary for recovery.
 The command can safely progress through several durable checkpoints in one invocation while the iteration guard prevents a logic loop.
 Operators must resolve ambiguous ownership and dirty work manually, and a worker that disappears while running is not silently replaced.
+`unobservable-ownership-is-not-a-mismatch.md` adds the one supported gesture for a treehouse pool that can no longer be observed at all.
