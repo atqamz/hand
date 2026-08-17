@@ -108,8 +108,6 @@ func (r *Runtime) observeWorktreeLease(worktreePath, leaseID string) worktree.Le
 	return observe(worktreePath, leaseID)
 }
 
-// Reports whether nothing further is owed on the worktree: either it was returned with proven
-// ownership, or an operator attested that Hand relinquishes the recorded lease.
 func worktreeCleanupSettled(teardownWorktreeState string) bool {
 	return teardownWorktreeState == state.TeardownResourceReleased || teardownWorktreeState == state.TeardownResourceAbandoned
 }

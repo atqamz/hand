@@ -114,8 +114,6 @@ type reconciliationDecision struct {
 	Detail         string
 }
 
-// AbandonWorktree carries an operator attestation and demands an explicit ID, so it can never
-// relinquish more than the one recorded lease the operator named.
 type ReconcileRequest struct {
 	Context         context.Context
 	Home            string
@@ -761,8 +759,6 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
 			}
-			// Proven ownership is what clears the ambiguous latch: the same observation that would
-			// have refused the release is the one allowed to resume it.
 			if attempt.TeardownWorktreeState == "" || attempt.TeardownWorktreeState == state.TeardownResourceAmbiguous {
 				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
 					return false, reconciliationDecision{}, err
@@ -838,8 +834,6 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 	return false, reconciliationDecision{}, nil
 }
 
-// Records an operator's attestation that Hand relinquishes a lease no observation can reach. It
-// runs no destructive command and refuses any state an observation could still prove or disprove.
 func (r *Runtime) abandonHistoricalWorktree(home string, task state.Task, attempt state.Attempt, lease worktree.LeaseObservation) (bool, reconciliationDecision, error) {
 	if lease.State != worktree.LeaseUnknown {
 		return false, reconciliationDecision{}, Precondition(fmt.Errorf("refusing to abandon worktree %s of attempt %d: ownership observed as %s, which is provable evidence; abandonment is only for an unobservable pool", attempt.Worktree, attempt.ID, lease.State))
