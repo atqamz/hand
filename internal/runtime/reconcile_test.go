@@ -931,6 +931,13 @@ func TestReconcileUnobservableWorktreeNeedsRepairInsteadOfMismatch(t *testing.T)
 // that Hand relinquishes the recorded lease, and the task finishes its teardown from there.
 func TestReconcileAbandonWorktreeConvergesAnUnobservableLease(t *testing.T) {
 	home, attempt := unobservableTeardownFixture(t, state.TeardownResourceAmbiguous)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.ID != attempt.ID || history.ActiveAttempt.Lifecycle != state.AttemptRunning || history.ActiveAttempt.TeardownTerminalAttempt != state.AttemptCompleted {
+		t.Fatalf("eligible attempt = %+v, want an active attempt with a recorded teardown decision", history.ActiveAttempt)
+	}
 	returns := 0
 	r := unobservableReconcileRuntime(t, &returns)
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
@@ -952,7 +959,7 @@ func TestReconcileAbandonWorktreeConvergesAnUnobservableLease(t *testing.T) {
 	if returns != 0 {
 		t.Fatalf("worktree return count = %d, want abandonment to run no destructive command", returns)
 	}
-	history, err := state.ReadHistory(home, "task-1")
+	history, err = state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1070,7 +1077,7 @@ func TestReconcileAbandonWorktreeNeverTouchesARunningAttempt(t *testing.T) {
 	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
 		t.Fatalf("attempt after abandonment attempt = %+v, want the running worker untouched", history.ActiveAttempt)
 	}
-	if history.ActiveAttempt.TeardownWorktreeState != "" || returns != 0 {
+	if history.ActiveAttempt.TeardownTerminalAttempt != "" || history.ActiveAttempt.TeardownWorktreeState != "" || returns != 0 {
 		t.Fatalf("worktree state = %q returns = %d, want no teardown of a running attempt", history.ActiveAttempt.TeardownWorktreeState, returns)
 	}
 	if history.Task.RepairCode != repairCodeWorktreeUnobservable {
