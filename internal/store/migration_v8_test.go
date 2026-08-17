@@ -45,22 +45,27 @@ func TestMigrationV8ConvertsReal040Database(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("ReadTaskHistory = %v, %v", found, err)
 	}
-	if history.Task.Lifecycle != TaskOpen || history.Task.ActiveAttemptID == 0 {
-		t.Fatalf("task lifecycle/active attempt = %q/%d", history.Task.Lifecycle, history.Task.ActiveAttemptID)
+	if history.Task.ID != "legacy" || history.Task.Lifecycle != TaskOpen || history.Task.ActiveAttemptID == 0 {
+		t.Fatalf("task identity/lifecycle/active attempt = %q/%q/%d", history.Task.ID, history.Task.Lifecycle, history.Task.ActiveAttemptID)
 	}
-	if history.Task.ReportOffset != 41 || history.Task.ReportDigest != "digest-before-upgrade" || history.Task.PR != "https://github.com/o/nsr/pull/7" || history.Task.DeliveredAt != "2026-07-24T13:00:00Z" {
+	if history.Task.Project != "nsr" || history.Task.Kind != "ship" || history.Task.Brief != "data/legacy/brief.md" || history.Task.ReportOffset != 41 || history.Task.ReportDigest != "digest-before-upgrade" || history.Task.PR != "https://github.com/o/nsr/pull/7" || !history.Task.MergeExecuted || history.Task.MergeExecutedAt != "2026-07-24T12:00:00Z" || !history.Task.MergeAnnounced || history.Task.DeliveredAt != "2026-07-24T13:00:00Z" || history.Task.DeliveredReason != "merged" || history.Task.CreatedAt != "2026-07-24T10:00:00Z" {
 		t.Fatalf("task-owned state was not preserved: %+v", history.Task)
 	}
 	if len(history.Attempts) != 1 {
 		t.Fatalf("attempt count = %d, want 1", len(history.Attempts))
 	}
 	attempt := history.Attempts[0]
-	if attempt.Ordinal != 1 || attempt.Lifecycle != AttemptRunning || attempt.Harness != "claude" || attempt.Model != "opus" || attempt.Effort != "high" || attempt.Worktree != "/w/nsr" || attempt.LeaseID != "lease-7" {
+	if attempt.ID == 0 || history.Task.ActiveAttemptID != attempt.ID || attempt.TaskID != "legacy" || attempt.Ordinal != 1 || attempt.Lifecycle != AttemptRunning || attempt.Harness != "claude" || attempt.Model != "opus" || attempt.Effort != "high" || attempt.Worktree != "/w/nsr" || attempt.LeaseID != "lease-7" || attempt.CreatedAt != "2026-07-24T10:00:00Z" || attempt.PaneStartedAt != "2026-07-24T10:30:00Z" || attempt.StatusChangedAt != "2026-07-24T11:00:00Z" || attempt.StatusChangedFor != "working" || !attempt.DoneVerified {
 		t.Fatalf("execution state was not preserved: %+v", attempt)
 	}
-	if attempt.Herdr.PaneID != "wA:pC" || attempt.LastReportState != "working" || attempt.UsageLimitAttempts != 2 || attempt.SendUndeliveredMessage != "stop" {
+	if attempt.Herdr.Session != "default" || attempt.Herdr.WorkspaceID != "wA" || attempt.Herdr.TabID != "wA:tB" || attempt.Herdr.PaneID != "wA:pC" || attempt.LastReportState != "working" || attempt.LastReportNote != "still working" || attempt.UsageLimitRetryAt != "2026-07-24T15:00:00Z" || attempt.UsageLimitAttempts != 2 || attempt.SendUndeliveredMessage != "stop" || attempt.SendUndeliveredAt != "2026-07-24T13:30:00Z" || attempt.ParkedFiredFor != "2026-07-24T11:30:00Z" {
 		t.Fatalf("attempt bookkeeping was not preserved: %+v", attempt)
 	}
+	sends, err := migrated.ListSends("legacy")
+	if err != nil || len(sends) != 1 || sends[0].State != SendUncertain || sends[0].Message != "stop" || sends[0].Origin != SendOriginLegacyUndelivered {
+		t.Fatalf("migrated send history = %+v, err=%v, want one uncertain legacy send", sends, err)
+	}
+	wantTask, wantAttempt, wantSend := history.Task, attempt, sends[0]
 	var teardownColumns int
 	if err := migrated.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name IN ('teardown_terminal_attempt', 'teardown_disposition', 'teardown_herdr_state', 'teardown_worktree_state', 'teardown_completion_state')`).Scan(&teardownColumns); err != nil {
 		t.Fatal(err)
@@ -70,6 +75,25 @@ func TestMigrationV8ConvertsReal040Database(t *testing.T) {
 	}
 	if _, err := migrated.sql.Query(`SELECT harness FROM task`); err == nil {
 		t.Fatal("old execution columns remain authoritative on task")
+	}
+	if err := migrated.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(home)
+	if err != nil {
+		t.Fatalf("reopen migrated 0.4.0 database: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+	reopenedHistory, found, err := reopened.ReadTaskHistory("legacy")
+	if err != nil || !found || len(reopenedHistory.Attempts) != 1 {
+		t.Fatalf("reopened history = %+v, found=%t, err=%v", reopenedHistory, found, err)
+	}
+	if reopenedHistory.Task != wantTask || reopenedHistory.Attempts[0] != wantAttempt {
+		t.Fatalf("reopened history changed: task=%+v attempt=%+v, want task=%+v attempt=%+v", reopenedHistory.Task, reopenedHistory.Attempts[0], wantTask, wantAttempt)
+	}
+	reopenedSends, err := reopened.ListSends("legacy")
+	if err != nil || len(reopenedSends) != 1 || reopenedSends[0] != wantSend {
+		t.Fatalf("reopened send history = %+v, err=%v, want %+v", reopenedSends, err, wantSend)
 	}
 }
 

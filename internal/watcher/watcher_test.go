@@ -2032,18 +2032,27 @@ func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "done")
 	writeFakeHerdr(t, statusFile)
+	callLog := logPaneGets(t)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR checks green\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var out bytes.Buffer
-	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 200 * time.Millisecond}
-	err := RunUntilEvent(context.Background(), cfg, &out, io.Discard)
+	done := make(chan error, 1)
+	go func() {
+		done <- RunUntilEvent(ctx, Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour}, &out, io.Discard)
+	}()
 
-	if !errors.Is(err, ErrNoEvent) {
-		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: nothing changed after it armed", err)
+	waitForPaneGets(t, callLog, 4)
+	cancel()
+	err := <-done
+
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("RunUntilEvent = %v, want ErrInterrupted after the baseline was observed", err)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("out = %q, want the startup state delivered as nothing", out.String())
