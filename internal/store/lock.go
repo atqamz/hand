@@ -36,6 +36,9 @@ func Lock(homeDir, name string, nonblock bool) (func(), error) {
 		_ = file.Close()
 		return nil, err
 	}
+	// The closure never unlinks lockName: see
+	// docs/adr/lock-pathnames-are-permanent-rendezvous-points.md for why the
+	// rendezvous pathname must outlive every holder.
 	return func() {
 		_ = filelock.Unlock(file)
 		_ = file.Close()

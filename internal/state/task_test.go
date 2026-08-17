@@ -1,9 +1,14 @@
 package state
 
 import (
+	"bufio"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -364,6 +369,111 @@ func TestTryLockReportsBusyInsteadOfWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	second()
+}
+
+const (
+	taskLockHelperEnv = "HAND_STATE_LOCK_TEST_HELPER"
+	taskLockHomeEnv   = "HAND_STATE_LOCK_TEST_HOME"
+	taskLockKeyEnv    = "HAND_STATE_LOCK_TEST_KEY"
+)
+
+// Extends TestLockIsExclusive and TestTryLockReportsBusyInsteadOfWaiting from
+// same-process to cross-process: the refusal both wrappers give is API for
+// state.ErrTaskActive and steering.ErrOwnershipConflict.
+func TestNonblockingRefusalIsPreservedCrossProcess(t *testing.T) {
+	if os.Getenv(taskLockHelperEnv) == "hold-forever" {
+		runTaskLockHoldForeverHelper(t)
+		return
+	}
+
+	home := t.TempDir()
+	const key = "task:cross-process-busy"
+	child := exec.Command(os.Args[0], "-test.run=^TestNonblockingRefusalIsPreservedCrossProcess$")
+	child.Env = append(os.Environ(), taskLockHelperEnv+"=hold-forever", taskLockHomeEnv+"="+home, taskLockKeyEnv+"="+key)
+	stdout, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Stderr = os.Stderr
+	if err := child.Start(); err != nil {
+		t.Fatalf("start holder: %v", err)
+	}
+	t.Cleanup(func() {
+		if child.ProcessState == nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+		}
+	})
+
+	if !waitForHolderReady(t, stdout) {
+		t.Fatal("holder never reported acquiring the lock")
+	}
+
+	if _, err := store.Lock(home, key, true); err != filelock.ErrBusy {
+		t.Fatalf("store.Lock got %v, want filelock.ErrBusy", err)
+	}
+	if _, err := TryLock(home, key); !errors.Is(err, ErrLockBusy) {
+		t.Fatalf("TryLock got %v, want ErrLockBusy", err)
+	}
+
+	if err := child.Process.Kill(); err != nil {
+		t.Fatalf("kill holder: %v", err)
+	}
+	_ = child.Wait()
+}
+
+func runTaskLockHoldForeverHelper(t *testing.T) {
+	_, err := store.Lock(os.Getenv(taskLockHomeEnv), os.Getenv(taskLockKeyEnv), false)
+	if err != nil {
+		t.Fatalf("holder Lock: %v", err)
+	}
+	fmt.Println("acquired")
+	select {}
+}
+
+func waitForHolderReady(t *testing.T, r io.Reader) bool {
+	t.Helper()
+	lines := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(r)
+		if scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
+	select {
+	case line := <-lines:
+		return line == "acquired"
+	case <-time.After(10 * time.Second):
+		return false
+	}
+}
+
+// Reclaiming the pathname would need proof no process can still hold or open
+// the old inode, which does not exist; see
+// docs/adr/lock-pathnames-are-permanent-rendezvous-points.md.
+func TestLockPathnameSurvivesDelete(t *testing.T) {
+	home := t.TempDir()
+	if err := CreateTask(home, Task{ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := Lock(home, "task:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+
+	path := filepath.Join(store.Dir(home), fmt.Sprintf(".%x.lock", sha256.Sum256([]byte("task:task-1"))))
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("lock pathname must exist before Delete: %v", err)
+	}
+
+	if err := Delete(home, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("lock pathname must survive Delete: %v", err)
+	}
 }
 
 func TestAttemptSendBookkeepingDoesNotNestTaskLock(t *testing.T) {
