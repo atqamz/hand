@@ -2345,6 +2345,82 @@ func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T
 	}
 }
 
+func TestRunUntilEventSuppressesStaleAfterLiveTerminalAndDeliveryUpdates(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{
+			{ID: "wA:t1", Label: "terminal-task", Pane: "p1"},
+			{ID: "wA:t2", Label: "delivered-task", Pane: "p2"},
+			{ID: "wA:t3", Label: "live-task", Pane: "p3"},
+		}}},
+		PaneStatusSequence: []string{
+			"working", "working", "working",
+			"pane-gone", "pane-gone", "pane-gone",
+			"working", "working", "working",
+			"working", "working", "blocked",
+		},
+		Log: callLog, LogCommands: []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
+
+	old := "2020-01-02T03:04:05Z"
+	future := "2099-01-02T03:04:05Z"
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		task    state.Task
+		attempt state.Attempt
+	}{
+		{state.Task{ID: "terminal-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}, StatusChangedAt: old}},
+		{state.Task{ID: "delivered-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p2"}, StatusChangedAt: old}},
+		{state.Task{ID: "live-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p3"}, StatusChangedAt: future}},
+	} {
+		if err := writeTaskAttempt(t, home, tc.task, tc.attempt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- RunUntilEvent(context.Background(), Config{
+			Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: 0, Timeout: 5 * time.Second,
+			EventFilter: NewEventFilter([]string{KindStale}),
+		}, &out, io.Discard)
+	}()
+
+	waitForHerdrCalls(t, callLog, "pane get", 3)
+	if err := os.WriteFile(state.ReportPath(home, "terminal-task"), []byte("done: finished\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskDelivery(home, "delivered-task", old, "handed off while watch was alive"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunUntilEvent = %v, want nil for the live stale event", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunUntilEvent did not return for the live stale event")
+	}
+	if got := out.String(); got != "stale live-task\n" {
+		t.Fatalf("out = %q, want only the live stale event", got)
+	}
+	logData, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"terminal-task", "delivered-task"} {
+		if strings.Contains(string(logData), "stale "+id) {
+			t.Fatalf("events.log = %q, contains false stale event for %s", string(logData), id)
+		}
+	}
+	if !strings.Contains(string(logData), "stale live-task") {
+		t.Fatalf("events.log = %q, want the live stale event", string(logData))
+	}
+}
+
 func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
