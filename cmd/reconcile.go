@@ -23,9 +23,12 @@ func newReconcileCmd() *cobra.Command {
 			"lease an observation can still prove or disprove, and it never returns, prunes or deletes a worktree:\n" +
 			"the worktree is left exactly as it is for the operator to reclaim through treehouse itself. The flag\n" +
 			"only adds this worktree attestation and leaves every other reconciliation action unchanged, including\n" +
-			"ordinary Herdr cleanup, which still requires proven ownership. Eligibility is a recorded teardown\n" +
-			"decision left by an interruption at the worktree step; an attempt without that decision is never\n" +
-			"abandoned.",
+			"ordinary Herdr cleanup, which still requires proven ownership. An attempt that is still active is\n" +
+			"reached only through a recorded teardown decision, the shape a teardown interrupted at the worktree\n" +
+			"step leaves behind, while an attempt whose lifecycle is already terminal is eligible on its own once\n" +
+			"its worktree resource is unsettled. No worktree of a live worker can be abandoned on either route,\n" +
+			"because a provisioning or running attempt is skipped and the active attempt is reachable only through\n" +
+			"that recorded decision.",
 		Args: usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fleetHome, err := home.Resolve()

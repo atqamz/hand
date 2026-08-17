@@ -34,8 +34,10 @@ Teardown that cannot observe the pool refuses and writes no resource state, so t
 `ambiguous` remains reachable from provable contradiction, and it stops being a dead end: both teardown and reconciliation may leave it, but only behind a fresh `LeaseExact` observation of the same lease identity.
 
 For the permanently unobservable pool there is one explicit operator gesture, `hand reconcile <task> --abandon-worktree`.
-It requires a task ID, applies through `reconcileHistoricalAttempt` only when a recorded teardown decision makes the attempt eligible, and refuses any observed state other than `LeaseUnknown`.
-That decision is what a teardown interrupted at the worktree step leaves behind, so eligibility is not limited by the attempt's active lifecycle; an attempt without a recorded teardown decision is never abandoned.
+It requires an explicit task ID and refuses any observed state other than `LeaseUnknown`, on every route into it.
+An attempt that is still active is reached only through a recorded teardown decision, the shape a teardown interrupted at the worktree step leaves behind.
+An attempt whose lifecycle is already terminal is eligible on its own once its worktree resource is unsettled, with no recorded teardown decision required, so a crash before teardown stays recoverable.
+No worktree of a live worker can be abandoned on either route, because a provisioning or running attempt is skipped and the active attempt is reachable only through that recorded decision.
 The abandonment itself runs no treehouse command and records only the worktree resource state.
 It records the terminal resource state `abandoned`, which means Hand has relinquished its claim on a lease it can no longer observe, and reconciliation then converges the task through its ordinary path.
 The probe that justified the attestation is reported in the reconcile result rather than stored in a new column.

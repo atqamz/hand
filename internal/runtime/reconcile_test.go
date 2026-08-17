@@ -1085,6 +1085,49 @@ func TestReconcileAbandonWorktreeNeverTouchesARunningAttempt(t *testing.T) {
 	}
 }
 
+func TestReconcileAbandonWorktreeSettlesATerminalAttemptWithoutATeardownDecision(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt != nil || history.Attempts[0].Lifecycle != state.AttemptCompleted {
+		t.Fatalf("eligible attempt = %+v, want a terminal attempt that is no longer active", history.Attempts[0])
+	}
+	if history.Attempts[0].TeardownTerminalAttempt != "" || history.Attempts[0].TeardownWorktreeState != "" {
+		t.Fatalf("eligible attempt = %+v, want an unsettled worktree and no recorded teardown decision", history.Attempts[0])
+	}
+	returns := 0
+	r := unobservableReconcileRuntime(t, &returns)
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonWorktree: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 1 || report.Results[0].RepairCode != "" {
+		t.Fatalf("report = %+v, want one result that needs no repair", report)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceAbandoned || returns != 0 {
+		t.Fatalf("worktree state = %q returns = %d, want abandonment without a destructive command", history.Attempts[0].TeardownWorktreeState, returns)
+	}
+}
+
 // A latch is a refusal to guess, not a verdict: the observation that would have refused the release
 // is the one that resumes it once the pool answers again.
 func TestReconcileConvergesALatchedWorktreeOnceOwnershipIsProven(t *testing.T) {
