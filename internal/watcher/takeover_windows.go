@@ -3,6 +3,8 @@
 package watcher
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -12,6 +14,24 @@ import (
 
 const takeoverEventPrefix = "Global\\hand-watch-takeover-"
 
+var errTakeoverEndpointMissing = errors.New("takeover endpoint missing")
+
+// A short stable identity for a fleet home used to namespace the Windows named
+// event without embedding an arbitrary filesystem path in the event name.
+func homeID(homeDir string) string {
+	sum := sha256.Sum256([]byte(canonicalHome(homeDir)))
+	return hex.EncodeToString(sum[:8])
+}
+
+// Derives the generation-bound named event identity from the fleet-home identity
+// and ownership generation, never watch.pid.
+func takeoverEventName(home, gen string) string {
+	return fmt.Sprintf("%s%s-%s", takeoverEventPrefix, homeID(home), gen)
+}
+
+// Owns the generation-bound Windows named event that lets a takeover contender
+// ask the incumbent to step aside, plus a private local stop event that wakes
+// the listener during teardown.
 type takeoverEndpoint struct {
 	takeover  windows.Handle
 	stop      windows.Handle
@@ -20,8 +40,8 @@ type takeoverEndpoint struct {
 	closeOnce sync.Once
 }
 
-func newTakeoverEndpoint(pid int) (*takeoverEndpoint, error) {
-	name, err := windows.UTF16PtrFromString(takeoverEventName(pid))
+func newTakeoverEndpoint(home, gen string) (*takeoverEndpoint, error) {
+	name, err := windows.UTF16PtrFromString(takeoverEventName(home, gen))
 	if err != nil {
 		return nil, fmt.Errorf("encode takeover event name: %w", err)
 	}
@@ -75,14 +95,17 @@ func (e *takeoverEndpoint) listen() {
 	}
 }
 
-func requestTakeover(pid int) error {
-	name, err := windows.UTF16PtrFromString(takeoverEventName(pid))
+// Asks the incumbent that published gen to step aside through its
+// generation-bound named event. A missing event is a disappeared or stale
+// incumbent and is harmless; there is no pid-based fallback.
+func requestTakeover(home, gen string) error {
+	name, err := windows.UTF16PtrFromString(takeoverEventName(home, gen))
 	if err != nil {
 		return fmt.Errorf("encode takeover event name: %w", err)
 	}
 	event, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, name)
 	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
-		return nil
+		return fmt.Errorf("%w: %w", errTakeoverEndpointMissing, err)
 	}
 	if err != nil {
 		return fmt.Errorf("open takeover event: %w", err)
@@ -92,8 +115,4 @@ func requestTakeover(pid int) error {
 		return fmt.Errorf("set takeover event: %w", err)
 	}
 	return nil
-}
-
-func takeoverEventName(pid int) string {
-	return fmt.Sprintf("%s%d", takeoverEventPrefix, pid)
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +19,12 @@ const defaultStaleThreshold = 300 * time.Second
 const defaultParkedPausedBound = 3600 * time.Second
 const defaultParkedDoneBound = 5400 * time.Second
 const defaultParkedOtherBound = 1200 * time.Second
+
+var (
+	acquireWatcher    func(context.Context, string, bool) (*watcher.Ownership, error) = watcher.AcquireContext
+	notifyWatchSignal                                                                 = signal.Notify
+	stopWatchSignal                                                                   = signal.Stop
+)
 
 func newWatchCmd() *cobra.Command {
 	var poll string
@@ -86,20 +93,29 @@ func newWatchCmd() *cobra.Command {
 				return err
 			}
 
-			// After every validation above, so a usage error still exits 2 without
-			// having disturbed a running watcher's ownership.
-			ownership, err := watcher.Acquire(home, takeover)
+			sig := make(chan os.Signal, 1)
+			notifyWatchSignal(sig, os.Interrupt, syscall.SIGTERM)
+			defer stopWatchSignal(sig)
+
+			acquireCtx, stopAcquire := watchContext(cmd.Context(), sig, nil)
+			defer stopAcquire()
+
+			ownership, err := acquireWatcher(acquireCtx, home, takeover)
 			if err != nil {
 				if errors.Is(err, watcher.ErrAttached) {
 					return &ExitError{Err: err, Code: 3}
+				}
+				if errors.Is(err, watcher.ErrReplaced) {
+					return &ExitError{Err: err, Code: 9}
+				}
+				if errors.Is(err, watcher.ErrInterrupted) {
+					return &ExitError{Err: err, Code: 8}
 				}
 				return err
 			}
 			defer ownership.Release()
 
-			signalCtx, stopSignals := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stopSignals()
-			ctx, cancel := contextWithTakeover(signalCtx, ownership.TakeoverRequested())
+			ctx, cancel := watchContext(acquireCtx, sig, ownership.TakeoverRequested())
 			defer cancel()
 
 			cfg := watcher.Config{
@@ -115,22 +131,13 @@ func newWatchCmd() *cobra.Command {
 				EventFilter: watcher.NewEventFilter(events),
 			}
 			if !untilEvent {
-				return watcher.Run(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return mapWatchResult(watcher.Run(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			}
 
 			// The exit code is the delivery, so a watcher that stopped without an
 			// event must not exit 0: a caller re-arming on 0 would read it as fleet
 			// news, and one distinguishing it from a crash needs its own code.
-			if err := watcher.RunUntilEvent(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
-				if errors.Is(err, watcher.ErrNoEvent) {
-					return &ExitError{Err: err, Code: 4}
-				}
-				if errors.Is(err, watcher.ErrArmFailed) {
-					return &ExitError{Err: err, Code: 5}
-				}
-				return err
-			}
-			return nil
+			return mapWatchResult(watcher.RunUntilEvent(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr()))
 		},
 	}
 
@@ -138,6 +145,22 @@ func newWatchCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&untilEvent, "until-event", false, "block until the first event, print it, and exit 0")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "with --until-event, give up after this long and exit 4 (default: no timeout)")
 	cmd.Flags().StringSliceVar(&events, "event", nil, "with --until-event, wake only on these event kinds (default: any); repeatable or comma-separated")
-	cmd.Flags().BoolVar(&takeover, "takeover", false, "replace the watcher already attached to this fleet home, signaling it to stop first")
+	cmd.Flags().BoolVar(&takeover, "takeover", false, "request the current watcher to stop, then wait to acquire ownership")
 	return cmd
+}
+
+// Converts a watcher termination error into the application exit taxonomy,
+// resolved through errors.Is so wrapping preserves classification.
+func mapWatchResult(err error) error {
+	switch {
+	case errors.Is(err, watcher.ErrReplaced):
+		return &ExitError{Err: err, Code: 9}
+	case errors.Is(err, watcher.ErrInterrupted):
+		return &ExitError{Err: err, Code: 8}
+	case errors.Is(err, watcher.ErrNoEvent):
+		return &ExitError{Err: err, Code: 4}
+	case errors.Is(err, watcher.ErrArmFailed):
+		return &ExitError{Err: err, Code: 5}
+	}
+	return err
 }

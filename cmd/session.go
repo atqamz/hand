@@ -182,7 +182,7 @@ func sessionNextAction(cfg workerConfig, projectCount int, backlog backlogSummar
 		return "Read `data/backlog.md` and prepare the queued task; dispatch it with `hand spawn <id> <project>` when its brief is ready"
 	}
 	if len(views) > 0 {
-		return "Run `hand watch --until-event` as a background task and re-arm it after each event"
+		return "Run `hand watch --until-event` as a background task; re-arm it after an event or when intentionally resuming after interruption or takeover"
 	}
 	return "The fleet is ready and idle"
 }

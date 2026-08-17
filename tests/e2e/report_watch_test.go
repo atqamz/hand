@@ -42,10 +42,7 @@ func TestWatchIdleAfterReportedNeedsDecisionIsNotDone(t *testing.T) {
 	setPaneStatus(t, statusDir, "pane-1", "done")
 	watch.waitForStdout(t, "needs-decision task-1: waiting on review", 5*time.Second)
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 
 	stdout := watch.stdout.String()
 	if strings.Contains(stdout, "done task-1") {
@@ -80,10 +77,7 @@ func TestWatchIdleWithNoReportIsSupervisorActionable(t *testing.T) {
 	setPaneStatus(t, statusDir, "pane-1", "done")
 	watch.waitForStdout(t, "idle-unreported task-1", 5*time.Second)
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 
 	eventsLog, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
 	if err != nil {
@@ -132,10 +126,7 @@ func TestWatchReportRewrittenInPlaceIsNotMalformed(t *testing.T) {
 		watch.waitForStdout(t, "working task-1: "+note, 5*time.Second)
 	}
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 	if stdout := watch.stdout.String(); strings.Contains(stdout, "malformed report") {
 		t.Fatalf("stdout = %q, want no malformed report for a report rewritten in place", stdout)
 	}
@@ -199,8 +190,5 @@ func TestWatchDoneRewrittenToTheSameLengthReachesVerifiedDone(t *testing.T) {
 	// what tells "done task-1" apart from "reported-done task-1".
 	watch.waitForStdout(t, "\ndone task-1: report.md written, findings in it", 5*time.Second)
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 }

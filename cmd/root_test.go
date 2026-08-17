@@ -248,6 +248,8 @@ func TestErrorDocumentNamesTheKindBehindEveryExitCode(t *testing.T) {
 		{5, "arm-failed"},
 		{6, "send-not-submitted"},
 		{7, "send-uncertain"},
+		{8, "watch-interrupted"},
+		{9, "watch-replaced"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			var out strings.Builder
@@ -295,6 +297,28 @@ func TestUsageErrorHelpNamesTheCommandThatRefused(t *testing.T) {
 	want := "help[1]:\n  - Run `hand hold set --help` for the arguments and flags this command accepts\n"
 	if !strings.HasSuffix(out.String(), want) {
 		t.Fatalf("error document = %q, want it to end with %q", out.String(), want)
+	}
+}
+
+func TestLifecycleHelpDescribesInterruptionAndReplacementFacts(t *testing.T) {
+	interrupted := strings.Join(errorHelp(8, "hand watch"), " ")
+	for _, want := range []string{"generic interruption", "no fleet event", "releases ownership", "re-armed"} {
+		if !strings.Contains(interrupted, want) {
+			t.Fatalf("exit 8 help = %q, want %q", interrupted, want)
+		}
+	}
+	if strings.Contains(interrupted, "nothing was taken over") || strings.Contains(interrupted, "still holds") {
+		t.Fatalf("exit 8 help = %q, contains an obsolete ownership claim", interrupted)
+	}
+
+	replaced := strings.Join(errorHelp(9, "hand watch"), " ")
+	for _, want := range []string{"explicitly displaced", "no fleet event", "takeover successor", "acquires ownership"} {
+		if !strings.Contains(replaced, want) {
+			t.Fatalf("exit 9 help = %q, want %q", replaced, want)
+		}
+	}
+	if strings.Contains(replaced, "launch another") {
+		t.Fatalf("exit 9 help = %q, tells the displaced operator to launch another successor", replaced)
 	}
 }
 

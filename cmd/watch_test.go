@@ -3,6 +3,8 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,7 +152,7 @@ func TestWatchRejectsUnknownEventKind(t *testing.T) {
 	}
 }
 
-func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
+func TestWatchMapsContextCancelToInterruption(t *testing.T) {
 	setupWatchHome(t)
 
 	cmd := newWatchCmd()
@@ -177,11 +179,119 @@ func TestWatchExitsCleanlyOnContextCancel(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("watch returned %v, want nil", err)
+		if err == nil {
+			t.Fatal("watch returned nil after interruption, want exit 8")
+		}
+		if code := exitCodeFor(t, err); code != 8 {
+			t.Fatalf("code = %d, want 8 (watch-interrupted), err = %v", code, err)
+		}
+		if !errors.Is(err, watcher.ErrInterrupted) {
+			t.Fatalf("err = %v, want it to wrap ErrInterrupted", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("watch did not exit after context cancellation")
+	}
+}
+
+func TestWatchRegistersSignalsBeforePublishingOwnership(t *testing.T) {
+	setupWatchHome(t)
+
+	oldAcquire := acquireWatcher
+	oldNotify := notifyWatchSignal
+	oldStop := stopWatchSignal
+	t.Cleanup(func() {
+		acquireWatcher = oldAcquire
+		notifyWatchSignal = oldNotify
+		stopWatchSignal = oldStop
+	})
+
+	registered := make(chan chan<- os.Signal, 1)
+	notifyWatchSignal = func(sig chan<- os.Signal, _ ...os.Signal) {
+		registered <- sig
+	}
+	stopWatchSignal = func(chan<- os.Signal) {}
+	acquireWatcher = func(_ context.Context, home string, takeover bool) (*watcher.Ownership, error) {
+		var sig chan<- os.Signal
+		select {
+		case sig = <-registered:
+		default:
+			return nil, errors.New("watcher acquisition ran before signal registration")
+		}
+		sig <- os.Interrupt
+		return watcher.Acquire(home, takeover)
+	}
+
+	cmd := newWatchCmd()
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"--poll", "1h"})
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	err := cmd.Execute()
+	if err == nil || exitCodeFor(t, err) != 8 {
+		t.Fatalf("watch returned %v, want exit 8 after an interruption buffered before ownership publication", err)
+	}
+	if !errors.Is(err, watcher.ErrInterrupted) {
+		t.Fatalf("err = %v, want ErrInterrupted", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want no lifecycle pseudo-event", out.String())
+	}
+	if strings.Contains(errOut.String(), "watch-replaced") {
+		t.Fatalf("stderr = %q, want generic interruption rather than replacement", errOut.String())
+	}
+}
+
+func TestWatchInterruptsWhileOwnershipAcquisitionIsWaiting(t *testing.T) {
+	setupWatchHome(t)
+
+	oldAcquire := acquireWatcher
+	oldNotify := notifyWatchSignal
+	oldStop := stopWatchSignal
+	t.Cleanup(func() {
+		acquireWatcher = oldAcquire
+		notifyWatchSignal = oldNotify
+		stopWatchSignal = oldStop
+	})
+
+	registered := make(chan chan<- os.Signal, 1)
+	started := make(chan struct{})
+	notifyWatchSignal = func(sig chan<- os.Signal, _ ...os.Signal) {
+		registered <- sig
+	}
+	stopWatchSignal = func(chan<- os.Signal) {}
+	acquireWatcher = func(ctx context.Context, _ string, _ bool) (*watcher.Ownership, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, watcher.ErrInterrupted
+	}
+
+	cmd := newWatchCmd()
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"--takeover", "--poll", "1h"})
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+
+	var sig chan<- os.Signal
+	select {
+	case sig = <-registered:
+	case <-time.After(time.Second):
+		t.Fatal("watch did not register its signal channel")
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("watch did not enter ownership acquisition")
+	}
+	sig <- os.Interrupt
+
+	select {
+	case err := <-done:
+		if err == nil || exitCodeFor(t, err) != 8 || !errors.Is(err, watcher.ErrInterrupted) {
+			t.Fatalf("watch returned %v, want exit 8/ErrInterrupted while acquisition was waiting", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watch did not stop its interrupted ownership acquisition")
 	}
 }
 
@@ -226,5 +336,37 @@ func TestWatchRejectsAUsageErrorWithoutContendingForOwnership(t *testing.T) {
 	}
 	if code := exitCodeFor(t, err); code != 2 {
 		t.Fatalf("code = %d, want 2 (err = %v)", code, err)
+	}
+}
+
+func TestMapWatchResultClassifiesLifecycleResults(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"replacement", watcher.ErrReplaced, 9},
+		{"interruption", watcher.ErrInterrupted, 8},
+		{"no event", watcher.ErrNoEvent, 4},
+		{"arm failed", watcher.ErrArmFailed, 5},
+		{"general error stays general", errors.New("boom"), 1},
+		{"nil stays nil", nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mapWatchResult(tc.err)
+			if code := exitCodeFor(t, got); code != tc.code {
+				t.Fatalf("code = %d, want %d (err = %v)", code, tc.code, got)
+			}
+		})
+	}
+}
+
+// Wrapping must not defeat classification: the exit taxonomy resolves through
+// errors.Is.
+func TestMapWatchResultSurvivesWrapping(t *testing.T) {
+	got := mapWatchResult(fmt.Errorf("exit early: %w", watcher.ErrReplaced))
+	if code := exitCodeFor(t, got); code != 9 {
+		t.Fatalf("code = %d, want 9 through a wrapped replacement error", code)
 	}
 }

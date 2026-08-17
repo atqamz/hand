@@ -8,6 +8,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -222,9 +222,8 @@ func (s *syncBuffer) String() string {
 	return s.buf.String()
 }
 
-// Drives a long-running hand command (only `watch` today) so a test can observe its streaming output and
-// stop it with the same SIGTERM signal.NotifyContext listens for in cmd/watch.go, rather than waiting for
-// it to exit on its own.
+// Drives a long-running hand command (only `watch` today) so a test can observe
+// its streaming output and stop it through a platform-specific helper.
 type backgroundHand struct {
 	cmd     *exec.Cmd
 	args    []string
@@ -266,16 +265,6 @@ func (b *backgroundHand) waitForStdout(t *testing.T, substr string, timeout time
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %q on stdout; stdout=%q stderr=%q", substr, b.stdout.String(), b.stderr.String())
-}
-
-// Sends SIGTERM (the signal cmd/watch.go's signal.NotifyContext listens for) and waits for a clean exit,
-// failing the test if the process doesn't exit within timeout.
-func (b *backgroundHand) stop(t *testing.T, timeout time.Duration) invocation {
-	t.Helper()
-	if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatalf("signal hand watch: %v", err)
-	}
-	return b.waitForExit(t, timeout, "SIGTERM")
 }
 
 // Reaps a process expected to exit on its own, unlike stop: that exit is the whole delivery mechanism of
@@ -328,6 +317,49 @@ func waitForInvocations(t *testing.T, logPath, substr string, want int, timeout 
 	}
 	data, _ := os.ReadFile(logPath)
 	t.Fatalf("timed out waiting for %d occurrences of %q in invocation log; log=%q", want, substr, data)
+}
+
+// The routing record hand publishes last during acquisition. A complete valid
+// record implies the generation-bound takeover endpoint is already ready, so it
+// is a far stronger readiness barrier than merely seeing watch.pid.
+type ownerPublication struct {
+	Version    int    `json:"version"`
+	Generation string `json:"generation"`
+	PID        int    `json:"pid"`
+}
+
+func readOwnerPublication(t *testing.T, home string) (ownerPublication, error) {
+	t.Helper()
+	var rec ownerPublication
+	data, err := os.ReadFile(filepath.Join(state.Dir(home), "watch.owner"))
+	if err != nil {
+		return rec, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&rec); err != nil {
+		return rec, err
+	}
+	return rec, nil
+}
+
+// Waits for the full coherent owner publication for pid: a valid version-1
+// record whose generation is 32 lowercase-hex chars and pid matches. Endpoint
+// readiness precedes this publication, so this is a deterministic barrier.
+func waitForCoherentOwner(t *testing.T, home string, pid int) ownerPublication {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		rec, err := readOwnerPublication(t, home)
+		if err == nil && rec.Version == 1 && rec.PID == pid && len(rec.Generation) == 32 {
+			return rec
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	pidData, _ := os.ReadFile(filepath.Join(state.Dir(home), "watch.pid"))
+	ownerData, _ := os.ReadFile(filepath.Join(state.Dir(home), "watch.owner"))
+	t.Fatalf("timed out waiting for coherent owner publication (pid %d); watch.pid=%q watch.owner=%q", pid, pidData, ownerData)
+	return ownerPublication{}
 }
 
 func newHome(t *testing.T) string {

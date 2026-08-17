@@ -220,6 +220,8 @@ var errorKinds = map[int]string{
 	5: "arm-failed",
 	6: "send-not-submitted",
 	7: "send-uncertain",
+	8: "watch-interrupted",
+	9: "watch-replaced",
 }
 
 func errorKind(code int) string {
@@ -243,6 +245,10 @@ func errorHelp(code int, path string) []string {
 		return []string{"No terminal submission occurred; retry after the underlying precondition is ready"}
 	case 7:
 		return []string{"Terminal submission is uncertain; do not blindly retry because the message may already be in the pane"}
+	case 8:
+		return []string{"The watcher stopped because of a generic interruption; it emitted no fleet event, releases ownership as the command exits, and may be re-armed by a supervisor"}
+	case 9:
+		return []string{"This watcher was explicitly displaced by another Hand watcher; it emitted no fleet event, and the takeover successor acquires ownership after release"}
 	}
 	return nil
 }

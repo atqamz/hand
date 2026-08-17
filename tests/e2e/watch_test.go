@@ -72,10 +72,7 @@ func TestWatchEventStream(t *testing.T) {
 		t.Fatalf("events out of order in stdout: %q", stdout)
 	}
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 
 	// The log has to hold them durably too, so a consumer that starts reading only after the fact still sees
 	// everything a live stdout reader saw.
@@ -264,10 +261,7 @@ func TestWatchParksADoneWorkerUnderItsOwnBound(t *testing.T) {
 	watch.waitForStdout(t, "reported-done shipped-task: shipped the migration", 5*time.Second)
 	watch.waitForStdout(t, "parked shipped-task: done: shipped the migration (silent", 15*time.Second)
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 }
 
 // The bug atqamz/hand#127 tracks, exercised through a real restart rather than through the latch
@@ -409,10 +403,7 @@ func TestWatchNotifiesInProcessForABlockedEvent(t *testing.T) {
 		t.Fatalf("notify marker = %q, want the event text delivered by config/notify in-process", got)
 	}
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 }
 
 // A task first sighted with its pane already unreachable - a re-scan picking up a fresh spawn - has no
@@ -465,10 +456,7 @@ func TestWatchTracksATaskFirstSightedUnreachable(t *testing.T) {
 		t.Fatalf("a pane that blinked and came back raised failed: stdout=%q", watch.stdout.String())
 	}
 
-	result := watch.stop(t, 3*time.Second)
-	if result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 }
 
 // The full-stack half of internal/watcher's usage-limit tests: a real `hand watch` process, a real sqlite
@@ -536,9 +524,7 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 		t.Fatalf("plain attempt = %+v, want no usage-limit schedule", plainAttempt)
 	}
 
-	if result := watch.stop(t, 3*time.Second); result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	watch.interrupt(t, 3*time.Second)
 	if data, err := os.ReadFile(detectLog); err != nil {
 		t.Fatal(err)
 	} else if strings.Contains(string(data), "send-text") {
@@ -580,9 +566,7 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 		t.Fatalf("limited attempt after resume = %+v, want the schedule cleared", afterAttempt)
 	}
 
-	if result := resumed.stop(t, 3*time.Second); result.code != 0 {
-		t.Fatalf("hand watch exit = %d after SIGTERM, want 0 (stderr %q)", result.code, result.stderr)
-	}
+	resumed.interrupt(t, 3*time.Second)
 	if data, err := os.ReadFile(resumeLog); err != nil {
 		t.Fatal(err)
 	} else if strings.Contains(string(data), "send-text pane-plain") {
