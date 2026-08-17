@@ -231,8 +231,13 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 	return nil
 }
 
-func ClassifyStale(ts *TaskState, id string, now time.Time, threshold time.Duration) *Event {
+func ClassifyStale(ts *TaskState, id, deliveredAt string, now time.Time, threshold time.Duration) *Event {
 	if !ts.Probed || ts.Stale {
+		return nil
+	}
+	// Silence is no longer an unattended condition after a terminal worker report or durable task
+	// delivery, so neither fact may consume the stale latch.
+	if state.TerminalReport(ts.LastReportState) || deliveredAt != "" {
 		return nil
 	}
 	if now.Sub(ts.ChangedAt) < threshold {
