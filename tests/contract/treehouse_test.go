@@ -164,6 +164,55 @@ func TestTreehouseStatusReportsTheCurrentLeaseIdentity(t *testing.T) {
 	run(t, dir, "treehouse", "return", lease.Path).requireCode(t, 0)
 }
 
+// atqamz/hand#245: the pool key is the hash of the origin URL, so changing that URL moves the key
+// and orphans the pool the lease lives in. status --json keeps exiting 0 and answers for the pool the
+// key now names, which is why an unobservable pool is a property of the answer, not of the exit code.
+func TestTreehouseStatusFollowsTheOriginURLAndOrphansARenamedPool(t *testing.T) {
+	requireBin(t, "treehouse")
+	root := t.TempDir()
+	clone := newRepo(t)
+	before := filepath.Join(t.TempDir(), "before.git")
+	after := filepath.Join(t.TempDir(), "after.git")
+	for _, remote := range []string{before, after} {
+		run(t, root, "git", "init", "--bare", "-q", remote).requireCode(t, 0)
+	}
+	run(t, clone, "git", "remote", "add", "origin", before).requireCode(t, 0)
+	run(t, clone, "git", "push", "-q", "-u", "origin", "main").requireCode(t, 0)
+	config := fmt.Sprintf("max_trees = 1\nroot = %q\n", root)
+	if err := os.WriteFile(filepath.Join(clone, "treehouse.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	leased := acquire(t, clone, "hand:contract-orphan")
+	orphaned := filepath.Dir(filepath.Dir(leased.Path))
+	if !strings.HasPrefix(filepath.Base(orphaned), filepath.Base(clone)+"-") {
+		t.Fatalf("pool directory %q, want a <clone basename>-<hash of origin URL> key", orphaned)
+	}
+
+	run(t, clone, "git", "remote", "set-url", "origin", after).requireCode(t, 0)
+
+	for _, dir := range []string{clone, leased.Path} {
+		status := run(t, dir, "treehouse", "status", "--json").requireCode(t, 0).stdout
+		var entries []statusEntry
+		if err := json.Unmarshal([]byte(status), &entries); err != nil {
+			t.Fatalf("parse status %q from %s: %v", status, dir, err)
+		}
+		for _, entry := range entries {
+			if entry.Path == leased.Path {
+				t.Fatalf("status from %s still reports the orphaned lease %+v", dir, entry)
+			}
+		}
+	}
+
+	recorded, err := os.ReadFile(filepath.Join(orphaned, "treehouse-state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(recorded), leased.LeaseID) {
+		t.Fatalf("orphaned pool state %q no longer records lease %q as held", recorded, leased.LeaseID)
+	}
+}
+
 func TestTreehouseRefusesAnUnmanagedPath(t *testing.T) {
 	requireBin(t, "treehouse")
 	dir := newPool(t, 1)

@@ -13,10 +13,23 @@ import (
 
 func newReconcileCmd() *cobra.Command {
 	var asJSON bool
+	var abandonWorktree bool
 	cmd := &cobra.Command{
 		Use:   "reconcile [id]",
 		Short: "Converge durable task state with observed external reality",
-		Args:  usageArgs(cobra.MaximumNArgs(1)),
+		Long: "Converge durable task state with observed external reality.\n\n" +
+			"--abandon-worktree attests that Hand relinquishes a recorded Treehouse lease whose pool cannot be\n" +
+			"observed at all, for instance after the pool key moved. It needs an explicit task ID, it refuses any\n" +
+			"lease an observation can still prove or disprove, and it never returns, prunes or deletes a worktree:\n" +
+			"the worktree is left exactly as it is for the operator to reclaim through treehouse itself. The flag\n" +
+			"only adds this worktree attestation and leaves every other reconciliation action unchanged, including\n" +
+			"ordinary Herdr cleanup, which still requires proven ownership. An attempt that is still active is\n" +
+			"reached only through a recorded teardown decision, the shape a teardown interrupted at the worktree\n" +
+			"step leaves behind, while an attempt whose lifecycle is already terminal is eligible on its own once\n" +
+			"its worktree resource is unsettled. No worktree of a live worker can be abandoned on either route,\n" +
+			"because a provisioning or running attempt is skipped and the active attempt is reachable only through\n" +
+			"that recorded decision.",
+		Args: usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fleetHome, err := home.Resolve()
 			if err != nil {
@@ -26,7 +39,12 @@ func newReconcileCmd() *cobra.Command {
 			if len(args) == 1 {
 				id = args[0]
 			}
-			report, reconcileErr := runtime.New().Reconcile(runtime.ReconcileRequest{Context: cmd.Context(), Home: fleetHome, ID: id})
+			if abandonWorktree && id == "" {
+				return asPrecondition(runtime.Precondition(errors.New("--abandon-worktree needs an explicit task ID")))
+			}
+			report, reconcileErr := runtime.New().Reconcile(runtime.ReconcileRequest{
+				Context: cmd.Context(), Home: fleetHome, ID: id, AbandonWorktree: abandonWorktree,
+			})
 			if err := renderReconcileReport(cmd, report, asJSON); err != nil {
 				return err
 			}
@@ -34,6 +52,7 @@ func newReconcileCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON instead of TOON")
+	cmd.Flags().BoolVar(&abandonWorktree, "abandon-worktree", false, "attest that Hand relinquishes an unobservable Treehouse lease without touching the worktree")
 	return cmd
 }
 
@@ -56,6 +75,9 @@ func renderReconcileReport(cmd *cobra.Command, report runtime.ReconcileReport, a
 		if result.RepairCode != "" {
 			doc.Field("repair_code", result.RepairCode)
 			doc.Field("repair_reason", result.RepairReason)
+		}
+		if result.Detail != "" {
+			doc.Field("detail", result.Detail)
 		}
 		if result.Error != "" {
 			doc.Field("error", result.Error)

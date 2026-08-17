@@ -54,6 +54,13 @@ func Bin(t *testing.T) string {
 	return dir
 }
 
+// Replaces PATH with an empty directory for the rest of the test, so no tool at all - fake or real
+// - can be found. It is how a suite exercises an external executable that is not installed.
+func NoTools(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+}
+
 type commandConfig struct {
 	Name       string
 	Args       bool

@@ -11,6 +11,7 @@ Versions probed: `treehouse v2.1.0`, `herdr 0.7.5`, `gh 2.97.0`.
 
 `tests/contract` re-runs these calls against the real tools under the `contract` build tag, skipping where a binary is absent, so a record that has gone stale against a newer tool is discoverable by running them.
 It covers no call that would change anything an operator owns: a scratch treehouse pool and a scratch herdr workspace are created and destroyed, and every `gh` call is read-only.
+The one `git remote set-url` it runs is on a throwaway clone inside the test's own temp directory, whose `origin` points at a bare repository created for that test.
 
 Decorative glyphs appear in several stderr lines below and are omitted from the transcripts.
 No matcher may depend on one.
@@ -58,6 +59,19 @@ The command requires a git repository as its working directory.
 
 State left behind: the command only observes the current pool state.
 The lease identity is durable for the current acquisition and changes when a returned slot is handed out again.
+
+A leased entry may also carry a `processes` array of the `pid` and `name` of what is running in the slot, which nothing in `hand` reads.
+
+The working directory does not merely have to be a repository, it selects which pool is reported.
+Treehouse derives the pool key from the repository the working directory belongs to, as `<clone directory basename>-<hash of the origin URL>`, hashing the remote URL and not the clone path.
+So the answer is scoped to one pool, and the pool the working directory resolves to now is the only one `status --json` describes.
+
+Changing a repository's `origin` URL therefore moves the pool key and orphans the pool the existing leases live in.
+Run from a worktree of the orphaned pool, `status --json` still exits 0, and it reports the entries of the **new** pool: an array that describes other worktrees entirely and names nothing at the working directory it was run from, while the orphaned pool's own `treehouse-state.json` still records that worktree's lease as held.
+An empty `[]` with exit 0 is the same class of answer, seen when the pool the key now names has no slots yet, and `TestTreehouseStatusFollowsTheOriginURLAndOrphansARenamedPool` reproduces exactly that against the real binary.
+`worktree.ObserveLease` classifies both as an unobservable pool and never as an absent or mismatched lease: nothing about the recorded ownership was observed, so nothing about it was disproven.
+An orphaned pool stays orphaned for as long as the remote URL stays changed, which is why recovery cannot be "observe again later".
+`Treehouse{Slots: []string{other}}` reproduces the reported-another-pool shape and `Treehouse{}` the empty one, since the fake encodes an empty pool as `[]` rather than `null`.
 
 ### `treehouse get` with every slot leased or dirty
 

@@ -44,11 +44,52 @@ const (
 	LeaseAbsent     LeaseObservationState = "absent"
 	LeaseMismatch   LeaseObservationState = "mismatch"
 	LeaseUnprovable LeaseObservationState = "unprovable"
+	LeaseUnknown    LeaseObservationState = "unknown"
 )
+
+// LeaseProbe records how an unobservable pool was probed. WorkingDir is load-bearing evidence:
+// treehouse resolves the pool from it, so a pool key that moved reports nothing from a worktree
+// whose lease is still held in the pool it was acquired from.
+type LeaseProbe struct {
+	Command    string
+	WorkingDir string
+	Reason     string
+}
 
 type LeaseObservation struct {
 	State   LeaseObservationState
 	LeaseID string
+	Probe   LeaseProbe
+}
+
+const statusCommand = "treehouse status --json"
+
+// UnprovenLeaseError refuses an action that requires proven ownership. Observation carries the
+// classification, so a caller can tell an unobservable pool from a lease that belongs elsewhere.
+type UnprovenLeaseError struct {
+	WorktreePath    string
+	ExpectedLeaseID string
+	Observation     LeaseObservation
+}
+
+func (e *UnprovenLeaseError) Error() string {
+	expected := e.ExpectedLeaseID
+	if expected == "" {
+		expected = "(none recorded)"
+	}
+	switch e.Observation.State {
+	case LeaseUnknown:
+		return fmt.Sprintf(
+			"treehouse lease for %s could not be observed: %s; observed by running %q with working directory %s, which is what selects the pool; expected lease %s; destructive cleanup refused because ownership could not be proven, not because a lease mismatched",
+			e.WorktreePath, e.Observation.Probe.Reason, e.Observation.Probe.Command, e.Observation.Probe.WorkingDir, expected)
+	case LeaseMismatch:
+		return fmt.Sprintf("treehouse lease for %s is held as %s, not the expected %s; the worktree belongs to another owner", e.WorktreePath, e.Observation.LeaseID, expected)
+	case LeaseAbsent:
+		return fmt.Sprintf("treehouse reports no lease held on %s; expected lease %s", e.WorktreePath, expected)
+	case LeaseUnprovable:
+		return fmt.Sprintf("treehouse lease for %s has no comparable identity; expected lease %s; destructive cleanup refused because ownership could not be proven, not because a lease mismatched", e.WorktreePath, expected)
+	}
+	return fmt.Sprintf("treehouse lease for %s is %s, which does not prove ownership of expected lease %s", e.WorktreePath, e.Observation.State, expected)
 }
 
 type Cleanliness string
@@ -58,41 +99,46 @@ const (
 	Dirty Cleanliness = "dirty"
 )
 
-func ObserveLease(worktreePath, expectedLeaseID string) (LeaseObservation, error) {
+// ObserveLease classifies recorded worktree ownership and never fails: every cause that stops the
+// pool from being observed is reported as LeaseUnknown carrying its probe, because an observation
+// that could not be made is not evidence that ownership changed.
+func ObserveLease(worktreePath, expectedLeaseID string) LeaseObservation {
 	if worktreePath == "" {
-		return LeaseObservation{State: LeaseAbsent}, nil
+		return LeaseObservation{State: LeaseAbsent}
 	}
 	if _, err := os.Stat(worktreePath); err != nil {
 		if os.IsNotExist(err) {
-			return LeaseObservation{State: LeaseAbsent}, nil
+			return LeaseObservation{State: LeaseAbsent}
 		}
-		return LeaseObservation{}, fmt.Errorf("inspect worktree path: %w", err)
+		return unknownLease(worktreePath, fmt.Sprintf("inspect worktree path: %v", err))
 	}
-	entries, err := treehouseStatus(worktreePath)
-	if err != nil {
-		return LeaseObservation{}, err
+	entries, reason := treehouseStatus(worktreePath)
+	if reason != "" {
+		return unknownLease(worktreePath, reason)
 	}
 	for _, entry := range entries {
 		if entry.Path != worktreePath {
 			continue
 		}
 		if entry.Status != "leased" {
-			return LeaseObservation{State: LeaseAbsent, LeaseID: entry.LeaseID}, nil
+			return LeaseObservation{State: LeaseAbsent, LeaseID: entry.LeaseID}
 		}
 		if expectedLeaseID == "" || entry.LeaseID == "" {
-			return LeaseObservation{State: LeaseUnprovable, LeaseID: entry.LeaseID}, nil
+			return LeaseObservation{State: LeaseUnprovable, LeaseID: entry.LeaseID}
 		}
 		if entry.LeaseID == expectedLeaseID {
-			return LeaseObservation{State: LeaseExact, LeaseID: entry.LeaseID}, nil
+			return LeaseObservation{State: LeaseExact, LeaseID: entry.LeaseID}
 		}
-		return LeaseObservation{State: LeaseMismatch, LeaseID: entry.LeaseID}, nil
+		return LeaseObservation{State: LeaseMismatch, LeaseID: entry.LeaseID}
 	}
-	if _, err := os.Stat(worktreePath); err == nil {
-		return LeaseObservation{State: LeaseUnprovable}, nil
-	} else if !os.IsNotExist(err) {
-		return LeaseObservation{}, fmt.Errorf("inspect worktree path: %w", err)
+	if len(entries) == 0 {
+		return unknownLease(worktreePath, "treehouse reported no pool entries")
 	}
-	return LeaseObservation{State: LeaseAbsent}, nil
+	return unknownLease(worktreePath, fmt.Sprintf("treehouse reported %d pool entries and none names this worktree; the first is %s", len(entries), entries[0].Path))
+}
+
+func unknownLease(worktreePath, reason string) LeaseObservation {
+	return LeaseObservation{State: LeaseUnknown, Probe: LeaseProbe{Command: statusCommand, WorkingDir: worktreePath, Reason: reason}}
 }
 
 func ObserveCleanliness(worktreePath string) (Cleanliness, error) {
@@ -192,32 +238,29 @@ func returnTreehouse(worktreePath string, args []string, force bool) error {
 	return nil
 }
 
-func VerifyLease(worktreePath, expectedLeaseID string) error {
-	if worktreePath == "" || expectedLeaseID == "" {
-		return fmt.Errorf("cannot verify treehouse lease without path and lease ID")
-	}
-	observation, err := ObserveLease(worktreePath, expectedLeaseID)
-	if err != nil {
-		return err
-	}
-	if observation.State == LeaseExact {
-		return nil
-	}
-	return fmt.Errorf("treehouse lease for %s does not match expected lease %s", worktreePath, expectedLeaseID)
-}
-
-func treehouseStatus(worktreePath string) ([]statusEntry, error) {
+// Reports the pool entries, or the reason the pool could not be observed. A missing executable, a
+// non-zero exit and unparsable output are all unobservability, never absence and never a mismatch.
+func treehouseStatus(worktreePath string) ([]statusEntry, string) {
 	cmd := exec.Command("treehouse", "status", "--json")
 	cmd.Dir = worktreePath
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("treehouse status failed: %w", err)
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, fmt.Sprintf("treehouse is not executable: %v", err)
+		}
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			return nil, fmt.Sprintf("treehouse status failed: %v", err)
+		}
+		return nil, fmt.Sprintf("treehouse status failed: %v: %s", err, detail)
 	}
 	var entries []statusEntry
 	if err := json.Unmarshal(out, &entries); err != nil {
-		return nil, fmt.Errorf("parse treehouse status output: %w", err)
+		return nil, fmt.Sprintf("treehouse status output is not a JSON array: %v", err)
 	}
-	return entries, nil
+	return entries, ""
 }
 
 // CheckCollision cross-checks a freshly acquired lease against every other task's recorded one,

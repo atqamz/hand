@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -454,8 +455,8 @@ func TestReconcileRunningWorktreeLeaseMismatchWinsOverHealthyPane(t *testing.T) 
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.worktree.observeLease = func(string, string) (worktree.LeaseObservation, error) {
-		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}, nil
+	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}
 	}
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatal(err)
@@ -835,8 +836,8 @@ func TestReconcileReusedTerminalLeaseDoesNotReturnNewOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.worktree.observeLease = func(string, string) (worktree.LeaseObservation, error) {
-		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}, nil
+	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}
 	}
 	returns := 0
 	r.deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
@@ -849,6 +850,311 @@ func TestReconcileReusedTerminalLeaseDoesNotReturnNewOwner(t *testing.T) {
 	}
 	if history.Task.RepairCode != "worktree-ownership-mismatch" || returns != 0 {
 		t.Fatalf("history=%+v returns=%d, want mismatch repair without touching new lease", history, returns)
+	}
+}
+
+// The shape atqamz/hand#245 reports: a teardown decision is recorded, the worktree is still owned,
+// and the pool the lease was acquired from can no longer be observed from that worktree.
+func unobservableTeardownFixture(t *testing.T, latch string) (string, state.Attempt) {
+	t.Helper()
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownDecision(home, "task-1", attempt.ID, state.AttemptCompleted, state.TeardownDispositionCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if latch != "" {
+		if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptRunning, "worktree", latch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home, attempt
+}
+
+func unobservableReconcileRuntime(t *testing.T, returns *int) *Runtime {
+	t.Helper()
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseUnknown, Probe: worktree.LeaseProbe{
+			Command: "treehouse status --json", WorkingDir: path, Reason: "treehouse reported no pool entries",
+		}}
+	}
+	r.deps.worktree.returnWithID = func(string, string, bool) error { *returns++; return nil }
+	r.deps.worktree.returnWorktree = func(string, bool) error { *returns++; return nil }
+	return r
+}
+
+func TestReconcileUnobservableWorktreeNeedsRepairInsteadOfMismatch(t *testing.T) {
+	home, _ := unobservableTeardownFixture(t, state.TeardownResourceAmbiguous)
+	returns := 0
+	r := unobservableReconcileRuntime(t, &returns)
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 1 || report.Results[0].Outcome != reconcileOutcomeRepair {
+		t.Fatalf("report = %+v, want one needs-repair result", report)
+	}
+	if report.Results[0].RepairCode != repairCodeWorktreeUnobservable {
+		t.Fatalf("repair code = %q, want %q", report.Results[0].RepairCode, repairCodeWorktreeUnobservable)
+	}
+	reason := report.Results[0].RepairReason
+	for _, want := range []string{"could not be observed", "treehouse status --json", "/pool/1", "lease-1", "neither proven nor disproven", "destructive cleanup refused because ownership could not be proven, not because a lease mismatched"} {
+		if !strings.Contains(reason, want) {
+			t.Fatalf("repair reason = %q, want it to contain %q", reason, want)
+		}
+	}
+	if strings.Contains(reason, "held by a different Treehouse lease") || strings.Contains(reason, "no exact lease identity") {
+		t.Fatalf("repair reason = %q, want no claim about a different or missing identity", reason)
+	}
+	if returns != 0 {
+		t.Fatalf("worktree return count = %d, want no destructive cleanup", returns)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.TeardownWorktreeState != state.TeardownResourceAmbiguous {
+		t.Fatalf("worktree state = %+v, want the latch unchanged by an observation that failed", history.ActiveAttempt)
+	}
+}
+
+// The supported convergence path for a pool that can never be observed again: an operator attests
+// that Hand relinquishes the recorded lease, and the task finishes its teardown from there.
+func TestReconcileAbandonWorktreeConvergesAnUnobservableLease(t *testing.T) {
+	home, attempt := unobservableTeardownFixture(t, state.TeardownResourceAmbiguous)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.ID != attempt.ID || history.ActiveAttempt.Lifecycle != state.AttemptRunning || history.ActiveAttempt.TeardownTerminalAttempt != state.AttemptCompleted {
+		t.Fatalf("eligible attempt = %+v, want an active attempt with a recorded teardown decision", history.ActiveAttempt)
+	}
+	returns := 0
+	r := unobservableReconcileRuntime(t, &returns)
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonWorktree: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 1 || report.Results[0].Outcome != reconcileOutcomeHealthy {
+		t.Fatalf("report = %+v, want one converged result", report)
+	}
+	detail := report.Results[0].Detail
+	for _, want := range []string{"operator attestation", "/pool/1", "lease-1", "treehouse status --json"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("detail = %q, want it to contain %q", detail, want)
+		}
+	}
+	if returns != 0 {
+		t.Fatalf("worktree return count = %d, want abandonment to run no destructive command", returns)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.ActiveAttempt != nil {
+		t.Fatalf("task after abandonment = %+v, want a converged terminal task", history.Task)
+	}
+	if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceAbandoned {
+		t.Fatalf("worktree state = %q, want abandoned", history.Attempts[0].TeardownWorktreeState)
+	}
+	if history.Task.RepairCode != "" {
+		t.Fatalf("repair code = %q, want the unobservable repair cleared", history.Task.RepairCode)
+	}
+	if _, found, err := completion.FindAttempt(home, attempt.ID); err != nil || !found {
+		t.Fatalf("completion for attempt %d found=%t err=%v, want the teardown finished", attempt.ID, found, err)
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("reconcile after convergence = %v, want a healthy no-op", err)
+	}
+}
+
+// Abandonment is only for what cannot be observed. A lease held by another owner and a lease proven
+// to be ours both keep their ordinary handling even when the operator passes the attestation.
+func TestReconcileAbandonWorktreeRefusesProvableOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		observation worktree.LeaseObservation
+		wantState   string
+		wantReturns int
+		wantRepair  string
+	}{
+		{
+			name:        "another owner",
+			observation: worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-2"},
+			wantState:   state.TeardownResourceAmbiguous,
+			wantRepair:  repairCodeWorktreeOwnershipMismatch,
+		},
+		{
+			name:        "proven ours",
+			observation: worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"},
+			wantState:   state.TeardownResourceReleased,
+			wantReturns: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home, _ := unobservableTeardownFixture(t, state.TeardownResourceAmbiguous)
+			returns := 0
+			r := unobservableReconcileRuntime(t, &returns)
+			r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation { return test.observation }
+			if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonWorktree: true}); err != nil {
+				t.Fatal(err)
+			}
+			history, err := state.ReadHistory(home, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if history.Attempts[0].TeardownWorktreeState != test.wantState {
+				t.Fatalf("worktree state = %q, want %q", history.Attempts[0].TeardownWorktreeState, test.wantState)
+			}
+			if returns != test.wantReturns {
+				t.Fatalf("worktree return count = %d, want %d", returns, test.wantReturns)
+			}
+			if history.Task.RepairCode != test.wantRepair {
+				t.Fatalf("repair code = %q, want %q", history.Task.RepairCode, test.wantRepair)
+			}
+		})
+	}
+}
+
+func TestAbandonHistoricalWorktreeRefusesAnyObservedOwnership(t *testing.T) {
+	home, attempt := unobservableTeardownFixture(t, "")
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	task := state.Task{ID: "task-1"}
+	for _, observed := range []worktree.LeaseObservationState{worktree.LeaseExact, worktree.LeaseMismatch, worktree.LeaseAbsent, worktree.LeaseUnprovable} {
+		_, _, err := r.abandonHistoricalWorktree(home, task, attempt, worktree.LeaseObservation{State: observed})
+		if err == nil {
+			t.Fatalf("abandonHistoricalWorktree() accepted a %s observation", observed)
+		}
+		var classified *Error
+		if !errors.As(err, &classified) || classified.Kind != ErrorPrecondition {
+			t.Fatalf("abandonHistoricalWorktree() = %v, want a precondition refusal", err)
+		}
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.TeardownWorktreeState != "" {
+		t.Fatalf("worktree state = %+v, want nothing recorded by a refused abandonment", history.ActiveAttempt)
+	}
+}
+
+// Abandonment relinquishes a lease nothing is still using; a worker's live worktree is never that,
+// so the attestation cannot reach an attempt that has not decided its teardown.
+func TestReconcileAbandonWorktreeNeverTouchesARunningAttempt(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	returns := 0
+	r := unobservableReconcileRuntime(t, &returns)
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonWorktree: true}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("attempt after abandonment attempt = %+v, want the running worker untouched", history.ActiveAttempt)
+	}
+	if history.ActiveAttempt.TeardownTerminalAttempt != "" || history.ActiveAttempt.TeardownWorktreeState != "" || returns != 0 {
+		t.Fatalf("worktree state = %q returns = %d, want no teardown of a running attempt", history.ActiveAttempt.TeardownWorktreeState, returns)
+	}
+	if history.Task.RepairCode != repairCodeWorktreeUnobservable {
+		t.Fatalf("repair code = %q, want %q", history.Task.RepairCode, repairCodeWorktreeUnobservable)
+	}
+}
+
+func TestReconcileAbandonWorktreeSettlesATerminalAttemptWithoutATeardownDecision(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt != nil || history.Attempts[0].Lifecycle != state.AttemptCompleted {
+		t.Fatalf("eligible attempt = %+v, want a terminal attempt that is no longer active", history.Attempts[0])
+	}
+	if history.Attempts[0].TeardownTerminalAttempt != "" || history.Attempts[0].TeardownWorktreeState != "" {
+		t.Fatalf("eligible attempt = %+v, want an unsettled worktree and no recorded teardown decision", history.Attempts[0])
+	}
+	returns := 0
+	r := unobservableReconcileRuntime(t, &returns)
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonWorktree: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 1 || report.Results[0].RepairCode != "" {
+		t.Fatalf("report = %+v, want one result that needs no repair", report)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceAbandoned || returns != 0 {
+		t.Fatalf("worktree state = %q returns = %d, want abandonment without a destructive command", history.Attempts[0].TeardownWorktreeState, returns)
+	}
+}
+
+// A latch is a refusal to guess, not a verdict: the observation that would have refused the release
+// is the one that resumes it once the pool answers again.
+func TestReconcileConvergesALatchedWorktreeOnceOwnershipIsProven(t *testing.T) {
+	home, _ := unobservableTeardownFixture(t, state.TeardownResourceAmbiguous)
+	returns := 0
+	r := unobservableReconcileRuntime(t, &returns)
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.ActiveAttempt != nil {
+		t.Fatalf("task after proven ownership = %+v, want a converged terminal task", history.Task)
+	}
+	if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceReleased || returns != 1 {
+		t.Fatalf("worktree state = %q returns = %d, want one proven return", history.Attempts[0].TeardownWorktreeState, returns)
+	}
+	if history.Task.RepairCode != "" {
+		t.Fatalf("repair code = %q, want the unobservable repair cleared", history.Task.RepairCode)
 	}
 }
 
@@ -1132,12 +1438,12 @@ func TestReconcileLocalMergeDoesNotInspectReusedTreehousePath(t *testing.T) {
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
 	observed := 0
-	r.deps.worktree.observeLease = func(path, leaseID string) (worktree.LeaseObservation, error) {
+	r.deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
 		observed++
 		if path != "/pool/shared" || leaseID != "lease-a" {
 			t.Fatalf("observeLease(%q, %q), want Task 1 lease", path, leaseID)
 		}
-		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-b"}, nil
+		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-b"}
 	}
 	branchChecks := 0
 	r.deps.branchMerged = func(string, string) (bool, error) {
@@ -1371,8 +1677,8 @@ func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lea
 		herdr: func() herdrClient { return client },
 		worktree: worktreeDependencies{
 			get: get,
-			observeLease: func(string, string) (worktree.LeaseObservation, error) {
-				return worktree.LeaseObservation{State: worktree.LeaseExact}, nil
+			observeLease: func(string, string) worktree.LeaseObservation {
+				return worktree.LeaseObservation{State: worktree.LeaseExact}
 			},
 			observeClean: func(path string) (worktree.Cleanliness, error) {
 				return worktree.Clean, nil

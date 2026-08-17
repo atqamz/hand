@@ -131,6 +131,46 @@ func TestListHerdrOwnershipsIncludesLifecycleAndTeardownMetadata(t *testing.T) {
 	}
 }
 
+// A latch has to be leavable in both directions: forward to a release once ownership is proven, and
+// sideways to abandonment when an operator attests. Only the worktree can be abandoned.
+func TestSetAttemptTeardownResourceStateLeavesAmbiguousBothWays(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		resource string
+		next     string
+		wantErr  error
+	}{
+		{name: "worktree resumes releasing", resource: "worktree", next: TeardownResourceReleasing},
+		{name: "worktree is abandonable", resource: "worktree", next: TeardownResourceAbandoned},
+		{name: "worktree cannot skip to released", resource: "worktree", next: TeardownResourceReleased, wantErr: store.ErrLifecycleConflict},
+		{name: "herdr resumes releasing", resource: "herdr", next: TeardownResourceReleasing},
+		{name: "herdr is not abandonable", resource: "herdr", next: TeardownResourceAbandoned, wantErr: store.ErrInvalidTransition},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			attempt, err := CreateTaskWithAttempt(home, Task{ID: "task-1", Project: "demo", Kind: KindShip, Brief: "data/task-1/brief.md"}, Attempt{
+				TaskID: "task-1", Lifecycle: AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := SetAttemptTeardownResourceState(home, "task-1", attempt.ID, AttemptProvisioning, test.resource, TeardownResourceAmbiguous); err != nil {
+				t.Fatal(err)
+			}
+			err = SetAttemptTeardownResourceState(home, "task-1", attempt.ID, AttemptProvisioning, test.resource, test.next)
+			if test.wantErr != nil {
+				if !errors.Is(err, test.wantErr) {
+					t.Fatalf("SetAttemptTeardownResourceState() = %v, want %v", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("SetAttemptTeardownResourceState() = %v, want the latch left behind", err)
+			}
+		})
+	}
+}
+
 func TestReadHistoryReadOnlySupportsSchemaV10(t *testing.T) {
 	home := t.TempDir()
 	if _, err := CreateTaskWithAttempt(home, Task{ID: "task-1", Project: "demo", Kind: KindShip, Brief: "data/task-1/brief.md"}, Attempt{

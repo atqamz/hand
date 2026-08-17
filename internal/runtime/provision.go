@@ -30,13 +30,12 @@ const (
 
 type worktreeDependencies struct {
 	get            func(string, string) (worktree.Lease, error)
-	observeLease   func(string, string) (worktree.LeaseObservation, error)
+	observeLease   func(string, string) worktree.LeaseObservation
 	observeClean   func(string) (worktree.Cleanliness, error)
 	headCommit     func(string) (string, error)
 	returnWorktree func(string, bool) error
 	returnWithID   func(string, string, bool) error
 	checkCollision func(string, worktree.Lease, string) (string, error)
-	verifyLease    func(string, string) error
 }
 
 type dependencies struct {
@@ -60,7 +59,7 @@ func defaultDependencies() dependencies {
 	return dependencies{
 		now:               func() time.Time { return time.Now().UTC() },
 		herdr:             newHerdrClient,
-		worktree:          worktreeDependencies{get: worktree.Get, observeLease: worktree.ObserveLease, observeClean: worktree.ObserveCleanliness, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision, verifyLease: worktree.VerifyLease},
+		worktree:          worktreeDependencies{get: worktree.Get, observeLease: worktree.ObserveLease, observeClean: worktree.ObserveCleanliness, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision},
 		projectBaseCommit: projectBaseCommit,
 		buildHarness:      harness.Build,
 		confirmLaunch:     confirmLaunch,
@@ -143,16 +142,10 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return "", r.failProvision(req, lease, nil, false, err)
 	}
 	if req.resumeExisting {
-		observeLease := r.deps.worktree.observeLease
-		if observeLease == nil {
-			observeLease = worktree.ObserveLease
-		}
-		observation, err := observeLease(worktreePath, lease.ID)
-		if err != nil {
-			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("verify resumed worktree lease: %w; refusing to launch", err)))
-		}
+		observation := r.observeWorktreeLease(worktreePath, lease.ID)
 		if observation.State != worktree.LeaseExact {
-			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("resumed worktree lease is %s; refusing to launch", observation.State)))
+			unproven := &worktree.UnprovenLeaseError{WorktreePath: worktreePath, ExpectedLeaseID: lease.ID, Observation: observation}
+			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("resumed worktree lease is %s: %w; refusing to launch", observation.State, unproven)))
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/worktree"
 )
 
 type herdrClient interface {
@@ -97,6 +98,18 @@ func closeTaskTab(client herdrClient, workspaceID, tabID string) error {
 		return client.WorkspaceClose(workspaceID)
 	}
 	return client.TabClose(tabID)
+}
+
+func (r *Runtime) observeWorktreeLease(worktreePath, leaseID string) worktree.LeaseObservation {
+	observe := r.deps.worktree.observeLease
+	if observe == nil {
+		observe = worktree.ObserveLease
+	}
+	return observe(worktreePath, leaseID)
+}
+
+func worktreeCleanupSettled(teardownWorktreeState string) bool {
+	return teardownWorktreeState == state.TeardownResourceReleased || teardownWorktreeState == state.TeardownResourceAbandoned
 }
 
 func incompleteHerdrOwnership(ownership state.Herdr) error {
