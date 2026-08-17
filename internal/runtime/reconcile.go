@@ -26,6 +26,7 @@ const (
 	reconciliationActionConfirmLaunch        reconciliationAction = "confirm-launch"
 	reconciliationActionMarkRunning          reconciliationAction = "mark-running"
 	reconciliationActionCleanupTerminal      reconciliationAction = "cleanup-terminal-resources"
+	reconciliationActionAbandonWorktree      reconciliationAction = "abandon-worktree"
 	reconciliationActionNeedsRepair          reconciliationAction = "needs-repair"
 	reconciliationActionBlocked              reconciliationAction = "blocked"
 )
@@ -38,6 +39,7 @@ const (
 	treehouseLeaseAbsent     treehouseLeaseState = "absent"
 	treehouseLeaseMismatch   treehouseLeaseState = "mismatch"
 	treehouseLeaseUnprovable treehouseLeaseState = "unprovable"
+	treehouseLeaseUnknown    treehouseLeaseState = "unknown"
 )
 
 type worktreeState string
@@ -71,6 +73,7 @@ const (
 	repairCodeWorktreeDirty               = "worktree-dirty"
 	repairCodeWorktreeOwnershipMismatch   = "worktree-ownership-mismatch"
 	repairCodeLegacyWorktreeUnprovable    = "legacy-worktree-ownership-unprovable"
+	repairCodeWorktreeUnobservable        = "worktree-ownership-unobservable"
 	repairCodeTeardownResourceAmbiguous   = "teardown-resource-ambiguous"
 	repairCodeCompletionEvidenceMismatch  = "completion-evidence-mismatch"
 	repairCodeMergeFactMismatch           = "merge-fact-mismatch"
@@ -78,6 +81,7 @@ const (
 
 type treehouseObservation struct {
 	State treehouseLeaseState
+	Probe worktree.LeaseProbe
 }
 
 type worktreeObservation struct {
@@ -107,12 +111,16 @@ type reconciliationDecision struct {
 	PlannedAgainst string
 	Profile        string
 	RoutingSource  string
+	Detail         string
 }
 
+// AbandonWorktree carries an operator attestation and demands an explicit ID, so it can never
+// relinquish more than the one recorded lease the operator named.
 type ReconcileRequest struct {
-	Context context.Context
-	Home    string
-	ID      string
+	Context         context.Context
+	Home            string
+	ID              string
+	AbandonWorktree bool
 }
 
 type ReconcileResult struct {
@@ -130,6 +138,7 @@ type ReconcileResult struct {
 	Profile        string `json:"profile,omitempty"`
 	PlannedAgainst string `json:"planned_against,omitempty"`
 	RoutingSource  string `json:"routing_source,omitempty"`
+	Detail         string `json:"detail,omitempty"`
 	Error          string `json:"error,omitempty"`
 }
 
@@ -165,11 +174,14 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 		ctx = context.Background()
 	}
 	if req.ID != "" {
-		result, err := r.reconcileTask(ctx, req.Home, req.ID)
+		result, err := r.reconcileTask(ctx, req.Home, req.ID, req.AbandonWorktree)
 		if err != nil {
 			result.Error = err.Error()
 		}
 		return ReconcileReport{Results: []ReconcileResult{result}}, err
+	}
+	if req.AbandonWorktree {
+		return ReconcileReport{}, Precondition(fmt.Errorf("abandoning a worktree lease needs an explicit task ID"))
 	}
 	histories, err := state.ListReconciliationHistories(req.Home)
 	if err != nil {
@@ -178,7 +190,7 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	report := ReconcileReport{Results: make([]ReconcileResult, 0, len(histories))}
 	var errs []error
 	for _, history := range histories {
-		result, err := r.reconcileTask(ctx, req.Home, history.Task.ID)
+		result, err := r.reconcileTask(ctx, req.Home, history.Task.ID, false)
 		if err != nil {
 			result.Error = err.Error()
 		}
@@ -197,7 +209,7 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	return report, errors.Join(errs...)
 }
 
-func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (ReconcileResult, error) {
+func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWorktree bool) (ReconcileResult, error) {
 	release, err := state.Lock(home, "task:"+id)
 	if err != nil {
 		return ReconcileResult{ID: id, Outcome: reconcileOutcomeBlocked}, fmt.Errorf("lock task %q: %w", id, err)
@@ -249,7 +261,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 		}
 		if historical != nil {
 			result.AttemptID = historical.ID
-			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, *historical)
+			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, *historical, abandonWorktree)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
@@ -262,8 +274,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 				return result, nil
 			}
 			if progress {
-				result.Action = string(reconciliationActionCleanupTerminal)
-				result.Outcome = reconcileOutcomeRecovered
+				recordHistoricalProgress(&result, decision)
 				continue
 			}
 		}
@@ -286,7 +297,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 		result.ExecutionClass, result.Profile = attempt.ExecutionClass, attempt.RequestedProfile
 		result.PlannedAgainst, result.RoutingSource = attempt.PlannedAgainst, attempt.RoutingSource
 		if attempt.TeardownTerminalAttempt != "" {
-			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, attempt)
+			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, attempt, abandonWorktree)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
@@ -299,8 +310,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 				return result, nil
 			}
 			if progress {
-				result.Action = string(reconciliationActionCleanupTerminal)
-				result.Outcome = reconcileOutcomeRecovered
+				recordHistoricalProgress(&result, decision)
 				continue
 			}
 		}
@@ -354,6 +364,17 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string) (Reconcile
 	return result, nil
 }
 
+func recordHistoricalProgress(result *ReconcileResult, decision reconciliationDecision) {
+	result.Action = string(reconciliationActionCleanupTerminal)
+	if decision.Action != "" {
+		result.Action = string(decision.Action)
+	}
+	if decision.Detail != "" {
+		result.Detail = decision.Detail
+	}
+	result.Outcome = reconcileOutcomeRecovered
+}
+
 func reportExistingRepair(result *ReconcileResult, task state.Task) bool {
 	if task.RepairCode == "" {
 		return false
@@ -404,16 +425,10 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 		return false, false, "local-git", fmt.Errorf("lock worktree %q for local merge observation: %w", attempt.Worktree, err)
 	}
 	defer releaseWorktree()
-	observeLease := r.deps.worktree.observeLease
-	if observeLease == nil {
-		observeLease = worktree.ObserveLease
-	}
-	lease, err := observeLease(attempt.Worktree, attempt.LeaseID)
-	if err != nil {
-		return false, false, "local-git", fmt.Errorf("observe local merge lease for task %q Attempt %d: %w", task.ID, attempt.ID, err)
-	}
+	lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
 	if lease.State != worktree.LeaseExact {
-		return false, false, "local-git", fmt.Errorf("observe local merge for task %q Attempt %d: exact Treehouse lease ownership was not proven", task.ID, attempt.ID)
+		unproven := &worktree.UnprovenLeaseError{WorktreePath: attempt.Worktree, ExpectedLeaseID: attempt.LeaseID, Observation: lease}
+		return false, false, "local-git", fmt.Errorf("observe local merge for task %q Attempt %d: %w", task.ID, attempt.ID, unproven)
 	}
 	branchMerged := r.deps.branchMerged
 	if branchMerged == nil {
@@ -434,7 +449,7 @@ func mergeWorktreeAttempt(history state.TaskHistory) (*state.Attempt, error) {
 	} else {
 		for i := len(history.Attempts) - 1; i >= 0; i-- {
 			candidate := &history.Attempts[i]
-			if candidate.Worktree != "" && candidate.TeardownWorktreeState != state.TeardownResourceReleased {
+			if candidate.Worktree != "" && !worktreeCleanupSettled(candidate.TeardownWorktreeState) {
 				attempt = candidate
 				break
 			}
@@ -650,7 +665,7 @@ func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) 
 		if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
 			return attempt, nil
 		}
-		if attempt.Worktree != "" && attempt.TeardownWorktreeState != state.TeardownResourceReleased {
+		if attempt.Worktree != "" && !worktreeCleanupSettled(attempt.TeardownWorktreeState) {
 			return attempt, nil
 		}
 		if attempt.TeardownCompletionState != "" {
@@ -660,7 +675,7 @@ func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) 
 	return nil, nil
 }
 
-func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attempt state.Attempt) (bool, reconciliationDecision, error) {
+func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attempt state.Attempt, abandonWorktree bool) (bool, reconciliationDecision, error) {
 	if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
 		observation, err := observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
@@ -701,16 +716,14 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 		}
 	}
 
-	if attempt.Worktree != "" && attempt.TeardownWorktreeState != state.TeardownResourceReleased {
-		observeLease := r.deps.worktree.observeLease
-		if observeLease == nil {
-			observeLease = worktree.ObserveLease
-		}
-		lease, err := observeLease(attempt.Worktree, attempt.LeaseID)
-		if err != nil {
-			return false, reconciliationDecision{}, fmt.Errorf("observe historical Treehouse lease: %w", err)
-		}
+	if attempt.Worktree != "" && !worktreeCleanupSettled(attempt.TeardownWorktreeState) {
+		lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
 		switch lease.State {
+		case worktree.LeaseUnknown:
+			if abandonWorktree {
+				return r.abandonHistoricalWorktree(home, task, attempt, lease)
+			}
+			return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeUnobservable, unobservableWorktreeReason(attempt, lease.Probe)), nil
 		case worktree.LeaseUnprovable:
 			return false, repairDecision(reconciliationDecision{}, repairCodeLegacyWorktreeUnprovable, "historical worktree has no exact lease identity"), nil
 		case worktree.LeaseMismatch:
@@ -720,9 +733,9 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 				}
 				return true, reconciliationDecision{}, nil
 			}
-			return false, repairDecision(reconciliationDecision{}, "worktree-ownership-mismatch", "historical worktree path is held by a different Treehouse lease"), nil
+			return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeOwnershipMismatch, "historical worktree path is held by a different Treehouse lease"), nil
 		case worktree.LeaseAbsent:
-			if cleared, err := clearHistoricalRepair(home, task, attempt, "worktree-ownership-mismatch"); err != nil {
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
@@ -743,12 +756,14 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			if clean != worktree.Clean {
 				return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeDirty, "historical worktree is dirty; automatic reconciliation will not discard it"), nil
 			}
-			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeDirty, "worktree-ownership-mismatch"); err != nil {
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeLegacyWorktreeUnprovable); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
 			}
-			if attempt.TeardownWorktreeState == "" {
+			// Proven ownership is what clears the ambiguous latch: the same observation that would
+			// have refused the release is the one allowed to resume it.
+			if attempt.TeardownWorktreeState == "" || attempt.TeardownWorktreeState == state.TeardownResourceAmbiguous {
 				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
 					return false, reconciliationDecision{}, err
 				}
@@ -823,6 +838,19 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 	return false, reconciliationDecision{}, nil
 }
 
+// Records an operator's attestation that Hand relinquishes a lease no observation can reach. It
+// runs no destructive command and refuses any state an observation could still prove or disprove.
+func (r *Runtime) abandonHistoricalWorktree(home string, task state.Task, attempt state.Attempt, lease worktree.LeaseObservation) (bool, reconciliationDecision, error) {
+	if lease.State != worktree.LeaseUnknown {
+		return false, reconciliationDecision{}, Precondition(fmt.Errorf("refusing to abandon worktree %s of attempt %d: ownership observed as %s, which is provable evidence; abandonment is only for an unobservable pool", attempt.Worktree, attempt.ID, lease.State))
+	}
+	if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceAbandoned); err != nil {
+		return false, reconciliationDecision{}, fmt.Errorf("record abandoned worktree ownership: %w", err)
+	}
+	detail := fmt.Sprintf("attempt %d relinquished worktree %s with recorded lease %s on operator attestation; %s", attempt.ID, attempt.Worktree, leaseOrNone(attempt.LeaseID), unobservableWorktreeReason(attempt, lease.Probe))
+	return true, reconciliationDecision{Action: reconciliationActionAbandonWorktree, Detail: detail}, nil
+}
+
 func clearHistoricalRepair(home string, task state.Task, attempt state.Attempt, codes ...string) (bool, error) {
 	if task.RepairCode == "" || (task.RepairAttemptID != 0 && task.RepairAttemptID != attempt.ID) {
 		return false, nil
@@ -875,7 +903,8 @@ func terminalRepairCanBeResolved(code string) bool {
 	case repairCodeProvisioningLaunchAmbiguous, repairCodeProvisioningPaneMissing, repairCodeLaunchSubmittedPaneMissing,
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeWorktreeDirty,
-		repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeTeardownResourceAmbiguous:
+		repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable,
+		repairCodeTeardownResourceAmbiguous:
 		return true
 	default:
 		return false
@@ -888,8 +917,8 @@ func terminalRepairEvidenceResolved(code string, attempt state.Attempt) bool {
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeTeardownResourceAmbiguous:
 		return !hasHerdrIdentity(attempt.Herdr) || attempt.TeardownHerdrState == state.TeardownResourceReleased
-	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable:
-		return attempt.Worktree == "" || attempt.TeardownWorktreeState == state.TeardownResourceReleased
+	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable:
+		return attempt.Worktree == "" || worktreeCleanupSettled(attempt.TeardownWorktreeState)
 	default:
 		return false
 	}
@@ -899,15 +928,9 @@ func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attemp
 	observation := reconciliationObservation{}
 	skipHerdrObservation := attempt.Lifecycle == state.AttemptProvisioning && attempt.Herdr.WorkspaceID != "" && attempt.Herdr.TabID != "" && attempt.Herdr.PaneID != "" && attempt.LaunchSubmittedAt == ""
 	if attempt.Worktree != "" {
-		observeLease := r.deps.worktree.observeLease
-		if observeLease == nil {
-			observeLease = worktree.ObserveLease
-		}
-		lease, err := observeLease(attempt.Worktree, attempt.LeaseID)
-		if err != nil {
-			return observation, fmt.Errorf("observe Treehouse lease: %w", err)
-		}
+		lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
 		observation.Treehouse.State = treehouseLeaseState(lease.State)
+		observation.Treehouse.Probe = lease.Probe
 		if lease.State == worktree.LeaseExact {
 			observeClean := r.deps.worktree.observeClean
 			if observeClean == nil {
@@ -991,11 +1014,14 @@ func shouldClearRepair(task state.Task, attempt state.Attempt, observation recon
 	}
 	if observation.Treehouse.State == treehouseLeaseExact {
 		switch task.RepairCode {
-		case repairCodeWorktreeOwnershipMismatch:
+		case repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeLegacyWorktreeUnprovable:
 			return attempt.Lifecycle == state.AttemptRunning || observation.Worktree.State == worktreeClean
 		case repairCodeWorktreeDirty:
 			return observation.Worktree.State == worktreeClean
 		}
+	}
+	if task.RepairCode == repairCodeWorktreeUnobservable && worktreeCleanupSettled(attempt.TeardownWorktreeState) {
+		return true
 	}
 	return false
 }
@@ -1014,12 +1040,14 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 		switch observation.Treehouse.State {
 		case treehouseLeaseMismatch:
 			return repairDecision(decision, repairCodeWorktreeOwnershipMismatch, "recorded worktree path is leased under a different Treehouse lease ID")
+		case treehouseLeaseUnknown:
+			return repairDecision(decision, repairCodeWorktreeUnobservable, unobservableWorktreeReason(attempt, observation.Treehouse.Probe))
 		case treehouseLeaseUnprovable:
 			return repairDecision(decision, repairCodeLegacyWorktreeUnprovable, "recorded worktree ownership has no provable Treehouse lease identity")
 		case treehouseLeaseAbsent:
 			return repairDecision(decision, repairCodeWorktreeOwnershipMismatch, "recorded Treehouse lease is absent")
 		case treehouseLeaseUnobserved:
-			return repairDecision(decision, repairCodeWorktreeOwnershipMismatch, "recorded Treehouse lease was not observed")
+			return repairDecision(decision, repairCodeWorktreeUnobservable, "recorded Treehouse lease was not observed")
 		}
 	}
 
@@ -1088,6 +1116,8 @@ func decideProvisioning(attempt state.Attempt, observation reconciliationObserva
 		switch observation.Treehouse.State {
 		case treehouseLeaseMismatch:
 			return repairDecision(decision, repairCodeWorktreeOwnershipMismatch, "recorded worktree path is leased under a different Treehouse lease ID")
+		case treehouseLeaseUnknown:
+			return repairDecision(decision, repairCodeWorktreeUnobservable, unobservableWorktreeReason(attempt, observation.Treehouse.Probe))
 		case treehouseLeaseUnprovable:
 			return repairDecision(decision, repairCodeLegacyWorktreeUnprovable, "recorded worktree ownership has no provable Treehouse lease identity")
 		case treehouseLeaseAbsent:
@@ -1106,6 +1136,23 @@ func decideProvisioning(attempt state.Attempt, observation reconciliationObserva
 
 	decision.Action = reconciliationActionContinueProvisioning
 	return decision
+}
+
+func leaseOrNone(leaseID string) string {
+	if leaseID == "" {
+		return "(none recorded)"
+	}
+	return leaseID
+}
+
+func unobservableWorktreeReason(attempt state.Attempt, probe worktree.LeaseProbe) string {
+	lease := leaseOrNone(attempt.LeaseID)
+	if probe.Command == "" {
+		return fmt.Sprintf("recorded worktree %s could not be observed, so recorded lease %s is neither proven nor disproven", attempt.Worktree, lease)
+	}
+	return fmt.Sprintf(
+		"recorded worktree ownership could not be observed: %s; observed by running %q with working directory %s, which is what selects the pool; recorded lease %s is neither proven nor disproven",
+		probe.Reason, probe.Command, probe.WorkingDir, lease)
 }
 
 func repairDecision(decision reconciliationDecision, code, reason string) reconciliationDecision {

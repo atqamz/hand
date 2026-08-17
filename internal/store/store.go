@@ -119,6 +119,7 @@ const (
 	TeardownResourceReleased                = "released"
 	TeardownResourceAmbiguous               = "ambiguous"
 	TeardownResourceRetryable               = "retryable"
+	TeardownResourceAbandoned               = "abandoned"
 	TeardownCompletionPending               = "pending"
 	TeardownCompletionAppended              = "appended"
 	TeardownDispositionCompleted            = "completed"
@@ -970,7 +971,7 @@ func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
 		WHERE attempt.task_id = task.id
 		AND attempt.lifecycle NOT IN ('provisioning', 'running')
 		AND (
-			(attempt.worktree <> '' AND attempt.teardown_worktree_state <> 'released')
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
 			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
 			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
 		)
@@ -1030,7 +1031,7 @@ func (db *DB) listReconciliationHistoriesBeforeSend() ([]TaskHistory, error) {
 		WHERE attempt.task_id = task.id
 		AND attempt.lifecycle NOT IN ('provisioning', 'running')
 		AND (
-			(attempt.worktree <> '' AND attempt.teardown_worktree_state <> 'released')
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
 			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
 			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
 		)
@@ -2115,17 +2116,24 @@ func (db *DB) SetAttemptTeardownResourceState(taskID string, attemptID int64, ex
 	default:
 		return fmt.Errorf("%w: unknown teardown resource %q", ErrInvalidTransition, resource)
 	}
-	if next != TeardownResourceReleasing && next != TeardownResourceReleased && next != TeardownResourceAmbiguous && next != TeardownResourceRetryable {
+	if next != TeardownResourceReleasing && next != TeardownResourceReleased && next != TeardownResourceAmbiguous && next != TeardownResourceRetryable && next != TeardownResourceAbandoned {
 		return fmt.Errorf("%w: unknown teardown resource state %q", ErrInvalidTransition, next)
+	}
+	if next == TeardownResourceAbandoned && resource != "worktree" {
+		return fmt.Errorf("%w: teardown resource %q cannot be abandoned", ErrInvalidTransition, resource)
 	}
 	currentAllowed := "''"
 	switch next {
+	// 'ambiguous' is a predecessor of 'releasing' so that a later proof of ownership can clear the
+	// latch an unobservable pool leaves behind; the proof is the caller's job, not this table's.
 	case TeardownResourceReleasing:
-		currentAllowed = "'', 'retryable'"
+		currentAllowed = "'', 'retryable', 'ambiguous'"
 	case TeardownResourceReleased, TeardownResourceRetryable:
 		currentAllowed = "'releasing'"
 	case TeardownResourceAmbiguous:
 		currentAllowed = "'releasing', 'retryable', ''"
+	case TeardownResourceAbandoned:
+		currentAllowed = "'ambiguous', 'retryable', ''"
 	}
 	query := `UPDATE attempt SET ` + column + ` = ? WHERE id = ? AND task_id = ? AND lifecycle = ? AND ` + column + ` IN (` + currentAllowed + `)`
 	result, err := db.sql.Exec(query, next, attemptID, taskID, expected)

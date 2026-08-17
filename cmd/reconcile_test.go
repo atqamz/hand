@@ -89,6 +89,46 @@ func TestReconcileCommandPreservesRepairAndObservationErrors(t *testing.T) {
 	}
 }
 
+// An attestation names one lease. Without a task ID it would relinquish whatever the fleet-wide
+// sweep happened to find unobservable, so the flag is refused before anything is read.
+func TestReconcileCommandRefusesFleetWideAbandonment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HAND_HOME", home)
+	if err := os.MkdirAll(state.Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Lifecycle: state.TaskTerminal}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newReconcileCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--abandon-worktree"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("reconcile error = %v, want precondition exit 3", err)
+	}
+	if !strings.Contains(err.Error(), "explicit task ID") {
+		t.Fatalf("reconcile error = %v, want the missing task ID named", err)
+	}
+}
+
+func TestReconcileCommandRendersAbandonmentDetail(t *testing.T) {
+	report := runtime.ReconcileReport{Results: []runtime.ReconcileResult{
+		{ID: "task-a", Outcome: "healthy", Action: "abandon-worktree", Detail: "attempt 7 relinquished worktree /pool/1 on operator attestation"},
+	}}
+	var out bytes.Buffer
+	cmd := newReconcileCmd()
+	cmd.SetOut(&out)
+	if err := renderReconcileReport(cmd, report, false); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("action: abandon-worktree")) || !bytes.Contains(out.Bytes(), []byte("detail: attempt 7 relinquished")) {
+		t.Fatalf("rendered report = %q, want the abandonment recorded in the output", out.String())
+	}
+}
+
 func TestReconcileCommandReportsUnknownRepairAsFailure(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HAND_HOME", home)

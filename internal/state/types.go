@@ -74,6 +74,7 @@ const (
 	TeardownResourceReleased                = store.TeardownResourceReleased
 	TeardownResourceAmbiguous               = store.TeardownResourceAmbiguous
 	TeardownResourceRetryable               = store.TeardownResourceRetryable
+	TeardownResourceAbandoned               = store.TeardownResourceAbandoned
 	TeardownCompletionPending               = store.TeardownCompletionPending
 	TeardownCompletionAppended              = store.TeardownCompletionAppended
 	TeardownDispositionCompleted            = store.TeardownDispositionCompleted

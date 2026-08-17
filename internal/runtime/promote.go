@@ -197,7 +197,7 @@ func (r *Runtime) cleanupScout(homeDir, taskID string, scout state.Attempt) ([]s
 		warnings = append(warnings, "warning: return scout worktree failed: no owned worktree path")
 	} else {
 		switch scout.TeardownWorktreeState {
-		case state.TeardownResourceReleased:
+		case state.TeardownResourceReleased, state.TeardownResourceAbandoned:
 		case state.TeardownResourceReleasing, state.TeardownResourceAmbiguous:
 			warnings = append(warnings, fmt.Sprintf("warning: worktree ownership for attempt %d is ambiguous; refusing destructive retry", scout.ID))
 		default:

@@ -74,11 +74,11 @@ func TestProvisionResumeRefusesChangedLeaseBeforeHerdrCreation(t *testing.T) {
 	attempt.LeaseID = "lease-old"
 	fake := &provisionHerdr{}
 	runtime := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
-	runtime.deps.worktree.observeLease = func(path, leaseID string) (worktree.LeaseObservation, error) {
+	runtime.deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
 		if path != attempt.Worktree || leaseID != attempt.LeaseID {
 			t.Fatalf("observeLease(%q, %q), want persisted lease", path, leaseID)
 		}
-		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-new"}, nil
+		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-new"}
 	}
 
 	_, err := runtime.provision(context.Background(), provisioningRequest{
@@ -285,8 +285,8 @@ func testProvisionRuntime(client herdrClient, phase func(lifecyclePhase) error) 
 			get: func(path, holder string) (worktree.Lease, error) {
 				return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
 			},
-			observeLease: func(string, string) (worktree.LeaseObservation, error) {
-				return worktree.LeaseObservation{State: worktree.LeaseExact}, nil
+			observeLease: func(string, string) worktree.LeaseObservation {
+				return worktree.LeaseObservation{State: worktree.LeaseExact}
 			},
 			returnWorktree: func(string, bool) error { return nil },
 			checkCollision: func(string, worktree.Lease, string) (string, error) { return "", nil },
