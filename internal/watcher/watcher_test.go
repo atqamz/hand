@@ -2355,9 +2355,10 @@ func TestRunUntilEventSuppressesStaleAfterLiveTerminalAndDeliveryUpdates(t *test
 		}}},
 		PaneStatusSequence: []string{
 			"working", "working", "working",
-			"pane-gone", "pane-gone", "pane-gone",
 			"working", "working", "working",
-			"pane-gone", "pane-gone", "pane-gone",
+			"working", "working", "working",
+			"working", "working", "working",
+			"working", "working", "working",
 			"working", "working", "blocked",
 		},
 		Log: callLog, LogCommands: []string{"pane get"},
@@ -2373,9 +2374,9 @@ func TestRunUntilEventSuppressesStaleAfterLiveTerminalAndDeliveryUpdates(t *test
 		task    state.Task
 		attempt state.Attempt
 	}{
-		{state.Task{ID: "terminal-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}, StatusChangedAt: old}},
-		{state.Task{ID: "delivered-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p2"}, StatusChangedAt: old}},
-		{state.Task{ID: "live-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p3"}, StatusChangedAt: future}},
+		{state.Task{ID: "terminal-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}, StatusChangedAt: future, StatusChangedFor: string(herdr.StatusWorking)}},
+		{state.Task{ID: "delivered-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p2"}, StatusChangedAt: future, StatusChangedFor: string(herdr.StatusWorking)}},
+		{state.Task{ID: "live-task", Kind: state.KindShip, CreatedAt: old}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p3"}, StatusChangedAt: future, StatusChangedFor: string(herdr.StatusWorking)}},
 	} {
 		if err := writeTaskAttempt(t, home, tc.task, tc.attempt); err != nil {
 			t.Fatal(err)
