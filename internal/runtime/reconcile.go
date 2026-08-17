@@ -1148,10 +1148,10 @@ func leaseOrNone(leaseID string) string {
 func unobservableWorktreeReason(attempt state.Attempt, probe worktree.LeaseProbe) string {
 	lease := leaseOrNone(attempt.LeaseID)
 	if probe.Command == "" {
-		return fmt.Sprintf("recorded worktree %s could not be observed, so recorded lease %s is neither proven nor disproven", attempt.Worktree, lease)
+		return fmt.Sprintf("recorded worktree %s could not be observed, so recorded lease %s is neither proven nor disproven; destructive cleanup refused because ownership could not be proven, not because a lease mismatched", attempt.Worktree, lease)
 	}
 	return fmt.Sprintf(
-		"recorded worktree ownership could not be observed: %s; observed by running %q with working directory %s, which is what selects the pool; recorded lease %s is neither proven nor disproven",
+		"recorded worktree ownership could not be observed: %s; observed by running %q with working directory %s, which is what selects the pool; recorded lease %s is neither proven nor disproven; destructive cleanup refused because ownership could not be proven, not because a lease mismatched",
 		probe.Reason, probe.Command, probe.WorkingDir, lease)
 }
 

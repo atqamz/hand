@@ -907,7 +907,7 @@ func TestReconcileUnobservableWorktreeNeedsRepairInsteadOfMismatch(t *testing.T)
 		t.Fatalf("repair code = %q, want %q", report.Results[0].RepairCode, repairCodeWorktreeUnobservable)
 	}
 	reason := report.Results[0].RepairReason
-	for _, want := range []string{"could not be observed", "treehouse status --json", "/pool/1", "lease-1", "neither proven nor disproven"} {
+	for _, want := range []string{"could not be observed", "treehouse status --json", "/pool/1", "lease-1", "neither proven nor disproven", "destructive cleanup refused because ownership could not be proven, not because a lease mismatched"} {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("repair reason = %q, want it to contain %q", reason, want)
 		}
