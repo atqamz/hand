@@ -7,7 +7,6 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// An existing unresolved obligation always outranks fresh queued work.
 type nextAction struct {
 	Kind    string
 	Task    string
