@@ -14,13 +14,11 @@ it, `internal/state/task.go`'s `Lock`/`TryLock`/`Claim` and `internal/routing/lo
 inherit that behavior rather than overriding it.
 
 A long-lived fleet home accumulates hundreds of these files. A census of `/home/atqa/hand-fleet/state/`
-on 2026-08-17 found 254 hashed lock files, all zero bytes, spanning 2026-07-27 to 2026-08-17: 139
-`task:<id>`, 62 `send:<taskID>`, 30 `worktree:<path>`, 11 `project:<name>`, and 4 shared by the global
-constants `config:routing`, `completions`, `migration`, and `schema`. That is the field evidence behind
-atqamz/hand#224. The growth law is reassuring rather than alarming: the namespace grows with distinct
-task identity and distinct worktree path, not with attempt or send count, because no `attempt:` lock key
-exists anywhere in the tree and `send:` is keyed by task ID rather than send ID. Measured growth was 12.1
-files per day, 1.81 per task identity, over the 21 days sampled.
+on 2026-08-17 found 254 hashed lock files, all zero bytes, spanning 2026-07-27 to 2026-08-17. That is
+the field evidence behind atqamz/hand#224. The growth law is reassuring rather than alarming: the
+namespace grows with distinct task identity and distinct worktree path, not with attempt or send count,
+because no `attempt:` lock key exists anywhere in the tree and `send:` is keyed by task ID rather than
+send ID. Measured growth was 12.1 files per day over the 21 days sampled.
 
 atqamz/hand#194 made the durable lifecycle half of several of these critical sections redundant: its
 conditional SQL transitions and its unique-active-attempt constraint mean a stale caller loses in SQL
