@@ -28,4 +28,4 @@ Relying only on the project-base check would allow Treehouse's own fetch/reset t
 ## Consequences
 
 Mechanical dispatch can briefly acquire a lease when Treehouse advances the base during acquisition, but it never launches a worker from that lease unless the exact revision is verified.
-The shared fake and contract suite model and verify this external-tool behavior.
+The shared fake and hermetic contract suite model this external-tool behavior; the explicit live lane verifies the reversible call against the real binary.

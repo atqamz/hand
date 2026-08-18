@@ -11,7 +11,7 @@ Per-test scripts can return expected text without representing the state changed
 
 ## Decision
 
-[`internal/faketool`](../../internal/faketool) provides one stateful fake for each external CLI used by the suites. [`internal/faketool/FIDELITY.md`](../../internal/faketool/FIDELITY.md) records observed behavior, and [`tests/contract`](../../tests/contract) checks reversible calls against installed real tools.
+[`internal/faketool`](../../internal/faketool) provides one stateful fake for each external CLI used by the suites. [`internal/faketool/FIDELITY.md`](../../internal/faketool/FIDELITY.md) records observed behavior, [`tests/contract`](../../tests/contract) checks it hermetically through shared fixtures, and `make contract-live` checks reversible calls against installed real tools.
 
 ## Rejected alternatives
 

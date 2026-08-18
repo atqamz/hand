@@ -47,7 +47,7 @@ Mechanical dispatch verifies that `HEAD` still equals `planned_against` immediat
 
 Conditional return accepts `--if-lease-id <id>` and refuses a return when the slot's current lease identity differs, leaving that lease held.
 Hand uses this form whenever acquisition returned an identity, so a stale cleanup cannot release an L2 lease on a reused path.
-The shared fake models the identity check and the contract suite verifies the ABA protection against the real binary.
+The shared fake models the identity check, and `make contract-live` verifies the ABA protection against the real binary.
 
 ### `treehouse status --json`
 
