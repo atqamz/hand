@@ -12,14 +12,6 @@ import (
 	"testing"
 )
 
-// Skips rather than fails, because CI installs none of these on purpose.
-func requireBin(t *testing.T, name string) {
-	t.Helper()
-	if _, err := exec.LookPath(name); err != nil {
-		t.Skipf("%s is not on PATH", name)
-	}
-}
-
 type result struct {
 	stdout string
 	stderr string

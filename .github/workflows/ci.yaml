@@ -64,6 +64,17 @@ jobs:
       - name: End-to-end
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
 
+  contract:
+    name: Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Contract
+        run: make contract
+
   nix-build:
     name: Nix build (x86_64-linux)
     runs-on: ubuntu-latest
@@ -77,7 +88,7 @@ jobs:
 
   edge:
     name: Publish edge
-    needs: [lint, test, e2e, nix-build]
+    needs: [lint, test, e2e, contract, nix-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
