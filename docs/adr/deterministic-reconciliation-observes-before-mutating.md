@@ -29,7 +29,8 @@ Its persisted harness, model, effort, execution class, planned-against commit, r
 There is no automatic worker, harness, model, or profile fallback.
 
 Automatic resource cleanup requires exact ownership proof and a clean worktree.
-Dirty worktrees, incomplete or reused identities, missing running workers, and ambiguous launch evidence become `needs-repair`.
+Dirty worktrees, incomplete or reused identities, and ambiguous launch evidence become `needs-repair`.
+A running Attempt whose Herdr pane is observed absent instead converges to a terminal lifecycle from observed landing evidence, without an operator running `hand teardown`; it becomes `needs-repair` only where that landing itself cannot be observed.
 Released historical Herdr resources remain attributed anomalies when matching live identities are observed; reconciliation reports them without closing the resource.
 The reconciler does not run as a daemon and does not implement the send protocol.
 
