@@ -24,6 +24,11 @@ func newReconcileCmd() *cobra.Command {
 			"the landing cannot be observed at all the reported landing is `unknown`, no lifecycle value is\n" +
 			"invented, and the condition is recorded as needs-repair instead. Convergence releases no resource\n" +
 			"of its own, so a Herdr or worktree resource that needs repair never holds the lifecycle back.\n\n" +
+			"Automatic worktree return also requires proof that no commit exists only there: a commit reachable\n" +
+			"from a remote-tracking ref, or one GitHub records as the head of the task pull request, is held\n" +
+			"elsewhere too. Unpushed commits withhold the return, and so does a comparison that could not be\n" +
+			"made at all, recorded as its own condition rather than as work found at risk. The Attempt stays\n" +
+			"terminal either way, and reconciling the withheld state again changes nothing.\n\n" +
 			"--abandon-worktree attests that Hand relinquishes a recorded Treehouse lease whose pool cannot be\n" +
 			"observed at all, for instance after the pool key moved. It needs an explicit task ID, it refuses any\n" +
 			"lease an observation can still prove or disprove, and it never returns, prunes or deletes a worktree:\n" +

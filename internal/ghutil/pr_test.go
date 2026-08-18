@@ -329,3 +329,22 @@ func TestRepoSlugFromRemote(t *testing.T) {
 		}
 	}
 }
+
+func TestPRHeadCommitReadsTheRecordedHeadRef(t *testing.T) {
+	faketool.GH{Responses: []faketool.GHResponse{{
+		Command: "pr view",
+		Stderr:  "Warning: gh version 2.40.0 is out of date",
+		Stdout:  "{\"headRefOid\":\"1111111111111111111111111111111111111111\"}\n",
+	}}}.Install(t, faketool.Bin(t))
+	got, err := PRHeadCommit(context.Background(), "42")
+	if err != nil || got != "1111111111111111111111111111111111111111" {
+		t.Fatalf("PRHeadCommit() = %q, %v, want the recorded head commit", got, err)
+	}
+}
+
+func TestPRHeadCommitRefusesAnEmptyHeadRef(t *testing.T) {
+	faketool.GH{Responses: []faketool.GHResponse{{Command: "pr view", Stdout: "{}\n"}}}.Install(t, faketool.Bin(t))
+	if _, err := PRHeadCommit(context.Background(), "42"); err == nil {
+		t.Fatal("want an error rather than an empty head commit standing in as evidence")
+	}
+}

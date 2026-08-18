@@ -2013,6 +2013,12 @@ func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lea
 			observeClean: func(path string) (worktree.Cleanliness, error) {
 				return worktree.Clean, nil
 			},
+			observeCommits: func(path string) worktree.CommitSafetyObservation {
+				return worktree.CommitSafetyObservation{
+					State: worktree.CommitSafetyRemoteObserved,
+					Probe: worktree.CommitSafetyProbe{Command: "git rev-list --count HEAD --not --remotes", WorkingDir: path, Head: "1111111111111111111111111111111111111111", RemoteRefs: 1},
+				}
+			},
 			checkCollision: func(string, worktree.Lease, string) (string, error) { return "", nil },
 			returnWorktree: func(string, bool) error { return nil },
 			returnWithID:   func(string, string, bool) error { return nil },

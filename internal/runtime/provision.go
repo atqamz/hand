@@ -32,6 +32,7 @@ type worktreeDependencies struct {
 	get            func(string, string) (worktree.Lease, error)
 	observeLease   func(string, string) worktree.LeaseObservation
 	observeClean   func(string) (worktree.Cleanliness, error)
+	observeCommits func(string) worktree.CommitSafetyObservation
 	headCommit     func(string) (string, error)
 	returnWorktree func(string, bool) error
 	returnWithID   func(string, string, bool) error
@@ -47,6 +48,7 @@ type dependencies struct {
 	confirmLaunch     func(herdrClient, string, string) error
 	appendCompletion  func(string, completion.Record) error
 	prMerged          func(context.Context, string) (bool, error)
+	prHead            func(context.Context, string) (string, error)
 	branchMerged      func(string, string) (bool, error)
 	phase             func(lifecyclePhase) error
 }
@@ -59,12 +61,13 @@ func defaultDependencies() dependencies {
 	return dependencies{
 		now:               func() time.Time { return time.Now().UTC() },
 		herdr:             newHerdrClient,
-		worktree:          worktreeDependencies{get: worktree.Get, observeLease: worktree.ObserveLease, observeClean: worktree.ObserveCleanliness, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision},
+		worktree:          worktreeDependencies{get: worktree.Get, observeLease: worktree.ObserveLease, observeClean: worktree.ObserveCleanliness, observeCommits: worktree.ObserveCommitSafety, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision},
 		projectBaseCommit: projectBaseCommit,
 		buildHarness:      harness.Build,
 		confirmLaunch:     confirmLaunch,
 		appendCompletion:  completion.Append,
 		prMerged:          ghutil.PRIsMerged,
+		prHead:            ghutil.PRHeadCommit,
 		branchMerged:      branchIsMerged,
 		phase:             func(lifecyclePhase) error { return nil },
 	}

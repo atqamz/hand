@@ -84,6 +84,8 @@ const (
 	repairCodeWorktreeOwnershipMismatch   = "worktree-ownership-mismatch"
 	repairCodeLegacyWorktreeUnprovable    = "legacy-worktree-ownership-unprovable"
 	repairCodeWorktreeUnobservable        = "worktree-ownership-unobservable"
+	repairCodeWorktreeLocalCommits        = "worktree-local-commits"
+	repairCodeWorktreeCommitSafetyUnknown = "worktree-commit-safety-unknown"
 	repairCodeTeardownResourceAmbiguous   = "teardown-resource-ambiguous"
 	repairCodeCompletionEvidenceMismatch  = "completion-evidence-mismatch"
 	repairCodeMergeFactMismatch           = "merge-fact-mismatch"
@@ -274,7 +276,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		}
 		if historical != nil {
 			result.AttemptID = historical.ID
-			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, *historical, abandonWorktree)
+			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, *historical, abandonWorktree)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
@@ -310,7 +312,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		result.ExecutionClass, result.Profile = attempt.ExecutionClass, attempt.RequestedProfile
 		result.PlannedAgainst, result.RoutingSource = attempt.PlannedAgainst, attempt.RoutingSource
 		if attempt.TeardownTerminalAttempt != "" {
-			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, attempt, abandonWorktree)
+			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, attempt, abandonWorktree)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
@@ -775,7 +777,7 @@ func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) 
 	return nil, nil
 }
 
-func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attempt state.Attempt, abandonWorktree bool) (bool, reconciliationDecision, error) {
+func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, task state.Task, attempt state.Attempt, abandonWorktree bool) (bool, reconciliationDecision, error) {
 	if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
 		observation, err := observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
@@ -840,7 +842,7 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			}
 			return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeOwnershipMismatch, "historical worktree path is held by a different Treehouse lease"), nil
 		case worktree.LeaseAbsent:
-			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable); err != nil {
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
@@ -861,7 +863,11 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			if clean != worktree.Clean {
 				return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeDirty, "historical worktree is dirty; automatic reconciliation will not discard it"), nil
 			}
-			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeLegacyWorktreeUnprovable); err != nil {
+			safety := r.resolveWorktreeCommitSafety(ctx, task, attempt)
+			if safety.State != commitSafetyProvenDurable {
+				return false, repairDecision(reconciliationDecision{}, commitSafetyRepairCode(safety.State), safety.Reason), nil
+			}
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
@@ -1005,6 +1011,7 @@ func terminalRepairCanBeResolved(code string) bool {
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeWorktreeDirty,
 		repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable,
+		repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown,
 		repairCodeTeardownResourceAmbiguous:
 		return true
 	default:
@@ -1018,7 +1025,8 @@ func terminalRepairEvidenceResolved(code string, attempt state.Attempt) bool {
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeTeardownResourceAmbiguous:
 		return !hasHerdrIdentity(attempt.Herdr) || attempt.TeardownHerdrState == state.TeardownResourceReleased
-	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable:
+	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable,
+		repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown:
 		return attempt.Worktree == "" || worktreeCleanupSettled(attempt.TeardownWorktreeState)
 	default:
 		return false
@@ -1260,6 +1268,89 @@ func unobservableWorktreeReason(attempt state.Attempt, probe worktree.LeaseProbe
 	return fmt.Sprintf(
 		"recorded worktree ownership could not be observed: %s; observed by running %q with working directory %s, which is what selects the pool; recorded lease %s is neither proven nor disproven; destructive cleanup refused because ownership could not be proven, not because a lease mismatched",
 		probe.Reason, probe.Command, probe.WorkingDir, lease)
+}
+
+type commitSafety string
+
+const (
+	commitSafetyProvenDurable   commitSafety = "proven-durable"
+	commitSafetyLocalWorkAtRisk commitSafety = "local-work-at-risk"
+	commitSafetyUnprovable      commitSafety = "unprovable"
+)
+
+type commitSafetyDecision struct {
+	State  commitSafety
+	Reason string
+}
+
+func (r *Runtime) resolveWorktreeCommitSafety(ctx context.Context, task state.Task, attempt state.Attempt) commitSafetyDecision {
+	observeCommits := r.deps.worktree.observeCommits
+	if observeCommits == nil {
+		observeCommits = worktree.ObserveCommitSafety
+	}
+	observation := observeCommits(attempt.Worktree)
+	switch observation.State {
+	case worktree.CommitSafetyRemoteObserved:
+		return commitSafetyDecision{
+			State:  commitSafetyProvenDurable,
+			Reason: fmt.Sprintf("every commit reachable from %s in %s is also reachable from one of the %d remote-tracking refs this clone holds, so returning the worktree discards nothing", shortCommit(observation.Probe.Head), observation.Probe.WorkingDir, observation.Probe.RemoteRefs),
+		}
+	case worktree.CommitSafetyUnknown:
+		return commitSafetyDecision{State: commitSafetyUnprovable, Reason: unprovableCommitSafetyReason(attempt, observation.Probe)}
+	}
+	if task.PR == "" {
+		return commitSafetyDecision{
+			State:  commitSafetyLocalWorkAtRisk,
+			Reason: localOnlyCommitsReason(observation.Probe, "no pull request is recorded for this task, so no pushed head can hold them either"),
+		}
+	}
+	prHead := r.deps.prHead
+	if prHead == nil {
+		prHead = ghutil.PRHeadCommit
+	}
+	pushedHead, err := prHead(ctx, task.PR)
+	if err != nil {
+		return commitSafetyDecision{
+			State:  commitSafetyUnprovable,
+			Reason: fmt.Sprintf("%d commit(s) in %s are reachable from no remote-tracking ref and the head commit of pull request %s could not be read, so whether GitHub holds them is unobserved rather than answered: %v", observation.Probe.LocalOnly, observation.Probe.WorkingDir, task.PR, err),
+		}
+	}
+	if pushedHead == observation.Probe.Head {
+		return commitSafetyDecision{
+			State:  commitSafetyProvenDurable,
+			Reason: fmt.Sprintf("no remote-tracking ref in %s reaches %s, and GitHub records that exact commit as the head of pull request %s, which holds it independently of this worktree", observation.Probe.WorkingDir, shortCommit(observation.Probe.Head), task.PR),
+		}
+	}
+	return commitSafetyDecision{
+		State:  commitSafetyLocalWorkAtRisk,
+		Reason: localOnlyCommitsReason(observation.Probe, fmt.Sprintf("pull request %s records head commit %s instead, so GitHub was never observed holding %s", task.PR, shortCommit(pushedHead), shortCommit(observation.Probe.Head))),
+	}
+}
+
+func commitSafetyRepairCode(safety commitSafety) string {
+	if safety == commitSafetyLocalWorkAtRisk {
+		return repairCodeWorktreeLocalCommits
+	}
+	return repairCodeWorktreeCommitSafetyUnknown
+}
+
+func localOnlyCommitsReason(probe worktree.CommitSafetyProbe, unheldBecause string) string {
+	return fmt.Sprintf(
+		"%d commit(s) in %s are reachable from none of the %d remote-tracking refs this clone holds, and %s; observed by running %q with working directory %s; automatic reconciliation will not discard work no other copy is known to hold",
+		probe.LocalOnly, probe.WorkingDir, probe.RemoteRefs, unheldBecause, probe.Command, probe.WorkingDir)
+}
+
+func unprovableCommitSafetyReason(attempt state.Attempt, probe worktree.CommitSafetyProbe) string {
+	return fmt.Sprintf(
+		"whether worktree %s still holds the only copy of any commit could not be observed: %s; observed by running %q with working directory %s; the return is withheld because the question went unanswered, not because work was found at risk",
+		attempt.Worktree, probe.Reason, probe.Command, probe.WorkingDir)
+}
+
+func shortCommit(commit string) string {
+	if len(commit) <= 12 {
+		return commit
+	}
+	return commit[:12]
 }
 
 func repairDecision(decision reconciliationDecision, code, reason string) reconciliationDecision {
