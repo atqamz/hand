@@ -104,6 +104,25 @@ func TestGHPRListAnswersAnEmptyArrayForABranchWithNoPR(t *testing.T) {
 	}
 }
 
+func TestGHResponsesPreserveNetworkFailureShapes(t *testing.T) {
+	for _, response := range []GHResponse{
+		{Command: "pr list", Stdout: "[]\n"},
+		{Command: "pr list", Stderr: "HTTP 503: Service Unavailable\n", Exit: 1},
+		{Command: "pr list", Stderr: "dial tcp: lookup api.github.com: temporary failure in name resolution\n", Exit: 1},
+		{Command: "pr list", Stderr: "Post \"https://api.github.com/graphql\": i/o timeout\n", Exit: 1},
+	} {
+		t.Run(strings.TrimSpace(response.Stderr), func(t *testing.T) {
+			GH{Responses: []GHResponse{response}}.Install(t, Bin(t))
+
+			stdout, stderr, code := runGH(t, "pr", "list")
+			if stdout != response.Stdout || stderr != response.Stderr || code != response.Exit {
+				t.Fatalf("gh response = (%q, %q, %d), want (%q, %q, %d)",
+					stdout, stderr, code, response.Stdout, response.Stderr, response.Exit)
+			}
+		})
+	}
+}
+
 func TestGHPRListReportsEveryPROnTheBranch(t *testing.T) {
 	GH{PRs: []GHPR{
 		{Number: 7, URL: "https://github.com/owner/repo/pull/7", Branch: "task-1-branch", State: "CLOSED", Repo: "owner/repo"},

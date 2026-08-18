@@ -1,9 +1,10 @@
-//go:build contract
+//go:build contract && contractlive
 
 package contract
 
 import (
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,13 @@ const (
 	ghMergedPR  = "154"
 	ghMergedRef = "136-usage-limit-resume"
 )
+
+func requireBin(t *testing.T, name string) {
+	t.Helper()
+	if _, err := exec.LookPath(name); err != nil {
+		t.Skipf("%s is not on PATH", name)
+	}
+}
 
 func requireGH(t *testing.T) {
 	t.Helper()

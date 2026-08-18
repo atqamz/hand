@@ -43,7 +43,7 @@ It records the terminal resource state `abandoned`, which means Hand has relinqu
 The probe that justified the attestation is reported in the reconcile result rather than stored in a new column.
 
 The decision table, the refusal messages, and the convergence traces belong to the tests under `internal/runtime` and `internal/worktree`.
-The real command's pool-resolution contract belongs to `internal/faketool/FIDELITY.md` and is rechecked by `tests/contract`.
+The real command's pool-resolution contract belongs to `internal/faketool/FIDELITY.md`, is rechecked hermetically by `make contract`, and is probed against the real command by `make contract-live`.
 
 ## Rejected alternatives
 

@@ -9,8 +9,9 @@ A behaviour no test exercises does not belong here.
 Every entry was observed by running the real binary, not read off its documentation.
 Versions probed: `treehouse v2.1.0`, `herdr 0.7.5`, `gh 2.97.0`.
 
-`tests/contract` re-runs these calls against the real tools under the `contract` build tag, skipping where a binary is absent, so a record that has gone stale against a newer tool is discoverable by running them.
-It covers no call that would change anything an operator owns: a scratch treehouse pool and a scratch herdr workspace are created and destroyed, and every `gh` call is read-only.
+`make contract-live` re-runs reversible calls against the real tools under the `contractlive` build tag, skipping where a binary is absent, so a record that has gone stale against a newer tool is discoverable without making the default suite depend on installed tools or the network.
+`make contract` exercises shared fake fixtures only.
+The live lane covers no call that would change anything an operator owns: a scratch treehouse pool and a scratch herdr workspace are created and destroyed, and every `gh` call is read-only.
 The one `git remote set-url` it runs is on a throwaway clone inside the test's own temp directory, whose `origin` points at a bare repository created for that test.
 
 Decorative glyphs appear in several stderr lines below and are omitted from the transcripts.
@@ -42,11 +43,11 @@ State left behind: the slot is leased and is not handed out again until it is re
 When `origin` is configured, acquisition can fetch the remote and reset the leased worktree to the farther-ahead default-branch tip even while the registered clone's local default branch remains behind.
 The acquired worktree's `HEAD` is therefore load-bearing state, not an incidental property of the returned path.
 Mechanical dispatch verifies that `HEAD` still equals `planned_against` immediately after acquisition and returns a mismatched lease before any Herdr or worker launch.
-`Treehouse.AcquireHeads` models this reset in the shared fake, and `tests/contract` verifies the behavior against the real binary.
+`Treehouse.AcquireHeads` models this reset in the shared fake, and `make contract-live` verifies the behavior against the real binary.
 
 Conditional return accepts `--if-lease-id <id>` and refuses a return when the slot's current lease identity differs, leaving that lease held.
 Hand uses this form whenever acquisition returned an identity, so a stale cleanup cannot release an L2 lease on a reused path.
-The shared fake models the identity check and the contract suite verifies the ABA protection against the real binary.
+The shared fake models the identity check, and `make contract-live` verifies the ABA protection against the real binary.
 
 ### `treehouse status --json`
 
@@ -236,6 +237,13 @@ Text `pane run` typed into the pane appears in a later read, so a read reflects 
 
 Driven by `internal/ghutil`, and through it by teardown's landed-work check and the gate's PR detection.
 
+### Transport and service failures
+
+GitHub transport and service failures exit nonzero and put their diagnostic on stderr, not stdout.
+The fleet has observed HTTP 503, DNS lookup failure and request dial timeout failures against `api.github.com`.
+`GHResponse` preserves the configured stdout, stderr and exit code verbatim so focused tests can express each failure without a network call.
+An empty successful result remains distinct: `gh pr list` exits 0 and writes `[]` to stdout.
+
 ### `gh pr list --repo <slug> --head <branch> --state all --limit 200 --json number,url,state,headRepository`
 
 Exit 0 with a JSON array on stdout, `[]` when nothing matches - an empty result is not an error.
@@ -274,7 +282,7 @@ This is the transition `hand merge` and `hand teardown` are sequenced around - m
 So the exit status cannot say whether a merge happened, and a rerun of `hand merge` would report success for a merge it did not perform.
 `runPRMerge` checks `PRIsMerged` before the merge for that reason, and `TestMergeRefusesAPRAnEarlierRunAlreadyMerged` is the check that fails without it.
 
-Both merge entries were observed on a throwaway PR and are the one part of this file `tests/contract` does not re-run: merging is not reversible, and no contract run may land a real PR.
+Both merge entries were observed on a throwaway PR and are the one part of this file `make contract-live` does not re-run: merging is not reversible, and no contract run may land a real PR.
 
 ### Slug case
 
@@ -324,7 +332,7 @@ Driven by `.github/scripts/edge-publish.sh` alone.
 `GHReleaseStore` models them as a mutable store so `tests/edgepublish` can assert the asset set a publish run leaves behind.
 
 Observed with `gh 2.97.0` against disposable private repositories that the probe created and deleted in the same run, so no release an operator owns was written to.
-`tests/contract` does not re-run them, for the reason the `pr merge` entries are not re-run: every call changes a release, and a contract run may change nothing an operator owns.
+`make contract-live` does not re-run them, for the reason the `pr merge` entries are not re-run: every call changes a release, and a contract run may change nothing an operator owns.
 Re-probe the same way after a `gh` upgrade, because the script's ordering depends on each result below.
 
 ### `gh release create <tag> --repo <slug> --target <sha> --title Edge --prerelease --draft --notes-file <file>`

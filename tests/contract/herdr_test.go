@@ -1,4 +1,4 @@
-//go:build contract
+//go:build contract && contractlive
 
 package contract
 
