@@ -297,6 +297,12 @@ func completionFor(t state.Task, disposition string, launched bool) completion.R
 	case disposition == state.TeardownDispositionForced:
 		c.Outcome = "torn-down"
 		c.Detail = "forced (landed-work checks skipped)"
+	// Ahead of every landing case below because it is the one disposition that already carries a
+	// landing observation of its own: convergence only picks it once the runtime has positively
+	// observed that nothing landed, so falling through to "merged" here would invent the fact.
+	case disposition == state.TeardownDispositionWorkerExitedUnlanded:
+		c.Outcome = "unlanded"
+		c.Detail = "worker process exited and no landed work was observed"
 	// A task whose landing was never ours to decide has to stay distinguishable from a merged one in
 	// the permanent record, or the fleet's history claims upstream merges that never happened
 	// (atqamz/hand#78).

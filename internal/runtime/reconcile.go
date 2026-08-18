@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -26,6 +27,7 @@ const (
 	reconciliationActionConfirmLaunch        reconciliationAction = "confirm-launch"
 	reconciliationActionMarkRunning          reconciliationAction = "mark-running"
 	reconciliationActionCleanupTerminal      reconciliationAction = "cleanup-terminal-resources"
+	reconciliationActionConvergeTerminal     reconciliationAction = "converge-terminal-lifecycle"
 	reconciliationActionAbandonWorktree      reconciliationAction = "abandon-worktree"
 	reconciliationActionNeedsRepair          reconciliationAction = "needs-repair"
 	reconciliationActionBlocked              reconciliationAction = "blocked"
@@ -40,6 +42,16 @@ const (
 	treehouseLeaseMismatch   treehouseLeaseState = "mismatch"
 	treehouseLeaseUnprovable treehouseLeaseState = "unprovable"
 	treehouseLeaseUnknown    treehouseLeaseState = "unknown"
+)
+
+// Follows worktree.LeaseObservation: an observation that could not be made is unknown and never
+// collapses into a definite negative, because the terminal value this picks enters permanent history.
+type landingState string
+
+const (
+	landingLanded   landingState = "landed"
+	landingUnlanded landingState = "unlanded"
+	landingUnknown  landingState = "unknown"
 )
 
 type worktreeState string
@@ -97,21 +109,24 @@ type reconciliationObservation struct {
 	Treehouse        treehouseObservation
 	Worktree         worktreeObservation
 	Herdr            herdrObservation
+	Landing          landingState
 	ObservationError bool
 }
 
 type reconciliationDecision struct {
-	Action         reconciliationAction
-	RepairCode     string
-	RepairReason   string
-	Harness        string
-	Model          string
-	Effort         string
-	ExecutionClass string
-	PlannedAgainst string
-	Profile        string
-	RoutingSource  string
-	Detail         string
+	Action          reconciliationAction
+	TerminalAttempt state.AttemptLifecycle
+	Disposition     string
+	RepairCode      string
+	RepairReason    string
+	Harness         string
+	Model           string
+	Effort          string
+	ExecutionClass  string
+	PlannedAgainst  string
+	Profile         string
+	RoutingSource   string
+	Detail          string
 }
 
 type ReconcileRequest struct {
@@ -127,6 +142,7 @@ type ReconcileResult struct {
 	Action         string `json:"action"`
 	Iterations     int    `json:"iterations"`
 	AttemptID      int64  `json:"attempt,omitempty"`
+	Landing        string `json:"landing,omitempty"`
 	RepairCode     string `json:"repair_code,omitempty"`
 	RepairReason   string `json:"repair_reason,omitempty"`
 	Harness        string `json:"harness,omitempty"`
@@ -227,6 +243,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		}
 		mergeObserved, mergeMismatch, mergeSource, err := r.observeMerge(ctx, home, history)
 		if err != nil {
+			result.Landing = string(landingUnknown)
 			result.Outcome = reconcileOutcomeBlocked
 			return result, err
 		}
@@ -317,6 +334,10 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 			result.Outcome = reconcileOutcomeBlocked
 			return result, err
 		}
+		if terminalConvergenceCandidate(attempt, observation) {
+			observation.Landing = r.observeLanding(ctx, home, history.Task, mergeObserved)
+			result.Landing = string(observation.Landing)
+		}
 		decision := decideReconciliation(history.Task, attempt, observation)
 		result.Action = string(decision.Action)
 		switch decision.Action {
@@ -329,6 +350,14 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		case reconciliationActionBlocked:
 			result.Outcome = reconcileOutcomeBlocked
 			return result, fmt.Errorf("reconciliation observation was incomplete")
+		// Ahead of every repair branch below, including the one that reports a marker another resource
+		// already recorded: a repair on one resource is exactly what must not hold this lifecycle back.
+		case reconciliationActionConvergeTerminal:
+			if err := r.convergeTerminalLifecycle(home, history.Task, attempt, decision); err != nil {
+				return result, err
+			}
+			result.Outcome, result.Detail = reconcileOutcomeRecovered, decision.Detail
+			continue
 		}
 		if shouldClearRepair(history.Task, attempt, observation) {
 			if err := state.ClearTaskRepair(home, id, history.Task.RepairCode); err != nil {
@@ -437,6 +466,95 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 		return false, false, "local-git", fmt.Errorf("observe local merged branch for task %q: %w", task.ID, err)
 	}
 	return merged, !merged, "local-git", nil
+}
+
+// Never fails, for the reason ObserveLease does not: an observation that could not be made is not
+// evidence that nothing landed, and recording it as such would write a false outcome into the
+// permanent completion record of a task that may well have delivered.
+func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Task, mergeObserved bool) landingState {
+	if mergeObserved || task.DeliveredAt != "" {
+		return landingLanded
+	}
+	if task.Kind == state.KindScout {
+		if _, err := os.Stat(filepath.Join(home, "data", task.ID, "report.md")); err != nil {
+			if os.IsNotExist(err) {
+				return landingUnlanded
+			}
+			return landingUnknown
+		}
+		return landingLanded
+	}
+	if task.PR == "" {
+		return landingUnlanded
+	}
+	prMerged := r.deps.prMerged
+	if prMerged == nil {
+		prMerged = ghutil.PRIsMerged
+	}
+	merged, err := prMerged(ctx, task.PR)
+	if err != nil {
+		return landingUnknown
+	}
+	if merged {
+		return landingLanded
+	}
+	return landingUnlanded
+}
+
+// Terminal convergence turns on the pane observation alone, because that is the only evidence attempt
+// lifecycle depends on: a worktree or Herdr repair is about a different resource and must not hold it.
+func terminalConvergenceCandidate(attempt state.Attempt, observation reconciliationObservation) bool {
+	return attempt.Lifecycle == state.AttemptRunning && attempt.TeardownTerminalAttempt == "" &&
+		attempt.Herdr.PaneID != "" && observation.Herdr.State == herdrOwnershipAbsent
+}
+
+// Names the unknown landing in the repair marker rather than reporting the pane alone, so the durable
+// condition says which observation is missing and why convergence stopped.
+func runningPaneMissingReason(landing landingState) string {
+	if landing == landingUnknown {
+		return "persisted running Attempt has no matching Herdr pane and its landing evidence is unknown"
+	}
+	return "persisted running Attempt has no matching Herdr pane"
+}
+
+// Landing evidence only chooses which terminal value the attempt reaches, so an unknown landing
+// converges nothing rather than guessing one.
+func decideTerminalConvergence(attempt state.Attempt, observation reconciliationObservation) (state.AttemptLifecycle, string, bool) {
+	if !terminalConvergenceCandidate(attempt, observation) {
+		return "", "", false
+	}
+	switch observation.Landing {
+	case landingLanded:
+		return state.AttemptCompleted, state.TeardownDispositionCompleted, true
+	case landingUnlanded:
+		return state.AttemptInterrupted, state.TeardownDispositionWorkerExitedUnlanded, true
+	}
+	return "", "", false
+}
+
+// Records the terminal decision, the completion evidence and the lifecycle in the order teardown
+// uses, and releases no resource: releasing one can fail into needs-repair, and the lifecycle this
+// converges does not depend on any of them.
+func (r *Runtime) convergeTerminalLifecycle(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
+	if err := state.SetAttemptTeardownDecision(home, task.ID, attempt.ID, decision.TerminalAttempt, decision.Disposition); err != nil {
+		return fmt.Errorf("record converged teardown decision for attempt %d: %w", attempt.ID, err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionPending); err != nil {
+		return fmt.Errorf("record converged completion phase for attempt %d: %w", attempt.ID, err)
+	}
+	record := completionFor(task, decision.Disposition, true)
+	record.AttemptID, record.AttemptLifecycle = attempt.ID, string(decision.TerminalAttempt)
+	record.TornDownAt = r.deps.now().Format(time.RFC3339)
+	if err := r.deps.appendCompletion(home, record); err != nil {
+		return fmt.Errorf("append converged completion for attempt %d: %w", attempt.ID, err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionAppended); err != nil {
+		return fmt.Errorf("record converged completion evidence for attempt %d: %w", attempt.ID, err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, task.ID, attempt.ID, attempt.Lifecycle, decision.TerminalAttempt); err != nil {
+		return fmt.Errorf("converge attempt %d to %s: %w", attempt.ID, decision.TerminalAttempt, err)
+	}
+	return nil
 }
 
 func mergeWorktreeAttempt(history state.TaskHistory) (*state.Attempt, error) {
@@ -687,6 +805,11 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
+			}
+			if attempt.TeardownHerdrState == "" {
+				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleasing); err != nil {
+					return false, reconciliationDecision{}, err
+				}
 			}
 			if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleased); err != nil {
 				return false, reconciliationDecision{}, err
@@ -1030,6 +1153,12 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 		decision.Action = reconciliationActionBlocked
 		return decision
 	}
+	if terminal, disposition, converge := decideTerminalConvergence(attempt, observation); converge {
+		decision.Action = reconciliationActionConvergeTerminal
+		decision.TerminalAttempt, decision.Disposition = terminal, disposition
+		decision.Detail = fmt.Sprintf("attempt %d converged to %s on observed evidence", attempt.ID, terminal)
+		return decision
+	}
 	if attempt.Worktree != "" {
 		switch observation.Treehouse.State {
 		case treehouseLeaseMismatch:
@@ -1057,7 +1186,7 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 			return decision
 		}
 		if observation.Herdr.State == herdrOwnershipAbsent {
-			return repairDecision(decision, repairCodeRunningPaneMissing, "persisted running Attempt has no matching Herdr pane")
+			return repairDecision(decision, repairCodeRunningPaneMissing, runningPaneMissingReason(observation.Landing))
 		}
 		if observation.Herdr.State == herdrOwnershipMismatch {
 			return repairDecision(decision, repairCodeRunningPaneIdentityMismatch, "persisted running Attempt points at a different Herdr resource")

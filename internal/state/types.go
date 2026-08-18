@@ -82,4 +82,5 @@ const (
 	TeardownDispositionForced               = store.TeardownDispositionForced
 	TeardownDispositionNeverLaunched        = store.TeardownDispositionNeverLaunched
 	TeardownDispositionLaunchedProvisioning = store.TeardownDispositionLaunchedProvisioning
+	TeardownDispositionWorkerExitedUnlanded = store.TeardownDispositionWorkerExitedUnlanded
 )
