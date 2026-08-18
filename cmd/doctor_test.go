@@ -30,7 +30,7 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 				}
 				mustConfigSet(t, settingHarness, harness.Claude)
 			},
-			want: []doctorFinding{{Severity: doctorInfo, Text: "routing resolves through explicit legacy defaults"}},
+			want: []doctorFinding{{Severity: doctorInfo, Text: `routing resolves through explicit legacy defaults: harness "claude"`}},
 		},
 		{
 			name: "unreachable gate",
@@ -72,7 +72,7 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 				}
 				mustConfigSet(t, settingHarness, harness.Claude)
 			},
-			want: []doctorFinding{{Severity: doctorInfo, Text: "routing resolves through explicit legacy defaults"}},
+			want: []doctorFinding{{Severity: doctorInfo, Text: `routing resolves through explicit legacy defaults: harness "claude"`}},
 		},
 		{
 			name: "unstated legacy fallback",
@@ -82,7 +82,7 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: []doctorFinding{{Severity: doctorWarning, Text: "routing falls back to legacy defaults without explicit intent"}},
+			want: []doctorFinding{{Severity: doctorWarning, Text: `routing falls back to legacy defaults without explicit intent: harness "claude"`}},
 		},
 		{
 			name: "partial routing config",
@@ -176,11 +176,71 @@ func TestDoctorCleanFleetReportsEffectiveRouting(t *testing.T) {
 		"count: 1\n" +
 		"violations: 0\n" +
 		"findings[1]{line,severity,finding}:\n" +
-		"  none,info,routing resolves through explicit legacy defaults\n" +
+		"  none,info," + axi.Value(`routing resolves through explicit legacy defaults: harness "claude"`) + "\n" +
 		"help[1]:\n" +
 		"  - No error findings, so this run passed; inspect warnings and info before the next dispatch\n"
 	if out.String() != want {
 		t.Fatalf("stdout = %q, want %q", out.String(), want)
+	}
+}
+
+func TestDoctorReportsConfiguredRoutingDecision(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if err := routing.WriteProfile(home, routing.Profile{Name: "daily", Harness: harness.Claude, Model: "opus", Effort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := routing.WriteRoute(home, routing.Route{Kind: routing.TaskKindScout, ExecutionClass: routing.ExecutionClassMechanical, Profile: "daily"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HAND_HARNESS", harness.Claude)
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := doctorFinding{Severity: doctorInfo, Text: `routing decision: scout.mechanical -> profile "daily" -> harness "claude", model "opus", effort "high"`}
+	if !hasDoctorFinding(findings, want) {
+		t.Fatalf("findings = %#v, want %q", findings, want.Text)
+	}
+}
+
+func TestDoctorReportsMalformedRoutingBeforeEffectiveFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	profileDir := filepath.Join(home, "config", "profiles", "broken")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "current"), []byte("missing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileIndex := -1
+	fallbackIndex := -1
+	for i, finding := range findings {
+		if strings.HasPrefix(finding.Text, "routing drift: profile") {
+			profileIndex = i
+		}
+		if strings.HasPrefix(finding.Text, "routing effective fallback after configuration problems: harness") {
+			fallbackIndex = i
+		}
+	}
+	if profileIndex < 0 || fallbackIndex < 0 || profileIndex >= fallbackIndex {
+		t.Fatalf("findings = %#v, want malformed profile before fallback", findings)
 	}
 }
 

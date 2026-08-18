@@ -123,19 +123,68 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(snapshot.Config.Profiles) == 0 && len(snapshot.Config.Routes) == 0 {
+	if len(snapshot.Config.Profiles) == 0 && len(snapshot.Config.Routes) == 0 && onlyMissingRoutes(snapshot.Config.Problems) {
 		severity := doctorWarning
-		text := "routing falls back to legacy defaults without explicit intent"
+		text := legacyRoutingFinding(snapshot.Legacy, "routing falls back to legacy defaults without explicit intent")
 		if snapshot.Legacy.ConfiguredHarness != "" {
 			severity = doctorInfo
-			text = "routing resolves through explicit legacy defaults"
+			text = legacyRoutingFinding(snapshot.Legacy, "routing resolves through explicit legacy defaults")
 		}
 		return append(findings, doctorFinding{Severity: severity, Text: text}), nil
 	}
 	for _, problem := range snapshot.Config.Problems {
 		findings = append(findings, doctorFinding{Severity: doctorWarning, Text: routingProblemFinding(problem)})
 	}
-	return append(findings, doctorFinding{Severity: doctorInfo, Text: "routing resolves through configured profiles"}), nil
+	if len(snapshot.Config.Profiles) == 0 && len(snapshot.Config.Routes) == 0 {
+		return append(findings, doctorFinding{Severity: doctorWarning, Text: legacyRoutingFinding(snapshot.Legacy, "routing effective fallback after configuration problems")}), nil
+	}
+	for _, route := range snapshot.Config.Routes {
+		profile, found := profileByName(snapshot.Config.Profiles, route.Profile)
+		if found {
+			findings = append(findings, doctorFinding{Severity: doctorInfo, Text: fmt.Sprintf("routing decision: %s.%s -> profile %q -> %s", route.Kind, route.ExecutionClass, profile.Name, profileDetails(profile))})
+		}
+	}
+	return findings, nil
+}
+
+func onlyMissingRoutes(problems []routing.ConfigProblem) bool {
+	for _, problem := range problems {
+		if problem.Code != routing.ConfigProblemMissingRoute {
+			return false
+		}
+	}
+	return true
+}
+
+func legacyRoutingFinding(defaults routing.LegacyDefaults, prefix string) string {
+	details := []string{fmt.Sprintf("harness %q", defaults.Harness)}
+	if model := defaults.Models[defaults.Harness]; model != "" {
+		details = append(details, fmt.Sprintf("model %q", model))
+	}
+	if effort := defaults.Efforts[defaults.Harness]; effort != "" {
+		details = append(details, fmt.Sprintf("effort %q", effort))
+	}
+	return prefix + ": " + strings.Join(details, ", ")
+}
+
+func profileByName(profiles []routing.Profile, name string) (routing.Profile, bool) {
+	for _, profile := range profiles {
+		if profile.Name == name {
+			return profile, true
+		}
+	}
+	return routing.Profile{}, false
+}
+
+func profileDetails(profile routing.Profile) string {
+	details := []string{fmt.Sprintf("harness %q", profile.Harness)}
+	if profile.Model != "" {
+		details = append(details, fmt.Sprintf("model %q", profile.Model))
+	}
+	if profile.Effort != "" {
+		details = append(details, fmt.Sprintf("effort %q", profile.Effort))
+	}
+	return strings.Join(details, ", ")
 }
 
 func routingProblemFinding(problem routing.ConfigProblem) string {
