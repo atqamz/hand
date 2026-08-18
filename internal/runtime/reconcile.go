@@ -44,8 +44,6 @@ const (
 	treehouseLeaseUnknown    treehouseLeaseState = "unknown"
 )
 
-// Follows worktree.LeaseObservation: an observation that could not be made is unknown and never
-// collapses into a definite negative, because the terminal value this picks enters permanent history.
 type landingState string
 
 const (
@@ -350,8 +348,6 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		case reconciliationActionBlocked:
 			result.Outcome = reconcileOutcomeBlocked
 			return result, fmt.Errorf("reconciliation observation was incomplete")
-		// Ahead of every repair branch below, including the one that reports a marker another resource
-		// already recorded: a repair on one resource is exactly what must not hold this lifecycle back.
 		case reconciliationActionConvergeTerminal:
 			if err := r.convergeTerminalLifecycle(home, history.Task, attempt, decision); err != nil {
 				return result, err
@@ -468,9 +464,6 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 	return merged, !merged, "local-git", nil
 }
 
-// Never fails, for the reason ObserveLease does not: an observation that could not be made is not
-// evidence that nothing landed, and recording it as such would write a false outcome into the
-// permanent completion record of a task that may well have delivered.
 func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Task, mergeObserved bool) landingState {
 	if mergeObserved || task.DeliveredAt != "" {
 		return landingLanded
@@ -501,15 +494,11 @@ func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Ta
 	return landingUnlanded
 }
 
-// Terminal convergence turns on the pane observation alone, because that is the only evidence attempt
-// lifecycle depends on: a worktree or Herdr repair is about a different resource and must not hold it.
 func terminalConvergenceCandidate(attempt state.Attempt, observation reconciliationObservation) bool {
 	return attempt.Lifecycle == state.AttemptRunning && attempt.TeardownTerminalAttempt == "" &&
 		attempt.Herdr.PaneID != "" && observation.Herdr.State == herdrOwnershipAbsent
 }
 
-// Names the unknown landing in the repair marker rather than reporting the pane alone, so the durable
-// condition says which observation is missing and why convergence stopped.
 func runningPaneMissingReason(landing landingState) string {
 	if landing == landingUnknown {
 		return "persisted running Attempt has no matching Herdr pane and its landing evidence is unknown"
@@ -517,8 +506,6 @@ func runningPaneMissingReason(landing landingState) string {
 	return "persisted running Attempt has no matching Herdr pane"
 }
 
-// Landing evidence only chooses which terminal value the attempt reaches, so an unknown landing
-// converges nothing rather than guessing one.
 func decideTerminalConvergence(attempt state.Attempt, observation reconciliationObservation) (state.AttemptLifecycle, string, bool) {
 	if !terminalConvergenceCandidate(attempt, observation) {
 		return "", "", false
@@ -532,9 +519,6 @@ func decideTerminalConvergence(attempt state.Attempt, observation reconciliation
 	return "", "", false
 }
 
-// Records the terminal decision, the completion evidence and the lifecycle in the order teardown
-// uses, and releases no resource: releasing one can fail into needs-repair, and the lifecycle this
-// converges does not depend on any of them.
 func (r *Runtime) convergeTerminalLifecycle(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
 	if err := state.SetAttemptTeardownDecision(home, task.ID, attempt.ID, decision.TerminalAttempt, decision.Disposition); err != nil {
 		return fmt.Errorf("record converged teardown decision for attempt %d: %w", attempt.ID, err)
