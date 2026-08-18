@@ -134,6 +134,9 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 	}
 	for _, problem := range snapshot.Config.Problems {
 		findings = append(findings, doctorFinding{Severity: doctorWarning, Text: routingProblemFinding(problem)})
+		if problem.Kind != "" && problem.ExecutionClass != "" {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: routingDecisionProblem(problem)})
+		}
 	}
 	if len(snapshot.Config.Profiles) == 0 && len(snapshot.Config.Routes) == 0 {
 		return append(findings, doctorFinding{Severity: doctorWarning, Text: legacyRoutingFinding(snapshot.Legacy, "routing effective fallback after configuration problems")}), nil
@@ -185,6 +188,11 @@ func profileDetails(profile routing.Profile) string {
 		details = append(details, fmt.Sprintf("effort %q", profile.Effort))
 	}
 	return strings.Join(details, ", ")
+}
+
+func routingDecisionProblem(problem routing.ConfigProblem) string {
+	details := strings.TrimPrefix(problem.Message, "route ")
+	return fmt.Sprintf("routing decision: %s.%s -> unavailable (%s)", problem.Kind, problem.ExecutionClass, details)
 }
 
 func routingProblemFinding(problem routing.ConfigProblem) string {

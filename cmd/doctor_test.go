@@ -209,6 +209,31 @@ func TestDoctorReportsConfiguredRoutingDecision(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsUnresolvedConfiguredRoutingDecision(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "config", "routes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "routes", "ship.deep"), []byte("missing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HAND_HARNESS", harness.Claude)
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := doctorFinding{Severity: doctorWarning, Text: `routing decision: ship.deep -> unavailable (profile "missing" does not exist or is invalid)`}
+	if !hasDoctorFinding(findings, want) {
+		t.Fatalf("findings = %#v, want %q", findings, want.Text)
+	}
+}
+
 func TestDoctorReportsMalformedRoutingBeforeEffectiveFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
