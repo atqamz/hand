@@ -257,6 +257,12 @@ Exit 0 with the JSON object on stdout.
 A PR that does not exist is exit 1 with a GraphQL error on stderr.
 Real `gh` also writes warnings to stderr ahead of the JSON, which is why callers read stdout alone.
 
+### `gh pr view <url-or-number> --json headRefOid`
+
+Exit 0 with the head branch's current commit SHA on stdout, the same GraphQL warnings-before-JSON shape as `--json state`.
+`PRHeadCommit` reads this rather than a local clone because GitHub's record of the head ref outlives that clone and survives the branch being deleted after a merge.
+A merged PR still answers with the SHA the head branch pointed at before deletion, so `PRHeadCommit` remains usable on a PR whose branch is long gone.
+
 ### `gh pr checks <url-or-number> --json bucket`
 
 Exit 0 with every check's bucket on stdout when they all pass.

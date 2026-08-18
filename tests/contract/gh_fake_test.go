@@ -11,22 +11,24 @@ import (
 )
 
 const (
-	contractGHRepo      = "atqamz/hand"
-	contractGHRepoCased = "AtqaMZ/Hand"
-	contractGHEdgeSHA   = "0123456789abcdef0123456789abcdef01234567"
+	contractGHRepo       = "atqamz/hand"
+	contractGHRepoCased  = "AtqaMZ/Hand"
+	contractGHEdgeSHA    = "0123456789abcdef0123456789abcdef01234567"
+	contractGHHeadRefOid = "898192c133d4786a9d5bee7b05fead923d5c902e"
 )
 
 func installContractGH(t *testing.T) {
 	t.Helper()
 	faketool.GH{
 		PRs: []faketool.GHPR{{
-			Number:   154,
-			URL:      "https://github.com/atqamz/hand/pull/154",
-			Branch:   "136-usage-limit-resume",
-			State:    "MERGED",
-			Repo:     contractGHRepo,
-			HeadRepo: contractGHRepo,
-			Checks:   []string{"pass", "skipping"},
+			Number:     154,
+			URL:        "https://github.com/atqamz/hand/pull/154",
+			Branch:     "136-usage-limit-resume",
+			State:      "MERGED",
+			Repo:       contractGHRepo,
+			HeadRepo:   contractGHRepo,
+			HeadRefOid: contractGHHeadRefOid,
+			Checks:     []string{"pass", "skipping"},
 		}},
 		Repos: []faketool.GHRepo{{
 			Requested:     "atqamz/secondhand",
@@ -68,6 +70,33 @@ func TestGHFixturesPreservePullRequestAndRepositoryContracts(t *testing.T) {
 	repo := run(t, "", "gh", "repo", "view", "atqamz/secondhand", "--json", "nameWithOwner,url").requireCode(t, 0)
 	if strings.TrimSpace(repo.stdout) != `{"nameWithOwner":"atqamz/hand","url":"https://github.com/atqamz/hand"}` {
 		t.Fatalf("repo = %q, want renamed canonical repository", repo.stdout)
+	}
+}
+
+// installContractGH's canned "pr view" failure response answers every pr view call regardless of
+// PR number, so headRefOid fixture coverage needs its own install without that override.
+func TestGHFixturesPreserveHeadRefOid(t *testing.T) {
+	faketool.GH{
+		PRs: []faketool.GHPR{{
+			Number:     154,
+			URL:        "https://github.com/atqamz/hand/pull/154",
+			Branch:     "136-usage-limit-resume",
+			State:      "MERGED",
+			Repo:       contractGHRepo,
+			HeadRepo:   contractGHRepo,
+			HeadRefOid: contractGHHeadRefOid,
+		}},
+	}.Install(t, faketool.Bin(t))
+
+	head := run(t, "", "gh", "pr", "view", "154", "--repo", contractGHRepo, "--json", "headRefOid").requireCode(t, 0)
+	var headBody struct {
+		HeadRefOid string `json:"headRefOid"`
+	}
+	if err := json.Unmarshal([]byte(head.stdout), &headBody); err != nil {
+		t.Fatalf("parse stdout %q: %v", head.stdout, err)
+	}
+	if headBody.HeadRefOid != contractGHHeadRefOid {
+		t.Fatalf("headRefOid = %q, want %q", headBody.HeadRefOid, contractGHHeadRefOid)
 	}
 }
 

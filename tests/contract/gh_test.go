@@ -99,6 +99,23 @@ func TestGHPRViewFailsForAPRThatDoesNotExist(t *testing.T) {
 		requireStderrContains(t, "Could not resolve to a PullRequest")
 }
 
+// PRHeadCommit reads headRefOid from a merged PR whose branch is long deleted, because GitHub's
+// record of the head ref outlives the clone; this pins that the field survives branch deletion.
+func TestGHPRViewReportsHeadRefOidAfterBranchDeletion(t *testing.T) {
+	requireGH(t)
+
+	res := run(t, "", "gh", "pr", "view", ghMergedPR, "--repo", ghRepo, "--json", "headRefOid").requireCode(t, 0)
+	var body struct {
+		HeadRefOid string `json:"headRefOid"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &body); err != nil {
+		t.Fatalf("parse stdout %q: %v", res.stdout, err)
+	}
+	if len(body.HeadRefOid) != 40 {
+		t.Fatalf("headRefOid = %q, want a full SHA", body.HeadRefOid)
+	}
+}
+
 // prChecksGreen reads the buckets and ignores the exit code once the JSON
 // parses, so what the fake owes is the bucket vocabulary, not the code.
 func TestGHPRChecksReportsBuckets(t *testing.T) {
