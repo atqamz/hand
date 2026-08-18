@@ -2,8 +2,8 @@
 
 - Date: 2026-08-15
 - Status: accepted
-- Issues: atqamz/hand#196
-- PRs: atqamz/hand#229
+- Issues: atqamz/hand#196, atqamz/hand#239
+- PRs: atqamz/hand#229, atqamz/hand#251
 
 ## Context
 
@@ -28,8 +28,12 @@ An existing Attempt is never rerouted during reconciliation.
 Its persisted harness, model, effort, execution class, planned-against commit, requested profile, and routing source remain the only execution identity.
 There is no automatic worker, harness, model, or profile fallback.
 
-Automatic resource cleanup requires exact ownership proof and a clean worktree.
-Dirty worktrees, incomplete or reused identities, missing running workers, and ambiguous launch evidence become `needs-repair`.
+Automatic resource cleanup requires exact ownership proof, a clean worktree, and positive proof that returning the worktree discards no commit held nowhere else.
+That last proof is a three-state observation rather than a boolean: the work is proven durable, found at risk, or unprovable, and only the first permits an automatic return.
+A clean `git status` is not that proof, because a clean worktree can still hold the only copy of a commit.
+Dirty worktrees, incomplete or reused identities, ambiguous launch evidence, commits reachable from no other copy, and a commit comparison that cannot be made become `needs-repair`.
+A running Attempt whose Herdr pane is observed absent instead converges to a terminal lifecycle from observed landing evidence, without an operator running `hand teardown`; it becomes `needs-repair` only where that landing itself cannot be observed.
+Resource cleanup and Attempt lifecycle stay orthogonal in both directions: an Attempt stays terminal while its worktree return is withheld, and the withheld return records a Task repair marker without reopening the Attempt.
 Released historical Herdr resources remain attributed anomalies when matching live identities are observed; reconciliation reports them without closing the resource.
 The reconciler does not run as a daemon and does not implement the send protocol.
 
@@ -49,4 +53,5 @@ Command rendering stays in Cobra, and status remains read-only.
 The command can safely progress through several durable checkpoints in one invocation while the iteration guard prevents a logic loop.
 Ambiguous ownership is resolved only by a fresh exact observation or an operator action explicitly supported by the owning resource decision, and dirty work remains manual.
 A worker that disappears while running is not silently replaced.
+A converged Attempt keeps its worktree until durability is proven, so unpushed or unprovable work stays on disk for the operator, and reconciling that state again leaves durable state unchanged.
 `unobservable-ownership-is-not-a-mismatch.md` adds the one supported gesture for a treehouse pool that can no longer be observed at all.

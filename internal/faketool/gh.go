@@ -14,13 +14,14 @@ import (
 
 // GHPR describes one pull request and the checks its fake reports.
 type GHPR struct {
-	Number   int
-	URL      string
-	Branch   string
-	State    string
-	Repo     string
-	HeadRepo string
-	Checks   []string
+	Number     int
+	URL        string
+	Branch     string
+	State      string
+	Repo       string
+	HeadRepo   string
+	HeadRefOid string
+	Checks     []string
 }
 
 type GHRepo struct {
@@ -201,12 +202,18 @@ func ghPRView(spec ghSpec, args []string) int {
 	if !ok {
 		return fail("no such pull request: %s", args[2])
 	}
-	state, err := os.ReadFile(ghStatePath(spec.StateDir, index))
-	if err != nil {
-		return fail("read gh pull request state: %v", err)
+	switch flagValue(args, "--json") {
+	case "headRefOid":
+		_, _ = fmt.Fprintf(os.Stdout, "{\"headRefOid\":%s}\n", jsonQuote(spec.PRs[index].HeadRefOid))
+		return 0
+	default:
+		state, err := os.ReadFile(ghStatePath(spec.StateDir, index))
+		if err != nil {
+			return fail("read gh pull request state: %v", err)
+		}
+		_, _ = fmt.Fprintf(os.Stdout, "{\"state\":%s}\n", jsonQuote(strings.TrimSpace(string(state))))
+		return 0
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "{\"state\":%s}\n", jsonQuote(strings.TrimSpace(string(state))))
-	return 0
 }
 
 func ghPRList(spec ghSpec, args []string) int {

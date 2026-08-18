@@ -42,7 +42,10 @@ func TestReconcileCommandRendersNeedsRepairAndReturnsPrecondition(t *testing.T) 
 	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}}); err != nil {
+	if _, err := state.CreateAttempt(home, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	faketool.Herdr{Responses: []faketool.HerdrResponse{{Command: "workspace list", Stdout: `{"id":"cli:1","result":{"workspaces":[]}}`}}}.Install(t, faketool.Bin(t))
@@ -55,8 +58,40 @@ func TestReconcileCommandRendersNeedsRepairAndReturnsPrecondition(t *testing.T) 
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Fatalf("reconcile error = %v, want precondition exit 3", err)
 	}
-	if !bytes.Contains(out.Bytes(), []byte("repair_code: running-pane-missing")) || !bytes.Contains(out.Bytes(), []byte("result: needs-repair")) {
+	if !bytes.Contains(out.Bytes(), []byte("repair_code: launch-submitted-pane-missing")) || !bytes.Contains(out.Bytes(), []byte("result: needs-repair")) {
 		t.Fatalf("reconcile output = %q, want repair result", out.String())
+	}
+}
+
+func TestReconcileCommandRendersConvergedTerminalLifecycle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HAND_HOME", home)
+	if err := os.MkdirAll(state.Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	faketool.Herdr{Responses: []faketool.HerdrResponse{{Command: "workspace list", Stdout: `{"id":"cli:1","result":{"workspaces":[]}}`}}}.Install(t, faketool.Bin(t))
+	cmd := newReconcileCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("landing: unlanded")) || !bytes.Contains(out.Bytes(), []byte("converged to interrupted")) {
+		t.Fatalf("reconcile output = %q, want the converged landing and detail", out.String())
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt != nil || history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("history = %+v, want the Attempt converged without hand teardown", history)
 	}
 }
 

@@ -18,6 +18,17 @@ func newReconcileCmd() *cobra.Command {
 		Use:   "reconcile [id]",
 		Short: "Converge durable task state with observed external reality",
 		Long: "Converge durable task state with observed external reality.\n\n" +
+			"A running Attempt whose recorded Herdr pane is observed absent reaches a terminal lifecycle here,\n" +
+			"without `hand teardown`. Landing evidence picks which one: an observed merge, a recorded delivery\n" +
+			"or a scout report on disk completes it, and positively observed unlanded work interrupts it. Where\n" +
+			"the landing cannot be observed at all the reported landing is `unknown`, no lifecycle value is\n" +
+			"invented, and the condition is recorded as needs-repair instead. Convergence releases no resource\n" +
+			"of its own, so a Herdr or worktree resource that needs repair never holds the lifecycle back.\n\n" +
+			"Automatic worktree return also requires proof that no commit exists only there: a commit reachable\n" +
+			"from a remote-tracking ref, or one GitHub records as the head of the task pull request, is held\n" +
+			"elsewhere too. Unpushed commits withhold the return, and so does a comparison that could not be\n" +
+			"made at all, recorded as its own condition rather than as work found at risk. The Attempt stays\n" +
+			"terminal either way, and reconciling the withheld state again changes nothing.\n\n" +
 			"--abandon-worktree attests that Hand relinquishes a recorded Treehouse lease whose pool cannot be\n" +
 			"observed at all, for instance after the pool key moved. It needs an explicit task ID, it refuses any\n" +
 			"lease an observation can still prove or disprove, and it never returns, prunes or deletes a worktree:\n" +
@@ -71,6 +82,9 @@ func renderReconcileReport(cmd *cobra.Command, report runtime.ReconcileReport, a
 		doc.Int("iterations", result.Iterations)
 		if result.AttemptID != 0 {
 			doc.Field("attempt", fmt.Sprintf("%d", result.AttemptID))
+		}
+		if result.Landing != "" {
+			doc.Field("landing", result.Landing)
 		}
 		if result.RepairCode != "" {
 			doc.Field("repair_code", result.RepairCode)

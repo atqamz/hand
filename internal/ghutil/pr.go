@@ -34,6 +34,29 @@ func PRIsMerged(ctx context.Context, pr string) (bool, error) {
 	return body.State == "MERGED", nil
 }
 
+// PRHeadCommit reads the commit GitHub records as the PR head ref: the newest commit of that branch
+// GitHub was observed holding, which outlives any local clone and survives the head branch being
+// deleted after a merge.
+func PRHeadCommit(ctx context.Context, pr string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "headRefOid")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("gh pr view failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	var body struct {
+		HeadRefOid string `json:"headRefOid"`
+	}
+	if err := json.Unmarshal(out, &body); err != nil {
+		return "", fmt.Errorf("parse gh pr view output: %w", err)
+	}
+	if body.HeadRefOid == "" {
+		return "", fmt.Errorf("gh pr view reported no head commit for %q", pr)
+	}
+	return body.HeadRefOid, nil
+}
+
 // PRSearchTarget names one repo FindPRByBranch searches for a head ref.
 type PRSearchTarget struct {
 	Repo string

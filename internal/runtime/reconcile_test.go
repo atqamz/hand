@@ -418,7 +418,7 @@ func TestReconcileSubmittedLaunchConfirmsExistingPaneWithoutRelaunch(t *testing.
 	}
 }
 
-func TestReconcileRunningMissingPaneRecordsRepairWithoutReplacement(t *testing.T) {
+func TestReconcileRunningMissingPaneConvergesWithoutReplacement(t *testing.T) {
 	home := reconcileFixture(t)
 	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
 		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
@@ -437,8 +437,14 @@ func TestReconcileRunningMissingPaneRecordsRepairWithoutReplacement(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.Task.RepairCode != repairCodeRunningPaneMissing || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
-		t.Fatalf("history=%+v, want running Attempt and repair marker", history)
+	if history.ActiveAttempt != nil || len(history.Attempts) != 1 {
+		t.Fatalf("history=%+v, want the same Attempt converged without a replacement", history)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("history=%+v, want a terminal task and interrupted Attempt", history)
+	}
+	if history.Task.RepairCode != "" {
+		t.Fatalf("task=%+v, want no repair marker for an Attempt that converged", history.Task)
 	}
 }
 
@@ -497,15 +503,9 @@ func TestReconcileClearsRepairAfterTeardownAndReopenResolvesOldAttempt(t *testin
 	if err := state.MarkAttemptRunning(home, "task-1", oldAttempt.ID); err != nil {
 		t.Fatal(err)
 	}
-	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
-	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+	if err := state.SetTaskRepair(home, "task-1", repairCodeRunningPaneIdentityMismatch, "pane belongs to another Attempt", oldAttempt.ID, "2026-08-15T00:00:02Z"); err != nil {
 		t.Fatal(err)
 	}
-	history, err := state.ReadHistory(home, "task-1")
-	if err != nil || history.Task.RepairCode != repairCodeRunningPaneMissing {
-		t.Fatalf("repair history = %+v, err=%v", history, err)
-	}
-
 	if err := state.SetAttemptTeardownDecision(home, "task-1", oldAttempt.ID, state.AttemptInterrupted, state.TeardownDispositionForced); err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +551,7 @@ func TestReconcileClearsRepairAfterTeardownAndReopenResolvesOldAttempt(t *testin
 	if _, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
-	history, err = state.ReadHistory(home, "task-1")
+	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,6 +560,336 @@ func TestReconcileClearsRepairAfterTeardownAndReopenResolvesOldAttempt(t *testin
 	}
 	if history.ActiveAttempt == nil || history.ActiveAttempt.ID != newAttempt.ID {
 		t.Fatalf("active attempt = %+v, want reopened attempt %d", history.ActiveAttempt, newAttempt.ID)
+	}
+}
+
+func convergenceTask(t *testing.T, home string, task state.Task) state.Attempt {
+	t.Helper()
+	attempt, err := state.CreateTaskWithAttempt(home, task, state.Attempt{
+		TaskID: task.ID, Lifecycle: state.AttemptProvisioning, Harness: "claude",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, task.ID, attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	return attempt
+}
+
+func TestDecideTerminalConvergenceMatrix(t *testing.T) {
+	running := state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}}
+	tests := []struct {
+		name            string
+		attempt         state.Attempt
+		observation     reconciliationObservation
+		wantConverge    bool
+		wantLifecycle   state.AttemptLifecycle
+		wantDisposition string
+	}{
+		{
+			name:            "pane gone and work landed",
+			attempt:         running,
+			observation:     reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}, Landing: landingLanded},
+			wantConverge:    true,
+			wantLifecycle:   state.AttemptCompleted,
+			wantDisposition: state.TeardownDispositionCompleted,
+		},
+		{
+			name:            "pane gone and nothing landed",
+			attempt:         running,
+			observation:     reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}, Landing: landingUnlanded},
+			wantConverge:    true,
+			wantLifecycle:   state.AttemptInterrupted,
+			wantDisposition: state.TeardownDispositionWorkerExitedUnlanded,
+		},
+		{
+			name:        "pane gone and landing unknown",
+			attempt:     running,
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}, Landing: landingUnknown},
+		},
+		{
+			name:        "pane gone and landing unobserved",
+			attempt:     running,
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}},
+		},
+		{
+			name:        "pane still present",
+			attempt:     running,
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipExact, Agent: "claude"}, Landing: landingLanded},
+		},
+		{
+			name:        "pane identity never persisted",
+			attempt:     state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude"},
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}, Landing: landingLanded},
+		},
+		{
+			name:        "teardown already decided the terminal value",
+			attempt:     state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: running.Herdr, TeardownTerminalAttempt: state.AttemptInterrupted},
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}, Landing: landingLanded},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lifecycle, disposition, converge := decideTerminalConvergence(tc.attempt, tc.observation)
+			if converge != tc.wantConverge || lifecycle != tc.wantLifecycle || disposition != tc.wantDisposition {
+				t.Fatalf("converge=%v lifecycle=%q disposition=%q, want %v/%q/%q", converge, lifecycle, disposition, tc.wantConverge, tc.wantLifecycle, tc.wantDisposition)
+			}
+		})
+	}
+}
+
+func TestReconcileConvergesExitedWorkerWhoseMergedPRLanded(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt := convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskMerge(home, "task-1", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	writeReport(t, home, "task-1", "done: shipped\n")
+	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
+	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Landing != string(landingLanded) {
+		t.Fatalf("landing = %q, want landed", report.Results[0].Landing)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.ActiveAttempt != nil {
+		t.Fatalf("task = %+v, want a terminal task with no active Attempt", history.Task)
+	}
+	converged := history.Attempts[0]
+	if converged.Lifecycle != state.AttemptCompleted || converged.TeardownDisposition != state.TeardownDispositionCompleted {
+		t.Fatalf("attempt = %+v, want completed by convergence", converged)
+	}
+	if converged.TeardownCompletionState != state.TeardownCompletionAppended {
+		t.Fatalf("attempt = %+v, want appended completion evidence", converged)
+	}
+	record, found, err := completion.FindAttempt(home, attempt.ID)
+	if err != nil || !found || record.Outcome != "merged" {
+		t.Fatalf("record=%+v found=%v err=%v, want a merged completion record", record, found, err)
+	}
+	lines, err := state.ReadReportLines(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last, ok := state.LastReportedState(lines); !ok || last.State != state.ReportDone {
+		t.Fatalf("last report = %+v ok=%v, want the done report still readable beside a terminal Attempt", last, ok)
+	}
+}
+
+func TestReconcileConvergesKilledWorkerToInterrupted(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt := convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	report, err := reconcileRuntime(&missingReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Landing != string(landingUnlanded) {
+		t.Fatalf("landing = %q, want unlanded", report.Results[0].Landing)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.Attempts[0].Lifecycle != state.AttemptInterrupted {
+		t.Fatalf("history = %+v, want an interrupted Attempt on a terminal task", history)
+	}
+	if history.Attempts[0].TeardownDisposition != state.TeardownDispositionWorkerExitedUnlanded {
+		t.Fatalf("disposition = %q, want %q", history.Attempts[0].TeardownDisposition, state.TeardownDispositionWorkerExitedUnlanded)
+	}
+	record, found, err := completion.FindAttempt(home, attempt.ID)
+	if err != nil || !found || record.Outcome != "unlanded" {
+		t.Fatalf("record=%+v found=%v err=%v, want an unlanded completion record", record, found, err)
+	}
+}
+
+func TestReconcileKeepsLiveWorkerThatReportedDone(t *testing.T) {
+	home := reconcileFixture(t)
+	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskMerge(home, "task-1", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	writeReport(t, home, "task-1", "done: shipped and merged\n")
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Action != string(reconciliationActionKeep) {
+		t.Fatalf("action = %q, want keep while the worker process is alive", report.Results[0].Action)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning || history.Task.Lifecycle != state.TaskOpen {
+		t.Fatalf("history = %+v, want the running Attempt untouched by worker prose", history)
+	}
+	if _, found, err := completion.FindAttempt(home, history.ActiveAttempt.ID); err != nil || found {
+		t.Fatalf("found=%v err=%v, want no completion record from worker prose", found, err)
+	}
+}
+
+func TestReconcileIgnoresMalformedWorkerProse(t *testing.T) {
+	home := reconcileFixture(t)
+	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	writeReport(t, home, "task-1", "finished the thing\ndone shipped\n")
+	report, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Action != string(reconciliationActionKeep) {
+		t.Fatalf("action = %q, want keep through malformed prose", report.Results[0].Action)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning || history.Task.Lifecycle != state.TaskOpen {
+		t.Fatalf("history = %+v, want no lifecycle transition from malformed prose", history)
+	}
+	lines, err := state.ReadReportLines(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || !lines[0].Malformed || !lines[1].Malformed {
+		t.Fatalf("lines = %+v, want both prose lines recorded as malformed", lines)
+	}
+}
+
+func TestReconcileRecordsUnknownLandingWhenGitHubIsUnreachable(t *testing.T) {
+	home := reconcileFixture(t)
+	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
+	r.deps.prMerged = func(context.Context, string) (bool, error) { return false, errors.New("GitHub unavailable") }
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Landing != string(landingUnknown) || report.Results[0].Outcome != reconcileOutcomeRepair {
+		t.Fatalf("result = %+v, want an unknown landing recorded as needs-repair", report.Results[0])
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("history = %+v, want no terminal value invented from an unknown landing", history)
+	}
+	if history.Task.RepairCode != repairCodeRunningPaneMissing || !strings.Contains(history.Task.RepairReason, "unknown") {
+		t.Fatalf("task = %+v, want the unknown landing recorded as the repair condition", history.Task)
+	}
+	if _, found, err := completion.FindAttempt(home, history.ActiveAttempt.ID); err != nil || found {
+		t.Fatalf("found=%v err=%v, want no completion record for an unknown landing", found, err)
+	}
+}
+
+func TestReconcileConvergesLifecycleWhileWorktreeStillNeedsRepair(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
+	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
+	}
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].RepairCode != repairCodeLegacyWorktreeUnprovable {
+		t.Fatalf("repair code = %q, want the unprovable worktree lease", report.Results[0].RepairCode)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.ActiveAttempt != nil {
+		t.Fatalf("task = %+v, want the lifecycle converged independently of the worktree", history.Task)
+	}
+	if history.Attempts[0].Lifecycle != state.AttemptCompleted {
+		t.Fatalf("attempt = %+v, want completed despite the worktree repair", history.Attempts[0])
+	}
+	if history.Task.RepairCode != repairCodeLegacyWorktreeUnprovable {
+		t.Fatalf("task = %+v, want the worktree repair still recorded", history.Task)
+	}
+}
+
+func TestReconcileConvergesLifecycleDespiteRecordedRepairMarker(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskRepair(home, "task-1", repairCodeLegacyWorktreeUnprovable, "historical worktree has no exact lease identity", attempt.ID, "2026-08-15T00:00:02Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
+	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.Attempts[0].Lifecycle != state.AttemptCompleted {
+		t.Fatalf("history = %+v, want convergence through a repair marker recorded for another resource", history)
+	}
+	if history.Task.RepairCode != repairCodeLegacyWorktreeUnprovable {
+		t.Fatalf("task = %+v, want the unrelated repair marker left standing", history.Task)
+	}
+}
+
+func writeReport(t *testing.T, home, id, body string) {
+	t.Helper()
+	if err := os.MkdirAll(state.Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, id), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1682,6 +2012,12 @@ func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lea
 			},
 			observeClean: func(path string) (worktree.Cleanliness, error) {
 				return worktree.Clean, nil
+			},
+			observeCommits: func(path string) worktree.CommitSafetyObservation {
+				return worktree.CommitSafetyObservation{
+					State: worktree.CommitSafetyRemoteObserved,
+					Probe: worktree.CommitSafetyProbe{Command: "git rev-list --count HEAD --not --remotes", WorkingDir: path, Head: "1111111111111111111111111111111111111111", RemoteRefs: 1},
+				}
 			},
 			checkCollision: func(string, worktree.Lease, string) (string, error) { return "", nil },
 			returnWorktree: func(string, bool) error { return nil },

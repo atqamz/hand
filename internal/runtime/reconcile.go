@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -26,6 +27,7 @@ const (
 	reconciliationActionConfirmLaunch        reconciliationAction = "confirm-launch"
 	reconciliationActionMarkRunning          reconciliationAction = "mark-running"
 	reconciliationActionCleanupTerminal      reconciliationAction = "cleanup-terminal-resources"
+	reconciliationActionConvergeTerminal     reconciliationAction = "converge-terminal-lifecycle"
 	reconciliationActionAbandonWorktree      reconciliationAction = "abandon-worktree"
 	reconciliationActionNeedsRepair          reconciliationAction = "needs-repair"
 	reconciliationActionBlocked              reconciliationAction = "blocked"
@@ -40,6 +42,14 @@ const (
 	treehouseLeaseMismatch   treehouseLeaseState = "mismatch"
 	treehouseLeaseUnprovable treehouseLeaseState = "unprovable"
 	treehouseLeaseUnknown    treehouseLeaseState = "unknown"
+)
+
+type landingState string
+
+const (
+	landingLanded   landingState = "landed"
+	landingUnlanded landingState = "unlanded"
+	landingUnknown  landingState = "unknown"
 )
 
 type worktreeState string
@@ -74,6 +84,8 @@ const (
 	repairCodeWorktreeOwnershipMismatch   = "worktree-ownership-mismatch"
 	repairCodeLegacyWorktreeUnprovable    = "legacy-worktree-ownership-unprovable"
 	repairCodeWorktreeUnobservable        = "worktree-ownership-unobservable"
+	repairCodeWorktreeLocalCommits        = "worktree-local-commits"
+	repairCodeWorktreeCommitSafetyUnknown = "worktree-commit-safety-unknown"
 	repairCodeTeardownResourceAmbiguous   = "teardown-resource-ambiguous"
 	repairCodeCompletionEvidenceMismatch  = "completion-evidence-mismatch"
 	repairCodeMergeFactMismatch           = "merge-fact-mismatch"
@@ -97,21 +109,24 @@ type reconciliationObservation struct {
 	Treehouse        treehouseObservation
 	Worktree         worktreeObservation
 	Herdr            herdrObservation
+	Landing          landingState
 	ObservationError bool
 }
 
 type reconciliationDecision struct {
-	Action         reconciliationAction
-	RepairCode     string
-	RepairReason   string
-	Harness        string
-	Model          string
-	Effort         string
-	ExecutionClass string
-	PlannedAgainst string
-	Profile        string
-	RoutingSource  string
-	Detail         string
+	Action          reconciliationAction
+	TerminalAttempt state.AttemptLifecycle
+	Disposition     string
+	RepairCode      string
+	RepairReason    string
+	Harness         string
+	Model           string
+	Effort          string
+	ExecutionClass  string
+	PlannedAgainst  string
+	Profile         string
+	RoutingSource   string
+	Detail          string
 }
 
 type ReconcileRequest struct {
@@ -127,6 +142,7 @@ type ReconcileResult struct {
 	Action         string `json:"action"`
 	Iterations     int    `json:"iterations"`
 	AttemptID      int64  `json:"attempt,omitempty"`
+	Landing        string `json:"landing,omitempty"`
 	RepairCode     string `json:"repair_code,omitempty"`
 	RepairReason   string `json:"repair_reason,omitempty"`
 	Harness        string `json:"harness,omitempty"`
@@ -227,6 +243,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		}
 		mergeObserved, mergeMismatch, mergeSource, err := r.observeMerge(ctx, home, history)
 		if err != nil {
+			result.Landing = string(landingUnknown)
 			result.Outcome = reconcileOutcomeBlocked
 			return result, err
 		}
@@ -259,7 +276,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		}
 		if historical != nil {
 			result.AttemptID = historical.ID
-			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, *historical, abandonWorktree)
+			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, *historical, abandonWorktree)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
@@ -295,7 +312,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		result.ExecutionClass, result.Profile = attempt.ExecutionClass, attempt.RequestedProfile
 		result.PlannedAgainst, result.RoutingSource = attempt.PlannedAgainst, attempt.RoutingSource
 		if attempt.TeardownTerminalAttempt != "" {
-			progress, decision, err := r.reconcileHistoricalAttempt(home, history.Task, attempt, abandonWorktree)
+			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, attempt, abandonWorktree)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
@@ -317,6 +334,10 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 			result.Outcome = reconcileOutcomeBlocked
 			return result, err
 		}
+		if terminalConvergenceCandidate(attempt, observation) {
+			observation.Landing = r.observeLanding(ctx, home, history.Task, mergeObserved)
+			result.Landing = string(observation.Landing)
+		}
 		decision := decideReconciliation(history.Task, attempt, observation)
 		result.Action = string(decision.Action)
 		switch decision.Action {
@@ -329,6 +350,12 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		case reconciliationActionBlocked:
 			result.Outcome = reconcileOutcomeBlocked
 			return result, fmt.Errorf("reconciliation observation was incomplete")
+		case reconciliationActionConvergeTerminal:
+			if err := r.convergeTerminalLifecycle(home, history.Task, attempt, decision); err != nil {
+				return result, err
+			}
+			result.Outcome, result.Detail = reconcileOutcomeRecovered, decision.Detail
+			continue
 		}
 		if shouldClearRepair(history.Task, attempt, observation) {
 			if err := state.ClearTaskRepair(home, id, history.Task.RepairCode); err != nil {
@@ -437,6 +464,83 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 		return false, false, "local-git", fmt.Errorf("observe local merged branch for task %q: %w", task.ID, err)
 	}
 	return merged, !merged, "local-git", nil
+}
+
+func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Task, mergeObserved bool) landingState {
+	if mergeObserved || task.DeliveredAt != "" {
+		return landingLanded
+	}
+	if task.Kind == state.KindScout {
+		if _, err := os.Stat(filepath.Join(home, "data", task.ID, "report.md")); err != nil {
+			if os.IsNotExist(err) {
+				return landingUnlanded
+			}
+			return landingUnknown
+		}
+		return landingLanded
+	}
+	if task.PR == "" {
+		return landingUnlanded
+	}
+	prMerged := r.deps.prMerged
+	if prMerged == nil {
+		prMerged = ghutil.PRIsMerged
+	}
+	merged, err := prMerged(ctx, task.PR)
+	if err != nil {
+		return landingUnknown
+	}
+	if merged {
+		return landingLanded
+	}
+	return landingUnlanded
+}
+
+func terminalConvergenceCandidate(attempt state.Attempt, observation reconciliationObservation) bool {
+	return attempt.Lifecycle == state.AttemptRunning && attempt.TeardownTerminalAttempt == "" &&
+		attempt.Herdr.PaneID != "" && observation.Herdr.State == herdrOwnershipAbsent
+}
+
+func runningPaneMissingReason(landing landingState) string {
+	if landing == landingUnknown {
+		return "persisted running Attempt has no matching Herdr pane and its landing evidence is unknown"
+	}
+	return "persisted running Attempt has no matching Herdr pane"
+}
+
+func decideTerminalConvergence(attempt state.Attempt, observation reconciliationObservation) (state.AttemptLifecycle, string, bool) {
+	if !terminalConvergenceCandidate(attempt, observation) {
+		return "", "", false
+	}
+	switch observation.Landing {
+	case landingLanded:
+		return state.AttemptCompleted, state.TeardownDispositionCompleted, true
+	case landingUnlanded:
+		return state.AttemptInterrupted, state.TeardownDispositionWorkerExitedUnlanded, true
+	}
+	return "", "", false
+}
+
+func (r *Runtime) convergeTerminalLifecycle(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
+	if err := state.SetAttemptTeardownDecision(home, task.ID, attempt.ID, decision.TerminalAttempt, decision.Disposition); err != nil {
+		return fmt.Errorf("record converged teardown decision for attempt %d: %w", attempt.ID, err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionPending); err != nil {
+		return fmt.Errorf("record converged completion phase for attempt %d: %w", attempt.ID, err)
+	}
+	record := completionFor(task, decision.Disposition, true)
+	record.AttemptID, record.AttemptLifecycle = attempt.ID, string(decision.TerminalAttempt)
+	record.TornDownAt = r.deps.now().Format(time.RFC3339)
+	if err := r.deps.appendCompletion(home, record); err != nil {
+		return fmt.Errorf("append converged completion for attempt %d: %w", attempt.ID, err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionAppended); err != nil {
+		return fmt.Errorf("record converged completion evidence for attempt %d: %w", attempt.ID, err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, task.ID, attempt.ID, attempt.Lifecycle, decision.TerminalAttempt); err != nil {
+		return fmt.Errorf("converge attempt %d to %s: %w", attempt.ID, decision.TerminalAttempt, err)
+	}
+	return nil
 }
 
 func mergeWorktreeAttempt(history state.TaskHistory) (*state.Attempt, error) {
@@ -673,7 +777,7 @@ func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) 
 	return nil, nil
 }
 
-func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attempt state.Attempt, abandonWorktree bool) (bool, reconciliationDecision, error) {
+func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, task state.Task, attempt state.Attempt, abandonWorktree bool) (bool, reconciliationDecision, error) {
 	if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
 		observation, err := observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
@@ -687,6 +791,11 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
+			}
+			if attempt.TeardownHerdrState == "" {
+				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleasing); err != nil {
+					return false, reconciliationDecision{}, err
+				}
 			}
 			if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleased); err != nil {
 				return false, reconciliationDecision{}, err
@@ -733,7 +842,7 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			}
 			return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeOwnershipMismatch, "historical worktree path is held by a different Treehouse lease"), nil
 		case worktree.LeaseAbsent:
-			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable); err != nil {
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
@@ -754,7 +863,11 @@ func (r *Runtime) reconcileHistoricalAttempt(home string, task state.Task, attem
 			if clean != worktree.Clean {
 				return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeDirty, "historical worktree is dirty; automatic reconciliation will not discard it"), nil
 			}
-			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeLegacyWorktreeUnprovable); err != nil {
+			safety := r.resolveWorktreeCommitSafety(ctx, task, attempt)
+			if safety.State != commitSafetyProvenDurable {
+				return false, repairDecision(reconciliationDecision{}, commitSafetyRepairCode(safety.State), safety.Reason), nil
+			}
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown); err != nil {
 				return false, reconciliationDecision{}, err
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
@@ -898,6 +1011,7 @@ func terminalRepairCanBeResolved(code string) bool {
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeWorktreeDirty,
 		repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable,
+		repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown,
 		repairCodeTeardownResourceAmbiguous:
 		return true
 	default:
@@ -911,7 +1025,8 @@ func terminalRepairEvidenceResolved(code string, attempt state.Attempt) bool {
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeTeardownResourceAmbiguous:
 		return !hasHerdrIdentity(attempt.Herdr) || attempt.TeardownHerdrState == state.TeardownResourceReleased
-	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable:
+	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable,
+		repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown:
 		return attempt.Worktree == "" || worktreeCleanupSettled(attempt.TeardownWorktreeState)
 	default:
 		return false
@@ -1030,6 +1145,12 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 		decision.Action = reconciliationActionBlocked
 		return decision
 	}
+	if terminal, disposition, converge := decideTerminalConvergence(attempt, observation); converge {
+		decision.Action = reconciliationActionConvergeTerminal
+		decision.TerminalAttempt, decision.Disposition = terminal, disposition
+		decision.Detail = fmt.Sprintf("attempt %d converged to %s on observed evidence", attempt.ID, terminal)
+		return decision
+	}
 	if attempt.Worktree != "" {
 		switch observation.Treehouse.State {
 		case treehouseLeaseMismatch:
@@ -1057,7 +1178,7 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 			return decision
 		}
 		if observation.Herdr.State == herdrOwnershipAbsent {
-			return repairDecision(decision, repairCodeRunningPaneMissing, "persisted running Attempt has no matching Herdr pane")
+			return repairDecision(decision, repairCodeRunningPaneMissing, runningPaneMissingReason(observation.Landing))
 		}
 		if observation.Herdr.State == herdrOwnershipMismatch {
 			return repairDecision(decision, repairCodeRunningPaneIdentityMismatch, "persisted running Attempt points at a different Herdr resource")
@@ -1147,6 +1268,89 @@ func unobservableWorktreeReason(attempt state.Attempt, probe worktree.LeaseProbe
 	return fmt.Sprintf(
 		"recorded worktree ownership could not be observed: %s; observed by running %q with working directory %s, which is what selects the pool; recorded lease %s is neither proven nor disproven; destructive cleanup refused because ownership could not be proven, not because a lease mismatched",
 		probe.Reason, probe.Command, probe.WorkingDir, lease)
+}
+
+type commitSafety string
+
+const (
+	commitSafetyProvenDurable   commitSafety = "proven-durable"
+	commitSafetyLocalWorkAtRisk commitSafety = "local-work-at-risk"
+	commitSafetyUnprovable      commitSafety = "unprovable"
+)
+
+type commitSafetyDecision struct {
+	State  commitSafety
+	Reason string
+}
+
+func (r *Runtime) resolveWorktreeCommitSafety(ctx context.Context, task state.Task, attempt state.Attempt) commitSafetyDecision {
+	observeCommits := r.deps.worktree.observeCommits
+	if observeCommits == nil {
+		observeCommits = worktree.ObserveCommitSafety
+	}
+	observation := observeCommits(attempt.Worktree)
+	switch observation.State {
+	case worktree.CommitSafetyRemoteObserved:
+		return commitSafetyDecision{
+			State:  commitSafetyProvenDurable,
+			Reason: fmt.Sprintf("every commit reachable from %s in %s is also reachable from one of the %d remote-tracking refs this clone holds, so returning the worktree discards nothing", shortCommit(observation.Probe.Head), observation.Probe.WorkingDir, observation.Probe.RemoteRefs),
+		}
+	case worktree.CommitSafetyUnknown:
+		return commitSafetyDecision{State: commitSafetyUnprovable, Reason: unprovableCommitSafetyReason(attempt, observation.Probe)}
+	}
+	if task.PR == "" {
+		return commitSafetyDecision{
+			State:  commitSafetyLocalWorkAtRisk,
+			Reason: localOnlyCommitsReason(observation.Probe, "no pull request is recorded for this task, so no pushed head can hold them either"),
+		}
+	}
+	prHead := r.deps.prHead
+	if prHead == nil {
+		prHead = ghutil.PRHeadCommit
+	}
+	pushedHead, err := prHead(ctx, task.PR)
+	if err != nil {
+		return commitSafetyDecision{
+			State:  commitSafetyUnprovable,
+			Reason: fmt.Sprintf("%d commit(s) in %s are reachable from no remote-tracking ref and the head commit of pull request %s could not be read, so whether GitHub holds them is unobserved rather than answered: %v", observation.Probe.LocalOnly, observation.Probe.WorkingDir, task.PR, err),
+		}
+	}
+	if pushedHead == observation.Probe.Head {
+		return commitSafetyDecision{
+			State:  commitSafetyProvenDurable,
+			Reason: fmt.Sprintf("no remote-tracking ref in %s reaches %s, and GitHub records that exact commit as the head of pull request %s, which holds it independently of this worktree", observation.Probe.WorkingDir, shortCommit(observation.Probe.Head), task.PR),
+		}
+	}
+	return commitSafetyDecision{
+		State:  commitSafetyLocalWorkAtRisk,
+		Reason: localOnlyCommitsReason(observation.Probe, fmt.Sprintf("pull request %s records head commit %s instead, so GitHub was never observed holding %s", task.PR, shortCommit(pushedHead), shortCommit(observation.Probe.Head))),
+	}
+}
+
+func commitSafetyRepairCode(safety commitSafety) string {
+	if safety == commitSafetyLocalWorkAtRisk {
+		return repairCodeWorktreeLocalCommits
+	}
+	return repairCodeWorktreeCommitSafetyUnknown
+}
+
+func localOnlyCommitsReason(probe worktree.CommitSafetyProbe, unheldBecause string) string {
+	return fmt.Sprintf(
+		"%d commit(s) in %s are reachable from none of the %d remote-tracking refs this clone holds, and %s; observed by running %q with working directory %s; automatic reconciliation will not discard work no other copy is known to hold",
+		probe.LocalOnly, probe.WorkingDir, probe.RemoteRefs, unheldBecause, probe.Command, probe.WorkingDir)
+}
+
+func unprovableCommitSafetyReason(attempt state.Attempt, probe worktree.CommitSafetyProbe) string {
+	return fmt.Sprintf(
+		"whether worktree %s still holds the only copy of any commit could not be observed: %s; observed by running %q with working directory %s; the return is withheld because the question went unanswered, not because work was found at risk",
+		attempt.Worktree, probe.Reason, probe.Command, probe.WorkingDir)
+}
+
+func shortCommit(commit string) string {
+	if len(commit) <= 12 {
+		return commit
+	}
+	return commit[:12]
 }
 
 func repairDecision(decision reconciliationDecision, code, reason string) reconciliationDecision {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/atqamz/hand/internal/state"
@@ -151,6 +152,132 @@ func ObserveCleanliness(worktreePath string) (Cleanliness, error) {
 		return Dirty, nil
 	}
 	return Clean, nil
+}
+
+type CommitSafetyState string
+
+const (
+	CommitSafetyRemoteObserved CommitSafetyState = "remote-observed"
+	CommitSafetyLocalOnly      CommitSafetyState = "local-only"
+	CommitSafetyUnknown        CommitSafetyState = "unknown"
+)
+
+// CommitSafetyProbe records how HEAD was compared against remote-tracking refs. RemoteRefs is
+// load-bearing: with none configured there is nothing to compare against, so a zero LocalOnly
+// would record "the question was never asked" as if it meant "nothing is at risk".
+type CommitSafetyProbe struct {
+	Command    string
+	WorkingDir string
+	Reason     string
+	Head       string
+	LocalOnly  int
+	RemoteRefs int
+}
+
+type CommitSafetyObservation struct {
+	State CommitSafetyState
+	Probe CommitSafetyProbe
+}
+
+// A remote-tracking ref exists only as this clone's record of a ref observed on a remote, so every
+// commit this count reaches is one a remote was seen holding: zero is positive proof the work
+// outlives the worktree, established without a network call.
+const localOnlyCommitCommand = "git rev-list --count HEAD --not --remotes"
+
+// ObserveCommitSafety reports whether returning a worktree could discard commits held nowhere else
+// and never fails: every cause that stops the comparison being made is CommitSafetyUnknown carrying
+// its probe, because an observation that could not be made is not proof that the work is safe.
+func ObserveCommitSafety(worktreePath string) CommitSafetyObservation {
+	if worktreePath == "" {
+		return unknownCommitSafety(CommitSafetyProbe{}, "no worktree path is recorded")
+	}
+	probe := CommitSafetyProbe{Command: localOnlyCommitCommand, WorkingDir: worktreePath}
+	head, err := HeadCommit(worktreePath)
+	if err != nil {
+		return unknownCommitSafety(probe, err.Error())
+	}
+	probe.Head = head
+	remotes, err := gitLines(worktreePath, "for-each-ref", "--format=%(refname)", "refs/remotes")
+	if err != nil {
+		return unknownCommitSafety(probe, fmt.Sprintf("list remote-tracking refs: %v", err))
+	}
+	probe.RemoteRefs = len(remotes)
+	count, err := localOnlyCommitCount(worktreePath)
+	if err != nil {
+		return unknownCommitSafety(probe, err.Error())
+	}
+	probe.LocalOnly = count
+	if count == 0 && probe.RemoteRefs > 0 {
+		return CommitSafetyObservation{State: CommitSafetyRemoteObserved, Probe: probe}
+	}
+	if probe.RemoteRefs == 0 {
+		return unknownCommitSafety(probe, "the clone holds no remote-tracking ref, so no commit here can be compared against one")
+	}
+	if upstream, pruned := prunedUpstream(worktreePath); pruned {
+		return unknownCommitSafety(probe, fmt.Sprintf("the branch records upstream %s and no remote-tracking ref for it survives, so what the remote holds is no longer recorded here", upstream))
+	}
+	return CommitSafetyObservation{State: CommitSafetyLocalOnly, Probe: probe}
+}
+
+func unknownCommitSafety(probe CommitSafetyProbe, reason string) CommitSafetyObservation {
+	if probe.Command == "" {
+		probe.Command = localOnlyCommitCommand
+	}
+	probe.Reason = reason
+	return CommitSafetyObservation{State: CommitSafetyUnknown, Probe: probe}
+}
+
+func localOnlyCommitCount(worktreePath string) (int, error) {
+	out, err := gitOutput(worktreePath, "rev-list", "--count", "HEAD", "--not", "--remotes")
+	if err != nil {
+		return 0, fmt.Errorf("count commits held only in this worktree: %w", err)
+	}
+	count, convErr := strconv.Atoi(out)
+	if convErr != nil {
+		return 0, fmt.Errorf("count commits held only in this worktree: unreadable count %q", out)
+	}
+	return count, nil
+}
+
+func prunedUpstream(worktreePath string) (string, bool) {
+	branch, err := gitOutput(worktreePath, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil || branch == "" {
+		return "", false
+	}
+	remote, err := gitOutput(worktreePath, "config", "--get", "branch."+branch+".remote")
+	if err != nil || remote == "" {
+		return "", false
+	}
+	merge, err := gitOutput(worktreePath, "config", "--get", "branch."+branch+".merge")
+	if err != nil {
+		return "", false
+	}
+	upstream := remote + "/" + strings.TrimPrefix(merge, "refs/heads/")
+	if _, err := gitOutput(worktreePath, "rev-parse", "--verify", "--quiet", "refs/remotes/"+upstream+"^{commit}"); err != nil {
+		return upstream, true
+	}
+	return "", false
+}
+
+func gitOutput(worktreePath string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = worktreePath
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func gitLines(worktreePath string, args ...string) ([]string, error) {
+	out, err := gitOutput(worktreePath, args...)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
 }
 
 // Get acquires a worktree from the project clone's treehouse pool. clonePath must be the project
