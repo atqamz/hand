@@ -1,7 +1,7 @@
 # Process exit delivers watcher events to the supervisor
 
 - Date: 2026-08-04
-- Status: accepted
+- Status: accepted, with its silent baseline superseded by [Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md)
 - Issues: none
 - PRs: atqamz/hand#125
 

@@ -66,7 +66,7 @@ var supervisorInstructions = []string{
 	"Edit `data/backlog.md` to record the task with a unique ID.",
 	"Write a brief at `data/<id>/brief.md`, including the absolute path to `state/<id>.status` and the report vocabulary the worker should append to it.",
 	"`hand status <id>` shows a worker's reported state. Workers report with `working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, or `failed:`.",
-	"Run `hand watch --until-event` as a background task to monitor the fleet. It exits on the first fleet event; exit 8 means interruption and exit 9 means takeover replacement, neither of which is a fleet event. A supervisor should re-arm it after acting on an event or when intentionally resuming monitoring.",
+	"Run `hand watch --until-event` as a background task to monitor the fleet. Arming observes the fleet's already-actionable state first, so a condition that arrived while nothing was watching still wakes it; after that it exits on the first fleet event. Exit 8 means interruption and exit 9 means takeover replacement, neither of which is a fleet event. A supervisor should re-arm it after acting on an event or when intentionally resuming monitoring.",
 	"Never merge without explicit authorization.",
 	"Run `hand teardown <id>` after work is landed. Work that is handed off but whose landing is someone else's call is recorded with `hand deliver <id> --reason <text>` first.",
 	"Never edit files under `projects/`. Workers do that in worktrees.",

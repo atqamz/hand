@@ -142,7 +142,7 @@ func newWatchCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&poll, "poll", "", "poll interval (default: config/watch-interval, or 5s)")
-	cmd.Flags().BoolVar(&untilEvent, "until-event", false, "block until the first event, print it, and exit 0")
+	cmd.Flags().BoolVar(&untilEvent, "until-event", false, "wake on the fleet's already-actionable state, or the first event after it, print it, and exit 0")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "with --until-event, give up after this long and exit 4 (default: no timeout)")
 	cmd.Flags().StringSliceVar(&events, "event", nil, "with --until-event, wake only on these event kinds (default: any); repeatable or comma-separated")
 	cmd.Flags().BoolVar(&takeover, "takeover", false, "request the current watcher to stop, then wait to acquire ownership")

@@ -152,6 +152,101 @@ func TestClassifyStatusRecoveryAfterFailureCanFireIdleUnreported(t *testing.T) {
 	}
 }
 
+func TestClassifyCatchUpFiresIdleUnreportedForAStopThatPredatesTheWatcher(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		for _, lastReport := range []string{"", state.ReportWorking} {
+			ts := NewTaskState(notBusy, time.Now())
+			ts.LastReportState = lastReport
+
+			e := ClassifyCatchUp(ts, "task-1", notBusy, "working", "")
+			if e == nil || e.Kind != KindIdleUnreported || e.Text != "idle-unreported task-1" {
+				t.Fatalf("status %q, last report %q: got %+v, want idle-unreported", notBusy, lastReport, e)
+			}
+		}
+	}
+}
+
+func TestClassifyCatchUpStaysSilentOnAnEpisodeDurableStateAlreadyNames(t *testing.T) {
+	for _, notBusy := range notBusyStatuses {
+		ts := NewTaskState(notBusy, time.Now())
+
+		if e := ClassifyCatchUp(ts, "task-1", notBusy, string(notBusy), ""); e != nil {
+			t.Fatalf("status %q: got %+v, want silence: some watcher observed and announced this episode", notBusy, e)
+		}
+	}
+}
+
+// A stop the worker itself explained needs no wake here, exactly as ClassifyStatus's own idle edge
+// absorbs it: the report line was the news, and it has its own event.
+func TestClassifyCatchUpAbsorbsAStopAReportExplains(t *testing.T) {
+	for _, explained := range []string{state.ReportDone, state.ReportFailed, state.ReportBlocked, state.ReportNeedsDecision, state.ReportPaused} {
+		ts := NewTaskState(herdr.StatusDone, time.Now())
+		ts.LastReportState = explained
+
+		if e := ClassifyCatchUp(ts, "task-1", herdr.StatusDone, "working", ""); e != nil {
+			t.Fatalf("last report %q: got %+v, want the stop absorbed", explained, e)
+		}
+	}
+}
+
+func TestClassifyCatchUpFiresBlockedForAPaneAlreadyBlockedAtArm(t *testing.T) {
+	ts := NewTaskState(herdr.StatusBlocked, time.Now())
+
+	e := ClassifyCatchUp(ts, "task-1", herdr.StatusBlocked, "working", "")
+	if e == nil || e.Kind != KindBlocked || e.Text != "blocked task-1: agent needs help" {
+		t.Fatalf("got %+v, want blocked event", e)
+	}
+	if !ts.Blocked {
+		t.Fatal("ts.Blocked = false, want the episode claimed so the next tick does not announce it again")
+	}
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, time.Now(), ""); e != nil {
+		t.Fatalf("got %+v, want ClassifyStatus to find the caught-up blocked episode already claimed", e)
+	}
+}
+
+// atqamz/hand#252 must not reopen atqamz/hand#235: a pane hand teardown is releasing is nobody's
+// condition to act on, whichever classifier meets it first.
+func TestClassifyCatchUpSuppressesEveryConditionWhileTeardownHoldsTheHerdrResource(t *testing.T) {
+	for _, releasing := range []string{state.TeardownResourceReleasing, state.TeardownResourceReleased} {
+		for _, status := range []herdr.Status{herdr.StatusDone, herdr.StatusIdle, herdr.StatusBlocked} {
+			ts := NewTaskState(status, time.Now())
+
+			if e := ClassifyCatchUp(ts, "task-1", status, "working", releasing); e != nil {
+				t.Fatalf("status %q, teardown %q: got %+v, want no wake", status, releasing, e)
+			}
+		}
+	}
+}
+
+// The status this watcher has itself seen change is ClassifyStatus's edge, and announcing both would
+// wake the supervisor twice for one stop.
+func TestClassifyCatchUpLeavesAnObservedTransitionToClassifyStatus(t *testing.T) {
+	ts := NewTaskState(herdr.StatusWorking, time.Now())
+
+	if e := ClassifyCatchUp(ts, "task-1", herdr.StatusDone, "working", ""); e != nil {
+		t.Fatalf("got %+v, want silence while ts still holds the status it was seeded with", e)
+	}
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, time.Now(), ""); e == nil || e.Kind != KindIdleUnreported {
+		t.Fatalf("got %+v, want the transition announced exactly once, by ClassifyStatus", e)
+	}
+}
+
+func TestCatchUpFilterCarriesEveryKindWhoseAnnouncementIsDurable(t *testing.T) {
+	f := CatchUpFilter()
+
+	if f.Matches(KindStale) {
+		t.Fatal("stale is deliverable at arm, so every re-arm against an unchanged status returns at once")
+	}
+	for _, kind := range KnownKinds() {
+		if kind == KindStale {
+			continue
+		}
+		if !f.Matches(kind) {
+			t.Fatalf("kind %q is not deliverable at arm, so a condition that arrived while no watcher was alive is lost", kind)
+		}
+	}
+}
+
 func TestClassifyStaleFiresOncePerWindow(t *testing.T) {
 	now := time.Now()
 	ts := NewTaskState(herdr.StatusWorking, now)
