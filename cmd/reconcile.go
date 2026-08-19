@@ -89,7 +89,7 @@ func newReconcileCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON instead of TOON")
-	cmd.Flags().BoolVar(&abandonWorktree, "abandon-worktree", false, "attest that Hand relinquishes an unobservable Treehouse lease without touching the worktree")
+	cmd.Flags().BoolVar(&abandonWorktree, "abandon-worktree", false, "attest that Hand relinquishes an unprovable Treehouse lease without touching the worktree")
 	cmd.Flags().BoolVar(&abandonPane, "abandon-pane", false, "attest that Hand relinquishes an unprovable Herdr pane identity without closing the pane")
 	cmd.Flags().BoolVar(&attemptNeverStarted, "attempt-never-started", false, "attest that a running attempt's worker took no turn, recording an honest teardown decision")
 	return cmd

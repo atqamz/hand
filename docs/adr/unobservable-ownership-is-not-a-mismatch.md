@@ -1,7 +1,7 @@
 # Unobservable ownership is not a mismatch
 
 - Date: 2026-08-17
-- Status: accepted
+- Status: accepted, superseded in part by [Every diagnosis names a reachable treatment](every-diagnosis-names-a-reachable-treatment.md)
 - Issues: atqamz/hand#245
 - PRs: atqamz/hand#248
 
