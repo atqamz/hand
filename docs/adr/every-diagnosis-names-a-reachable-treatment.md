@@ -65,6 +65,7 @@ It asserts one fact no observation settles, that this Attempt's worker took no t
 So a resource whose ownership cannot be proven is still refused and still diagnosed, and the attestation cannot become a way around a guard.
 It refuses whenever anything on record disproves it: a report line, a recorded pull request, merge or delivery, a reported state, a dirty worktree, or a commit no remote-tracking ref reaches.
 It does not refuse an unobservable worktree, because recording a decision destroys nothing and refusing there would replace one dead end with another while the release step still refuses with a diagnosed, treatable code.
+Reconcile-driven terminalization clears a usage-limit hold the same way `hand teardown` already does, because leaving it would end this dead end by making `hand reopen` unreachable behind a hold the attestation itself left no way to see coming.
 
 Whether the worker is actually dead is not a fact Hand can observe today, and atqamz/hand#255 owns that observation.
 The exit is registered before the diagnosis exists, so once reconcile can see a dead worker it can emit a code whose treatment is already enumerated and tested.

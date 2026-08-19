@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -112,12 +111,8 @@ func repairTeardown(t *testing.T, home string, r *Runtime, force bool, wantErr s
 
 func repairRuntime(client herdrClient) *Runtime {
 	r := reconcileRuntime(client, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) {
-		return false, errors.New("no GitHub access in this test")
-	}
-	r.deps.prHead = func(context.Context, string) (string, error) {
-		return "", errors.New("no GitHub access in this test")
-	}
+	r.deps.prMerged = unobservedPR("no GitHub access in this test")
+	r.deps.prHead = unobservedPR("no GitHub access in this test")
 	return r
 }
 
@@ -203,7 +198,7 @@ func stuckStatePathCases() []stuckStatePathCase {
 				return home, repairRuntime(&repairHerdr{absent: true})
 			},
 			treat: func(t *testing.T, home string, r *Runtime) {
-				r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+				r.deps.prMerged = observedMergedPR(true)
 				repairReconcile(t, home, r, ReconcileRequest{})
 			},
 		},
@@ -387,11 +382,11 @@ func stuckStatePathCases() []stuckStatePathCase {
 					t.Fatal(err)
 				}
 				r := repairRuntime(&repairHerdr{})
-				r.deps.prMerged = func(context.Context, string) (bool, error) { return false, nil }
+				r.deps.prMerged = observedMergedPR(false)
 				return home, r
 			},
 			treat: func(t *testing.T, home string, r *Runtime) {
-				r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+				r.deps.prMerged = observedMergedPR(true)
 				repairReconcile(t, home, r, ReconcileRequest{})
 			},
 		},

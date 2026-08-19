@@ -563,8 +563,21 @@ func (r *Runtime) terminalizeWithoutRelease(home string, task state.Task, attemp
 	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionAppended); err != nil {
 		return fmt.Errorf("record %s completion evidence for attempt %d: %w", label, attempt.ID, err)
 	}
-	if err := state.TerminalizeTaskAndAttempt(home, task.ID, attempt.ID, attempt.Lifecycle, decision.TerminalAttempt); err != nil {
+	if err := terminalizeAndClearLimitHold(home, task.ID, attempt.ID, attempt.Lifecycle, decision.TerminalAttempt); err != nil {
 		return fmt.Errorf("%s attempt %d to %s: %w", label, attempt.ID, decision.TerminalAttempt, err)
+	}
+	return nil
+}
+
+// A reconcile-driven terminalization is the only path to end an attempt outside `hand teardown`, so it
+// must close the same usage-limit hold that path clears (internal/runtime/teardown.go's finishTeardown)
+// - otherwise a task this call just ended keeps a live hold and `hand reopen` stays refused.
+func terminalizeAndClearLimitHold(home, taskID string, attemptID int64, attemptFrom, attemptTo state.AttemptLifecycle) error {
+	if err := state.TerminalizeTaskAndAttempt(home, taskID, attemptID, attemptFrom, attemptTo); err != nil {
+		return err
+	}
+	if err := state.ClearHoldIfKind(home, taskID, state.HoldKindLimit); err != nil {
+		return fmt.Errorf("clear usage-limit hold: %w", err)
 	}
 	return nil
 }
@@ -941,7 +954,7 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 			if attempt.Lifecycle == attempt.TeardownTerminalAttempt {
 				return false, reconciliationDecision{}, nil
 			}
-			if err := state.TerminalizeTaskAndAttempt(home, task.ID, attempt.ID, attempt.Lifecycle, attempt.TeardownTerminalAttempt); err != nil {
+			if err := terminalizeAndClearLimitHold(home, task.ID, attempt.ID, attempt.Lifecycle, attempt.TeardownTerminalAttempt); err != nil {
 				return false, reconciliationDecision{}, fmt.Errorf("finish recovered teardown: %w", err)
 			}
 			return true, reconciliationDecision{}, nil

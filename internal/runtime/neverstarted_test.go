@@ -39,6 +39,9 @@ func TestAttemptNeverStartedAttestationEndsTheAttemptHonestly(t *testing.T) {
 	if readOnlyAttempt(t, home).Lifecycle != state.AttemptRunning {
 		t.Fatal("plain reconcile ended the attempt, want a worker Hand cannot observe left running")
 	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindLimit, Reason: "usage limit", SetAt: "2026-08-15T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
 
 	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AttemptNeverStarted: true})
 	if err != nil {
@@ -68,6 +71,11 @@ func TestAttemptNeverStartedAttestationEndsTheAttemptHonestly(t *testing.T) {
 	}
 	if record.Outcome != "torn-down" || !strings.Contains(record.Detail, "worker never started") {
 		t.Fatalf("completion record = %+v, want an outcome that claims nothing about work", record)
+	}
+	if _, hasHold, err := state.ReadHold(home, "task-1"); err != nil {
+		t.Fatal(err)
+	} else if hasHold {
+		t.Fatal("usage-limit hold survived the attestation, want reconcile terminalization to clear it so reopen stays reachable")
 	}
 
 	if _, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: harness.Codex, HarnessFromFlag: true}); err != nil {
