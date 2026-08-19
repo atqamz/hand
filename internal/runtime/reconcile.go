@@ -952,6 +952,9 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 		}
 		if attempt.TeardownTerminalAttempt != "" {
 			if attempt.Lifecycle == attempt.TeardownTerminalAttempt {
+				if err := state.ClearHoldIfKind(home, task.ID, state.HoldKindLimit); err != nil {
+					return false, reconciliationDecision{}, fmt.Errorf("clear usage-limit hold for already-settled attempt %d: %w", attempt.ID, err)
+				}
 				return false, reconciliationDecision{}, nil
 			}
 			if err := terminalizeAndClearLimitHold(home, task.ID, attempt.ID, attempt.Lifecycle, attempt.TeardownTerminalAttempt); err != nil {

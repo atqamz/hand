@@ -562,6 +562,46 @@ func TestReconcileClearsRepairAfterTeardownAndReopenResolvesOldAttempt(t *testin
 	}
 }
 
+// A retry after a terminalization whose lifecycle write committed but whose hold clear did not still has
+// to converge: the historical attempt already sits at its recorded terminal lifecycle, so reconcile must
+// clear a surviving usage-limit hold on that no-progress path too, not only on the transition that sets it.
+func TestReconcileClearsUsageLimitHoldOnAlreadySettledHistoricalAttempt(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownDecision(home, "task-1", attempt.ID, state.AttemptInterrupted, state.TeardownDispositionWorkerNeverStarted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptProvisioning, state.TeardownCompletionPending); err != nil {
+		t.Fatal(err)
+	}
+	if err := completion.Append(home, completion.Record{ID: "task-1", Project: "demo", Outcome: "torn-down", Detail: "worker never started", AttemptID: attempt.ID, AttemptLifecycle: string(state.AttemptInterrupted)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptProvisioning, state.TeardownCompletionAppended); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptProvisioning, state.AttemptInterrupted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindLimit, Reason: "usage limit", SetAt: "2026-08-15T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := reconcileRuntime(&healthyReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, hasHold, err := state.ReadHold(home, "task-1"); err != nil {
+		t.Fatal(err)
+	} else if hasHold {
+		t.Fatal("usage-limit hold survived reconcile on an already-settled historical attempt, want reopen to stay reachable")
+	}
+}
+
 func convergenceTask(t *testing.T, home string, task state.Task) state.Attempt {
 	t.Helper()
 	attempt, err := state.CreateTaskWithAttempt(home, task, state.Attempt{
