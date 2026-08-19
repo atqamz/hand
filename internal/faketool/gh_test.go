@@ -222,8 +222,10 @@ func TestGHRefusesAPRItDoesNotKnow(t *testing.T) {
 		{"pr", "checks", "404", "--json", "bucket"},
 	} {
 		_, errOut, code := runGH(t, args...)
-		if code == 0 || !strings.Contains(errOut, "no such pull request") {
-			t.Fatalf("%v = %q (exit %d), want a refusal", args, errOut, code)
+		// The exact diagnostic, not any refusal: ghutil reads absence off this string and reads
+		// anything else as unknown, so a paraphrase here would turn a real absence into unknown.
+		if code == 0 || !strings.Contains(errOut, "Could not resolve to a PullRequest with the number of 404.") {
+			t.Fatalf("%v = %q (exit %d), want the gh not-found diagnostic", args, errOut, code)
 		}
 	}
 }

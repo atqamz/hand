@@ -100,8 +100,8 @@ type ghFakePR struct {
 }
 
 // The two calls gate-opened-PR detection makes: `gh pr list --repo <repo> --head <branch>`
-// (FindPRByBranch) then `gh pr view <url> --json state` (project.ValidatePR, then checkLandedWork).
-// Several PRs exercise FindPRByBranch's preference tier (atqamz/hand#77), not its single result.
+// (ObservePRByBranch) then `gh pr view <url> --json state` (project.ValidatePR, then checkLandedWork).
+// Several PRs exercise ObservePRByBranch's preference tier (atqamz/hand#77), not its single result.
 func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 	t.Helper()
 	g := faketool.GH{}
@@ -115,7 +115,7 @@ func writeFakeGHPRListAndView(t *testing.T, prs ...ghFakePR) {
 }
 
 // Registers a non-local-only project whose clone has a GitHub origin remote (RepoSlug reads it) and
-// re-points worktree's checked-out branch to branch, so FindPRByBranch's --head argument matches it.
+// re-points worktree's checked-out branch to branch, so ObservePRByBranch's --head argument matches it.
 func setupTeardownGateProject(t *testing.T, home, worktree, branch string) {
 	t.Helper()
 	runGitIn(t, worktree, "checkout", "-q", "-b", branch)
@@ -446,6 +446,67 @@ func TestTeardownShipFailsWhenPRNotMerged(t *testing.T) {
 	}
 	if invocations := readInvocations(t, worktree); len(invocations) != 0 {
 		t.Fatalf("external cleanup before landed-work refusal = %v, want no invocations", invocations)
+	}
+}
+
+// The credential rejection every unobserved-PR test below builds its failure from, quoted from real gh
+// (FIDELITY.md). Absence has its own diagnostic and this is not it.
+const ghRejectedCredential = "gh: HTTP 401: Bad credentials (https://api.github.com/graphql)\n"
+
+// atqamz/hand#241 at the call that hands a worktree back to the pool: a merge state hand could not
+// read is not a PR proven unmerged, and the worktree may hold the only copy of the work.
+func TestTeardownDoesNotReleaseAWorktreeWhoseMergeStateCouldNotBeObserved(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	faketool.GH{Responses: []faketool.GHResponse{
+		{Command: "pr view", Stderr: ghRejectedCredential, Exit: 1},
+	}}.Install(t, faketool.Bin(t))
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj", PR: teardownTestPR}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "could not be observed") || strings.Contains(err.Error(), "is not merged") {
+		t.Fatalf("got err %v, want a refusal that reports the observation failure and claims nothing about the merge", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state after an unobserved merge state = %v, %v, want task to remain", exists, err)
+	}
+	if invocations := readInvocations(t, worktree); len(invocations) != 0 {
+		t.Fatalf("external cleanup after an unobserved merge state = %v, want no invocations", invocations)
+	}
+}
+
+// The same refusal one step earlier, where the search that would have found a gate-opened PR fails:
+// an empty result hand never received is not a task without a PR, and "work may not be landed" would
+// send an operator looking for work that is sitting in a merged PR.
+func TestTeardownDoesNotReleaseAWorktreeWhosePRSearchCouldNotBeObserved(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	faketool.GH{Responses: []faketool.GHResponse{
+		{Command: "pr list", Stderr: ghRejectedCredential, Exit: 1},
+	}}.Install(t, faketool.Bin(t))
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if !strings.Contains(err.Error(), "could not be observed") || strings.Contains(err.Error(), "work may not be landed") {
+		t.Fatalf("got err %v, want a refusal that reports the observation failure rather than an absent PR", err)
+	}
+	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {
+		t.Fatalf("state after an unobserved PR search = %v, %v, want task to remain", exists, err)
+	}
+	if invocations := readInvocations(t, worktree); len(invocations) != 0 {
+		t.Fatalf("external cleanup after an unobserved PR search = %v, want no invocations", invocations)
 	}
 }
 

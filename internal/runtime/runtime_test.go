@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/atqamz/hand/internal/ghutil"
 )
 
 func TestClassifiedErrorsPreserveCause(t *testing.T) {
@@ -44,5 +47,29 @@ func TestResultCarriesWarningsWithoutPresentationDependencies(t *testing.T) {
 
 	if result.Warnings[0] != "warning: cleanup was incomplete" || result.Help[0] == "" {
 		t.Fatalf("result = %+v, want structured warning and help", result)
+	}
+}
+
+func observedMergedPR(merged bool) func(context.Context, string) ghutil.PRObservation {
+	return func(_ context.Context, pr string) ghutil.PRObservation {
+		return ghutil.PRObservation{State: ghutil.ObservationFound, URL: pr, Merged: merged}
+	}
+}
+
+func observedPRHead(commit string) func(context.Context, string) ghutil.PRObservation {
+	return func(_ context.Context, pr string) ghutil.PRObservation {
+		return ghutil.PRObservation{State: ghutil.ObservationFound, URL: pr, Head: commit}
+	}
+}
+
+func unobservedPR(reason string) func(context.Context, string) ghutil.PRObservation {
+	return func(context.Context, string) ghutil.PRObservation {
+		return ghutil.UnknownPRObservation("gh pr view", reason)
+	}
+}
+
+func absentPRObservation() func(context.Context, string) ghutil.PRObservation {
+	return func(context.Context, string) ghutil.PRObservation {
+		return ghutil.PRObservation{State: ghutil.ObservationAbsent}
 	}
 }

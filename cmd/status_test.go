@@ -555,6 +555,78 @@ func TestStatusSkipsPRDetectionForScoutTasks(t *testing.T) {
 	}
 }
 
+// atqamz/hand#241 in the one view an operator reads before deciding anything: a lookup that failed must
+// not render as the same empty pr field a task that has no PR renders, in either output shape.
+func TestStatusSingleTaskDistinguishesAnUnobservedPRFromNone(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeHerdrPaneStatus(t, "idle")
+	faketool.GH{Responses: []faketool.GHResponse{
+		{Command: "pr list", Stderr: ghRejectedCredential, Exit: 1},
+	}}.Install(t, faketool.Bin(t))
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	text := runStatusFor(t, "task-1")
+	if !strings.Contains(text, "pr: unknown") {
+		t.Fatalf("got %q, want the pr column to report the failed lookup", text)
+	}
+	if again := runStatusFor(t, "task-1"); again != text {
+		t.Fatalf("second read differs from the first:\n%s\n%s", text, again)
+	}
+
+	asJSON := runStatusFor(t, "task-1", "--json")
+	if !strings.Contains(asJSON, `"pr_observation": "unknown"`) {
+		t.Fatalf("got %q, want pr_observation unknown", asJSON)
+	}
+
+	got, err := state.ReadHistoryReadOnly(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Task.PR != "" {
+		t.Fatalf("task.PR = %q, want a failed lookup to record nothing", got.Task.PR)
+	}
+}
+
+// The other side of the same field: GitHub answered, and answered that there is no PR on this branch.
+func TestStatusSingleTaskReportsAnAnsweredAbsenceAsNone(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeHerdrPaneStatus(t, "idle")
+	writeFakeGHPRListAndView(t)
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	text := runStatusFor(t, "task-1")
+	if !strings.Contains(text, "pr: none") {
+		t.Fatalf("got %q, want the pr column to report an answered absence as none", text)
+	}
+	if asJSON := runStatusFor(t, "task-1", "--json"); !strings.Contains(asJSON, `"pr_observation": "absent"`) {
+		t.Fatalf("got %q, want pr_observation absent", asJSON)
+	}
+}
+
+func runStatusFor(t *testing.T, args ...string) string {
+	t.Helper()
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	return out.String()
+}
+
 func TestStatusFleetOverviewRendersMergeMarker(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

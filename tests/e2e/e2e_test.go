@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -607,6 +608,13 @@ func TestExitCodeThreeOnPreconditionFailure(t *testing.T) {
 			name: "teardown ship without landed work",
 			setup: func(t *testing.T, home string) {
 				registerProject(t, home, "demo", "direct-pr")
+				// The clone and the gh fake are what make the refusal below an answered absence:
+				// without them the branch search never reaches GitHub, and an unobserved PR refuses
+				// with its own message instead (atqamz/hand#241).
+				clonePath := filepath.Join(home, "projects", "demo")
+				initGitRepo(t, clonePath)
+				runGitIn(t, clonePath, "remote", "add", "origin", "https://github.com/owner/demo.git")
+				faketool.GH{}.Install(t, binDir(t))
 				worktree := filepath.Join(home, "wt")
 				initGitRepo(t, worktree)
 				writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree})

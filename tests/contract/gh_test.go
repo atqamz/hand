@@ -96,10 +96,10 @@ func TestGHPRViewFailsForAPRThatDoesNotExist(t *testing.T) {
 	run(t, "", "gh", "pr", "view", ghMergedPR, "--repo", ghRepoCased, "--json", "state").requireCode(t, 0)
 	run(t, "", "gh", "pr", "view", "999999", "--repo", ghRepo, "--json", "state").
 		requireCode(t, 1).
-		requireStderrContains(t, "Could not resolve to a PullRequest")
+		requireStderrContains(t, "Could not resolve to a PullRequest with the number of 999999. (repository.pullRequest)")
 }
 
-// PRHeadCommit reads headRefOid from a merged PR whose branch is long deleted, because GitHub's
+// ObserveHeadCommit reads headRefOid from a merged PR whose branch is long deleted, because GitHub's
 // record of the head ref outlives the clone; this pins that the field survives branch deletion.
 func TestGHPRViewReportsHeadRefOidAfterBranchDeletion(t *testing.T) {
 	requireGH(t)
@@ -174,4 +174,38 @@ func TestGHEdgeRefReportsThePublishedCommit(t *testing.T) {
 	if len(sha) != 40 {
 		t.Fatalf("edge commit = %q, want a full SHA", sha)
 	}
+}
+
+// A repository gh cannot resolve is not a pull request that is not there: GitHub answers this same way
+// for a repository that does not exist and for a private one this token may not read, so it can never
+// prove an absence (atqamz/hand#241).
+func TestGHPRViewOnAnUnresolvableRepositoryDoesNotReportAMissingPullRequest(t *testing.T) {
+	requireGH(t)
+
+	run(t, "", "gh", "pr", "view", "1", "--repo", "atqamz/no-such-repository-contract-probe", "--json", "state").
+		requireCode(t, 1).
+		requireStderrContains(t, "Could not resolve to a Repository").
+		requireStderrLacks(t, "Could not resolve to a PullRequest")
+}
+
+// A rejected credential must stay distinguishable from an absence, or hand would tell an operator to
+// fix a PR URL that was right all along. The token is a fixed invalid value written here; the real one
+// is never read, printed, or passed to this probe.
+func TestGHPRViewWithARejectedCredentialDoesNotReportAMissingPullRequest(t *testing.T) {
+	requireGH(t)
+
+	runEnv(t, "", []string{"GH_TOKEN=invalid-token-for-the-contract-probe"},
+		"gh", "pr", "view", ghMergedPR, "--repo", ghRepo, "--json", "state").
+		requireCode(t, 1).
+		requireStderrLacks(t, "Could not resolve to a PullRequest")
+}
+
+// Only the live probes below need this: a fake answers what a fixture told it to, so what a diagnostic
+// is not is a fact about the real tool.
+func (r result) requireStderrLacks(t *testing.T, unwanted string) result {
+	t.Helper()
+	if strings.Contains(r.stderr, unwanted) {
+		t.Fatalf("stderr %q, want it not to contain %q", r.stderr, unwanted)
+	}
+	return r
 }

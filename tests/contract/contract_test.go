@@ -7,6 +7,7 @@ package contract
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -22,9 +23,20 @@ type result struct {
 // tool answers on, and combining them would assert nothing about that.
 func run(t *testing.T, dir, name string, args ...string) result {
 	t.Helper()
+	return runEnv(t, dir, nil, name, args...)
+}
+
+// Same as run with extra environment entries appended, for the probe that has to see a rejected
+// credential. The value is generated here and never read from the environment, so no real token can
+// reach a test log.
+func runEnv(t *testing.T, dir string, env []string, name string, args ...string) result {
+	t.Helper()
 	var out, errOut strings.Builder
 	c := exec.Command(name, args...)
 	c.Dir = dir
+	if len(env) > 0 {
+		c.Env = append(os.Environ(), env...)
+	}
 	c.Stdout = &out
 	c.Stderr = &errOut
 	err := c.Run()

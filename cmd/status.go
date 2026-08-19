@@ -10,6 +10,7 @@ import (
 
 	"github.com/atqamz/hand/internal/age"
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
@@ -120,23 +121,26 @@ type reportedJSON struct {
 }
 
 type statusJSON struct {
-	ID               string        `json:"id"`
-	Project          string        `json:"project"`
-	Kind             string        `json:"kind"`
-	ExecutionClass   string        `json:"execution_class,omitempty"`
-	Profile          string        `json:"profile,omitempty"`
-	PlannedAgainst   string        `json:"planned_against,omitempty"`
-	RoutingSource    string        `json:"routing_source,omitempty"`
-	TaskLifecycle    string        `json:"task_lifecycle"`
-	AttemptOrdinal   int           `json:"attempt_ordinal,omitempty"`
-	AttemptLifecycle string        `json:"attempt_lifecycle,omitempty"`
-	Harness          string        `json:"harness,omitempty"`
-	Model            string        `json:"model,omitempty"`
-	Effort           string        `json:"effort,omitempty"`
-	AgentState       string        `json:"agent_state"`
-	Worktree         string        `json:"worktree"`
-	Herdr            state.Herdr   `json:"herdr"`
-	PR               string        `json:"pr"`
+	ID               string      `json:"id"`
+	Project          string      `json:"project"`
+	Kind             string      `json:"kind"`
+	ExecutionClass   string      `json:"execution_class,omitempty"`
+	Profile          string      `json:"profile,omitempty"`
+	PlannedAgainst   string      `json:"planned_against,omitempty"`
+	RoutingSource    string      `json:"routing_source,omitempty"`
+	TaskLifecycle    string      `json:"task_lifecycle"`
+	AttemptOrdinal   int         `json:"attempt_ordinal,omitempty"`
+	AttemptLifecycle string      `json:"attempt_lifecycle,omitempty"`
+	Harness          string      `json:"harness,omitempty"`
+	Model            string      `json:"model,omitempty"`
+	Effort           string      `json:"effort,omitempty"`
+	AgentState       string      `json:"agent_state"`
+	Worktree         string      `json:"worktree"`
+	Herdr            state.Herdr `json:"herdr"`
+	PR               string      `json:"pr"`
+	// Omitted where no live lookup applied, so a consumer sees "unknown" only where an
+	// empty pr field is a failed observation rather than a PR that is not there.
+	PRObservation    string        `json:"pr_observation,omitempty"`
 	MergeExecuted    bool          `json:"merged"`
 	MergeAnnounced   bool          `json:"pr_merged_observed"`
 	DeliveredAt      string        `json:"delivered_at,omitempty"`
@@ -526,7 +530,7 @@ func (v taskView) json() statusJSON {
 	}
 	return statusJSON{
 		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, ExecutionClass: e.ExecutionClass, Profile: e.RequestedProfile, PlannedAgainst: e.PlannedAgainst, RoutingSource: e.RoutingSource, TaskLifecycle: string(v.task.Lifecycle), AttemptOrdinal: e.Ordinal, AttemptLifecycle: string(e.Lifecycle), Harness: e.Harness, Model: e.Model, Effort: e.Effort,
-		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR,
+		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR, PRObservation: string(v.prObserved),
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
@@ -560,13 +564,15 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if err != nil {
 		return asPrecondition(err)
 	}
-	history.Task = detectPRForStatus(cmd.Context(), home, history)
+	var prObserved ghutil.ObservationState
+	history.Task, prObserved = detectPRForStatus(cmd.Context(), home, history)
 	t := history.Task
 
 	// An unreadable report degrades exactly as it does in the fleet view: the
 	// fault is named on the report field and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
 	v, reportLines := buildTaskView(home, client, history, full, true)
+	v.prObserved = prObserved
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
 	hold, held, err := state.ReadHoldReadOnly(home, id)

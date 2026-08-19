@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -27,6 +28,8 @@ type taskView struct {
 	latestSend    *state.SendAttempt
 	held          bool
 	hold          state.Hold
+	// Empty where no live lookup applied, which is neither a finding nor an absence.
+	prObserved ghutil.ObservationState
 }
 
 func (v taskView) execution() state.Attempt {
@@ -149,7 +152,12 @@ var taskFields = []axi.Column[taskView]{
 	{Name: "age", Value: func(v taskView) string { return formatAge(v.task.CreatedAt) }},
 	{Name: "created", Value: func(v taskView) string { return orNone(v.task.CreatedAt) }},
 	{Name: "last_report", Value: func(v taskView) string { return formatReportAge(v.lastReportAt) }},
-	{Name: "pr", Value: func(v taskView) string { return orNone(v.task.PR) }},
+	{Name: "pr", Value: func(v taskView) string {
+		if v.task.PR == "" && v.prObserved == ghutil.ObservationUnknown {
+			return "unknown"
+		}
+		return orNone(v.task.PR)
+	}},
 	{Name: "worktree", Value: func(v taskView) string { return orNone(v.execution().Worktree) }},
 	{Name: "herdr", Value: func(v taskView) string {
 		e := v.execution()

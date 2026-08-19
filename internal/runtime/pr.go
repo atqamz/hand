@@ -11,53 +11,47 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-func DetectPR(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, error) {
-	url, merged, found, err := findPR(ctx, homeDir, active, projectInfo)
-	if err != nil {
-		return task, err
+func DetectPR(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, ghutil.PRObservation, error) {
+	observation := observePR(ctx, homeDir, active, projectInfo)
+	if !observation.Found() {
+		return task, observation, nil
 	}
-	if !found {
-		return task, nil
-	}
-	if merged {
+	if observation.Merged {
 		task.MergeAnnounced = true
 	}
-	updated, _, err := RecordPR(ctx, homeDir, task, url)
+	updated, _, err := RecordPR(ctx, homeDir, task, observation.URL)
 	if err != nil {
-		return task, err
+		return task, observation, err
 	}
-	return updated, nil
+	return updated, observation, nil
 }
 
-func DetectPRReadOnly(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, error) {
-	url, merged, found, err := findPR(ctx, homeDir, active, projectInfo)
-	if err != nil {
-		return task, err
+func DetectPRReadOnly(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, ghutil.PRObservation) {
+	observation := observePR(ctx, homeDir, active, projectInfo)
+	if !observation.Found() {
+		return task, observation
 	}
-	if !found {
-		return task, nil
-	}
-	task.PR = url
-	if merged {
+	task.PR = observation.URL
+	if observation.Merged {
 		task.MergeAnnounced = true
 	}
-	return task, nil
+	return task, observation
 }
 
-func findPR(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) (string, bool, bool, error) {
+func observePR(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {
 	branch, err := currentBranch(active.Worktree)
 	if err != nil {
-		return "", false, false, err
+		return ghutil.UnknownPRObservation("git rev-parse --abbrev-ref HEAD", fmt.Sprintf("resolve the branch to search for in %s: %v", active.Worktree, err))
 	}
 	repoSlug, err := project.RepoSlug(homeDir, projectInfo)
 	if err != nil {
-		return "", false, false, err
+		return ghutil.UnknownPRObservation("git config --get remote.origin.url", fmt.Sprintf("resolve the repo to search: %v", err))
 	}
 	targets := []ghutil.PRSearchTarget{{Repo: repoSlug}}
 	if projectInfo.Upstream != "" && !strings.EqualFold(projectInfo.Upstream, repoSlug) {
 		targets = append(targets, ghutil.PRSearchTarget{Repo: projectInfo.Upstream, HeadRepo: repoSlug})
 	}
-	return ghutil.FindPRByBranch(ctx, branch, targets...)
+	return ghutil.ObservePRByBranch(ctx, branch, targets...)
 }
 
 func RecordPR(ctx context.Context, homeDir string, task state.Task, url string) (state.Task, bool, error) {

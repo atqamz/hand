@@ -242,7 +242,27 @@ Driven by `internal/ghutil`, and through it by teardown's landed-work check and 
 GitHub transport and service failures exit nonzero and put their diagnostic on stderr, not stdout.
 The fleet has observed HTTP 503, DNS lookup failure and request dial timeout failures against `api.github.com`.
 `GHResponse` preserves the configured stdout, stderr and exit code verbatim so focused tests can express each failure without a network call.
+`GH.Hang` names commands the fake never answers, for a caller's own timeout and cancellation paths, and mirrors `Herdr.Hang`.
 An empty successful result remains distinct: `gh pr list` exits 0 and writes `[]` to stdout.
+
+### The one diagnostic that proves a pull request is not there
+
+`gh pr view` exits 1 and writes exactly this to stderr for a pull request number the repository does not have:
+
+```
+GraphQL: Could not resolve to a PullRequest with the number of 999999. (repository.pullRequest)
+```
+
+Every other nonzero exit says the query did not complete, which is a different answer, so `internal/ghutil` reads absence off this shape alone and treats the rest as unknown.
+Two shapes are worth naming because they read like absence and are not:
+
+```
+GraphQL: Could not resolve to a Repository with the name of 'owner/repo'. (repository)
+gh: HTTP 401: Bad credentials (https://api.github.com/graphql)
+```
+
+GitHub answers the repository shape both for a repository that does not exist and for a private one the token may not read, so it can never stand in for a missing pull request.
+A rejected or expired credential answers the second, and reporting either of them as an absence is the failure atqamz/hand#241 removes.
 
 ### `gh pr list --repo <slug> --head <branch> --state all --limit 200 --json number,url,state,headRepository`
 
@@ -254,14 +274,14 @@ Exit 0 with a JSON array on stdout, `[]` when nothing matches - an empty result 
 ### `gh pr view <url-or-number> --json state`
 
 Exit 0 with the JSON object on stdout.
-A PR that does not exist is exit 1 with a GraphQL error on stderr.
+A PR that does not exist is exit 1 with the GraphQL diagnostic above on stderr, which is the only absence this call can prove.
 Real `gh` also writes warnings to stderr ahead of the JSON, which is why callers read stdout alone.
 
 ### `gh pr view <url-or-number> --json headRefOid`
 
 Exit 0 with the head branch's current commit SHA on stdout, the same GraphQL warnings-before-JSON shape as `--json state`.
-`PRHeadCommit` reads this rather than a local clone because GitHub's record of the head ref outlives that clone and survives the branch being deleted after a merge.
-A merged PR still answers with the SHA the head branch pointed at before deletion, so `PRHeadCommit` remains usable on a PR whose branch is long gone.
+`ObserveHeadCommit` reads this rather than a local clone because GitHub's record of the head ref outlives that clone and survives the branch being deleted after a merge.
+A merged PR still answers with the SHA the head branch pointed at before deletion, so `ObserveHeadCommit` remains usable on a PR whose branch is long gone.
 
 ### `gh pr checks <url-or-number> --json bucket`
 
@@ -286,14 +306,14 @@ This is the transition `hand merge` and `hand teardown` are sequenced around - m
 ```
 
 So the exit status cannot say whether a merge happened, and a rerun of `hand merge` would report success for a merge it did not perform.
-`runPRMerge` checks `PRIsMerged` before the merge for that reason, and `TestMergeRefusesAPRAnEarlierRunAlreadyMerged` is the check that fails without it.
+`runPRMerge` observes the merge state before the merge for that reason, and `TestMergeRefusesAPRAnEarlierRunAlreadyMerged` is the check that fails without it.
 
 Both merge entries were observed on a throwaway PR and are the one part of this file `make contract-live` does not re-run: merging is not reversible, and no contract run may land a real PR.
 
 ### Slug case
 
 GitHub serves a repo under any casing of its slug and answers with the canonical one: `--repo AtqaMZ/Hand` succeeds and reports `"nameWithOwner":"atqamz/hand"`.
-So `FindPRByBranch` folds case when comparing a `gh` answer against a git remote, and the fake matches `--repo` case-insensitively - a case-sensitive fake would answer a double search of one repo with one hit and hide the duplicate the real `gh` returns.
+So `ObservePRByBranch` folds case when comparing a `gh` answer against a git remote, and the fake matches `--repo` case-insensitively - a case-sensitive fake would answer a double search of one repo with one hit and hide the duplicate the real `gh` returns.
 
 `internal/ghutil/pr_test.go` and `tests/e2e/slug_case_test.go` cover the comparison itself.
 The latter's own `gh` fake is the one place a fake's fidelity had already been thought about; it is deliberately left as it is.
