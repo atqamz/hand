@@ -184,11 +184,15 @@ func NewTaskState(status herdr.Status, now time.Time) *TaskState {
 }
 
 // ClassifyStatus compares a fresh probe with tracked state. Actionable transitions return an event;
-// working and repeated not-busy or blocked states update ts and return nil.
-func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr error, now time.Time) *Event {
+// working and repeated not-busy or blocked states update ts and return nil. A non-empty
+// teardownHerdrState means hand teardown, not a crash, explains the pane going unreachable.
+func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr error, now time.Time, teardownHerdrState string) *Event {
 	if probeErr != nil {
 		wasProbed := ts.Probed
 		ts.Probed = false
+		if teardownHerdrState != "" {
+			return nil
+		}
 		if wasProbed {
 			ts.UnreachableFired = true
 			return &Event{TaskID: id, Kind: KindFailed, Text: fmt.Sprintf("failed %s", id)}
@@ -249,8 +253,11 @@ func ClassifyStale(ts *TaskState, id, deliveredAt string, now time.Time, thresho
 
 // ClassifyUnreachable covers the one outage ClassifyStatus's immediate branch cannot: a task whose
 // very first sighting - or first sighting after a restart - finds its pane unreachable, which leaves
-// ts.Probed false with no prior "was probed" edge to fire on.
-func ClassifyUnreachable(ts *TaskState, id string, now time.Time, threshold time.Duration) *Event {
+// ts.Probed false with no prior "was probed" edge to fire on. teardownHerdrState is as in ClassifyStatus.
+func ClassifyUnreachable(ts *TaskState, id string, now time.Time, threshold time.Duration, teardownHerdrState string) *Event {
+	if teardownHerdrState != "" {
+		return nil
+	}
 	// ClassifyStatus's success path clears ts.Probed back to true, so a pane that answers again before
 	// the dwell matures never reaches it.
 	if ts.Probed || ts.UnreachableFired {

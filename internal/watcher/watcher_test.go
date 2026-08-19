@@ -1613,13 +1613,13 @@ func TestForgetPaneScopedCacheGivesTheShipsFirstProbeFailureADwell(t *testing.T)
 
 	forgetPaneScopedCache(ts, promotedTask(now), promotedAttempt(now), now)
 
-	if e := ClassifyStatus(ts, "task-1", "", errors.New("pane not found"), now); e != nil {
+	if e := ClassifyStatus(ts, "task-1", "", errors.New("pane not found"), now, ""); e != nil {
 		t.Fatalf("event = %+v, want none: a blink on the ship's first probe is not a failure", e)
 	}
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Second), 5*time.Minute); e != nil {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Second), 5*time.Minute, ""); e != nil {
 		t.Fatalf("event = %+v, want none: the ship's outage has not outlived the threshold", e)
 	}
-	e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), 5*time.Minute)
+	e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), 5*time.Minute, "")
 	if e == nil || e.Kind != KindFailed {
 		t.Fatalf("event = %+v, want failed: the ship's pane stayed unreachable past the threshold", e)
 	}
@@ -1737,7 +1737,7 @@ func TestForgetPaneScopedCacheStopsIdleUnreportedForAStatusTheShipNeverHeld(t *t
 
 	forgetPaneScopedCache(ts, promotedTask(now), promotedAttempt(now), now)
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second)); e != nil {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(time.Second), ""); e != nil {
 		t.Fatalf("event = %+v, want none: the ship was never observed working, so its first probe cannot be an unexplained stop", e)
 	}
 }
@@ -1756,7 +1756,7 @@ func TestForgetPaneScopedCacheLetsTheShipsOwnBlockedFireAfterABlockedScout(t *te
 
 	forgetPaneScopedCache(ts, promotedTask(now), promotedAttempt(now), now)
 
-	e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(time.Second))
+	e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(time.Second), "")
 	if e == nil || e.Kind != KindBlocked {
 		t.Fatalf("event = %+v, want blocked: the ship's pane raised its own question", e)
 	}
@@ -2310,6 +2310,38 @@ func TestRunUntilEventFiltersWakesToTheRequestedKinds(t *testing.T) {
 	}
 	if !strings.Contains(string(logData), "idle-unreported task-1") {
 		t.Fatalf("events.log = %q, want the filtered-out event still recorded", string(logData))
+	}
+}
+
+// Covers atqamz/hand#235: releaseHerdr commits TeardownResourceReleasing before it closes the pane, so
+// a caller armed on failed while a deliberate hand teardown is in flight must not read that release as
+// a worker failure and wake early.
+func TestRunUntilEventDoesNotWakeFailedWhileTeardownIsReleasingTheHerdrResource(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	callLog := logPaneGets(t)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}, TeardownHerdrState: state.TeardownResourceReleasing})
+	cfg := Config{
+		Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 300 * time.Millisecond,
+		EventFilter: NewEventFilter([]string{KindFailed}),
+	}
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
+
+	waitForPaneGets(t, callLog, 3)
+	setStatus(t, statusFile, paneGoneStatus)
+
+	err := <-done
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: teardown's own release must not read as a failed worker", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want nothing woken: the pane going unreachable here is teardown's own release, not a failure", out.String())
 	}
 }
 
