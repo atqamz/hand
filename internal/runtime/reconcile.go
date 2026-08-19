@@ -420,9 +420,6 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 		if prMerged == nil {
 			prMerged = ghutil.ObserveMergeState
 		}
-		// Absent refuses alongside unknown: a recorded PR GitHub cannot resolve says nothing about
-		// whether the work merged, and recording a merge-fact mismatch from it would be a durable
-		// false claim about the operator every later run reads.
 		observation := prMerged(ctx, task.PR)
 		if !observation.Found() {
 			return false, false, "github-pr", fmt.Errorf("observe merged PR %s: %s", task.PR, observation.Reason())

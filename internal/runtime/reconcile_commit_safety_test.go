@@ -207,9 +207,7 @@ func TestReconcileWithholdsReturnWhenCommitSafetyCannotBeObserved(t *testing.T) 
 			wantReason:  "could not be read",
 		},
 		{
-			// A pull request GitHub will not resolve is not a pull request proven to hold nothing:
-			// absence answers the wrong question here, so it withholds the return like unknown.
-			name:        "recorded pull request gh reports as absent",
+			name:        "absent pull request withholds the return like unknown",
 			pr:          "https://github.com/atqamz/hand/pull/7",
 			observation: localOnlyCommits(commitSafetyHead, 1),
 			prHead:      absentPRObservation(),

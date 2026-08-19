@@ -50,8 +50,6 @@ func TestResultCarriesWarningsWithoutPresentationDependencies(t *testing.T) {
 	}
 }
 
-// The observation stubs every reconcile and teardown test builds its GitHub answers from, so a
-// test states which of the three states it is exercising rather than a bool and an error.
 func observedMergedPR(merged bool) func(context.Context, string) ghutil.PRObservation {
 	return func(_ context.Context, pr string) ghutil.PRObservation {
 		return ghutil.PRObservation{State: ghutil.ObservationFound, URL: pr, Merged: merged}

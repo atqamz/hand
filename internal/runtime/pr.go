@@ -11,9 +11,6 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// DetectPR records the PR whose head ref is this attempt's branch. The observation travels back to
-// the caller so a guard can tell "GitHub says there is no PR" from "GitHub was not reached", which
-// are the same empty task otherwise.
 func DetectPR(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, ghutil.PRObservation, error) {
 	observation := observePR(ctx, homeDir, active, projectInfo)
 	if !observation.Found() {
@@ -29,8 +26,6 @@ func DetectPR(ctx context.Context, homeDir string, task state.Task, active state
 	return updated, observation, nil
 }
 
-// DetectPRReadOnly fills a task's PR from GitHub without writing anything, for the status views.
-// Only a found observation touches the task; absent and unknown are the caller's to render apart.
 func DetectPRReadOnly(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, ghutil.PRObservation) {
 	observation := observePR(ctx, homeDir, active, projectInfo)
 	if !observation.Found() {
@@ -43,8 +38,6 @@ func DetectPRReadOnly(ctx context.Context, homeDir string, task state.Task, acti
 	return task, observation
 }
 
-// A prerequisite that fails locally is unknown, not absent: an unreadable branch or an
-// underivable repo slug means the question was never put to GitHub at all.
 func observePR(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {
 	branch, err := currentBranch(active.Worktree)
 	if err != nil {
