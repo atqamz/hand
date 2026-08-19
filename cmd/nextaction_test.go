@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
@@ -123,7 +124,7 @@ func TestClassifyNextActionExactPrecedence(t *testing.T) {
 		{
 			"gate outranks queued work",
 			configuredWorker, 1, queuedBacklog,
-			[]taskView{{task: state.Task{ID: "gate-task"}, gateIssue: "no run found"}}, nil,
+			[]taskView{{task: state.Task{ID: "gate-task"}, gateObserved: ghutil.ObservationAbsent}}, nil,
 			nextAction{Kind: nextActionGate, Task: "gate-task", Command: "hand status gate-task", Reason: statusReason("gate-task", "confirm its delivery gate status")},
 		},
 		{

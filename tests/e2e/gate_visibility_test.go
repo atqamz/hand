@@ -113,21 +113,22 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	if fleet.code != 0 {
 		t.Fatalf("status: exit %d, stderr %q", fleet.code, fleet.stderr)
 	}
-	if !strings.Contains(fleet.stdout, " gate-no-run-found\n") {
+	if !strings.Contains(fleet.stdout, " gate-absent\n") {
 		t.Fatalf("status stdout = %q, want the shipped PR flagged as never having run through the gate", fleet.stdout)
 	}
 
 	single := runHand(t, home, "status", "ship-login-fix")
-	if single.code != 0 || !strings.Contains(single.stdout, "\ngate: no run found\n") {
+	if single.code != 0 || !strings.Contains(single.stdout, "\ngate: absent\n") {
 		t.Fatalf("status ship-login-fix stdout = %q (exit %d), want the gate field naming it", single.stdout, single.code)
 	}
 
 	singleJSON := runHand(t, home, "status", "ship-login-fix", "--json")
-	if singleJSON.code != 0 || !strings.Contains(singleJSON.stdout, `"gate_run_issue": "no run found"`) {
-		t.Fatalf("status --json stdout = %q (exit %d), want gate_run_issue", singleJSON.stdout, singleJSON.code)
+	if singleJSON.code != 0 || !strings.Contains(singleJSON.stdout, `"gate_observation": "absent"`) {
+		t.Fatalf("status --json stdout = %q (exit %d), want gate_observation", singleJSON.stdout, singleJSON.code)
 	}
 
-	// And both have to stop saying it the moment a completed run records that exact URL.
+	// And both have to stop saying absent, and start saying found, the moment a completed run
+	// records that exact URL - a completed run must never render the same as one that never ran.
 	writeFakeNoMistakes(t, dir, gateReadyStatus,
 		"  completed    ship-login-fix  758d72bf  2026-08-03 04:29  "+prURL, 0)
 
@@ -137,6 +138,11 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	}
 	if strings.Contains(gated.stdout, "gate-") {
 		t.Fatalf("status stdout = %q, want no gate marker once a completed run recorded this PR", gated.stdout)
+	}
+
+	gatedSingle := runHand(t, home, "status", "ship-login-fix")
+	if gatedSingle.code != 0 || !strings.Contains(gatedSingle.stdout, "\ngate: found\n") {
+		t.Fatalf("status ship-login-fix stdout = %q (exit %d), want the gate field naming the completed run found", gatedSingle.stdout, gatedSingle.code)
 	}
 }
 

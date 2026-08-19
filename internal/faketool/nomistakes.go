@@ -5,9 +5,12 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 )
 
-// NoMistakes models the text and command-specific exit status hand consumes.
+// NoMistakes models the text and command-specific exit status hand consumes. Hang names
+// subcommands (e.g. "runs") the fake never answers, for a caller's own timeout and cancellation
+// paths - same shape and purpose as GH.Hang and Herdr.Hang.
 type NoMistakes struct {
 	Stdout     string
 	Exit       int
@@ -17,6 +20,7 @@ type NoMistakes struct {
 	RunsExit   int
 	Init       string
 	InitExit   int
+	Hang       []string
 	Log        string
 	CountLog   string
 }
@@ -30,6 +34,7 @@ type noMistakesSpec struct {
 	RunsExit   int
 	Init       string
 	InitExit   int
+	Hang       []string
 	Log        string
 	CountLog   string
 }
@@ -56,6 +61,13 @@ func runNoMistakesFromPayload(payload json.RawMessage, args []string) int {
 	}
 	stdout, exit := spec.Stdout, spec.Exit
 	if len(args) > 0 {
+		for _, blocked := range spec.Hang {
+			if blocked == args[0] {
+				for {
+					time.Sleep(time.Hour)
+				}
+			}
+		}
 		switch args[0] {
 		case "status":
 			if spec.Status != "" {
