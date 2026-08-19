@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -82,7 +83,7 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	dir := binDir(t)
 	writeFakeTreehouse(t, dir, worktree)
 	writeFakeHerdrStatic(t, dir, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo", PaneStatus: "idle"})
-	writeFakeDispatch(t, dir, "gh", "", "$1 $2", `  "pr view") echo '{"state":"OPEN"}' ;;`)
+	faketool.GH{PRs: []faketool.GHPR{{URL: prURL, State: "OPEN"}}}.Install(t, dir)
 	writeFakeNoMistakes(t, dir, gateReadyStatus,
 		"  completed    other-branch  758d72bf  2026-08-03 04:29  https://github.com/owner/demo/pull/4", 0)
 

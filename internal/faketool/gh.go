@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -13,7 +14,9 @@ import (
 	"time"
 )
 
-// GHPR describes one pull request and the checks its fake reports.
+// GHPR describes one pull request and the checks its fake reports. Body, Assignees, Draft,
+// Labels, Milestone and Reviewers are its initial operator-owned metadata; pr edit and pr ready
+// mutate a separate per-PR state file from there, the same way State does for merge/close.
 type GHPR struct {
 	Number     int
 	URL        string
@@ -23,6 +26,23 @@ type GHPR struct {
 	HeadRepo   string
 	HeadRefOid string
 	Checks     []string
+	Body       string
+	Assignees  []string
+	Draft      bool
+	Labels     []string
+	Milestone  string
+	Reviewers  []string
+}
+
+// The mutable half of a pull request's metadata: everything pr edit and pr ready can change,
+// stored apart from State so a merge/close and a metadata edit never race on the same file.
+type ghPRMetadataState struct {
+	Body      string   `json:"body"`
+	Assignees []string `json:"assignees"`
+	Draft     bool     `json:"draft"`
+	Labels    []string `json:"labels"`
+	Milestone string   `json:"milestone"`
+	Reviewers []string `json:"reviewers"`
 }
 
 type GHRepo struct {
@@ -103,6 +123,20 @@ func (g GH) Install(t *testing.T, bin string) {
 		} else if err != nil {
 			t.Fatal(err)
 		}
+		metaPath := ghMetadataPath(state, i)
+		if _, err := os.Stat(metaPath); os.IsNotExist(err) {
+			meta := ghPRMetadataState{
+				Body: pr.Body, Assignees: pr.Assignees, Draft: pr.Draft,
+				Labels: pr.Labels, Milestone: pr.Milestone, Reviewers: pr.Reviewers,
+			}
+			data, err := json.Marshal(meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, metaPath, string(data))
+		} else if err != nil {
+			t.Fatal(err)
+		}
 	}
 	spec := ghSpec{
 		PRs: g.PRs, Repos: g.Repos, Release: g.Release, Responses: g.Responses,
@@ -173,6 +207,10 @@ func runGHFromPayload(payload json.RawMessage, args []string) int {
 		return ghRepoView(spec, args)
 	case "pr view":
 		return ghPRView(spec, args)
+	case "pr edit":
+		return ghPREdit(spec, args)
+	case "pr ready":
+		return ghPRReady(spec, args)
 	case "pr list":
 		return ghPRList(spec, args)
 	case "pr checks":
@@ -214,18 +252,197 @@ func ghPRView(spec ghSpec, args []string) int {
 	if !ok {
 		return ghNoSuchPR(args[2])
 	}
-	switch flagValue(args, "--json") {
-	case "headRefOid":
-		_, _ = fmt.Fprintf(os.Stdout, "{\"headRefOid\":%s}\n", jsonQuote(spec.PRs[index].HeadRefOid))
-		return 0
-	default:
-		state, err := os.ReadFile(ghStatePath(spec.StateDir, index))
-		if err != nil {
-			return fail("read gh pull request state: %v", err)
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "{\"state\":%s}\n", jsonQuote(strings.TrimSpace(string(state))))
-		return 0
+	prState, err := os.ReadFile(ghStatePath(spec.StateDir, index))
+	if err != nil {
+		return fail("read gh pull request state: %v", err)
 	}
+	meta, err := ghReadMetadata(spec.StateDir, index)
+	if err != nil {
+		return fail("read gh pull request metadata: %v", err)
+	}
+	values := map[string]string{
+		"state":                   jsonQuote(strings.TrimSpace(string(prState))),
+		"headRefOid":              jsonQuote(spec.PRs[index].HeadRefOid),
+		"body":                    jsonQuote(meta.Body),
+		"isDraft":                 strconv.FormatBool(meta.Draft),
+		"assignees":               ghLoginArray(meta.Assignees),
+		"labels":                  ghLabelArray(meta.Labels),
+		"milestone":               ghMilestoneValue(meta.Milestone),
+		"reviewRequests":          ghLoginArray(meta.Reviewers),
+		"closingIssuesReferences": ghClosingIssuesReferences(meta.Body),
+	}
+	fields := strings.Split(flagValue(args, "--json"), ",")
+	var out strings.Builder
+	out.WriteByte('{')
+	for i, field := range fields {
+		value, known := values[field]
+		if !known {
+			return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+		}
+		if i > 0 {
+			out.WriteByte(',')
+		}
+		fmt.Fprintf(&out, "%s:%s", jsonQuote(field), value)
+	}
+	out.WriteByte('}')
+	_, _ = fmt.Fprintln(os.Stdout, out.String())
+	return 0
+}
+
+// Modeled from gh's documented pr edit flags, not an observed transcript: editing a pull
+// request's operator-owned metadata is exactly what contract-live's live gh lane refuses to
+// exercise (FIDELITY.md), so there is no real-tool run to record here.
+func ghPREdit(spec ghSpec, args []string) int {
+	if len(args) < 3 {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	index, ok := ghPRIndex(spec.PRs, args[2])
+	if !ok {
+		return ghNoSuchPR(args[2])
+	}
+	meta, err := ghReadMetadata(spec.StateDir, index)
+	if err != nil {
+		return fail("read gh pull request metadata: %v", err)
+	}
+	if body, present := flagValuePresent(args, "--body"); present {
+		meta.Body = body
+	}
+	meta.Assignees = applySetFlags(meta.Assignees, flagValues(args, "--add-assignee"), flagValues(args, "--remove-assignee"))
+	meta.Labels = applySetFlags(meta.Labels, flagValues(args, "--add-label"), flagValues(args, "--remove-label"))
+	meta.Reviewers = applySetFlags(meta.Reviewers, flagValues(args, "--add-reviewer"), flagValues(args, "--remove-reviewer"))
+	if milestone, present := flagValuePresent(args, "--milestone"); present {
+		meta.Milestone = milestone
+	}
+	if hasFlag(args, "--remove-milestone") {
+		meta.Milestone = ""
+	}
+	if err := ghWriteMetadata(spec.StateDir, index, meta); err != nil {
+		return fail("write gh pull request metadata: %v", err)
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "%s\n", spec.PRs[index].URL)
+	return 0
+}
+
+// Modeled from gh's documented pr ready flags for the same reason ghPREdit is: a draft/ready
+// toggle changes what an operator owns, so contract-live never runs it for real.
+func ghPRReady(spec ghSpec, args []string) int {
+	if len(args) < 3 {
+		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
+	}
+	index, ok := ghPRIndex(spec.PRs, args[2])
+	if !ok {
+		return ghNoSuchPR(args[2])
+	}
+	prState, err := os.ReadFile(ghStatePath(spec.StateDir, index))
+	if err != nil {
+		return fail("read gh pull request state: %v", err)
+	}
+	if strings.TrimSpace(string(prState)) != "OPEN" {
+		return fail("pull request %s is not open", args[2])
+	}
+	meta, err := ghReadMetadata(spec.StateDir, index)
+	if err != nil {
+		return fail("read gh pull request metadata: %v", err)
+	}
+	meta.Draft = hasFlag(args, "--undo")
+	if err := ghWriteMetadata(spec.StateDir, index, meta); err != nil {
+		return fail("write gh pull request metadata: %v", err)
+	}
+	return 0
+}
+
+func ghMetadataPath(dir string, index int) string {
+	return filepath.Join(dir, fmt.Sprintf("pr%d.meta.json", index))
+}
+
+func ghReadMetadata(dir string, index int) (ghPRMetadataState, error) {
+	data, err := os.ReadFile(ghMetadataPath(dir, index))
+	if err != nil {
+		return ghPRMetadataState{}, err
+	}
+	var meta ghPRMetadataState
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return ghPRMetadataState{}, err
+	}
+	return meta, nil
+}
+
+func ghWriteMetadata(dir string, index int, meta ghPRMetadataState) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(ghMetadataPath(dir, index), string(data))
+}
+
+// Folds add/remove flags over a current set, preserving current's order and appending newly
+// added entries after it - an order gh itself does not document.
+func applySetFlags(current, add, remove []string) []string {
+	keep := make(map[string]bool, len(current))
+	for _, v := range current {
+		keep[v] = true
+	}
+	for _, v := range remove {
+		delete(keep, v)
+	}
+	for _, v := range add {
+		keep[v] = true
+	}
+	result := make([]string, 0, len(keep))
+	for _, v := range current {
+		if keep[v] {
+			result = append(result, v)
+			delete(keep, v)
+		}
+	}
+	for _, v := range add {
+		if keep[v] {
+			result = append(result, v)
+			delete(keep, v)
+		}
+	}
+	return result
+}
+
+func ghLoginArray(logins []string) string {
+	items := make([]string, len(logins))
+	for i, login := range logins {
+		items[i] = fmt.Sprintf(`{"login":%s}`, jsonQuote(login))
+	}
+	return "[" + strings.Join(items, ",") + "]"
+}
+
+func ghLabelArray(labels []string) string {
+	items := make([]string, len(labels))
+	for i, label := range labels {
+		items[i] = fmt.Sprintf(`{"name":%s}`, jsonQuote(label))
+	}
+	return "[" + strings.Join(items, ",") + "]"
+}
+
+func ghMilestoneValue(title string) string {
+	if title == "" {
+		return "null"
+	}
+	return fmt.Sprintf(`{"title":%s}`, jsonQuote(title))
+}
+
+// Mirrors this repository's own convention (AGENTS.md): a closing reference is always fully
+// qualified as owner/repo#N, never a bare #N, so that is the only shape this fake recognizes.
+var closingIssuePattern = regexp.MustCompile(`(?i)(?:closes|fixes|resolves)\s+[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#(\d+)`)
+
+func ghClosingIssuesReferences(body string) string {
+	matches := closingIssuePattern.FindAllStringSubmatch(body, -1)
+	seen := make(map[string]bool, len(matches))
+	items := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if seen[m[1]] {
+			continue
+		}
+		seen[m[1]] = true
+		items = append(items, fmt.Sprintf(`{"number":%s}`, m[1]))
+	}
+	return "[" + strings.Join(items, ",") + "]"
 }
 
 func ghPRList(spec ghSpec, args []string) int {
@@ -477,6 +694,25 @@ func flagValue(args []string, flag string) string {
 		}
 	}
 	return ""
+}
+
+func flagValuePresent(args []string, flag string) (string, bool) {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+	return "", false
+}
+
+func flagValues(args []string, flag string) []string {
+	var values []string
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			values = append(values, args[i+1])
+		}
+	}
+	return values
 }
 
 func repoName(slug string) string {

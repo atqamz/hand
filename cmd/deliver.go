@@ -6,6 +6,7 @@ import (
 
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -53,6 +54,12 @@ func newDeliverCmd() *cobra.Command {
 			}
 			t.DeliveredAt = deliveredAt
 			t.DeliveredReason = reason
+
+			if t.PR != "" {
+				if err := project.ReassertPRMetadata(cmd.Context(), home, t.PR); err != nil {
+					return fmt.Errorf("reassert operator-owned PR metadata: %w", err)
+				}
+			}
 
 			var doc axi.Doc
 			doc.Field("id", id)

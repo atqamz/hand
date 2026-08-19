@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/runtime"
 	"github.com/atqamz/hand/internal/state"
@@ -51,6 +52,18 @@ func writeFakeGhPRView(t *testing.T, exitCode int) {
 func writeFakeGhPRViewResponse(t *testing.T, response faketool.GHResponse) {
 	t.Helper()
 	faketool.GH{Responses: []faketool.GHResponse{response}}.Install(t, faketool.Bin(t))
+}
+
+// Backs a successful `hand pr` recording with a real per-PR fake, not just a canned "pr view"
+// response: recording also reasserts operator-owned metadata, which needs pr edit and pr ready
+// to resolve against something, not just answer state.
+func installFakeGhPRs(t *testing.T, urls ...string) {
+	t.Helper()
+	prs := make([]faketool.GHPR, len(urls))
+	for i, url := range urls {
+		prs[i] = faketool.GHPR{URL: url, State: "OPEN"}
+	}
+	faketool.GH{PRs: prs}.Install(t, faketool.Bin(t))
 }
 
 func setupPRHome(t *testing.T) (home, clonePath string) {
@@ -110,10 +123,12 @@ func TestPRReconcilesWhenSameURLAlreadyRecorded(t *testing.T) {
 	home, _ := setupPRHome(t)
 	url := "https://github.com/a/b/pull/1"
 	// The project is deliberately unregistered: reaching validation would exit 3, so passing also proves it
-	// is skipped for a URL already on record.
+	// is skipped for a URL already on record. Reasserting metadata does not depend on project
+	// registration, so it still runs and still needs a PR to resolve against.
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "unregistered", PR: url}); err != nil {
 		t.Fatal(err)
 	}
+	installFakeGhPRs(t, url)
 
 	cmd := newPRCmd()
 	var out bytes.Buffer
@@ -259,9 +274,9 @@ func TestPRAcceptsTheDeclaredUpstreamAndStillRefusesAnyOtherRepo(t *testing.T) {
 	if err := state.Write(home, state.Task{ID: "task-2", Project: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	writeFakeGhPRView(t, 0)
-
 	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
+	installFakeGhPRs(t, upstreamPR)
+
 	cmd := newPRCmd()
 	cmd.SetArgs([]string{"task-1", upstreamPR})
 	if err := cmd.Execute(); err != nil {
@@ -310,9 +325,10 @@ func TestPRAcceptsCanonicalCasingForDifferentlyCasedRemoteAndUpstream(t *testing
 			t.Fatal(err)
 		}
 	}
-	writeFakeGhPRView(t, 0)
-
 	own := "https://github.com/atqamz/no-mistakes/pull/31"
+	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
+	installFakeGhPRs(t, own, upstreamPR)
+
 	cmd := newPRCmd()
 	cmd.SetArgs([]string{"task-1", own})
 	if err := cmd.Execute(); err != nil {
@@ -326,7 +342,6 @@ func TestPRAcceptsCanonicalCasingForDifferentlyCasedRemoteAndUpstream(t *testing
 		t.Fatalf("task.PR = %q, want %q", task.PR, own)
 	}
 
-	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
 	up := newPRCmd()
 	up.SetArgs([]string{"task-2", upstreamPR})
 	if err := up.Execute(); err != nil {
@@ -440,7 +455,7 @@ func TestPRRecordsSuccessfully(t *testing.T) {
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	writeFakeGhPRView(t, 0)
+	installFakeGhPRs(t, "https://github.com/owner/secondhand/pull/1")
 
 	cmd := newPRCmd()
 	var out bytes.Buffer
@@ -459,5 +474,66 @@ func TestPRRecordsSuccessfully(t *testing.T) {
 	}
 	if task.PR != "https://github.com/owner/secondhand/pull/1" {
 		t.Fatalf("task.PR = %q, want the URL recorded", task.PR)
+	}
+}
+
+func TestPREstablishesAPipelineRegionOnTheLiveBody(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/owner/secondhand.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	url := "https://github.com/owner/secondhand/pull/1"
+	faketool.GH{PRs: []faketool.GHPR{{URL: url, State: "OPEN", Body: "operator wrote this"}}}.Install(t, faketool.Bin(t))
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", url})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	meta, observation := ghutil.FetchPRMetadata(context.Background(), url)
+	if !observation.Found() {
+		t.Fatalf("observation = %+v, want the recorded PR found", observation)
+	}
+	operatorBody, _, ok := ghutil.SplitBody(meta.Body)
+	if !ok {
+		t.Fatalf("body = %q, want hand pr to have established a pipeline region", meta.Body)
+	}
+	if operatorBody != "operator wrote this" {
+		t.Fatalf("operator body = %q, want the original content preserved", operatorBody)
+	}
+}
+
+func TestPRPropagatesAReassertMetadataFailure(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/owner/secondhand.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	// This view response answers validation but registers no PR for the fake to resolve the
+	// edit that establishing a pipeline region needs against, so reasserting fails after
+	// recordPR has already succeeded.
+	writeFakeGhPRView(t, 0)
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "https://github.com/owner/secondhand/pull/1"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "reassert operator-owned PR metadata") {
+		t.Fatalf("got %v, want the reassert failure to propagate", err)
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "https://github.com/owner/secondhand/pull/1" {
+		t.Fatalf("task.PR = %q, want the URL recorded even though reasserting its metadata failed", task.PR)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -30,13 +31,13 @@ func TestPRCommand(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "e2e-fixture", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning})
 
+	url := "https://github.com/owner/e2e-fixture/pull/7"
 	invocationLog := filepath.Join(t.TempDir(), "gh-invocations.log")
-	writeFakeDispatch(t, dir, "gh", invocationLog, "$1 $2", `  "pr view") echo '{"state":"OPEN"}' ;;`)
+	faketool.GH{Log: invocationLog, PRs: []faketool.GHPR{{URL: url, State: "OPEN"}}}.Install(t, dir)
 
 	mismatch := runHand(t, home, "pr", "task-1", "https://github.com/other/repo/pull/1")
 	assertInvocation(t, mismatch, 3, "not project")
 
-	url := "https://github.com/owner/e2e-fixture/pull/7"
 	recorded := runHand(t, home, "pr", "task-1", url)
 	if recorded.code != 0 {
 		t.Fatalf("pr record: exit %d, stderr %q", recorded.code, recorded.stderr)

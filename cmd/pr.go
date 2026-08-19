@@ -6,6 +6,7 @@ import (
 
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/runtime"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
@@ -37,6 +38,9 @@ func newPRCmd() *cobra.Command {
 			task, reconcile, err := recordPR(cmd.Context(), fleetHome, task, url)
 			if err != nil {
 				return err
+			}
+			if err := project.ReassertPRMetadata(cmd.Context(), fleetHome, url); err != nil {
+				return fmt.Errorf("reassert operator-owned PR metadata: %w", err)
 			}
 			result := "recorded"
 			if reconcile {
