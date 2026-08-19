@@ -126,7 +126,7 @@ func TestReconcileCommandPreservesRepairAndObservationErrors(t *testing.T) {
 
 // An attestation names one lease. Without a task ID it would relinquish whatever the fleet-wide
 // sweep happened to find unobservable, so the flag is refused before anything is read.
-func TestReconcileCommandRefusesFleetWideAbandonment(t *testing.T) {
+func TestReconcileCommandRefusesFleetWideAttestation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HAND_HOME", home)
 	if err := os.MkdirAll(state.Dir(home), 0o755); err != nil {
@@ -135,17 +135,36 @@ func TestReconcileCommandRefusesFleetWideAbandonment(t *testing.T) {
 	if err := state.CreateTask(home, state.Task{ID: "task-1", Lifecycle: state.TaskTerminal}); err != nil {
 		t.Fatal(err)
 	}
-	cmd := newReconcileCmd()
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"--abandon-worktree"})
-	err := cmd.Execute()
-	var exitErr *ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
-		t.Fatalf("reconcile error = %v, want precondition exit 3", err)
+	for _, flag := range []string{"--abandon-worktree", "--abandon-pane", "--attempt-never-started"} {
+		t.Run(flag, func(t *testing.T) {
+			cmd := newReconcileCmd()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetArgs([]string{flag})
+			err := cmd.Execute()
+			var exitErr *ExitError
+			if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+				t.Fatalf("reconcile error = %v, want precondition exit 3", err)
+			}
+			if !strings.Contains(err.Error(), "explicit task ID") {
+				t.Fatalf("reconcile error = %v, want the missing task ID named", err)
+			}
+		})
 	}
-	if !strings.Contains(err.Error(), "explicit task ID") {
-		t.Fatalf("reconcile error = %v, want the missing task ID named", err)
+}
+
+func TestReconcileCommandRendersPaneAbandonmentDetail(t *testing.T) {
+	report := runtime.ReconcileReport{Results: []runtime.ReconcileResult{
+		{ID: "task-a", Outcome: "healthy", Action: "abandon-pane", Detail: "attempt 7 relinquished its Herdr identity (ws-1/tab-1) on operator attestation"},
+	}}
+	var out bytes.Buffer
+	cmd := newReconcileCmd()
+	cmd.SetOut(&out)
+	if err := renderReconcileReport(cmd, report, false); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("action: abandon-pane")) || !bytes.Contains(out.Bytes(), []byte("detail: attempt 7 relinquished its Herdr identity")) {
+		t.Fatalf("rendered report = %q, want the pane attestation recorded in the output", out.String())
 	}
 }
 

@@ -1,7 +1,7 @@
 # Unobservable ownership is not a mismatch
 
 - Date: 2026-08-17
-- Status: accepted
+- Status: accepted, superseded in part by [Every diagnosis names a reachable treatment](every-diagnosis-names-a-reachable-treatment.md)
 - Issues: atqamz/hand#245
 - PRs: atqamz/hand#248
 
@@ -34,7 +34,7 @@ Teardown that cannot observe the pool refuses and writes no resource state, so t
 `ambiguous` remains reachable from provable contradiction, and it stops being a dead end: both teardown and reconciliation may leave it, but only behind a fresh `LeaseExact` observation of the same lease identity.
 
 For the permanently unobservable pool there is one explicit operator gesture, `hand reconcile <task> --abandon-worktree`.
-It requires an explicit task ID and refuses any observed state other than `LeaseUnknown`, on every route into it.
+It requires an explicit task ID and refuses any observed state other than `LeaseUnknown`, on every route into it. (`every-diagnosis-names-a-reachable-treatment.md` later extends this to also accept `LeaseUnprovable`.)
 An attempt that is still active is reached only through a recorded teardown decision, the shape a teardown interrupted at the worktree step leaves behind.
 An attempt whose lifecycle is already terminal is eligible on its own once its worktree resource is unsettled, with no recorded teardown decision required, so a crash before teardown stays recoverable.
 No worktree of a live worker can be abandoned on either route, because a provisioning or running attempt is skipped and the active attempt is reachable only through that recorded decision.

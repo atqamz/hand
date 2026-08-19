@@ -164,7 +164,12 @@ func TestWatchMapsContextCancelToInterruption(t *testing.T) {
 		done <- cmd.ExecuteContext(ctx)
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
+	// Both stages round-trip through a real spawned herdr process rather than a
+	// fake in-process double, so a loaded CI runner (Windows especially) needs
+	// more headroom than the other lifecycle tests in this file.
+	const budget = 10 * time.Second
+
+	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
 		calls, err := os.ReadFile(os.Getenv("HERDR_CALL_LOG"))
 		if err == nil && bytes.Contains(calls, []byte("herdr workspace list\n")) {
@@ -188,7 +193,7 @@ func TestWatchMapsContextCancelToInterruption(t *testing.T) {
 		if !errors.Is(err, watcher.ErrInterrupted) {
 			t.Fatalf("err = %v, want it to wrap ErrInterrupted", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(budget):
 		t.Fatal("watch did not exit after context cancellation")
 	}
 }

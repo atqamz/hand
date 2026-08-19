@@ -172,7 +172,7 @@ func (r *Runtime) releaseHerdr(home, taskID string, attempt state.Attempt, warni
 	if attempt.Herdr.WorkspaceID == "" && attempt.Herdr.TabID == "" && attempt.Herdr.PaneID == "" {
 		return nil
 	}
-	if attempt.TeardownHerdrState == state.TeardownResourceReleased {
+	if herdrCleanupSettled(attempt.TeardownHerdrState) {
 		return nil
 	}
 	if attempt.TeardownHerdrState == state.TeardownResourceReleasing || attempt.TeardownHerdrState == state.TeardownResourceAmbiguous {
@@ -294,6 +294,16 @@ func completionFor(t state.Task, disposition string, launched bool) completion.R
 	case disposition == state.TeardownDispositionNeverLaunched || !launched:
 		c.Outcome = "torn-down"
 		c.Detail = "attempt never launched"
+	// A worker that never started produced nothing to land, so this belongs with the cases above
+	// rather than with any outcome that describes work.
+	case disposition == state.TeardownDispositionWorkerNeverStarted:
+		c.Outcome = "torn-down"
+		c.Detail = "worker never started: the harness took no turn before it stopped"
+	// A launch that persisted no owned resource submitted a launch but produced no worker, so every
+	// landing case below would invent a fact about work this attempt never did.
+	case disposition == state.TeardownDispositionProvisioningUnwound:
+		c.Outcome = "torn-down"
+		c.Detail = "provisioning unwound: the launch persisted no owned resource"
 	case disposition == state.TeardownDispositionForced:
 		c.Outcome = "torn-down"
 		c.Detail = "forced (landed-work checks skipped)"
