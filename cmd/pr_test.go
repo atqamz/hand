@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/runtime"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -31,16 +33,24 @@ func addOriginRemote(t *testing.T, dir, url string) {
 	}
 }
 
+// The diagnostic real gh answers with for a pull request that is not there (FIDELITY.md). A fake that
+// paraphrases it makes the absent path unreachable, and every refusal below an unknown one instead.
+func ghPRAbsentDiagnostic(number int) string {
+	return fmt.Sprintf("GraphQL: Could not resolve to a PullRequest with the number of %d. (repository.pullRequest)\n", number)
+}
+
 func writeFakeGhPRView(t *testing.T, exitCode int) {
 	t.Helper()
-	bin := faketool.Bin(t)
-	response := faketool.GHResponse{Command: "pr view", Exit: exitCode}
-	if exitCode != 0 {
-		response.Stderr = "gh: pull request not found\n"
-	} else {
-		response.Stdout = "{\"state\":\"OPEN\"}"
+	response := faketool.GHResponse{Command: "pr view", Exit: exitCode, Stderr: ghPRAbsentDiagnostic(1)}
+	if exitCode == 0 {
+		response = faketool.GHResponse{Command: "pr view", Stdout: "{\"state\":\"OPEN\"}"}
 	}
-	faketool.GH{Responses: []faketool.GHResponse{response}}.Install(t, bin)
+	writeFakeGhPRViewResponse(t, response)
+}
+
+func writeFakeGhPRViewResponse(t *testing.T, response faketool.GHResponse) {
+	t.Helper()
+	faketool.GH{Responses: []faketool.GHResponse{response}}.Install(t, faketool.Bin(t))
 }
 
 func setupPRHome(t *testing.T) (home, clonePath string) {
@@ -220,9 +230,12 @@ func TestDetectPRSearchesRenamedRepositoryAfterProjectSetURL(t *testing.T) {
 	if err != nil || !exists {
 		t.Fatalf("project.Find = %+v, %v, %v", proj, exists, err)
 	}
-	got, err := detectPR(context.Background(), home, task, state.Attempt{Worktree: clonePath}, proj)
+	got, observation, err := runtime.DetectPR(context.Background(), home, task, state.Attempt{Worktree: clonePath}, proj)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !observation.Found() {
+		t.Fatalf("observation = %+v, want the PR found", observation)
 	}
 	if got.PR != prURL {
 		t.Fatalf("detected task.PR = %q, want %q", got.PR, prURL)
@@ -350,6 +363,42 @@ func TestPRRefusesWhenGhReportsNotFound(t *testing.T) {
 	}
 	if task.PR != "" {
 		t.Fatalf("task.PR = %q, want no PR recorded when gh can't confirm it exists", task.PR)
+	}
+}
+
+// A rejected credential is not a missing PR: reporting one as the other sends the operator to fix a URL
+// that was right all along, which is the confusion atqamz/hand#241 removes.
+func TestPRRefusesWithoutClaimingAbsenceWhenGhCannotAnswer(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/owner/secondhand.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGhPRViewResponse(t, faketool.GHResponse{
+		Command: "pr view",
+		Stderr:  "gh: HTTP 401: Bad credentials (https://api.github.com/graphql)\n",
+		Exit:    1,
+	})
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "https://github.com/owner/secondhand/pull/1"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if strings.Contains(err.Error(), "not found") {
+		t.Fatalf("got err %v, want a refusal that does not report the PR as absent", err)
+	}
+	if !strings.Contains(err.Error(), "could not be observed") {
+		t.Fatalf("got err %v, want the refusal to name the observation that did not complete", err)
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "" {
+		t.Fatalf("task.PR = %q, want no PR recorded from an observation that never completed", task.PR)
 	}
 }
 

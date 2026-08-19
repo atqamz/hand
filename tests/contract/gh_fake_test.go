@@ -3,9 +3,12 @@
 package contract
 
 import (
+	"context"
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
 )
@@ -149,5 +152,44 @@ func TestGHFixturesPreserveEdgeRefOutcomes(t *testing.T) {
 	commit := run(t, "", "gh", "api", "repos/atqamz/hand/commits/edge", "--jq", ".sha").requireCode(t, 0)
 	if strings.TrimSpace(commit.stdout) != contractGHEdgeSHA {
 		t.Fatalf("edge commit = %q, want %q", commit.stdout, contractGHEdgeSHA)
+	}
+}
+
+// The absence-proving diagnostic is a contract, not a message: internal/ghutil reads absence off
+// this exact shape and everything else as unknown, so a paraphrase in the fake would make every
+// unit test's absence unreachable while the tests still passed.
+func TestGHFixturesPreserveTheAbsentPullRequestDiagnostic(t *testing.T) {
+	faketool.GH{PRs: []faketool.GHPR{{
+		Number: 154,
+		URL:    "https://github.com/atqamz/hand/pull/154",
+		Branch: "136-usage-limit-resume",
+		State:  "MERGED",
+		Repo:   contractGHRepo,
+	}}}.Install(t, faketool.Bin(t))
+
+	for _, args := range [][]string{
+		{"pr", "view", "999999", "--repo", contractGHRepo, "--json", "state"},
+		{"pr", "view", "999999", "--repo", contractGHRepo, "--json", "headRefOid"},
+		{"pr", "checks", "999999", "--repo", contractGHRepo, "--json", "bucket"},
+	} {
+		run(t, "", "gh", args...).
+			requireCode(t, 1).
+			requireStderrContains(t, "Could not resolve to a PullRequest with the number of 999999. (repository.pullRequest)")
+	}
+}
+
+// A fake that never answers is how a caller's timeout and cancellation paths are reachable without a
+// network: the process is killed by the caller's context, and nothing was observed.
+func TestGHFixturesNeverAnswerAHungCommand(t *testing.T) {
+	faketool.GH{Hang: []string{"pr view"}}.Install(t, faketool.Bin(t))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	c := exec.CommandContext(ctx, "gh", "pr", "view", "154", "--json", "state")
+	if err := c.Run(); err == nil {
+		t.Fatal("gh answered a hung command, want it killed by the deadline")
+	}
+	if ctx.Err() == nil {
+		t.Fatal("context outlived the call, want the deadline to be what ended it")
 	}
 }

@@ -32,8 +32,15 @@ func ValidatePR(ctx context.Context, homeDir string, p Project, url string) erro
 		// project upstream), never because the URL's repo looks related to the project's own.
 		return fmt.Errorf("PR %s belongs to %s, not project %s's repo (%s)%s", url, urlSlug, p.Name, repoSlug, upstreamNote(p))
 	}
-	if _, err := ghutil.PRIsMerged(ctx, url); err != nil {
-		return fmt.Errorf("PR %s not found in %s: %w", url, urlSlug, err)
+	// Absence refuses because the PR is not there; an observation that did not complete refuses
+	// too, but must never claim absence: an auth failure reporting "not found" would tell an
+	// operator to fix a URL that was right all along.
+	observation := ghutil.ObserveMergeState(ctx, url)
+	if observation.Absent() {
+		return fmt.Errorf("PR %s not found in %s", url, urlSlug)
+	}
+	if observation.Unknown() {
+		return fmt.Errorf("PR %s in %s could not be observed, so nothing is recorded for it: %s", url, urlSlug, observation.Reason())
 	}
 	return nil
 }

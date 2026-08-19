@@ -379,21 +379,22 @@ func checkLandedWork(ctx context.Context, home string, t state.Task, active stat
 		// A gate-opened PR bypasses hand pr entirely (atqamz/hand#69), so t.PR can still be empty
 		// for landed work; detect it here rather than only refusing on it, so the merged check below
 		// reads the same PR state hand pr would have recorded.
+		var unobserved *ghutil.PRObservation
 		if exists {
-			detected, err := DetectPR(ctx, home, t, active, proj)
-			var ambiguous *ghutil.AmbiguousPRError
+			detected, observation, err := DetectPR(ctx, home, t, active, proj)
 			// An ambiguous branch is a different failure and must not fall through the same way: "no PR
 			// recorded" reads as unlanded, but ambiguous means unknown, and picking either meaning here
 			// for the operator is the guess atqamz/hand#77 exists to remove.
-			if errors.As(err, &ambiguous) {
-				return t, false, Precondition(fmt.Errorf("PR for %s is ambiguous, refusing to guess: %w", t.ID, ambiguous))
+			if observation.Ambiguous != nil {
+				return t, false, Precondition(fmt.Errorf("PR for %s is ambiguous, refusing to guess: %w", t.ID, observation.Ambiguous))
 			}
-			// Detection failing (no clone on disk yet, gh unreachable, ...) is not this command's failure
-			// to report: it falls through to the same "no PR recorded" refusal below that a project with
-			// no detection at all would have gotten.
-			if err == nil {
-				t = detected
+			if err != nil {
+				return t, false, err
 			}
+			if observation.Unknown() {
+				unobserved = &observation
+			}
+			t = detected
 		}
 
 		if t.PR == "" {
@@ -412,17 +413,24 @@ func checkLandedWork(ctx context.Context, home string, t state.Task, active stat
 				t.Kind = state.KindScout
 				return t, dirtWasSafe, nil
 			}
+			// An unreachable GitHub is not evidence that no PR exists, and the refusal below says the work
+			// may not be landed. Below the scout escape because that escape reads local evidence only.
+			if unobserved != nil {
+				return t, false, Precondition(fmt.Errorf("whether %s has a pull request could not be observed, so its worktree is not released: %s", t.ID, unobserved.Reason()))
+			}
 			// Narrow on purpose: a ship task whose PR was never opened still has its commits, so it still
 			// refuses - the half of this guard that is load-bearing.
 			return t, false, Precondition(fmt.Errorf("no PR recorded for %s and project is not local-only: work may not be landed", t.ID))
 		}
 	}
 
-	merged, err := ghutil.PRIsMerged(ctx, t.PR)
-	if err != nil {
-		return t, false, err
+	observation := ghutil.ObserveMergeState(ctx, t.PR)
+	// Absent refuses alongside unknown and neither may say "not merged": a PR GitHub will not resolve
+	// is not a PR proven unmerged, and this releases a worktree that may hold the only copy of the work.
+	if !observation.Found() {
+		return t, false, Precondition(fmt.Errorf("whether PR %s is merged could not be observed, so worktree %s is not released: %s", t.PR, active.Worktree, observation.Reason()))
 	}
-	if !merged {
+	if !observation.Merged {
 		return t, false, Precondition(fmt.Errorf("PR %s is not merged", t.PR))
 	}
 	return t, dirtWasSafe, nil

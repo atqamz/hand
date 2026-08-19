@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -652,7 +651,7 @@ func TestReconcileConvergesExitedWorkerWhoseMergedPRLanded(t *testing.T) {
 	}
 	writeReport(t, home, "task-1", "done: shipped\n")
 	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	r.deps.prMerged = observedMergedPR(true)
 	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -724,7 +723,7 @@ func TestReconcileKeepsLiveWorkerThatReportedDone(t *testing.T) {
 	}
 	writeReport(t, home, "task-1", "done: shipped and merged\n")
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	r.deps.prMerged = observedMergedPR(true)
 	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -778,7 +777,7 @@ func TestReconcileRecordsUnknownLandingWhenGitHubIsUnreachable(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return false, errors.New("GitHub unavailable") }
+	r.deps.prMerged = unobservedPR("GitHub unavailable")
 	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -801,6 +800,33 @@ func TestReconcileRecordsUnknownLandingWhenGitHubIsUnreachable(t *testing.T) {
 	}
 }
 
+// A recorded PR GitHub will not resolve is not evidence the work did not land either: unlanded here
+// interrupts the attempt and records that the worker exited without landing, which is a durable claim
+// about the operator's work built on a query that answered nothing.
+func TestReconcileRecordsUnknownLandingForAPRGitHubReportsAsAbsent(t *testing.T) {
+	home := reconcileFixture(t)
+	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
+	r.deps.prMerged = absentPRObservation()
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Landing != string(landingUnknown) {
+		t.Fatalf("result = %+v, want an unknown landing rather than an unlanded one", report.Results[0])
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("history = %+v, want the attempt left alone rather than interrupted as unlanded", history)
+	}
+}
+
 func TestReconcileConvergesLifecycleWhileWorktreeStillNeedsRepair(t *testing.T) {
 	home := reconcileFixture(t)
 	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
@@ -818,7 +844,7 @@ func TestReconcileConvergesLifecycleWhileWorktreeStillNeedsRepair(t *testing.T) 
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	r.deps.prMerged = observedMergedPR(true)
 	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
 	}
@@ -864,7 +890,7 @@ func TestReconcileConvergesLifecycleDespiteRecordedRepairMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
+	r.deps.prMerged = observedMergedPR(true)
 	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
 	}
@@ -1647,7 +1673,7 @@ func TestReconcileMergeMismatchNeedsRepairWithoutRewritingHistory(t *testing.T) 
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return false, nil }
+	r.deps.prMerged = observedMergedPR(false)
 	first, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -1688,7 +1714,7 @@ func TestReconcileMergeObservationFailureLeavesRepairMarkerUnchanged(t *testing.
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return false, errors.New("GitHub unavailable") }
+	r.deps.prMerged = unobservedPR("GitHub unavailable")
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err == nil {
 		t.Fatal("Reconcile succeeded through GitHub observation failure")
 	}

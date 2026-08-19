@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // GHPR describes one pull request and the checks its fake reports.
@@ -70,7 +71,10 @@ type GH struct {
 	ReleaseStore        *GHReleaseStore
 	Responses           []GHResponse
 	RejectQualifiedHead bool
-	Log                 string
+	// Commands this fake never answers, for a caller timeout or cancellation path. Same shape and
+	// same purpose as Herdr.Hang.
+	Hang []string
+	Log  string
 }
 
 type ghSpec struct {
@@ -81,6 +85,7 @@ type ghSpec struct {
 	ReleaseStoreRepo    string
 	Responses           []GHResponse
 	RejectQualifiedHead bool
+	Hang                []string
 	StateDir            string
 	Log                 string
 }
@@ -101,7 +106,7 @@ func (g GH) Install(t *testing.T, bin string) {
 	}
 	spec := ghSpec{
 		PRs: g.PRs, Repos: g.Repos, Release: g.Release, Responses: g.Responses,
-		RejectQualifiedHead: g.RejectQualifiedHead, StateDir: state, Log: g.Log,
+		RejectQualifiedHead: g.RejectQualifiedHead, Hang: g.Hang, StateDir: state, Log: g.Log,
 	}
 	if g.ReleaseStore != nil {
 		spec.ReleaseStorePath = g.ReleaseStore.install(t, state)
@@ -124,6 +129,13 @@ func runGHFromPayload(payload json.RawMessage, args []string) int {
 		return fail("unexpected gh invocation: %s", strings.Join(args, " "))
 	}
 	command := args[0] + " " + args[1]
+	for _, blocked := range spec.Hang {
+		if blocked == command {
+			for {
+				time.Sleep(time.Hour)
+			}
+		}
+	}
 	if command == "pr list" && spec.RejectQualifiedHead && strings.Contains(flagValue(args, "--head"), ":") {
 		return fail("qualified head ref matches nothing in real gh: %s", flagValue(args, "--head"))
 	}
@@ -200,7 +212,7 @@ func ghPRView(spec ghSpec, args []string) int {
 	}
 	index, ok := ghPRIndex(spec.PRs, args[2])
 	if !ok {
-		return fail("no such pull request: %s", args[2])
+		return ghNoSuchPR(args[2])
 	}
 	switch flagValue(args, "--json") {
 	case "headRefOid":
@@ -257,7 +269,7 @@ func ghPRChecks(spec ghSpec, args []string) int {
 	}
 	index, ok := ghPRIndex(spec.PRs, args[2])
 	if !ok {
-		return fail("no such pull request: %s", args[2])
+		return ghNoSuchPR(args[2])
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "%s\n", ghBuckets(spec.PRs[index].Checks))
 	return 0
@@ -269,7 +281,7 @@ func ghPRMerge(spec ghSpec, args []string) int {
 	}
 	index, ok := ghPRIndex(spec.PRs, args[2])
 	if !ok {
-		return fail("no such pull request: %s", args[2])
+		return ghNoSuchPR(args[2])
 	}
 	path := ghStatePath(spec.StateDir, index)
 	state, err := os.ReadFile(path)
@@ -425,6 +437,13 @@ func ghReleaseDownloadDir(release GHRelease, tag string, args []string) (string,
 		}
 	}
 	return dir, true
+}
+
+// The one diagnostic that proves a pull request is not there, quoted from real gh (FIDELITY.md):
+// an unresolvable repository or a rejected credential answers differently and proves nothing.
+func ghNoSuchPR(ref string) int {
+	number := ref[strings.LastIndex(ref, "/")+1:]
+	return fail("GraphQL: Could not resolve to a PullRequest with the number of %s. (repository.pullRequest)", number)
 }
 
 func ghPRIndex(prs []GHPR, ref string) (int, bool) {

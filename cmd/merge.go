@@ -104,11 +104,16 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 	// A gate-opened PR (atqamz/hand#69) can populate t.PR without hand having merged it, so t.PR no
 	// longer implies hand hasn't seen it merged yet; check before running CI checks against a PR gh
 	// already closed.
-	merged, err := ghutil.PRIsMerged(cmd.Context(), t.PR)
-	if err != nil {
-		return err
+	observation := ghutil.ObserveMergeState(cmd.Context(), t.PR)
+	// Neither an absent PR nor an unobserved one may fall through to gh pr merge: merging is
+	// irreversible, and only a completed observation proves this PR exists and is still open.
+	if observation.Absent() {
+		return &ExitError{Err: fmt.Errorf("PR %s does not exist", t.PR), Code: 3}
 	}
-	if merged {
+	if observation.Unknown() {
+		return &ExitError{Err: fmt.Errorf("state of PR %s could not be observed, so hand refuses to merge it: %s", t.PR, observation.Reason()), Code: 3}
+	}
+	if observation.Merged {
 		return &ExitError{Err: fmt.Errorf("PR %s is already merged", t.PR), Code: 3}
 	}
 

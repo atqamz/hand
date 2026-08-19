@@ -7,7 +7,7 @@ import (
 
 // The sole boundary between an untrusted string and a PR URL hand will ever store,
 // anchored end-to-end with no substring matching: a stored value feeds gh pr merge and
-// ghutil.PRIsMerged directly, so a loose match is a command-injection-adjacent risk.
+// ghutil.ObserveMergeState directly, so a loose match is a command-injection-adjacent risk.
 var prURLPattern = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/pull/([0-9]+)$`)
 
 func ValidatePRURL(url string) bool {

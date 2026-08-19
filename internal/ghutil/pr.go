@@ -6,58 +6,60 @@
 package ghutil
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
-// PRIsMerged reports whether the PR is merged. gh writes warnings to stderr ahead of the JSON, so the
-// payload must be read from stdout alone; CombinedOutput here corrupts the parse
-// (atqamz/hand#21).
-func PRIsMerged(ctx context.Context, pr string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "state")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return false, fmt.Errorf("gh pr view failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
+// ObserveMergeState reports what GitHub records for one pull request's merge state. A query that
+// did not complete is unknown, never an unmerged pull request, because "not merged" is what
+// licenses teardown and reconciliation to act on work that may in fact have landed.
+func ObserveMergeState(ctx context.Context, pr string) PRObservation {
+	args := []string{"pr", "view", pr, "--json", "state"}
+	probe := Probe{Command: ghCommand(args)}
 	var body struct {
 		State string `json:"state"`
 	}
-	if err := json.Unmarshal(out, &body); err != nil {
-		return false, fmt.Errorf("parse gh pr view output: %w", err)
+	if terminal := decodeGHPayload(ctx, probe, &body, args...); terminal != nil {
+		return *terminal
 	}
-	return body.State == "MERGED", nil
+	if body.State == "" {
+		return unknownPR(probe, "gh exited zero and reported no state for pull request %s", pr)
+	}
+	return PRObservation{State: ObservationFound, URL: pr, Merged: body.State == "MERGED", Probe: probe}
 }
 
-// PRHeadCommit reads the commit GitHub records as the PR head ref: the newest commit of that branch
-// GitHub was observed holding, which outlives any local clone and survives the head branch being
-// deleted after a merge.
-func PRHeadCommit(ctx context.Context, pr string) (string, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "headRefOid")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("gh pr view failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
+// ObserveHeadCommit reads the commit GitHub records as the PR head ref: the newest commit of that
+// branch GitHub was observed holding, which outlives any local clone and survives the head branch
+// being deleted after a merge.
+func ObserveHeadCommit(ctx context.Context, pr string) PRObservation {
+	args := []string{"pr", "view", pr, "--json", "headRefOid"}
+	probe := Probe{Command: ghCommand(args)}
 	var body struct {
 		HeadRefOid string `json:"headRefOid"`
 	}
-	if err := json.Unmarshal(out, &body); err != nil {
-		return "", fmt.Errorf("parse gh pr view output: %w", err)
+	if terminal := decodeGHPayload(ctx, probe, &body, args...); terminal != nil {
+		return *terminal
 	}
 	if body.HeadRefOid == "" {
-		return "", fmt.Errorf("gh pr view reported no head commit for %q", pr)
+		return unknownPR(probe, "gh exited zero and reported no head commit for pull request %s", pr)
 	}
-	return body.HeadRefOid, nil
+	return PRObservation{State: ObservationFound, URL: pr, Head: body.HeadRefOid, Probe: probe}
 }
 
-// PRSearchTarget names one repo FindPRByBranch searches for a head ref.
+// PRIsMerged is the pre-tri-state entry point ObserveMergeState replaced, kept only while
+// internal/watcher is its last caller (atqamz/hand#235 and atqamz/hand#252 own that surface).
+// Nothing else may call it: a bare bool is what let a failed query read as an unmerged PR.
+func PRIsMerged(ctx context.Context, pr string) (bool, error) {
+	observation := ObserveMergeState(ctx, pr)
+	if !observation.Found() {
+		return false, errors.New(observation.Reason())
+	}
+	return observation.Merged, nil
+}
+
+// PRSearchTarget names one repo ObservePRByBranch searches for a head ref.
 type PRSearchTarget struct {
 	Repo string
 	// When set, keeps only PRs whose head branch lives in that repo: a fork's upstream carries head
@@ -66,7 +68,7 @@ type PRSearchTarget struct {
 	HeadRepo string
 }
 
-// PRCandidate names one PR under consideration by FindPRByBranch, for use in
+// PRCandidate names one PR under consideration by ObservePRByBranch, for use in
 // an AmbiguousPRError message.
 type PRCandidate struct {
 	Repo   string
@@ -90,23 +92,30 @@ func (e *AmbiguousPRError) Error() string {
 	return fmt.Sprintf("ambiguous PR for branch %s: %s", e.Branch, strings.Join(parts, ", "))
 }
 
-// FindPRByBranch reports the PR across targets whose head ref is exactly branch - the only rule
-// hand uses to associate a PR with a task, never a title, an issue number or a task id. found is
-// false when no PR carries that head ref.
-func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarget) (url string, merged bool, found bool, err error) {
+// ObservePRByBranch reports the PR across targets whose head ref is exactly branch - the only rule
+// hand uses to associate a PR with a task, never a title, an issue number or a task id. Absent
+// means every target answered, and none of them carries that head ref.
+func ObservePRByBranch(ctx context.Context, branch string, targets ...PRSearchTarget) PRObservation {
 	// More than one target is how a fork project finds its PR: the branch is pushed to the fork
 	// while the PR is opened on the declared upstream. Matches from every target resolve through
 	// one tier pass, so a fork PR and an upstream PR are ambiguous exactly like two in one repo.
+	commands := make([]string, 0, len(targets))
+	for _, target := range targets {
+		commands = append(commands, ghCommand(prListArgs(target, branch)))
+	}
+	probe := Probe{Command: strings.Join(commands, "; ")}
 	var results []prListItem
 	for _, target := range targets {
-		found, err := listPRsByBranch(ctx, target, branch)
-		if err != nil {
-			return "", false, false, err
+		found, terminal := listPRsByBranch(ctx, target, branch)
+		// A sweep that skipped a target cannot prove absence across the rest, so an observation
+		// that did not complete ends it. An absence proven for one target is not one for the others.
+		if terminal != nil && terminal.Unknown() {
+			return *terminal
 		}
 		results = append(results, found...)
 	}
 	if len(results) == 0 {
-		return "", false, false, nil
+		return absentPR(probe)
 	}
 
 	// A branch can carry more than one PR - a closed-unmerged one plus a reopened replacement - so
@@ -128,7 +137,7 @@ func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarge
 	// may still carry unlanded work. Guessing here is what let internal/runtime/teardown.go's landed-work guard
 	// trust a merged PR while the branch's real state was closed-unmerged (atqamz/hand#77).
 	if len(mergedPRs) > 0 && len(openPRs) > 0 {
-		return "", false, false, ambiguousPRError(branch, results)
+		return ambiguousPR(branch, results, probe)
 	}
 
 	for _, matches := range [][]prListItem{mergedPRs, openPRs, closedPRs} {
@@ -136,28 +145,29 @@ func FindPRByBranch(ctx context.Context, branch string, targets ...PRSearchTarge
 		case 0:
 			continue
 		case 1:
-			return matches[0].URL, matches[0].State == "MERGED", true, nil
+			return PRObservation{State: ObservationFound, URL: matches[0].URL, Merged: matches[0].State == "MERGED", Probe: probe}
 		default:
-			return "", false, false, ambiguousPRError(branch, results)
+			return ambiguousPR(branch, results, probe)
 		}
 	}
-	return "", false, false, fmt.Errorf("gh pr list returned no PR in a recognized state for branch %s", branch)
+	// The query completed and carried candidates, so this is neither a found PR nor a proven
+	// absence: gh answered in a state vocabulary this tier pass does not know.
+	return unknownPR(probe, "gh reported %d PR(s) for branch %s and none in a recognized state", len(results), branch)
 }
 
-func listPRsByBranch(ctx context.Context, target PRSearchTarget, branch string) ([]prListItem, error) {
-	// --state all because gh pr list defaults to open only and a gate-opened PR may already be
-	// merged or closed; --limit stated rather than left on gh's implicit 30, far above any real
-	// count for one branch, so a same-tier duplicate cannot be truncated into a lone winner.
-	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--repo", target.Repo, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state,headRepository")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("gh pr list failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
+// --state all because gh pr list defaults to open only and a gate-opened PR may already be
+// merged or closed; --limit stated rather than left on gh's implicit 30, far above any real
+// count for one branch, so a same-tier duplicate cannot be truncated into a lone winner.
+func prListArgs(target PRSearchTarget, branch string) []string {
+	return []string{"pr", "list", "--repo", target.Repo, "--head", branch, "--state", "all", "--limit", "200", "--json", "number,url,state,headRepository"}
+}
+
+func listPRsByBranch(ctx context.Context, target PRSearchTarget, branch string) ([]prListItem, *PRObservation) {
+	args := prListArgs(target, branch)
+	probe := Probe{Command: ghCommand(args)}
 	var results []prListItem
-	if err := json.Unmarshal(out, &results); err != nil {
-		return nil, fmt.Errorf("parse gh pr list output: %w", err)
+	if terminal := decodeGHPayload(ctx, probe, &results, args...); terminal != nil {
+		return nil, terminal
 	}
 	// gh's --head takes the plain branch name even for a cross-repo PR (the qualified owner:branch
 	// form matches nothing), so the upstream target carries a HeadRepo to keep a same-named branch
@@ -173,12 +183,21 @@ func listPRsByBranch(ctx context.Context, target PRSearchTarget, branch string) 
 	return kept, nil
 }
 
-func ambiguousPRError(branch string, matches []prListItem) *AmbiguousPRError {
+// Ambiguity is unknown rather than absent: the query completed, and what it returned says a PR
+// exists without saying which one, so nothing about this branch may be concluded.
+func ambiguousPR(branch string, matches []prListItem, probe Probe) PRObservation {
 	candidates := make([]PRCandidate, len(matches))
 	for i, m := range matches {
 		candidates[i] = PRCandidate{Repo: m.Repo, Number: m.Number, State: m.State}
 	}
-	return &AmbiguousPRError{Branch: branch, Candidates: candidates}
+	ambiguous := &AmbiguousPRError{Branch: branch, Candidates: candidates}
+	observation := unknownPR(probe, "%s", ambiguous.Error())
+	observation.Ambiguous = ambiguous
+	return observation
+}
+
+func ghCommand(args []string) string {
+	return "gh " + strings.Join(args, " ")
 }
 
 // One entry of `gh pr list --json number,url,state,headRepository`. Repo is the searched repo, not

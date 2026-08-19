@@ -171,6 +171,79 @@ func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 	}
 }
 
+// atqamz/hand#241 at the irreversible call: a PR state hand could not read is neither an open PR nor an
+// absent one, so gh pr merge must not run and the refusal must not name a cause it did not observe.
+func TestMergeRefusesAPRWhoseStateCouldNotBeObserved(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	log := filepath.Join(t.TempDir(), "gh.log")
+	faketool.GH{Log: log, Responses: []faketool.GHResponse{
+		{Command: "pr view", Stderr: ghRejectedCredential, Exit: 1},
+	}}.Install(t, faketool.Bin(t))
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newMergeCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "could not be observed") || strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("err = %v, want the observation failure and no claim that the PR is absent", err)
+	}
+	assertNoMergeRan(t, log)
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MergeExecuted {
+		t.Fatal("want no merge recorded for a PR hand could not observe")
+	}
+}
+
+// The other half of the same guard: a PR GitHub positively says is not there still refuses, and says so.
+func TestMergeRefusesAPRGitHubReportsAsAbsent(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	log := filepath.Join(t.TempDir(), "gh.log")
+	faketool.GH{Log: log, Responses: []faketool.GHResponse{
+		{Command: "pr view", Stderr: ghPRAbsentDiagnostic(42), Exit: 1},
+	}}.Install(t, faketool.Bin(t))
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newMergeCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("err = %v, want the absent-PR refusal", err)
+	}
+	assertNoMergeRan(t, log)
+}
+
+func assertNoMergeRan(t *testing.T, log string) {
+	t.Helper()
+	invocations, err := os.ReadFile(log)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(invocations), "gh pr merge") {
+		t.Fatalf("gh pr merge ran before the PR state was known:\n%s", invocations)
+	}
+}
+
 func TestMergePRRefusesRedCI(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -199,11 +272,11 @@ func TestMergePRRefusesRedCI(t *testing.T) {
 	if got.MergeExecuted {
 		t.Fatal("want task not marked merged")
 	}
-	merged, err := ghutil.PRIsMerged(context.Background(), mergeTestPR)
-	if err != nil {
-		t.Fatal(err)
+	observation := ghutil.ObserveMergeState(context.Background(), mergeTestPR)
+	if !observation.Found() {
+		t.Fatalf("observation = %+v, want the fake PR observed", observation)
 	}
-	if merged {
+	if observation.Merged {
 		t.Fatal("want red checks to leave gh's PR unmerged")
 	}
 }
@@ -237,11 +310,11 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 		t.Fatal("want merged_at set")
 	}
 
-	merged, err := ghutil.PRIsMerged(context.Background(), mergeTestPR)
-	if err != nil {
-		t.Fatal(err)
+	observation := ghutil.ObserveMergeState(context.Background(), mergeTestPR)
+	if !observation.Found() {
+		t.Fatalf("observation = %+v, want the fake PR observed", observation)
 	}
-	if !merged {
+	if !observation.Merged {
 		t.Fatal("want the PR merged on gh's side too, not only on the task row")
 	}
 	for _, want := range []string{"id: task-1\n", "result: merged\n", "method: squash\n", "pr: \"https://github.com/org/repo/pull/42\"\n", "merged: "} {

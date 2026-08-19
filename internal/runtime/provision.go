@@ -47,8 +47,8 @@ type dependencies struct {
 	buildHarness      func(string, harness.Options) (string, error)
 	confirmLaunch     func(herdrClient, string, string) error
 	appendCompletion  func(string, completion.Record) error
-	prMerged          func(context.Context, string) (bool, error)
-	prHead            func(context.Context, string) (string, error)
+	prMerged          func(context.Context, string) ghutil.PRObservation
+	prHead            func(context.Context, string) ghutil.PRObservation
 	branchMerged      func(string, string) (bool, error)
 	phase             func(lifecyclePhase) error
 }
@@ -66,8 +66,8 @@ func defaultDependencies() dependencies {
 		buildHarness:      harness.Build,
 		confirmLaunch:     confirmLaunch,
 		appendCompletion:  completion.Append,
-		prMerged:          ghutil.PRIsMerged,
-		prHead:            ghutil.PRHeadCommit,
+		prMerged:          ghutil.ObserveMergeState,
+		prHead:            ghutil.ObserveHeadCommit,
 		branchMerged:      branchIsMerged,
 		phase:             func(lifecyclePhase) error { return nil },
 	}

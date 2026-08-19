@@ -418,13 +418,16 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 	if task.PR != "" {
 		prMerged := r.deps.prMerged
 		if prMerged == nil {
-			prMerged = ghutil.PRIsMerged
+			prMerged = ghutil.ObserveMergeState
 		}
-		merged, err := prMerged(ctx, task.PR)
-		if err != nil {
-			return false, false, "github-pr", fmt.Errorf("observe merged PR %s: %w", task.PR, err)
+		// Absent refuses alongside unknown: a recorded PR GitHub cannot resolve says nothing about
+		// whether the work merged, and recording a merge-fact mismatch from it would be a durable
+		// false claim about the operator every later run reads.
+		observation := prMerged(ctx, task.PR)
+		if !observation.Found() {
+			return false, false, "github-pr", fmt.Errorf("observe merged PR %s: %s", task.PR, observation.Reason())
 		}
-		return merged, !merged, "github-pr", nil
+		return observation.Merged, !observation.Merged, "github-pr", nil
 	}
 	projectInfo, found, err := project.FindReadOnly(home, task.Project)
 	if err != nil {
@@ -484,13 +487,13 @@ func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Ta
 	}
 	prMerged := r.deps.prMerged
 	if prMerged == nil {
-		prMerged = ghutil.PRIsMerged
+		prMerged = ghutil.ObserveMergeState
 	}
-	merged, err := prMerged(ctx, task.PR)
-	if err != nil {
+	observation := prMerged(ctx, task.PR)
+	if !observation.Found() {
 		return landingUnknown
 	}
-	if merged {
+	if observation.Merged {
 		return landingLanded
 	}
 	return landingUnlanded
@@ -1306,16 +1309,16 @@ func (r *Runtime) resolveWorktreeCommitSafety(ctx context.Context, task state.Ta
 	}
 	prHead := r.deps.prHead
 	if prHead == nil {
-		prHead = ghutil.PRHeadCommit
+		prHead = ghutil.ObserveHeadCommit
 	}
-	pushedHead, err := prHead(ctx, task.PR)
-	if err != nil {
+	pushed := prHead(ctx, task.PR)
+	if !pushed.Found() {
 		return commitSafetyDecision{
 			State:  commitSafetyUnprovable,
-			Reason: fmt.Sprintf("%d commit(s) in %s are reachable from no remote-tracking ref and the head commit of pull request %s could not be read, so whether GitHub holds them is unobserved rather than answered: %v", observation.Probe.LocalOnly, observation.Probe.WorkingDir, task.PR, err),
+			Reason: fmt.Sprintf("%d commit(s) in %s are reachable from no remote-tracking ref and the head commit of pull request %s could not be read, so whether GitHub holds them is unobserved rather than answered: %s", observation.Probe.LocalOnly, observation.Probe.WorkingDir, task.PR, pushed.Reason()),
 		}
 	}
-	if pushedHead == observation.Probe.Head {
+	if pushed.Head == observation.Probe.Head {
 		return commitSafetyDecision{
 			State:  commitSafetyProvenDurable,
 			Reason: fmt.Sprintf("no remote-tracking ref in %s reaches %s, and GitHub records that exact commit as the head of pull request %s, which holds it independently of this worktree", observation.Probe.WorkingDir, shortCommit(observation.Probe.Head), task.PR),
@@ -1323,7 +1326,7 @@ func (r *Runtime) resolveWorktreeCommitSafety(ctx context.Context, task state.Ta
 	}
 	return commitSafetyDecision{
 		State:  commitSafetyLocalWorkAtRisk,
-		Reason: localOnlyCommitsReason(observation.Probe, fmt.Sprintf("pull request %s records head commit %s instead, so GitHub was never observed holding %s", task.PR, shortCommit(pushedHead), shortCommit(observation.Probe.Head))),
+		Reason: localOnlyCommitsReason(observation.Probe, fmt.Sprintf("pull request %s records head commit %s instead, so GitHub was never observed holding %s", task.PR, shortCommit(pushed.Head), shortCommit(observation.Probe.Head))),
 	}
 }
 

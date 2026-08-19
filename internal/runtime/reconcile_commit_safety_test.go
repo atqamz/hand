@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
 )
@@ -85,10 +85,10 @@ func commitSafetyRuntime(t *testing.T, observation worktree.CommitSafetyObservat
 		counts.returns++
 		return nil
 	}
-	r.deps.prMerged = func(context.Context, string) (bool, error) { return true, nil }
-	r.deps.prHead = func(context.Context, string) (string, error) {
+	r.deps.prMerged = observedMergedPR(true)
+	r.deps.prHead = func(context.Context, string) ghutil.PRObservation {
 		t.Fatal("prHead called without a stub")
-		return "", nil
+		return ghutil.PRObservation{}
 	}
 	return r, counts
 }
@@ -186,7 +186,7 @@ func TestReconcileWithholdsReturnWhenCommitSafetyCannotBeObserved(t *testing.T) 
 		name        string
 		pr          string
 		observation worktree.CommitSafetyObservation
-		prHead      func(context.Context, string) (string, error)
+		prHead      func(context.Context, string) ghutil.PRObservation
 		wantReason  string
 	}{
 		{
@@ -203,10 +203,17 @@ func TestReconcileWithholdsReturnWhenCommitSafetyCannotBeObserved(t *testing.T) 
 			name:        "github unreachable",
 			pr:          "https://github.com/atqamz/hand/pull/7",
 			observation: localOnlyCommits(commitSafetyHead, 1),
-			prHead: func(context.Context, string) (string, error) {
-				return "", errors.New("gh pr view failed: dial tcp: lookup api.github.com: no such host")
-			},
-			wantReason: "could not be read",
+			prHead:      unobservedPR("gh pr view failed: dial tcp: lookup api.github.com: no such host"),
+			wantReason:  "could not be read",
+		},
+		{
+			// A pull request GitHub will not resolve is not a pull request proven to hold nothing:
+			// absence answers the wrong question here, so it withholds the return like unknown.
+			name:        "recorded pull request gh reports as absent",
+			pr:          "https://github.com/atqamz/hand/pull/7",
+			observation: localOnlyCommits(commitSafetyHead, 1),
+			prHead:      absentPRObservation(),
+			wantReason:  "could not be read",
 		},
 	}
 	for _, tc := range cases {
@@ -253,11 +260,11 @@ func TestReconcileReturnsWorktreeOfPushedAndMergedPullRequest(t *testing.T) {
 func TestReconcileReturnsSquashMergedWorktreeOnPullRequestHeadEvidence(t *testing.T) {
 	home, _ := commitSafetyTask(t, "https://github.com/atqamz/hand/pull/7", true)
 	r, counts := commitSafetyRuntime(t, localOnlyCommits(commitSafetyHead, 3))
-	r.deps.prHead = func(_ context.Context, pr string) (string, error) {
+	r.deps.prHead = func(_ context.Context, pr string) ghutil.PRObservation {
 		if pr != "https://github.com/atqamz/hand/pull/7" {
 			t.Fatalf("prHead(%q), want the recorded pull request", pr)
 		}
-		return commitSafetyHead, nil
+		return ghutil.PRObservation{State: ghutil.ObservationFound, URL: pr, Head: commitSafetyHead}
 	}
 	reconcileConverges(t, r, home)
 	history, err := state.ReadHistory(home, "task-1")
@@ -272,9 +279,7 @@ func TestReconcileReturnsSquashMergedWorktreeOnPullRequestHeadEvidence(t *testin
 func TestReconcileWithholdsReturnForCommitPastThePushedPullRequestHead(t *testing.T) {
 	home, _ := commitSafetyTask(t, "https://github.com/atqamz/hand/pull/7", true)
 	r, counts := commitSafetyRuntime(t, localOnlyCommits(commitSafetyHead, 1))
-	r.deps.prHead = func(context.Context, string) (string, error) {
-		return "2222222222222222222222222222222222222222", nil
-	}
+	r.deps.prHead = observedPRHead("2222222222222222222222222222222222222222")
 	reconcileNeedsRepair(t, r, home)
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
