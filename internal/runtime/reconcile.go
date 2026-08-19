@@ -546,7 +546,7 @@ func (r *Runtime) terminalizeWithoutRelease(home string, task state.Task, attemp
 	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionPending); err != nil {
 		return fmt.Errorf("record %s completion phase for attempt %d: %w", label, attempt.ID, err)
 	}
-	record := completionFor(task, decision.Disposition, true)
+	record := completionFor(task, decision.Disposition, true, attempt.LastReportState, attempt.LastReportNote)
 	record.AttemptID, record.AttemptLifecycle = attempt.ID, string(decision.TerminalAttempt)
 	record.TornDownAt = r.deps.now().Format(time.RFC3339)
 	if err := r.deps.appendCompletion(home, record); err != nil {
@@ -960,7 +960,7 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 		}
 		if !found {
 			launched := attempt.LaunchSubmittedAt != "" || attempt.LaunchConfirmedAt != "" || attempt.Lifecycle != state.AttemptInterrupted
-			record = completionFor(task, attempt.TeardownDisposition, launched)
+			record = completionFor(task, attempt.TeardownDisposition, launched, attempt.LastReportState, attempt.LastReportNote)
 			record.AttemptID, record.AttemptLifecycle = attempt.ID, string(attempt.TeardownTerminalAttempt)
 			record.TornDownAt = r.deps.now().Format(time.RFC3339)
 			if err := r.deps.appendCompletion(home, record); err != nil {
