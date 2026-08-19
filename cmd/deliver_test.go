@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -92,4 +95,61 @@ func TestDeliverRefusesWhenTaskMissing(t *testing.T) {
 	cmd := newDeliverCmd()
 	cmd.SetArgs([]string{"missing-task", "--reason", "whatever"})
 	assertExitCode3(t, cmd.Execute())
+}
+
+func TestDeliverReassertsPRMetadataWhenAPRIsRecorded(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	url := "https://github.com/owner/secondhand/pull/1"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, PR: url}); err != nil {
+		t.Fatal(err)
+	}
+	faketool.GH{PRs: []faketool.GHPR{{URL: url, State: "OPEN", Body: "operator wrote this"}}}.Install(t, faketool.Bin(t))
+
+	cmd := newDeliverCmd()
+	cmd.SetOut(&strings.Builder{})
+	cmd.SetArgs([]string{"task-1", "--reason", "PR ready for review"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	meta, observation := ghutil.FetchPRMetadata(context.Background(), url)
+	if !observation.Found() {
+		t.Fatalf("observation = %+v, want the recorded PR found", observation)
+	}
+	operatorBody, _, ok := ghutil.SplitBody(meta.Body)
+	if !ok {
+		t.Fatalf("body = %q, want hand deliver to have established a pipeline region", meta.Body)
+	}
+	if operatorBody != "operator wrote this" {
+		t.Fatalf("operator body = %q, want the original content preserved", operatorBody)
+	}
+}
+
+func TestDeliverPropagatesAReassertMetadataFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	url := "https://github.com/owner/secondhand/pull/1"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, PR: url}); err != nil {
+		t.Fatal(err)
+	}
+	// No gh at all, fake or real, so reasserting the recorded PR's metadata fails deterministically.
+	faketool.NoTools(t)
+
+	cmd := newDeliverCmd()
+	cmd.SetArgs([]string{"task-1", "--reason", "PR ready for review"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "reassert operator-owned PR metadata") {
+		t.Fatalf("got %v, want the reassert failure to propagate", err)
+	}
+
+	got, readErr := state.Read(home, "task-1")
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if got.DeliveredReason != "PR ready for review" {
+		t.Fatalf("DeliveredReason = %q, want the delivery recorded even though reasserting its PR metadata failed", got.DeliveredReason)
+	}
 }
