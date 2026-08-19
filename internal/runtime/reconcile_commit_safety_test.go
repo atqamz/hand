@@ -38,9 +38,14 @@ func unobservableCommits(reason string) worktree.CommitSafetyObservation {
 
 func commitSafetyTask(t *testing.T, pr string, merged bool) (string, state.Attempt) {
 	t.Helper()
+	return commitSafetyTaskAt(t, "/pool/1", pr, merged)
+}
+
+func commitSafetyTaskAt(t *testing.T, worktreePath, pr string, merged bool) (string, state.Attempt) {
+	t.Helper()
 	home := reconcileFixture(t)
 	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
-		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/pool/1", LeaseID: "lease-1",
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: worktreePath, LeaseID: "lease-1",
 		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
 	})
 	if err != nil {
@@ -72,14 +77,19 @@ type commitSafetyProbeCount struct {
 
 func commitSafetyRuntime(t *testing.T, observation worktree.CommitSafetyObservation) (*Runtime, *commitSafetyProbeCount) {
 	t.Helper()
+	return observingCommitSafetyRuntime(t, "/pool/1", func(string) worktree.CommitSafetyObservation { return observation })
+}
+
+func observingCommitSafetyRuntime(t *testing.T, worktreePath string, observe func(string) worktree.CommitSafetyObservation) (*Runtime, *commitSafetyProbeCount) {
+	t.Helper()
 	counts := &commitSafetyProbeCount{}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
 	r.deps.worktree.observeCommits = func(path string) worktree.CommitSafetyObservation {
 		counts.commits++
-		if path != "/pool/1" {
+		if path != worktreePath {
 			t.Fatalf("observeCommits(%q), want the recorded worktree", path)
 		}
-		return observation
+		return observe(path)
 	}
 	r.deps.worktree.returnWithID = func(string, string, bool) error {
 		counts.returns++
