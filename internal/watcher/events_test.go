@@ -21,10 +21,10 @@ func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenNoTerminalReport(t
 		now := time.Now()
 		ts := NewTaskState(herdr.StatusWorking, now)
 
-		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second), ""); e == nil || e.Kind != KindIdleUnreported {
 			t.Fatalf("status %q: got %+v, want idle-unreported event when nothing explained the stop", notBusy, e)
 		}
-		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second)); e != nil {
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second), ""); e != nil {
 			t.Fatalf("status %q: repeated not-busy state fired again: %+v", notBusy, e)
 		}
 	}
@@ -35,16 +35,16 @@ func TestClassifyStatusIdleUnreportedRefiresOnlyAfterTheWorkerResumesAndStopsAga
 		now := time.Now()
 		ts := NewTaskState(herdr.StatusWorking, now)
 
-		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second), ""); e == nil || e.Kind != KindIdleUnreported {
 			t.Fatalf("status %q: got %+v, want idle-unreported on the first stop", notBusy, e)
 		}
-		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second)); e != nil {
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second), ""); e != nil {
 			t.Fatalf("status %q: fired again while the worker stayed in the condition: %+v", notBusy, e)
 		}
-		if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(3*time.Second)); e != nil {
+		if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(3*time.Second), ""); e != nil {
 			t.Fatalf("status %q: leaving the condition fired an event: %+v", notBusy, e)
 		}
-		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(4*time.Second)); e == nil || e.Kind != KindIdleUnreported {
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(4*time.Second), ""); e == nil || e.Kind != KindIdleUnreported {
 			t.Fatalf("status %q: got %+v, want idle-unreported again once the worker left and re-entered the condition", notBusy, e)
 		}
 	}
@@ -56,7 +56,7 @@ func TestClassifyStatusWorkingToNotBusyFiresIdleUnreportedWhenLastReportWasStill
 		ts := NewTaskState(herdr.StatusWorking, now)
 		ts.LastReportState = state.ReportWorking
 
-		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e == nil || e.Kind != KindIdleUnreported {
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second), ""); e == nil || e.Kind != KindIdleUnreported {
 			t.Fatalf("status %q: got %+v, want idle-unreported even though a working report exists, since it doesn't explain a stop", notBusy, e)
 		}
 	}
@@ -71,7 +71,7 @@ func TestClassifyStatusWorkingToNotBusyIsAbsorbedWhenTerminalReportExplainsIt(t 
 			ts := NewTaskState(herdr.StatusWorking, now)
 			ts.LastReportState = reportState
 
-			if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second)); e != nil {
+			if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(time.Second), ""); e != nil {
 				t.Fatalf("status %q report state %q: got %+v, want the transition absorbed silently", notBusy, reportState, e)
 			}
 		}
@@ -83,7 +83,7 @@ func TestClassifyStatusNotBusyToWorkingIsBenign(t *testing.T) {
 		now := time.Now()
 		ts := NewTaskState(notBusy, now)
 
-		if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(time.Second)); e != nil {
+		if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(time.Second), ""); e != nil {
 			t.Fatalf("status %q: got %+v, want no event for resuming work", notBusy, e)
 		}
 	}
@@ -93,20 +93,20 @@ func TestClassifyStatusBlockedFiresOnceUntilResolved(t *testing.T) {
 	now := time.Now()
 	ts := NewTaskState(herdr.StatusWorking, now)
 
-	e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(time.Second))
+	e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(time.Second), "")
 	if e == nil || e.Kind != KindBlocked || e.Text != "blocked task-1: agent needs help" {
 		t.Fatalf("got %+v, want blocked event", e)
 	}
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(2*time.Second)); e != nil {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(2*time.Second), ""); e != nil {
 		t.Fatalf("repeated blocked state fired again: %+v", e)
 	}
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(3*time.Second)); e != nil {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(3*time.Second), ""); e != nil {
 		t.Fatalf("leaving blocked fired an event: %+v", e)
 	}
 
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(4*time.Second)); e == nil || e.Kind != KindBlocked {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusBlocked, nil, now.Add(4*time.Second), ""); e == nil || e.Kind != KindBlocked {
 		t.Fatalf("got %+v, want blocked event to refire after resolving and re-blocking", e)
 	}
 }
@@ -116,11 +116,24 @@ func TestClassifyStatusProbeFailureFiresFailedOnce(t *testing.T) {
 	ts := NewTaskState(herdr.StatusWorking, now)
 	probeErr := errors.New("pane not found")
 
-	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second)); e == nil || e.Kind != KindFailed {
+	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second), ""); e == nil || e.Kind != KindFailed {
 		t.Fatalf("got %+v, want failed event", e)
 	}
-	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(2*time.Second)); e != nil {
+	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(2*time.Second), ""); e != nil {
 		t.Fatalf("repeated probe failure fired again: %+v", e)
+	}
+}
+
+func TestClassifyStatusSuppressesFailedWhenTeardownClaimedTheHerdrResource(t *testing.T) {
+	now := time.Now()
+	ts := NewTaskState(herdr.StatusWorking, now)
+	probeErr := errors.New("pane not found")
+
+	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second), state.TeardownResourceReleasing); e != nil {
+		t.Fatalf("got %+v, want no event: teardown's own release explains the pane going unreachable", e)
+	}
+	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(2*time.Second), state.TeardownResourceReleased); e != nil {
+		t.Fatalf("got %+v, want no event on a later tick either, once teardown has finished releasing", e)
 	}
 }
 
@@ -130,10 +143,10 @@ func TestClassifyStatusRecoveryAfterFailureCanFireIdleUnreported(t *testing.T) {
 		ts := NewTaskState(herdr.StatusWorking, now)
 		probeErr := errors.New("pane not found")
 
-		if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second)); e == nil || e.Kind != KindFailed {
+		if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(time.Second), ""); e == nil || e.Kind != KindFailed {
 			t.Fatalf("status %q: got %+v, want failed event", notBusy, e)
 		}
-		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second)); e == nil || e.Kind != KindIdleUnreported {
+		if e := ClassifyStatus(ts, "task-1", notBusy, nil, now.Add(2*time.Second), ""); e == nil || e.Kind != KindIdleUnreported {
 			t.Fatalf("status %q: got %+v, want idle-unreported event on recovery", notBusy, e)
 		}
 	}
@@ -154,7 +167,7 @@ func TestClassifyStaleFiresOncePerWindow(t *testing.T) {
 		t.Fatalf("stale event fired again in the same window: %+v", e)
 	}
 
-	ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(11*time.Minute))
+	ClassifyStatus(ts, "task-1", herdr.StatusDone, nil, now.Add(11*time.Minute), "")
 	if e := ClassifyStale(ts, "task-1", "", now.Add(12*time.Minute), threshold); e != nil {
 		t.Fatalf("stale fired right after a status change reset the window: %+v", e)
 	}
@@ -221,7 +234,7 @@ func TestClassifyStaleTreatsHerdrDoneAsNotBusyOnly(t *testing.T) {
 func TestClassifyStaleSkipsUnprobedTasks(t *testing.T) {
 	now := time.Now()
 	ts := NewTaskState(herdr.StatusWorking, now)
-	ClassifyStatus(ts, "task-1", "", errors.New("down"), now.Add(time.Second))
+	ClassifyStatus(ts, "task-1", "", errors.New("down"), now.Add(time.Second), "")
 
 	if e := ClassifyStale(ts, "task-1", "", now.Add(time.Hour), time.Minute); e != nil {
 		t.Fatalf("got %+v, want no stale event while probe is failing", e)
@@ -237,14 +250,25 @@ func TestClassifyUnreachableFiresOnceAfterTheDwellForATaskFirstSeenDown(t *testi
 	ts := NewTaskState(herdr.StatusUnknown, now)
 	ts.Probed = false
 
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Minute), threshold); e != nil {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Minute), threshold, ""); e != nil {
 		t.Fatalf("got %+v, want no event before the dwell matures: this is what makes a blink silent", e)
 	}
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), threshold); e == nil || e.Kind != KindFailed {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), threshold, ""); e == nil || e.Kind != KindFailed {
 		t.Fatalf("got %+v, want a failed event once the outage outlasts the dwell", e)
 	}
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(10*time.Minute), threshold); e != nil {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(10*time.Minute), threshold, ""); e != nil {
 		t.Fatalf("failed event fired again for the same outage: %+v", e)
+	}
+}
+
+func TestClassifyUnreachableSuppressesFailedWhenTeardownClaimedTheHerdrResource(t *testing.T) {
+	now := time.Now()
+	threshold := 5 * time.Minute
+	ts := NewTaskState(herdr.StatusUnknown, now)
+	ts.Probed = false
+
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), threshold, state.TeardownResourceReleasing); e != nil {
+		t.Fatalf("got %+v, want no event past the dwell either: teardown's own release explains the outage", e)
 	}
 }
 
@@ -254,13 +278,13 @@ func TestClassifyUnreachableStaysSilentOnABlink(t *testing.T) {
 	ts := NewTaskState(herdr.StatusUnknown, now)
 	ts.Probed = false
 
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Minute), threshold); e != nil {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(time.Minute), threshold, ""); e != nil {
 		t.Fatalf("got %+v, want no event before the dwell matures", e)
 	}
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(2*time.Minute)); e != nil {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(2*time.Minute), ""); e != nil {
 		t.Fatalf("recovery from a first-sighting outage fired an event: %+v", e)
 	}
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(10*time.Minute), threshold); e != nil {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(10*time.Minute), threshold, ""); e != nil {
 		t.Fatalf("got %+v, want no failed event: the pane recovered before the dwell matured", e)
 	}
 }
@@ -271,18 +295,18 @@ func TestClassifyUnreachableRefiresOnANewOutageAfterRecovery(t *testing.T) {
 	ts := NewTaskState(herdr.StatusUnknown, now)
 	ts.Probed = false
 
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), threshold); e == nil || e.Kind != KindFailed {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(6*time.Minute), threshold, ""); e == nil || e.Kind != KindFailed {
 		t.Fatalf("got %+v, want a failed event for the first outage", e)
 	}
-	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(7*time.Minute)); e != nil {
+	if e := ClassifyStatus(ts, "task-1", herdr.StatusWorking, nil, now.Add(7*time.Minute), ""); e != nil {
 		t.Fatalf("recovery fired an event: %+v", e)
 	}
 
 	probeErr := errors.New("pane not found")
-	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(8*time.Minute)); e == nil || e.Kind != KindFailed {
+	if e := ClassifyStatus(ts, "task-1", "", probeErr, now.Add(8*time.Minute), ""); e == nil || e.Kind != KindFailed {
 		t.Fatalf("got %+v, want ClassifyStatus's immediate branch to fire for a known-good task going dark", e)
 	}
-	if e := ClassifyUnreachable(ts, "task-1", now.Add(20*time.Minute), threshold); e != nil {
+	if e := ClassifyUnreachable(ts, "task-1", now.Add(20*time.Minute), threshold, ""); e != nil {
 		t.Fatalf("got %+v, want no duplicate: ClassifyStatus's immediate branch already claimed this outage", e)
 	}
 }

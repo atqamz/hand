@@ -306,10 +306,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		// usage-limit check reads a pane on.
 		justStopped := status.NotBusy() && status != ts.Status
 
-		if e := ClassifyStatus(ts, t.ID, status, probeErr, now); e != nil {
+		if e := ClassifyStatus(ts, t.ID, status, probeErr, now, attempt.TeardownHerdrState); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
-		if e := ClassifyUnreachable(ts, t.ID, now, cfg.StaleThreshold); e != nil {
+		if e := ClassifyUnreachable(ts, t.ID, now, cfg.StaleThreshold, attempt.TeardownHerdrState); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
 		if e := ClassifyStale(ts, t.ID, t.DeliveredAt, now, cfg.StaleThreshold); e != nil {

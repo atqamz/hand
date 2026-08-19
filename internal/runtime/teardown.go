@@ -106,7 +106,7 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 		return fail(err)
 	}
 
-	record := completionFor(task, disposition, launched)
+	record := completionFor(task, disposition, launched, active.LastReportState, active.LastReportNote)
 	record.AttemptID = active.ID
 	record.AttemptLifecycle = string(terminalAttempt)
 	record.TornDownAt = r.deps.now().Format(time.RFC3339)
@@ -283,12 +283,21 @@ func teardownDecision(forced, launched bool, lifecycle state.AttemptLifecycle, d
 	return state.AttemptCompleted, state.TeardownDispositionCompleted
 }
 
-func completionFor(t state.Task, disposition string, launched bool) completion.Record {
+func completionFor(t state.Task, disposition string, launched bool, lastReportState, lastReportNote string) completion.Record {
 	c := completion.Record{ID: t.ID, Project: t.Project, Kind: t.Kind}
 	// The delivered case sits ahead of the merge cases below only while no merge is on the row: a
 	// delivery that then genuinely landed has the stronger fact to record, so an observed or executed
 	// merge outranks the mark.
 	switch {
+	// Ahead of every case below, disposition included: disposition explains why hand decided to
+	// terminalize, not whether the worker's own attempt succeeded, and a forced or dirt-safe teardown
+	// must not turn a self-reported failure into a success absent from the record.
+	case lastReportState == state.ReportFailed:
+		c.Outcome = "failed"
+		c.Detail = lastReportNote
+		if c.Detail == "" {
+			c.Detail = "worker reported failed"
+		}
 	// Ahead of every case below, including the forced one: none of them can be true of an attempt
 	// whose agent never started, and recording a merge or a delivery for it would be a false fact.
 	case disposition == state.TeardownDispositionNeverLaunched || !launched:

@@ -240,6 +240,97 @@ func TestTeardownDoesNotUseAnOlderSameSecondCompletion(t *testing.T) {
 	}
 }
 
+// Covers atqamz/hand#235: the worker's own self-reported failure, not the teardown act, is what a
+// completion record must attribute a failed outcome to.
+func TestTeardownReportsGenuineWorkerFailureAsFailedOutcome(t *testing.T) {
+	home, _ := teardownFixture(t, false)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history.ActiveAttempt.LastReportState = state.ReportFailed
+	history.ActiveAttempt.LastReportNote = "tests would not pass"
+	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := New().Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatalf("Teardown() = %v", err)
+	}
+	if result.Outcome != "failed" || result.Detail != "tests would not pass" {
+		t.Fatalf("result = %+v, want the worker's own failure report carried through, not a teardown detail", result)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome != "failed" {
+		t.Fatalf("completions = %+v, want the failure durable in the ledger, not only in rendered output", records)
+	}
+}
+
+// Covers atqamz/hand#235: --force skips the landed-work checks, but it must not turn a task nobody
+// reported failed into a recorded failure.
+func TestTeardownForceOnASuccessfulTaskIsNotRecordedAsFailed(t *testing.T) {
+	home, _ := teardownFixture(t, false)
+
+	result, err := New().Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true})
+	if err != nil {
+		t.Fatalf("Teardown() = %v", err)
+	}
+	if result.Outcome != "torn-down" || result.Detail != "forced (landed-work checks skipped)" {
+		t.Fatalf("result = %+v, want the forced disposition outcome, not an invented failure", result)
+	}
+
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome == "failed" {
+		t.Fatalf("completions = %+v, want --force on a successful task to leave the record's truth alone", records)
+	}
+}
+
+// Covers atqamz/hand#235: forcing both teardowns proves --force does not decide the outcome either
+// way - a genuine self-reported failure still reads as failed, a task nobody reported failed still
+// does not, and the two stay distinct in the same durable ledger shape.
+func TestTeardownDistinguishesGenuineFailureFromForcedSuccessInDurableState(t *testing.T) {
+	failedHome, _ := teardownFixture(t, false)
+	history, err := state.ReadHistory(failedHome, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history.ActiveAttempt.LastReportState = state.ReportFailed
+	if err := state.UpdateAttempt(failedHome, *history.ActiveAttempt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New().Teardown(context.Background(), TeardownRequest{Home: failedHome, ID: "task-1", Force: true}); err != nil {
+		t.Fatalf("Teardown() = %v", err)
+	}
+
+	successHome, _ := teardownFixture(t, false)
+	if _, err := New().Teardown(context.Background(), TeardownRequest{Home: successHome, ID: "task-1", Force: true}); err != nil {
+		t.Fatalf("Teardown() = %v", err)
+	}
+
+	failedRecords, err := completion.List(failedHome)
+	if err != nil || len(failedRecords) != 1 {
+		t.Fatalf("failed completions = %+v, err=%v", failedRecords, err)
+	}
+	successRecords, err := completion.List(successHome)
+	if err != nil || len(successRecords) != 1 {
+		t.Fatalf("success completions = %+v, err=%v", successRecords, err)
+	}
+	if failedRecords[0].Outcome != "failed" {
+		t.Fatalf("failed record outcome = %q, want failed even under --force", failedRecords[0].Outcome)
+	}
+	if successRecords[0].Outcome == "failed" {
+		t.Fatalf("success record outcome = %q, want --force on success to stay distinct from a genuine failure", successRecords[0].Outcome)
+	}
+}
+
 func TestTeardownDecisionKeepsLaunchedProvisioningDetail(t *testing.T) {
 	terminal, disposition := teardownDecision(false, true, state.AttemptProvisioning, false)
 	if terminal != state.AttemptInterrupted {
@@ -248,7 +339,7 @@ func TestTeardownDecisionKeepsLaunchedProvisioningDetail(t *testing.T) {
 	if disposition != state.TeardownDispositionLaunchedProvisioning {
 		t.Fatalf("disposition = %q, want launched-provisioning", disposition)
 	}
-	record := completionFor(state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, PR: "https://example.com/pr/1"}, disposition, true)
+	record := completionFor(state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, PR: "https://example.com/pr/1"}, disposition, true, "", "")
 	if record.Detail == "attempt never launched" {
 		t.Fatalf("completion = %+v, launched provisioning must keep landed-work detail", record)
 	}
