@@ -1318,6 +1318,52 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 	}
 }
 
+// Covers atqamz/hand#235 at the rendered-output boundary: a worker that reported itself failed must
+// have that failure survive to the exact text `hand teardown` prints, not just to durable state.
+func TestTeardownRendersGenuineWorkerFailureAsOutcomeFailed(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"},
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"},
+			LastReportState: state.ReportFailed, LastReportNote: "tests would not pass"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "outcome: failed\n") || !strings.Contains(out.String(), "tests would not pass") {
+		t.Fatalf("output = %q, want the worker's own failure report rendered as the outcome", out.String())
+	}
+}
+
+// The --force half of the same issue: forcing past landed-work checks must never invent a failure for a
+// task nobody reported failed, in the same rendered text a `hand teardown` caller reads.
+func TestTeardownForceOnATaskWithNoFailureReportNeverRendersOutcomeFailed(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	if err := os.WriteFile(filepath.Join(worktree, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"},
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTeardownCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1", "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "outcome: failed") {
+		t.Fatalf("output = %q, want --force on a task nobody reported failed to never render outcome: failed", out.String())
+	}
+}
+
 func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeScoutReport(t, home, "task-1")
