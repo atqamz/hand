@@ -1289,20 +1289,14 @@ func (r *Runtime) resolveWorktreeCommitSafety(ctx context.Context, task state.Ta
 		observeCommits = worktree.ObserveCommitSafety
 	}
 	observation := observeCommits(attempt.Worktree)
-	switch observation.State {
-	case worktree.CommitSafetyRemoteObserved:
+	if observation.State == worktree.CommitSafetyRemoteObserved {
 		return commitSafetyDecision{
 			State:  commitSafetyProvenDurable,
 			Reason: fmt.Sprintf("every commit reachable from %s in %s is also reachable from one of the %d remote-tracking refs this clone holds, so returning the worktree discards nothing", shortCommit(observation.Probe.Head), observation.Probe.WorkingDir, observation.Probe.RemoteRefs),
 		}
-	case worktree.CommitSafetyUnknown:
-		return commitSafetyDecision{State: commitSafetyUnprovable, Reason: unprovableCommitSafetyReason(attempt, observation.Probe)}
 	}
 	if task.PR == "" {
-		return commitSafetyDecision{
-			State:  commitSafetyLocalWorkAtRisk,
-			Reason: localOnlyCommitsReason(observation.Probe, "no pull request is recorded for this task, so no pushed head can hold them either"),
-		}
+		return withheldCommitSafety(attempt, observation, "no pull request is recorded for this task, so no pushed head can hold them either")
 	}
 	prHead := r.deps.prHead
 	if prHead == nil {
@@ -1312,19 +1306,23 @@ func (r *Runtime) resolveWorktreeCommitSafety(ctx context.Context, task state.Ta
 	if !pushed.Found() {
 		return commitSafetyDecision{
 			State:  commitSafetyUnprovable,
-			Reason: fmt.Sprintf("%d commit(s) in %s are reachable from no remote-tracking ref and the head commit of pull request %s could not be read, so whether GitHub holds them is unobserved rather than answered: %s", observation.Probe.LocalOnly, observation.Probe.WorkingDir, task.PR, pushed.Reason()),
+			Reason: unprovableCommitSafetyReason(attempt, observation, fmt.Sprintf("the head commit of pull request %s could not be read, so whether GitHub holds them is unobserved rather than answered: %s", task.PR, pushed.Reason())),
 		}
 	}
-	if pushed.Head == observation.Probe.Head {
+	if observation.Probe.Head != "" && pushed.Head == observation.Probe.Head {
 		return commitSafetyDecision{
 			State:  commitSafetyProvenDurable,
-			Reason: fmt.Sprintf("no remote-tracking ref in %s reaches %s, and GitHub records that exact commit as the head of pull request %s, which holds it independently of this worktree", observation.Probe.WorkingDir, shortCommit(observation.Probe.Head), task.PR),
+			Reason: fmt.Sprintf("the remote-tracking refs in %s do not prove %s durable, and GitHub records that exact commit as the head of pull request %s, which holds it independently of this worktree", observation.Probe.WorkingDir, shortCommit(observation.Probe.Head), task.PR),
 		}
 	}
-	return commitSafetyDecision{
-		State:  commitSafetyLocalWorkAtRisk,
-		Reason: localOnlyCommitsReason(observation.Probe, fmt.Sprintf("pull request %s records head commit %s instead, so GitHub was never observed holding %s", task.PR, shortCommit(pushed.Head), shortCommit(observation.Probe.Head))),
+	return withheldCommitSafety(attempt, observation, fmt.Sprintf("pull request %s records head commit %s instead, so GitHub was never observed holding %s", task.PR, shortCommit(pushed.Head), shortCommit(observation.Probe.Head)))
+}
+
+func withheldCommitSafety(attempt state.Attempt, observation worktree.CommitSafetyObservation, unheldBecause string) commitSafetyDecision {
+	if observation.State == worktree.CommitSafetyLocalOnly {
+		return commitSafetyDecision{State: commitSafetyLocalWorkAtRisk, Reason: localOnlyCommitsReason(observation, unheldBecause)}
 	}
+	return commitSafetyDecision{State: commitSafetyUnprovable, Reason: unprovableCommitSafetyReason(attempt, observation, unheldBecause)}
 }
 
 func commitSafetyRepairCode(safety commitSafety) string {
@@ -1334,16 +1332,24 @@ func commitSafetyRepairCode(safety commitSafety) string {
 	return repairCodeWorktreeCommitSafetyUnknown
 }
 
-func localOnlyCommitsReason(probe worktree.CommitSafetyProbe, unheldBecause string) string {
-	return fmt.Sprintf(
-		"%d commit(s) in %s are reachable from none of the %d remote-tracking refs this clone holds, and %s; observed by running %q with working directory %s; automatic reconciliation will not discard work no other copy is known to hold",
-		probe.LocalOnly, probe.WorkingDir, probe.RemoteRefs, unheldBecause, probe.Command, probe.WorkingDir)
+func commitSafetyFinding(observation worktree.CommitSafetyObservation) string {
+	if observation.State == worktree.CommitSafetyLocalOnly {
+		return fmt.Sprintf("%d commit(s) in %s are reachable from none of the %d remote-tracking refs this clone holds",
+			observation.Probe.LocalOnly, observation.Probe.WorkingDir, observation.Probe.RemoteRefs)
+	}
+	return observation.Probe.Reason
 }
 
-func unprovableCommitSafetyReason(attempt state.Attempt, probe worktree.CommitSafetyProbe) string {
+func localOnlyCommitsReason(observation worktree.CommitSafetyObservation, unheldBecause string) string {
 	return fmt.Sprintf(
-		"whether worktree %s still holds the only copy of any commit could not be observed: %s; observed by running %q with working directory %s; the return is withheld because the question went unanswered, not because work was found at risk",
-		attempt.Worktree, probe.Reason, probe.Command, probe.WorkingDir)
+		"%s, and %s; observed by running %q with working directory %s; automatic reconciliation will not discard work no other copy is known to hold",
+		commitSafetyFinding(observation), unheldBecause, observation.Probe.Command, observation.Probe.WorkingDir)
+}
+
+func unprovableCommitSafetyReason(attempt state.Attempt, observation worktree.CommitSafetyObservation, unheldBecause string) string {
+	return fmt.Sprintf(
+		"whether worktree %s still holds the only copy of any commit could not be observed: %s, and %s; observed by running %q with working directory %s; the return is withheld because the question went unanswered, not because work was found at risk",
+		attempt.Worktree, commitSafetyFinding(observation), unheldBecause, observation.Probe.Command, observation.Probe.WorkingDir)
 }
 
 func shortCommit(commit string) string {
