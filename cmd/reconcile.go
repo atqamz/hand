@@ -14,6 +14,7 @@ import (
 func newReconcileCmd() *cobra.Command {
 	var asJSON bool
 	var abandonWorktree bool
+	var abandonPane bool
 	cmd := &cobra.Command{
 		Use:   "reconcile [id]",
 		Short: "Converge durable task state with observed external reality",
@@ -29,9 +30,10 @@ func newReconcileCmd() *cobra.Command {
 			"elsewhere too. Unpushed commits withhold the return, and so does a comparison that could not be\n" +
 			"made at all, recorded as its own condition rather than as work found at risk. The Attempt stays\n" +
 			"terminal either way, and reconciling the withheld state again changes nothing.\n\n" +
-			"--abandon-worktree attests that Hand relinquishes a recorded Treehouse lease whose pool cannot be\n" +
-			"observed at all, for instance after the pool key moved. It needs an explicit task ID, it refuses any\n" +
-			"lease an observation can still prove or disprove, and it never returns, prunes or deletes a worktree:\n" +
+			"--abandon-worktree attests that Hand relinquishes a recorded Treehouse lease whose ownership cannot\n" +
+			"be established, either because the pool cannot be observed at all or because the pool holds no lease\n" +
+			"identity to compare against. It needs an explicit task ID, it refuses any lease an observation can\n" +
+			"still prove or disprove, and it never returns, prunes or deletes a worktree:\n" +
 			"the worktree is left exactly as it is for the operator to reclaim through treehouse itself. The flag\n" +
 			"only adds this worktree attestation and leaves every other reconciliation action unchanged, including\n" +
 			"ordinary Herdr cleanup, which still requires proven ownership. An attempt that is still active is\n" +
@@ -39,7 +41,14 @@ func newReconcileCmd() *cobra.Command {
 			"step leaves behind, while an attempt whose lifecycle is already terminal is eligible on its own once\n" +
 			"its worktree resource is unsettled. No worktree of a live worker can be abandoned on either route,\n" +
 			"because a provisioning or running attempt is skipped and the active attempt is reachable only through\n" +
-			"that recorded decision.",
+			"that recorded decision.\n\n" +
+			"--abandon-pane is the same attestation for a recorded Herdr pane identity: it relinquishes the claim\n" +
+			"and closes no pane, tab or workspace. It needs an explicit task ID, and it refuses any pane identity an\n" +
+			"observation confirms as Hand's or reports absent, because a confirmed pane is cleaned up and an absent\n" +
+			"one needs no attestation. What is left is a recorded identity too incomplete to observe and one whose\n" +
+			"workspace, tab or pane answers for something else, and those are the two states it covers. An active\n" +
+			"attempt is reached only through a recorded teardown decision, so no pane of a live worker can be\n" +
+			"abandoned.",
 		Args: usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fleetHome, err := home.Resolve()
@@ -53,8 +62,12 @@ func newReconcileCmd() *cobra.Command {
 			if abandonWorktree && id == "" {
 				return asPrecondition(runtime.Precondition(errors.New("--abandon-worktree needs an explicit task ID")))
 			}
+			if abandonPane && id == "" {
+				return asPrecondition(runtime.Precondition(errors.New("--abandon-pane needs an explicit task ID")))
+			}
 			report, reconcileErr := runtime.New().Reconcile(runtime.ReconcileRequest{
-				Context: cmd.Context(), Home: fleetHome, ID: id, AbandonWorktree: abandonWorktree,
+				Context: cmd.Context(), Home: fleetHome, ID: id,
+				AbandonWorktree: abandonWorktree, AbandonPane: abandonPane,
 			})
 			if err := renderReconcileReport(cmd, report, asJSON); err != nil {
 				return err
@@ -64,6 +77,7 @@ func newReconcileCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON instead of TOON")
 	cmd.Flags().BoolVar(&abandonWorktree, "abandon-worktree", false, "attest that Hand relinquishes an unobservable Treehouse lease without touching the worktree")
+	cmd.Flags().BoolVar(&abandonPane, "abandon-pane", false, "attest that Hand relinquishes an unprovable Herdr pane identity without closing the pane")
 	return cmd
 }
 

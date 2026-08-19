@@ -132,7 +132,7 @@ func TestListHerdrOwnershipsIncludesLifecycleAndTeardownMetadata(t *testing.T) {
 }
 
 // A latch has to be leavable in both directions: forward to a release once ownership is proven, and
-// sideways to abandonment when an operator attests. Only the worktree can be abandoned.
+// sideways to abandonment when an operator attests, for either resource (atqamz/hand#254).
 func TestSetAttemptTeardownResourceStateLeavesAmbiguousBothWays(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -144,7 +144,9 @@ func TestSetAttemptTeardownResourceStateLeavesAmbiguousBothWays(t *testing.T) {
 		{name: "worktree is abandonable", resource: "worktree", next: TeardownResourceAbandoned},
 		{name: "worktree cannot skip to released", resource: "worktree", next: TeardownResourceReleased, wantErr: store.ErrLifecycleConflict},
 		{name: "herdr resumes releasing", resource: "herdr", next: TeardownResourceReleasing},
-		{name: "herdr is not abandonable", resource: "herdr", next: TeardownResourceAbandoned, wantErr: store.ErrInvalidTransition},
+		{name: "herdr is abandonable", resource: "herdr", next: TeardownResourceAbandoned},
+		{name: "herdr cannot skip to released", resource: "herdr", next: TeardownResourceReleased, wantErr: store.ErrLifecycleConflict},
+		{name: "neither resource takes an unknown state", resource: "herdr", next: "relinquished", wantErr: store.ErrInvalidTransition},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()

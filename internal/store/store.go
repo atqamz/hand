@@ -128,6 +128,7 @@ const (
 	TeardownDispositionNeverLaunched        = "never-launched"
 	TeardownDispositionLaunchedProvisioning = "launched-provisioning"
 	TeardownDispositionWorkerExitedUnlanded = "worker-exited-unlanded"
+	TeardownDispositionProvisioningUnwound  = "provisioning-unwound"
 )
 
 type Task struct {
@@ -2119,9 +2120,6 @@ func (db *DB) SetAttemptTeardownResourceState(taskID string, attemptID int64, ex
 	}
 	if next != TeardownResourceReleasing && next != TeardownResourceReleased && next != TeardownResourceAmbiguous && next != TeardownResourceRetryable && next != TeardownResourceAbandoned {
 		return fmt.Errorf("%w: unknown teardown resource state %q", ErrInvalidTransition, next)
-	}
-	if next == TeardownResourceAbandoned && resource != "worktree" {
-		return fmt.Errorf("%w: teardown resource %q cannot be abandoned", ErrInvalidTransition, resource)
 	}
 	currentAllowed := "''"
 	switch next {

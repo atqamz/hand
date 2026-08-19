@@ -1204,8 +1204,11 @@ func TestReconcileReusedTerminalLeaseDoesNotReturnNewOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.Task.RepairCode != "worktree-ownership-mismatch" || returns != 0 {
-		t.Fatalf("history=%+v returns=%d, want mismatch repair without touching new lease", history, returns)
+	if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceAbandoned || returns != 0 {
+		t.Fatalf("history=%+v returns=%d, want the disproven claim relinquished without touching the new lease", history, returns)
+	}
+	if history.Task.RepairCode != "" {
+		t.Fatalf("repair code = %q, want a disproven claim to end rather than persist a diagnosis", history.Task.RepairCode)
 	}
 }
 
@@ -1336,8 +1339,8 @@ func TestReconcileAbandonWorktreeConvergesAnUnobservableLease(t *testing.T) {
 	}
 }
 
-// Abandonment is only for what cannot be observed. A lease held by another owner and a lease proven
-// to be ours both keep their ordinary handling even when the operator passes the attestation.
+// Abandonment is only for what cannot be observed. A lease another owner provably holds and a lease
+// proven to be ours both keep their ordinary handling even when the operator passes the attestation.
 func TestReconcileAbandonWorktreeRefusesProvableOwnership(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -1349,8 +1352,7 @@ func TestReconcileAbandonWorktreeRefusesProvableOwnership(t *testing.T) {
 		{
 			name:        "another owner",
 			observation: worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-2"},
-			wantState:   state.TeardownResourceAmbiguous,
-			wantRepair:  repairCodeWorktreeOwnershipMismatch,
+			wantState:   state.TeardownResourceAbandoned,
 		},
 		{
 			name:        "proven ours",
@@ -1384,11 +1386,13 @@ func TestReconcileAbandonWorktreeRefusesProvableOwnership(t *testing.T) {
 	}
 }
 
-func TestAbandonHistoricalWorktreeRefusesAnyObservedOwnership(t *testing.T) {
+// Unknown and unprovable are the two states no observation settles; every other observation proves or
+// disproves the lease, so the attestation has nothing to add and refuses.
+func TestAbandonHistoricalWorktreeRefusesOwnershipAnObservationSettles(t *testing.T) {
 	home, attempt := unobservableTeardownFixture(t, "")
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
 	task := state.Task{ID: "task-1"}
-	for _, observed := range []worktree.LeaseObservationState{worktree.LeaseExact, worktree.LeaseMismatch, worktree.LeaseAbsent, worktree.LeaseUnprovable} {
+	for _, observed := range []worktree.LeaseObservationState{worktree.LeaseExact, worktree.LeaseMismatch, worktree.LeaseAbsent} {
 		_, _, err := r.abandonHistoricalWorktree(home, task, attempt, worktree.LeaseObservation{State: observed})
 		if err == nil {
 			t.Fatalf("abandonHistoricalWorktree() accepted a %s observation", observed)

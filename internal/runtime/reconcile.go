@@ -28,7 +28,10 @@ const (
 	reconciliationActionMarkRunning          reconciliationAction = "mark-running"
 	reconciliationActionCleanupTerminal      reconciliationAction = "cleanup-terminal-resources"
 	reconciliationActionConvergeTerminal     reconciliationAction = "converge-terminal-lifecycle"
+	reconciliationActionUnwindProvisioning   reconciliationAction = "unwind-failed-provisioning"
 	reconciliationActionAbandonWorktree      reconciliationAction = "abandon-worktree"
+	reconciliationActionAbandonPane          reconciliationAction = "abandon-pane"
+	reconciliationActionRelinquishWorktree   reconciliationAction = "relinquish-worktree-claim"
 	reconciliationActionNeedsRepair          reconciliationAction = "needs-repair"
 	reconciliationActionBlocked              reconciliationAction = "blocked"
 )
@@ -69,26 +72,6 @@ const (
 	herdrOwnershipAbsent     herdrOwnershipState = "absent"
 	herdrOwnershipMismatch   herdrOwnershipState = "mismatch"
 	herdrOwnershipIncomplete herdrOwnershipState = "incomplete"
-)
-
-const (
-	repairCodeProvisioningLaunchAmbiguous = "provisioning-launch-ambiguous"
-	repairCodeProvisioningPaneMissing     = "provisioning-pane-missing"
-	repairCodeLaunchSubmittedPaneMissing  = "launch-submitted-pane-missing"
-	repairCodeLaunchAgentMismatch         = "launch-agent-mismatch"
-	repairCodeRunningPaneMissing          = "running-pane-missing"
-	repairCodeRunningPaneIdentityMismatch = "running-pane-identity-mismatch"
-	repairCodeHerdrOwnershipIncomplete    = "herdr-ownership-incomplete"
-	repairCodeHerdrOwnershipMismatch      = "herdr-ownership-mismatch"
-	repairCodeWorktreeDirty               = "worktree-dirty"
-	repairCodeWorktreeOwnershipMismatch   = "worktree-ownership-mismatch"
-	repairCodeLegacyWorktreeUnprovable    = "legacy-worktree-ownership-unprovable"
-	repairCodeWorktreeUnobservable        = "worktree-ownership-unobservable"
-	repairCodeWorktreeLocalCommits        = "worktree-local-commits"
-	repairCodeWorktreeCommitSafetyUnknown = "worktree-commit-safety-unknown"
-	repairCodeTeardownResourceAmbiguous   = "teardown-resource-ambiguous"
-	repairCodeCompletionEvidenceMismatch  = "completion-evidence-mismatch"
-	repairCodeMergeFactMismatch           = "merge-fact-mismatch"
 )
 
 type treehouseObservation struct {
@@ -134,7 +117,17 @@ type ReconcileRequest struct {
 	Home            string
 	ID              string
 	AbandonWorktree bool
+	AbandonPane     bool
 }
+
+// The operator attestations one reconcile run carries, each scoped to one kind of resource whose
+// ownership no observation can settle. Neither destroys anything; both only relinquish Hand's claim.
+type reconcileAttestations struct {
+	Worktree bool
+	Pane     bool
+}
+
+func (a reconcileAttestations) any() bool { return a.Worktree || a.Pane }
 
 type ReconcileResult struct {
 	ID             string `json:"id"`
@@ -187,15 +180,16 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	attest := reconcileAttestations{Worktree: req.AbandonWorktree, Pane: req.AbandonPane}
 	if req.ID != "" {
-		result, err := r.reconcileTask(ctx, req.Home, req.ID, req.AbandonWorktree)
+		result, err := r.reconcileTask(ctx, req.Home, req.ID, attest)
 		if err != nil {
 			result.Error = err.Error()
 		}
 		return ReconcileReport{Results: []ReconcileResult{result}}, err
 	}
-	if req.AbandonWorktree {
-		return ReconcileReport{}, Precondition(fmt.Errorf("abandoning a worktree lease needs an explicit task ID"))
+	if attest.any() {
+		return ReconcileReport{}, Precondition(fmt.Errorf("attesting that Hand relinquishes a recorded resource needs an explicit task ID"))
 	}
 	histories, err := state.ListReconciliationHistories(req.Home)
 	if err != nil {
@@ -204,7 +198,7 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	report := ReconcileReport{Results: make([]ReconcileResult, 0, len(histories))}
 	var errs []error
 	for _, history := range histories {
-		result, err := r.reconcileTask(ctx, req.Home, history.Task.ID, false)
+		result, err := r.reconcileTask(ctx, req.Home, history.Task.ID, reconcileAttestations{})
 		if err != nil {
 			result.Error = err.Error()
 		}
@@ -223,7 +217,7 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	return report, errors.Join(errs...)
 }
 
-func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWorktree bool) (ReconcileResult, error) {
+func (r *Runtime) reconcileTask(ctx context.Context, home, id string, attest reconcileAttestations) (ReconcileResult, error) {
 	release, err := state.Lock(home, "task:"+id)
 	if err != nil {
 		return ReconcileResult{ID: id, Outcome: reconcileOutcomeBlocked}, fmt.Errorf("lock task %q: %w", id, err)
@@ -257,10 +251,9 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 			if history.ActiveAttempt != nil {
 				attemptID = history.ActiveAttempt.ID
 			}
-			if err := r.recordRepair(home, history.Task, state.Attempt{ID: attemptID}, decision); err != nil {
+			if err := r.recordRepair(home, history.Task, state.Attempt{ID: attemptID}, decision, &result); err != nil {
 				return result, err
 			}
-			result.Outcome, result.RepairCode, result.RepairReason = reconcileOutcomeRepair, decision.RepairCode, decision.RepairReason
 			return result, nil
 		}
 		if mergeObserved && history.Task.RepairCode == repairCodeMergeFactMismatch {
@@ -276,16 +269,15 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		}
 		if historical != nil {
 			result.AttemptID = historical.ID
-			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, *historical, abandonWorktree)
+			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, *historical, attest)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
 			}
 			if decision.Action == reconciliationActionNeedsRepair {
-				if err := r.recordRepair(home, history.Task, *historical, decision); err != nil {
+				if err := r.recordRepair(home, history.Task, *historical, decision, &result); err != nil {
 					return result, err
 				}
-				result.Outcome, result.RepairCode, result.RepairReason = reconcileOutcomeRepair, decision.RepairCode, decision.RepairReason
 				return result, nil
 			}
 			if progress {
@@ -312,16 +304,15 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		result.ExecutionClass, result.Profile = attempt.ExecutionClass, attempt.RequestedProfile
 		result.PlannedAgainst, result.RoutingSource = attempt.PlannedAgainst, attempt.RoutingSource
 		if attempt.TeardownTerminalAttempt != "" {
-			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, attempt, abandonWorktree)
+			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, attempt, attest)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
 				return result, err
 			}
 			if decision.Action == reconciliationActionNeedsRepair {
-				if err := r.recordRepair(home, history.Task, attempt, decision); err != nil {
+				if err := r.recordRepair(home, history.Task, attempt, decision, &result); err != nil {
 					return result, err
 				}
-				result.Outcome, result.RepairCode, result.RepairReason = reconcileOutcomeRepair, decision.RepairCode, decision.RepairReason
 				return result, nil
 			}
 			if progress {
@@ -342,16 +333,21 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, abandonWor
 		result.Action = string(decision.Action)
 		switch decision.Action {
 		case reconciliationActionNeedsRepair:
-			if err := r.recordRepair(home, history.Task, attempt, decision); err != nil {
+			if err := r.recordRepair(home, history.Task, attempt, decision, &result); err != nil {
 				return result, err
 			}
-			result.Outcome, result.RepairCode, result.RepairReason = reconcileOutcomeRepair, decision.RepairCode, decision.RepairReason
 			return result, nil
 		case reconciliationActionBlocked:
 			result.Outcome = reconcileOutcomeBlocked
 			return result, fmt.Errorf("reconciliation observation was incomplete")
 		case reconciliationActionConvergeTerminal:
 			if err := r.convergeTerminalLifecycle(home, history.Task, attempt, decision); err != nil {
+				return result, err
+			}
+			result.Outcome, result.Detail = reconcileOutcomeRecovered, decision.Detail
+			continue
+		case reconciliationActionUnwindProvisioning:
+			if err := r.unwindFailedProvisioning(home, history.Task, attempt, decision); err != nil {
 				return result, err
 			}
 			result.Outcome, result.Detail = reconcileOutcomeRecovered, decision.Detail
@@ -522,23 +518,41 @@ func decideTerminalConvergence(attempt state.Attempt, observation reconciliation
 }
 
 func (r *Runtime) convergeTerminalLifecycle(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
+	return r.terminalizeWithoutRelease(home, task, attempt, decision, "converged")
+}
+
+// Unwinds a launch that persisted no owned resource at all, so there is nothing to release and no
+// ownership to claim: the attempt and its history stay durable and readable, and `hand reopen` is
+// what spawns the task again through the ordinary path.
+func (r *Runtime) unwindFailedProvisioning(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
+	if !unwindableProvisioning(attempt) {
+		return Precondition(fmt.Errorf("refusing to unwind attempt %d: it records lifecycle %q, worktree %q, lease %s, Herdr identity (%s) and teardown lifecycle %q, so this is not a launch that left nothing behind",
+			attempt.ID, attempt.Lifecycle, attempt.Worktree, leaseOrNone(attempt.LeaseID),
+			herdrIdentityText(attempt.Herdr), attempt.TeardownTerminalAttempt))
+	}
+	return r.terminalizeWithoutRelease(home, task, attempt, decision, "unwound")
+}
+
+// Records one terminal lifecycle and its completion evidence for an attempt whose resources are
+// already settled, releasing nothing of its own.
+func (r *Runtime) terminalizeWithoutRelease(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision, label string) error {
 	if err := state.SetAttemptTeardownDecision(home, task.ID, attempt.ID, decision.TerminalAttempt, decision.Disposition); err != nil {
-		return fmt.Errorf("record converged teardown decision for attempt %d: %w", attempt.ID, err)
+		return fmt.Errorf("record %s teardown decision for attempt %d: %w", label, attempt.ID, err)
 	}
 	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionPending); err != nil {
-		return fmt.Errorf("record converged completion phase for attempt %d: %w", attempt.ID, err)
+		return fmt.Errorf("record %s completion phase for attempt %d: %w", label, attempt.ID, err)
 	}
 	record := completionFor(task, decision.Disposition, true)
 	record.AttemptID, record.AttemptLifecycle = attempt.ID, string(decision.TerminalAttempt)
 	record.TornDownAt = r.deps.now().Format(time.RFC3339)
 	if err := r.deps.appendCompletion(home, record); err != nil {
-		return fmt.Errorf("append converged completion for attempt %d: %w", attempt.ID, err)
+		return fmt.Errorf("append %s completion for attempt %d: %w", label, attempt.ID, err)
 	}
 	if err := state.SetAttemptTeardownCompletionState(home, task.ID, attempt.ID, attempt.Lifecycle, state.TeardownCompletionAppended); err != nil {
-		return fmt.Errorf("record converged completion evidence for attempt %d: %w", attempt.ID, err)
+		return fmt.Errorf("record %s completion evidence for attempt %d: %w", label, attempt.ID, err)
 	}
 	if err := state.TerminalizeTaskAndAttempt(home, task.ID, attempt.ID, attempt.Lifecycle, decision.TerminalAttempt); err != nil {
-		return fmt.Errorf("converge attempt %d to %s: %w", attempt.ID, decision.TerminalAttempt, err)
+		return fmt.Errorf("%s attempt %d to %s: %w", label, attempt.ID, decision.TerminalAttempt, err)
 	}
 	return nil
 }
@@ -764,7 +778,7 @@ func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) 
 		if attempt.Lifecycle == state.AttemptProvisioning || attempt.Lifecycle == state.AttemptRunning {
 			continue
 		}
-		if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
+		if hasHerdrIdentity(attempt.Herdr) && !herdrCleanupSettled(attempt.TeardownHerdrState) {
 			return attempt, nil
 		}
 		if attempt.Worktree != "" && !worktreeCleanupSettled(attempt.TeardownWorktreeState) {
@@ -777,14 +791,17 @@ func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) 
 	return nil, nil
 }
 
-func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, task state.Task, attempt state.Attempt, abandonWorktree bool) (bool, reconciliationDecision, error) {
-	if hasHerdrIdentity(attempt.Herdr) && attempt.TeardownHerdrState != state.TeardownResourceReleased {
+func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, task state.Task, attempt state.Attempt, attest reconcileAttestations) (bool, reconciliationDecision, error) {
+	if hasHerdrIdentity(attempt.Herdr) && !herdrCleanupSettled(attempt.TeardownHerdrState) {
 		observation, err := observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
 			return false, reconciliationDecision{}, err
 		}
 		switch observation.State {
 		case herdrOwnershipIncomplete, herdrOwnershipMismatch:
+			if attest.Pane {
+				return r.abandonHistoricalPane(home, task, attempt, observation)
+			}
 			return false, repairDecision(reconciliationDecision{}, repairCodeTeardownResourceAmbiguous, "historical Herdr resource ownership cannot be proven safely"), nil
 		case herdrOwnershipAbsent:
 			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeTeardownResourceAmbiguous, repairCodeHerdrOwnershipMismatch); err != nil {
@@ -826,21 +843,21 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 	if attempt.Worktree != "" && !worktreeCleanupSettled(attempt.TeardownWorktreeState) {
 		lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
 		switch lease.State {
-		case worktree.LeaseUnknown:
-			if abandonWorktree {
+		case worktree.LeaseUnknown, worktree.LeaseUnprovable:
+			if attest.Worktree {
 				return r.abandonHistoricalWorktree(home, task, attempt, lease)
 			}
+			if lease.State == worktree.LeaseUnprovable {
+				return false, repairDecision(reconciliationDecision{}, repairCodeLegacyWorktreeUnprovable, "historical worktree has no exact lease identity"), nil
+			}
 			return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeUnobservable, unobservableWorktreeReason(attempt, lease.Probe)), nil
-		case worktree.LeaseUnprovable:
-			return false, repairDecision(reconciliationDecision{}, repairCodeLegacyWorktreeUnprovable, "historical worktree has no exact lease identity"), nil
 		case worktree.LeaseMismatch:
-			if attempt.TeardownWorktreeState == state.TeardownResourceReleasing {
-				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleased); err != nil {
-					return false, reconciliationDecision{}, err
-				}
+			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeLegacyWorktreeUnprovable); err != nil {
+				return false, reconciliationDecision{}, err
+			} else if cleared {
 				return true, reconciliationDecision{}, nil
 			}
-			return false, repairDecision(reconciliationDecision{}, repairCodeWorktreeOwnershipMismatch, "historical worktree path is held by a different Treehouse lease"), nil
+			return r.relinquishHistoricalWorktree(home, task, attempt, lease)
 		case worktree.LeaseAbsent:
 			if cleared, err := clearHistoricalRepair(home, task, attempt, repairCodeWorktreeOwnershipMismatch, repairCodeWorktreeUnobservable, repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown); err != nil {
 				return false, reconciliationDecision{}, err
@@ -948,14 +965,61 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 }
 
 func (r *Runtime) abandonHistoricalWorktree(home string, task state.Task, attempt state.Attempt, lease worktree.LeaseObservation) (bool, reconciliationDecision, error) {
-	if lease.State != worktree.LeaseUnknown {
-		return false, reconciliationDecision{}, Precondition(fmt.Errorf("refusing to abandon worktree %s of attempt %d: ownership observed as %s, which is provable evidence; abandonment is only for an unobservable pool", attempt.Worktree, attempt.ID, lease.State))
+	if lease.State != worktree.LeaseUnknown && lease.State != worktree.LeaseUnprovable {
+		return false, reconciliationDecision{}, Precondition(fmt.Errorf("refusing to abandon worktree %s of attempt %d: ownership observed as %s, which an observation can prove or disprove; abandonment is only for ownership neither observation can settle", attempt.Worktree, attempt.ID, lease.State))
 	}
-	if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceAbandoned); err != nil {
+	if err := recordAbandonedResource(home, task.ID, attempt, "worktree", attempt.TeardownWorktreeState); err != nil {
 		return false, reconciliationDecision{}, fmt.Errorf("record abandoned worktree ownership: %w", err)
 	}
-	detail := fmt.Sprintf("attempt %d relinquished worktree %s with recorded lease %s on operator attestation; %s", attempt.ID, attempt.Worktree, leaseOrNone(attempt.LeaseID), unobservableWorktreeReason(attempt, lease.Probe))
+	detail := fmt.Sprintf("attempt %d relinquished worktree %s with recorded lease %s on operator attestation; %s", attempt.ID, attempt.Worktree, leaseOrNone(attempt.LeaseID), abandonedWorktreeReason(attempt, lease))
 	return true, reconciliationDecision{Action: reconciliationActionAbandonWorktree, Detail: detail}, nil
+}
+
+// The attestation for a pane whose ownership no observation can settle. It relinquishes the recorded
+// identity and closes nothing, so a pane that answers in its place stays exactly where it is.
+func (r *Runtime) abandonHistoricalPane(home string, task state.Task, attempt state.Attempt, observation herdrObservation) (bool, reconciliationDecision, error) {
+	if observation.State != herdrOwnershipIncomplete && observation.State != herdrOwnershipMismatch {
+		return false, reconciliationDecision{}, Precondition(fmt.Errorf("refusing to abandon the Herdr pane of attempt %d: ownership observed as %s, which an observation can prove or disprove and an ordinary reconcile settles; abandonment is only for ownership neither observation can settle", attempt.ID, observation.State))
+	}
+	if err := recordAbandonedResource(home, task.ID, attempt, "herdr", attempt.TeardownHerdrState); err != nil {
+		return false, reconciliationDecision{}, fmt.Errorf("record abandoned Herdr ownership: %w", err)
+	}
+	detail := fmt.Sprintf("attempt %d relinquished its Herdr identity (%s) on operator attestation; ownership observed as %s, and no pane, tab or workspace was closed",
+		attempt.ID, herdrIdentityText(attempt.Herdr), observation.State)
+	return true, reconciliationDecision{Action: reconciliationActionAbandonPane, Detail: detail}, nil
+}
+
+// A path another lease provably holds was never this attempt's to return, so the disproven claim is
+// relinquished instead of diagnosed forever, and the worktree itself is left untouched.
+func (r *Runtime) relinquishHistoricalWorktree(home string, task state.Task, attempt state.Attempt, lease worktree.LeaseObservation) (bool, reconciliationDecision, error) {
+	if err := recordAbandonedResource(home, task.ID, attempt, "worktree", attempt.TeardownWorktreeState); err != nil {
+		return false, reconciliationDecision{}, fmt.Errorf("record relinquished worktree claim: %w", err)
+	}
+	detail := fmt.Sprintf("attempt %d relinquished worktree %s with recorded lease %s, which Treehouse now reports under lease %s; nothing was returned, pruned or deleted",
+		attempt.ID, attempt.Worktree, leaseOrNone(attempt.LeaseID), leaseOrNone(lease.LeaseID))
+	return true, reconciliationDecision{Action: reconciliationActionRelinquishWorktree, Detail: detail}, nil
+}
+
+// 'abandoned' has 'ambiguous' among its predecessors and 'releasing' does not, so a resource latched
+// mid-release steps through it rather than the transition table growing an edge per latch.
+func recordAbandonedResource(home, taskID string, attempt state.Attempt, resource, current string) error {
+	if current == state.TeardownResourceReleasing {
+		if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, resource, state.TeardownResourceAmbiguous); err != nil {
+			return err
+		}
+	}
+	return state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, resource, state.TeardownResourceAbandoned)
+}
+
+func abandonedWorktreeReason(attempt state.Attempt, lease worktree.LeaseObservation) string {
+	if lease.State == worktree.LeaseUnprovable {
+		return fmt.Sprintf("recorded worktree %s has no exact lease identity, so ownership is neither proven nor disproven; nothing was returned, pruned or deleted", attempt.Worktree)
+	}
+	return unobservableWorktreeReason(attempt, lease.Probe)
+}
+
+func herdrIdentityText(ownership state.Herdr) string {
+	return fmt.Sprintf("workspace=%q, tab=%q, pane=%q", ownership.WorkspaceID, ownership.TabID, ownership.PaneID)
 }
 
 func clearHistoricalRepair(home string, task state.Task, attempt state.Attempt, codes ...string) (bool, error) {
@@ -1024,7 +1088,7 @@ func terminalRepairEvidenceResolved(code string, attempt state.Attempt) bool {
 	case repairCodeProvisioningLaunchAmbiguous, repairCodeProvisioningPaneMissing, repairCodeLaunchSubmittedPaneMissing,
 		repairCodeLaunchAgentMismatch, repairCodeRunningPaneMissing, repairCodeRunningPaneIdentityMismatch,
 		repairCodeHerdrOwnershipIncomplete, repairCodeHerdrOwnershipMismatch, repairCodeTeardownResourceAmbiguous:
-		return !hasHerdrIdentity(attempt.Herdr) || attempt.TeardownHerdrState == state.TeardownResourceReleased
+		return !hasHerdrIdentity(attempt.Herdr) || herdrCleanupSettled(attempt.TeardownHerdrState)
 	case repairCodeWorktreeDirty, repairCodeWorktreeOwnershipMismatch, repairCodeLegacyWorktreeUnprovable, repairCodeWorktreeUnobservable,
 		repairCodeWorktreeLocalCommits, repairCodeWorktreeCommitSafetyUnknown:
 		return attempt.Worktree == "" || worktreeCleanupSettled(attempt.TeardownWorktreeState)
@@ -1104,11 +1168,15 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 	}
 }
 
-func (r *Runtime) recordRepair(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
-	if task.RepairCode == decision.RepairCode && task.RepairReason == decision.RepairReason && task.RepairAttemptID == attempt.ID {
+// Persists the diagnosis with its supported treatment appended, and reports the same text it stored,
+// so what an operator reads is what the task row holds.
+func (r *Runtime) recordRepair(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision, result *ReconcileResult) error {
+	reason := repairReasonWithTreatment(task.ID, decision.RepairCode, decision.RepairReason)
+	result.Outcome, result.RepairCode, result.RepairReason = reconcileOutcomeRepair, decision.RepairCode, reason
+	if task.RepairCode == decision.RepairCode && task.RepairReason == reason && task.RepairAttemptID == attempt.ID {
 		return nil
 	}
-	return state.SetTaskRepair(home, task.ID, decision.RepairCode, decision.RepairReason, attempt.ID, r.deps.now().Format(time.RFC3339))
+	return state.SetTaskRepair(home, task.ID, decision.RepairCode, reason, attempt.ID, r.deps.now().Format(time.RFC3339))
 }
 
 func shouldClearRepair(task state.Task, attempt state.Attempt, observation reconciliationObservation) bool {
@@ -1224,6 +1292,12 @@ func decideProvisioning(attempt state.Attempt, observation reconciliationObserva
 		return decision
 	}
 	if attempt.LaunchSubmittedAt != "" || attempt.LaunchConfirmedAt != "" {
+		if unwindableProvisioning(attempt) {
+			decision.Action = reconciliationActionUnwindProvisioning
+			decision.TerminalAttempt, decision.Disposition = state.AttemptInterrupted, state.TeardownDispositionProvisioningUnwound
+			decision.Detail = fmt.Sprintf("attempt %d unwound: launch evidence exists but no worktree lease and no Herdr identity were ever persisted, so nothing was released and no ownership was claimed", attempt.ID)
+			return decision
+		}
 		return repairDecision(decision, repairCodeProvisioningPaneMissing, "launch evidence exists but no Herdr pane identity was persisted")
 	}
 
@@ -1251,6 +1325,14 @@ func decideProvisioning(attempt state.Attempt, observation reconciliationObserva
 
 	decision.Action = reconciliationActionContinueProvisioning
 	return decision
+}
+
+// The facts that make unwinding a failed launch provably safe: the attempt is still provisioning, no
+// Herdr identity was ever persisted, no worktree lease is recorded, and no teardown has already
+// decided this attempt's terminal lifecycle, so no resource is at stake and no work can be lost.
+func unwindableProvisioning(attempt state.Attempt) bool {
+	return attempt.Lifecycle == state.AttemptProvisioning && !hasHerdrIdentity(attempt.Herdr) &&
+		attempt.Worktree == "" && attempt.LeaseID == "" && attempt.TeardownTerminalAttempt == ""
 }
 
 func leaseOrNone(leaseID string) string {

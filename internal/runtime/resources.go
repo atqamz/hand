@@ -112,6 +112,12 @@ func worktreeCleanupSettled(teardownWorktreeState string) bool {
 	return teardownWorktreeState == state.TeardownResourceReleased || teardownWorktreeState == state.TeardownResourceAbandoned
 }
 
+// Settled covers abandonment as well as release: an attested relinquishment closes the question of
+// what Hand still claims, even though the resource itself was never touched.
+func herdrCleanupSettled(teardownHerdrState string) bool {
+	return teardownHerdrState == state.TeardownResourceReleased || teardownHerdrState == state.TeardownResourceAbandoned
+}
+
 func incompleteHerdrOwnership(ownership state.Herdr) error {
 	if ownership.WorkspaceID == "" && ownership.TabID == "" && ownership.PaneID == "" {
 		return nil

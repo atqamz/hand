@@ -413,7 +413,7 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
 | `hand reopen <id>` | Reopen a terminal Task by creating a new Attempt. |
 | `hand status` | Read fleet or task state. |
-| `hand reconcile [id] [--abandon-worktree]` | Reconcile one Task or the bounded fleet candidate set with observed external reality; explicitly relinquish an unobservable historical worktree lease when given a Task ID. |
+| `hand reconcile [id] [--abandon-worktree] [--abandon-pane]` | Reconcile one Task or the bounded fleet candidate set with observed external reality; explicitly relinquish a historical worktree lease or Herdr pane identity whose ownership no observation can settle, when given a Task ID. |
 | `hand watch` | Wait for actionable fleet events. |
 | `hand send` | Steer a running worker. |
 | `hand merge` | Merge completed work after authorization. |
