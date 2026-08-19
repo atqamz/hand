@@ -15,6 +15,7 @@ func newReconcileCmd() *cobra.Command {
 	var asJSON bool
 	var abandonWorktree bool
 	var abandonPane bool
+	var attemptNeverStarted bool
 	cmd := &cobra.Command{
 		Use:   "reconcile [id]",
 		Short: "Converge durable task state with observed external reality",
@@ -48,7 +49,15 @@ func newReconcileCmd() *cobra.Command {
 			"one needs no attestation. What is left is a recorded identity too incomplete to observe and one whose\n" +
 			"workspace, tab or pane answers for something else, and those are the two states it covers. An active\n" +
 			"attempt is reached only through a recorded teardown decision, so no pane of a live worker can be\n" +
-			"abandoned.",
+			"abandoned.\n\n" +
+			"--attempt-never-started attests to the one fact durable state cannot hold: that the worker of a\n" +
+			"running Attempt took no turn at all, the shape a harness that stopped before its first turn leaves\n" +
+			"behind. It needs an explicit task ID, and it refuses whenever anything on record disproves it: a\n" +
+			"report line, a recorded pull request, merge or delivery, a reported state, a dirty worktree, or a\n" +
+			"commit no remote-tracking ref reaches. It releases nothing itself. It records the teardown decision\n" +
+			"`worker-never-started`, whose completion record claims no outcome about work, and the ordinary release\n" +
+			"path then closes the pane and returns the worktree under its own unchanged guards, so a resource whose\n" +
+			"ownership cannot be proven is still refused and still diagnosed.",
 		Args: usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fleetHome, err := home.Resolve()
@@ -65,9 +74,13 @@ func newReconcileCmd() *cobra.Command {
 			if abandonPane && id == "" {
 				return asPrecondition(runtime.Precondition(errors.New("--abandon-pane needs an explicit task ID")))
 			}
+			if attemptNeverStarted && id == "" {
+				return asPrecondition(runtime.Precondition(errors.New("--attempt-never-started needs an explicit task ID")))
+			}
 			report, reconcileErr := runtime.New().Reconcile(runtime.ReconcileRequest{
 				Context: cmd.Context(), Home: fleetHome, ID: id,
 				AbandonWorktree: abandonWorktree, AbandonPane: abandonPane,
+				AttemptNeverStarted: attemptNeverStarted,
 			})
 			if err := renderReconcileReport(cmd, report, asJSON); err != nil {
 				return err
@@ -78,6 +91,7 @@ func newReconcileCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON instead of TOON")
 	cmd.Flags().BoolVar(&abandonWorktree, "abandon-worktree", false, "attest that Hand relinquishes an unobservable Treehouse lease without touching the worktree")
 	cmd.Flags().BoolVar(&abandonPane, "abandon-pane", false, "attest that Hand relinquishes an unprovable Herdr pane identity without closing the pane")
+	cmd.Flags().BoolVar(&attemptNeverStarted, "attempt-never-started", false, "attest that a running attempt's worker took no turn, recording an honest teardown decision")
 	return cmd
 }
 

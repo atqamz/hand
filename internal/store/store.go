@@ -129,6 +129,7 @@ const (
 	TeardownDispositionLaunchedProvisioning = "launched-provisioning"
 	TeardownDispositionWorkerExitedUnlanded = "worker-exited-unlanded"
 	TeardownDispositionProvisioningUnwound  = "provisioning-unwound"
+	TeardownDispositionWorkerNeverStarted   = "worker-never-started"
 )
 
 type Task struct {

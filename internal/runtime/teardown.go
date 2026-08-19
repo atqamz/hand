@@ -294,6 +294,11 @@ func completionFor(t state.Task, disposition string, launched bool) completion.R
 	case disposition == state.TeardownDispositionNeverLaunched || !launched:
 		c.Outcome = "torn-down"
 		c.Detail = "attempt never launched"
+	// A worker that never started produced nothing to land, so this belongs with the cases above
+	// rather than with any outcome that describes work.
+	case disposition == state.TeardownDispositionWorkerNeverStarted:
+		c.Outcome = "torn-down"
+		c.Detail = "worker never started: the harness took no turn before it stopped"
 	// A launch that persisted no owned resource submitted a launch but produced no worker, so every
 	// landing case below would invent a fact about work this attempt never did.
 	case disposition == state.TeardownDispositionProvisioningUnwound:

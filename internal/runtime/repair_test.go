@@ -132,19 +132,19 @@ func repairCommitSafety(r *Runtime, state worktree.CommitSafetyState, probe work
 	}
 }
 
-// One repair code, driven into durable state and then treated with the supported commands its
-// treatment names. The treatment is what the diagnosis promises an operator, so the way out has to be
-// exercised, not just described.
-type repairPathCase struct {
-	code  string
+// One stuck state, driven into durable state and then treated with the supported commands its
+// treatment names. The treatment is what the enumeration promises an operator, so the way out has to
+// be exercised, not just described.
+type stuckStatePathCase struct {
+	stuck string
 	drive func(t *testing.T) (string, *Runtime)
 	treat func(t *testing.T, home string, r *Runtime)
 }
 
-func repairPathCases() []repairPathCase {
-	return []repairPathCase{
+func stuckStatePathCases() []stuckStatePathCase {
+	return []stuckStatePathCase{
 		{
-			code: repairCodeProvisioningLaunchAmbiguous,
+			stuck: repairCodeProvisioningLaunchAmbiguous,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, _ := repairFixture(t, state.Task{}, state.Attempt{Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}})
 				return home, repairRuntime(&repairHerdr{})
@@ -155,7 +155,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeProvisioningPaneMissing,
+			stuck: repairCodeProvisioningPaneMissing,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, _ := repairFixture(t, state.Task{}, state.Attempt{
 					Worktree: "/pool/1", LeaseID: "lease-1", LaunchSubmittedAt: "2026-08-15T00:00:00Z",
@@ -168,7 +168,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeLaunchSubmittedPaneMissing,
+			stuck: repairCodeLaunchSubmittedPaneMissing,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, _ := repairFixture(t, state.Task{}, state.Attempt{
 					Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, LaunchSubmittedAt: "2026-08-15T00:00:00Z",
@@ -181,7 +181,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeLaunchAgentMismatch,
+			stuck: repairCodeLaunchAgentMismatch,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, _ := repairFixture(t, state.Task{}, state.Attempt{
 					Harness: "codex", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
@@ -195,7 +195,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeRunningPaneMissing,
+			stuck: repairCodeRunningPaneMissing,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{PR: "https://github.com/demo/demo/pull/1"},
 					repairRunningAttempt("", "", state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}))
@@ -208,7 +208,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeRunningPaneIdentityMismatch,
+			stuck: repairCodeRunningPaneIdentityMismatch,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{},
 					repairRunningAttempt("", "", state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-9"}))
@@ -221,7 +221,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeHerdrOwnershipIncomplete,
+			stuck: repairCodeHerdrOwnershipIncomplete,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, repairRunningAttempt("", "", state.Herdr{WorkspaceID: "ws-1"}))
 				repairMarkRunning(t, home, attempt)
@@ -233,7 +233,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeHerdrOwnershipMismatch,
+			stuck: repairCodeHerdrOwnershipMismatch,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, _ := repairFixture(t, state.Task{}, state.Attempt{
 					Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-9"}, LaunchSubmittedAt: "2026-08-15T00:00:00Z",
@@ -246,7 +246,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeWorktreeDirty,
+			stuck: repairCodeWorktreeDirty,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, repairRunningAttempt("/pool/1", "lease-1", state.Herdr{}))
 				repairMarkRunning(t, home, attempt)
@@ -261,7 +261,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeWorktreeOwnershipMismatch,
+			stuck: repairCodeWorktreeOwnershipMismatch,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, repairRunningAttempt("/pool/1", "lease-1", state.Herdr{}))
 				repairMarkRunning(t, home, attempt)
@@ -275,7 +275,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeLegacyWorktreeUnprovable,
+			stuck: repairCodeLegacyWorktreeUnprovable,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, repairRunningAttempt("/pool/1", "lease-1", state.Herdr{}))
 				repairMarkRunning(t, home, attempt)
@@ -289,7 +289,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeWorktreeUnobservable,
+			stuck: repairCodeWorktreeUnobservable,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, repairRunningAttempt("/pool/1", "lease-1", state.Herdr{}))
 				repairMarkRunning(t, home, attempt)
@@ -305,7 +305,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeWorktreeLocalCommits,
+			stuck: repairCodeWorktreeLocalCommits,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, repairRunningAttempt("/pool/1", "lease-1", state.Herdr{}))
 				repairMarkRunning(t, home, attempt)
@@ -320,7 +320,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeWorktreeCommitSafetyUnknown,
+			stuck: repairCodeWorktreeCommitSafetyUnknown,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, repairRunningAttempt("/pool/1", "lease-1", state.Herdr{}))
 				repairMarkRunning(t, home, attempt)
@@ -335,7 +335,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeTeardownResourceAmbiguous,
+			stuck: repairCodeTeardownResourceAmbiguous,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{},
 					repairRunningAttempt("", "", state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-9"}))
@@ -348,7 +348,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeCompletionEvidenceMismatch,
+			stuck: repairCodeCompletionEvidenceMismatch,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{}, state.Attempt{LaunchSubmittedAt: "2026-08-15T00:00:00Z"})
 				repairTeardownDecision(t, home, attempt, state.AttemptInterrupted, state.TeardownDispositionForced)
@@ -378,7 +378,7 @@ func repairPathCases() []repairPathCase {
 			},
 		},
 		{
-			code: repairCodeMergeFactMismatch,
+			stuck: repairCodeMergeFactMismatch,
 			drive: func(t *testing.T) (string, *Runtime) {
 				home, attempt := repairFixture(t, state.Task{PR: "https://github.com/demo/demo/pull/1"},
 					repairRunningAttempt("", "", state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}))
@@ -395,84 +395,138 @@ func repairPathCases() []repairPathCase {
 				repairReconcile(t, home, r, ReconcileRequest{})
 			},
 		},
+		{
+			stuck: stuckStateRunningAttemptNeverStarted,
+			drive: func(t *testing.T) (string, *Runtime) {
+				home, attempt := repairFixture(t, state.Task{},
+					repairRunningAttempt("/pool/1", "lease-1", state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}))
+				repairMarkRunning(t, home, attempt)
+				return home, repairRuntime(&repairHerdr{})
+			},
+			treat: func(t *testing.T, home string, r *Runtime) {
+				repairReconcile(t, home, r, ReconcileRequest{AttemptNeverStarted: true})
+			},
+		},
 	}
 }
 
-// Every diagnosis Hand can answer with is driven into durable state and then out of it again through
-// the commands its treatment names, so no repair code can be reachable without a way out
-// (atqamz/hand#254).
-func TestEveryRepairCodeIsDrivenInAndTreatedOut(t *testing.T) {
-	for _, test := range repairPathCases() {
-		t.Run(test.code, func(t *testing.T) {
+// Every state a task can be stuck in is driven into durable state and then out of it again through the
+// commands its treatment names, so no stuck state is reachable without a way out (atqamz/hand#254).
+func TestEveryStuckStateIsDrivenInAndTreatedOut(t *testing.T) {
+	for _, test := range stuckStatePathCases() {
+		t.Run(test.stuck, func(t *testing.T) {
+			registered := stuckStateTreatments[test.stuck]
 			home, r := test.drive(t)
 			repairReconcile(t, home, r, ReconcileRequest{})
-			history, err := state.ReadHistory(home, "task-1")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if history.Task.RepairCode != test.code {
-				t.Fatalf("repair code = %q (%q), want %q", history.Task.RepairCode, history.Task.RepairReason, test.code)
-			}
-			treatment := repairTreatments[test.code].Treatment
-			if want := strings.ReplaceAll(treatment, "<id>", "task-1"); !strings.Contains(history.Task.RepairReason, want) {
-				t.Fatalf("repair reason = %q, want it to name its treatment %q", history.Task.RepairReason, want)
+			history := repairHistory(t, home)
+			if registered.Undiagnosed {
+				assertUndiagnosedStuckState(t, history)
+			} else {
+				if history.Task.RepairCode != test.stuck {
+					t.Fatalf("repair code = %q (%q), want %q", history.Task.RepairCode, history.Task.RepairReason, test.stuck)
+				}
+				if want := strings.ReplaceAll(registered.Treatment, "<id>", "task-1"); !strings.Contains(history.Task.RepairReason, want) {
+					t.Fatalf("repair reason = %q, want it to name its treatment %q", history.Task.RepairReason, want)
+				}
 			}
 			test.treat(t, home, r)
-			history, err = state.ReadHistory(home, "task-1")
-			if err != nil {
-				t.Fatal(err)
-			}
+			history = repairHistory(t, home)
 			if history.Task.RepairCode != "" {
-				t.Fatalf("repair code after treatment = %q (%q), want the diagnosis cleared", history.Task.RepairCode, history.Task.RepairReason)
+				t.Fatalf("repair code after treatment = %q (%q), want no diagnosis left", history.Task.RepairCode, history.Task.RepairReason)
+			}
+			if registered.Undiagnosed && history.Task.Lifecycle != state.TaskTerminal {
+				t.Fatalf("task lifecycle after treatment = %q, want %q", history.Task.Lifecycle, state.TaskTerminal)
 			}
 		})
 	}
 }
 
-// The enumeration itself: a repair code declared in the package but absent from the treatment registry
-// or from the matrix above is a diagnosis with no reachable way out, and fails here rather than in a
-// fleet.
-func TestRepairCodeEnumerationIsComplete(t *testing.T) {
-	declared := declaredRepairCodes(t)
-	if len(declared) == 0 {
-		t.Fatal("no repair codes found in the package source")
+func repairHistory(t *testing.T, home string) state.TaskHistory {
+	t.Helper()
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return history
+}
+
+// The dead end that answers nothing: an open task whose attempt still records running, which reconcile
+// leaves exactly as it is because no observation available to it can tell that worker from a live one.
+func assertUndiagnosedStuckState(t *testing.T, history state.TaskHistory) {
+	t.Helper()
+	if history.Task.RepairCode != "" {
+		t.Fatalf("repair code = %q, want this stuck state to emit no diagnosis at all", history.Task.RepairCode)
+	}
+	if history.Task.Lifecycle != state.TaskOpen {
+		t.Fatalf("task lifecycle = %q, want %q", history.Task.Lifecycle, state.TaskOpen)
+	}
+	if len(history.Attempts) != 1 || history.Attempts[0].Lifecycle != state.AttemptRunning {
+		t.Fatalf("attempts = %+v, want one attempt recorded %q", history.Attempts, state.AttemptRunning)
+	}
+}
+
+// The enumeration itself: a repair code or stuck state declared in the package but absent from the
+// treatment registry or from the matrix above is a dead end with no reachable way out, and fails here
+// rather than in a fleet.
+func TestStuckStateEnumerationIsComplete(t *testing.T) {
+	codes, states := declaredConstants(t, "repairCode"), declaredConstants(t, "stuckState")
+	if len(codes) == 0 || len(states) == 0 {
+		t.Fatalf("found %d repair codes and %d stuck states in the package source, want both", len(codes), len(states))
 	}
 	covered := map[string]bool{}
-	for _, test := range repairPathCases() {
-		if covered[test.code] {
-			t.Fatalf("repair code %q has more than one matrix case", test.code)
+	for _, test := range stuckStatePathCases() {
+		if covered[test.stuck] {
+			t.Fatalf("stuck state %q has more than one matrix case", test.stuck)
 		}
-		covered[test.code] = true
+		covered[test.stuck] = true
 	}
-	for name, code := range declared {
-		treatment, found := repairTreatments[code]
-		if !found {
-			t.Fatalf("%s (%q) has no entry in repairTreatments, so an operator who reaches it has nothing to run", name, code)
-		}
-		switch treatment.Class {
-		case repairClassSupportedCommand, repairClassAttestation, repairClassExternalFix:
-		default:
-			t.Fatalf("%s (%q) has class %q, which is none of the three supported treatment classes", name, code, treatment.Class)
-		}
-		if !strings.Contains(treatment.Treatment, "hand ") {
-			t.Fatalf("%s (%q) has treatment %q, which names no hand command", name, code, treatment.Treatment)
-		}
-		if !covered[code] {
-			t.Fatalf("%s (%q) has no case in repairPathCases, so its treatment is described but never exercised", name, code)
-		}
-		delete(covered, code)
+	declared := map[string]string{}
+	for name, value := range codes {
+		assertTreatable(t, name, value, covered, false)
+		declared[value] = name
 	}
-	for code := range covered {
-		t.Fatalf("repairPathCases covers %q, which no repair code constant declares", code)
+	for name, value := range states {
+		assertTreatable(t, name, value, covered, true)
+		declared[value] = name
 	}
-	for code := range repairTreatments {
-		if !containsDeclaredCode(declared, code) {
-			t.Fatalf("repairTreatments covers %q, which no repair code constant declares", code)
+	for value := range covered {
+		if declared[value] == "" {
+			t.Fatalf("stuckStatePathCases covers %q, which no repair code or stuck state constant declares", value)
+		}
+	}
+	for value := range stuckStateTreatments {
+		if declared[value] == "" {
+			t.Fatalf("stuckStateTreatments covers %q, which no repair code or stuck state constant declares", value)
 		}
 	}
 }
 
-func declaredRepairCodes(t *testing.T) map[string]string {
+// One enumerated state has to name a class, name a hand command, be exercised by a matrix case, and
+// agree about whether Hand can diagnose it, because an undiagnosable state reaches its operator only
+// through command help while a diagnosed one carries its treatment in the task row.
+func assertTreatable(t *testing.T, name, value string, covered map[string]bool, undiagnosed bool) {
+	t.Helper()
+	treatment, found := stuckStateTreatments[value]
+	if !found {
+		t.Fatalf("%s (%q) has no entry in stuckStateTreatments, so an operator who reaches it has nothing to run", name, value)
+	}
+	switch treatment.Class {
+	case repairClassSupportedCommand, repairClassAttestation, repairClassExternalFix:
+	default:
+		t.Fatalf("%s (%q) has class %q, which is none of the three supported treatment classes", name, value, treatment.Class)
+	}
+	if !strings.Contains(treatment.Treatment, "hand ") {
+		t.Fatalf("%s (%q) has treatment %q, which names no hand command", name, value, treatment.Treatment)
+	}
+	if treatment.Undiagnosed != undiagnosed {
+		t.Fatalf("%s (%q) records Undiagnosed=%t, want %t for a %s constant", name, value, treatment.Undiagnosed, undiagnosed, name)
+	}
+	if !covered[value] {
+		t.Fatalf("%s (%q) has no case in stuckStatePathCases, so its treatment is described but never exercised", name, value)
+	}
+}
+
+func declaredConstants(t *testing.T, prefix string) map[string]string {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -500,7 +554,7 @@ func declaredRepairCodes(t *testing.T) map[string]string {
 					continue
 				}
 				for i, ident := range value.Names {
-					if !strings.HasPrefix(ident.Name, "repairCode") || i >= len(value.Values) {
+					if !strings.HasPrefix(ident.Name, prefix) || i >= len(value.Values) {
 						continue
 					}
 					literal, ok := value.Values[i].(*ast.BasicLit)
@@ -513,15 +567,6 @@ func declaredRepairCodes(t *testing.T) map[string]string {
 		}
 	}
 	return codes
-}
-
-func containsDeclaredCode(declared map[string]string, code string) bool {
-	for _, candidate := range declared {
-		if candidate == code {
-			return true
-		}
-	}
-	return false
 }
 
 func TestRepairReasonNamesItsTreatment(t *testing.T) {

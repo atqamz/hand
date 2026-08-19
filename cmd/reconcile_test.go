@@ -126,7 +126,7 @@ func TestReconcileCommandPreservesRepairAndObservationErrors(t *testing.T) {
 
 // An attestation names one lease. Without a task ID it would relinquish whatever the fleet-wide
 // sweep happened to find unobservable, so the flag is refused before anything is read.
-func TestReconcileCommandRefusesFleetWideAbandonment(t *testing.T) {
+func TestReconcileCommandRefusesFleetWideAttestation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HAND_HOME", home)
 	if err := os.MkdirAll(state.Dir(home), 0o755); err != nil {
@@ -135,7 +135,7 @@ func TestReconcileCommandRefusesFleetWideAbandonment(t *testing.T) {
 	if err := state.CreateTask(home, state.Task{ID: "task-1", Lifecycle: state.TaskTerminal}); err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--abandon-worktree", "--abandon-pane"} {
+	for _, flag := range []string{"--abandon-worktree", "--abandon-pane", "--attempt-never-started"} {
 		t.Run(flag, func(t *testing.T) {
 			cmd := newReconcileCmd()
 			var out bytes.Buffer

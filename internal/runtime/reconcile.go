@@ -31,6 +31,7 @@ const (
 	reconciliationActionUnwindProvisioning   reconciliationAction = "unwind-failed-provisioning"
 	reconciliationActionAbandonWorktree      reconciliationAction = "abandon-worktree"
 	reconciliationActionAbandonPane          reconciliationAction = "abandon-pane"
+	reconciliationActionAttestNeverStarted   reconciliationAction = "attest-attempt-never-started"
 	reconciliationActionRelinquishWorktree   reconciliationAction = "relinquish-worktree-claim"
 	reconciliationActionNeedsRepair          reconciliationAction = "needs-repair"
 	reconciliationActionBlocked              reconciliationAction = "blocked"
@@ -113,21 +114,24 @@ type reconciliationDecision struct {
 }
 
 type ReconcileRequest struct {
-	Context         context.Context
-	Home            string
-	ID              string
-	AbandonWorktree bool
-	AbandonPane     bool
+	Context             context.Context
+	Home                string
+	ID                  string
+	AbandonWorktree     bool
+	AbandonPane         bool
+	AttemptNeverStarted bool
 }
 
-// The operator attestations one reconcile run carries, each scoped to one kind of resource whose
-// ownership no observation can settle. Neither destroys anything; both only relinquish Hand's claim.
+// The operator attestations one reconcile run carries, each scoped to one fact Hand cannot settle by
+// observation. None destroys anything: the resource ones relinquish a claim, and the attempt one
+// records the teardown decision that the ordinary release path then carries out under its own guards.
 type reconcileAttestations struct {
-	Worktree bool
-	Pane     bool
+	Worktree     bool
+	Pane         bool
+	NeverStarted bool
 }
 
-func (a reconcileAttestations) any() bool { return a.Worktree || a.Pane }
+func (a reconcileAttestations) any() bool { return a.Worktree || a.Pane || a.NeverStarted }
 
 type ReconcileResult struct {
 	ID             string `json:"id"`
@@ -180,7 +184,7 @@ func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	attest := reconcileAttestations{Worktree: req.AbandonWorktree, Pane: req.AbandonPane}
+	attest := reconcileAttestations{Worktree: req.AbandonWorktree, Pane: req.AbandonPane, NeverStarted: req.AttemptNeverStarted}
 	if req.ID != "" {
 		result, err := r.reconcileTask(ctx, req.Home, req.ID, attest)
 		if err != nil {
@@ -303,6 +307,14 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, attest rec
 		result.Harness, result.Model, result.Effort = attempt.Harness, attempt.Model, attempt.Effort
 		result.ExecutionClass, result.Profile = attempt.ExecutionClass, attempt.RequestedProfile
 		result.PlannedAgainst, result.RoutingSource = attempt.PlannedAgainst, attempt.RoutingSource
+		if attest.NeverStarted && attempt.TeardownTerminalAttempt == "" {
+			decision, err := r.attestAttemptNeverStarted(home, history.Task, attempt)
+			if err != nil {
+				return result, err
+			}
+			result.Action, result.Outcome, result.Detail = string(decision.Action), reconcileOutcomeRecovered, decision.Detail
+			continue
+		}
 		if attempt.TeardownTerminalAttempt != "" {
 			progress, decision, err := r.reconcileHistoricalAttempt(ctx, home, history.Task, attempt, attest)
 			if err != nil {
@@ -987,6 +999,72 @@ func (r *Runtime) abandonHistoricalPane(home string, task state.Task, attempt st
 	detail := fmt.Sprintf("attempt %d relinquished its Herdr identity (%s) on operator attestation; ownership observed as %s, and no pane, tab or workspace was closed",
 		attempt.ID, herdrIdentityText(attempt.Herdr), observation.State)
 	return true, reconciliationDecision{Action: reconciliationActionAbandonPane, Detail: detail}, nil
+}
+
+// The attestation for a worker that never started, which durable state cannot tell apart from one
+// still working (atqamz/hand#255 owns that observation). It records the teardown decision the ordinary
+// release path then carries out under its own guards, and releases nothing itself.
+func (r *Runtime) attestAttemptNeverStarted(home string, task state.Task, attempt state.Attempt) (reconciliationDecision, error) {
+	if attempt.Lifecycle != state.AttemptRunning {
+		return reconciliationDecision{}, Precondition(fmt.Errorf("refusing to attest that attempt %d never started: it records lifecycle %q rather than %q, and reconcile treats every other lifecycle on its own evidence",
+			attempt.ID, attempt.Lifecycle, state.AttemptRunning))
+	}
+	if evidence, found, err := startedWorkEvidence(home, task, attempt); err != nil {
+		return reconciliationDecision{}, err
+	} else if found {
+		return reconciliationDecision{}, Precondition(fmt.Errorf("refusing to attest that attempt %d never started: %s, which disproves it; end this attempt with `hand teardown %s` instead", attempt.ID, evidence, task.ID))
+	}
+	if attempt.Worktree != "" {
+		observeClean := r.deps.worktree.observeClean
+		if observeClean == nil {
+			observeClean = worktree.ObserveCleanliness
+		}
+		clean, err := observeClean(attempt.Worktree)
+		if err != nil {
+			return reconciliationDecision{}, fmt.Errorf("observe worktree cleanliness for attempt %d: %w", attempt.ID, err)
+		}
+		if clean == worktree.Dirty {
+			return reconciliationDecision{}, Precondition(fmt.Errorf("refusing to attest that attempt %d never started: worktree %s holds uncommitted changes, which disproves it; end this attempt with `hand teardown %s` instead", attempt.ID, attempt.Worktree, task.ID))
+		}
+		observeCommits := r.deps.worktree.observeCommits
+		if observeCommits == nil {
+			observeCommits = worktree.ObserveCommitSafety
+		}
+		if commits := observeCommits(attempt.Worktree); commits.State == worktree.CommitSafetyLocalOnly {
+			return reconciliationDecision{}, Precondition(fmt.Errorf("refusing to attest that attempt %d never started: %d commit(s) in %s are reachable from no remote-tracking ref, which disproves it; end this attempt with `hand teardown %s` instead",
+				attempt.ID, commits.Probe.LocalOnly, commits.Probe.WorkingDir, task.ID))
+		}
+	}
+	if err := state.SetAttemptTeardownDecision(home, task.ID, attempt.ID, state.AttemptInterrupted, state.TeardownDispositionWorkerNeverStarted); err != nil {
+		return reconciliationDecision{}, fmt.Errorf("record unstarted teardown decision for attempt %d: %w", attempt.ID, err)
+	}
+	detail := fmt.Sprintf("attempt %d recorded interrupted on operator attestation that its worker never started; no outcome about work was claimed, and its pane and worktree are released by the ordinary path under their own guards", attempt.ID)
+	return reconciliationDecision{Action: reconciliationActionAttestNeverStarted, Detail: detail}, nil
+}
+
+// What durable state holds that a worker did start. Each of these is a fact only a worker that took a
+// turn can produce, so any one of them disproves the attestation.
+func startedWorkEvidence(home string, task state.Task, attempt state.Attempt) (string, bool, error) {
+	lines, err := state.ReadReportLines(home, task.ID)
+	if err != nil {
+		return "", false, fmt.Errorf("read reported state for task %q: %w", task.ID, err)
+	}
+	if len(lines) > 0 {
+		return fmt.Sprintf("%s holds %d reported line(s)", state.ReportPath(home, task.ID), len(lines)), true, nil
+	}
+	switch {
+	case task.PR != "":
+		return "pull request " + task.PR + " is recorded for this task", true, nil
+	case task.MergeExecuted || task.MergeAnnounced:
+		return "a merge is recorded for this task", true, nil
+	case task.DeliveredAt != "":
+		return "this task is recorded as delivered at " + task.DeliveredAt, true, nil
+	case attempt.LastReportState != "":
+		return fmt.Sprintf("attempt %d last reported state %q", attempt.ID, attempt.LastReportState), true, nil
+	case attempt.DoneVerified:
+		return fmt.Sprintf("attempt %d is recorded as verified done", attempt.ID), true, nil
+	}
+	return "", false, nil
 }
 
 // A path another lease provably holds was never this attempt's to return, so the disproven claim is
