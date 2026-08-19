@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/completion"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -35,7 +36,8 @@ func TestForkContributionDeliveredNotLanded(t *testing.T) {
 
 	// The upstream maintainer has not merged it and may never: OPEN is the state
 	// this whole feature has to be able to tear down under.
-	writeFakeDispatch(t, dir, "gh", "", "$1 $2", `  "pr view") echo '{"state":"OPEN"}' ;;`)
+	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
+	faketool.GH{PRs: []faketool.GHPR{{URL: upstreamPR, State: "OPEN"}}}.Install(t, dir)
 
 	writeBrief(t, home, "task-1")
 	spawned := runHand(t, home, "spawn", "task-1", "no-mistakes")
@@ -46,7 +48,6 @@ func TestForkContributionDeliveredNotLanded(t *testing.T) {
 
 	// The two refusals below are the point: hand pr rejects a repo nobody declared, and teardown rejects the
 	// still-open PR until the delivery is recorded. Reverting either half of the change turns one into a pass.
-	upstreamPR := "https://github.com/kunchenguid/no-mistakes/pull/597"
 	undeclared := runHand(t, home, "pr", "task-1", upstreamPR)
 	assertInvocation(t, undeclared, 3, "no upstream is declared for it")
 

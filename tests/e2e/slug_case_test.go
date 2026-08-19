@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -75,7 +76,10 @@ func TestPRRecordAcceptsCanonicalCasingOfOwnRepoAndUpstream(t *testing.T) {
 
 	dir := binDir(t)
 	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
-	writeFakeDispatch(t, dir, "gh", "", "$1 $2", `  "pr view") echo '{"state":"OPEN"}' ;;`)
+	faketool.GH{PRs: []faketool.GHPR{
+		{URL: "https://github.com/atqamz/no-mistakes/pull/31", State: "OPEN"},
+		{URL: "https://github.com/kunchenguid/no-mistakes/pull/597", State: "OPEN"},
+	}}.Install(t, dir)
 
 	home := newHome(t)
 	added := runHand(t, home, "project", "add", "https://github.com/Atqamz/No-Mistakes.git", "--mode", "direct-pr")
