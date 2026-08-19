@@ -45,6 +45,7 @@ The classes are named for what the operator must supply, not for how Hand implem
 The pane attestation is `hand reconcile <id> --abandon-pane`.
 It takes the shape `--abandon-worktree` already established: an explicit Task ID is required, ownership states an observation can prove or disprove are refused on every route into it, no Herdr command runs, and only the durable resource state is recorded.
 `abandoned` becomes a terminal state for the Herdr resource as it already is for the worktree, and `herdrCleanupSettled` accepts it, so reconciliation converges the Task through its ordinary path afterwards.
+A resource latched mid-release steps through `ambiguous` on its way there, because `ambiguous` is among `abandoned`'s predecessors and `releasing` is not, which keeps the transition table from growing an edge per latch.
 No pane, tab or workspace is closed, so a pane that answers in place of the recorded one stays exactly where it is.
 
 This extends one sentence of `unobservable-ownership-is-not-a-mismatch.md`, which recorded that `--abandon-worktree` refuses any observed state other than `LeaseUnknown`.

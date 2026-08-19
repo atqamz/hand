@@ -122,9 +122,6 @@ type ReconcileRequest struct {
 	AttemptNeverStarted bool
 }
 
-// The operator attestations one reconcile run carries, each scoped to one fact Hand cannot settle by
-// observation. None destroys anything: the resource ones relinquish a claim, and the attempt one
-// records the teardown decision that the ordinary release path then carries out under its own guards.
 type reconcileAttestations struct {
 	Worktree     bool
 	Pane         bool
@@ -533,9 +530,6 @@ func (r *Runtime) convergeTerminalLifecycle(home string, task state.Task, attemp
 	return r.terminalizeWithoutRelease(home, task, attempt, decision, "converged")
 }
 
-// Unwinds a launch that persisted no owned resource at all, so there is nothing to release and no
-// ownership to claim: the attempt and its history stay durable and readable, and `hand reopen` is
-// what spawns the task again through the ordinary path.
 func (r *Runtime) unwindFailedProvisioning(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
 	if !unwindableProvisioning(attempt) {
 		return Precondition(fmt.Errorf("refusing to unwind attempt %d: it records lifecycle %q, worktree %q, lease %s, Herdr identity (%s) and teardown lifecycle %q, so this is not a launch that left nothing behind",
@@ -545,8 +539,6 @@ func (r *Runtime) unwindFailedProvisioning(home string, task state.Task, attempt
 	return r.terminalizeWithoutRelease(home, task, attempt, decision, "unwound")
 }
 
-// Records one terminal lifecycle and its completion evidence for an attempt whose resources are
-// already settled, releasing nothing of its own.
 func (r *Runtime) terminalizeWithoutRelease(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision, label string) error {
 	if err := state.SetAttemptTeardownDecision(home, task.ID, attempt.ID, decision.TerminalAttempt, decision.Disposition); err != nil {
 		return fmt.Errorf("record %s teardown decision for attempt %d: %w", label, attempt.ID, err)
@@ -569,9 +561,6 @@ func (r *Runtime) terminalizeWithoutRelease(home string, task state.Task, attemp
 	return nil
 }
 
-// A reconcile-driven terminalization is the only path to end an attempt outside `hand teardown`, so it
-// must close the same usage-limit hold that path clears (internal/runtime/teardown.go's finishTeardown)
-// - otherwise a task this call just ended keeps a live hold and `hand reopen` stays refused.
 func terminalizeAndClearLimitHold(home, taskID string, attemptID int64, attemptFrom, attemptTo state.AttemptLifecycle) error {
 	if err := state.TerminalizeTaskAndAttempt(home, taskID, attemptID, attemptFrom, attemptTo); err != nil {
 		return err
@@ -1003,8 +992,6 @@ func (r *Runtime) abandonHistoricalWorktree(home string, task state.Task, attemp
 	return true, reconciliationDecision{Action: reconciliationActionAbandonWorktree, Detail: detail}, nil
 }
 
-// The attestation for a pane whose ownership no observation can settle. It relinquishes the recorded
-// identity and closes nothing, so a pane that answers in its place stays exactly where it is.
 func (r *Runtime) abandonHistoricalPane(home string, task state.Task, attempt state.Attempt, observation herdrObservation) (bool, reconciliationDecision, error) {
 	if observation.State != herdrOwnershipIncomplete && observation.State != herdrOwnershipMismatch {
 		return false, reconciliationDecision{}, Precondition(fmt.Errorf("refusing to abandon the Herdr pane of attempt %d: ownership observed as %s, which an observation can prove or disprove and an ordinary reconcile settles; abandonment is only for ownership neither observation can settle", attempt.ID, observation.State))
@@ -1017,9 +1004,6 @@ func (r *Runtime) abandonHistoricalPane(home string, task state.Task, attempt st
 	return true, reconciliationDecision{Action: reconciliationActionAbandonPane, Detail: detail}, nil
 }
 
-// The attestation for a worker that never started, which durable state cannot tell apart from one
-// still working (atqamz/hand#255 owns that observation). It records the teardown decision the ordinary
-// release path then carries out under its own guards, and releases nothing itself.
 func (r *Runtime) attestAttemptNeverStarted(home string, task state.Task, attempt state.Attempt) (reconciliationDecision, error) {
 	if attempt.Lifecycle != state.AttemptRunning {
 		return reconciliationDecision{}, Precondition(fmt.Errorf("refusing to attest that attempt %d never started: it records lifecycle %q rather than %q, and reconcile treats every other lifecycle on its own evidence",
@@ -1058,8 +1042,6 @@ func (r *Runtime) attestAttemptNeverStarted(home string, task state.Task, attemp
 	return reconciliationDecision{Action: reconciliationActionAttestNeverStarted, Detail: detail}, nil
 }
 
-// What durable state holds that a worker did start. Each of these is a fact only a worker that took a
-// turn can produce, so any one of them disproves the attestation.
 func startedWorkEvidence(home string, task state.Task, attempt state.Attempt) (string, bool, error) {
 	lines, err := state.ReadReportLines(home, task.ID)
 	if err != nil {
@@ -1083,8 +1065,6 @@ func startedWorkEvidence(home string, task state.Task, attempt state.Attempt) (s
 	return "", false, nil
 }
 
-// A path another lease provably holds was never this attempt's to return, so the disproven claim is
-// relinquished instead of diagnosed forever, and the worktree itself is left untouched.
 func (r *Runtime) relinquishHistoricalWorktree(home string, task state.Task, attempt state.Attempt, lease worktree.LeaseObservation) (bool, reconciliationDecision, error) {
 	if err := recordAbandonedResource(home, task.ID, attempt, "worktree", attempt.TeardownWorktreeState); err != nil {
 		return false, reconciliationDecision{}, fmt.Errorf("record relinquished worktree claim: %w", err)
@@ -1094,8 +1074,6 @@ func (r *Runtime) relinquishHistoricalWorktree(home string, task state.Task, att
 	return true, reconciliationDecision{Action: reconciliationActionRelinquishWorktree, Detail: detail}, nil
 }
 
-// 'abandoned' has 'ambiguous' among its predecessors and 'releasing' does not, so a resource latched
-// mid-release steps through it rather than the transition table growing an edge per latch.
 func recordAbandonedResource(home, taskID string, attempt state.Attempt, resource, current string) error {
 	if current == state.TeardownResourceReleasing {
 		if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, resource, state.TeardownResourceAmbiguous); err != nil {
@@ -1262,8 +1240,6 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 	}
 }
 
-// Persists the diagnosis with its supported treatment appended, and reports the same text it stored,
-// so what an operator reads is what the task row holds.
 func (r *Runtime) recordRepair(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision, result *ReconcileResult) error {
 	reason := repairReasonWithTreatment(task.ID, decision.RepairCode, decision.RepairReason)
 	result.Outcome, result.RepairCode, result.RepairReason = reconcileOutcomeRepair, decision.RepairCode, reason
@@ -1421,9 +1397,6 @@ func decideProvisioning(attempt state.Attempt, observation reconciliationObserva
 	return decision
 }
 
-// The facts that make unwinding a failed launch provably safe: the attempt is still provisioning, no
-// Herdr identity was ever persisted, no worktree lease is recorded, and no teardown has already
-// decided this attempt's terminal lifecycle, so no resource is at stake and no work can be lost.
 func unwindableProvisioning(attempt state.Attempt) bool {
 	return attempt.Lifecycle == state.AttemptProvisioning && !hasHerdrIdentity(attempt.Herdr) &&
 		attempt.Worktree == "" && attempt.LeaseID == "" && attempt.TeardownTerminalAttempt == ""
