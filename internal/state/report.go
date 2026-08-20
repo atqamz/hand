@@ -166,6 +166,14 @@ func TailReport(path string, cur ReportCursor) ([]ReportLine, ReportCursor, erro
 // file, for stateless consumers like hand status that don't track an offset
 // across invocations.
 func ReadReportLines(homeDir, id string) ([]ReportLine, error) {
+	data, err := ReadReportData(homeDir, id)
+	if err != nil {
+		return nil, err
+	}
+	return ReportLinesInData(data), nil
+}
+
+func ReadReportData(homeDir, id string) ([]byte, error) {
 	data, err := os.ReadFile(ReportPath(homeDir, id))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -173,7 +181,11 @@ func ReadReportLines(homeDir, id string) ([]ReportLine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read report %q: %w", id, err)
 	}
-	return classifyReportBytes(data), nil
+	return data, nil
+}
+
+func ReportLinesInData(data []byte) []ReportLine {
+	return classifyReportBytes(data)
 }
 
 // Classifies every line in data, a trailing line with no terminating newline included. That last
@@ -224,20 +236,23 @@ func TerminalReport(s string) bool {
 func TerminalReportPastCursor(homeDir, id string, cur ReportCursor) (bool, error) {
 	// A cursor the file's content no longer supports covers nothing, so a rewritten channel is read
 	// whole - the length-preserving rewrite included, whose `done:` cur never covered (atqamz/hand#149).
-	data, base, err := readReport(ReportPath(homeDir, id), cur)
+	data, err := ReadReportData(homeDir, id)
 	if err != nil {
 		return false, err
 	}
-	// Only the last classified line of the unconsumed tail counts: a terminal report the worker has
-	// since superseded needs no acknowledging, and done is routinely followed by more work. It
-	// classifies its own tail so a line with no terminating newline counts - TailReport would defer it.
+	return TerminalReportInData(data, cur), nil
+}
+
+func TerminalReportInData(data []byte, cur ReportCursor) bool {
+	base := cur
+	if !cur.covers(data) {
+		base = ReportCursor{}
+	}
 	last, ok := LastReportedState(classifyReportBytes(data[base.Offset:]))
 	if !ok {
-		return false, nil
+		return false
 	}
-	// A watcher denied the task lock announces a line and persists the cursor a tick later, so the
-	// transient error here is reporting a covered terminal state, never hiding an uncovered one.
-	return TerminalReport(last.State), nil
+	return TerminalReport(last.State)
 }
 
 // CurrentReportCursor covers every complete line currently in a task's report channel, the same

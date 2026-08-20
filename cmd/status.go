@@ -480,7 +480,7 @@ const reportUnreadable = "unreadable"
 // Shared by unannounced and unacknowledged: whether this task's terminal report sits past cur, whichever
 // durable cursor the caller names. Takes the state the caller already derived rather than reading the
 // file a second time, so a worker appending between the two reads can never surface a stale flag.
-func terminalReportPast(home string, t state.Task, reported state.ReportLine, reportedOK bool, readErr error, cur state.ReportCursor) (bool, error) {
+func terminalReportPast(data []byte, reported state.ReportLine, reportedOK bool, readErr error, cur state.ReportCursor) (bool, error) {
 	// A read that fails folds into the caller's own report-read error: the file was readable a moment ago
 	// and is not now, which is what that error already says, and swallowing it would render an unread
 	// completion as covered.
@@ -491,20 +491,20 @@ func terminalReportPast(home string, t state.Task, reported state.ReportLine, re
 	if !reportedOK || !state.TerminalReport(reported.State) {
 		return false, nil
 	}
-	return state.TerminalReportPastCursor(home, t.ID, cur)
+	return state.TerminalReportInData(data, cur), nil
 }
 
 // Asks state whether some watcher has ever announced this task's terminal report - report_offset and
 // report_digest are the watcher's own cursor, distinct from whether a supervisor has acknowledged it
 // (atqamz/hand#267, docs/adr/attention-is-one-derivation-over-three-channels.md).
-func unannounced(home string, t state.Task, reported state.ReportLine, reportedOK bool, readErr error) (bool, error) {
-	return terminalReportPast(home, t, reported, reportedOK, readErr, state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest})
+func unannounced(data []byte, t state.Task, reported state.ReportLine, reportedOK bool, readErr error) (bool, error) {
+	return terminalReportPast(data, reported, reportedOK, readErr, state.ReportCursor{Offset: t.ReportOffset, Digest: t.ReportDigest})
 }
 
 // Asks state whether a supervisor has acknowledged this task's terminal report through `hand ack`,
 // the durable act atqamz/hand#267 records apart from watcher announcement.
-func unacknowledged(home string, t state.Task, reported state.ReportLine, reportedOK bool, readErr error) (bool, error) {
-	return terminalReportPast(home, t, reported, reportedOK, readErr, state.ReportCursor{Offset: t.AcknowledgedOffset, Digest: t.AcknowledgedDigest})
+func unacknowledged(data []byte, t state.Task, reported state.ReportLine, reportedOK bool, readErr error) (bool, error) {
+	return terminalReportPast(data, reported, reportedOK, readErr, state.ReportCursor{Offset: t.AcknowledgedOffset, Digest: t.AcknowledgedDigest})
 }
 
 // Derives everything both status views show from one already-read history, and returns the report lines
@@ -522,10 +522,11 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 		e = *attempt
 	}
 	agentState, reachable := probePaneStatus(client, e.Herdr.PaneID)
-	lines, readErr := state.ReadReportLines(home, t.ID)
+	data, readErr := state.ReadReportData(home, t.ID)
+	lines := state.ReportLinesInData(data)
 	reported, reportedOK := state.LastReportedState(lines)
-	unacked, readErr := unacknowledged(home, t, reported, reportedOK, readErr)
-	unannounced, readErr := unannounced(home, t, reported, reportedOK, readErr)
+	unacked, readErr := unacknowledged(data, t, reported, reportedOK, readErr)
+	unannounced, readErr := unannounced(data, t, reported, reportedOK, readErr)
 
 	var last state.ReportLine
 	if len(lines) > 0 {

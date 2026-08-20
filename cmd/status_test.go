@@ -2768,7 +2768,7 @@ func TestUnacknowledgedAnswersForTheStateTheRowPrints(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := unacknowledged(home, task, c.reported, c.ok, nil)
+			got, err := unacknowledged([]byte("done: PR up\n"), task, c.reported, c.ok, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

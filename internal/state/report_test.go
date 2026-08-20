@@ -515,6 +515,20 @@ func TestTerminalReportPastCursor(t *testing.T) {
 	}
 }
 
+func TestTerminalReportInData(t *testing.T) {
+	data := []byte("working: on it\ndone: PR up\n")
+	if !TerminalReportInData(data, ReportCursor{}) {
+		t.Fatal("got false, want terminal report")
+	}
+	cursor := reportCursorFor(data)
+	if TerminalReportInData(data, cursor) {
+		t.Fatal("got true, want covered terminal report")
+	}
+	if !TerminalReportInData(data, reportCursorFor([]byte("working: on it\n"))) {
+		t.Fatal("got false, want terminal report after cursor")
+	}
+}
+
 // hand ack takes this cursor as everything a supervisor is acknowledging right now, so it must cover
 // exactly what TailReport would announce - the trailing unterminated line included in neither.
 func TestCurrentReportCursorCoversOnlyCompleteLines(t *testing.T) {
