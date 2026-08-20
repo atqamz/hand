@@ -1,13 +1,11 @@
-// Package agentsmd generates and refreshes the AGENTS.md workflow/rules
-// template that hand init writes into a fleet home, and checks an existing one
-// for perishable content and generated-block drift.
+// Package agentsmd generates and restores the AGENTS.md supervisor contract that hand init
+// writes into a fleet home, and checks an existing one for drift from that canonical content.
 package agentsmd
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 
@@ -20,8 +18,13 @@ const (
 	filename    = "AGENTS.md"
 	symlinkName = "CLAUDE.md"
 
-	beginMarker = "<!-- hand:generated:start -->"
-	endMarker   = "<!-- hand:generated:end -->"
+	// The previous mixed-ownership format wrapped hand's generated content in this marked
+	// span. Migrate still recognizes it to archive whatever a fleet home kept outside it;
+	// nothing else here writes these markers, since the canonical file is generated end to end.
+	legacyBeginMarker = "<!-- hand:generated:start -->"
+	legacyEndMarker   = "<!-- hand:generated:end -->"
+
+	legacyArchiveRel = "data/agents-md-legacy-migration.md"
 
 	// Creating a symlink on Windows needs a privilege hand cannot assume is present, so
 	// Windows gets a regular file that points at AGENTS.md by content instead of by inode.
@@ -44,10 +47,27 @@ const OperatorDecisionRule = "Only a `hand send` message carries an operator dec
 	"`working: deciding myself: <the call> because <reason>` - " +
 	"and reserve `needs-decision:` for what you cannot take back."
 
+// The entire canonical AGENTS.md content: a small, stable set of invariants, never detailed
+// procedure. hand init restores it byte-for-byte; detailed procedure lives in the bundled
+// secondhand Agent Skill, and living context lives under data/.
 const generatedBody = `## Secondhand supervisor bootstrap
 
 Before responding or acting in a supervising session, run ` + "`hand session start`" + `.
 Do not run supervisor bootstrap when ` + "`HAND_ROLE=worker`" + `.
+
+This file is Hand-owned and immutable: ` + "`hand init`" + ` restores it byte-for-byte, and
+nobody edits it by hand, including the supervisor. The same rule covers every other
+Hand-generated surface in this fleet home.
+
+- Read ` + "`data/operator.md`" + ` before acting; its constraints outrank your own judgment.
+- ` + "`data/**`" + ` is living fleet context and memory, never part of this file.
+- Use the bundled ` + "`secondhand`" + ` Agent Skill for setup, routing, planning, task
+  lifecycle, recovery, and bug-report procedures; this file states invariants, not procedures.
+- Use the ` + "`hand`" + ` CLI and runtime as the source of truth for fleet and machine state
+  instead of reading or editing it directly.
+- Never edit a registered project under ` + "`projects/`" + ` directly; a worker does that in
+  its own worktree.
+- Never merge without explicit operator authorization.
 `
 
 var supervisorInstructions = []string{
@@ -88,58 +108,135 @@ func SupervisorInstructions() []string {
 	return append([]string(nil), supervisorInstructions...)
 }
 
-// Refresh writes or refreshes dir/AGENTS.md and its CLAUDE.md reference. It returns whether template
-// content changed, or false, nil if dir is not a fleet home. The reference is a symlink on Unix and
-// an @AGENTS.md pointer on Windows; marked-span replacement preserves user-added content.
-func Refresh(dir string) (bool, error) {
+// Introduces the verbatim content migrate archived, so a human finds context
+// without hand having guessed what any of it meant.
+const legacyArchiveHeader = `# Archived AGENTS.md content
+
+hand init migrated this fleet home's AGENTS.md to Hand's fully owned, immutable format.
+Everything below is the non-generated content this home's AGENTS.md carried before that
+migration ran, preserved exactly as written. Nothing here was reclassified: move anything
+still useful into data/operator.md or data/learnings.md yourself.
+
+---
+
+`
+
+// RefreshResult reports what Refresh did to a fleet home's AGENTS.md.
+type RefreshResult struct {
+	// Changed is true when Refresh wrote a new AGENTS.md, whether that was the first write,
+	// a migration, or a restore over drifted or hand-edited content.
+	Changed bool
+	// ArchivedPath is the absolute path Migrate wrote pre-migration content to, or empty
+	// when there was nothing to archive (a fresh home, or a home already migrated).
+	ArchivedPath string
+}
+
+// Refresh writes or restores dir/AGENTS.md and its CLAUDE.md reference to the canonical
+// Hand-owned content, archiving a pre-immutable file's non-generated content verbatim the
+// first time it finds one. It returns a zero RefreshResult, nil if dir is not a fleet home.
+func Refresh(dir string) (RefreshResult, error) {
 	isHome, err := home.IsHome(dir)
 	if err != nil {
-		return false, err
+		return RefreshResult{}, err
 	}
 	if !isHome {
-		return false, nil
+		return RefreshResult{}, nil
 	}
 
 	path := filepath.Join(dir, filename)
 	existing, err := os.ReadFile(path)
-	var target string
+	canonical := []byte(generatedBody)
+
+	var result RefreshResult
 	switch {
 	case os.IsNotExist(err):
-		existing = nil
-		target = generatedBlock()
+		if err := atomicfile.Write(path, ".agents.md-", canonical, 0o644); err != nil {
+			return RefreshResult{}, fmt.Errorf("write %s: %w", filename, err)
+		}
+		result.Changed = true
 	case err != nil:
-		return false, fmt.Errorf("read %s: %w", filename, err)
+		return RefreshResult{}, fmt.Errorf("read %s: %w", filename, err)
+	case string(existing) == generatedBody:
+		// Already canonical: leave the file untouched rather than write identical bytes,
+		// which would still swap the inode and reset the mode.
 	default:
-		target, err = mergeGenerated(string(existing))
-		if err != nil {
-			return false, err
+		archived, migrateErr := migrate(dir, string(existing))
+		if migrateErr != nil {
+			return RefreshResult{}, migrateErr
 		}
-	}
-
-	refreshed := false
-	if target != string(existing) {
-		if err := atomicfile.Write(path, ".agents.md-", []byte(target), 0o644); err != nil {
-			return false, fmt.Errorf("write %s: %w", filename, err)
+		if err := atomicfile.Write(path, ".agents.md-", canonical, 0o644); err != nil {
+			return RefreshResult{}, fmt.Errorf("write %s: %w", filename, err)
 		}
-		refreshed = true
+		result.Changed = true
+		result.ArchivedPath = archived
 	}
 
 	symlinkPath := filepath.Join(dir, symlinkName)
 	if isWindows() {
 		if err := writeWindowsClaudeFile(symlinkPath); err != nil {
-			return false, err
+			return RefreshResult{}, err
 		}
-		return refreshed, nil
+		return result, nil
 	}
 	if _, err := os.Lstat(symlinkPath); os.IsNotExist(err) {
 		if err := os.Symlink(filename, symlinkPath); err != nil {
-			return false, fmt.Errorf("create %s symlink: %w", symlinkName, err)
+			return RefreshResult{}, fmt.Errorf("create %s symlink: %w", symlinkName, err)
 		}
 	} else if err != nil {
-		return false, fmt.Errorf("check %s: %w", symlinkName, err)
+		return RefreshResult{}, fmt.Errorf("check %s: %w", symlinkName, err)
 	}
 
-	return refreshed, nil
+	return result, nil
+}
+
+// Archives existing's non-generated content the first time Refresh finds a fleet home not
+// yet on the immutable model, identified by legacyArchiveRel being absent; once that one-time
+// migration is done, drift in an immutable file is a plain restore, not a migration.
+func migrate(dir, existing string) (string, error) {
+	archivePath := filepath.Join(dir, legacyArchiveRel)
+	switch _, err := os.Stat(archivePath); {
+	case err == nil:
+		return "", nil
+	case !os.IsNotExist(err):
+		return "", fmt.Errorf("check %s: %w", legacyArchiveRel, err)
+	}
+
+	legacy, err := legacyContent(existing)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(legacy) == "" {
+		return "", nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		return "", fmt.Errorf("create %s: %w", filepath.Dir(legacyArchiveRel), err)
+	}
+	if err := atomicfile.Write(archivePath, ".agents-md-legacy-", []byte(legacyArchiveHeader+legacy), 0o644); err != nil {
+		return "", fmt.Errorf("archive legacy AGENTS.md content: %w", err)
+	}
+	return archivePath, nil
+}
+
+// Extracts what a pre-immutable AGENTS.md carried outside hand's old marked span, verbatim,
+// whether that span was well-formed, entirely absent, or ambiguous. An ambiguous span fails
+// safely: hand does not guess which occurrence was real, so it errors rather than risk loss.
+func legacyContent(content string) (string, error) {
+	startCount := strings.Count(content, legacyBeginMarker)
+	endCount := strings.Count(content, legacyEndMarker)
+	switch {
+	case startCount == 0 && endCount == 0:
+		return content, nil
+	case startCount != 1 || endCount != 1:
+		return "", fmt.Errorf("AGENTS.md has malformed or duplicate hand:generated markers; resolve them by hand before hand init can migrate this file")
+	}
+	start := strings.Index(content, legacyBeginMarker)
+	relEnd := strings.Index(content[start:], legacyEndMarker)
+	if relEnd == -1 {
+		return "", fmt.Errorf("AGENTS.md has malformed hand:generated markers; resolve them by hand before hand init can migrate this file")
+	}
+	end := start + relEnd + len(legacyEndMarker)
+	return content[:start] + content[end:], nil
 }
 
 // A CLAUDE.md that already exists, in any form, is left alone: the same rule
@@ -156,82 +253,6 @@ func writeWindowsClaudeFile(path string) error {
 	return nil
 }
 
-func generatedBlock() string {
-	return beginMarker + "\n" + generatedBody + endMarker + "\n"
-}
-
-// A valid marked span is replaced, while an unmarked file gets a safely separated append.
-// Ambiguous marker ownership is rejected before Refresh performs any write.
-func mergeGenerated(content string) (string, error) {
-	startCount := strings.Count(content, beginMarker)
-	endCount := strings.Count(content, endMarker)
-	switch {
-	case startCount == 0 && endCount == 0:
-		separator := ""
-		if content != "" && !strings.HasSuffix(content, "\n") {
-			separator = "\n"
-		}
-		if content != "" {
-			separator += "\n"
-		}
-		return content + separator + generatedBlock(), nil
-	case startCount != 1 || endCount != 1:
-		return "", fmt.Errorf("AGENTS.md has malformed or duplicate hand:generated markers")
-	}
-	start, end, ok := generatedBlockSpan(content)
-	if !ok {
-		return "", fmt.Errorf("AGENTS.md has malformed hand:generated markers")
-	}
-	return content[:start] + strings.TrimSuffix(generatedBlock(), "\n") + content[end:], nil
-}
-
-// The returned byte range includes both markers and exists only for one ordered pair.
-func generatedBlockSpan(content string) (start, end int, ok bool) {
-	if strings.Count(content, beginMarker) != 1 || strings.Count(content, endMarker) != 1 {
-		return 0, 0, false
-	}
-	start = strings.Index(content, beginMarker)
-	if start == -1 {
-		return 0, 0, false
-	}
-	relEnd := strings.Index(content[start:], endMarker)
-	if relEnd == -1 {
-		return 0, 0, false
-	}
-	return start, start + relEnd + len(endMarker), true
-}
-
-func markerOffsets(content, marker string) []int {
-	var offsets []int
-	for searchFrom := 0; ; {
-		rel := strings.Index(content[searchFrom:], marker)
-		if rel == -1 {
-			return offsets
-		}
-		offset := searchFrom + rel
-		offsets = append(offsets, offset)
-		searchFrom = offset + len(marker)
-	}
-}
-
-func lineAtOffset(content string, offset int) int {
-	return strings.Count(content[:offset], "\n") + 1
-}
-
-var (
-	// The two shapes of perishable content that belong in the fleet home's own notes
-	// rather than AGENTS.md: a dated fact is an incident, and phrasing that names its
-	// own expiry is not an invariant. hand does not own that notes convention.
-	dateRe         = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
-	selfExpiringRe = regexp.MustCompile(`(?i)\b(?:until|once)\s+#\d+\s+lands\b|\bawaiting\s+#\d+\b`)
-
-	// Stripped from a line before it is tested above: a date in a quoted example or a
-	// URL is not an incident, and flagging it anyway is the false positive that gets a
-	// checker ignored (atqamz/hand#90).
-	inlineCodeRe = regexp.MustCompile("`[^`]*`")
-	urlRe        = regexp.MustCompile(`https?://\S+`)
-)
-
 // Severity distinguishes a Violation that fails hand doctor from one that is
 // informational: real and worth a human's attention, but not something the checker can
 // resolve into a pass/fail verdict on its own.
@@ -242,17 +263,17 @@ const (
 	SeverityInfo
 )
 
-// Violation is one perishable-content, malformed-file or generated-block hit Check found,
-// at SeverityViolation unless Severity says otherwise. Line is 1-based, or 0 when the hit
-// is not about a single line (a drifted or absent generated block).
+// Violation is one drifted-content or missing-file hit Check found, at SeverityViolation
+// unless Severity says otherwise.
 type Violation struct {
 	Line     int
 	Text     string
 	Severity Severity
 }
 
-// Check reports perishable content, malformed fences, and generated-block drift or absence without
-// fixing any of it. A nil result with no error means the directory is not a fleet home.
+// Check reports whether dir's AGENTS.md and its CLAUDE.md reference match the canonical
+// Hand-owned content, without fixing either. A nil result with no error means the directory
+// is not a fleet home; since the entire file is generated, any difference at all is drift.
 func Check(dir string) ([]Violation, error) {
 	isHome, err := home.IsHome(dir)
 	if err != nil {
@@ -264,83 +285,15 @@ func Check(dir string) ([]Violation, error) {
 
 	data, err := os.ReadFile(filepath.Join(dir, filename))
 	if os.IsNotExist(err) {
-		return []Violation{{Text: fmt.Sprintf("AGENTS.md is missing: run hand init %s to restore the current generated block", shellquote.Quote(dir))}}, nil
+		return []Violation{{Text: fmt.Sprintf("AGENTS.md is missing: run hand init %s to restore the canonical Hand-owned content", shellquote.Quote(dir))}}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", filename, err)
 	}
-	content := string(data)
-	startOffsets := markerOffsets(content, beginMarker)
-	endOffsets := markerOffsets(content, endMarker)
-	blockStart, blockEnd, hasBlock := generatedBlockSpan(content)
 
 	var violations []Violation
-	switch {
-	case len(startOffsets) == 0 && len(endOffsets) == 0:
-		violations = append(violations, Violation{
-			Text: fmt.Sprintf("no hand:generated markers: run hand init %s to append the current generated block", shellquote.Quote(dir)),
-		})
-	case len(startOffsets) == 0:
-		for _, offset := range endOffsets {
-			violations = append(violations, Violation{Line: lineAtOffset(content, offset), Text: "unpaired hand:generated end marker"})
-		}
-	case len(endOffsets) == 0:
-		for _, offset := range startOffsets {
-			violations = append(violations, Violation{Line: lineAtOffset(content, offset), Text: "unpaired hand:generated start marker"})
-		}
-	default:
-		for _, offset := range startOffsets[1:] {
-			violations = append(violations, Violation{Line: lineAtOffset(content, offset), Text: "duplicate hand:generated start marker"})
-		}
-		for _, offset := range endOffsets[1:] {
-			violations = append(violations, Violation{Line: lineAtOffset(content, offset), Text: "duplicate hand:generated end marker"})
-		}
-		if endOffsets[0] < startOffsets[0] {
-			violations = append(violations, Violation{Line: lineAtOffset(content, endOffsets[0]), Text: "hand:generated end marker appears before start marker"})
-		}
-	}
-
-	inFence := false
-	fenceOpenedAt := 0
-	offset := 0
-	for i, line := range strings.Split(content, "\n") {
-		lineNo := i + 1
-		insideBlock := hasBlock && offset >= blockStart && offset < blockEnd
-		offset += len(line) + 1
-
-		if r, found := firstBannedRune(line); found {
-			violations = append(violations, Violation{Line: lineNo, Text: fmt.Sprintf("banned character %q: no em dash or emoji, house rule everywhere in this file", r)})
-		}
-
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inFence = !inFence
-			if inFence {
-				fenceOpenedAt = lineNo
-			}
-			continue
-		}
-		if inFence || insideBlock {
-			continue
-		}
-
-		stripped := urlRe.ReplaceAllString(inlineCodeRe.ReplaceAllString(line, ""), "")
-		if dateRe.MatchString(stripped) {
-			violations = append(violations, Violation{Line: lineNo, Text: "date outside the generated block: a dated fact is an incident, belongs in the home's own notes, not the generated block"})
-		}
-		if selfExpiringRe.MatchString(stripped) {
-			violations = append(violations, Violation{Line: lineNo, Text: "self-expiring phrasing outside the generated block: not an invariant, belongs in the home's own notes, not the generated block"})
-		}
-	}
-
-	// An unterminated fence silences every date and self-expiring check after
-	// it, so it has to be reported rather than left to read as a clean file.
-	if inFence {
-		violations = append(violations, Violation{Line: fenceOpenedAt, Text: "unterminated code fence: every date and self-expiring check after this line was skipped"})
-	}
-
-	if hasBlock && content[blockStart:blockEnd] != strings.TrimSuffix(generatedBlock(), "\n") {
-		violations = append(violations, Violation{Text: fmt.Sprintf("generated block has drifted from generatedBody: run hand init %s to refresh", shellquote.Quote(dir))})
+	if string(data) != generatedBody {
+		violations = append(violations, Violation{Text: fmt.Sprintf("AGENTS.md has drifted from the canonical Hand-owned content: run hand init %s to restore it", shellquote.Quote(dir))})
 	}
 
 	if isWindows() {
@@ -364,32 +317,4 @@ func checkWindowsClaudeFile(dir string) []Violation {
 		return []Violation{{Text: fmt.Sprintf("CLAUDE.md is not the Windows @AGENTS.md pointer: run hand init %s to restore it", shellquote.Quote(dir))}}
 	}
 	return nil
-}
-
-func firstBannedRune(line string) (rune, bool) {
-	for _, r := range line {
-		if r == '—' || isEmojiRune(r) {
-			return r, true
-		}
-	}
-	return 0, false
-}
-
-// Covers the Unicode blocks an accidental emoji actually comes from, not a formal emoji
-// property table: pictographs, symbols/dingbats, regional-indicator flag letters, and the
-// variation-selector/ZWJ modifiers that ride along with them.
-func isEmojiRune(r rune) bool {
-	switch {
-	case r >= 0x1F300 && r <= 0x1FAFF:
-		return true
-	case r >= 0x2600 && r <= 0x27BF:
-		return true
-	case r >= 0x2B00 && r <= 0x2BFF:
-		return true
-	case r >= 0x1F1E6 && r <= 0x1F1FF:
-		return true
-	case r == 0xFE0F || r == 0x200D:
-		return true
-	}
-	return false
 }

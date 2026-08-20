@@ -354,8 +354,8 @@ func TestDoctorFailsWhenManagedMarkersAreRemovedAfterInitialization(t *testing.T
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("got nil error, want removed managed markers to fail doctor")
 	}
-	if !strings.Contains(out.String(), "no hand:generated markers") {
-		t.Fatalf("stdout = %q, want the missing-markers violation reported", out.String())
+	if !strings.Contains(out.String(), "AGENTS.md has drifted from the canonical Hand-owned content") {
+		t.Fatalf("stdout = %q, want the drift violation reported", out.String())
 	}
 }
 
@@ -383,15 +383,16 @@ func TestDoctorFailsWhenAgentsFileIsDeletedAfterInitialization(t *testing.T) {
 	}
 }
 
-func TestDoctorReportsMalformedMarkersWithLineNumbers(t *testing.T) {
+// Every drift shape now collapses to one whole-file finding: the canonical AGENTS.md is
+// compared byte-for-byte, so there is no marker structure left for doctor to diagnose.
+func TestDoctorReportsDriftForMalformedOrForeignContentWithNoLineNumber(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
-		want    string
 	}{
-		{"unpaired", "# Rules\n<!-- hand:generated:start -->\n", "  2,error,\"unpaired hand:generated start marker\""},
-		{"duplicate", "<!-- hand:generated:start -->\n<!-- hand:generated:start -->\n<!-- hand:generated:end -->\n", "  2,error,\"duplicate hand:generated start marker\""},
-		{"reversed", "<!-- hand:generated:end -->\n<!-- hand:generated:start -->\n", "  1,error,\"hand:generated end marker appears before start marker\""},
+		{"unpaired", "# Rules\n<!-- hand:generated:start -->\n"},
+		{"duplicate", "<!-- hand:generated:start -->\n<!-- hand:generated:start -->\n<!-- hand:generated:end -->\n"},
+		{"reversed", "<!-- hand:generated:end -->\n<!-- hand:generated:start -->\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -407,10 +408,10 @@ func TestDoctorReportsMalformedMarkersWithLineNumbers(t *testing.T) {
 			cmd.SetOut(&out)
 			cmd.SetArgs(nil)
 			if err := cmd.Execute(); err == nil {
-				t.Fatal("got nil error, want malformed markers to fail doctor")
+				t.Fatal("got nil error, want drifted content to fail doctor")
 			}
-			if !strings.Contains(out.String(), tt.want) {
-				t.Fatalf("stdout = %q, want %q", out.String(), tt.want)
+			if !strings.Contains(out.String(), "  none,error,\"AGENTS.md has drifted from the canonical Hand-owned content") {
+				t.Fatalf("stdout = %q, want one whole-file drift finding with no line number", out.String())
 			}
 		})
 	}
