@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+
+PackageIdentifier: Atqamz.Hand
+PackageVersion: 0.5.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: hand.exe
+    PortableCommandAlias: hand
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/atqamz/hand/releases/download/v0.5.0/hand-windows-amd64.zip
+    InstallerSha256: DEDA734898B40F73A02E9AD0A969075134D6303EC09BC03F5D600A5AD72A7BE6
+ManifestType: installer
+ManifestVersion: 1.9.0

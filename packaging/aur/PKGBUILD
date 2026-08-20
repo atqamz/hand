@@ -1,0 +1,17 @@
+pkgname=hand-bin
+pkgver=0.5.0
+pkgrel=1
+pkgdesc="CLI that manages a fleet of coding agents from a fleet home (prebuilt binary)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/atqamz/hand"
+license=('MIT')
+provides=('hand')
+conflicts=('hand')
+source_x86_64=("https://github.com/atqamz/hand/releases/download/v${pkgver}/hand-linux-amd64.tar.gz")
+source_aarch64=("https://github.com/atqamz/hand/releases/download/v${pkgver}/hand-linux-arm64.tar.gz")
+sha256sums_x86_64=('facb93a841b091f84e021357df14c0d65e1a4adf50f704b917437506d61ad803')
+sha256sums_aarch64=('394f7e5b9288ee3f49d061eeeaf99f81c2c29e4ba49800228a23709ee7baa980')
+
+package() {
+	install -Dm755 "${srcdir}/hand" "${pkgdir}/usr/bin/hand"
+}

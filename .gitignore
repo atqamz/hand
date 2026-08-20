@@ -31,3 +31,10 @@ treehouse.toml
 # etc
 docs/superpowers/*
 .superpowers/*
+
+# npm packaging: generate.sh populates these from a GitHub release
+packaging/npm/platforms/*/bin/
+
+# deb/rpm packaging: build.sh output, not source
+*.deb
+*.rpm

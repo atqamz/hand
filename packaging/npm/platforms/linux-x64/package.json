@@ -1,0 +1,22 @@
+{
+  "name": "@atqamz/hand-linux-x64",
+  "version": "0.5.0",
+  "description": "hand prebuilt binary for linux x64",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atqamz/hand.git"
+  },
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin/"
+  ]
+}
