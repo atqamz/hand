@@ -72,7 +72,7 @@ cd ~/fleet
 hand init
 ```
 
-`hand init` is non-interactive. It creates the fleet structure and writes a managed block into `AGENTS.md` telling any supervising harness to run `hand session start` before acting, with a `CLAUDE.md` reference when that name is otherwise absent. This is a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
+`hand init` is non-interactive. It creates the fleet structure and writes the canonical, Hand-owned `AGENTS.md`: a small, immutable set of invariants telling any supervising harness to run `hand session start` before acting, restored byte-for-byte on every later `hand init`. A `CLAUDE.md` reference is written alongside it when that name is otherwise absent - a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
 
 ### 3. Add a project
 
@@ -91,7 +91,7 @@ cd ~/fleet
 claude
 ```
 
-The generated `AGENTS.md` block tells the harness to run `hand session start` before responding or acting; that command loads bounded fleet context and reports the first next action, and refuses outright inside a worker's isolated worktree. Any other supported harness reads the same instructions from `AGENTS.md` directly.
+The canonical `AGENTS.md` tells the harness to run `hand session start` before responding or acting; that command loads bounded fleet context and reports the first next action, and refuses outright inside a worker's isolated worktree. Any other supported harness reads the same instructions from `AGENTS.md` directly.
 
 On the first session, the supervisor inspects `hand config`, asks only unresolved configuration policy questions, and persists accepted profile and route choices through the CLI.
 
@@ -273,7 +273,7 @@ A fleet home is deliberately separate from the repositories being worked on.
 
 The important pieces are:
 
-- `AGENTS.md` - operating instructions for the supervising agent
+- `AGENTS.md` - immutable, Hand-owned supervisor invariants; `hand init` restores it byte-for-byte
 - `data/operator.md` - your standing constraints and preferences
 - `data/backlog.md` - the supervisor's task queue
 - `data/learnings.md` - durable operational knowledge discovered by the fleet
@@ -472,7 +472,7 @@ Without `--channel`, the installed build determines the target channel.
 Use `--channel stable` or `--channel edge` for an explicit target or channel switch.
 The edge channel compares embedded commit identities, while stable compares release SemVer versions.
 
-When run inside a fleet home, an update also refreshes the generated section of `AGENTS.md` without overwriting your own additions. Other commands check the installed build's channel for a newer build at most once a day and print a one-line notice when one is available.
+When run inside a fleet home, an update also restores `AGENTS.md` to the canonical content the new build ships, archiving any pre-immutable content it finds the first time. Other commands check the installed build's channel for a newer build at most once a day and print a one-line notice when one is available.
 
 ## Architecture
 

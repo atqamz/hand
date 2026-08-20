@@ -2,13 +2,10 @@ package agentsmd
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/atqamz/hand/internal/faketool"
 )
 
 func withWindows(t *testing.T) {
@@ -35,43 +32,44 @@ func makeWorkspace(t *testing.T) string {
 
 func TestRefreshSkipsSilentlyWhenNotAFleetHome(t *testing.T) {
 	dir := t.TempDir()
-	refreshed, err := Refresh(dir)
+	result, err := Refresh(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refreshed {
-		t.Fatal("got refreshed=true, want false outside a fleet home")
+	if result.Changed {
+		t.Fatal("got Changed=true, want false outside a fleet home")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("got AGENTS.md written outside a fleet home, err=%v", err)
 	}
 }
 
-func TestRefreshWritesAgentsMdAndClaudeReferenceWhenMissing(t *testing.T) {
+func TestRefreshWritesCanonicalAgentsMdAndClaudeReferenceWhenMissing(t *testing.T) {
 	dir := makeWorkspace(t)
 
-	refreshed, err := Refresh(dir)
+	result, err := Refresh(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !refreshed {
-		t.Fatal("got refreshed=false, want true")
+	if !result.Changed {
+		t.Fatal("got Changed=false, want true")
+	}
+	if result.ArchivedPath != "" {
+		t.Fatalf("got ArchivedPath %q, want none for a fresh home with nothing to preserve", result.ArchivedPath)
 	}
 
 	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), beginMarker) || !strings.Contains(string(got), endMarker) {
-		t.Fatalf("got %q, want generated markers present", got)
+	if string(got) != generatedBody {
+		t.Fatalf("got %q, want the exact canonical body", got)
 	}
-	if !strings.Contains(string(got), "## Secondhand supervisor bootstrap") ||
-		!strings.Contains(string(got), "hand session start") ||
-		!strings.Contains(string(got), "HAND_ROLE=worker") {
+	if !strings.Contains(string(got), "hand session start") || !strings.Contains(string(got), "HAND_ROLE=worker") {
 		t.Fatalf("got %q, want the compact supervisor bootstrap", got)
 	}
-	if strings.Contains(string(got), "## Workflow") || strings.Contains(string(got), "## Rules") {
-		t.Fatalf("got %q, want no durable operating manual in the managed block", got)
+	if _, err := os.Stat(filepath.Join(dir, "data", "agents-md-legacy-migration.md")); !os.IsNotExist(err) {
+		t.Fatal("got a legacy archive file for a fresh home, want none")
 	}
 
 	claudePath := filepath.Join(dir, "CLAUDE.md")
@@ -207,158 +205,6 @@ func TestSupervisorInstructionsReturnsClone(t *testing.T) {
 	}
 }
 
-// This is the requirement most likely to regress silently: a refresh must
-// never wipe out rules or sections the user appended by hand.
-func TestRefreshPreservesUserAddedContentAcrossRefresh(t *testing.T) {
-	dir := makeWorkspace(t)
-	path := filepath.Join(dir, "AGENTS.md")
-
-	userPreamble := "# House rules\n\nRead this before the generated block.\n\n"
-	userContent := "\n- a project-specific rule the user wrote by hand\n\n## Maintaining this file\n\nKeep this file tidy.\n"
-	stale := userPreamble + beginMarker + "\n# Secondhand\n\nAn out-of-date template.\n" + endMarker + userContent
-	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	refreshed, err := Refresh(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !refreshed {
-		t.Fatal("got refreshed=false, want true when the generated block was stale")
-	}
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(got), userPreamble) {
-		t.Fatalf("got %q, want user content before the markers preserved verbatim", got)
-	}
-	if !strings.HasSuffix(string(got), userContent) {
-		t.Fatalf("got %q, want user content after the markers preserved verbatim", got)
-	}
-	if !strings.Contains(string(got), "## Secondhand supervisor bootstrap") {
-		t.Fatalf("got %q, want the current generated bootstrap", got)
-	}
-	if strings.Contains(string(got), "An out-of-date template.") {
-		t.Fatalf("got %q, want the stale generated block replaced", got)
-	}
-}
-
-func TestRefreshAppendsManagedBlockToUnmarkedAgentsMd(t *testing.T) {
-	for name, original := range map[string]string{
-		"trailing newline":    "# Project rules\n\nKeep this byte-for-byte.\n",
-		"no trailing newline": "# Project rules\n\nKeep this byte-for-byte.",
-	} {
-		t.Run(name, func(t *testing.T) {
-			dir := makeWorkspace(t)
-			path := filepath.Join(dir, "AGENTS.md")
-			if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
-				t.Fatal(err)
-			}
-
-			changed, err := Refresh(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !changed || !strings.HasPrefix(string(got), original) || !strings.Contains(string(got), beginMarker) {
-				t.Fatalf("got %q, want unchanged prefix plus managed block", got)
-			}
-		})
-	}
-}
-
-func TestRefreshRefusesDuplicateReversedOrUnpairedMarkersWithoutWrites(t *testing.T) {
-	for name, content := range map[string]string{
-		"missing end": beginMarker + "\nmissing end\n",
-		"end only":    endMarker + "\n",
-		"reversed":    endMarker + "\n" + beginMarker + "\n",
-		"duplicate":   generatedBlock() + generatedBlock(),
-	} {
-		t.Run(name, func(t *testing.T) {
-			dir := makeWorkspace(t)
-			path := filepath.Join(dir, "AGENTS.md")
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := Refresh(dir); err == nil {
-				t.Fatal("Refresh succeeded, want malformed-marker error")
-			}
-			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(got) != content {
-				t.Fatalf("got %q, want unchanged %q", got, content)
-			}
-			if _, err := os.Lstat(filepath.Join(dir, "CLAUDE.md")); !os.IsNotExist(err) {
-				t.Fatalf("got CLAUDE.md change after malformed input, err=%v", err)
-			}
-		})
-	}
-}
-
-// An already-current AGENTS.md must not be rewritten at all: an identical-bytes write
-// still swaps the inode, resets the mode, and turns a symlink into a regular file.
-func TestRefreshLeavesUpToDateFileOnDiskUntouched(t *testing.T) {
-	dir := makeWorkspace(t)
-	path := filepath.Join(dir, "AGENTS.md")
-
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	refreshed, err := Refresh(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if refreshed {
-		t.Fatal("got refreshed=true, want false when the template is already current")
-	}
-
-	after, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !os.SameFile(before, after) {
-		t.Fatal("got AGENTS.md replaced, want the existing file left untouched")
-	}
-	if runtime.GOOS != "windows" && after.Mode().Perm() != 0o600 {
-		t.Fatalf("got mode %v, want the existing 0600 preserved", after.Mode().Perm())
-	}
-}
-
-// The source checkout is also a dogfood fleet home, so its project-owned rules point at the
-// authority while its managed span stays current enough for initialization to be a no-op.
-func TestThisRepoAgentsMdIsCurrentForDogfood(t *testing.T) {
-	repoCopy, err := os.ReadFile(filepath.Join("..", "..", "AGENTS.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(repoCopy), "generatedBody") {
-		t.Fatalf("got repo AGENTS.md %q, want a pointer to generatedBody", repoCopy)
-	}
-	merged, err := mergeGenerated(string(repoCopy))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.ReplaceAll(merged, "\r\n", "\n") != strings.ReplaceAll(string(repoCopy), "\r\n", "\n") {
-		t.Fatalf("got repo AGENTS.md %q, want its managed block already current", repoCopy)
-	}
-}
-
 // atqamz/hand#87's fix has to reach every worker without a new report-vocabulary word, since the
 // watcher's classifier and hand status's renderer were outside that change's scope: the working: prefix
 // plus a first-person convention was the only lever available.
@@ -401,6 +247,17 @@ func TestGeneratedRulesCoverOperatorContextLearningsAndArchives(t *testing.T) {
 	}
 	if strings.Contains(instructions, "data/inbox.md") {
 		t.Fatalf("got instructions %q, want no hand-written operator channel", instructions)
+	}
+}
+
+func TestAgentsMdBodyItselfCarriesNoBannedCharacters(t *testing.T) {
+	if strings.ContainsRune(generatedBody, '—') {
+		t.Fatal("got an em dash in the canonical AGENTS.md body, want none")
+	}
+	for _, r := range generatedBody {
+		if r >= 0x1F300 && r <= 0x1FAFF || r >= 0x2600 && r <= 0x27BF {
+			t.Fatalf("got emoji rune %q in the canonical AGENTS.md body, want none", r)
+		}
 	}
 }
 
@@ -470,6 +327,56 @@ func TestRefreshDoesNotOverwriteExistingWindowsClaudeFile(t *testing.T) {
 	}
 	if string(got) != "custom\n" {
 		t.Fatalf("got CLAUDE.md content %q, want unchanged %q", got, "custom\n")
+	}
+}
+
+// An already-current AGENTS.md must not be rewritten at all: an identical-bytes write
+// still swaps the inode, resets the mode, and turns a symlink into a regular file.
+func TestRefreshLeavesUpToDateFileOnDiskUntouched(t *testing.T) {
+	dir := makeWorkspace(t)
+	path := filepath.Join(dir, "AGENTS.md")
+
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Refresh(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Changed {
+		t.Fatal("got Changed=true, want false when the file is already canonical")
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("got AGENTS.md replaced, want the existing file left untouched")
+	}
+	if runtime.GOOS != "windows" && after.Mode().Perm() != 0o600 {
+		t.Fatalf("got mode %v, want the existing 0600 preserved", after.Mode().Perm())
+	}
+}
+
+// CONTRIBUTING.md documents that a clean checkout's tracked AGENTS.md is already the exact
+// content `hand init` would write, so bootstrapping the checkout as a dogfood fleet home is a
+// no-op. That claim only holds if the tracked file matches generatedBody byte for byte.
+func TestThisRepoAgentsMdIsCurrentForDogfood(t *testing.T) {
+	repoCopy, err := os.ReadFile(filepath.Join("..", "..", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(repoCopy) != generatedBody {
+		t.Fatalf("got repo AGENTS.md %q, want it to equal the current canonical body exactly", repoCopy)
 	}
 }
 
@@ -574,140 +481,7 @@ func TestCheckFlagsDriftedWindowsClaudeFile(t *testing.T) {
 	}
 }
 
-func TestCheckFlagsDateOutsideGeneratedBlock(t *testing.T) {
-	dir := makeWorkspace(t)
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, filename)
-	appendLine(t, path, "Fixed the race condition on 2026-07-29.")
-
-	violations, err := Check(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasViolation(violations, "date outside the generated block") {
-		t.Fatalf("got %v, want a date violation", violations)
-	}
-}
-
-func TestCheckIgnoresDateInCodeSpanOrURL(t *testing.T) {
-	dir := makeWorkspace(t)
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, filename)
-	appendLine(t, path, "Example: `2026-07-29` is an RFC3339 date, see https://example.com/releases/2026-07-29 for the tag.")
-
-	violations, err := Check(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hasViolation(violations, "date outside the generated block") {
-		t.Fatalf("got %v, want no date violation for a code span or URL", violations)
-	}
-}
-
-func TestCheckFlagsSelfExpiringPhrasing(t *testing.T) {
-	dir := makeWorkspace(t)
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, filename)
-	appendLine(t, path, "Until #84 lands, do the mtime check by hand.")
-
-	violations, err := Check(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasViolation(violations, "self-expiring phrasing") {
-		t.Fatalf("got %v, want a self-expiring-phrasing violation", violations)
-	}
-}
-
-func TestCheckFlagsEmDashAndEmoji(t *testing.T) {
-	dir := makeWorkspace(t)
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, filename)
-	appendLine(t, path, "This rule matters a lot — so don't skip it")
-	appendLine(t, path, "Ship it \U0001F680")
-
-	violations, err := Check(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := countViolations(violations, "banned character"); n != 2 {
-		t.Fatalf("got %d banned-character violations in %v, want 2 (em dash and emoji)", n, violations)
-	}
-}
-
-func TestCheckFlagsBannedCharacterInsideFence(t *testing.T) {
-	dir := makeWorkspace(t)
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, filename)
-	appendLine(t, path, "```\nan example — with an em dash\n```")
-
-	violations, err := Check(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := countViolations(violations, "banned character"); n != 1 {
-		t.Fatalf("got %d banned-character violations in %v, want 1 inside a fenced block", n, violations)
-	}
-}
-
-func countViolations(violations []Violation, substr string) int {
-	n := 0
-	for _, v := range violations {
-		if strings.Contains(v.Text, substr) {
-			n++
-		}
-	}
-	return n
-}
-
-func TestCheckFlagsDuplicateReversedAndUnpairedMarkers(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		line    int
-		finding string
-	}{
-		{"unpaired start", "preamble\n" + beginMarker + "\nbody\n", 2, "unpaired hand:generated start marker"},
-		{"unpaired end", "preamble\n" + endMarker + "\n", 2, "unpaired hand:generated end marker"},
-		{"reversed", "preamble\n" + endMarker + "\n" + beginMarker + "\n", 2, "end marker appears before start marker"},
-		{"duplicate start", beginMarker + "\n" + beginMarker + "\n" + endMarker + "\n", 2, "duplicate hand:generated start marker"},
-		{"duplicate end", beginMarker + "\n" + endMarker + "\n" + endMarker + "\n", 3, "duplicate hand:generated end marker"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := makeWorkspace(t)
-			if err := os.WriteFile(filepath.Join(dir, filename), []byte(tt.content), 0o644); err != nil {
-				t.Fatal(err)
-			}
-
-			violations, err := Check(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, violation := range violations {
-				if strings.Contains(violation.Text, tt.finding) {
-					if violation.Line != tt.line {
-						t.Fatalf("got line %d for %q, want %d", violation.Line, violation.Text, tt.line)
-					}
-					return
-				}
-			}
-			t.Fatalf("got %v, want finding %q", violations, tt.finding)
-		})
-	}
-}
-
-func TestCheckFlagsGeneratedBlockDrift(t *testing.T) {
+func TestCheckFlagsDriftedAgentsMd(t *testing.T) {
 	dir := makeWorkspace(t)
 	if _, err := Refresh(dir); err != nil {
 		t.Fatal(err)
@@ -726,156 +500,185 @@ func TestCheckFlagsGeneratedBlockDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasViolation(violations, "generated block has drifted") {
-		t.Fatalf("got %v, want a generated-block-drift violation", violations)
+	if !hasViolation(violations, "AGENTS.md has drifted from the canonical Hand-owned content") {
+		t.Fatalf("got %v, want a drift violation", violations)
 	}
 	// A bare "run hand init" would target the operator's working directory,
 	// which is a new nested fleet home whenever that is not the home itself.
-	if !hasViolation(violations, "run hand init '"+dir+"' to refresh") {
+	if !hasViolation(violations, "run hand init '"+dir+"' to restore it") {
 		t.Fatalf("got %v, want the remedy to name the resolved home %q", violations, dir)
 	}
 }
 
-func TestCheckFlagsMissingGeneratedMarkers(t *testing.T) {
+func TestRefreshMigratesOldMixedOwnershipAgentsMdArchivingNonGeneratedContentVerbatim(t *testing.T) {
 	dir := makeWorkspace(t)
-	if err := os.WriteFile(filepath.Join(dir, filename), []byte("# Hand-written, no markers\n"), 0o644); err != nil {
+	path := filepath.Join(dir, "AGENTS.md")
+
+	userPreamble := "# House rules\n\nRead this before the generated block.\n\n"
+	userTrailer := "\n- a project-specific rule the user wrote by hand\n\n## Maintaining this file\n\nKeep this file tidy.\n"
+	stale := userPreamble + legacyBeginMarker + "\n# Secondhand\n\nAn out-of-date template.\n" + legacyEndMarker + userTrailer
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	violations, err := Check(dir)
+	result, err := Refresh(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasViolation(violations, "no hand:generated markers") {
-		t.Fatalf("got %v, want a missing-markers violation before Refresh establishes managed-block ownership", violations)
+	if !result.Changed {
+		t.Fatal("got Changed=false, want true when migrating an old mixed-ownership file")
 	}
-	if hasViolation(violations, "generated block has drifted") {
-		t.Fatalf("got %v, want no drift violation when there is no block to drift", violations)
-	}
-	for _, v := range violations {
-		if strings.Contains(v.Text, "no hand:generated markers") && v.Severity != SeverityViolation {
-			t.Fatalf("got severity %v for the missing-markers finding, want SeverityViolation", v.Severity)
-		}
-	}
-}
-
-func TestCheckRemediationCommandsQuoteFleetHomeForPOSIXShell(t *testing.T) {
-	parent := t.TempDir()
-	dir := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
-	for _, subdir := range []string{"data", "state"} {
-		if err := os.MkdirAll(filepath.Join(dir, subdir), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, "state", "hand.db"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	bin := faketool.Bin(t)
-	faketool.Command{Name: "hand", Args: true}.Install(t, bin)
-
-	assertRecovery := func(finding string) {
-		t.Helper()
-		violations, err := Check(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, violation := range violations {
-			if !strings.Contains(violation.Text, finding) {
-				continue
-			}
-			start := strings.Index(violation.Text, "run ")
-			end := strings.LastIndex(violation.Text, " to ")
-			if start < 0 || end <= start {
-				t.Fatalf("finding = %q, want an executable recovery command", violation.Text)
-			}
-			recovery := violation.Text[start+len("run ") : end]
-			got, runErr := exec.Command("sh", "-c", recovery).CombinedOutput()
-			if runErr != nil {
-				t.Fatalf("run recovery %q: %v: %s", recovery, runErr, got)
-			}
-			want := "2\ninit\n" + dir + "\n"
-			if string(got) != want {
-				t.Fatalf("recovery argv = %q, want %q", got, want)
-			}
-			return
-		}
-		t.Fatalf("violations = %v, want finding %q", violations, finding)
+	archivePath := filepath.Join(dir, "data", "agents-md-legacy-migration.md")
+	if result.ArchivedPath != archivePath {
+		t.Fatalf("got ArchivedPath %q, want %q", result.ArchivedPath, archivePath)
 	}
 
-	assertRecovery("AGENTS.md is missing")
-	if err := os.WriteFile(filepath.Join(dir, filename), []byte("# Hand-written, no markers\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	assertRecovery("no hand:generated markers")
-	if _, err := Refresh(dir); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, filename)
-	content, err := os.ReadFile(path)
+	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	drifted := strings.Replace(string(content), "hand session start", "hand session begin", 1)
-	if err := os.WriteFile(path, []byte(drifted), 0o644); err != nil {
+	if string(got) != generatedBody {
+		t.Fatalf("got %q, want the exact canonical body replacing the mixed-ownership file", got)
+	}
+
+	archived, err := os.ReadFile(archivePath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	assertRecovery("generated block has drifted")
+	if !strings.Contains(string(archived), userPreamble) {
+		t.Fatalf("got archive %q, want the preamble preserved verbatim", archived)
+	}
+	if !strings.Contains(string(archived), userTrailer) {
+		t.Fatalf("got archive %q, want the trailer preserved verbatim", archived)
+	}
+	if strings.Contains(string(archived), "An out-of-date template.") {
+		t.Fatalf("got archive %q, want the old generated span itself dropped, not archived", archived)
+	}
 }
 
-func TestCheckFlagsUnterminatedFence(t *testing.T) {
+func TestRefreshMigratesForeignAgentsMdWithNoMarkersArchivingWholeFile(t *testing.T) {
 	dir := makeWorkspace(t)
-	if _, err := Refresh(dir); err != nil {
+	path := filepath.Join(dir, "AGENTS.md")
+	original := "# Project rules\n\nKeep this byte-for-byte.\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, filename)
-	appendLine(t, path, "```")
-	appendLine(t, path, "Fixed the race condition on 2026-07-29.")
 
-	violations, err := Check(dir)
+	result, err := Refresh(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasViolation(violations, "unterminated code fence") {
-		t.Fatalf("got %v, want an unterminated-fence violation instead of a silently truncated scan", violations)
+	if !result.Changed {
+		t.Fatal("got Changed=false, want true")
+	}
+	archivePath := filepath.Join(dir, "data", "agents-md-legacy-migration.md")
+	if result.ArchivedPath != archivePath {
+		t.Fatalf("got ArchivedPath %q, want %q", result.ArchivedPath, archivePath)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != generatedBody {
+		t.Fatalf("got %q, want the exact canonical body", got)
+	}
+	archived, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(archived), original) {
+		t.Fatalf("got archive %q, want the whole foreign file preserved verbatim", archived)
 	}
 }
 
-func TestCheckIgnoresAwaitingWithNoIssueReference(t *testing.T) {
+func TestRefreshMigrationIsIdempotentAndSubsequentDriftIsPlainRestoreWithNoReArchive(t *testing.T) {
 	dir := makeWorkspace(t)
-	if _, err := Refresh(dir); err != nil {
+	path := filepath.Join(dir, "AGENTS.md")
+	original := legacyBeginMarker + "\nstale\n" + legacyEndMarker + "\nuser content\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, filename)
-	appendLine(t, path, "Never merge a PR awaiting review.")
 
-	violations, err := Check(dir)
+	first, err := Refresh(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hasViolation(violations, "self-expiring phrasing") {
-		t.Fatalf("got %v, want no violation: a bare awaiting with no issue to expire against is durable prose", violations)
+	if first.ArchivedPath == "" {
+		t.Fatal("got no archive on first migration, want one")
 	}
-
-	appendLine(t, path, "Skip the mtime check, awaiting #84.")
-	violations, err = Check(dir)
+	archivePath := first.ArchivedPath
+	archivedFirst, err := os.ReadFile(archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasViolation(violations, "self-expiring phrasing") {
-		t.Fatalf("got %v, want an awaiting-#N violation", violations)
+
+	second, err := Refresh(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Changed || second.ArchivedPath != "" {
+		t.Fatalf("got %+v, want a no-op immediately after migration", second)
+	}
+
+	if err := os.WriteFile(path, []byte("operator hand-edited this file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	third, err := Refresh(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !third.Changed {
+		t.Fatal("got Changed=false, want the post-migration hand edit restored")
+	}
+	if third.ArchivedPath != "" {
+		t.Fatalf("got ArchivedPath %q, want no re-archive for drift after migration is already done", third.ArchivedPath)
+	}
+	archivedAfter, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(archivedAfter) != string(archivedFirst) {
+		t.Fatal("got the original migration archive overwritten, want it left alone")
+	}
+	restored, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restored) != generatedBody {
+		t.Fatalf("got %q, want the canonical body restored", restored)
 	}
 }
 
-func appendLine(t *testing.T, path, line string) {
-	t.Helper()
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.WriteString("\n" + line + "\n"); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
+func TestRefreshFailsSafeOnAmbiguousLegacyMarkersWithoutWritingOrArchiving(t *testing.T) {
+	for name, content := range map[string]string{
+		"missing end": legacyBeginMarker + "\nmissing end\n",
+		"end only":    legacyEndMarker + "\n",
+		"reversed":    legacyEndMarker + "\n" + legacyBeginMarker + "\n",
+		"duplicate":   legacyBeginMarker + "\na\n" + legacyEndMarker + "\n" + legacyBeginMarker + "\nb\n" + legacyEndMarker + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := makeWorkspace(t)
+			path := filepath.Join(dir, "AGENTS.md")
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Refresh(dir); err == nil {
+				t.Fatal("Refresh succeeded, want an ambiguous-marker error")
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != content {
+				t.Fatalf("got %q, want unchanged %q", got, content)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "data", "agents-md-legacy-migration.md")); !os.IsNotExist(err) {
+				t.Fatal("got a legacy archive written for an ambiguous file, want none")
+			}
+			if _, err := os.Lstat(filepath.Join(dir, "CLAUDE.md")); !os.IsNotExist(err) {
+				t.Fatalf("got CLAUDE.md change after an ambiguous-marker failure, err=%v", err)
+			}
+		})
 	}
 }

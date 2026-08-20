@@ -1,7 +1,7 @@
 # Supervisor bootstrap is an AGENTS.md contract
 
 - Date: 2026-08-07
-- Status: accepted
+- Status: superseded by [AGENTS.md is fully Hand-owned and immutable](agents-md-is-fully-hand-owned-and-immutable.md)
 - Issues: atqamz/hand#172
 - PRs: none
 
