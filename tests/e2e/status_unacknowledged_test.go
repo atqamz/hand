@@ -29,12 +29,15 @@ func TestStatusFlagsATerminalReportNoWatcherEverRead(t *testing.T) {
 		t.Fatalf("hand status task-1 stdout %q, want the same flag in the detail view", single.stdout)
 	}
 
-	// Exit 4, not 0: arming consumes the backlog into state/events.log and the
-	// notify hook without printing it, and only a later event is fleet news. That
-	// consumption is exactly what acknowledges the report.
+	// Exit 0: arming observes the backlog and delivers it (atqamz/hand#252), because a report written
+	// while nothing was watching has no later transition to be announced by. Consuming it is what
+	// acknowledges it, whether or not it also woke someone.
 	armed := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "300ms")
-	if armed.code != 4 {
-		t.Fatalf("hand watch --until-event: exit %d, want 4 (stderr %q)", armed.code, armed.stderr)
+	if armed.code != 0 {
+		t.Fatalf("hand watch --until-event: exit %d, want 0 (stderr %q)", armed.code, armed.stderr)
+	}
+	if !strings.Contains(armed.stdout, "reported-done task-1: PR up") {
+		t.Fatalf("hand watch --until-event stdout %q, want the unread completion delivered", armed.stdout)
 	}
 
 	after := runHand(t, home, "status")

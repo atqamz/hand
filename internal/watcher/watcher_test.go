@@ -1067,6 +1067,48 @@ func TestTickResumesReportTailAfterRestart(t *testing.T) {
 	}
 }
 
+// Covers atqamz/hand#252's third and eighth acceptance tests together: the stop lands while no
+// watcher is alive, so recovery has to come from durable state, and the watcher after that one has
+// to find the same condition already answered.
+func TestTickCatchesUpOnAStopThatLandedBetweenTwoWatchers(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}, LastReportState: state.ReportWorking})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	watched := make(map[string]*TaskState)
+	tick(ctx, cfg, client, watched, &buf, io.Discard)
+	tick(ctx, cfg, client, watched, &buf, io.Discard)
+	if buf.Len() != 0 {
+		t.Fatalf("output = %q, want nothing while the worker is still working", buf.String())
+	}
+
+	// No watcher is alive across this transition, so no edge exists for anyone to have observed.
+	setStatus(t, statusFile, "done")
+
+	buf.Reset()
+	rearmed := make(map[string]*TaskState)
+	tick(ctx, cfg, client, rearmed, &buf, io.Discard)
+	tick(ctx, cfg, client, rearmed, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "idle-unreported task-1") {
+		t.Fatalf("output = %q, want idle-unreported task-1 recovered from durable state", buf.String())
+	}
+
+	buf.Reset()
+	again := make(map[string]*TaskState)
+	tick(ctx, cfg, client, again, &buf, io.Discard)
+	tick(ctx, cfg, client, again, &buf, io.Discard)
+	if buf.Len() != 0 {
+		t.Fatalf("output = %q, want silence: the condition was announced once and nothing changed since", buf.String())
+	}
+}
+
 // A `done:` rewrite landing on the byte count of the `working:` line before it was skipped outright
 // (atqamz/hand#149): the offset still sat just past the final newline with nothing after it, so
 // nothing was announced, LastReportState stayed `working`, and ClassifyDeferredDone - gated on it - never ran.
@@ -1662,6 +1704,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		PersistedLimitStuckEpisode: 7,
 		LimitProbed:                true,
 		UnreachableFired:           true,
+		CaughtUp:                   true,
 	}
 	promoted := state.Task{CreatedAt: "2020-01-01T00:00:00Z"}
 	promotedAttempt := state.Attempt{
@@ -1682,6 +1725,10 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		"PersistedPRMerged":       true,
 		"ParkedFiredFor":          true,
 		"PersistedParkedFiredFor": true,
+		// CaughtUp records this watcher's own one look at the task, anchored to no pane. The ship's
+		// first probe is deliberately a baseline - Status is reset to StatusUnknown right here - so a
+		// re-run of the catch-up against it could only ever return nil anyway.
+		"CaughtUp": true,
 	}
 
 	ts := before
@@ -2189,37 +2236,29 @@ func TestRunExitsWhenPaneProbeIsCanceled(t *testing.T) {
 	}
 }
 
-// The regression test for the delivery failure of 2026-07-28: the grep-on-first-line wrapper this
-// mode replaces matched a done worker's startup line, took it for a transition, and left the two real
-// events that followed unread for three hours.
-func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
+// Covers atqamz/hand#252: the report was written while no watcher was alive, so there is no future
+// transition left to wake on. Arming has to observe it, not take it as a baseline it may discard.
+func TestRunUntilEventDeliversAReportWrittenBeforeTheArm(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "done")
 	writeFakeHerdr(t, statusFile)
-	callLog := logPaneGets(t)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: PR checks green\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	var out bytes.Buffer
-	done := make(chan error, 1)
-	go func() {
-		done <- RunUntilEvent(ctx, Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour}, &out, io.Discard)
-	}()
-
-	waitForPaneGets(t, callLog, 4)
-	cancel()
-	err := <-done
-
-	if !errors.Is(err, ErrInterrupted) {
-		t.Fatalf("RunUntilEvent = %v, want ErrInterrupted after the baseline was observed", err)
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+	if err := RunUntilEvent(context.Background(), cfg, &out, io.Discard); err != nil {
+		t.Fatalf("RunUntilEvent = %v, want nil so the exit code reads as a delivered event", err)
 	}
-	if out.Len() != 0 {
-		t.Fatalf("out = %q, want the startup state delivered as nothing", out.String())
+	if !strings.Contains(out.String(), "reported-done task-1") {
+		t.Fatalf("out = %q, want reported-done task-1 delivered by the arm itself", out.String())
+	}
+	// The report line explains the stop, so the pane being not-busy is not a second condition.
+	if strings.Contains(out.String(), "idle-unreported") {
+		t.Fatalf("out = %q, want no idle-unreported alongside the report that explains the stop", out.String())
 	}
 
 	logData, err := os.ReadFile(filepath.Join(home, "state", "events.log"))
@@ -2227,7 +2266,169 @@ func TestRunUntilEventTakesTheStartupStateAsBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(logData), "reported-done task-1") {
-		t.Fatalf("events.log = %q, want the baseline's own events still recorded: the report line is consumed either way", string(logData))
+		t.Fatalf("events.log = %q, want the arm's own events recorded there too", string(logData))
+	}
+}
+
+// Covers atqamz/hand#252's central case: the worker's pane stopped before the watcher armed, and its
+// last word was a `working:` line an earlier watcher already announced. No edge is left to fire.
+func TestRunUntilEventWakesOnAWorkerAlreadyStoppedBeforeTheArm(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "done")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+			StatusChangedFor: "working", LastReportState: state.ReportWorking, LastReportNote: "still on the migration"})
+
+	var out bytes.Buffer
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+	if err := RunUntilEvent(context.Background(), cfg, &out, io.Discard); err != nil {
+		t.Fatalf("RunUntilEvent = %v, want nil so the exit code reads as a delivered event", err)
+	}
+	if !strings.Contains(out.String(), "idle-unreported task-1") {
+		t.Fatalf("out = %q, want idle-unreported task-1 from the arm-time observation", out.String())
+	}
+
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	if attempt.StatusChangedFor != "done" {
+		t.Fatalf("status_changed_for = %q, want the caught-up episode recorded so a re-arm has evidence it was announced", attempt.StatusChangedFor)
+	}
+}
+
+// The other half of the same contract: an arm that finds nothing actionable has to wait for a real
+// transition, and a re-arm meeting the same already-announced condition must not fire again.
+func TestRunUntilEventStaysArmedWhenTheCaughtUpConditionWasAlreadyAnnounced(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "done")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+			StatusChangedFor: "working", LastReportState: state.ReportWorking})
+
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+	var first bytes.Buffer
+	if err := RunUntilEvent(context.Background(), cfg, &first, io.Discard); err != nil {
+		t.Fatalf("first RunUntilEvent = %v, want the caught-up wake", err)
+	}
+	if !strings.Contains(first.String(), "idle-unreported task-1") {
+		t.Fatalf("first out = %q, want idle-unreported task-1", first.String())
+	}
+
+	cfg.Timeout = 300 * time.Millisecond
+	var second bytes.Buffer
+	err := RunUntilEvent(context.Background(), cfg, &second, io.Discard)
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("re-armed RunUntilEvent = %v, want ErrNoEvent: the condition was announced once and nothing has changed since", err)
+	}
+	if second.Len() != 0 {
+		t.Fatalf("re-armed out = %q, want silence rather than one wake per arm", second.String())
+	}
+}
+
+// atqamz/hand#252 and atqamz/hand#235 together: the arm observes what it missed, and a pane hand
+// teardown is releasing is still not one of the things it missed.
+func TestRunUntilEventCatchesUpOnAStoppedWorkerWithoutWakingOnATeardownRelease(t *testing.T) {
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{
+			{ID: "wA:t1", Label: "torn-down", Pane: "p1"},
+			{ID: "wA:t2", Label: "stopped", Pane: "p2"},
+		}}},
+		PaneStatus: "done",
+	}.Install(t, faketool.Bin(t))
+
+	quiet := state.Attempt{Lifecycle: state.AttemptRunning, StatusChangedFor: "working", LastReportState: state.ReportWorking}
+	tornDown := quiet
+	tornDown.Herdr = state.Herdr{PaneID: "p1"}
+	tornDown.TeardownHerdrState = state.TeardownResourceReleasing
+	stopped := quiet
+	stopped.Herdr = state.Herdr{PaneID: "p2"}
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, tornDown)
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-2", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339)}, stopped); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+	if err := RunUntilEvent(context.Background(), cfg, &out, io.Discard); err != nil {
+		t.Fatalf("RunUntilEvent = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "idle-unreported task-2") {
+		t.Fatalf("out = %q, want the genuinely stopped worker caught up", out.String())
+	}
+	if strings.Contains(out.String(), "task-1") {
+		t.Fatalf("out = %q, want nothing for the task teardown is releasing", out.String())
+	}
+}
+
+// Covers atqamz/hand#252's sixth acceptance test. stale is satisfied by any task whose herdr status
+// has simply not changed lately, so delivering it at arm would make every re-arm return at once -
+// a busy poll wearing an event's clothes.
+func TestRunUntilEventKeepsWaitingWhenOnlyStaleWouldFireAtArm(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, CreatedAt: dwelling},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+			StatusChangedAt: dwelling, StatusChangedFor: "working"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: 20 * time.Minute, Timeout: 500 * time.Millisecond}
+	err := RunUntilEvent(context.Background(), cfg, &out, io.Discard)
+
+	if !errors.Is(err, ErrNoEvent) {
+		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: a working worker whose status has not changed is not actionable", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want the watcher still waiting", out.String())
+	}
+	logData, err := os.ReadFile(filepath.Join(home, "state", "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "stale task-1") {
+		t.Fatalf("events.log = %q, want stale still recorded: the arm withholds the wake, not the record", string(logData))
+	}
+}
+
+// Covers atqamz/hand#252's ninth acceptance test: --until-event returns once, so everything the arm
+// found actionable has to leave with it rather than be dropped behind the first task's event.
+func TestRunUntilEventDeliversEveryTaskActionableAtArm(t *testing.T) {
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{
+			{ID: "wA:t1", Label: "task-1", Pane: "p1"},
+			{ID: "wA:t2", Label: "task-2", Pane: "p2"},
+		}}},
+		PaneStatus: "done",
+	}.Install(t, faketool.Bin(t))
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+			StatusChangedFor: "working", LastReportState: state.ReportWorking})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-2", Project: "nsr", Kind: state.KindShip,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339)},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p2"},
+			StatusChangedFor: "working", LastReportState: state.ReportWorking}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
+	if err := RunUntilEvent(context.Background(), cfg, &out, io.Discard); err != nil {
+		t.Fatalf("RunUntilEvent = %v, want nil", err)
+	}
+	for _, want := range []string{"idle-unreported task-1", "idle-unreported task-2"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("out = %q, want %q: the second actionable task must not be lost behind the first", out.String(), want)
+		}
 	}
 }
 
@@ -2351,10 +2552,11 @@ func TestRunUntilEventDeliversIdleUnreportedForAWorkerThatWentQuiet(t *testing.T
 	writeFakeHerdr(t, statusFile)
 	callLog := logPaneGets(t)
 
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: still on the migration\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Durable, not a fresh report file: an unconsumed line is itself news the arm would deliver, and
+	// this is about the transition after the arm.
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+			StatusChangedFor: "working", LastReportState: state.ReportWorking, LastReportNote: "still on the migration"})
 	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}
 
 	var out bytes.Buffer
@@ -2573,6 +2775,39 @@ func TestRunUntilEventReportsReplacementOnTakeoverCause(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunUntilEvent did not return after a replacement cause")
+	}
+}
+
+// The same precedence at the other boundary: an arm that found something actionable still belongs to
+// a watcher that has since been replaced, so the replacement is what the caller hears about.
+func TestRunUntilEventDoesNotDeliverAnArmObservationAfterCancellation(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "done")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
+		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+			StatusChangedFor: "working", LastReportState: state.ReportWorking})
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	oldAfterArmTick := afterArmTick
+	t.Cleanup(func() { afterArmTick = oldAfterArmTick })
+	arms := 0
+	afterArmTick = func() {
+		arms++
+		if arms == 2 {
+			cancel(ErrReplaced)
+		}
+	}
+
+	var out bytes.Buffer
+	err := RunUntilEvent(ctx, Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 10 * time.Second}, &out, io.Discard)
+	if !errors.Is(err, ErrReplaced) {
+		t.Fatalf("RunUntilEvent = %v, want ErrReplaced when cancellation follows the arm-time observation", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want no delivery from a watcher that has been replaced", out.String())
 	}
 }
 

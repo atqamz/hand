@@ -56,6 +56,18 @@ func KnownKinds() []string {
 	}
 }
 
+// CatchUpFilter is the subset of kinds an arm-time observation may deliver: every kind whose
+// announcement durable state records, so a re-arm meeting a condition some watcher already
+// announced stays quiet instead of re-firing it once per arm.
+func CatchUpFilter() EventFilter {
+	f := NewEventFilter(KnownKinds())
+	// KindStale is the one exclusion. Its latch is re-derived per watcher process, and its dwell is
+	// satisfied by any task whose herdr status has simply not changed lately, so delivering it at arm
+	// would return from every re-arm at once, forever.
+	delete(f, KindStale)
+	return f
+}
+
 // NotifyFilter is the fixed subset of events worth sending through the
 // watcher's unattended notification channel.
 func NotifyFilter() EventFilter {
@@ -175,6 +187,10 @@ type TaskState struct {
 	// persisted. A restart mid-outage loses it and ClassifyUnreachable re-evaluates the dwell against
 	// durable evidence, so the safe failure mode is one duplicate announcement, never a suppressed one.
 	UnreachableFired bool
+	// Records that ClassifyCatchUp has had its one look at this task. Deliberately not persisted: the
+	// durable evidence it reads is what dedupes across processes, while this only keeps one watcher
+	// from re-asking a question whose answer cannot change until a status transition does.
+	CaughtUp bool
 }
 
 // NewTaskState seeds tracking for a task first observed at now, without emitting an
@@ -231,6 +247,35 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 		}
 	default:
 		ts.Blocked = false
+	}
+	return nil
+}
+
+// ClassifyCatchUp reports the condition a task is already in the first time this watcher classifies
+// it, which ClassifyStatus can only ever see as a transition. observedFor is the attempt's durable
+// status_changed_for: naming the observed status is what proves some watcher announced this episode.
+func ClassifyCatchUp(ts *TaskState, id string, status herdr.Status, observedFor, teardownHerdrState string) *Event {
+	// A pane released by hand teardown is nobody's condition to act on - atqamz/hand#235's rule, one
+	// classifier further on.
+	if teardownHerdrState != "" {
+		return nil
+	}
+	// A status this watcher has itself seen change belongs to ClassifyStatus's edge, and an episode
+	// durable state already names was announced when it was observed. Catching up on either says it twice.
+	if status != ts.Status || observedFor == string(status) {
+		return nil
+	}
+	switch {
+	case status.NotBusy():
+		// The same question ClassifyStatus asks of its own idle edge: has anything explained the stop.
+		if ts.LastReportState == "" || ts.LastReportState == state.ReportWorking {
+			return &Event{TaskID: id, Kind: KindIdleUnreported, Text: fmt.Sprintf("idle-unreported %s", id)}
+		}
+	case status == herdr.StatusBlocked:
+		if !ts.Blocked {
+			ts.Blocked = true
+			return &Event{TaskID: id, Kind: KindBlocked, Text: fmt.Sprintf("blocked %s: %s", id, blockedReason), Reason: blockedReason}
+		}
 	}
 	return nil
 }

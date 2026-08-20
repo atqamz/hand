@@ -13,18 +13,20 @@ import (
 )
 
 // Drives `hand watch` as a background process against two seeded tasks and asserts on its actual contract:
-// a task's status at watch startup never retroactively fires an event, only a later transition does.
+// a status some watcher already observed and announced never fires again, only a later transition does.
 func TestWatchEventStream(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	// task-2's blocked episode carries durable evidence that it was already announced, so this run has
+	// nothing to catch up on and every event below is a transition it saw for itself.
 	for _, tc := range []struct {
 		task    state.Task
 		attempt state.Attempt
 	}{
-		{state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}}},
-		{state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}}},
+		{state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, StatusChangedFor: "working"}},
+		{state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}, StatusChangedFor: "blocked"}},
 	} {
 		writeTaskAttempt(t, home, tc.task, tc.attempt)
 	}
@@ -50,8 +52,8 @@ func TestWatchEventStream(t *testing.T) {
 	setPaneStatus(t, statusDir, "pane-1", "done")
 	watch.waitForStdout(t, "idle-unreported task-1", 5*time.Second)
 	// task-1's event is the liveness signal: it proves the watcher has run a post-seed tick over both tasks,
-	// so the absence of any task-2 output is a real suppression of task-2's pre-existing "blocked" status
-	// rather than a watcher that has not polled yet.
+	// so the absence of any task-2 output is a real suppression of task-2's already-announced "blocked"
+	// status rather than a watcher that has not polled yet.
 	if strings.Contains(watch.stdout.String(), "task-2") {
 		t.Fatalf("watch fired an event for task-2's pre-existing status before any transition: stdout=%q", watch.stdout.String())
 	}
@@ -86,26 +88,24 @@ func TestWatchEventStream(t *testing.T) {
 	}
 }
 
-// task-2 sits in a state the grep-on-first-line wrapper this mode replaces would
-// have matched immediately (see TestRunUntilEventTakesTheStartupStateAsBaseline),
-// so nothing about it may appear on stdout.
+// task-2 is settled: its terminal report is consumed and its stopped pane is an episode durable state
+// already names, so nothing about it may appear on stdout however long the watcher waits.
 func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	settled := "done: PR merged already\n"
 	for _, tc := range []struct {
 		task    state.Task
 		attempt state.Attempt
 	}{
-		{state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}}},
-		{state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}}},
+		{state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}, StatusChangedFor: "working"}},
+		{state.Task{ID: "task-2", Project: "demo", Kind: state.KindShip, CreatedAt: now, ReportOffset: int64(len(settled))}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}, StatusChangedFor: "done", LastReportState: state.ReportDone, LastReportNote: "PR merged already"}},
 	} {
 		writeTaskAttempt(t, home, tc.task, tc.attempt)
 	}
-	// A terminal report line nobody consumed: report_offset is still 0, so the
-	// poll loop classifies it as new. The baseline has to absorb it silently.
-	if err := os.WriteFile(state.ReportPath(home, "task-2"), []byte("done: PR merged already\n"), 0o644); err != nil {
+	if err := os.WriteFile(state.ReportPath(home, "task-2"), []byte(settled), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,15 +135,63 @@ func TestWatchUntilEventExitsOnTheFirstTransition(t *testing.T) {
 		t.Fatalf("stdout = %q, want idle-unreported task-1", result.stdout)
 	}
 	if strings.Contains(result.stdout, "task-2") {
-		t.Fatalf("stdout = %q, want nothing about task-2: its state and its unconsumed report line are both baseline, not transitions", result.stdout)
+		t.Fatalf("stdout = %q, want nothing about task-2: its report is consumed and its stopped pane already announced", result.stdout)
 	}
 
 	logData, err := os.ReadFile(filepath.Join(state.Dir(home), "events.log"))
 	if err != nil {
 		t.Fatalf("read events.log: %v", err)
 	}
-	if !strings.Contains(string(logData), "reported-done task-2") {
-		t.Fatalf("events.log = %q, want task-2's baseline report line recorded", string(logData))
+	if !strings.Contains(string(logData), "idle-unreported task-1") {
+		t.Fatalf("events.log = %q, want the delivered event recorded durably too", string(logData))
+	}
+}
+
+// Covers atqamz/hand#252 end to end: the worker stopped and the report landed while nothing was
+// watching, so the arm has to be the wake. No status changes at all after the watcher starts.
+func TestWatchUntilEventWakesOnAFleetAlreadyActionableAtArm(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "direct-pr")
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, tc := range []struct {
+		task    state.Task
+		attempt state.Attempt
+	}{
+		{state.Task{ID: "quiet-worker", Project: "demo", Kind: state.KindShip, CreatedAt: now},
+			state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+				StatusChangedFor: "working", LastReportState: state.ReportWorking, LastReportNote: "acknowledged, fixing it now"}},
+		{state.Task{ID: "finished-worker", Project: "demo", Kind: state.KindShip, CreatedAt: now},
+			state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-2"), Herdr: state.Herdr{PaneID: "pane-2"}, StatusChangedFor: "working"}},
+	} {
+		writeTaskAttempt(t, home, tc.task, tc.attempt)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "finished-worker"), []byte("done: branch pushed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := t.TempDir()
+	setPaneStatus(t, statusDir, "pane-1", "done")
+	setPaneStatus(t, statusDir, "pane-2", "done")
+	writeFakeHerdrWatch(t, binDir(t), statusDir, filepath.Join(t.TempDir(), "herdr-invocations.log"))
+
+	got := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "30s")
+	if got.code != 0 {
+		t.Fatalf("exit = %d, want 0 for a delivered event (stdout %q, stderr %q)", got.code, got.stdout, got.stderr)
+	}
+	for _, want := range []string{"idle-unreported quiet-worker", "reported-done finished-worker: branch pushed"} {
+		if !strings.Contains(got.stdout, want) {
+			t.Fatalf("stdout = %q, want %q: the operator should not have to ask for state Hand already had", got.stdout, want)
+		}
+	}
+
+	// Nothing has changed since, so the re-arm has to wait rather than announce the same conditions again.
+	rearmed := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "1s")
+	if rearmed.code != 4 {
+		t.Fatalf("re-armed exit = %d, want 4 (stdout %q, stderr %q)", rearmed.code, rearmed.stdout, rearmed.stderr)
+	}
+	if strings.TrimSpace(rearmed.stdout) != "" {
+		t.Fatalf("re-armed stdout = %q, want silence: one wake per condition, not one per arm", rearmed.stdout)
 	}
 }
 
@@ -208,12 +256,16 @@ func TestWatchUntilEventDeliversParkedWhenTheReportChannelGoesSilent(t *testing.
 	registerProject(t, home, "demo", "direct-pr")
 	writeConfig(t, home, "parked-other-bound", "2")
 
+	// Recorded as already consumed and announced, so the arm-time observation has nothing to catch up
+	// on and the parked bound is what this run is left to cross.
+	line := "working: still on the migration\n"
 	writeTaskAttempt(t, home, state.Task{
 		ID: "slow-migration", Project: "demo", Kind: state.KindShip,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"}})
+		CreatedAt: time.Now().UTC().Format(time.RFC3339), ReportOffset: int64(len(line)),
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: filepath.Join(home, "wt-1"), Herdr: state.Herdr{PaneID: "pane-1"},
+		StatusChangedFor: "working", LastReportState: state.ReportWorking, LastReportNote: "still on the migration"})
 	// Written now so the bound is crossed while the poll loop runs, not before it.
-	if err := os.WriteFile(state.ReportPath(home, "slow-migration"), []byte("working: still on the migration\n"), 0o644); err != nil {
+	if err := os.WriteFile(state.ReportPath(home, "slow-migration"), []byte(line), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

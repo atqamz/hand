@@ -26,6 +26,8 @@ const maxEventLogLines = 200
 
 var afterWatchTick = func() {}
 
+var afterArmTick = func() {}
+
 type Config struct {
 	Home           string
 	PollInterval   time.Duration
@@ -37,6 +39,10 @@ type Config struct {
 	// the Run path as much as the RunUntilEvent one. Keeping Run unfiltered is cmd/watch.go's doing,
 	// not this package's: it rejects --event without --until-event, so Run never gets a CLI filter.
 	EventFilter EventFilter
+	// Narrows the arming ticks further, on top of EventFilter, to what durable state dedupes across
+	// arms. Unexported because it describes this package's own two-tick arming rather than anything a
+	// caller asked for, and nil - matching every kind - on every other tick.
+	catchUp EventFilter
 }
 
 var ErrNoEvent = errors.New("no event")
@@ -102,9 +108,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 }
 
-// RunUntilEvent blocks until a tick produces events, writes them to out and returns nil - the exit is
-// the delivery, since it is the one signal a supervisory agent's background-task runner already
-// honors.
+// RunUntilEvent observes what is already actionable, then blocks until a tick produces events, writes
+// them to out and returns nil - the exit is the delivery, since it is the one signal a supervisory
+// agent's background-task runner already honors.
 func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -125,11 +131,25 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	}
 
 	states := make(map[string]*TaskState)
-	// The startup state is never delivered: two ticks take a silent baseline first, so an already-done
-	// worker is not mistaken for a fresh transition. Baseline events still reach events.log, just not
-	// stdout, which is what io.Discard as out means here.
-	tick(ctx, cfg, client, states, io.Discard, errOut)
-	tick(ctx, cfg, client, states, io.Discard, errOut)
+	// Arming observes before it waits: a condition already true here has no next transition left to
+	// wake on. The first tick seeds every task from durable state and the second classifies it, with
+	// cfg.catchUp holding the delivery to conditions durable state can prove were never announced.
+	arming := cfg
+	arming.catchUp = CatchUpFilter()
+	var caught bytes.Buffer
+	tick(ctx, arming, client, states, &caught, errOut)
+	afterArmTick()
+	tick(ctx, arming, client, states, &caught, errOut)
+	afterArmTick()
+	// Cancellation outranks a delivery here exactly as it does at the tick boundary below: a watcher
+	// that has been replaced or interrupted must not answer as though it were still the fleet's.
+	if ctxErr := contextLifecycleError(ctx); ctxErr != nil {
+		return runUntilEventContextError(ctx, cfg.Timeout)
+	}
+	if caught.Len() > 0 {
+		_, err := out.Write(caught.Bytes())
+		return err
+	}
 
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
@@ -301,6 +321,16 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		forgetPaneScopedCache(ts, t, attempt, now)
 
 		t = tailReport(ctx, cfg, ts, t, out, errOut)
+
+		// After the report tail, which may be what explains the stop, and before ClassifyStatus, whose
+		// edge would announce the same fact twice. One look per task: nothing this reads can change
+		// again without a status transition, which ClassifyStatus owns from here on.
+		if probeErr == nil && !ts.CaughtUp {
+			ts.CaughtUp = true
+			if e := ClassifyCatchUp(ts, t.ID, status, attempt.StatusChangedFor, attempt.TeardownHerdrState); e != nil {
+				handleEvent(cfg, e, out, errOut)
+			}
+		}
 
 		// Read before ClassifyStatus consumes the transition, which is the edge the
 		// usage-limit check reads a pane on.
@@ -834,7 +864,7 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 // run unconditionally, so narrowing --event never narrows what reaches
 // config/notify.
 func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
-	if cfg.EventFilter.Matches(e.Kind) {
+	if cfg.EventFilter.Matches(e.Kind) && cfg.catchUp.Matches(e.Kind) {
 		_, _ = fmt.Fprintln(out, e.Text)
 	}
 
