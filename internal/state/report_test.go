@@ -211,7 +211,7 @@ func TestTailReportAfterInPlaceRewrite(t *testing.T) {
 
 // The same rewrite must not cost a silent completion either: a done report read
 // from a stale offset is a fragment, and a fragment classifies as nothing.
-func TestUnacknowledgedTerminalReportAfterInPlaceRewrite(t *testing.T) {
+func TestTerminalReportPastCursorAfterInPlaceRewrite(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestUnacknowledgedTerminalReportAfterInPlaceRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := UnacknowledgedTerminalReport(home, "task-1", reportCursorFor([]byte(consumed)))
+	got, err := TerminalReportPastCursor(home, "task-1", reportCursorFor([]byte(consumed)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestTailReportAfterSameLengthInPlaceRewrite(t *testing.T) {
 // A same-length rewrite is the silent completion reached by its own path: with
 // nothing past the offset, hand status called the finished worker acknowledged
 // too.
-func TestUnacknowledgedTerminalReportAfterSameLengthRewrite(t *testing.T) {
+func TestTerminalReportPastCursorAfterSameLengthRewrite(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
 		t.Fatal(err)
@@ -318,7 +318,7 @@ func TestUnacknowledgedTerminalReportAfterSameLengthRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := UnacknowledgedTerminalReport(home, "task-1", reportCursorFor([]byte(consumed)))
+	got, err := TerminalReportPastCursor(home, "task-1", reportCursorFor([]byte(consumed)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestLastReportedStateWithOnlyMalformedLines(t *testing.T) {
 	}
 }
 
-func TestUnacknowledgedTerminalReport(t *testing.T) {
+func TestTerminalReportPastCursor(t *testing.T) {
 	cases := []struct {
 		name     string
 		content  string
@@ -504,7 +504,7 @@ func TestUnacknowledgedTerminalReport(t *testing.T) {
 				}
 			}
 
-			got, err := UnacknowledgedTerminalReport(home, "task-1", reportCursorFor([]byte(c.consumed)))
+			got, err := TerminalReportPastCursor(home, "task-1", reportCursorFor([]byte(c.consumed)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -512,5 +512,49 @@ func TestUnacknowledgedTerminalReport(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// hand ack takes this cursor as everything a supervisor is acknowledging right now, so it must cover
+// exactly what TailReport would announce - the trailing unterminated line included in neither.
+func TestCurrentReportCursorCoversOnlyCompleteLines(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "working: on it\ndone: PR up\nstill tidying"
+	if err := os.WriteFile(ReportPath(home, "task-1"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cursor, err := CurrentReportCursor(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "working: on it\ndone: PR up\n"
+	if cursor.Offset != int64(len(want)) {
+		t.Fatalf("Offset = %d, want %d (up to the last complete line)", cursor.Offset, len(want))
+	}
+	if cursor.Digest != reportDigest([]byte(want)) {
+		t.Fatal("Digest does not match the complete-lines prefix")
+	}
+
+	got, err := TerminalReportPastCursor(home, "task-1", cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("got true, want the acknowledged done report covered by its own cursor")
+	}
+}
+
+func TestCurrentReportCursorMissingFile(t *testing.T) {
+	home := t.TempDir()
+	cursor, err := CurrentReportCursor(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursor != (ReportCursor{}) {
+		t.Fatalf("cursor = %+v, want the zero cursor for a report that does not exist", cursor)
 	}
 }

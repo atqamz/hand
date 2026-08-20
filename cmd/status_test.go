@@ -2529,8 +2529,12 @@ func TestStatusFleetFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if row := fleetRow(t, out.String(), "task-1"); !strings.HasPrefix(row, "task-1,idle,done,") || !strings.HasSuffix(row, ",unacknowledged") {
-		t.Fatalf("got %q, want the done report flagged unacknowledged", row)
+	row := fleetRow(t, out.String(), "task-1")
+	if !strings.HasPrefix(row, "task-1,idle,done,") {
+		t.Fatalf("got %q, want the reported state still shown", row)
+	}
+	if !slices.Contains(fleetFlags(t, out.String(), "task-1"), "unannounced") {
+		t.Fatalf("flags = %v, want the done report flagged unannounced", fleetFlags(t, out.String(), "task-1"))
 	}
 }
 
@@ -2562,8 +2566,8 @@ func TestStatusFleetDoesNotFlagATerminalReportAWatcherConsumed(t *testing.T) {
 	if !strings.HasPrefix(row, "task-1,idle,done,") {
 		t.Fatalf("got %q, want the reported state still shown", row)
 	}
-	if strings.Contains(row, "unacknowledged") {
-		t.Fatalf("got %q, want no flag on a report a watcher already announced", row)
+	if slices.Contains(fleetFlags(t, out.String(), "task-1"), "unannounced") {
+		t.Fatalf("flags = %v, want no flag on a report a watcher already announced", fleetFlags(t, out.String(), "task-1"))
 	}
 }
 
@@ -2586,12 +2590,12 @@ func TestStatusFleetJSONFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `"unacknowledged": true`) {
-		t.Fatalf("got %q, want unacknowledged true", out.String())
+	if !strings.Contains(out.String(), `"unannounced": true`) {
+		t.Fatalf("got %q, want unannounced true", out.String())
 	}
 }
 
-func TestStatusSingleTaskFlagsATerminalReportNoWatcherConsumed(t *testing.T) {
+func TestStatusSingleTaskFlagsATerminalReportNotAcknowledged(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -2687,8 +2691,9 @@ func TestStatusSingleTaskShowsTrailingFreeTextWhenAcknowledged(t *testing.T) {
 
 	report := "done: PR up\nstill tidying\n"
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		CreatedAt:    "2026-07-24T10:00:00Z",
-		ReportOffset: int64(len(report))}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+		CreatedAt:          "2026-07-24T10:00:00Z",
+		AcknowledgedAt:     "2026-07-24T11:00:00Z",
+		AcknowledgedOffset: int64(len(report))}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -2716,8 +2721,9 @@ func TestStatusSingleTaskJSONOmitsUnacknowledgedWhenAcknowledged(t *testing.T) {
 
 	report := "done: PR up\n"
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		CreatedAt:    "2026-07-24T10:00:00Z",
-		ReportOffset: int64(len(report))}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
+		CreatedAt:          "2026-07-24T10:00:00Z",
+		AcknowledgedAt:     "2026-07-24T11:00:00Z",
+		AcknowledgedOffset: int64(len(report))}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -2797,7 +2803,62 @@ func TestStatusFleetFlagsATerminalReportWithNoTrailingNewline(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if row := fleetRow(t, out.String(), "task-1"); !strings.HasPrefix(row, "task-1,idle,done,") || !strings.HasSuffix(row, ",unacknowledged") {
-		t.Fatalf("got %q, want an unterminated done flagged like any other unread completion", row)
+	row := fleetRow(t, out.String(), "task-1")
+	if !strings.HasPrefix(row, "task-1,idle,done,") {
+		t.Fatalf("got %q, want the reported state still shown", row)
+	}
+	if !slices.Contains(fleetFlags(t, out.String(), "task-1"), "unannounced") {
+		t.Fatalf("flags = %v, want an unterminated done flagged like any other unannounced completion", fleetFlags(t, out.String(), "task-1"))
+	}
+}
+
+// Invariant 4 of docs/adr/attention-is-one-derivation-over-three-channels.md: observing is not
+// acknowledging, so running hand status against an unacknowledged report - fleet view, single-task
+// view, and --json alike - must leave the task exactly as unacknowledged as it found it.
+func TestStatusIsReadOnlyForAcknowledgement(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR up")
+
+	before, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{nil, {"task-1"}, {"--json"}, {"task-1", "--json"}} {
+		cmd := newStatusCmd()
+		cmd.SetOut(&strings.Builder{})
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("hand status %v: %v", args, err)
+		}
+	}
+
+	after, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("task changed after read-only hand status calls: before %+v, after %+v", before, after)
+	}
+	if after.AcknowledgedAt != "" || after.AcknowledgedOffset != 0 || after.AcknowledgedDigest != "" {
+		t.Fatalf("task %+v, want hand status to leave acknowledgement untouched", after)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(fleetFlags(t, out.String(), "task-1"), "unacknowledged") {
+		t.Fatalf("flags = %v, want the report still unacknowledged after only reading it", fleetFlags(t, out.String(), "task-1"))
 	}
 }

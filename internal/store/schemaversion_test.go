@@ -133,7 +133,10 @@ func TestMigrationV12AddsEmptyTaskRepairMetadata(t *testing.T) {
 		"\tcreated_at        TEXT NOT NULL DEFAULT '',\n", "\tcreated_at        TEXT NOT NULL DEFAULT ''\n",
 		"\trepair_code       TEXT NOT NULL DEFAULT '',\n", "",
 		"\trepair_reason     TEXT NOT NULL DEFAULT '',\n", "",
-		"\trepair_attempt_id INTEGER NOT NULL DEFAULT 0,\n\trepair_observed_at TEXT NOT NULL DEFAULT ''\n", "",
+		"\trepair_attempt_id INTEGER NOT NULL DEFAULT 0,\n\trepair_observed_at TEXT NOT NULL DEFAULT '',\n", "",
+		"\tacknowledged_at     TEXT NOT NULL DEFAULT '',\n", "",
+		"\tacknowledged_reason TEXT NOT NULL DEFAULT '',\n", "",
+		"\tacknowledged_offset INTEGER NOT NULL DEFAULT 0,\n\tacknowledged_digest TEXT NOT NULL DEFAULT ''\n", "",
 	).Replace(schema)
 	if _, err := db.sql.Exec(preV12Schema); err != nil {
 		t.Fatal(err)
@@ -189,7 +192,10 @@ func TestMigrationV11AddsEmptyAttemptRoutingProvenance(t *testing.T) {
 		"\trouting_source        TEXT NOT NULL DEFAULT '',\n", "",
 		"\trepair_code       TEXT NOT NULL DEFAULT '',\n", "",
 		"\trepair_reason     TEXT NOT NULL DEFAULT '',\n", "",
-		"\trepair_attempt_id INTEGER NOT NULL DEFAULT 0,\n\trepair_observed_at TEXT NOT NULL DEFAULT ''\n", "",
+		"\trepair_attempt_id INTEGER NOT NULL DEFAULT 0,\n\trepair_observed_at TEXT NOT NULL DEFAULT '',\n", "",
+		"\tacknowledged_at     TEXT NOT NULL DEFAULT '',\n", "",
+		"\tacknowledged_reason TEXT NOT NULL DEFAULT '',\n", "",
+		"\tacknowledged_offset INTEGER NOT NULL DEFAULT 0,\n\tacknowledged_digest TEXT NOT NULL DEFAULT ''\n", "",
 	).Replace(schema)
 	if _, err := db.sql.Exec(preV11Schema); err != nil {
 		t.Fatal(err)

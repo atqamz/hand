@@ -440,7 +440,7 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand deliver` | Mark work as handed off when landing is someone else's decision. |
 | `hand teardown` | Clean up a completed task safely while preserving Task and Attempt history. |
 
-Other commands cover session bootstrap, configuration, project sync and upstreams, holds, scout promotion, search, notifications, diagnostics, PR recording, and self-update.
+Other commands cover session bootstrap, configuration, project sync and upstreams, holds, acknowledgement, scout promotion, search, notifications, diagnostics, PR recording, and self-update.
 
 Run `hand --help` for the authoritative command reference.
 

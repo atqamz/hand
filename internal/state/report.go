@@ -218,13 +218,12 @@ func TerminalReport(s string) bool {
 	return s == ReportDone || s == ReportFailed
 }
 
-// UnacknowledgedTerminalReport reports a terminal state no hand watch has ever consumed. The task's
-// durable report cursor is the marker: the poll loop advances it only after a tick's events are
-// announced, and every announcement reaches state/events.log and the notify hook.
-func UnacknowledgedTerminalReport(homeDir, id string, cur ReportCursor) (bool, error) {
-	// So a terminal line still past that cursor has reached nobody (atqamz/hand#70). A cursor the
-	// file's content no longer supports covers nothing, so a rewritten channel is read whole - the
-	// length-preserving rewrite included, whose `done:` no watcher announced (atqamz/hand#149).
+// TerminalReportPastCursor reports whether a task's report channel carries a terminal state beyond
+// cur, generic over which durable cursor the caller names: report_offset/report_digest for watcher
+// announcement (atqamz/hand#70), or acknowledged_offset/acknowledged_digest for acknowledgement (atqamz/hand#267).
+func TerminalReportPastCursor(homeDir, id string, cur ReportCursor) (bool, error) {
+	// A cursor the file's content no longer supports covers nothing, so a rewritten channel is read
+	// whole - the length-preserving rewrite included, whose `done:` cur never covered (atqamz/hand#149).
 	data, base, err := readReport(ReportPath(homeDir, id), cur)
 	if err != nil {
 		return false, err
@@ -237,6 +236,14 @@ func UnacknowledgedTerminalReport(homeDir, id string, cur ReportCursor) (bool, e
 		return false, nil
 	}
 	// A watcher denied the task lock announces a line and persists the cursor a tick later, so the
-	// transient error here is reporting an acknowledged terminal state, never hiding an unacknowledged one.
+	// transient error here is reporting a covered terminal state, never hiding an uncovered one.
 	return TerminalReport(last.State), nil
+}
+
+// CurrentReportCursor covers every complete line currently in a task's report channel, the same
+// completeness rule TailReport applies to a watcher's own cursor: a trailing line with no terminating
+// newline is left uncovered, in case the worker's append is still in flight.
+func CurrentReportCursor(homeDir, id string) (ReportCursor, error) {
+	_, cursor, err := TailReport(ReportPath(homeDir, id), ReportCursor{})
+	return cursor, err
 }

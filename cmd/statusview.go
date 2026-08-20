@@ -28,6 +28,9 @@ type taskView struct {
 	reportFile         string
 	unreadable         bool
 	unacked            bool
+	// Whether some watcher has ever announced this task's terminal report - a separate fact from unacked,
+	// which is whether a supervisor has acknowledged it through `hand ack` (atqamz/hand#267).
+	unannounced        bool
 	// The two conditions hand watch's own Kind vocabulary already named and hand status never had a
 	// counterpart classifier for - atqamz/hand#268's disagreements 2 and 4 (attention half). Both are
 	// computed only for an open task's one running attempt; see buildTaskView.
@@ -91,6 +94,9 @@ func taskFlags(v taskView) []string {
 	}
 	if v.unacked {
 		flags = append(flags, "unacknowledged")
+	}
+	if v.unannounced {
+		flags = append(flags, "unannounced")
 	}
 	if unreportedStop(v) {
 		flags = append(flags, "unreported")
