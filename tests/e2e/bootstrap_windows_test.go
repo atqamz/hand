@@ -21,13 +21,17 @@ var bootstrapPS1Script = func() string {
 	return abs
 }()
 
-// Runs bootstrap.ps1 under native Windows PowerShell (not pwsh core, not WSL) with an explicit,
+// Runs bootstrap.ps1 under an available native Windows PowerShell executable with an explicit,
 // minimal environment - PATH and USERPROFILE (which [Environment]::GetFolderPath('UserProfile')
 // reads) only - so a test can prove nothing beyond those two ever reaches the script.
 func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
 	psArgs := append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bootstrapPS1Script}, args...)
-	cmd := exec.Command("powershell.exe", psArgs...)
+	powershell := "powershell.exe"
+	if _, err := exec.LookPath(powershell); err != nil {
+		powershell = "pwsh.exe"
+	}
+	cmd := exec.Command(powershell, psArgs...)
 	env := append([]string{"PATH=" + os.Getenv("PATH"), "USERPROFILE=" + home, "SystemRoot=" + os.Getenv("SystemRoot")}, extraEnv...)
 	cmd.Env = env
 	var stdout, stderr strings.Builder
