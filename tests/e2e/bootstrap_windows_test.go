@@ -21,9 +21,9 @@ var bootstrapPS1Script = func() string {
 	return abs
 }()
 
-// Runs bootstrap.ps1 under an available native Windows PowerShell executable with an explicit,
-// minimal environment - PATH and USERPROFILE (which [Environment]::GetFolderPath('UserProfile')
-// reads) only - so a test can prove nothing beyond those two ever reaches the script.
+// exec.Command resolves a bare name against this process's own PATH at call time, which is not
+// guaranteed to carry either PowerShell edition on every runner, so this also checks each
+// edition's fixed, well-known install location before giving up.
 func findPowerShell() (string, error) {
 	names := []string{"powershell.exe", "pwsh.exe"}
 	for _, name := range names {
@@ -50,16 +50,51 @@ func findPowerShell() (string, error) {
 	return "", errors.New("PowerShell was not found on PATH or in its standard Windows install locations")
 }
 
+// A hand-picked minimal allowlist is the wrong isolation strategy on Windows: PATHEXT,
+// LOCALAPPDATA and TEMP all matter to bootstrap.ps1, so this starts from the real environment
+// and overrides only USERPROFILE and the app-data variables read off of it, redirected under home.
+func windowsIsolatedEnv(home string, extraEnv []string) []string {
+	overridden := map[string]string{
+		"USERPROFILE":  home,
+		"LOCALAPPDATA": filepath.Join(home, "AppData", "Local"),
+		"APPDATA":      filepath.Join(home, "AppData", "Roaming"),
+		"TEMP":         filepath.Join(home, "Temp"),
+		"TMP":          filepath.Join(home, "Temp"),
+	}
+	for _, entry := range extraEnv {
+		if name, value, ok := strings.Cut(entry, "="); ok {
+			overridden[strings.ToUpper(name)] = value
+		}
+	}
+	env := make([]string, 0, len(os.Environ())+len(overridden))
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, replaced := overridden[strings.ToUpper(name)]; !replaced {
+			env = append(env, entry)
+		}
+	}
+	for name, value := range overridden {
+		env = append(env, name+"="+value)
+	}
+	return env
+}
+
+// Runs bootstrap.ps1 under native Windows PowerShell against an environment isolated to home,
+// so a test can prove nothing beyond that isolated environment ever reaches the script.
 func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
+	for _, dir := range []string{filepath.Join(home, "AppData", "Local"), filepath.Join(home, "AppData", "Roaming"), filepath.Join(home, "Temp")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	psArgs := append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bootstrapPS1Script}, args...)
 	powershell, err := findPowerShell()
 	if err != nil {
 		t.Fatalf("find a native PowerShell executable: %v", err)
 	}
 	cmd := exec.Command(powershell, psArgs...)
-	env := append([]string{"PATH=" + os.Getenv("PATH"), "USERPROFILE=" + home, "SystemRoot=" + os.Getenv("SystemRoot")}, extraEnv...)
-	cmd.Env = env
+	cmd.Env = windowsIsolatedEnv(home, extraEnv)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
