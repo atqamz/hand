@@ -30,7 +30,7 @@ Bootstrap, a human, and a supervising agent all read the same structured output 
 
 ```sh
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.sh | sh
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.sh | sh -s -- --yes
 ```
 
 ```powershell

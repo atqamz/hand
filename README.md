@@ -48,7 +48,7 @@ Secondhand splits those responsibilities cleanly: **the supervisor handles judgm
 
 ```sh
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.sh | sh
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.sh | sh -s -- --yes
 ```
 
 ```powershell
