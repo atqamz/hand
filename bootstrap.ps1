@@ -308,7 +308,12 @@ function Get-FleetState {
     if ((Test-Path -LiteralPath (Join-Path $Fleet "data\projects.md") -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $Fleet "state") -PathType Container)) {
         return 'fleet'
     }
-    if (-not (Get-ChildItem -LiteralPath $Fleet -Force -ErrorAction SilentlyContinue)) {
+    try {
+        $children = @(Get-ChildItem -LiteralPath $Fleet -Force -ErrorAction Stop)
+    } catch {
+        Fail "cannot inspect fleet target $Fleet: $($_.Exception.Message)"
+    }
+    if ($children.Count -eq 0) {
         return 'empty'
     }
     return 'foreign'
