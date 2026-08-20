@@ -2,13 +2,15 @@ package store
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 )
 
 func sampleHold() Hold {
 	return Hold{
 		ID: "fix-login", Kind: HoldKindOperator, Reason: "race condition needs a call",
-		SetAt: "2026-07-24T10:00:00Z",
+		SetAt: "2026-07-24T10:00:00Z", Inferred: true,
 	}
 }
 
@@ -53,6 +55,39 @@ func TestReadHoldReportsAMissingHoldWithoutAnError(t *testing.T) {
 	_, found, err := db.ReadHold("nope")
 	if err != nil || found {
 		t.Fatalf("ReadHold = %v, %v", found, err)
+	}
+}
+
+func TestReadHoldReadOnlySupportsSchemaBeforeInferred(t *testing.T) {
+	home := t.TempDir()
+	sqlDB, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &DB{sql: sqlDB, home: home}
+	legacySchema := strings.Replace(schema,
+		"\tset_at     TEXT NOT NULL DEFAULT '',\n\tinferred   INTEGER NOT NULL DEFAULT 0",
+		"\tset_at     TEXT NOT NULL DEFAULT ''", 1)
+	if _, err := db.sql.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO hold (id, kind, reason, blocked_on, set_at) VALUES (?, ?, ?, ?, ?)`,
+		"legacy", HoldKindOperator, "old hold", "", "2026-08-15T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec("PRAGMA user_version = " + strconv.Itoa(holdInferredVersion)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	hold, found, err := ReadHoldReadOnly(home, "legacy")
+	if err != nil || !found {
+		t.Fatalf("ReadHoldReadOnly = %+v, %t, %v", hold, found, err)
+	}
+	if hold.Inferred {
+		t.Fatal("ReadHoldReadOnly inferred = true, want false for a pre-inferred schema")
 	}
 }
 

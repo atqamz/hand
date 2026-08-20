@@ -352,10 +352,11 @@ const (
 
 func writeLimitHold(home, id string, ts *TaskState, errOut io.Writer) limitHoldProjection {
 	h := state.Hold{
-		ID:     id,
-		Kind:   state.HoldKindLimit,
-		Reason: limitReason(ts),
-		SetAt:  time.Now().UTC().Format(time.RFC3339),
+		ID:       id,
+		Kind:     state.HoldKindLimit,
+		Reason:   limitReason(ts),
+		SetAt:    time.Now().UTC().Format(time.RFC3339),
+		Inferred: true,
 	}
 	written, err := state.SetHoldIfNotOtherKind(home, h)
 	if err != nil {

@@ -223,6 +223,7 @@ type holdJSON struct {
 	Reason       string `json:"reason"`
 	BlockedOn    string `json:"blocked_on,omitempty"`
 	SetAt        string `json:"set_at"`
+	Inferred     bool   `json:"inferred,omitempty"`
 	Inconsistent string `json:"inconsistent,omitempty"`
 }
 
@@ -237,10 +238,16 @@ func holdInconsistency(h state.Hold) string {
 		if h.BlockedOn != "" {
 			return fmt.Sprintf("operator hold carries a blocked_on %q", h.BlockedOn)
 		}
+		if h.Inferred {
+			return "operator hold carries inferred, but an operator observes directly"
+		}
 		return ""
 	case state.HoldKindBlocked:
 		if h.BlockedOn == "" {
 			return "blocked hold has no blocked_on"
+		}
+		if h.Inferred {
+			return "blocked hold carries inferred, but what it waits on is named, not scraped"
 		}
 		return ""
 	case state.HoldKindLimit:
@@ -256,20 +263,25 @@ func holdInconsistency(h state.Hold) string {
 func holdToJSON(h state.Hold) holdJSON {
 	return holdJSON{
 		ID: h.ID, Kind: h.Kind, Reason: h.Reason, BlockedOn: h.BlockedOn, SetAt: h.SetAt,
-		Inconsistent: holdInconsistency(h),
+		Inferred: h.Inferred, Inconsistent: holdInconsistency(h),
 	}
 }
 
 // Renders a hold's non-identifying fields for the plain-text held block. An inconsistency takes over the
 // whole line: a garbled blocked-on or reason next to it would read as a valid detail rather than a flag.
+// Inferred instead appends a suffix, so a pane-derived conclusion says so without hiding what it says.
 func holdDetail(h state.Hold) string {
 	if inc := holdInconsistency(h); inc != "" {
 		return "inconsistent: " + inc
 	}
+	detail := h.Reason
 	if h.Kind == state.HoldKindBlocked {
-		return fmt.Sprintf("waiting on %s: %s", h.BlockedOn, h.Reason)
+		detail = fmt.Sprintf("waiting on %s: %s", h.BlockedOn, h.Reason)
 	}
-	return h.Reason
+	if h.Inferred {
+		detail += " (inferred from a pane scrape)"
+	}
+	return detail
 }
 
 // The single predicate for whether the gate-run check has anything to say about a task: only a done

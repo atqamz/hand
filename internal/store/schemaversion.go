@@ -138,6 +138,9 @@ var migrations = []string{
 	FROM attempt
 	WHERE send_undelivered_message <> '';`,
 	`SELECT 1;`,
+	// ensureHoldInferredColumn does the real work below: a database already carrying the
+	// column, unstamped past sendHardeningMigrationVersion, must not fail a plain ALTER TABLE.
+	`SELECT 1;`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -155,6 +158,8 @@ const repairMetadataVersion = routingProvenanceVersion + 1
 const sendSchemaVersion = repairMetadataVersion + 1
 
 const sendHardeningMigrationVersion = sendSchemaVersion
+
+const holdInferredVersion = sendHardeningMigrationVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -402,6 +407,11 @@ func (db *DB) applyMigration(version int) error {
 			return err
 		}
 	}
+	if version == holdInferredVersion {
+		if err := ensureHoldInferredColumn(tx); err != nil {
+			return err
+		}
+	}
 	if err := recordSchemaVersion(tx, version+1); err != nil {
 		return err
 	}
@@ -432,6 +442,23 @@ func ensureUsageLimitEpisodeColumns(tx *sql.Tx) error {
 		if _, err := tx.Exec(`ALTER TABLE attempt ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return fmt.Errorf("add %s: %w", column, err)
 		}
+	}
+	return nil
+}
+
+// A plain ALTER TABLE in migrations would duplicate the column on a database the version-0 stamp
+// logic already recognized as carrying it, since that logic stops checking at repairMetadataVersion
+// and leaves everything past it to run forward regardless of what the live columns already are.
+func ensureHoldInferredColumn(tx *sql.Tx) error {
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('hold') WHERE name = 'inferred'`).Scan(&count); err != nil {
+		return fmt.Errorf("inspect hold inferred column: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`ALTER TABLE hold ADD COLUMN inferred INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("add hold inferred column: %w", err)
 	}
 	return nil
 }
