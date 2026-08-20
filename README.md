@@ -357,6 +357,17 @@ irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 
 `HAND_INSTALL_DIR` overrides the install directory (`$HOME/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\hand` on Windows); `HAND_INSTALL_VERSION` pins a release tag instead of the latest.
 
+On native Windows, `bootstrap.ps1` optionally installs `hand`, offers to install missing foundational dependencies, initializes a fleet home, and reports readiness from `hand doctor`:
+
+```powershell
+irm https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.ps1 -OutFile bootstrap.ps1
+Set-ExecutionPolicy -Scope Process Bypass
+.\bootstrap.ps1 -Yes
+```
+
+Use `-Check` to inspect the target without making changes.
+The script never installs a coding-agent harness or no-mistakes, and refuses to adopt a non-empty unrecognized directory.
+
 ### Release binary
 
 Release tar archives are available for Linux and macOS on AMD64 and ARM64. A ZIP archive is available for Windows AMD64. Every release includes `checksums.txt`.

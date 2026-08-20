@@ -176,12 +176,12 @@ func helperBinary(t *testing.T) string {
 	return helperBuild.path
 }
 
+//nolint:staticcheck // hermetic test PATHs can hide go, so the running toolchain is the reliable fallback.
 func goToolPath() string {
 	name := "go"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	//nolint:staticcheck // hermetic test PATHs can hide go, so the running toolchain is the reliable fallback.
 	path := filepath.Join(runtime.GOROOT(), "bin", name)
 	if _, err := os.Stat(path); err == nil {
 		return path

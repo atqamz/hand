@@ -64,6 +64,18 @@ jobs:
       - name: End-to-end
         run: go test -tags=e2e -timeout=10m ./tests/e2e/...
 
+  e2e-windows:
+    name: E2E (windows-latest, bootstrap.ps1)
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: End-to-end (bootstrap.ps1)
+        run: go test -tags=e2e -timeout=10m -run "^TestBootstrapPS1" ./tests/e2e/...
+
   contract:
     name: Contract
     runs-on: ubuntu-latest
@@ -88,7 +100,7 @@ jobs:
 
   edge:
     name: Publish edge
-    needs: [lint, test, e2e, contract, nix-build]
+    needs: [lint, test, e2e, e2e-windows, contract, nix-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
