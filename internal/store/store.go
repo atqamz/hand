@@ -559,8 +559,11 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	if current == acknowledgedMetadataVersion {
 		return db.ReadTaskHistory(id)
 	}
-	if current == preAcknowledgementVersion || current == holdInferredVersion {
+	if current == preAcknowledgementVersion || current == attemptBranchVersion {
 		return db.readTaskHistoryBeforeAcknowledgement(id)
+	}
+	if current == holdInferredVersion {
+		return db.readTaskHistoryBeforeAcknowledgementAndBranch(id)
 	}
 	if current == sendSchemaVersion {
 		return db.readTaskHistoryBeforeSend(id)
@@ -926,6 +929,38 @@ func (db *DB) readTaskHistoryBeforeAcknowledgement(id string) (TaskHistory, bool
 	return history, true, nil
 }
 
+// A database at holdInferredVersion has every column readTaskHistoryBeforeAcknowledgement's task side
+// needs, but not yet attempt.branch (added going into attemptBranchVersion), so its attempt side has to
+// stay on the pre-branch reader rather than db.ListAttempts, which now selects branch unconditionally.
+func (db *DB) readTaskHistoryBeforeAcknowledgementAndBranch(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeAcknowledgement+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeAcknowledgement(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
+	}
+	attempts, err := db.listAttemptsBeforeSend(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
 func (db *DB) readTaskHistoryBeforeSend(id string) (TaskHistory, bool, error) {
 	if db.empty {
 		return TaskHistory{}, false, nil
@@ -1098,8 +1133,11 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	if current == preAcknowledgementVersion || current == holdInferredVersion {
+	if current == preAcknowledgementVersion || current == attemptBranchVersion {
 		return db.listReconciliationHistoriesBeforeAcknowledgement()
+	}
+	if current == holdInferredVersion {
+		return db.listReconciliationHistoriesBeforeAcknowledgementAndBranch()
 	}
 	if current == acknowledgedMetadataVersion {
 		return db.ListReconciliationHistories()
@@ -1108,6 +1146,56 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 		return db.listReconciliationHistoriesBeforeSend()
 	}
 	return db.ListReconciliationHistories()
+}
+
+// The reconciliation-listing counterpart to readTaskHistoryBeforeAcknowledgementAndBranch: holdInferredVersion
+// predates attempt.branch, so its attempt side stays on the pre-branch reader.
+func (db *DB) listReconciliationHistoriesBeforeAcknowledgementAndBranch() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
+	rows, err := db.sql.Query(`SELECT ` + taskColumnsBeforeAcknowledgement + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+		SELECT 1 FROM attempt
+		WHERE attempt.task_id = task.id
+		AND attempt.lifecycle NOT IN ('provisioning', 'running')
+		AND (
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
+			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
+			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
+		)
+	) ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTaskBeforeAcknowledgement(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.listAttemptsBeforeSend(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("read task history %q: active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
 }
 
 func (db *DB) listReconciliationHistoriesBeforeAcknowledgement() ([]TaskHistory, error) {

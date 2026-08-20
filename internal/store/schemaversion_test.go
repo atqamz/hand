@@ -122,6 +122,88 @@ func TestMigrationAddsEmptyAttemptBranchToAnExistingDatabase(t *testing.T) {
 	}
 }
 
+// The two concurrent schema additions the acknowledgement columns landed alongside: holdInferredVersion
+// predates attempt.branch, and none of the migration-forward tests above exercise the read-only ladder
+// at either intermediate stop, which is exactly how store.go shipped with both gaps unnoticed.
+func TestReadOnlyLadderAtHoldInferredVersionOmitsAttemptBranch(t *testing.T) {
+	home := t.TempDir()
+	sqlDB, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	preBranchSchema := strings.Replace(schema, "\tworktree               TEXT NOT NULL DEFAULT '',\n\tbranch                 TEXT NOT NULL DEFAULT '',\n", "\tworktree               TEXT NOT NULL DEFAULT '',\n", 1)
+	db := &DB{sql: sqlDB, home: home}
+	if _, err := db.sql.Exec(preBranchSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO task (id, project, kind, lifecycle, created_at) VALUES ('t1', 'demo', 'ship', 'open', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO attempt (task_id, ordinal, lifecycle, harness, model, effort) VALUES ('t1', 1, 'running', 'claude', 'opus', 'high')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`UPDATE task SET active_attempt_id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`PRAGMA user_version = ` + strconv.Itoa(holdInferredVersion)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	history, found, err := ReadTaskHistoryReadOnly(home, "t1")
+	if err != nil || !found || history.ActiveAttempt == nil {
+		t.Fatalf("ReadTaskHistoryReadOnly at holdInferredVersion = %+v, found=%v, err=%v", history, found, err)
+	}
+	histories, err := ListReconciliationHistoriesReadOnly(home)
+	if err != nil || len(histories) != 1 {
+		t.Fatalf("ListReconciliationHistoriesReadOnly at holdInferredVersion = %+v, err=%v, want the one open task", histories, err)
+	}
+}
+
+func TestReadOnlyLadderAtAttemptBranchVersionOmitsAcknowledgement(t *testing.T) {
+	home := t.TempDir()
+	sqlDB, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	preAckSchema := strings.Replace(schema,
+		"\trepair_observed_at TEXT NOT NULL DEFAULT '',\n\tacknowledged_at     TEXT NOT NULL DEFAULT '',\n\tacknowledged_reason TEXT NOT NULL DEFAULT '',\n\tacknowledged_offset INTEGER NOT NULL DEFAULT 0,\n\tacknowledged_digest TEXT NOT NULL DEFAULT ''\n",
+		"\trepair_observed_at TEXT NOT NULL DEFAULT ''\n", 1)
+	if preAckSchema == schema {
+		t.Fatal("replace did not match schema text - update it to match the current column block")
+	}
+	db := &DB{sql: sqlDB, home: home}
+	if _, err := db.sql.Exec(preAckSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO task (id, project, kind, lifecycle, created_at) VALUES ('t1', 'demo', 'ship', 'open', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO attempt (task_id, ordinal, lifecycle, harness, model, effort, branch) VALUES ('t1', 1, 'running', 'claude', 'opus', 'high', 'my-branch')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`UPDATE task SET active_attempt_id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`PRAGMA user_version = ` + strconv.Itoa(attemptBranchVersion)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	history, found, err := ReadTaskHistoryReadOnly(home, "t1")
+	if err != nil || !found || history.ActiveAttempt == nil || history.ActiveAttempt.Branch != "my-branch" {
+		t.Fatalf("ReadTaskHistoryReadOnly at attemptBranchVersion = %+v, found=%v, err=%v, want branch carried through", history, found, err)
+	}
+	histories, err := ListReconciliationHistoriesReadOnly(home)
+	if err != nil || len(histories) != 1 {
+		t.Fatalf("ListReconciliationHistoriesReadOnly at attemptBranchVersion = %+v, err=%v, want the one open task", histories, err)
+	}
+}
+
 func TestMigrationV12AddsEmptyTaskRepairMetadata(t *testing.T) {
 	home := t.TempDir()
 	sqlDB, err := open(Path(home))
