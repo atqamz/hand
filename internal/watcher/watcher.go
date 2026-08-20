@@ -358,7 +358,17 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
-		if mtime, err := reportEvidenceTime(cfg.Home, t, attempt); err != nil {
+		// Only shells out to no-mistakes when the check applies: a task the gate-run check has no
+		// opinion about never pays for one.
+		gateApplies := GateApplies(t.Kind, t.PR, ts.LastReportState == state.ReportDone)
+		var gateObserved ghutil.ObservationState
+		if gateApplies {
+			gateObserved = gateRunObservation(ctx, cfg.Home, t)
+		}
+		if e := ClassifyGateProblem(ts, t.ID, gateApplies, gateObserved); e != nil {
+			handleEvent(cfg, e, out, errOut)
+		}
+		if mtime, err := ReportEvidenceTime(cfg.Home, t, attempt); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
 		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
 			handleEvent(cfg, e, out, errOut)
@@ -630,10 +640,10 @@ func statusChangeSeed(t state.Task, a state.Attempt, status herdr.Status, now ti
 	return now
 }
 
-// Floors the report file's mtime at the instant the task's current pane started, because hand
-// promote leaves the scout's report file - and so its mtime - untouched while clearing the
-// last-report state that had the scout's silence under the long done/failed bound.
-func reportEvidenceTime(home string, t state.Task, a state.Attempt) (time.Time, error) {
+// ReportEvidenceTime floors the report file's mtime at the instant the task's current pane started,
+// because hand promote leaves the scout's report file - and so its mtime - untouched while clearing
+// the last-report state that had the scout's silence under the long done/failed bound.
+func ReportEvidenceTime(home string, t state.Task, a state.Attempt) (time.Time, error) {
 	started, err := paneStartTime(t, a)
 	if err != nil {
 		return time.Time{}, err
@@ -712,6 +722,24 @@ func flattenError(err error) string {
 		}
 	}
 	return strings.Join(parts, "; ")
+}
+
+// Bounds one no-mistakes process the gate-run check spawns, mirroring cmd/status.go's own
+// gateRunTimeout: a hung subprocess must cost one tick, not the whole poll loop.
+const gateRunTimeout = 5 * time.Second
+
+// Mirrors cmd/status.go's gateRunObservation for the poll loop - same project lookup, same
+// no-mistakes invocation - so the fleet view and hand watch can never disagree about what "the
+// gate-run check applies here" means.
+func gateRunObservation(ctx context.Context, home string, t state.Task) ghutil.ObservationState {
+	p, registered, err := project.Find(home, t.Project)
+	if err != nil || !registered || p.Mode != project.ModeNoMistakes {
+		return ""
+	}
+	runCtx, cancel := context.WithTimeout(ctx, gateRunTimeout)
+	defer cancel()
+	prs, err := project.GateRunPRs(runCtx, filepath.Join(home, "projects", p.Name))
+	return project.ClassifyGateRun(prs, err, t.PR).State
 }
 
 // Routes a worker-supplied URL through hand pr's own validation before it can reach task state: a

@@ -31,6 +31,8 @@ const (
 )
 
 // Ranks fleet conditions so an existing unresolved obligation always outranks fresh queued work.
+// A ranking over cmd/statusview.go's unified attention definition, not a second one
+// (atqamz/hand#268): every predicate below is the same one needsAttention calls.
 func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSummary, views []taskView, holds []state.Hold) nextAction {
 	if cfg.harness == "" {
 		return nextAction{Kind: nextActionNeedsConfig, Command: "hand config set harness <name>", Reason: workerConfigHelp(cfg)[0]}
