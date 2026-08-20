@@ -18,7 +18,7 @@ A development channel is only worth installing if every build it offers passed t
 Exactly one non-SemVer `edge` tag and one mutable GitHub prerelease name the newest `main` commit that passed the complete CI gate.
 Their asset set matches the stable one, so a channel changes which tag is downloaded and nothing else.
 
-Every build embeds version, channel, and commit through `main.version`, `main.channel`, and `main.commit`.
+Every build embeds version, channel, commit, and distribution through `main.version`, `main.channel`, `main.commit`, and `main.distribution`.
 The [`Makefile`](../../Makefile) default is `dev`, while [`.github/workflows/release.yaml`](../../.github/workflows/release.yaml), [`flake.nix`](../../flake.nix), and [`.github/workflows/edge.yaml`](../../.github/workflows/edge.yaml) set `stable` or `edge`.
 
 Freshness is compared per channel: stable by release SemVer, edge by the embedded commit against the commit the `edge` ref resolves to.

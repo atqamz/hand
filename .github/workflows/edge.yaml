@@ -108,7 +108,7 @@ jobs:
         run: |
           set -eu
           version="edge.${CANDIDATE:0:12}"
-          go build -ldflags "-s -w -X main.version=${version} -X main.channel=edge -X main.commit=${CANDIDATE}" -o hand .
+          go build -ldflags "-s -w -X main.version=${version} -X main.channel=edge -X main.commit=${CANDIDATE} -X main.distribution=github" -o hand .
           if [ "$GOOS" = linux ] && [ "$GOARCH" = amd64 ]; then
             test "$(./hand --version)" = "$version"
           fi
@@ -123,7 +123,7 @@ jobs:
         run: |
           set -eu
           version="edge.${CANDIDATE:0:12}"
-          go build -ldflags "-s -w -X main.version=${version} -X main.channel=edge -X main.commit=${CANDIDATE}" -o hand.exe .
+          go build -ldflags "-s -w -X main.version=${version} -X main.channel=edge -X main.commit=${CANDIDATE} -X main.distribution=github" -o hand.exe .
           zip "hand-${GOOS}-${GOARCH}.zip" hand.exe
       - name: Upload artifact
         uses: actions/upload-artifact@v7

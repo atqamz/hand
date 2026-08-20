@@ -13,9 +13,10 @@ const (
 )
 
 type BuildInfo struct {
-	Version string
-	Channel string
-	Commit  string
+	Version      string
+	Channel      string
+	Commit       string
+	Distribution string
 }
 
 type Target struct {
@@ -25,11 +26,14 @@ type Target struct {
 	Commit  string
 }
 
-func NormalizeBuildInfo(version, channel, commit string) BuildInfo {
+func NormalizeBuildInfo(version, channel, commit, distribution string) BuildInfo {
 	if channel != ChannelStable && channel != ChannelEdge {
 		channel = ChannelDev
 	}
-	return BuildInfo{Version: version, Channel: channel, Commit: commit}
+	if distribution == "" {
+		distribution = detectDistribution()
+	}
+	return BuildInfo{Version: version, Channel: channel, Commit: commit, Distribution: distribution}
 }
 
 func ResolveTarget(repo, channel string) (Target, error) {
@@ -89,7 +93,7 @@ func NeedsUpdate(current BuildInfo, target Target) (bool, error) {
 	if err := validateChannel(target.Channel); err != nil {
 		return false, err
 	}
-	current = NormalizeBuildInfo(current.Version, current.Channel, current.Commit)
+	current = NormalizeBuildInfo(current.Version, current.Channel, current.Commit, current.Distribution)
 	if current.Channel != target.Channel {
 		return true, nil
 	}
