@@ -72,7 +72,7 @@ cd ~/fleet
 hand init
 ```
 
-`hand init` is non-interactive. It creates the fleet structure and writes the canonical, Hand-owned `AGENTS.md`: a small, immutable set of invariants telling any supervising harness to run `hand session start` before acting, restored byte-for-byte on every later `hand init`. A `CLAUDE.md` reference is written alongside it when that name is otherwise absent - a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
+`hand init` is non-interactive. It creates the fleet structure, installs the bundled `secondhand` Agent Skill for supported harnesses, and writes the canonical, Hand-owned `AGENTS.md`: a small, immutable set of invariants telling any supervising harness to run `hand session start` before acting, restored byte-for-byte on every later `hand init`. A `CLAUDE.md` reference is written alongside it when that name is otherwise absent - a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
 
 ### 3. Add a project
 
@@ -261,6 +261,10 @@ A fleet home is deliberately separate from the repositories being worked on.
 ~/fleet/
 ├── AGENTS.md
 ├── CLAUDE.md
+├── .agents/skills/secondhand/
+├── .claude/skills/secondhand/
+├── .grok/skills/secondhand/
+├── .pi/skills/secondhand/
 ├── config/
 ├── data/
 │   ├── backlog.md
@@ -274,6 +278,7 @@ A fleet home is deliberately separate from the repositories being worked on.
 The important pieces are:
 
 - `AGENTS.md` - immutable, Hand-owned supervisor invariants; `hand init` restores it byte-for-byte
+- `.agents/skills/`, `.claude/skills/`, `.grok/skills/`, `.pi/skills/` - bundled `secondhand` Agent Skill copies for supported harnesses
 - `data/operator.md` - your standing constraints and preferences
 - `data/backlog.md` - the supervisor's task queue
 - `data/learnings.md` - durable operational knowledge discovered by the fleet

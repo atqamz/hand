@@ -8,6 +8,9 @@ hand.exe
 /projects/
 /config/
 /.claude/
+/.grok/
+/.pi/
+/.agents/
 
 # Go
 coverage.out

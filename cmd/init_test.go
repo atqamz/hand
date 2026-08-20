@@ -316,3 +316,70 @@ func TestInitRemovesTheSessionHookAndSaysSoOnlyWhenItChangedSettings(t *testing.
 		t.Fatalf("settings = %q, want only the unrelated hook preserved", settings)
 	}
 }
+
+func TestInitInstallsTheBundledSkillIntoEveryDestination(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	var out bytes.Buffer
+	cmd := newInitCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "skill_conflicts: 0\n") {
+		t.Fatalf("output = %q, want zero skill conflicts on a fresh home", out.String())
+	}
+
+	for _, rel := range []string{
+		filepath.Join(".claude", "skills", "secondhand"),
+		filepath.Join(".grok", "skills", "secondhand"),
+		filepath.Join(".pi", "skills", "secondhand"),
+		filepath.Join(".agents", "skills", "secondhand"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel, "SKILL.md")); err != nil {
+			t.Fatalf("%s/SKILL.md missing after init: %v", rel, err)
+		}
+	}
+}
+
+func TestInitReportsASkillDestinationConflictWithoutOverwritingTheForeignFile(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	claudeSkillDir := filepath.Join(dir, ".claude", "skills", "secondhand")
+	if err := os.MkdirAll(claudeSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := "# Someone else's skill\n"
+	if err := os.WriteFile(filepath.Join(claudeSkillDir, "SKILL.md"), []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newInitCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "skill_conflicts: 1\n") {
+		t.Fatalf("output = %q, want one skill conflict reported", out.String())
+	}
+	if !strings.Contains(out.String(), "already hold a foreign file") {
+		t.Fatalf("output = %q, want help text naming the conflict", out.String())
+	}
+	got, err := os.ReadFile(filepath.Join(claudeSkillDir, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != foreign {
+		t.Fatalf("got %q, want the foreign file left exactly as written", got)
+	}
+	// A conflict at one destination must not block the others.
+	if _, err := os.Stat(filepath.Join(dir, ".grok", "skills", "secondhand", "SKILL.md")); err != nil {
+		t.Fatalf("unaffected destination not installed: %v", err)
+	}
+}
