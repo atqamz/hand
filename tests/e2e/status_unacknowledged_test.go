@@ -10,12 +10,8 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// Drives atqamz/hand#70 end to end: a worker that finished while no watcher was attached has to be
-// visible to the next hand status, and has to stop being flagged unannounced once a watcher really
-// consumed it. Only real processes prove the second half, because what clears the flag is a persisted
-// report_offset. Announcement is a separate fact from acknowledgement (atqamz/hand#267,
-// docs/adr/attention-is-one-derivation-over-three-channels.md); TestHandAckClearsUnacknowledgedEndToEnd
-// drives that half.
+// Drives atqamz/hand#70 end to end: a report written without a watcher remains unannounced until a
+// real watcher consumes it. Announcement is separate from acknowledgement (atqamz/hand#267).
 func TestStatusFlagsATerminalReportNoWatcherEverRead(t *testing.T) {
 	home := seedOneTaskHome(t)
 
