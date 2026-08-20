@@ -559,11 +559,14 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 // Lifecycle preflight can inspect holds from the current or immediately previous schema
 // without importing legacy state or migrating the database.
 func ReadHoldReadOnly(homeDir, id string) (Hold, bool, error) {
-	db, _, err := openReadOnlyForLifecycle(homeDir)
+	db, current, err := openReadOnlyForLifecycle(homeDir)
 	if err != nil {
 		return Hold{}, false, err
 	}
 	defer func() { _ = db.Close() }()
+	if current <= holdInferredVersion {
+		return db.readHoldBeforeInferred(id)
+	}
 	return db.ReadHold(id)
 }
 
@@ -2338,6 +2341,8 @@ func (db *DB) RemoveProject(name string) (bool, error) {
 
 const holdColumns = `id, kind, reason, blocked_on, set_at, inferred`
 
+const holdColumnsBeforeInferred = `id, kind, reason, blocked_on, set_at`
+
 func scanHold(row interface{ Scan(...any) error }) (Hold, error) {
 	var h Hold
 	err := row.Scan(&h.ID, &h.Kind, &h.Reason, &h.BlockedOn, &h.SetAt, &h.Inferred)
@@ -2383,6 +2388,22 @@ func (db *DB) ReadHold(id string) (Hold, bool, error) {
 	}
 	row := db.sql.QueryRow(`SELECT `+holdColumns+` FROM hold WHERE id = ?`, id)
 	h, err := scanHold(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Hold{}, false, nil
+	}
+	if err != nil {
+		return Hold{}, false, fmt.Errorf("read hold %q: %w", id, err)
+	}
+	return h, true, nil
+}
+
+func (db *DB) readHoldBeforeInferred(id string) (Hold, bool, error) {
+	if db.empty {
+		return Hold{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+holdColumnsBeforeInferred+` FROM hold WHERE id = ?`, id)
+	var h Hold
+	err := row.Scan(&h.ID, &h.Kind, &h.Reason, &h.BlockedOn, &h.SetAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Hold{}, false, nil
 	}

@@ -202,6 +202,37 @@ func TestReconcileClearsInferredUsageLimitOnWorkingObservation(t *testing.T) {
 	}
 }
 
+func TestReconcileClearsInferredUsageLimitWithoutRetryTime(t *testing.T) {
+	client := &livenessHerdr{status: herdr.StatusIdle, paneText: claudeUsageLimitText(false)}
+	home, r, _ := livenessFixture(t, "2026-08-14T23:59:00Z", client)
+
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Reconcile() #1 = %v", err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := history.Attempts[0]; got.UsageLimitRetryAt != "" || got.UsageLimitAttempts != 0 {
+		t.Fatalf("attempt usage-limit state = %q/%d, want no retry time or attempts", got.UsageLimitRetryAt, got.UsageLimitAttempts)
+	}
+
+	client.status = herdr.StatusWorking
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Reconcile() #2 = %v", err)
+	}
+	if _, found, err := state.ReadHold(home, "task-1"); err != nil || found {
+		t.Fatalf("ReadHold() after working observation = found %t, err %v, want no hold", found, err)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := history.Attempts[0]; got.UsageLimitRetryAt != "" || got.UsageLimitAttempts != 0 {
+		t.Fatalf("attempt usage-limit state after working observation = %q/%d, want both cleared", got.UsageLimitRetryAt, got.UsageLimitAttempts)
+	}
+}
+
 // The other half of test 2: when the harness's own refusal names no reset instant, reconcile records the
 // limit without inventing a retry time - it never guesses what the harness did not supply.
 func TestReconcileRecordsUsageLimitWithoutInventingARetryTime(t *testing.T) {

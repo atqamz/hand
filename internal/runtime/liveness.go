@@ -52,10 +52,14 @@ func (r *Runtime) recordAttemptLiveness(home string, task state.Task, attempt st
 	statusChangedFor := string(status)
 	freshStop := statusChangedFor != attempt.StatusChangedFor
 	retryAt, attempts, episode := attempt.UsageLimitRetryAt, attempt.UsageLimitAttempts, attempt.UsageLimitEpisode
-	if (status == herdr.StatusWorking || status == herdr.StatusBlocked) && attempt.UsageLimitRetryAt != "" {
-		retryAt, attempts = "", 0
-		if err := state.ClearHoldIfKind(home, task.ID, state.HoldKindLimit); err != nil {
-			return "", fmt.Errorf("clear usage-limit hold for task %q: %w", task.ID, err)
+	if status == herdr.StatusWorking || status == herdr.StatusBlocked {
+		if hold, found, err := state.ReadHold(home, task.ID); err != nil {
+			return "", fmt.Errorf("read hold for task %q: %w", task.ID, err)
+		} else if found && hold.Kind == state.HoldKindLimit {
+			retryAt, attempts = "", 0
+			if err := state.ClearHoldIfKind(home, task.ID, state.HoldKindLimit); err != nil {
+				return "", fmt.Errorf("clear usage-limit hold for task %q: %w", task.ID, err)
+			}
 		}
 	}
 	if idleUnreported && freshStop && attempt.UsageLimitRetryAt == "" && harness.SupportsUsageLimit(attempt.Harness) {
