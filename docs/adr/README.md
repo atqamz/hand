@@ -2,7 +2,7 @@
 
 This directory keeps rationale for durable architectural boundaries that are easy to reverse accidentally.
 
-Behavioral contracts belong with their implementation, command help, and focused tests. External-tool observations belong in `internal/faketool/FIDELITY.md`. User and contributor workflows belong in README.md, AGENTS.md, or CONTRIBUTING.md. Issues and pull requests retain incident history.
+Behavioral contracts belong with their implementation, command help, and focused tests. External-tool observations belong in `internal/faketool/FIDELITY.md`. User workflows belong in README.md, and contributor workflows belong in CONTRIBUTING.md. Issues and pull requests retain incident history.
 
 ## When a record belongs here
 
