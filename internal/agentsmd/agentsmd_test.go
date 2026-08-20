@@ -68,8 +68,12 @@ func TestRefreshWritesCanonicalAgentsMdAndClaudeReferenceWhenMissing(t *testing.
 	if !strings.Contains(string(got), "hand session start") || !strings.Contains(string(got), "HAND_ROLE=worker") {
 		t.Fatalf("got %q, want the compact supervisor bootstrap", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "data", "agents-md-legacy-migration.md")); !os.IsNotExist(err) {
-		t.Fatal("got a legacy archive file for a fresh home, want none")
+	archive, err := os.ReadFile(filepath.Join(dir, "data", "agents-md-legacy-migration.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(archive), legacyArchiveHeader) {
+		t.Fatalf("got archive %q, want the migration sentinel", archive)
 	}
 
 	claudePath := filepath.Join(dir, "CLAUDE.md")
@@ -250,14 +254,63 @@ func TestGeneratedRulesCoverOperatorContextLearningsAndArchives(t *testing.T) {
 	}
 }
 
-func TestAgentsMdBodyItselfCarriesNoBannedCharacters(t *testing.T) {
-	if strings.ContainsRune(generatedBody, '—') {
+func TestWrittenAgentsMdCarriesNoBannedCharacters(t *testing.T) {
+	dir := makeWorkspace(t)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsRune(string(body), '—') {
 		t.Fatal("got an em dash in the canonical AGENTS.md body, want none")
 	}
-	for _, r := range generatedBody {
+	for _, r := range string(body) {
 		if r >= 0x1F300 && r <= 0x1FAFF || r >= 0x2600 && r <= 0x27BF {
 			t.Fatalf("got emoji rune %q in the canonical AGENTS.md body, want none", r)
 		}
+	}
+}
+
+func TestRefreshOnFreshHomeThenHandEditedIsPlainRestoreWithNoArchive(t *testing.T) {
+	dir := makeWorkspace(t)
+	path := filepath.Join(dir, filename)
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("hand edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Refresh(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.ArchivedPath != "" {
+		t.Fatalf("got %+v, want plain restore without archive", result)
+	}
+}
+
+func TestRefreshFailsSafeWhenLegacyArchivePathIsForeign(t *testing.T) {
+	dir := makeWorkspace(t)
+	path := filepath.Join(dir, filename)
+	original := "user content\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(dir, legacyArchiveRel)
+	if err := os.WriteFile(archivePath, []byte("user file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Refresh(dir); err == nil {
+		t.Fatal("Refresh succeeded, want a foreign archive error")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Fatalf("got AGENTS.md %q, want unchanged %q", got, original)
 	}
 }
 
