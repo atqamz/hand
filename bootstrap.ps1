@@ -130,7 +130,15 @@ function Update-ProcessPathFromRegistry {
     param()
     $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
     $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-    $pathDirs = @($machinePath, $userPath) | ForEach-Object { if ($_){ $_ -split ';' } } | Where-Object { $_ }
+    $pathDirs = @()
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in @($env:PATH, $machinePath, $userPath)) {
+        foreach ($pathDir in ($path -split ';')) {
+            if ($pathDir -and $seen.Add($pathDir)) {
+                $pathDirs += $pathDir
+            }
+        }
+    }
     $handDirs = @($script:handCommandDir, $script:handInstallDir) | Where-Object { $_ }
     foreach ($handDir in $handDirs) {
         if (-not ($pathDirs | Where-Object { $_ -ieq $handDir })) {
