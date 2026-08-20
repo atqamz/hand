@@ -92,17 +92,57 @@ ensure_hand() {
       die "install.sh failed; recover by resolving the reported error and rerunning bootstrap.sh"
     fi
   else
-    log "installing hand via https://raw.githubusercontent.com/atqamz/hand/main/install.sh"
-    hand_installer=$(mktemp) || die "could not create a temporary file for install.sh"
-    if ! curl -fsSL -o "$hand_installer" https://raw.githubusercontent.com/atqamz/hand/main/install.sh || [ ! -s "$hand_installer" ]; then
-      rm -f "$hand_installer"
-      die "install.sh download failed or was empty; recover by resolving the reported error and rerunning bootstrap.sh"
+    log "installing hand from checksum-verified GitHub release"
+    hand_tmp=$(mktemp -d) || die "could not create a temporary directory for hand"
+    case "$(uname -s)" in
+      Linux) hand_goos=linux ;;
+      Darwin) hand_goos=darwin ;;
+      *) rm -rf "$hand_tmp"; die "unsupported OS for hand fallback" ;;
+    esac
+    case "$(uname -m)" in
+      x86_64|amd64) hand_goarch=amd64 ;;
+      arm64|aarch64) hand_goarch=arm64 ;;
+      *) rm -rf "$hand_tmp"; die "unsupported architecture for hand fallback" ;;
+    esac
+    if ! hand_tag=$(curl -fsSL "https://api.github.com/repos/atqamz/hand/releases/latest" |
+      sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1) || [ -z "$hand_tag" ]; then
+      rm -rf "$hand_tmp"
+      die "could not resolve the latest hand release tag"
     fi
-    if ! sh "$hand_installer"; then
-      rm -f "$hand_installer"
-      die "install.sh failed; recover by resolving the reported error and rerunning bootstrap.sh"
+    hand_asset="hand-${hand_goos}-${hand_goarch}.tar.gz"
+    hand_base="https://github.com/atqamz/hand/releases/download/$hand_tag"
+    if ! curl -fsSL -o "$hand_tmp/$hand_asset" "$hand_base/$hand_asset" ||
+      ! curl -fsSL -o "$hand_tmp/checksums.txt" "$hand_base/checksums.txt"; then
+      rm -rf "$hand_tmp"
+      die "could not download the hand release or checksums"
     fi
-    rm -f "$hand_installer"
+    hand_want=$(sed -n "s/^\([0-9a-f]*\)[[:space:]]*\*\{0,1\}${hand_asset}\$/\1/p" "$hand_tmp/checksums.txt" | head -n1)
+    if [ -z "$hand_want" ]; then
+      rm -rf "$hand_tmp"
+      die "checksums.txt has no entry for $hand_asset"
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+      hand_got=$(sha256sum "$hand_tmp/$hand_asset" | cut -d' ' -f1)
+    elif command -v shasum >/dev/null 2>&1; then
+      hand_got=$(shasum -a 256 "$hand_tmp/$hand_asset" | cut -d' ' -f1)
+    else
+      rm -rf "$hand_tmp"
+      die "sha256sum or shasum is required to verify hand"
+    fi
+    if [ "$hand_got" != "$hand_want" ]; then
+      rm -rf "$hand_tmp"
+      die "checksum mismatch for $hand_asset: want $hand_want, got $hand_got"
+    fi
+    if ! tar xzf "$hand_tmp/$hand_asset" -C "$hand_tmp" hand; then
+      rm -rf "$hand_tmp"
+      die "could not extract the verified hand release"
+    fi
+    hand_bin_dir=${HAND_INSTALL_DIR:-$HOME/.local/bin}
+    if ! mkdir -p "$hand_bin_dir" || ! install -m 755 "$hand_tmp/hand" "$hand_bin_dir/hand"; then
+      rm -rf "$hand_tmp"
+      die "could not install the verified hand release"
+    fi
+    rm -rf "$hand_tmp"
   fi
   case ":$PATH:" in
     *":${HAND_INSTALL_DIR:-$HOME/.local/bin}:"*) ;;
@@ -202,8 +242,11 @@ run_dep_action() {
         rm -f "$tmp"
         return 1
       fi
-      sh "$tmp"
-      status=$?
+      if sh "$tmp"; then
+        status=0
+      else
+        status=$?
+      fi
       rm -f "$tmp"
       return "$status"
       ;;
