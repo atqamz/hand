@@ -17,7 +17,9 @@ The source checkout also serves as a dogfood fleet home. Its project-owned instr
 
 This supersedes [Ambient fleet context is a session hook, not a rendered file](ambient-context-is-a-session-hook-not-a-file.md).
 
-`AGENTS.md` is the canonical supervisor-bootstrap integration. `hand` owns one marked block containing the stable instruction to run `hand session start`; content outside that block remains project or operator owned. Claude consumes the same contract through `CLAUDE.md` when that name is otherwise absent: a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
+At the time, `AGENTS.md` was the canonical supervisor-bootstrap integration and `hand` owned one marked block containing the stable instruction to run `hand session start`; content outside that block remained project or operator owned.
+Claude consumed the same contract through `CLAUDE.md` when that name was otherwise absent: a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
+The marked-block model was later superseded by [AGENTS.md is fully Hand-owned and immutable](agents-md-is-fully-hand-owned-and-immutable.md).
 
 Dynamic context stays in the command's bounded output rather than the instruction file. Mutating commands enforce their own prerequisites at command level, including refusing dispatch with an unknown harness before acquiring a worktree or herdr workspace.
 
@@ -34,6 +36,7 @@ The command help and focused tests own the behavioral details of initialization,
 
 ## Consequences
 
-The integration depends on each harness honoring repository instructions, and instruction-loading behavior can drift between harness versions. One visible, reviewable block limits that trust surface; `hand init`, `hand update`, and `hand doctor` expose managed-block drift without owning surrounding prose.
+The historical integration depended on each harness honoring repository instructions, and instruction-loading behavior could drift between harness versions.
+One visible, reviewable block limited that trust surface; the current immutable-file contract is owned by [AGENTS.md is fully Hand-owned and immutable](agents-md-is-fully-hand-owned-and-immutable.md).
 
 Operators maintain one startup contract instead of per-harness adapters. Existing `CLAUDE.md` files are never replaced. Workers remain isolated even when their worktrees contain the same source instructions, and command-level checks fail closed when an agent misses or misorders bootstrap guidance.
