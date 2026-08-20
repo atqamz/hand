@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.0](https://github.com/atqamz/hand/compare/v0.5.0...v0.6.0) (2026-08-20)
+
+
+### Features
+
+* add checksum-verifying Hand installers ([#280](https://github.com/atqamz/hand/issues/280)) ([2d1e876](https://github.com/atqamz/hand/commit/2d1e87608bed03ab71f4465451f24835617513f8))
+* add cross-platform Secondhand bootstrap ([#297](https://github.com/atqamz/hand/issues/297)) ([a3b36dc](https://github.com/atqamz/hand/commit/a3b36dcf676a51250a9d01ac82a027fe1f449098))
+* add Windows PowerShell bootstrap ([#298](https://github.com/atqamz/hand/issues/298)) ([530bb83](https://github.com/atqamz/hand/commit/530bb83a8dc4c3c394d328ae344b315d57ca8b0b))
+* **cmd:** add doctor readiness contract ([#296](https://github.com/atqamz/hand/issues/296)) ([758a3af](https://github.com/atqamz/hand/commit/758a3afaab5514c3c276fb01b0d69f5e871a6e79))
+* **cmd:** add explicit acknowledgement for task status ([#281](https://github.com/atqamz/hand/issues/281)) ([f9c743d](https://github.com/atqamz/hand/commit/f9c743d75e0a03f7fef019bb867e83f60033f5ed))
+* **doctor:** expand hand doctor diagnostic coverage ([e038b71](https://github.com/atqamz/hand/commit/e038b717d5198653af5d34b8a69989272458a180))
+* **init:** make hand init the canonical fleet-reconciler contract ([690edde](https://github.com/atqamz/hand/commit/690eddea6b6af935b2361a65c070d023f424455e))
+* **packaging:** add Homebrew, npm, deb, rpm, WinGet, and AUR package surfaces ([#277](https://github.com/atqamz/hand/issues/277)) ([be08bd0](https://github.com/atqamz/hand/commit/be08bd0eca716705c395d5681ce13b8052446456))
+* **skill:** bundle first-party secondhand Agent Skill ([e7bc210](https://github.com/atqamz/hand/commit/e7bc2107d9b1791e413112f0ba440354f7334d39))
+* **update:** hand update hands off fleet reconciliation to the new binary ([8ab2bf5](https://github.com/atqamz/hand/commit/8ab2bf5ff3abce247e6b137344745c6b15f1eafe))
+
+
+### Bug Fixes
+
+* **cmd:** preserve PR observation provenance ([#278](https://github.com/atqamz/hand/issues/278)) ([72dd288](https://github.com/atqamz/hand/commit/72dd2888946f8ffdcfb6404f60a831c280517fc2))
+* **cmd:** preserve unknown report observations ([#279](https://github.com/atqamz/hand/issues/279)) ([4cfd1f3](https://github.com/atqamz/hand/commit/4cfd1f3e93bc20898067c2d567b14f9124af0249))
+* **runtime:** detect PRs by durable branch name across a detached HEAD ([#285](https://github.com/atqamz/hand/issues/285)) ([6015e10](https://github.com/atqamz/hand/commit/6015e10875edc97d414268244e27208241adb057))
+* **runtime:** label pane-derived holds as inferred ([#282](https://github.com/atqamz/hand/issues/282)) ([cea038d](https://github.com/atqamz/hand/commit/cea038dd112996232e92c1e5da288499fc730a86))
+* **runtime:** observe attempt liveness from Herdr agent_status in reconcile ([#275](https://github.com/atqamz/hand/issues/275)) ([110d6af](https://github.com/atqamz/hand/commit/110d6af3793dd3cc2ff5fa4e8b7d722866e21e51))
+
 ## [0.5.0](https://github.com/atqamz/hand/compare/v0.4.0...v0.5.0) (2026-08-20)
 
 
