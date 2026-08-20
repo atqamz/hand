@@ -7,7 +7,7 @@
 
 ## Context
 
-[Supervisor bootstrap is an AGENTS.md contract](supervisor-bootstrap-is-an-agents-md-contract.md) let a fleet home keep operator or supervisor content around one marked span hand owned. That mixed ownership grew its own costs as the fleet matured: merge logic to preserve the surrounding content, drift heuristics for perishable prose outside the span, and no settled answer for whether a given sentence belonged in `AGENTS.md`, `data/operator.md`, or `data/learnings.md`.
+[Supervisor bootstrap is an AGENTS.md contract](supervisor-bootstrap-is-an-agents-md-contract.md) lets a fleet home keep operator or supervisor content around one marked span hand owned. That mixed ownership grew its own costs as the fleet matured: merge logic to preserve the surrounding content, drift heuristics for perishable prose outside the span, and no settled answer for whether a given sentence belonged in `AGENTS.md`, `data/operator.md`, or `data/learnings.md`.
 
 Now that Task/Attempt semantics, execution-ready briefs, Profiles/routes, reconciliation, and distribution ownership are stable, `AGENTS.md` no longer needs to carry anything beyond the invariants a supervisor must load regardless of harness.
 

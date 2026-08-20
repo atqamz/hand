@@ -78,7 +78,7 @@ Exempt from both rules: the package doc comment, directives (`//go:build`, `//go
 Rule 2 will occasionally be wrong, because a genuinely subtle invariant sometimes needs a fourth line.
 That is accepted: a rule that is right most of the time and mechanically enforced binds harder than one that is right always and enforced never.
 Behavior a caller depends on belongs with its implementation, command help, and focused tests.
-User or contributor guidance belongs in README.md, AGENTS.md, or this file.
+User or contributor guidance belongs in README.md or this file.
 `docs/adr/README.md` owns the narrower bar for durable architectural rationale.
 
 `go run ./tools/commentlint .` runs the check alone and prints one `file:line:column` per violation.
