@@ -35,7 +35,9 @@ if ($PSCommandPath) {
 
 # ---- step 1: acquire or verify hand ------------------------------------------------------------
 
-$handAvailable = [bool](Get-Command hand -ErrorAction SilentlyContinue)
+$handCommand = Get-Command hand -ErrorAction SilentlyContinue
+$handAvailable = [bool]$handCommand
+$script:handCommandDir = if ($handCommand.Source) { Split-Path -Parent $handCommand.Source } else { $null }
 
 # Install-Hand only ever runs when hand is missing. In check mode it reports and returns without
 # mutating; otherwise it fails with an actionable message on every path that cannot end with hand
@@ -117,6 +119,8 @@ function Install-Hand {
 
 if (-not $handAvailable) {
     Install-Hand
+    $handCommand = Get-Command hand -ErrorAction SilentlyContinue
+    $script:handCommandDir = if ($handCommand.Source) { Split-Path -Parent $handCommand.Source } else { $null }
 }
 
 # ---- step 2: detect/install missing foundational dependencies ---------------------------------
@@ -125,8 +129,11 @@ function Update-ProcessPathFromRegistry {
     $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
     $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
     $pathDirs = @($machinePath, $userPath) | ForEach-Object { if ($_){ $_ -split ';' } } | Where-Object { $_ }
-    if ($script:handInstallDir -and -not ($pathDirs | Where-Object { $_ -ieq $script:handInstallDir })) {
-        $pathDirs = @($script:handInstallDir) + @($pathDirs)
+    $handDirs = @($script:handCommandDir, $script:handInstallDir) | Where-Object { $_ }
+    foreach ($handDir in $handDirs) {
+        if (-not ($pathDirs | Where-Object { $_ -ieq $handDir })) {
+            $pathDirs = @($handDir) + @($pathDirs)
+        }
     }
     $env:PATH = $pathDirs -join ';'
 }
