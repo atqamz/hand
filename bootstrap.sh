@@ -93,9 +93,16 @@ ensure_hand() {
     fi
   else
     log "installing hand via https://raw.githubusercontent.com/atqamz/hand/main/install.sh"
-    if ! curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh; then
+    hand_installer=$(mktemp) || die "could not create a temporary file for install.sh"
+    if ! curl -fsSL -o "$hand_installer" https://raw.githubusercontent.com/atqamz/hand/main/install.sh || [ ! -s "$hand_installer" ]; then
+      rm -f "$hand_installer"
+      die "install.sh download failed or was empty; recover by resolving the reported error and rerunning bootstrap.sh"
+    fi
+    if ! sh "$hand_installer"; then
+      rm -f "$hand_installer"
       die "install.sh failed; recover by resolving the reported error and rerunning bootstrap.sh"
     fi
+    rm -f "$hand_installer"
   fi
   case ":$PATH:" in
     *":${HAND_INSTALL_DIR:-$HOME/.local/bin}:"*) ;;
@@ -290,7 +297,9 @@ fleet_state() {
     return 0
   fi
   [ -d "$fleet" ] || die "$fleet exists and is not a directory"
-  if [ -e "$fleet/state/hand.db" ]; then
+  if [ -f "$fleet/state/hand.db" ] && [ -d "$fleet/state" ]; then
+    printf 'fleet\n'
+  elif [ -f "$fleet/data/projects.md" ] && [ -d "$fleet/data" ] && [ -d "$fleet/state" ]; then
     printf 'fleet\n'
   elif [ -z "$(ls -A "$fleet" 2>/dev/null)" ]; then
     printf 'empty\n'
