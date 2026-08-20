@@ -57,7 +57,7 @@ function Install-Hand {
 
     $installDir = if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "hand" }
     $sibling = if ($scriptDir) { Join-Path $scriptDir "install.ps1" } else { $null }
-    if ($sibling -and (Test-Path $sibling)) {
+    if ($sibling -and (Test-Path -LiteralPath $sibling)) {
         Write-BootstrapLog "installing hand via $sibling"
         try {
             & $sibling
@@ -83,7 +83,7 @@ function Install-Hand {
             } catch {
                 Fail "could not download the hand release or checksums: $($_.Exception.Message)"
             }
-            if ((Get-Item (Join-Path $tmp $asset)).Length -eq 0) {
+            if ((Get-Item -LiteralPath (Join-Path $tmp $asset)).Length -eq 0) {
                 Fail "downloaded hand release archive is empty"
             }
 
@@ -174,7 +174,13 @@ function Invoke-DepAction {
         'cmd' {
             if (-not $action.Value) { return $false }
             & $action.Value[0] @($action.Value[1..($action.Value.Length - 1)])
-            return $LASTEXITCODE -eq 0
+            $ok = $LASTEXITCODE -eq 0
+            if ($Dep -eq 'git') {
+                $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+                $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+                $env:PATH = (@($machinePath, $userPath) | Where-Object { $_ }) -join ';'
+            }
+            return $ok
         }
         'url' {
             $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".ps1")
@@ -184,7 +190,7 @@ function Invoke-DepAction {
                 Remove-Item -Force $tmp -ErrorAction SilentlyContinue
                 return $false
             }
-            if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -eq 0) {
+            if (-not (Test-Path -LiteralPath $tmp) -or (Get-Item -LiteralPath $tmp).Length -eq 0) {
                 Remove-Item -Force $tmp -ErrorAction SilentlyContinue
                 return $false
             }
@@ -277,19 +283,19 @@ $null = Install-FoundationalDep
 # one thing bootstrap alone is responsible for before ever invoking hand init - whether this
 # target is safe to hand to it at all.
 function Get-FleetState {
-    if (-not (Test-Path $Fleet)) {
+    if (-not (Test-Path -LiteralPath $Fleet)) {
         return 'absent'
     }
-    if (-not (Test-Path $Fleet -PathType Container)) {
+    if (-not (Test-Path -LiteralPath $Fleet -PathType Container)) {
         Fail "$Fleet exists and is not a directory"
     }
-    if ((Test-Path (Join-Path $Fleet "state\hand.db") -PathType Leaf)) {
+    if ((Test-Path -LiteralPath (Join-Path $Fleet "state\hand.db") -PathType Leaf)) {
         return 'fleet'
     }
-    if ((Test-Path (Join-Path $Fleet "data\projects.md") -PathType Leaf) -and (Test-Path (Join-Path $Fleet "state") -PathType Container)) {
+    if ((Test-Path -LiteralPath (Join-Path $Fleet "data\projects.md") -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $Fleet "state") -PathType Container)) {
         return 'fleet'
     }
-    if (-not (Get-ChildItem -Force $Fleet -ErrorAction SilentlyContinue)) {
+    if (-not (Get-ChildItem -LiteralPath $Fleet -Force -ErrorAction SilentlyContinue)) {
         return 'empty'
     }
     return 'foreign'
