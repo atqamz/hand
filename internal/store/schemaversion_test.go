@@ -88,7 +88,10 @@ func TestMigrationAddsEmptyAttemptBranchToAnExistingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := &DB{sql: sqlDB, home: home}
-	preBranchSchema := strings.Replace(schema, "\tworktree               TEXT NOT NULL DEFAULT '',\n\tbranch                 TEXT NOT NULL DEFAULT '',\n", "\tworktree               TEXT NOT NULL DEFAULT '',\n", 1)
+	preBranchSchema := strings.NewReplacer(
+		"\tworktree               TEXT NOT NULL DEFAULT '',\n\tbranch                 TEXT NOT NULL DEFAULT '',\n", "\tworktree               TEXT NOT NULL DEFAULT '',\n",
+		"\trepair_observed_at TEXT NOT NULL DEFAULT '',\n\tacknowledged_at     TEXT NOT NULL DEFAULT '',\n\tacknowledged_reason TEXT NOT NULL DEFAULT '',\n\tacknowledged_offset INTEGER NOT NULL DEFAULT 0,\n\tacknowledged_digest TEXT NOT NULL DEFAULT ''\n", "\trepair_observed_at TEXT NOT NULL DEFAULT ''\n",
+	).Replace(schema)
 	if _, err := db.sql.Exec(preBranchSchema); err != nil {
 		t.Fatal(err)
 	}
