@@ -319,6 +319,12 @@ On Windows, download `hand-windows-amd64.zip`, extract `hand.exe`, and place it 
 
 See the [releases page](https://github.com/atqamz/hand/releases) for every asset.
 
+### Homebrew
+
+```sh
+brew install atqamz/tap/hand
+```
+
 ### Edge builds
 
 Edge is a rolling GitHub prerelease for maintainers and contributors who want the newest CI-verified `main` build.
