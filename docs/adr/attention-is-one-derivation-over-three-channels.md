@@ -119,7 +119,7 @@ Unknown is not a guess in either direction, and it never collapses into a defini
 Binds every command that observes: `hand status`, `hand watch`, `hand merge`, `hand teardown`, `hand reconcile`, and `hand session`.
 [`ghutil.ObservationState`](../../internal/ghutil/observation.go) is the canonical vocabulary, with `found` and `absent` as the two positive findings and everything that stopped a query from completing as `unknown`, carrying a `Probe` so the unknown travels with the command that asked.
 [`project.GateRunObservation`](../../internal/project/gaterun.go) is a second instance of that same vocabulary rather than a separate idea, and [`worktree.LeaseObservation`](../../internal/worktree/worktree.go) is a third with two extra positive findings for the same reason.
-A fourth observation reuses `ghutil.ObservationState` and adds a type over it; it does not restate the vocabulary a fourth time.
+A fourth observation, including the report timestamp used by `hand status`, reuses `ghutil.ObservationState` and adds a type over it; it does not restate the vocabulary a fourth time.
 
 ## Rejected alternatives
 
@@ -147,7 +147,8 @@ A fourth observation reuses `ghutil.ObservationState` and adds a type over it; i
 
 ## Consequences
 
-Five follow-on issues implement the rest, one per invariant: atqamz/hand#266 for invariant 1, atqamz/hand#267 for invariant 3 carrying invariant 4 as an acceptance criterion, atqamz/hand#268 for invariant 5, atqamz/hand#269 for invariant 6, and atqamz/hand#270 for invariant 7.
+Four follow-on issues implement the rest, one per invariant: atqamz/hand#266 for invariant 1, atqamz/hand#267 for invariant 3 carrying invariant 4 as an acceptance criterion, atqamz/hand#268 for invariant 5, and atqamz/hand#269 for invariant 6.
+Invariant 7 is implemented by atqamz/hand#270: status preserves an unknown report timestamp observation instead of rendering it as an absent report, and the already-unified unreachable-pane path renders unknown without guessing.
 Invariant 2 is met today, by atqamz/hand#140's parse fix and atqamz/hand#149's cursor digest, and gets no follow-on issue.
 Invariant 4 is met vacuously and becomes a test obligation on invariant 3's implementation rather than work of its own.
 Neither atqamz/hand#252 nor atqamz/hand#240 fully satisfies an invariant on its own: atqamz/hand#252 settles the announcement layer invariant 3 is defined against, and atqamz/hand#240 establishes the vocabulary invariant 7 generalizes.
