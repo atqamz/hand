@@ -22,9 +22,12 @@ type taskView struct {
 	reportedLine  string
 	reported      *reportedJSON
 	lastReportAt  string
-	reportFile    string
-	unreadable    bool
-	unacked       bool
+	// found for a real mtime, absent for no report file, unknown for a stat error - atqamz/hand#270,
+	// so an I/O fault on the report channel never renders identically to a worker that never reported.
+	lastReportObserved ghutil.ObservationState
+	reportFile         string
+	unreadable         bool
+	unacked            bool
 	// The two conditions hand watch's own Kind vocabulary already named and hand status never had a
 	// counterpart classifier for - atqamz/hand#268's disagreements 2 and 4 (attention half). Both are
 	// computed only for an open task's one running attempt; see buildTaskView.
@@ -177,7 +180,12 @@ var taskFields = []axi.Column[taskView]{
 	{Name: "report", Value: func(v taskView) string { return orNone(v.reportedLine) }},
 	{Name: "age", Value: func(v taskView) string { return formatAge(v.task.CreatedAt) }},
 	{Name: "created", Value: func(v taskView) string { return orNone(v.task.CreatedAt) }},
-	{Name: "last_report", Value: func(v taskView) string { return formatReportAge(v.lastReportAt) }},
+	{Name: "last_report", Value: func(v taskView) string {
+		if v.lastReportObserved == ghutil.ObservationUnknown {
+			return "unknown"
+		}
+		return formatReportAge(v.lastReportAt)
+	}},
 	{Name: "pr", Value: func(v taskView) string {
 		if v.task.PR == "" && v.prObserved == ghutil.ObservationUnknown {
 			return "unknown"

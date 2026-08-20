@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// ObservationState is the one vocabulary every GitHub observation in hand answers in. Absent is a
-// positive finding from a query that completed; anything that stopped a query from completing is
-// unknown, and nothing may be concluded from it.
+// ObservationState is the vocabulary every observation in hand answers in, GitHub or not - reused by
+// project.GateRunObservation and mirrored by worktree.LeaseObservationState. Absent is a positive
+// finding from a completed query; anything else is unknown, and nothing may be concluded from it.
 type ObservationState string
 
 const (

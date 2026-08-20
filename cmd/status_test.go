@@ -825,7 +825,7 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 
 // atqamz/hand#268's disagreement 4, attention half: the same outage hand watch's ClassifyUnreachable
 // already announces as failed used to render "state: unknown" here with no flag and no attention.
-// Representing that state itself is atqamz/hand#270's separate job.
+// atqamz/hand#270 is the state itself, already probePaneStatus's honest degrade rather than a guess.
 func TestStatusFleetFlagsUnreachablePaneAndCountsAttention(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -1042,6 +1042,81 @@ func TestStatusReportsNoDwellTimeWithoutAReportFile(t *testing.T) {
 	}
 	if got := detailField(t, out.String(), "last_report"); got != "none" {
 		t.Fatalf("last_report = %q, want no dwell time invented for a task that never reported", got)
+	}
+}
+
+// atqamz/hand#270: lastReportAt used to fold a missing report file and a failed stat into the same
+// empty string. Exercised directly rather than through the whole command: a stat fault on state's
+// own directory would take the sqlite store down with it before this ever gets a chance to run.
+func TestLastReportAtDistinguishesAbsentFromAFailedStat(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+
+	if at, observed := lastReportAt(home, "task-1"); at != "" || observed != ghutil.ObservationAbsent {
+		t.Fatalf("got (%q, %s), want absent for no report file at all", at, observed)
+	}
+
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(reportPath, []byte("working: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if at, observed := lastReportAt(home, "task-1"); at == "" || observed != ghutil.ObservationFound {
+		t.Fatalf("got (%q, %s), want found for a readable report", at, observed)
+	}
+
+	// A self-referential symlink is a real ELOOP from os.Stat, isolated to this one path, unlike
+	// stripping permissions from state's own directory which would take sqlite down with it.
+	if err := os.Remove(reportPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(reportPath, reportPath); err != nil {
+		t.Fatal(err)
+	}
+	if at, observed := lastReportAt(home, "task-1"); at != "" || observed != ghutil.ObservationUnknown {
+		t.Fatalf("got (%q, %s), want unknown for a failed stat, never folded into absent", at, observed)
+	}
+}
+
+// The command-level counterpart: a stat fault on the report file must render distinguishably from a
+// task that never reported, in both the plain-text and JSON views.
+func TestStatusSingleTaskDistinguishesUnreadableReportTimestampFromAbsent(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.Symlink(reportPath, reportPath); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want the stat fault degraded rather than failing the command", err)
+	}
+	if got := detailField(t, out.String(), "last_report"); got != "unknown" {
+		t.Fatalf("last_report = %q, want unknown rather than none for a failed stat", got)
+	}
+
+	jsonCmd := newStatusCmd()
+	var jsonOut bytes.Buffer
+	jsonCmd.SetOut(&jsonOut)
+	jsonCmd.SetArgs([]string{"task-1", "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jsonOut.String(), `"last_report_observation": "unknown"`) {
+		t.Fatalf("got %q, want last_report_observation naming unknown", jsonOut.String())
+	}
+	if strings.Contains(jsonOut.String(), `"last_report_at"`) {
+		t.Fatalf("got %q, want last_report_at omitted rather than a fabricated timestamp", jsonOut.String())
 	}
 }
 

@@ -143,16 +143,20 @@ type statusJSON struct {
 	PR               string      `json:"pr"`
 	// Omitted where no live lookup applied, so a consumer sees "unknown" only where an
 	// empty pr field is a failed observation rather than a PR that is not there.
-	PRObservation   string        `json:"pr_observation,omitempty"`
-	MergeExecuted   bool          `json:"merged"`
-	MergeAnnounced  bool          `json:"pr_merged_observed"`
-	DeliveredAt     string        `json:"delivered_at,omitempty"`
-	DeliveredReason string        `json:"delivered_reason,omitempty"`
-	CreatedAt       string        `json:"created_at"`
-	LastReportAt    string        `json:"last_report_at,omitempty"`
-	Reported        *reportedJSON `json:"reported,omitempty"`
-	ReportHistory   []string      `json:"report_history,omitempty"`
-	Held            *holdJSON     `json:"held,omitempty"`
+	PRObservation   string `json:"pr_observation,omitempty"`
+	MergeExecuted   bool   `json:"merged"`
+	MergeAnnounced  bool   `json:"pr_merged_observed"`
+	DeliveredAt     string `json:"delivered_at,omitempty"`
+	DeliveredReason string `json:"delivered_reason,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	LastReportAt    string `json:"last_report_at,omitempty"`
+	// Omitted where a report file exists (found) or genuinely never has (absent), the same way
+	// PRObservation is: a consumer sees "unknown" only where an empty last_report_at is a failed
+	// stat rather than a task that has never reported.
+	LastReportObservation string        `json:"last_report_observation,omitempty"`
+	Reported              *reportedJSON `json:"reported,omitempty"`
+	ReportHistory         []string      `json:"report_history,omitempty"`
+	Held                  *holdJSON     `json:"held,omitempty"`
 	// Omitted where the gate-run check does not apply to this task, the same way PRObservation
 	// is: found, absent and unknown are otherwise distinct answers, never collapsed together.
 	GateObservation  string `json:"gate_observation,omitempty"`
@@ -427,15 +431,27 @@ func fleetHelp(views []taskView, attention int) []string {
 	return append(help, "Run `hand status --fields <a,b>` to pick columns, `hand status --help` for every field name")
 }
 
-// A stat fault reads the same as no report at all: the column is a staleness
-// hint, and failing hand status over it would trade a whole fleet view for one
-// unreadable timestamp.
-func lastReportAt(home, id string) string {
+// A stat fault degrades to unknown rather than absent: state.ReportModTime already tells the two
+// apart, and failing hand status over one unreadable timestamp would trade away a whole fleet view
+// for it - so the fault travels as an observation instead (atqamz/hand#270).
+func lastReportAt(home, id string) (string, ghutil.ObservationState) {
 	mtime, ok, err := state.ReportModTime(home, id)
-	if err != nil || !ok {
+	if err != nil {
+		return "", ghutil.ObservationUnknown
+	}
+	if !ok {
+		return "", ghutil.ObservationAbsent
+	}
+	return mtime.UTC().Format(time.RFC3339), ghutil.ObservationFound
+}
+
+// Named only for unknown: found already has the timestamp and absent has neither, so naming those
+// too would repeat what LastReportAt's own emptiness already says.
+func lastReportObservationJSON(o ghutil.ObservationState) string {
+	if o != ghutil.ObservationUnknown {
 		return ""
 	}
-	return mtime.UTC().Format(time.RFC3339)
+	return string(o)
 }
 
 // Distinct from "unreported": an I/O fault is not evidence that the worker
@@ -487,20 +503,22 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 		reportedState = reported.State
 	}
 	active := t.Lifecycle == state.TaskOpen && history.ActiveAttempt != nil && attempt.Lifecycle == state.AttemptRunning
+	reportAt, reportAtObserved := lastReportAt(home, t.ID)
 	v := taskView{
-		task:          t,
-		attempt:       attempt,
-		attempts:      attempts,
-		agentState:    agentState,
-		reportedState: reportedState,
-		reportedLine:  reportSummary(t.ID, lines, readErr, unacked, full),
-		lastReportAt:  lastReportAt(home, t.ID),
-		reportFile:    state.ReportPath(home, t.ID),
-		unreadable:    readErr != nil,
-		unacked:       unacked,
-		unreachable:   active && !reachable,
-		parked:        active && taskParked(home, t, e, reportedState, bounds),
-		reported:      reportedFrom(last, len(lines) > 0, readErr),
+		task:               t,
+		attempt:            attempt,
+		attempts:           attempts,
+		agentState:         agentState,
+		reportedState:      reportedState,
+		reportedLine:       reportSummary(t.ID, lines, readErr, unacked, full),
+		lastReportAt:       reportAt,
+		lastReportObserved: reportAtObserved,
+		reportFile:         state.ReportPath(home, t.ID),
+		unreadable:         readErr != nil,
+		unacked:            unacked,
+		unreachable:        active && !reachable,
+		parked:             active && taskParked(home, t, e, reportedState, bounds),
+		reported:           reportedFrom(last, len(lines) > 0, readErr),
 	}
 	if attempt != nil {
 		latestSend := state.LatestSendMetadata
@@ -574,7 +592,7 @@ func (v taskView) json() statusJSON {
 		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR, PRObservation: string(v.prObserved),
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
-		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
+		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt, LastReportObservation: lastReportObservationJSON(v.lastReportObserved),
 		Reported: v.reported, GateObservation: string(v.gateObserved), RepairCode: v.task.RepairCode, RepairReason: v.task.RepairReason, RepairAttemptID: v.task.RepairAttemptID, RepairObservedAt: v.task.RepairObservedAt, Unacknowledged: v.unacked, Parked: v.parked, Unreachable: v.unreachable, Attempts: history,
 		LatestSend: latestSendJSON(v.latestSend),
 	}
