@@ -213,13 +213,16 @@ func TestDoctorCleanFleetReportsEffectiveRouting(t *testing.T) {
 		"commit: unknown\n" +
 		"distribution: \"\"\n" +
 		"count: 1\n" +
-		"violations: 0\n" +
-		"findings[1]{line,severity,finding}:\n" +
+		"violations: 0\n"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("stdout = %q, want it to contain %q", out.String(), want)
+	}
+	wantFindings := "findings[1]{line,severity,finding}:\n" +
 		"  none,info," + axi.Value(`routing resolves through explicit legacy defaults: harness "claude"`) + "\n" +
 		"help[1]:\n" +
 		"  - No error findings, so this run passed; inspect warnings and info before the next dispatch\n"
-	if out.String() != want {
-		t.Fatalf("stdout = %q, want %q", out.String(), want)
+	if !strings.Contains(out.String(), wantFindings) {
+		t.Fatalf("stdout = %q, want it to contain %q", out.String(), wantFindings)
 	}
 }
 
@@ -637,10 +640,215 @@ func TestDoctorWarnsOnEachMissingRequiredTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tool := range requiredTools {
+	for _, tool := range foundationalTools {
 		want := doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)}
 		if !hasDoctorFinding(findings, want) {
 			t.Fatalf("findings = %#v, want a missing-tool warning for %q", findings, tool)
 		}
+	}
+}
+
+func TestGHRequiredOnlyWhenARegisteredProjectDeliversThroughGitHub(t *testing.T) {
+	tests := []struct {
+		mode string
+		want bool
+	}{
+		{mode: project.ModeLocalOnly, want: false},
+		{mode: project.ModeDirectPR, want: true},
+		{mode: project.ModeNoMistakes, want: true},
+	}
+	for _, tt := range tests {
+		got := ghRequired([]project.Project{{Name: "p", Mode: tt.mode}})
+		if got != tt.want {
+			t.Errorf("ghRequired(mode=%q) = %v, want %v", tt.mode, got, tt.want)
+		}
+	}
+	if ghRequired(nil) {
+		t.Error("ghRequired(nil) = true, want false for a fleet with no registered projects")
+	}
+}
+
+func TestDoctorToolsReportsFoundationalAndContextualRequirement(t *testing.T) {
+	faketool.NoTools(t)
+	bin := faketool.Bin(t)
+	faketool.Command{Name: "git"}.Install(t, bin)
+	faketool.Treehouse{}.Install(t, bin)
+
+	got := doctorTools([]project.Project{{Name: "p", Mode: project.ModeDirectPR}})
+	want := []toolReadiness{
+		{Tool: "git", Installed: true, Required: true},
+		{Tool: "treehouse", Installed: true, Required: true},
+		{Tool: "herdr", Installed: false, Required: true},
+		{Tool: "gh", Installed: false, Required: true},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("doctorTools() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("doctorTools()[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestDoctorHarnessesReportsEverySupportedHarness(t *testing.T) {
+	faketool.NoTools(t)
+	bin := faketool.Bin(t)
+	faketool.Command{Name: harness.Codex}.Install(t, bin)
+
+	got := doctorHarnesses()
+	if len(got) != len(harness.Names()) {
+		t.Fatalf("doctorHarnesses() = %#v, want one entry per %v", got, harness.Names())
+	}
+	for _, h := range got {
+		want := h.Name == harness.Codex
+		if h.Installed != want {
+			t.Fatalf("doctorHarnesses() entry %q installed = %v, want %v", h.Name, h.Installed, want)
+		}
+	}
+}
+
+func TestDoctorBlockingAndNextStayInStepAndReadyFollowsBlocking(t *testing.T) {
+	tools := []toolReadiness{
+		{Tool: "git", Installed: true, Required: true},
+		{Tool: "treehouse", Installed: false, Required: true},
+		{Tool: "herdr", Installed: true, Required: true},
+		{Tool: "gh", Installed: false, Required: false},
+	}
+	harnesses := []harnessReadiness{{Name: harness.Claude, Installed: false}}
+
+	blocking := doctorBlocking(1, tools, harnesses)
+	want := []string{"fleet-health", "treehouse", "harness"}
+	if len(blocking) != len(want) {
+		t.Fatalf("doctorBlocking() = %v, want %v", blocking, want)
+	}
+	for i := range want {
+		if blocking[i] != want[i] {
+			t.Fatalf("doctorBlocking()[%d] = %q, want %q", i, blocking[i], want[i])
+		}
+	}
+
+	next := doctorNext(blocking)
+	if len(next) != len(blocking) {
+		t.Fatalf("doctorNext() = %v, want one entry per blocking item %v", next, blocking)
+	}
+	if next[1] != "install treehouse" {
+		t.Fatalf("doctorNext()[1] = %q, want %q", next[1], "install treehouse")
+	}
+
+	if doctorBlocking(0, []toolReadiness{{Tool: "git", Installed: true, Required: true}}, []harnessReadiness{{Name: harness.Claude, Installed: true}}) == nil {
+		t.Fatal("doctorBlocking() returned a nil slice for a ready fleet, want an empty non-nil slice so the rendered list still states its count")
+	}
+}
+
+func TestDoctorReportsReadyWhenEveryFoundationalToolAndOneHarnessArePresent(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	faketool.NoTools(t)
+	bin := faketool.Bin(t)
+	faketool.Command{Name: "git"}.Install(t, bin)
+	faketool.Treehouse{}.Install(t, bin)
+	faketool.Herdr{}.Install(t, bin)
+	faketool.Command{Name: harness.Claude}.Install(t, bin)
+
+	var out bytes.Buffer
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got error %v, want nil for a ready fleet", err)
+	}
+	want := "tools[4]{tool,installed,required}:\n" +
+		"  git,true,true\n" +
+		"  treehouse,true,true\n" +
+		"  herdr,true,true\n" +
+		"  gh,false,false\n" +
+		"harnesses[5]{name,installed}:\n" +
+		"  claude,true\n" +
+		"  codex,false\n" +
+		"  grok,false\n" +
+		"  pi,false\n" +
+		"  opencode,false\n" +
+		"ready: true\n" +
+		"blocking[0]:\n" +
+		"next[0]:\n"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("stdout = %q, want it to contain %q", out.String(), want)
+	}
+}
+
+func TestDoctorReportsNotReadyWithBlockingAndNextWhenTreehouseAndEveryHarnessAreMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	faketool.NoTools(t)
+	bin := faketool.Bin(t)
+	faketool.Command{Name: "git"}.Install(t, bin)
+	faketool.Herdr{}.Install(t, bin)
+
+	var out bytes.Buffer
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got error %v, want nil: a missing foundational tool or harness is a warning, not an error", err)
+	}
+	want := "ready: false\n" +
+		"blocking[2]:\n" +
+		"  - treehouse\n" +
+		"  - harness\n" +
+		"next[2]:\n" +
+		"  - install treehouse\n" +
+		"  - install and authenticate at least one supported coding-agent harness (see `harnesses` above), then run hand doctor\n"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("stdout = %q, want it to contain %q", out.String(), want)
+	}
+}
+
+func TestDoctorGHNotRequiredForALocalOnlyProjectDoesNotBlockReadiness(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "local", URL: "https://example.com/local.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	faketool.NoTools(t)
+	bin := faketool.Bin(t)
+	faketool.Command{Name: "git"}.Install(t, bin)
+	faketool.Treehouse{}.Install(t, bin)
+	faketool.Herdr{}.Install(t, bin)
+	faketool.Command{Name: harness.Claude}.Install(t, bin)
+
+	var out bytes.Buffer
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "gh,false,false\n") {
+		t.Fatalf("stdout = %q, want gh reported installed=false, required=false for a local-only project", out.String())
+	}
+	if !strings.Contains(out.String(), "ready: true\n") {
+		t.Fatalf("stdout = %q, want ready: true since gh is not required", out.String())
 	}
 }

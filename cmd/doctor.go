@@ -17,10 +17,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The external tools every ordinary dispatch and delivery path needs regardless of which
-// projects are registered; no-mistakes is checked separately, per project, since it is only
-// required for a project explicitly configured in that delivery mode.
-var requiredTools = []string{"treehouse", "herdr", "gh"}
+// Every fleet needs these regardless of which projects are registered, so bootstrap may install
+// them with consent; gh and a coding-agent harness are checked separately below, since the
+// former is only required by some project delivery modes and hand never picks the latter.
+var foundationalTools = []string{"git", "treehouse", "herdr"}
 
 type doctorSeverity string
 
@@ -48,6 +48,30 @@ var doctorFields = []axi.Column[doctorFinding]{
 }
 
 var doctorDefaultFields = []string{"line", "severity", "finding"}
+
+// This is the readiness contract a bootstrapper, a human and a supervising agent all read off
+// the same `hand doctor` output instead of any of them inventing a second schema.
+type toolReadiness struct {
+	Tool      string
+	Installed bool
+	Required  bool
+}
+
+type harnessReadiness struct {
+	Name      string
+	Installed bool
+}
+
+var toolReadinessFields = []axi.Column[toolReadiness]{
+	{Name: "tool", Value: func(t toolReadiness) string { return t.Tool }},
+	{Name: "installed", Value: func(t toolReadiness) string { return strconv.FormatBool(t.Installed) }},
+	{Name: "required", Value: func(t toolReadiness) string { return strconv.FormatBool(t.Required) }},
+}
+
+var harnessReadinessFields = []axi.Column[harnessReadiness]{
+	{Name: "name", Value: func(h harnessReadiness) string { return h.Name }},
+	{Name: "installed", Value: func(h harnessReadiness) string { return strconv.FormatBool(h.Installed) }},
+}
 
 func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 	var fields []string
@@ -78,6 +102,15 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 				}
 			}
 
+			projects, err := project.ListReadOnly(fleetHome)
+			if err != nil {
+				return err
+			}
+			tools := doctorTools(projects)
+			harnesses := doctorHarnesses()
+			blocking := doctorBlocking(failing, tools, harnesses)
+			next := doctorNext(blocking)
+
 			var doc axi.Doc
 			doc.Field("file", path)
 			doc.Field("version", info.Version)
@@ -86,6 +119,11 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			doc.Field("distribution", info.Distribution)
 			doc.Int("count", len(findings))
 			doc.Int("violations", failing)
+			axi.Table(&doc, "tools", tools, toolReadinessFields)
+			axi.Table(&doc, "harnesses", harnesses, harnessReadinessFields)
+			doc.Bool("ready", len(blocking) == 0)
+			doc.List("blocking", blocking)
+			doc.List("next", next)
 			axi.Table(&doc, "findings", findings, cols)
 			doc.Help(doctorHelp(len(findings), failing)...)
 			if err := doc.Render(cmd.OutOrStdout()); err != nil {
@@ -129,7 +167,7 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 		findings = append(findings, doctorFinding{Severity: severity, Text: violation.Text})
 	}
 
-	for _, tool := range requiredTools {
+	for _, tool := range foundationalTools {
 		if !onPath(tool) {
 			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)})
 		}
@@ -138,6 +176,9 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 	projects, err := project.ListReadOnly(fleetHome)
 	if err != nil {
 		return nil, err
+	}
+	if ghRequired(projects) && !onPath("gh") {
+		findings = append(findings, doctorFinding{Severity: doctorWarning, Text: `required tool "gh" is not on PATH`})
 	}
 	for _, p := range projects {
 		if issue := gateIssue(fleetHome, p); issue != "" {
@@ -178,6 +219,82 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 		}
 	}
 	return findings, nil
+}
+
+// A local-only fleet never needs gh, while a registered project delivering through direct-pr or
+// no-mistakes does.
+func ghRequired(projects []project.Project) bool {
+	for _, p := range projects {
+		if p.Mode == project.ModeDirectPR || p.Mode == project.ModeNoMistakes {
+			return true
+		}
+	}
+	return false
+}
+
+func doctorTools(projects []project.Project) []toolReadiness {
+	tools := make([]toolReadiness, 0, len(foundationalTools)+1)
+	for _, tool := range foundationalTools {
+		tools = append(tools, toolReadiness{Tool: tool, Installed: onPath(tool), Required: true})
+	}
+	tools = append(tools, toolReadiness{Tool: "gh", Installed: onPath("gh"), Required: ghRequired(projects)})
+	return tools
+}
+
+// Every supported coding-agent harness is reported, never a preferred one: bootstrap and doctor
+// both only ever detect, they do not choose.
+func doctorHarnesses() []harnessReadiness {
+	names := harness.Names()
+	out := make([]harnessReadiness, 0, len(names))
+	for _, name := range names {
+		out = append(out, harnessReadiness{Name: name, Installed: onPath(name)})
+	}
+	return out
+}
+
+func anyHarnessInstalled(harnesses []harnessReadiness) bool {
+	for _, h := range harnesses {
+		if h.Installed {
+			return true
+		}
+	}
+	return false
+}
+
+// The one list a bootstrapper needs to decide readiness without re-deriving the rules above: a
+// fleet-health entry stands in for the error findings already detailed in `findings`, a missing
+// required tool names itself, and a fleet with no installed harness cannot be driven.
+func doctorBlocking(failing int, tools []toolReadiness, harnesses []harnessReadiness) []string {
+	blocking := make([]string, 0)
+	if failing > 0 {
+		blocking = append(blocking, "fleet-health")
+	}
+	for _, tool := range tools {
+		if tool.Required && !tool.Installed {
+			blocking = append(blocking, tool.Tool)
+		}
+	}
+	if !anyHarnessInstalled(harnesses) {
+		blocking = append(blocking, "harness")
+	}
+	return blocking
+}
+
+// One exact recovery action per blocking entry, in the same order, so a caller never has to
+// reconcile two lists that could drift apart.
+func doctorNext(blocking []string) []string {
+	next := make([]string, 0, len(blocking))
+	for _, item := range blocking {
+		switch item {
+		case "fleet-health":
+			next = append(next, "resolve every error finding reported above")
+		case "harness":
+			next = append(next, "install and authenticate at least one supported coding-agent harness (see `harnesses` above), then run hand doctor")
+		default:
+			next = append(next, fmt.Sprintf("install %s", item))
+		}
+	}
+	return next
 }
 
 func onlyMissingRoutes(problems []routing.ConfigProblem) bool {

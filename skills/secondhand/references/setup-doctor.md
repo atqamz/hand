@@ -6,7 +6,9 @@ Run `hand doctor` whenever you start a session, after `hand update`, after a mer
 fleet-generated surfaces, or whenever something feels off. It is report-only: it never repairs
 anything, so every finding it prints is yours to act on, not something it will fix on a later run.
 
-`hand doctor` prints a `findings` table with `line`, `severity`, and `finding` columns.
+`hand doctor` prints a readiness contract alongside the `findings` table.
+The contract uses flat TOON blocks: `tools`, `harnesses`, `ready`, `blocking`, and `next`.
+The `findings` table has `line`, `severity`, and `finding` columns.
 Severity `error` means the run fails (nonzero exit); `warning` and `info` do not. Read every
 line, not just the exit code: a clean exit with warnings still means something is worth a look.
 
@@ -23,9 +25,14 @@ line, not just the exit code: a clean exit with warnings still means something i
 - Each registered project's no-mistakes gate state (`gate-absent`, or another gate problem).
 - Routing/configuration validity: missing Profiles or Routes, and whether the fleet is running
   on explicit configuration or falling back to legacy defaults.
-- Required external tools (`treehouse`, `herdr`, `gh`) missing from `PATH` (`warning`);
-  `no-mistakes` is checked per project instead, since it is only required for a project
-  explicitly configured in that delivery mode, never a blanket fleet requirement.
+- Foundational external tools (`git`, `treehouse`, `herdr`) missing from `PATH` (`warning`);
+  `gh` is checked only when a registered project uses `direct-pr` or `no-mistakes` delivery.
+  The `tools` block reports each tool's `installed` and `required` state.
+- Every supported coding-agent harness is listed in `harnesses` as installed or not installed.
+  No harness is preferred by this contract.
+- `ready` is false when fleet health has errors, a required tool is missing, or no supported
+  harness is installed.
+  `blocking` names those conditions and `next` gives one corresponding recovery action for each.
 - The running binary's `version`, `channel`, `commit`, and `distribution`, as plain fields
   rather than findings - useful context when comparing a fleet's state against a bug report.
 
