@@ -8,6 +8,7 @@ import (
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
 // One task as both status renderers see it: the durable row plus everything derived for display, so the
@@ -24,9 +25,14 @@ type taskView struct {
 	reportFile    string
 	unreadable    bool
 	unacked       bool
-	latestSend    *state.SendAttempt
-	held          bool
-	hold          state.Hold
+	// The two conditions hand watch's own Kind vocabulary already named and hand status never had a
+	// counterpart classifier for - atqamz/hand#268's disagreements 2 and 4 (attention half). Both are
+	// computed only for an open task's one running attempt; see buildTaskView.
+	unreachable bool
+	parked      bool
+	latestSend  *state.SendAttempt
+	held        bool
+	hold        state.Hold
 	// Empty where no live lookup applied, which is neither a finding nor an absence.
 	prObserved ghutil.ObservationState
 	// Empty where the gate-run check does not apply to this task, which is neither a finding nor
@@ -35,9 +41,11 @@ type taskView struct {
 }
 
 // Reports whether the gate-run check found something an operator should look at: a found run and a
-// check that does not apply are both fine, so only absent and unknown count.
+// check that does not apply are both fine, so only absent and unknown count. watcher.GateKind is the
+// one place that decision is made, shared with hand watch's own gate classifier (atqamz/hand#268).
 func gateProblem(v taskView) bool {
-	return v.gateObserved != "" && v.gateObserved != ghutil.ObservationFound
+	_, ok := watcher.GateKind(v.gateObserved)
+	return ok
 }
 
 func (v taskView) execution() state.Attempt {
@@ -80,6 +88,12 @@ func taskFlags(v taskView) []string {
 	if unreportedStop(v) {
 		flags = append(flags, "unreported")
 	}
+	if v.unreachable {
+		flags = append(flags, "unreachable")
+	}
+	if v.parked {
+		flags = append(flags, "parked")
+	}
 	if v.task.DeliveredAt != "" {
 		flags = append(flags, "delivered")
 	}
@@ -90,8 +104,8 @@ func taskFlags(v taskView) []string {
 	case v.task.MergeAnnounced:
 		flags = append(flags, "merged-external")
 	}
-	if gateProblem(v) {
-		flags = append(flags, "gate-"+string(v.gateObserved))
+	if kind, ok := watcher.GateKind(v.gateObserved); ok {
+		flags = append(flags, kind)
 	}
 	if v.task.RepairCode != "" {
 		flags = append(flags, "needs-repair")
@@ -107,10 +121,14 @@ func taskFlags(v taskView) []string {
 	return flags
 }
 
-// The predicate behind the fleet view's attention aggregate: a supervisor reading only the count knows
-// whether any row is asking for something without reading the rows.
+// The predicate behind the fleet view's attention aggregate - the fleet's one definition of attention
+// every consumer reads (atqamz/hand#268, docs/adr/attention-is-one-derivation-over-three-channels.md).
+// No elapsed-time staleness condition here, matching CatchUpFilter's own deliberate KindStale exclusion.
 func needsAttention(v taskView) bool {
 	if v.unreadable || v.unacked || gateProblem(v) || v.task.RepairCode != "" {
+		return true
+	}
+	if v.unreachable || v.parked {
 		return true
 	}
 	if v.latestSend != nil && state.SendNeedsAttention(*v.latestSend) {

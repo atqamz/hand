@@ -502,6 +502,121 @@ func TestTickClassifiesPRMerged(t *testing.T) {
 	}
 }
 
+// atqamz/hand#268's disagreement 1, closed: a PR behind no completed gate run used to be attention
+// in hand status and silence in hand watch, since nothing here ever asked no-mistakes the question.
+func TestTickClassifiesGateProblem(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: "https://github.com/atqamz/hand/pull/120"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	faketool.NoMistakes{Stdout: "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n"}.Install(t, faketool.Bin(t))
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: shipped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	// The first tick only seeds tracking for a task not seen before, the same as every other
+	// classifier in this suite - see TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound.
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "gate-absent task-1") {
+		t.Fatalf("output = %q, want gate-absent task-1: the recorded PR is not among the completed runs", buf.String())
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if buf.Len() != 0 {
+		t.Fatalf("gate-absent fired again: %q", buf.String())
+	}
+}
+
+// Mirrors !ts.PRMerged three lines above the gate check in tick(): once ClassifyGateProblem has
+// fired for this attempt, later ticks must not keep re-execing no-mistakes to ask a question already
+// answered, the way an unbounded poll loop otherwise would forever.
+func TestTickStopsAskingNoMistakesOnceGateProblemHasFired(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: "https://github.com/atqamz/hand/pull/120"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	countFile := filepath.Join(t.TempDir(), "calls")
+	faketool.NoMistakes{
+		Stdout:   "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n",
+		CountLog: countFile,
+	}.Install(t, faketool.Bin(t))
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: shipped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	for range 5 {
+		tick(ctx, cfg, client, states, &buf, io.Discard)
+	}
+	if !strings.Contains(buf.String(), "gate-absent task-1") {
+		t.Fatalf("output = %q, want gate-absent task-1 to have fired once across five ticks", buf.String())
+	}
+	calls, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(calls))); got != 1 {
+		t.Fatalf("no-mistakes ran %d times across five ticks, want 1: the gate-run problem already fired", got)
+	}
+}
+
+// Neither a task the gate-run check does not apply to nor one whose project is unregistered ever
+// shells out to no-mistakes at all - the same silent skip cmd/status.go's own gateRunApplies gives.
+func TestTickSkipsGateCheckWhenItDoesNotApply(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "ungated", Kind: state.KindShip,
+		PR: "https://github.com/atqamz/hand/pull/120"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: shipped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No no-mistakes fake installed at all: a call through here would fail the test's PATH lookup.
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "gate-") {
+		t.Fatalf("output = %q, want no gate event for an unregistered project", buf.String())
+	}
+}
+
 func TestTickFiresIdleUnreportedWhenPaneGoesNotBusyWithNoReport(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
@@ -1172,7 +1287,7 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	setStatus(t, statusFile, "idle")
 	writeFakeHerdr(t, statusFile)
 
-	// Created before the silence it is about to be blamed for: reportEvidenceTime
+	// Created before the silence it is about to be blamed for: ReportEvidenceTime
 	// floors the mtime at the pane's start, so a task younger than its own report
 	// file could not accumulate this silence in the first place.
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip,
@@ -1285,7 +1400,7 @@ func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := reportEvidenceTime(home, task, attempt)
+	got, err := ReportEvidenceTime(home, task, attempt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1296,7 +1411,7 @@ func TestReportEvidenceTimeFloorsOnThePaneStartNotTheOutageStamp(t *testing.T) {
 	promoted := task
 	promotedAttempt := attempt
 	promotedAttempt.PaneStartedAt = now.Add(-time.Minute).UTC().Format(time.RFC3339)
-	got, err = reportEvidenceTime(home, promoted, promotedAttempt)
+	got, err = ReportEvidenceTime(home, promoted, promotedAttempt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1681,6 +1796,7 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		Blocked:                    true,
 		Stale:                      true,
 		PRMerged:                   true,
+		GateProblemFired:           true,
 		ReportCursor:               state.ReportCursor{Offset: 42, Digest: "consumed-digest"},
 		PersistedCursor:            state.ReportCursor{Offset: 43, Digest: "persisted-digest"},
 		PersistedPRMerged:          true,
@@ -1716,10 +1832,13 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 	// forgetPaneScopedCache is right to leave it alone: identity, PR facts, report-file position, and
 	// the parked latch, keyed to the report mtime not the pane. Persisted* entries mirror those facts.
 	carried := map[string]bool{
-		"CreatedAt":               true,
-		"AttemptID":               true,
-		"AttemptLifecycle":        true,
-		"PRMerged":                true,
+		"CreatedAt":        true,
+		"AttemptID":        true,
+		"AttemptLifecycle": true,
+		"PRMerged":         true,
+		// The gate-run problem latch is about the recorded PR, not the pane it was announced from -
+		// exactly PRMerged's own reasoning, one field down.
+		"GateProblemFired":        true,
 		"ReportCursor":            true,
 		"PersistedCursor":         true,
 		"PersistedPRMerged":       true,

@@ -80,15 +80,7 @@ func newWatchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			parkedPausedBound, err := configSeconds(home, "parked-paused-bound", defaultParkedPausedBound)
-			if err != nil {
-				return err
-			}
-			parkedDoneBound, err := configSeconds(home, "parked-done-bound", defaultParkedDoneBound)
-			if err != nil {
-				return err
-			}
-			parkedOtherBound, err := configSeconds(home, "parked-other-bound", defaultParkedOtherBound)
+			parkedBounds, err := parkedBoundsFromConfig(home)
 			if err != nil {
 				return err
 			}
@@ -123,12 +115,8 @@ func newWatchCmd() *cobra.Command {
 				PollInterval:   pollInterval,
 				StaleThreshold: staleThreshold,
 				Timeout:        timeout,
-				ParkedBounds: watcher.ParkedBounds{
-					Paused: parkedPausedBound,
-					Done:   parkedDoneBound,
-					Other:  parkedOtherBound,
-				},
-				EventFilter: watcher.NewEventFilter(events),
+				ParkedBounds:   parkedBounds,
+				EventFilter:    watcher.NewEventFilter(events),
 			}
 			if !untilEvent {
 				return mapWatchResult(watcher.Run(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr()))

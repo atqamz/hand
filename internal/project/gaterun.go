@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/atqamz/hand/internal/ghutil"
@@ -44,6 +45,17 @@ func ClassifyGateRun(prs map[string]bool, err error, pr string) GateRunObservati
 	}
 	probe.Reason = "no completed no-mistakes run recorded this pull request"
 	return GateRunObservation{State: ghutil.ObservationAbsent, Probe: probe}
+}
+
+// ObserveGateRun is the applicability check hand status and hand watch share: empty when p is not
+// registered or not run through no-mistakes, so a caller cannot answer the question differently for
+// the same project. runPRs is the caller's own no-mistakes invocation, cached or not.
+func ObserveGateRun(home string, p Project, registered bool, pr string, runPRs func(clonePath string) (map[string]bool, error)) ghutil.ObservationState {
+	if !registered || p.Mode != ModeNoMistakes {
+		return ""
+	}
+	prs, err := runPRs(filepath.Join(home, "projects", p.Name))
+	return ClassifyGateRun(prs, err, pr).State
 }
 
 // GateRunPRs returns the PR URLs recorded by completed no-mistakes runs in clonePath, scraped

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/watcher"
 	"github.com/spf13/cobra"
 )
 
@@ -101,16 +101,18 @@ func reportSummary(id string, lines []state.ReportLine, readErr error, unacked, 
 	return truncateReportLine(line, reportSummaryBudget, id) + suffix
 }
 
-// Read-only status degrades to "unknown" when herdr or the pane cannot be queried.
-func paneAgentStatus(client *herdr.Client, paneID string) string {
+// Read-only status degrades to "unknown" when herdr or the pane cannot be queried. reachable is false
+// only for a claimed pane that failed to answer, never a task with no pane to probe. Unlike hand
+// watch's dwelled ClassifyUnreachable, one failed probe is enough - a live read has no blink to filter.
+func probePaneStatus(client *herdr.Client, paneID string) (agentState string, reachable bool) {
 	if paneID == "" {
-		return string(herdr.StatusUnknown)
+		return string(herdr.StatusUnknown), true
 	}
 	pane, err := client.PaneGet(paneID)
 	if err != nil || pane.AgentStatus == "" {
-		return string(herdr.StatusUnknown)
+		return string(herdr.StatusUnknown), false
 	}
-	return string(pane.AgentStatus)
+	return string(pane.AgentStatus), true
 }
 
 // Mirrors one classified line from state.ReportLine for JSON output: malformed lines carry their raw text
@@ -160,9 +162,13 @@ type statusJSON struct {
 	RepairObservedAt string `json:"repair_observed_at,omitempty"`
 	// Omitted when false so a consumer written before this field sees no change
 	// on the fleet it already understands.
-	Unacknowledged bool          `json:"unacknowledged,omitempty"`
-	Attempts       []attemptJSON `json:"attempts,omitempty"`
-	LatestSend     *sendJSON     `json:"latest_send,omitempty"`
+	Unacknowledged bool `json:"unacknowledged,omitempty"`
+	// The two conditions atqamz/hand#268 gave hand status a counterpart classifier for: a pane silent
+	// past its report state's bound, and one that claims a pane but never answered it.
+	Parked      bool          `json:"parked,omitempty"`
+	Unreachable bool          `json:"unreachable,omitempty"`
+	Attempts    []attemptJSON `json:"attempts,omitempty"`
+	LatestSend  *sendJSON     `json:"latest_send,omitempty"`
 }
 
 type sendJSON struct {
@@ -258,11 +264,11 @@ func holdDetail(h state.Hold) string {
 	return h.Reason
 }
 
-// The single predicate for whether the gate-run check has anything to say about a task: only a done ship
-// task with a recorded PR does. Everything the check needs - the project lookup above all, whose failure
-// the single-task view propagates - hangs off this, so a silent task never pays that cost nor fails over it.
+// The single predicate for whether the gate-run check has anything to say about a task: only a done
+// ship task with a recorded PR does. Delegates to watcher.GateApplies, the one copy of this rule hand
+// status and hand watch now share, so a silent task never pays for or fails over the check.
 func gateRunApplies(t state.Task, reportedDone bool) bool {
-	return t.Kind == state.KindShip && t.PR != "" && reportedDone
+	return watcher.GateApplies(t.Kind, t.PR, reportedDone)
 }
 
 // Bounds one no-mistakes process the gate-run check spawns, the same 5 seconds prdetect.go bounds
@@ -301,13 +307,7 @@ func gateRunObservation(home string, t state.Task, reportedDone bool, p project.
 	if !gateRunApplies(t, reportedDone) {
 		return ""
 	}
-	// A project not registered or not run through no-mistakes stays silent alongside every task
-	// gateRunApplies rejects, since the check does not apply to it either.
-	if !registered || p.Mode != project.ModeNoMistakes {
-		return ""
-	}
-	prs, err := runPRs(filepath.Join(home, "projects", p.Name))
-	return project.ClassifyGateRun(prs, err, t.PR).State
+	return project.ObserveGateRun(home, p, registered, t.PR, runPRs)
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
@@ -397,11 +397,15 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly 
 		projectByName[p.Name] = p
 	}
 	runPRs := newGateRunReader(cmd.Context())
+	bounds, err := parkedBoundsFromConfig(home)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	views := make([]taskView, 0, len(histories))
 	for _, history := range histories {
 		t := history.Task
-		v, _ := buildTaskView(home, client, history, false, readOnly)
+		v, _ := buildTaskView(home, client, history, false, readOnly, bounds)
 		p, registered := projectByName[t.Project]
 		v.gateObserved = gateRunObservation(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)
@@ -457,8 +461,8 @@ func unacknowledged(home string, t state.Task, reported state.ReportLine, report
 
 // Derives everything both status views show from one already-read history, and returns the report lines
 // alongside so the detail view's history block and the summary line above it can never come from two
-// reads of the file.
-func buildTaskView(home string, client *herdr.Client, history state.TaskHistory, full, readOnly bool) (taskView, []state.ReportLine) {
+// reads of the file. bounds only applies to an open task's one running attempt.
+func buildTaskView(home string, client *herdr.Client, history state.TaskHistory, full, readOnly bool, bounds watcher.ParkedBounds) (taskView, []state.ReportLine) {
 	t := history.Task
 	attempts := history.Attempts
 	attempt := history.ActiveAttempt
@@ -469,7 +473,7 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 	if attempt != nil {
 		e = *attempt
 	}
-	agentState := paneAgentStatus(client, e.Herdr.PaneID)
+	agentState, reachable := probePaneStatus(client, e.Herdr.PaneID)
 	lines, readErr := state.ReadReportLines(home, t.ID)
 	reported, reportedOK := state.LastReportedState(lines)
 	unacked, readErr := unacknowledged(home, t, reported, reportedOK, readErr)
@@ -478,17 +482,25 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 	if len(lines) > 0 {
 		last = lines[len(lines)-1]
 	}
+	reportedState := ""
+	if reportedOK {
+		reportedState = reported.State
+	}
+	active := t.Lifecycle == state.TaskOpen && history.ActiveAttempt != nil && attempt.Lifecycle == state.AttemptRunning
 	v := taskView{
-		task:         t,
-		attempt:      attempt,
-		attempts:     attempts,
-		agentState:   agentState,
-		reportedLine: reportSummary(t.ID, lines, readErr, unacked, full),
-		lastReportAt: lastReportAt(home, t.ID),
-		reportFile:   state.ReportPath(home, t.ID),
-		unreadable:   readErr != nil,
-		unacked:      unacked,
-		reported:     reportedFrom(last, len(lines) > 0, readErr),
+		task:          t,
+		attempt:       attempt,
+		attempts:      attempts,
+		agentState:    agentState,
+		reportedState: reportedState,
+		reportedLine:  reportSummary(t.ID, lines, readErr, unacked, full),
+		lastReportAt:  lastReportAt(home, t.ID),
+		reportFile:    state.ReportPath(home, t.ID),
+		unreadable:    readErr != nil,
+		unacked:       unacked,
+		unreachable:   active && !reachable,
+		parked:        active && taskParked(home, t, e, reportedState, bounds),
+		reported:      reportedFrom(last, len(lines) > 0, readErr),
 	}
 	if attempt != nil {
 		latestSend := state.LatestSendMetadata
@@ -507,10 +519,36 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 			}
 		}
 	}
-	if reportedOK {
-		v.reportedState = reported.State
-	}
 	return v, lines
+}
+
+// Reports whether an open task's active pane has gone silent past its last reported state's bound,
+// the status-side counterpart ClassifyParked never had (atqamz/hand#32, atqamz/hand#268's
+// disagreement 2). Degrades to false on any read fault, like lastReportAt's own stat failure.
+func taskParked(home string, t state.Task, attempt state.Attempt, reportedState string, bounds watcher.ParkedBounds) bool {
+	silentSince, err := watcher.ReportEvidenceTime(home, t, attempt)
+	if err != nil {
+		return false
+	}
+	return watcher.Parked(reportedState, silentSince, time.Now(), bounds)
+}
+
+// Reads config/parked-*-bound, shared by newWatchCmd, once per render rather than once per task, so a
+// fleet of a hundred tasks reads config three times, not three hundred.
+func parkedBoundsFromConfig(home string) (watcher.ParkedBounds, error) {
+	paused, err := configSeconds(home, "parked-paused-bound", defaultParkedPausedBound)
+	if err != nil {
+		return watcher.ParkedBounds{}, err
+	}
+	done, err := configSeconds(home, "parked-done-bound", defaultParkedDoneBound)
+	if err != nil {
+		return watcher.ParkedBounds{}, err
+	}
+	other, err := configSeconds(home, "parked-other-bound", defaultParkedOtherBound)
+	if err != nil {
+		return watcher.ParkedBounds{}, err
+	}
+	return watcher.ParkedBounds{Paused: paused, Done: done, Other: other}, nil
 }
 
 // Bounds the attempt window both status renderers show, so the JSON and plain-text views can never
@@ -537,7 +575,7 @@ func (v taskView) json() statusJSON {
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
-		Reported: v.reported, GateObservation: string(v.gateObserved), RepairCode: v.task.RepairCode, RepairReason: v.task.RepairReason, RepairAttemptID: v.task.RepairAttemptID, RepairObservedAt: v.task.RepairObservedAt, Unacknowledged: v.unacked, Attempts: history,
+		Reported: v.reported, GateObservation: string(v.gateObserved), RepairCode: v.task.RepairCode, RepairReason: v.task.RepairReason, RepairAttemptID: v.task.RepairAttemptID, RepairObservedAt: v.task.RepairObservedAt, Unacknowledged: v.unacked, Parked: v.parked, Unreachable: v.unreachable, Attempts: history,
 		LatestSend: latestSendJSON(v.latestSend),
 	}
 }
@@ -571,10 +609,14 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	history.Task, prObserved = detectPRForStatus(cmd.Context(), home, history)
 	t := history.Task
 
+	bounds, err := parkedBoundsFromConfig(home)
+	if err != nil {
+		return err
+	}
 	// An unreadable report degrades exactly as it does in the fleet view: the
 	// fault is named on the report field and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
-	v, reportLines := buildTaskView(home, client, history, full, true)
+	v, reportLines := buildTaskView(home, client, history, full, true, bounds)
 	v.prObserved = prObserved
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.

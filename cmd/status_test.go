@@ -14,10 +14,12 @@ import (
 
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
 // Fakes "pane get" as a query command per internal/herdr/client.go's call() doc: a non-null result
@@ -715,8 +717,10 @@ func TestStatusFleetFlagsIdleWithoutTerminalReportAsUnreported(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "idle")
 
+	// Recent, not the fixed 2026-07-24 fixture other tests use: a task this old with no report at all
+	// would now also cross the default parked-other-bound, which is not what this test is about.
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		CreatedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -799,8 +803,10 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 	mkFleetDirs(t, home)
 	writeFakeHerdrPaneStatus(t, "working")
 
+	// Recent, not the fixed 2026-07-24 fixture other tests use: a task this old with no report at all
+	// would now also cross the default parked-other-bound, which is not what this test is about.
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
-		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		CreatedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -814,6 +820,96 @@ func TestStatusFleetDoesNotFlagWorkingTasks(t *testing.T) {
 	row := fleetRow(t, out.String(), "task-1")
 	if !strings.HasPrefix(row, "task-1,working,none,") || !strings.HasSuffix(row, ",none") {
 		t.Fatalf("got %q, want a working task carrying no report and no flags", row)
+	}
+}
+
+// atqamz/hand#268's disagreement 4, attention half: the same outage hand watch's ClassifyUnreachable
+// already announces as failed used to render "state: unknown" here with no flag and no attention.
+// Representing that state itself is atqamz/hand#270's separate job.
+func TestStatusFleetFlagsUnreachablePaneAndCountsAttention(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	t.Setenv("PATH", t.TempDir())
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "attention: 1\n") {
+		t.Fatalf("got %q, want attention: 1 for a pane that claims a pane but never answers", out.String())
+	}
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "unreachable") {
+		t.Fatalf("flags = %v, want unreachable", got)
+	}
+}
+
+// atqamz/hand#268's disagreement 2: KindParked existed only in hand watch, and atqamz/hand#32's own
+// pane rendered plain "state: idle" with no counterpart at all. A busy pane isolates the new
+// condition from unreportedStop, which requires the pane to be not-busy.
+func TestStatusFleetFlagsParkedPaneAndCountsAttention(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "working")
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "parked-other-bound"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-5 * time.Second).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "attention: 1\n") {
+		t.Fatalf("got %q, want attention: 1 for a pane silent past the parked bound", out.String())
+	}
+	got := fleetFlags(t, out.String(), "task-1")
+	if !slices.Contains(got, "parked") {
+		t.Fatalf("flags = %v, want parked", got)
+	}
+	if slices.Contains(got, "unreported") {
+		t.Fatalf("flags = %v, want no unreported: the pane is busy, so only parked explains this", got)
+	}
+}
+
+// atqamz/hand#268's "done when": a condition is added once, and both hand status and hand watch see
+// it without a second registration. watcher.GateKind is that one edit's home, so the fleet view's
+// flag and hand watch's known-kind vocabulary can never name a gate-run problem differently.
+func TestGateFlagMatchesAWatchKnownKind(t *testing.T) {
+	for _, observed := range []ghutil.ObservationState{ghutil.ObservationAbsent, ghutil.ObservationUnknown} {
+		view := taskView{task: state.Task{ID: "task-1"}, gateObserved: observed}
+		kind, ok := watcher.GateKind(observed)
+		if !ok {
+			t.Fatalf("observed %q: GateKind reported no problem", observed)
+		}
+		if flags := taskFlags(view); !slices.Contains(flags, kind) {
+			t.Fatalf("observed %q: flags = %v, want %q", observed, flags, kind)
+		}
+		if !slices.Contains(watcher.KnownKinds(), kind) {
+			t.Fatalf("observed %q: %q is not one of hand watch's KnownKinds", observed, kind)
+		}
+		if !needsAttention(view) {
+			t.Fatalf("observed %q: want needsAttention true", observed)
+		}
 	}
 }
 
@@ -1670,7 +1766,7 @@ func TestBuildTaskViewUsesSendFromActiveAttempt(t *testing.T) {
 			{ID: 2, TaskID: "task-1", AttemptID: 2, State: state.SendSubmitted},
 		},
 	}
-	view, _ := buildTaskView(t.TempDir(), nil, history, false, false)
+	view, _ := buildTaskView(t.TempDir(), nil, history, false, false, watcher.ParkedBounds{})
 	if view.latestSend == nil || view.latestSend.ID != 2 || view.latestSend.AttemptID != active.ID {
 		t.Fatalf("latest send = %+v, want active Attempt send", view.latestSend)
 	}
@@ -1696,7 +1792,7 @@ func TestStatusFlagsPartialSendAfterFreshRead(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			history := base
 			history.Sends = []state.SendAttempt{{ID: 1, TaskID: "task-1", AttemptID: active.ID, State: test.send.State, ReasonCode: test.send.ReasonCode}}
-			view, _ := buildTaskView(t.TempDir(), nil, history, false, false)
+			view, _ := buildTaskView(t.TempDir(), nil, history, false, false, watcher.ParkedBounds{})
 			flags := strings.Join(taskFlags(view), " ")
 			if test.wantFlag != "" && !strings.Contains(flags, test.wantFlag) {
 				t.Fatalf("flags = %q, want %q", flags, test.wantFlag)
@@ -1736,7 +1832,7 @@ func TestStatusReadsPartialSendAttentionFromDurableMetadata(t *testing.T) {
 	if history.Sends != nil {
 		t.Fatalf("history.Sends = %+v, want metadata fetched by status only", history.Sends)
 	}
-	view, _ := buildTaskView(home, nil, history, false, false)
+	view, _ := buildTaskView(home, nil, history, false, false, watcher.ParkedBounds{})
 	if !needsAttention(view) || !strings.Contains(strings.Join(taskFlags(view), " "), "send-partial") {
 		t.Fatalf("view flags=%v attention=%t, want durable partial send attention", taskFlags(view), needsAttention(view))
 	}

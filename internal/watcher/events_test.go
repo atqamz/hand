@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -417,6 +418,47 @@ func TestClassifyPRMergedFiresOnce(t *testing.T) {
 	}
 	if e := ClassifyPRMerged(ts, "task-1", true); e != nil {
 		t.Fatalf("pr-merged fired again: %+v", e)
+	}
+}
+
+// atqamz/hand#268's disagreement 1: a PR behind no completed gate run was attention in hand status
+// and silence in hand watch, because nothing here ever asked the question. GateKind is the same
+// mapping cmd/statusview.go's taskFlags renders, so the two can never drift on what the tokens mean.
+func TestGateKindMatchesTheTokensStatusRenders(t *testing.T) {
+	if kind, ok := GateKind(ghutil.ObservationAbsent); !ok || kind != KindGateAbsent {
+		t.Fatalf("GateKind(absent) = %q, %t, want %q, true", kind, ok, KindGateAbsent)
+	}
+	if kind, ok := GateKind(ghutil.ObservationUnknown); !ok || kind != KindGateUnknown {
+		t.Fatalf("GateKind(unknown) = %q, %t, want %q, true", kind, ok, KindGateUnknown)
+	}
+	if _, ok := GateKind(ghutil.ObservationFound); ok {
+		t.Fatal("GateKind(found) reported a problem, want none: a found run is not attention")
+	}
+	if _, ok := GateKind(""); ok {
+		t.Fatal("GateKind(\"\") reported a problem, want none: an empty observation means the check never applied")
+	}
+}
+
+func TestClassifyGateProblemFiresOnceThenResetsWhenApplicabilityLapses(t *testing.T) {
+	ts := NewTaskState(herdr.StatusWorking, time.Now())
+
+	if e := ClassifyGateProblem(ts, "task-1", false, ghutil.ObservationAbsent); e != nil {
+		t.Fatalf("got %+v, want no event while the check does not apply", e)
+	}
+	if e := ClassifyGateProblem(ts, "task-1", true, ghutil.ObservationFound); e != nil {
+		t.Fatalf("got %+v, want no event for a found run", e)
+	}
+	if e := ClassifyGateProblem(ts, "task-1", true, ghutil.ObservationAbsent); e == nil || e.Kind != KindGateAbsent {
+		t.Fatalf("got %+v, want a gate-absent event", e)
+	}
+	if e := ClassifyGateProblem(ts, "task-1", true, ghutil.ObservationAbsent); e != nil {
+		t.Fatalf("gate-absent fired again in the same episode: %+v", e)
+	}
+	if e := ClassifyGateProblem(ts, "task-1", false, ""); e != nil {
+		t.Fatalf("got %+v, want no event once the check stops applying", e)
+	}
+	if e := ClassifyGateProblem(ts, "task-1", true, ghutil.ObservationUnknown); e == nil || e.Kind != KindGateUnknown {
+		t.Fatalf("got %+v, want gate-unknown to fire once more: the earlier episode ended when applicability lapsed", e)
 	}
 }
 

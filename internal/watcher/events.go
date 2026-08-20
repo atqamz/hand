@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/age"
+	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -20,6 +21,11 @@ const (
 	KindFailed         = "failed"
 	KindStale          = "stale"
 	KindPRMerged       = "pr-merged"
+	// The two answers cmd/statusview.go's gateProblem already renders as "gate-absent"/"gate-unknown" -
+	// GateKind is the one place both hand status and hand watch turn a gate-run observation into these
+	// tokens, so the strings can never drift apart the way atqamz/hand#268 found them.
+	KindGateAbsent  = "gate-absent"
+	KindGateUnknown = "gate-unknown"
 	// An auto-record attempted and not completed, for any reason from refused validation through
 	// unreadable state. The remedy is `hand pr`, which reconciles all of them rather than no-opping.
 	KindPRNotRecorded = "pr-not-recorded"
@@ -49,6 +55,7 @@ const (
 func KnownKinds() []string {
 	return []string{
 		KindIdleUnreported, KindBlocked, KindFailed, KindStale, KindPRMerged,
+		KindGateAbsent, KindGateUnknown,
 		KindPRNotRecorded, KindPRRecordUnknown, KindReportWorking, KindReportPaused,
 		KindReportBlocked, KindReportNeedsDecision, KindReportDone, KindReportFailed,
 		KindReportMalformed, KindParked,
@@ -57,19 +64,20 @@ func KnownKinds() []string {
 }
 
 // CatchUpFilter is the subset of kinds an arm-time observation may deliver: every kind whose
-// announcement durable state records, so a re-arm meeting a condition some watcher already
-// announced stays quiet instead of re-firing it once per arm.
+// announcement durable state records, so a re-arm meeting an already-announced condition stays quiet.
+// KindStale is the one exclusion, and needsAttention never modeled it either - the same call (atqamz/hand#268).
 func CatchUpFilter() EventFilter {
 	f := NewEventFilter(KnownKinds())
-	// KindStale is the one exclusion. Its latch is re-derived per watcher process, and its dwell is
-	// satisfied by any task whose herdr status has simply not changed lately, so delivering it at arm
-	// would return from every re-arm at once, forever.
+	// Its latch is re-derived per watcher process, and its dwell is satisfied by any task whose herdr
+	// status has simply not changed lately, so delivering it at arm would return from every re-arm at
+	// once, forever.
 	delete(f, KindStale)
 	return f
 }
 
-// NotifyFilter is the fixed subset of events worth sending through the
-// watcher's unattended notification channel.
+// NotifyFilter is the fixed subset of events worth sending through the watcher's unattended
+// notification channel: a curated filter over KnownKinds, not a second attention definition
+// (atqamz/hand#268). Neither gate kind is in it - a merge precondition, not an unattended interrupt.
 func NotifyFilter() EventFilter {
 	// report-blocked is listed even though blocked already is: it is the worker's own report-channel
 	// declaration that it is stuck, not the herdr transition, and ClassifyStatus suppresses
@@ -138,6 +146,9 @@ type TaskState struct {
 	Blocked          bool
 	Stale            bool
 	PRMerged         bool
+	// Re-derived, never persisted, for the reason UnreachableFired is: a restart re-asking no-mistakes
+	// once more is cheap, while a suppressed regression is not.
+	GateProblemFired bool
 	ReportCursor     state.ReportCursor
 	// The Persisted* fields mirror what the task's durable state already carries,
 	// so a write skipped for lock contention is retried on the next tick instead
@@ -345,19 +356,29 @@ func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, ex
 	return bound, false
 }
 
+// Parked is the level check behind ClassifyParked's latch, exported so cmd/statusview.go can ask the
+// same question for atqamz/hand#32's own case (atqamz/hand#268's disagreement 2). silentSince is the
+// evidence instant ReportEvidenceTime floors, the same one ClassifyParked calls mtime.
+func Parked(lastReportState string, silentSince, now time.Time, bounds ParkedBounds) bool {
+	bound, exempt := parkedBound(lastReportState, bounds)
+	if exempt {
+		return false
+	}
+	return now.Sub(silentSince) >= bound
+}
+
 // mtime is deliberately never reset to "now" on resume: --until-event restarts on
 // every delivered event, and a busy fleet would otherwise erase the clock before
 // it ever completes once.
 func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds) *Event {
-	bound, exempt := parkedBound(lastState, bounds)
-	if exempt {
+	if _, exempt := parkedBound(lastState, bounds); exempt {
 		ts.ParkedFiredFor = time.Time{}
 		return nil
 	}
 	if mtime.Equal(ts.ParkedFiredFor) {
 		return nil
 	}
-	if now.Sub(mtime) < bound {
+	if !Parked(lastState, mtime, now, bounds) {
 		return nil
 	}
 	ts.ParkedFiredFor = mtime
@@ -376,6 +397,46 @@ func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {
 	}
 	ts.PRMerged = true
 	return &Event{TaskID: id, Kind: KindPRMerged, Text: fmt.Sprintf("pr-merged %s", id)}
+}
+
+// GateApplies is cmd/statusview.go's gateRunApplies, exported: the gate-run check has anything to say
+// about a task only when it is a done ship task carrying a recorded PR, and hand status and hand
+// watch must agree on that before either of them shells out to ask no-mistakes anything.
+func GateApplies(taskKind, pr string, reportedDone bool) bool {
+	return taskKind == state.KindShip && pr != "" && reportedDone
+}
+
+// GateKind maps a gate-run observation to the attention condition it represents, the token
+// cmd/statusview.go's taskFlags already renders as "gate-absent"/"gate-unknown". ok is false for a
+// found run or an observation the check never reached, neither of which is a problem to report.
+func GateKind(observed ghutil.ObservationState) (kind string, ok bool) {
+	switch observed {
+	case ghutil.ObservationAbsent:
+		return KindGateAbsent, true
+	case ghutil.ObservationUnknown:
+		return KindGateUnknown, true
+	}
+	return "", false
+}
+
+// ClassifyGateProblem closes atqamz/hand#268's disagreement 1: a PR behind no completed gate run used
+// to be attention in hand status and silence here. Fires once per process like ClassifyPRMerged, and
+// resets as soon as the check stops applying so a later attempt gets its own announcement.
+func ClassifyGateProblem(ts *TaskState, id string, applies bool, observed ghutil.ObservationState) *Event {
+	if !applies {
+		ts.GateProblemFired = false
+		return nil
+	}
+	kind, ok := GateKind(observed)
+	if !ok {
+		ts.GateProblemFired = false
+		return nil
+	}
+	if ts.GateProblemFired {
+		return nil
+	}
+	ts.GateProblemFired = true
+	return &Event{TaskID: id, Kind: kind, Text: fmt.Sprintf("%s %s", kind, id)}
 }
 
 // ClassifyReportLine turns one classified report line into an event and records it as
