@@ -67,6 +67,12 @@ func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 				return doc.Render(cmd.OutOrStdout())
 			}
 
+			if !selfupdate.CanSelfUpdate(info.Distribution) {
+				doc := updateDoc(info, target, true, false, "not-applicable", "not-applicable", nil)
+				doc.Help(ownershipRefusalHelp(info.Distribution))
+				return doc.Render(cmd.OutOrStdout())
+			}
+
 			if err := selfupdate.Apply(selfupdate.Repo, target.Tag); err != nil {
 				return err
 			}
@@ -137,6 +143,7 @@ func updateDoc(info selfupdate.BuildInfo, target selfupdate.Target, available, u
 	doc.Field("current", info.Version)
 	doc.Field("current_channel", info.Channel)
 	doc.Field("current_commit", selfupdate.DisplayCommit(info.Commit))
+	doc.Field("distribution", info.Distribution)
 	doc.Field("latest", target.Version)
 	doc.Field("latest_channel", target.Channel)
 	doc.Field("latest_commit", selfupdate.DisplayCommit(target.Commit))
@@ -154,6 +161,18 @@ func updateHelp(target selfupdate.Target, explicit bool) string {
 		command += " --channel " + target.Channel
 	}
 	return "Run `" + command + "` to install " + target.Version + ", which also refreshes this home's AGENTS.md template"
+}
+
+// A package manager's install is its own to manage, and a go/source build was never a
+// hand release artifact, so self-replacing either would surprise whatever placed it.
+func ownershipRefusalHelp(distribution string) string {
+	command := selfupdate.UpgradeCommand(distribution)
+	switch distribution {
+	case selfupdate.DistributionGo, selfupdate.DistributionSource:
+		return "hand will not replace a " + distribution + " build; " + command
+	default:
+		return "hand will not replace a package-manager-owned build; " + command
+	}
 }
 
 // The binary is replaced whatever this says, so every outcome is a value of

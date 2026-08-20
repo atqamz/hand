@@ -127,6 +127,7 @@ func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
 	doc := "current: v0.1.0\n" +
 		"current_channel: stable\n" +
 		"current_commit: unknown\n" +
+		"distribution: \"\"\n" +
 		"latest: v0.5.0\n" +
 		"latest_channel: stable\n" +
 		"latest_commit: unknown\n" +
@@ -526,6 +527,7 @@ func checkedUpdateDoc(current, latest string, available bool) string {
 	doc := "current: " + current + "\n" +
 		"current_channel: " + currentChannel + "\n" +
 		"current_commit: unknown\n" +
+		"distribution: \"\"\n" +
 		"latest: " + latest + "\n" +
 		"latest_channel: stable\n" +
 		"latest_commit: unknown\n" +
