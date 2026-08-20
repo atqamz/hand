@@ -98,7 +98,7 @@ func TestMigrationAddsEmptyAttemptBranchToAnExistingDatabase(t *testing.T) {
 	if _, err := db.sql.Exec(`INSERT INTO attempt (task_id, ordinal, lifecycle, harness, model, effort, worktree) VALUES ('legacy', 1, 'running', 'claude', 'opus', 'high', '/w/legacy')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.sql.Exec(`PRAGMA user_version = ` + strconv.Itoa(len(migrations)-1)); err != nil {
+	if _, err := db.sql.Exec(`PRAGMA user_version = ` + strconv.Itoa(attemptBranchVersion)); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
