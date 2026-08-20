@@ -927,8 +927,8 @@ func (db *DB) readTaskHistoryBeforeSend(id string) (TaskHistory, bool, error) {
 	if db.empty {
 		return TaskHistory{}, false, nil
 	}
-	row := db.sql.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
-	task, err := scanTask(row)
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeAcknowledgement+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeAcknowledgement(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskHistory{}, false, nil
 	}
@@ -1156,7 +1156,7 @@ func (db *DB) listReconciliationHistoriesBeforeSend() ([]TaskHistory, error) {
 	if db.empty {
 		return nil, nil
 	}
-	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+	rows, err := db.sql.Query(`SELECT ` + taskColumnsBeforeAcknowledgement + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
 		SELECT 1 FROM attempt
 		WHERE attempt.task_id = task.id
 		AND attempt.lifecycle NOT IN ('provisioning', 'running')
@@ -1172,7 +1172,7 @@ func (db *DB) listReconciliationHistoriesBeforeSend() ([]TaskHistory, error) {
 	defer func() { _ = rows.Close() }()
 	var histories []TaskHistory
 	for rows.Next() {
-		task, err := scanTask(rows)
+		task, err := scanTaskBeforeAcknowledgement(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
 		}
