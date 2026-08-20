@@ -101,7 +101,7 @@ function Install-Hand {
             }
 
             Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $tmp -Force
-            New-Item -ItemType Directory -LiteralPath $installDir -Force | Out-Null
+            New-Item -ItemType Directory -Path $installDir -Force | Out-Null
             Copy-Item -Path (Join-Path $tmp "hand.exe") -Destination (Join-Path $installDir "hand.exe") -Force
         } finally {
             Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
@@ -126,6 +126,8 @@ if (-not $handAvailable) {
 # ---- step 2: detect/install missing foundational dependencies ---------------------------------
 
 function Update-ProcessPathFromRegistry {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'mutates only this process''s in-memory $env:PATH, not persistent or external state, so a -WhatIf/-Confirm contract would serve no one')]
+    param()
     $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
     $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
     $pathDirs = @($machinePath, $userPath) | ForEach-Object { if ($_){ $_ -split ';' } } | Where-Object { $_ }
@@ -311,7 +313,7 @@ function Get-FleetState {
     try {
         $children = @(Get-ChildItem -LiteralPath $Fleet -Force -ErrorAction Stop)
     } catch {
-        Fail "cannot inspect fleet target $Fleet: $($_.Exception.Message)"
+        Fail "cannot inspect fleet target $Fleet`: $($_.Exception.Message)"
     }
     if ($children.Count -eq 0) {
         return 'empty'
@@ -345,7 +347,7 @@ if ($Check) {
 # ---- step 4: hand init, then hand doctor for the authoritative readiness result ----------------
 
 if ($state -eq 'absent') {
-    New-Item -ItemType Directory -LiteralPath $Fleet -Force | Out-Null
+    New-Item -ItemType Directory -Path $Fleet -Force | Out-Null
 }
 
 $initOut = (& hand init $Fleet 2>&1 | Out-String)
