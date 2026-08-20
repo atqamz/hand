@@ -178,7 +178,7 @@ func observeHerdrOwnership(client herdrClient, expected state.Herdr, taskID, pro
 	if pane.PaneID != expected.PaneID || pane.TabID != expected.TabID || pane.WorkspaceID != expected.WorkspaceID {
 		return herdrObservation{State: herdrOwnershipMismatch}, nil
 	}
-	return herdrObservation{State: herdrOwnershipExact, Agent: pane.Agent}, nil
+	return herdrObservation{State: herdrOwnershipExact, Agent: pane.Agent, AgentStatus: pane.AgentStatus}, nil
 }
 
 func isHerdrNotFound(err error) bool {

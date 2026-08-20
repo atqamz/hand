@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/runtime"
@@ -165,6 +166,65 @@ func TestReconcileCommandRendersPaneAbandonmentDetail(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("action: abandon-pane")) || !bytes.Contains(out.Bytes(), []byte("detail: attempt 7 relinquished its Herdr identity")) {
 		t.Fatalf("rendered report = %q, want the pane attestation recorded in the output", out.String())
+	}
+}
+
+func TestReconcileCommandRendersIdleUnreportedLiveness(t *testing.T) {
+	report := runtime.ReconcileReport{Results: []runtime.ReconcileResult{
+		{ID: "task-a", Outcome: "healthy", Action: "keep", Liveness: "idle-unreported"},
+	}}
+	var out bytes.Buffer
+	cmd := newReconcileCmd()
+	cmd.SetOut(&out)
+	if err := renderReconcileReport(cmd, report, false); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("liveness: idle-unreported")) {
+		t.Fatalf("rendered report = %q, want the idle-unreported liveness recorded in the output", out.String())
+	}
+}
+
+// End to end through the real command: a running Attempt whose Herdr pane proves the harness present
+// but idle, with nothing reported since launch, is classified without any flag or manual input
+// (atqamz/hand#259).
+func TestReconcileCommandObservesIdleUnreportedLivenessFromHerdr(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HAND_HOME", home)
+	if err := os.MkdirAll(state.Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	launchConfirmedAt := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	if _, err := state.CreateAttempt(home, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptRunning, Harness: "claude",
+		Herdr:             state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+		LaunchSubmittedAt: launchConfirmedAt, LaunchConfirmedAt: launchConfirmedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "ws-1", Label: "hand:demo", Tabs: []faketool.HerdrTab{{ID: "tab-1", Label: "task-1", Pane: "pane-1"}}}},
+		PaneAgent:  "claude", PaneStatus: "idle",
+	}.Install(t, faketool.Bin(t))
+	cmd := newReconcileCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("liveness: idle-unreported")) || !bytes.Contains(out.Bytes(), []byte("result: healthy")) {
+		t.Fatalf("reconcile output = %q, want a healthy result naming idle-unreported liveness", out.String())
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := history.ActiveAttempt
+	if got == nil || got.Lifecycle != state.AttemptRunning || got.StatusChangedFor != "idle" || got.StatusChangedAt == "" {
+		t.Fatalf("attempt = %+v, want a still-running attempt with its idle status durably recorded", got)
 	}
 }
 

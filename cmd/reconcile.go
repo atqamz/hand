@@ -26,6 +26,13 @@ func newReconcileCmd() *cobra.Command {
 			"the landing cannot be observed at all the reported landing is `unknown`, no lifecycle value is\n" +
 			"invented, and the condition is recorded as needs-repair instead. Convergence releases no resource\n" +
 			"of its own, so a Herdr or worktree resource that needs repair never holds the lifecycle back.\n\n" +
+			"A running Attempt whose Herdr pane is still present is also read for `agent_status`: `working` or\n" +
+			"`blocked` are reported as such, and `idle-unreported` names a pane that stopped being busy with\n" +
+			"nothing on the report channel explaining it since launch. The fact is recorded in the Attempt's\n" +
+			"durable status columns, so it survives whether or not `hand watch` was ever running, and it changes\n" +
+			"no lifecycle by itself: an idle, still-present harness may yet resume. Where the harness carries a\n" +
+			"catalogued usage-limit signature, an idle-unreported Attempt is also checked for it, and a detected\n" +
+			"limit's stated reset time is preserved the same way `hand watch` would preserve it.\n\n" +
 			"Automatic worktree return also requires proof that no commit exists only there: a commit reachable\n" +
 			"from a remote-tracking ref, or one GitHub records as the head of the task pull request, is held\n" +
 			"elsewhere too. Unpushed commits withhold the return, and so does a comparison that could not be\n" +
@@ -113,6 +120,9 @@ func renderReconcileReport(cmd *cobra.Command, report runtime.ReconcileReport, a
 		}
 		if result.Landing != "" {
 			doc.Field("landing", result.Landing)
+		}
+		if result.Liveness != "" {
+			doc.Field("liveness", result.Liveness)
 		}
 		if result.RepairCode != "" {
 			doc.Field("repair_code", result.RepairCode)
