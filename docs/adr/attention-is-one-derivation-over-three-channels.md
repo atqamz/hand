@@ -12,7 +12,7 @@ There is no stated contract for what a report is, what acknowledging one means, 
 
 Two decisions already settle pieces of it.
 [The report file owns worker outcome](the-report-channel-is-the-only-outcome-signal.md) made `state/<id>.status` the sole source of what a worker says happened, and kept herdr state independent of it.
-[Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md) made wake level-triggered over durable fleet truth, and closed by naming atqamz/hand#244 as the owner of the acknowledgement model it deliberately did not define.
+[Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md) made wake level-triggered over durable fleet truth, and deliberately left the acknowledgement model to this record.
 Neither says how many definitions of attention the tool is allowed to have, nor what distinguishes a condition some watcher announced from one a supervisor has taken responsibility for.
 
 The listed defects, each mapped to the invariant below that would have prevented it.
@@ -76,9 +76,9 @@ Announcement and acknowledgement are two different facts and the tool spells the
 Without the second, "needs attention" cannot be told from "needed attention, already handled", which is why the same condition resurfaces every poll.
 
 Binds `hand status`, `hand watch`, and `hand session`, and is recorded by [`internal/store`](../../internal/store).
-The two markers that exist today are both announcement markers, not acknowledgement markers: `internal/state.UnacknowledgedTerminalReport` reads the durable report cursor, and `attempt.status_changed_for` names the herdr episode a watcher already announced.
-The `unacknowledged` flag `cmd/statusview.go` prints therefore means unannounced, and that spelling is wrong under this record.
-The surface acknowledgement is performed through is the operator's to choose and is deliberately not decided here.
+The durable report cursor and `attempt.status_changed_for` remain announcement markers: the former records the report channel a watcher has delivered, and the latter names the herdr episode a watcher already announced.
+The durable acknowledgement cursor is separate, and `hand status` exposes both facts as `unacknowledged` and `unannounced`.
+The surface acknowledgement is `hand ack <id> [--reason <text>]`, which records the supervisor's act without redefining the announcement cursor.
 
 ### 4. Read-only observation does not silently mutate acknowledgement
 
@@ -87,7 +87,7 @@ Observing is not acknowledging.
 If reading should ever acknowledge, that is an explicit flag on an explicit contract, never the default.
 
 Binds `hand status` and every read-only path [`internal/state`](../../internal/state) and [`internal/project`](../../internal/project) expose for it, including `ReadHistoryReadOnly`, `ListReconciliationHistoriesReadOnly`, `ReadHoldReadOnly`, `project.ListReadOnly`, and `runtime.DetectPRReadOnly`.
-`hand status` satisfies this today only because there is no acknowledgement record to mutate, so this invariant is a constraint on how invariant 3 is built rather than a description of current behavior.
+`hand status` satisfies this by reading the acknowledgement cursor through migration-aware read-only paths; only explicit `hand ack` writes acknowledgement.
 
 ### 5. `status` and `watch` derive attention from compatible semantics
 
@@ -150,10 +150,10 @@ A fourth observation, including the report timestamp used by `hand status`, reus
 Five follow-on issues implement the rest, one per invariant: atqamz/hand#266 for invariant 1, atqamz/hand#267 for invariant 3 carrying invariant 4 as an acceptance criterion, atqamz/hand#268 for invariant 5, atqamz/hand#269 for invariant 6, and atqamz/hand#270 for invariant 7.
 Invariant 7 is implemented by atqamz/hand#270: status preserves an unknown report timestamp observation instead of rendering it as an absent report, and the already-unified unreachable-pane path renders unknown without guessing.
 Invariant 2 is met today, by atqamz/hand#140's parse fix and atqamz/hand#149's cursor digest, and gets no follow-on issue.
-Invariant 4 is met vacuously and becomes a test obligation on invariant 3's implementation rather than work of its own.
+Invariant 4 is met by invariant 3's implementation and its read-only regression test rather than by work of its own.
 Neither atqamz/hand#252 nor atqamz/hand#240 fully satisfies an invariant on its own: atqamz/hand#252 settles the announcement layer invariant 3 is defined against, and atqamz/hand#240 establishes the vocabulary invariant 7 generalizes.
 
-Announcement and acknowledgement stop being interchangeable words, and one existing output field is misnamed under that split until invariant 3 lands.
+Announcement and acknowledgement are now distinct words and output fields.
 `ghutil.ObservationState` becomes the vocabulary a new observation reuses rather than restates, so the count of found/absent/unknown types stops growing with the count of things hand observes.
 Any new attention condition is one edit that both `hand status` and `hand watch` inherit, and a consumer that wants less filters rather than redefines.
 A disagreement between channels becomes something a supervisor can read directly instead of discovering when a later command refuses a precondition.

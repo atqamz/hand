@@ -433,6 +433,7 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
 | `hand reopen <id>` | Reopen a terminal Task by creating a new Attempt. |
 | `hand status` | Read fleet or task state. |
+| `hand ack <id> [--reason <text>]` | Record that a supervisor has acknowledged a task's report. |
 | `hand reconcile [id] [--abandon-worktree] [--abandon-pane] [--attempt-never-started]` | Reconcile one Task or the bounded fleet candidate set with observed external reality; given a Task ID, explicitly relinquish a historical worktree lease or Herdr pane identity whose ownership no observation can settle, or attest that a running Attempt's worker took no turn so the ordinary release path can end it. |
 | `hand watch` | Wait for actionable fleet events. |
 | `hand send` | Steer a running worker. |

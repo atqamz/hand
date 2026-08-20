@@ -367,6 +367,15 @@ func SetTaskReportState(homeDir, id string, offset int64, digest string, mergeAn
 	return db.SetTaskReportState(id, offset, digest, mergeAnnounced)
 }
 
+func SetTaskAcknowledgement(homeDir, id, at, reason string, offset int64, digest string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskAcknowledgement(id, at, reason, offset, digest)
+}
+
 func SetTaskRepair(homeDir, id, code, reason string, attemptID int64, observedAt string) error {
 	db, err := store.Open(homeDir)
 	if err != nil {

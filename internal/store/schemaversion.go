@@ -145,6 +145,10 @@ var migrations = []string{
 	// already carries the column, so a plain ALTER TABLE would fail wherever a test or a home
 	// builds its fixture from the current schema before stamping an older version onto it.
 	`SELECT 1;`,
+	// The real ALTER TABLEs run from ensureAcknowledgementColumns instead, guarded by column existence
+	// like ensureUsageLimitEpisodeColumns: a home already carrying the current schema.Task layout when
+	// its version is forced backward must replay this step without a duplicate-column error.
+	`SELECT 1;`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -162,10 +166,15 @@ const repairMetadataVersion = routingProvenanceVersion + 1
 const sendSchemaVersion = repairMetadataVersion + 1
 
 const sendHardeningMigrationVersion = sendSchemaVersion
-
 const holdInferredVersion = sendHardeningMigrationVersion + 1
 
 const attemptBranchVersion = holdInferredVersion + 1
+
+// The last version without the acknowledgement columns atqamz/hand#267 added - the read-only ladder's
+// guard against selecting them from a home migrateSchema has not yet reached.
+const preAcknowledgementVersion = attemptBranchVersion + 1
+
+const acknowledgedMetadataVersion = preAcknowledgementVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -206,6 +215,30 @@ func (db *DB) hasRepairMetadataColumns() (bool, error) {
 	var count int
 	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name IN ('repair_code', 'repair_reason', 'repair_attempt_id', 'repair_observed_at')`).Scan(&count); err != nil {
 		return false, fmt.Errorf("detect repair metadata columns: %w", err)
+	}
+	return count == 4, nil
+}
+
+func (db *DB) hasHoldInferredColumn() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('hold') WHERE name = 'inferred'`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect hold inferred column: %w", err)
+	}
+	return count == 1, nil
+}
+
+func (db *DB) hasAttemptBranchColumn() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name = 'branch'`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect attempt branch column: %w", err)
+	}
+	return count == 1, nil
+}
+
+func (db *DB) hasAcknowledgementColumns() (bool, error) {
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name IN ('acknowledged_at', 'acknowledged_reason', 'acknowledged_offset', 'acknowledged_digest')`).Scan(&count); err != nil {
+		return false, fmt.Errorf("detect acknowledgement columns: %w", err)
 	}
 	return count == 4, nil
 }
@@ -307,6 +340,27 @@ func (db *DB) migrateSchema() error {
 						}
 						if repairComplete && latest >= repairMetadataVersion {
 							stamp = repairMetadataVersion
+							holdInferredComplete, err := db.hasHoldInferredColumn()
+							if err != nil {
+								return err
+							}
+							if holdInferredComplete && latest >= holdInferredVersion {
+								stamp = holdInferredVersion
+								attemptBranchComplete, err := db.hasAttemptBranchColumn()
+								if err != nil {
+									return err
+								}
+								if attemptBranchComplete && latest >= attemptBranchVersion {
+									stamp = attemptBranchVersion
+									acknowledgementComplete, err := db.hasAcknowledgementColumns()
+									if err != nil {
+										return err
+									}
+									if acknowledgementComplete && latest >= acknowledgedMetadataVersion {
+										stamp = acknowledgedMetadataVersion
+									}
+								}
+							}
 						}
 					}
 				}
@@ -423,6 +477,11 @@ func (db *DB) applyMigration(version int) error {
 			return err
 		}
 	}
+	if version == preAcknowledgementVersion {
+		if err := ensureAcknowledgementColumns(tx); err != nil {
+			return err
+		}
+	}
 	if err := recordSchemaVersion(tx, version+1); err != nil {
 		return err
 	}
@@ -484,6 +543,40 @@ func ensureAttemptBranchColumn(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`ALTER TABLE attempt ADD COLUMN branch TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("add attempt branch column: %w", err)
+	}
+	return nil
+}
+
+func ensureAcknowledgementColumns(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT name FROM pragma_table_info('task') WHERE name IN ('acknowledged_at', 'acknowledged_reason', 'acknowledged_offset', 'acknowledged_digest')`)
+	if err != nil {
+		return fmt.Errorf("inspect acknowledgement columns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	found := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("inspect acknowledgement columns: %w", err)
+		}
+		found[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("inspect acknowledgement columns: %w", err)
+	}
+	columns := []struct{ name, ddl string }{
+		{"acknowledged_at", "TEXT NOT NULL DEFAULT ''"},
+		{"acknowledged_reason", "TEXT NOT NULL DEFAULT ''"},
+		{"acknowledged_offset", "INTEGER NOT NULL DEFAULT 0"},
+		{"acknowledged_digest", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range columns {
+		if found[column.name] {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE task ADD COLUMN ` + column.name + ` ` + column.ddl); err != nil {
+			return fmt.Errorf("add %s: %w", column.name, err)
+		}
 	}
 	return nil
 }

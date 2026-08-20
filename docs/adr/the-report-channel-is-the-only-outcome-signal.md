@@ -13,7 +13,7 @@ Herdr owns whether a pane is busy, but its idle and done labels do not explain w
 
 `state/<id>.status` is the sole source of what a worker says happened. It is a plain worker-written, hand-read file with a fixed small vocabulary. Herdr state is independent liveness evidence, and completion claims are checked against artifacts before the tool treats them as verified.
 
-When a stored projection and the file disagree about the worker's report, the file wins. There is no database-backed replacement or recovery dump. [`internal/state/report.go`](../../internal/state/report.go), status rendering, and watcher tests own parsing and acknowledgement behavior; [`internal/agentsmd`](../../internal/agentsmd) owns the worker guidance.
+When a stored projection and the file disagree about the worker's report, the file wins. There is no database-backed replacement or recovery dump. [`internal/state/report.go`](../../internal/state/report.go), status rendering, and watcher tests own parsing and announcement behavior; [`internal/agentsmd`](../../internal/agentsmd) owns the worker guidance.
 
 ## Rejected alternatives
 

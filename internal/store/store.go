@@ -152,6 +152,12 @@ type Task struct {
 	RepairReason     string        `json:"repair_reason"`
 	RepairAttemptID  int64         `json:"repair_attempt_id"`
 	RepairObservedAt string        `json:"repair_observed_at"`
+	// A supervisor's own act, distinct from report_offset/report_digest which record what a watcher has
+	// announced: atqamz/hand#267 keeps the two markers apart because they answer different questions.
+	AcknowledgedAt     string `json:"acknowledged_at"`
+	AcknowledgedReason string `json:"acknowledged_reason"`
+	AcknowledgedOffset int64  `json:"acknowledged_offset"`
+	AcknowledgedDigest string `json:"acknowledged_digest"`
 }
 
 type Attempt struct {
@@ -285,7 +291,11 @@ CREATE TABLE IF NOT EXISTS task (
 	repair_code       TEXT NOT NULL DEFAULT '',
 	repair_reason     TEXT NOT NULL DEFAULT '',
 	repair_attempt_id INTEGER NOT NULL DEFAULT 0,
-	repair_observed_at TEXT NOT NULL DEFAULT ''
+	repair_observed_at TEXT NOT NULL DEFAULT '',
+	acknowledged_at     TEXT NOT NULL DEFAULT '',
+	acknowledged_reason TEXT NOT NULL DEFAULT '',
+	acknowledged_offset INTEGER NOT NULL DEFAULT 0,
+	acknowledged_digest TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS attempt (
 	id                     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -546,6 +556,15 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	if current == len(migrations) {
 		return db.ReadTaskHistory(id)
 	}
+	if current == acknowledgedMetadataVersion {
+		return db.ReadTaskHistory(id)
+	}
+	if current == preAcknowledgementVersion || current == attemptBranchVersion {
+		return db.readTaskHistoryBeforeAcknowledgement(id)
+	}
+	if current == holdInferredVersion {
+		return db.readTaskHistoryBeforeAcknowledgementAndBranch(id)
+	}
 	if current == sendSchemaVersion {
 		return db.readTaskHistoryBeforeSend(id)
 	}
@@ -601,11 +620,14 @@ var taskColumnNames = []string{
 	"id", "project", "kind", "brief", "lifecycle", "active_attempt_id", "pr",
 	"merge_executed", "merge_executed_at", "merge_announced", "delivered_at", "delivered_reason",
 	"report_offset", "report_digest", "created_at", "repair_code", "repair_reason", "repair_attempt_id", "repair_observed_at",
+	"acknowledged_at", "acknowledged_reason", "acknowledged_offset", "acknowledged_digest",
 }
 
 var taskColumns = strings.Join(taskColumnNames, ", ")
 
-var taskColumnsBeforeRepair = strings.Join(taskColumnNames[:len(taskColumnNames)-4], ", ")
+var taskColumnsBeforeRepair = strings.Join(taskColumnNames[:len(taskColumnNames)-8], ", ")
+
+var taskColumnsBeforeAcknowledgement = strings.Join(taskColumnNames[:len(taskColumnNames)-4], ", ")
 
 var attemptColumnNames = []string{
 	"id", "task_id", "ordinal", "lifecycle", "harness", "model", "effort",
@@ -634,7 +656,8 @@ func placeholders(count int) string {
 func taskValues(t Task) []any {
 	return []any{t.ID, t.Project, t.Kind, t.Brief, t.Lifecycle, nullableAttemptID(t.ActiveAttemptID), t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
-		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt}
+		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt,
+		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest}
 }
 
 func nullableAttemptID(id int64) any {
@@ -645,6 +668,25 @@ func nullableAttemptID(id int64) any {
 }
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
+	var t Task
+	var activeID sql.NullInt64
+	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
+		&t.MergeExecuted, &t.MergeExecutedAt, &t.MergeAnnounced, &t.DeliveredAt, &t.DeliveredReason,
+		&t.ReportOffset, &t.ReportDigest, &t.CreatedAt, &t.RepairCode, &t.RepairReason, &t.RepairAttemptID, &t.RepairObservedAt,
+		&t.AcknowledgedAt, &t.AcknowledgedReason, &t.AcknowledgedOffset, &t.AcknowledgedDigest)
+	if activeID.Valid {
+		t.ActiveAttemptID = activeID.Int64
+	}
+	if t.Lifecycle == "" {
+		t.Lifecycle = TaskOpen
+	}
+	return t, err
+}
+
+// Reads a task row from a database migrated no further than sendSchemaVersion, one version behind
+// the acknowledgement columns atqamz/hand#267 added - the read-only ladder's guard against selecting
+// columns that migrateSchema has not yet added to this home.
+func scanTaskBeforeAcknowledgement(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var activeID sql.NullInt64
 	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
@@ -747,10 +789,12 @@ func (db *DB) CreateTask(t Task) error {
 func (db *DB) UpdateTask(t Task) error {
 	_, err := db.sql.Exec(`UPDATE task SET project = ?, kind = ?, brief = ?,
 		pr = ?, merge_executed = ?, merge_executed_at = ?, merge_announced = ?, delivered_at = ?, delivered_reason = ?,
-		report_offset = ?, report_digest = ?, created_at = ?, repair_code = ?, repair_reason = ?, repair_attempt_id = ?, repair_observed_at = ? WHERE id = ?`,
+		report_offset = ?, report_digest = ?, created_at = ?, repair_code = ?, repair_reason = ?, repair_attempt_id = ?, repair_observed_at = ?,
+		acknowledged_at = ?, acknowledged_reason = ?, acknowledged_offset = ?, acknowledged_digest = ? WHERE id = ?`,
 		t.Project, t.Kind, t.Brief, t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
-		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt, t.ID)
+		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt,
+		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task %q: %w", t.ID, err)
 	}
@@ -856,12 +900,73 @@ func (db *DB) readTaskHistoryBeforeRepair(id string) (TaskHistory, bool, error) 
 	return history, true, nil
 }
 
+func (db *DB) readTaskHistoryBeforeAcknowledgement(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeAcknowledgement+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeAcknowledgement(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
+	}
+	attempts, err := db.ListAttempts(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+// A database at holdInferredVersion has every column readTaskHistoryBeforeAcknowledgement's task side
+// needs, but not yet attempt.branch (added going into attemptBranchVersion), so its attempt side has to
+// stay on the pre-branch reader rather than db.ListAttempts, which now selects branch unconditionally.
+func (db *DB) readTaskHistoryBeforeAcknowledgementAndBranch(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeAcknowledgement+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeAcknowledgement(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
+	}
+	attempts, err := db.listAttemptsBeforeSend(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
 func (db *DB) readTaskHistoryBeforeSend(id string) (TaskHistory, bool, error) {
 	if db.empty {
 		return TaskHistory{}, false, nil
 	}
-	row := db.sql.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
-	task, err := scanTask(row)
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeAcknowledgement+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeAcknowledgement(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskHistory{}, false, nil
 	}
@@ -1028,17 +1133,28 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
+	if current == preAcknowledgementVersion || current == attemptBranchVersion {
+		return db.listReconciliationHistoriesBeforeAcknowledgement()
+	}
+	if current == holdInferredVersion {
+		return db.listReconciliationHistoriesBeforeAcknowledgementAndBranch()
+	}
+	if current == acknowledgedMetadataVersion {
+		return db.ListReconciliationHistories()
+	}
 	if current == repairMetadataVersion || current == sendSchemaVersion {
 		return db.listReconciliationHistoriesBeforeSend()
 	}
 	return db.ListReconciliationHistories()
 }
 
-func (db *DB) listReconciliationHistoriesBeforeSend() ([]TaskHistory, error) {
+// The reconciliation-listing counterpart to readTaskHistoryBeforeAcknowledgementAndBranch: holdInferredVersion
+// predates attempt.branch, so its attempt side stays on the pre-branch reader.
+func (db *DB) listReconciliationHistoriesBeforeAcknowledgementAndBranch() ([]TaskHistory, error) {
 	if db.empty {
 		return nil, nil
 	}
-	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+	rows, err := db.sql.Query(`SELECT ` + taskColumnsBeforeAcknowledgement + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
 		SELECT 1 FROM attempt
 		WHERE attempt.task_id = task.id
 		AND attempt.lifecycle NOT IN ('provisioning', 'running')
@@ -1054,7 +1170,103 @@ func (db *DB) listReconciliationHistoriesBeforeSend() ([]TaskHistory, error) {
 	defer func() { _ = rows.Close() }()
 	var histories []TaskHistory
 	for rows.Next() {
-		task, err := scanTask(rows)
+		task, err := scanTaskBeforeAcknowledgement(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.listAttemptsBeforeSend(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("read task history %q: active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
+}
+
+func (db *DB) listReconciliationHistoriesBeforeAcknowledgement() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
+	rows, err := db.sql.Query(`SELECT ` + taskColumnsBeforeAcknowledgement + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+		SELECT 1 FROM attempt
+		WHERE attempt.task_id = task.id
+		AND attempt.lifecycle NOT IN ('provisioning', 'running')
+		AND (
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
+			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
+			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
+		)
+	) ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTaskBeforeAcknowledgement(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.ListAttempts(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("read task history %q: active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
+}
+
+func (db *DB) listReconciliationHistoriesBeforeSend() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
+	rows, err := db.sql.Query(`SELECT ` + taskColumnsBeforeAcknowledgement + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+		SELECT 1 FROM attempt
+		WHERE attempt.task_id = task.id
+		AND attempt.lifecycle NOT IN ('provisioning', 'running')
+		AND (
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
+			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
+			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
+		)
+	) ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTaskBeforeAcknowledgement(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
 		}
@@ -1972,6 +2184,15 @@ func (db *DB) SetTaskMerge(id, mergedAt string) error {
 func (db *DB) SetTaskReportState(id string, offset int64, digest string, mergeAnnounced bool) error {
 	result, err := db.sql.Exec(`UPDATE task SET report_offset = ?, report_digest = ?, merge_announced = merge_announced OR ? WHERE id = ?`, offset, digest, mergeAnnounced, id)
 	return updateTaskFact(result, err, "set report state", id)
+}
+
+// Distinct from SetTaskReportState: offset and digest here cover what a supervisor has acknowledged,
+// never what a watcher has announced. atqamz/hand#267 keeps the two cursors apart because
+// internal/watcher depends on report_offset/report_digest meaning announcement alone.
+func (db *DB) SetTaskAcknowledgement(id, at, reason string, offset int64, digest string) error {
+	result, err := db.sql.Exec(`UPDATE task SET acknowledged_at = ?, acknowledged_reason = ?, acknowledged_offset = ?, acknowledged_digest = ? WHERE id = ?`,
+		at, reason, offset, digest, id)
+	return updateTaskFact(result, err, "set acknowledgement", id)
 }
 
 func (db *DB) SetTaskRepair(id, code, reason string, attemptID int64, observedAt string) error {

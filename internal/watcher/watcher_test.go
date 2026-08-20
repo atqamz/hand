@@ -2640,25 +2640,63 @@ func TestRunUntilEventDoesNotWakeFailedWhileTeardownIsReleasingTheHerdrResource(
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
-	callLog := logPaneGets(t)
+
+	armDone := make(chan struct{})
+	watchTickDone := make(chan struct{})
+	oldAfterArmTick := afterArmTick
+	oldAfterWatchTick := afterWatchTick
+	t.Cleanup(func() {
+		afterArmTick = oldAfterArmTick
+		afterWatchTick = oldAfterWatchTick
+	})
+	armTicks := 0
+	afterArmTick = func() {
+		armTicks++
+		if armTicks == 2 {
+			close(armDone)
+		}
+	}
+	afterWatchTick = func() {
+		select {
+		case <-watchTickDone:
+		default:
+			close(watchTickDone)
+		}
+	}
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip},
 		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}, TeardownHerdrState: state.TeardownResourceReleasing})
 	cfg := Config{
-		Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: 300 * time.Millisecond,
+		Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour,
 		EventFilter: NewEventFilter([]string{KindFailed}),
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var out bytes.Buffer
 	done := make(chan error, 1)
-	go func() { done <- RunUntilEvent(context.Background(), cfg, &out, io.Discard) }()
+	go func() { done <- RunUntilEvent(ctx, cfg, &out, io.Discard) }()
 
-	waitForPaneGets(t, callLog, 3)
+	select {
+	case <-armDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for RunUntilEvent to arm")
+	}
 	setStatus(t, statusFile, paneGoneStatus)
 
-	err := <-done
-	if !errors.Is(err, ErrNoEvent) {
-		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: teardown's own release must not read as a failed worker", err)
+	select {
+	case <-watchTickDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the post-transition watch tick")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("RunUntilEvent = %v, want it to keep waiting: teardown's own release must not read as a failed worker", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("RunUntilEvent = %v, want ErrInterrupted after the test cancellation", err)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("out = %q, want nothing woken: the pane going unreachable here is teardown's own release, not a failure", out.String())
