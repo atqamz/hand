@@ -12,7 +12,7 @@ There is no stated contract for what a report is, what acknowledging one means, 
 
 Two decisions already settle pieces of it.
 [The report file owns worker outcome](the-report-channel-is-the-only-outcome-signal.md) made `state/<id>.status` the sole source of what a worker says happened, and kept herdr state independent of it.
-[Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md) made wake level-triggered over durable fleet truth, and closed by naming atqamz/hand#244 as the owner of the acknowledgement model it deliberately did not define.
+[Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md) made wake level-triggered over durable fleet truth, and deliberately left the acknowledgement model to this record.
 Neither says how many definitions of attention the tool is allowed to have, nor what distinguishes a condition some watcher announced from one a supervisor has taken responsibility for.
 
 The listed defects, each mapped to the invariant below that would have prevented it.

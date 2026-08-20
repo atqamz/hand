@@ -21,7 +21,7 @@ Arming performs a real observation whose events are delivered.
 `ClassifyCatchUp` asks the level question `ClassifyStatus` can only ask as an edge, and the attempt's durable `status_changed_for` is what says whether some watcher already announced the episode.
 `CatchUpFilter` bounds the delivery to kinds whose announcement durable state records, so a re-arm against an already-announced condition is silent.
 
-Announcement, not operator acknowledgement, is the idempotence unit here. atqamz/hand#244 owns the acknowledgement model.
+Announcement, not operator acknowledgement, is the idempotence unit here. The acknowledgement model is defined in [the attention record](attention-is-one-derivation-over-three-channels.md).
 
 ## Rejected alternatives
 
