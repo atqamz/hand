@@ -325,7 +325,7 @@ Or run it without installing:
 nix shell github:atqamz/hand -c hand --version
 ```
 
-The flake covers `aarch64-darwin`, `aarch64-linux`, and `x86_64-linux`. On Intel macOS, use a release binary or `go install`.
+The flake covers `aarch64-darwin`, `aarch64-linux`, and `x86_64-linux`. On Intel macOS, use a release binary, the install script, or `go install`.
 
 ### Go
 
