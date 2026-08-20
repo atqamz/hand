@@ -3,7 +3,8 @@
 VERSION ?= dev
 CHANNEL ?= dev
 COMMIT ?=
-LDFLAGS := -s -w -X main.version=$(VERSION) -X main.channel=$(CHANNEL) -X main.commit=$(COMMIT)
+DISTRIBUTION ?= source
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.channel=$(CHANNEL) -X main.commit=$(COMMIT) -X main.distribution=$(DISTRIBUTION)
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" .

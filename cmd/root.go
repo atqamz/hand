@@ -152,8 +152,8 @@ func usageValue(fromFlag bool, err error) error {
 	return err
 }
 
-func Execute(version, channel, commit string) {
-	root := newRootCmd(selfupdate.NormalizeBuildInfo(version, channel, commit))
+func Execute(version, channel, commit, distribution string) {
+	root := newRootCmd(selfupdate.NormalizeBuildInfo(version, channel, commit, distribution))
 	found, err := root.ExecuteC()
 	if err == nil {
 		return

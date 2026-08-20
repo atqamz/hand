@@ -67,7 +67,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           commit=$(git rev-parse HEAD)
-          go build -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }} -X main.channel=stable -X main.commit=${commit}" -o hand .
+          go build -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }} -X main.channel=stable -X main.commit=${commit} -X main.distribution=github" -o hand .
           tar czf hand-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz hand
       - name: Build (windows)
         if: matrix.goos == 'windows'
@@ -77,7 +77,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           commit=$(git rev-parse HEAD)
-          go build -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }} -X main.channel=stable -X main.commit=${commit}" -o hand.exe .
+          go build -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }} -X main.channel=stable -X main.commit=${commit} -X main.distribution=github" -o hand.exe .
           zip hand-${{ matrix.goos }}-${{ matrix.goarch }}.zip hand.exe
       - name: Upload artifact
         uses: actions/upload-artifact@v7

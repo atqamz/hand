@@ -28,7 +28,7 @@ type versionCache struct {
 // build's channel, or "" when up to date or when the check can't be completed. Bounded by checkTimeout
 // and never fails the caller: startup version checks are non-blocking and non-fatal.
 func CheckNoticeForBuild(home, repo string, info BuildInfo) string {
-	info = NormalizeBuildInfo(info.Version, info.Channel, info.Commit)
+	info = NormalizeBuildInfo(info.Version, info.Channel, info.Commit, info.Distribution)
 	if info.Channel == ChannelDev {
 		return ""
 	}

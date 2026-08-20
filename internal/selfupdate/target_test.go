@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -16,15 +17,33 @@ func writeFakeGHTarget(t *testing.T, stable, edge string) {
 
 func TestNormalizeBuildInfoDefaultsUnknownChannelsToDev(t *testing.T) {
 	for _, channel := range []string{"", "nightly", "EDGE"} {
-		info := NormalizeBuildInfo("edge.deadbeef", channel, edgeTestCommit)
+		info := NormalizeBuildInfo("edge.deadbeef", channel, edgeTestCommit, DistributionGitHub)
 		if info.Channel != ChannelDev {
 			t.Errorf("NormalizeBuildInfo(%q) channel = %q, want %q", channel, info.Channel, ChannelDev)
 		}
 	}
 
-	info := NormalizeBuildInfo("edge.deadbeef", ChannelEdge, edgeTestCommit)
-	if info != (BuildInfo{Version: "edge.deadbeef", Channel: ChannelEdge, Commit: edgeTestCommit}) {
+	info := NormalizeBuildInfo("edge.deadbeef", ChannelEdge, edgeTestCommit, DistributionGitHub)
+	if info != (BuildInfo{Version: "edge.deadbeef", Channel: ChannelEdge, Commit: edgeTestCommit, Distribution: DistributionGitHub}) {
 		t.Fatalf("NormalizeBuildInfo(edge) = %#v", info)
+	}
+}
+
+func TestNormalizeBuildInfoDetectsDistributionWhenUnset(t *testing.T) {
+	t.Cleanup(func() { readBuildInfo = debug.ReadBuildInfo })
+
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Main: debug.Module{Version: "v0.5.0"}}, true
+	}
+	if info := NormalizeBuildInfo("v0.5.0", ChannelStable, "", ""); info.Distribution != DistributionGo {
+		t.Fatalf("distribution = %q, want %q for a go-install build", info.Distribution, DistributionGo)
+	}
+
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, true
+	}
+	if info := NormalizeBuildInfo("dev", ChannelDev, "", ""); info.Distribution != DistributionSource {
+		t.Fatalf("distribution = %q, want %q for a source build", info.Distribution, DistributionSource)
 	}
 }
 
