@@ -1867,7 +1867,7 @@ func TestStatusFleetEmptyStillShowsHeldBlock(t *testing.T) {
 	}
 }
 
-// Registers a no-mistakes-mode project and creates its clone directory, so gateRunIssue's
+// Registers a no-mistakes-mode project and creates its clone directory, so gateRunObservation's
 // os.Stat(clonePath) check and its no-mistakes invocation both have something to find.
 func registerNoMistakesProject(t *testing.T, home, name string) {
 	t.Helper()
@@ -1909,7 +1909,7 @@ func TestStatusFleetFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-no-run-found") {
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-absent") {
 		t.Fatalf("flags = %v, want a gate marker naming the shipped PR never ran through the gate", got)
 	}
 }
@@ -1934,8 +1934,8 @@ func TestStatusFleetJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `"gate_run_issue": "no run found"`) {
-		t.Fatalf("got %q, want gate_run_issue naming no run found", out.String())
+	if !strings.Contains(out.String(), `"gate_observation": "absent"`) {
+		t.Fatalf("got %q, want gate_observation naming absent", out.String())
 	}
 }
 
@@ -1964,7 +1964,7 @@ func TestStatusFleetNoGateMarkerWhenRunFound(t *testing.T) {
 	}
 }
 
-func TestStatusFleetGateRunUnreachableWhenNoMistakesBinaryMissing(t *testing.T) {
+func TestStatusFleetGateRunUnknownWhenNoMistakesBinaryMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -1984,8 +1984,8 @@ func TestStatusFleetGateRunUnreachableWhenNoMistakesBinaryMissing(t *testing.T) 
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unreachable") {
-		t.Fatalf("flags = %v, want the gate check named unreachable rather than the stronger no-run-found claim", got)
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unknown") {
+		t.Fatalf("flags = %v, want the gate check named unknown rather than the stronger absent claim", got)
 	}
 }
 
@@ -2035,7 +2035,7 @@ func TestStatusSingleTaskFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := detailField(t, out.String(), "gate"); got != "no run found" {
+	if got := detailField(t, out.String(), "gate"); got != "absent" {
 		t.Fatalf("gate = %q, want it naming that the shipped PR never ran through the gate", got)
 	}
 }
@@ -2060,12 +2060,12 @@ func TestStatusSingleTaskJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `"gate_run_issue": "no run found"`) {
-		t.Fatalf("got %q, want gate_run_issue naming no run found", out.String())
+	if !strings.Contains(out.String(), `"gate_observation": "absent"`) {
+		t.Fatalf("got %q, want gate_observation naming absent", out.String())
 	}
 }
 
-func TestStatusSingleTaskNoGateLineWhenRunFound(t *testing.T) {
+func TestStatusSingleTaskGateFoundWhenRunFound(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -2085,8 +2085,8 @@ func TestStatusSingleTaskNoGateLineWhenRunFound(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := detailField(t, out.String(), "gate"); got != "none" {
-		t.Fatalf("gate = %q, want none once a completed run recorded this PR", got)
+	if got := detailField(t, out.String(), "gate"); got != "found" {
+		t.Fatalf("gate = %q, want found once a completed run recorded this PR - a completed run must never render the same as no check having run at all", got)
 	}
 }
 
@@ -2125,7 +2125,7 @@ func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(out.String(), " gate-no-run-found\n") != 3 {
+	if strings.Count(out.String(), " gate-absent\n") != 3 {
 		t.Fatalf("got %q, want all three ungated tasks marked", out.String())
 	}
 	calls, err := os.ReadFile(countFile)
@@ -2221,9 +2221,9 @@ func TestStatusSingleTaskPropagatesAnUnreadableRegistryWhenTheGateCheckApplies(t
 	}
 }
 
-// The uninitialized-gate half of the unreachable bucket: no-mistakes still holds that repo's completed
+// The uninitialized-gate half of the unknown bucket: no-mistakes still holds that repo's completed
 // runs, so reading its refusal as an empty run list would report a genuinely gated PR as never gated.
-func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
+func TestStatusGateRunUnknownWhenGateNotInitialized(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -2243,8 +2243,8 @@ func TestStatusGateRunUnreachableWhenGateNotInitialized(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unreachable") {
-		t.Fatalf("flags = %v, want an uninitialized gate read as unreachable, never as no run found", got)
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unknown") {
+		t.Fatalf("flags = %v, want an uninitialized gate read as unknown, never as absent", got)
 	}
 }
 

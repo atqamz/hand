@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -140,21 +141,23 @@ type statusJSON struct {
 	PR               string      `json:"pr"`
 	// Omitted where no live lookup applied, so a consumer sees "unknown" only where an
 	// empty pr field is a failed observation rather than a PR that is not there.
-	PRObservation    string        `json:"pr_observation,omitempty"`
-	MergeExecuted    bool          `json:"merged"`
-	MergeAnnounced   bool          `json:"pr_merged_observed"`
-	DeliveredAt      string        `json:"delivered_at,omitempty"`
-	DeliveredReason  string        `json:"delivered_reason,omitempty"`
-	CreatedAt        string        `json:"created_at"`
-	LastReportAt     string        `json:"last_report_at,omitempty"`
-	Reported         *reportedJSON `json:"reported,omitempty"`
-	ReportHistory    []string      `json:"report_history,omitempty"`
-	Held             *holdJSON     `json:"held,omitempty"`
-	GateRunIssue     string        `json:"gate_run_issue,omitempty"`
-	RepairCode       string        `json:"repair_code,omitempty"`
-	RepairReason     string        `json:"repair_reason,omitempty"`
-	RepairAttemptID  int64         `json:"repair_attempt,omitempty"`
-	RepairObservedAt string        `json:"repair_observed_at,omitempty"`
+	PRObservation   string        `json:"pr_observation,omitempty"`
+	MergeExecuted   bool          `json:"merged"`
+	MergeAnnounced  bool          `json:"pr_merged_observed"`
+	DeliveredAt     string        `json:"delivered_at,omitempty"`
+	DeliveredReason string        `json:"delivered_reason,omitempty"`
+	CreatedAt       string        `json:"created_at"`
+	LastReportAt    string        `json:"last_report_at,omitempty"`
+	Reported        *reportedJSON `json:"reported,omitempty"`
+	ReportHistory   []string      `json:"report_history,omitempty"`
+	Held            *holdJSON     `json:"held,omitempty"`
+	// Omitted where the gate-run check does not apply to this task, the same way PRObservation
+	// is: found, absent and unknown are otherwise distinct answers, never collapsed together.
+	GateObservation  string `json:"gate_observation,omitempty"`
+	RepairCode       string `json:"repair_code,omitempty"`
+	RepairReason     string `json:"repair_reason,omitempty"`
+	RepairAttemptID  int64  `json:"repair_attempt,omitempty"`
+	RepairObservedAt string `json:"repair_observed_at,omitempty"`
 	// Omitted when false so a consumer written before this field sees no change
 	// on the fleet it already understands.
 	Unacknowledged bool          `json:"unacknowledged,omitempty"`
@@ -262,13 +265,18 @@ func gateRunApplies(t state.Task, reportedDone bool) bool {
 	return t.Kind == state.KindShip && t.PR != "" && reportedDone
 }
 
+// Bounds one no-mistakes process the gate-run check spawns, the same 5 seconds prdetect.go bounds
+// its own live GitHub fallback by: a hung subprocess must cost one render its answer, not the whole
+// `hand status` invocation.
+const gateRunTimeout = 5 * time.Second
+
 // Answers "which PRs did completed no-mistakes runs record" for one clone path.
 type gateRunReader func(clonePath string) (map[string]bool, error)
 
 // Caches each clone path's answer for the life of one render, so a fleet with several done ship tasks on
 // the same project spawns one no-mistakes process for it, not one per task. Failures are cached too: a
 // clone that could not be asked once is not worth re-asking within the same render.
-func newGateRunReader() gateRunReader {
+func newGateRunReader(ctx context.Context) gateRunReader {
 	type answer struct {
 		prs map[string]bool
 		err error
@@ -277,17 +285,19 @@ func newGateRunReader() gateRunReader {
 	return func(clonePath string) (map[string]bool, error) {
 		a, ok := cache[clonePath]
 		if !ok {
-			a.prs, a.err = project.GateRunPRs(clonePath)
+			runCtx, cancel := context.WithTimeout(ctx, gateRunTimeout)
+			a.prs, a.err = project.GateRunPRs(runCtx, clonePath)
+			cancel()
 			cache[clonePath] = a
 		}
 		return a.prs, a.err
 	}
 }
 
-// Reports why a done ship task's recorded PR cannot be confirmed to have gone through a no-mistakes gate
-// run, using the same "unreachable" bucket gateIssue (cmd/project.go) uses for any failure to ask
-// no-mistakes at all, so a question this check cannot answer never renders as "no run found".
-func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Project, registered bool, runPRs gateRunReader) string {
+// Reports whether a done ship task's recorded PR was found in, is absent from, or could not be
+// checked against a no-mistakes gate run, in the found/absent/unknown vocabulary atqamz/hand#241
+// established. Empty where the check does not apply, which is neither a finding nor an absence.
+func gateRunObservation(home string, t state.Task, reportedDone bool, p project.Project, registered bool, runPRs gateRunReader) ghutil.ObservationState {
 	if !gateRunApplies(t, reportedDone) {
 		return ""
 	}
@@ -297,14 +307,7 @@ func gateRunIssue(home string, t state.Task, reportedDone bool, p project.Projec
 		return ""
 	}
 	prs, err := runPRs(filepath.Join(home, "projects", p.Name))
-	if err != nil {
-		// A missing clone, an unrunnable binary, or a gate never initialized all land in this bucket.
-		return "unreachable"
-	}
-	if !prs[t.PR] {
-		return "no run found"
-	}
-	return ""
+	return project.ClassifyGateRun(prs, err, t.PR).State
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
@@ -393,14 +396,14 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly 
 	for _, p := range projects {
 		projectByName[p.Name] = p
 	}
-	runPRs := newGateRunReader()
+	runPRs := newGateRunReader(cmd.Context())
 
 	views := make([]taskView, 0, len(histories))
 	for _, history := range histories {
 		t := history.Task
 		v, _ := buildTaskView(home, client, history, false, readOnly)
 		p, registered := projectByName[t.Project]
-		v.gateIssue = gateRunIssue(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
+		v.gateObserved = gateRunObservation(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)
 	}
 	return views, holds, nil
@@ -534,7 +537,7 @@ func (v taskView) json() statusJSON {
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt,
-		Reported: v.reported, GateRunIssue: v.gateIssue, RepairCode: v.task.RepairCode, RepairReason: v.task.RepairReason, RepairAttemptID: v.task.RepairAttemptID, RepairObservedAt: v.task.RepairObservedAt, Unacknowledged: v.unacked, Attempts: history,
+		Reported: v.reported, GateObservation: string(v.gateObserved), RepairCode: v.task.RepairCode, RepairReason: v.task.RepairReason, RepairAttemptID: v.task.RepairAttemptID, RepairObservedAt: v.task.RepairObservedAt, Unacknowledged: v.unacked, Attempts: history,
 		LatestSend: latestSendJSON(v.latestSend),
 	}
 }
@@ -591,7 +594,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		if err != nil {
 			return err
 		}
-		v.gateIssue = gateRunIssue(home, t, reportedDone, p, registered, newGateRunReader())
+		v.gateObserved = gateRunObservation(home, t, reportedDone, p, registered, newGateRunReader(cmd.Context()))
 	}
 
 	// The whole file, sliced afterwards: deriving the flag from the 5-line

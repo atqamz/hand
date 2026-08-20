@@ -88,7 +88,7 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 		return nextAction{Kind: nextActionHold, Task: h.ID, Command: "none",
 			Reason: "Operator or supervisor judgment is needed to resolve its active hold"}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.gateIssue != "" }); ok {
+	if v, ok := firstView(sorted, gateProblem); ok {
 		return nextAction{Kind: nextActionGate, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "confirm its delivery gate status")}
 	}

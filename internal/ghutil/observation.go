@@ -27,6 +27,15 @@ type Probe struct {
 	Reason  string
 }
 
+// Explain names the command a probe ran alongside its reason, when there is one. Shared by every
+// observation type that carries a Probe, so the wording never drifts between them.
+func (p Probe) Explain() string {
+	if p.Command == "" {
+		return p.Reason
+	}
+	return fmt.Sprintf("%s; observed by running %q", p.Reason, p.Command)
+}
+
 // PRObservation is one answer about one pull request. Merged, URL and Head are meaningful only
 // where the state is found; Ambiguous is set only where a completed query returned candidates that
 // do not resolve to a single winner.
@@ -52,10 +61,7 @@ func (o PRObservation) Unknown() bool { return !o.Found() && !o.Absent() }
 // Reason is the sentence a caller reports when it will not act on this observation, naming
 // what answered nothing and the command that asked.
 func (o PRObservation) Reason() string {
-	if o.Probe.Command == "" {
-		return o.Probe.Reason
-	}
-	return fmt.Sprintf("%s; observed by running %q", o.Probe.Reason, o.Probe.Command)
+	return o.Probe.Explain()
 }
 
 // UnknownPRObservation reports an observation that could not be attempted at all, so a caller whose

@@ -24,12 +24,20 @@ type taskView struct {
 	reportFile    string
 	unreadable    bool
 	unacked       bool
-	gateIssue     string
 	latestSend    *state.SendAttempt
 	held          bool
 	hold          state.Hold
 	// Empty where no live lookup applied, which is neither a finding nor an absence.
 	prObserved ghutil.ObservationState
+	// Empty where the gate-run check does not apply to this task, which is neither a finding nor
+	// an absence either: found, absent and unknown are the only three answers it ever gives.
+	gateObserved ghutil.ObservationState
+}
+
+// Reports whether the gate-run check found something an operator should look at: a found run and a
+// check that does not apply are both fine, so only absent and unknown count.
+func gateProblem(v taskView) bool {
+	return v.gateObserved != "" && v.gateObserved != ghutil.ObservationFound
 }
 
 func (v taskView) execution() state.Attempt {
@@ -82,8 +90,8 @@ func taskFlags(v taskView) []string {
 	case v.task.MergeAnnounced:
 		flags = append(flags, "merged-external")
 	}
-	if v.gateIssue != "" {
-		flags = append(flags, "gate-"+strings.ReplaceAll(v.gateIssue, " ", "-"))
+	if gateProblem(v) {
+		flags = append(flags, "gate-"+string(v.gateObserved))
 	}
 	if v.task.RepairCode != "" {
 		flags = append(flags, "needs-repair")
@@ -102,7 +110,7 @@ func taskFlags(v taskView) []string {
 // The predicate behind the fleet view's attention aggregate: a supervisor reading only the count knows
 // whether any row is asking for something without reading the rows.
 func needsAttention(v taskView) bool {
-	if v.unreadable || v.unacked || v.gateIssue != "" || v.task.RepairCode != "" {
+	if v.unreadable || v.unacked || gateProblem(v) || v.task.RepairCode != "" {
 		return true
 	}
 	if v.latestSend != nil && state.SendNeedsAttention(*v.latestSend) {
@@ -206,7 +214,7 @@ var taskFields = []axi.Column[taskView]{
 		}
 		return holdDetail(v.hold)
 	}},
-	{Name: "gate", Value: func(v taskView) string { return orNone(v.gateIssue) }},
+	{Name: "gate", Value: func(v taskView) string { return orNone(string(v.gateObserved)) }},
 	{Name: "report_file", Value: func(v taskView) string { return orNone(v.reportFile) }},
 	{Name: "flags", Value: func(v taskView) string { return orNone(strings.Join(taskFlags(v), " ")) }},
 	{Name: "repair", Value: func(v taskView) string {
