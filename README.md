@@ -304,7 +304,7 @@ Optional:
 - [no-mistakes](https://github.com/kunchenguid/no-mistakes) - required only by projects using `no-mistakes` mode
 - [qmd](https://github.com/tobi/qmd) - semantic search over historical fleet context beyond `hand search`
 
-`hand init` reports checked tools it cannot find on `PATH`. `hand doctor` reports fleet health: generated agent-instruction drift, project no-mistakes gate failures, routing configuration drift, and effective routing decisions.
+`hand init` reports checked tools it cannot find on `PATH`. `hand doctor` reports fleet health: `AGENTS.md` and bundled-skill drift or conflicts, required tools missing from `PATH`, project no-mistakes gate failures, routing configuration drift, effective routing decisions, and the running binary's version, channel, commit, and distribution.
 
 Building from source additionally requires Go 1.26.5 or newer.
 

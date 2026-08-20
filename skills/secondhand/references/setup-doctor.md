@@ -15,10 +15,19 @@ line, not just the exit code: a clean exit with warnings still means something i
 - `AGENTS.md` against the canonical Hand-owned content, byte for byte. Any difference is one
   `error` finding naming the exact remedy (`hand init <home>`); there is no partial-drift
   detail because the whole file is generated, so there is nothing partial to report.
+- The bundled `secondhand` skill at every supported destination: missing (`error`), drifted from
+  the canonical content (`error`), or a foreign/unmanaged file occupying the destination
+  (`error`, refuse-to-overwrite) - each names its own remedy, and a collision is distinguished
+  from ordinary drift because a collision needs a human to move something aside first.
 - Windows only: the `CLAUDE.md` pointer file's presence and exact content.
 - Each registered project's no-mistakes gate state (`gate-absent`, or another gate problem).
 - Routing/configuration validity: missing Profiles or Routes, and whether the fleet is running
   on explicit configuration or falling back to legacy defaults.
+- Required external tools (`treehouse`, `herdr`, `gh`) missing from `PATH` (`warning`);
+  `no-mistakes` is checked per project instead, since it is only required for a project
+  explicitly configured in that delivery mode, never a blanket fleet requirement.
+- The running binary's `version`, `channel`, `commit`, and `distribution`, as plain fields
+  rather than findings - useful context when comparing a fleet's state against a bug report.
 
 Do not assume categories beyond what a given `hand doctor` build actually reports. If this
 reference and a live run disagree, the live run is right; report the mismatch rather than

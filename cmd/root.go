@@ -75,7 +75,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newReopenCmd())
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newSearchCmd())
-	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newDoctorCmd(info))
 	root.AddCommand(newUpdateCmd(info))
 	// ExecuteC would add the completion group later, too late for the guard below.
 	root.InitDefaultCompletionCmd()

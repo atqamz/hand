@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,9 +11,12 @@ import (
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/routing"
+	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/skill"
 )
 
 func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
@@ -28,6 +32,9 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 				if _, err := agentsmd.Refresh(home); err != nil {
 					t.Fatal(err)
 				}
+				if _, err := skill.Refresh(home); err != nil {
+					t.Fatal(err)
+				}
 				mustConfigSet(t, settingHarness, harness.Claude)
 			},
 			want: []doctorFinding{{Severity: doctorInfo, Text: `routing resolves through explicit legacy defaults: harness "claude"`}},
@@ -37,6 +44,9 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 			setup: func(t *testing.T, home string) {
 				t.Helper()
 				if _, err := agentsmd.Refresh(home); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := skill.Refresh(home); err != nil {
 					t.Fatal(err)
 				}
 				if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
@@ -51,6 +61,9 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 			setup: func(t *testing.T, home string) {
 				t.Helper()
 				if _, err := agentsmd.Refresh(home); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := skill.Refresh(home); err != nil {
 					t.Fatal(err)
 				}
 				if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
@@ -70,6 +83,9 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 				if _, err := agentsmd.Refresh(home); err != nil {
 					t.Fatal(err)
 				}
+				if _, err := skill.Refresh(home); err != nil {
+					t.Fatal(err)
+				}
 				mustConfigSet(t, settingHarness, harness.Claude)
 			},
 			want: []doctorFinding{{Severity: doctorInfo, Text: `routing resolves through explicit legacy defaults: harness "claude"`}},
@@ -81,6 +97,9 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 				if _, err := agentsmd.Refresh(home); err != nil {
 					t.Fatal(err)
 				}
+				if _, err := skill.Refresh(home); err != nil {
+					t.Fatal(err)
+				}
 			},
 			want: []doctorFinding{{Severity: doctorWarning, Text: `routing falls back to legacy defaults without explicit intent: harness "claude"`}},
 		},
@@ -89,6 +108,9 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 			setup: func(t *testing.T, home string) {
 				t.Helper()
 				if _, err := agentsmd.Refresh(home); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := skill.Refresh(home); err != nil {
 					t.Fatal(err)
 				}
 				if err := routing.WriteProfile(home, routing.Profile{Name: "daily", Harness: harness.Claude}); err != nil {
@@ -130,6 +152,9 @@ func TestDoctorIncludesProjectListGateFinding(t *testing.T) {
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	mustConfigSet(t, settingHarness, harness.Claude)
 	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
 		t.Fatal(err)
@@ -163,16 +188,30 @@ func TestDoctorCleanFleetReportsEffectiveRouting(t *testing.T) {
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	mustConfigSet(t, settingHarness, harness.Claude)
+	// Every required tool present, so this run's only finding is the routing decision under
+	// test - onPath only checks PATH presence, never invokes any of these, so zero-valued
+	// fakes are enough.
+	bin := faketool.Bin(t)
+	faketool.Treehouse{}.Install(t, bin)
+	faketool.Herdr{}.Install(t, bin)
+	faketool.GH{}.Install(t, bin)
 
 	var out bytes.Buffer
-	cmd := newDoctorCmd()
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("got error %v, want nil for a clean AGENTS.md", err)
 	}
 	want := "file: " + axi.Value(filepath.Join(home, "AGENTS.md")) + "\n" +
+		"version: v0.1.0\n" +
+		"channel: stable\n" +
+		"commit: unknown\n" +
+		"distribution: \"\"\n" +
 		"count: 1\n" +
 		"violations: 0\n" +
 		"findings[1]{line,severity,finding}:\n" +
@@ -189,6 +228,9 @@ func TestDoctorReportsConfiguredRoutingDecision(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
 	if err := routing.WriteProfile(home, routing.Profile{Name: "daily", Harness: harness.Claude, Model: "opus", Effort: "high"}); err != nil {
@@ -216,6 +258,9 @@ func TestDoctorReportsUnresolvedConfiguredRoutingDecision(t *testing.T) {
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(home, "config", "routes"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +284,9 @@ func TestDoctorReportsMalformedRoutingBeforeEffectiveFallback(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
 	profileDir := filepath.Join(home, "config", "profiles", "broken")
@@ -276,6 +324,9 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(home, "AGENTS.md")
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -289,7 +340,7 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	cmd := newDoctorCmd()
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
 	err = cmd.Execute()
@@ -315,13 +366,16 @@ func TestDoctorTreatsMissingManagedMarkersAsViolation(t *testing.T) {
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"),
 		[]byte("# Hand-authored, no generated markers\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var out bytes.Buffer
-	cmd := newDoctorCmd()
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
 	if err := cmd.Execute(); err == nil {
@@ -343,12 +397,15 @@ func TestDoctorFailsWhenManagedMarkersAreRemovedAfterInitialization(t *testing.T
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte("# Hand-authored, no generated markers\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var out bytes.Buffer
-	cmd := newDoctorCmd()
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
 	if err := cmd.Execute(); err == nil {
@@ -367,12 +424,15 @@ func TestDoctorFailsWhenAgentsFileIsDeletedAfterInitialization(t *testing.T) {
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 
 	var out bytes.Buffer
-	cmd := newDoctorCmd()
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
 	cmd.SetOut(&out)
 	cmd.SetArgs(nil)
 	if err := cmd.Execute(); err == nil {
@@ -404,7 +464,7 @@ func TestDoctorReportsDriftForMalformedOrForeignContentWithNoLineNumber(t *testi
 			}
 
 			var out bytes.Buffer
-			cmd := newDoctorCmd()
+			cmd := newDoctorCmd(stableBuild("v0.1.0"))
 			cmd.SetOut(&out)
 			cmd.SetArgs(nil)
 			if err := cmd.Execute(); err == nil {
@@ -422,7 +482,7 @@ func TestDoctorOutsideFleetHomeIsPrecondition(t *testing.T) {
 	t.Chdir(dir)
 	t.Setenv("HAND_HOME", "")
 
-	cmd := newDoctorCmd()
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs(nil)
 	err := cmd.Execute()
@@ -432,5 +492,155 @@ func TestDoctorOutsideFleetHomeIsPrecondition(t *testing.T) {
 	var exitErr *ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Fatalf("got %v, want an ExitError with code 3", err)
+	}
+}
+
+func TestDoctorReportsBinaryVersionChannelCommitAndDistribution(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+
+	var out bytes.Buffer
+	info := selfupdate.BuildInfo{Version: "v0.6.0", Channel: selfupdate.ChannelEdge, Commit: "abcdef1234567890", Distribution: selfupdate.DistributionBrew}
+	cmd := newDoctorCmd(info)
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"version: v0.6.0\n",
+		"channel: edge\n",
+		"commit: " + selfupdate.DisplayCommit("abcdef1234567890") + "\n",
+		"distribution: " + selfupdate.DistributionBrew + "\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+func TestDoctorFlagsEveryMissingBundledSkillDestination(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	// No skill.Refresh: every destination is missing.
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, f := range findings {
+		if strings.Contains(f.Text, "bundled skill is missing") {
+			if f.Severity != doctorError {
+				t.Fatalf("got severity %v for a missing-skill finding, want error", f.Severity)
+			}
+			n++
+		}
+	}
+	if n != len(skill.DestinationDirs(home)) {
+		t.Fatalf("got %d missing-skill findings, want one per destination (%d): %#v", n, len(skill.DestinationDirs(home)), findings)
+	}
+}
+
+func TestDoctorFlagsADriftedBundledSkillFile(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	dir := skill.DestinationDirs(home)[0]
+	path := filepath.Join(dir, "SKILL.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(content, []byte("\nstray\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDoctorFinding(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("bundled skill at %s has drifted from the canonical content: run hand init '%s' to refresh it", dir, home)}) {
+		t.Fatalf("findings = %#v, want a drift finding naming %s", findings, dir)
+	}
+}
+
+func TestDoctorFlagsAForeignFileAtASkillDestinationAsAConflict(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	dir := skill.DestinationDirs(home)[0]
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# unrelated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if strings.Contains(f.Text, "foreign, unmanaged file") {
+			found = true
+			if f.Severity != doctorError {
+				t.Fatalf("got severity %v for a skill conflict finding, want error", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("findings = %#v, want a foreign-file conflict finding for %s", findings, dir)
+	}
+}
+
+func TestDoctorWarnsOnEachMissingRequiredTool(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	faketool.NoTools(t)
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range requiredTools {
+		want := doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)}
+		if !hasDoctorFinding(findings, want) {
+			t.Fatalf("findings = %#v, want a missing-tool warning for %q", findings, tool)
+		}
 	}
 }

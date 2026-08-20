@@ -12,8 +12,15 @@ import (
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/routing"
+	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/skill"
 	"github.com/spf13/cobra"
 )
+
+// The external tools every ordinary dispatch and delivery path needs regardless of which
+// projects are registered; no-mistakes is checked separately, per project, since it is only
+// required for a project explicitly configured in that delivery mode.
+var requiredTools = []string{"treehouse", "herdr", "gh"}
 
 type doctorSeverity string
 
@@ -42,12 +49,12 @@ var doctorFields = []axi.Column[doctorFinding]{
 
 var doctorDefaultFields = []string{"line", "severity", "finding"}
 
-func newDoctorCmd() *cobra.Command {
+func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 	var fields []string
 
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check fleet health, including AGENTS.md, project gates, and routing",
+		Short: "Check fleet health: AGENTS.md, the bundled skill, project gates, routing, and tools",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fleetHome, err := home.Resolve()
@@ -73,6 +80,10 @@ func newDoctorCmd() *cobra.Command {
 
 			var doc axi.Doc
 			doc.Field("file", path)
+			doc.Field("version", info.Version)
+			doc.Field("channel", info.Channel)
+			doc.Field("commit", selfupdate.DisplayCommit(info.Commit))
+			doc.Field("distribution", info.Distribution)
 			doc.Int("count", len(findings))
 			doc.Int("violations", failing)
 			axi.Table(&doc, "findings", findings, cols)
@@ -92,17 +103,36 @@ func newDoctorCmd() *cobra.Command {
 }
 
 func doctorFindings(fleetHome string) ([]doctorFinding, error) {
-	violations, err := agentsmd.Check(fleetHome)
+	findings := make([]doctorFinding, 0)
+
+	agentsViolations, err := agentsmd.Check(fleetHome)
 	if err != nil {
 		return nil, err
 	}
-	findings := make([]doctorFinding, 0, len(violations))
-	for _, violation := range violations {
+	for _, violation := range agentsViolations {
 		severity := doctorError
 		if violation.Severity == agentsmd.SeverityInfo {
 			severity = doctorInfo
 		}
 		findings = append(findings, doctorFinding{Line: violation.Line, Severity: severity, Text: violation.Text})
+	}
+
+	skillViolations, err := skill.Check(fleetHome)
+	if err != nil {
+		return nil, err
+	}
+	for _, violation := range skillViolations {
+		severity := doctorError
+		if violation.Severity == skill.SeverityInfo {
+			severity = doctorInfo
+		}
+		findings = append(findings, doctorFinding{Severity: severity, Text: violation.Text})
+	}
+
+	for _, tool := range requiredTools {
+		if !onPath(tool) {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)})
+		}
 	}
 
 	projects, err := project.ListReadOnly(fleetHome)
@@ -216,6 +246,7 @@ func doctorHelp(count, failing int) []string {
 	}
 	return []string{
 		"Resolve every error finding; hand doctor reports and never rewrites",
-		"Run `hand update` for generated-block drift, or inspect project gates and routing configuration for fleet health findings",
+		"Run `hand init` to restore AGENTS.md or the bundled skill; a foreign file conflict at a skill destination must be moved aside by hand first",
+		"Inspect project gates and routing configuration for the remaining fleet health findings",
 	}
 }
