@@ -85,8 +85,9 @@ type worktreeObservation struct {
 }
 
 type herdrObservation struct {
-	State herdrOwnershipState
-	Agent string
+	State       herdrOwnershipState
+	Agent       string
+	AgentStatus herdr.Status
 }
 
 type reconciliationObservation struct {
@@ -146,8 +147,12 @@ type ReconcileResult struct {
 	Profile        string `json:"profile,omitempty"`
 	PlannedAgainst string `json:"planned_against,omitempty"`
 	RoutingSource  string `json:"routing_source,omitempty"`
-	Detail         string `json:"detail,omitempty"`
-	Error          string `json:"error,omitempty"`
+	// Set only for a running Attempt whose Herdr pane proves the persisted harness present: "working" or
+	// "blocked" mirror Herdr's own agent_status, and "idle-unreported" is reconcile's own durable fact
+	// that nothing has explained an idle or done pane since launch (atqamz/hand#259).
+	Liveness string `json:"liveness,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 type ReconcileAnomaly struct {
@@ -339,6 +344,13 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, attest rec
 			result.Landing = string(observation.Landing)
 		}
 		decision := decideReconciliation(history.Task, attempt, observation)
+		if attempt.Lifecycle == state.AttemptRunning && observation.Herdr.State == herdrOwnershipExact && observation.Herdr.Agent == attempt.Harness {
+			liveness, err := r.recordAttemptLiveness(home, history.Task, attempt, observation.Herdr.AgentStatus)
+			if err != nil {
+				return result, err
+			}
+			result.Liveness = liveness
+		}
 		result.Action = string(decision.Action)
 		switch decision.Action {
 		case reconciliationActionNeedsRepair:
