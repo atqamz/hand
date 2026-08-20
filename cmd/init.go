@@ -13,8 +13,14 @@ import (
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/sessionhook"
+	"github.com/atqamz/hand/internal/skill"
 	"github.com/spf13/cobra"
 )
+
+var skillFields = []axi.Column[skill.DestinationResult]{
+	{Name: "dir", Value: func(r skill.DestinationResult) string { return r.Dir }},
+	{Name: "outcome", Value: func(r skill.DestinationResult) string { return string(r.Outcome) }},
+}
 
 var toolCandidates = []string{"treehouse", "herdr", "no-mistakes", "gh"}
 
@@ -82,6 +88,10 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			skillResults, err := skill.Refresh(home)
+			if err != nil {
+				return err
+			}
 			exe, err := os.Executable()
 			if err != nil {
 				return fmt.Errorf("resolve the hand executable: %w", err)
@@ -100,6 +110,8 @@ func newInitCmd() *cobra.Command {
 			doc.Field("home", home)
 			doc.Field("agents_md", writtenOrUnchanged(refresh.Changed))
 			doc.Field("agents_md_legacy_archive", noneIfEmpty(refresh.ArchivedPath))
+			axi.Table(&doc, "skill", skillResults, skillFields)
+			doc.Int("skill_conflicts", skillConflictCount(skillResults))
 			doc.Field("session_hook", removedOrUnchanged(hookRemoved))
 			doc.List("migrated", migrated)
 			cfg, err := currentWorkerConfig(home)
@@ -125,6 +137,9 @@ func newInitCmd() *cobra.Command {
 			if refresh.ArchivedPath != "" {
 				help = append(help, fmt.Sprintf("This home's previous AGENTS.md content was archived verbatim at %s; review it and relocate anything still useful yourself", refresh.ArchivedPath))
 			}
+			if n := skillConflictCount(skillResults); n > 0 {
+				help = append(help, fmt.Sprintf("%d bundled-skill destination(s) already hold a foreign file at the managed entry path and were left untouched; move each aside, then run hand init again to install the skill there", n))
+			}
 			doc.Help(help...)
 			return doc.Render(cmd.OutOrStdout())
 		},
@@ -148,6 +163,16 @@ func writtenOrUnchanged(changed bool) string {
 		return "written"
 	}
 	return "unchanged"
+}
+
+func skillConflictCount(results []skill.DestinationResult) int {
+	n := 0
+	for _, r := range results {
+		if r.Outcome == skill.OutcomeConflict {
+			n++
+		}
+	}
+	return n
 }
 
 func noneIfEmpty(path string) string {
