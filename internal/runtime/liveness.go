@@ -50,8 +50,9 @@ func (r *Runtime) recordAttemptLiveness(home string, task state.Task, attempt st
 	}
 
 	statusChangedFor := string(status)
+	freshStop := statusChangedFor != attempt.StatusChangedFor
 	retryAt, attempts, episode := attempt.UsageLimitRetryAt, attempt.UsageLimitAttempts, attempt.UsageLimitEpisode
-	if idleUnreported && attempt.UsageLimitRetryAt == "" && harness.SupportsUsageLimit(attempt.Harness) {
+	if idleUnreported && freshStop && attempt.UsageLimitRetryAt == "" && harness.SupportsUsageLimit(attempt.Harness) {
 		if reset, limited := r.probeUsageLimit(attempt); limited {
 			episode++
 			attempts = 0

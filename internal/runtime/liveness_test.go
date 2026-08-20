@@ -191,6 +191,29 @@ func TestReconcileRecordsUsageLimitWithoutInventingARetryTime(t *testing.T) {
 	}
 }
 
+// A stated reset time isn't the only way a limit's stop edge becomes durable: without one,
+// status_changed_for is what remembers this same idle pane was already probed, so a second reconcile
+// on the still-idle attempt must not treat it as a fresh stop and bump the episode counter again.
+func TestReconcileDoesNotReprobeTheSameStopWithoutAStatedRetryTime(t *testing.T) {
+	client := &livenessHerdr{status: herdr.StatusIdle, paneText: claudeUsageLimitText(false)}
+	home, r, _ := livenessFixture(t, "2026-08-14T23:59:00Z", client)
+
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Reconcile() #1 = %v", err)
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Reconcile() #2 = %v", err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := history.Attempts[0]
+	if got.UsageLimitRetryAt != "" || got.UsageLimitEpisode != 1 {
+		t.Fatalf("attempt = %+v, want the episode left at 1 on a repeated reconcile of the same stop", got)
+	}
+}
+
 // Once a limit's retry schedule is already durable, reconcile leaves it to whichever mechanism is
 // managing the backoff - most likely hand watch - rather than re-probing and re-bumping the episode
 // counter underneath it.
