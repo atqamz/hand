@@ -545,6 +545,52 @@ func TestTickClassifiesGateProblem(t *testing.T) {
 	}
 }
 
+// Mirrors !ts.PRMerged three lines above the gate check in tick(): once ClassifyGateProblem has
+// fired for this attempt, later ticks must not keep re-execing no-mistakes to ask a question already
+// answered, the way an unbounded poll loop otherwise would forever.
+func TestTickStopsAskingNoMistakesOnceGateProblemHasFired(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: "https://github.com/atqamz/hand/pull/120"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	countFile := filepath.Join(t.TempDir(), "calls")
+	faketool.NoMistakes{
+		Stdout:   "  completed    other-branch   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/999\n",
+		CountLog: countFile,
+	}.Install(t, faketool.Bin(t))
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: shipped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	for range 5 {
+		tick(ctx, cfg, client, states, &buf, io.Discard)
+	}
+	if !strings.Contains(buf.String(), "gate-absent task-1") {
+		t.Fatalf("output = %q, want gate-absent task-1 to have fired once across five ticks", buf.String())
+	}
+	calls, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(calls))); got != 1 {
+		t.Fatalf("no-mistakes ran %d times across five ticks, want 1: the gate-run problem already fired", got)
+	}
+}
+
 // Neither a task the gate-run check does not apply to nor one whose project is unregistered ever
 // shells out to no-mistakes at all - the same silent skip cmd/status.go's own gateRunApplies gives.
 func TestTickSkipsGateCheckWhenItDoesNotApply(t *testing.T) {

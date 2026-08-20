@@ -358,15 +358,16 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
 			handleEvent(cfg, e, out, errOut)
 		}
-		// Only shells out to no-mistakes when the check applies: a task the gate-run check has no
-		// opinion about never pays for one.
+		// Only shells out to no-mistakes when the check applies and has not already fired: mirrors
+		// !ts.PRMerged above, so an absent gate run does not re-exec no-mistakes on every tick forever.
 		gateApplies := GateApplies(t.Kind, t.PR, ts.LastReportState == state.ReportDone)
-		var gateObserved ghutil.ObservationState
-		if gateApplies {
-			gateObserved = gateRunObservation(ctx, cfg.Home, t)
-		}
-		if e := ClassifyGateProblem(ts, t.ID, gateApplies, gateObserved); e != nil {
-			handleEvent(cfg, e, out, errOut)
+		switch {
+		case !gateApplies:
+			ClassifyGateProblem(ts, t.ID, false, "")
+		case !ts.GateProblemFired:
+			if e := ClassifyGateProblem(ts, t.ID, true, gateRunObservation(ctx, cfg.Home, t)); e != nil {
+				handleEvent(cfg, e, out, errOut)
+			}
 		}
 		if mtime, err := ReportEvidenceTime(cfg.Home, t, attempt); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
@@ -733,13 +734,14 @@ const gateRunTimeout = 5 * time.Second
 // gate-run check applies here" means.
 func gateRunObservation(ctx context.Context, home string, t state.Task) ghutil.ObservationState {
 	p, registered, err := project.Find(home, t.Project)
-	if err != nil || !registered || p.Mode != project.ModeNoMistakes {
+	if err != nil {
 		return ""
 	}
-	runCtx, cancel := context.WithTimeout(ctx, gateRunTimeout)
-	defer cancel()
-	prs, err := project.GateRunPRs(runCtx, filepath.Join(home, "projects", p.Name))
-	return project.ClassifyGateRun(prs, err, t.PR).State
+	return project.ObserveGateRun(home, p, registered, t.PR, func(clonePath string) (map[string]bool, error) {
+		runCtx, cancel := context.WithTimeout(ctx, gateRunTimeout)
+		defer cancel()
+		return project.GateRunPRs(runCtx, clonePath)
+	})
 }
 
 // Routes a worker-supplied URL through hand pr's own validation before it can reach task state: a

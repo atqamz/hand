@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -102,9 +101,9 @@ func reportSummary(id string, lines []state.ReportLine, readErr error, unacked, 
 	return truncateReportLine(line, reportSummaryBudget, id) + suffix
 }
 
-// Read-only status degrades to "unknown" when herdr or the pane cannot be queried. reachable is
-// false only for a claimed pane that failed to answer - hand watch's own ClassifyUnreachable outage -
-// never for a task with no pane to probe at all, which is not a finding about anything.
+// Read-only status degrades to "unknown" when herdr or the pane cannot be queried. reachable is false
+// only for a claimed pane that failed to answer, never a task with no pane to probe. Unlike hand
+// watch's dwelled ClassifyUnreachable, one failed probe is enough - a live read has no blink to filter.
 func probePaneStatus(client *herdr.Client, paneID string) (agentState string, reachable bool) {
 	if paneID == "" {
 		return string(herdr.StatusUnknown), true
@@ -308,13 +307,7 @@ func gateRunObservation(home string, t state.Task, reportedDone bool, p project.
 	if !gateRunApplies(t, reportedDone) {
 		return ""
 	}
-	// A project not registered or not run through no-mistakes stays silent alongside every task
-	// gateRunApplies rejects, since the check does not apply to it either.
-	if !registered || p.Mode != project.ModeNoMistakes {
-		return ""
-	}
-	prs, err := runPRs(filepath.Join(home, "projects", p.Name))
-	return project.ClassifyGateRun(prs, err, t.PR).State
+	return project.ObserveGateRun(home, p, registered, t.PR, runPRs)
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
@@ -540,8 +533,8 @@ func taskParked(home string, t state.Task, attempt state.Attempt, reportedState 
 	return watcher.Parked(reportedState, silentSince, time.Now(), bounds)
 }
 
-// Reads the same config/parked-*-bound keys hand watch does, once per render rather than once per
-// task, so a fleet of a hundred tasks reads config three times, not three hundred.
+// Reads config/parked-*-bound, shared by newWatchCmd, once per render rather than once per task, so a
+// fleet of a hundred tasks reads config three times, not three hundred.
 func parkedBoundsFromConfig(home string) (watcher.ParkedBounds, error) {
 	paused, err := configSeconds(home, "parked-paused-bound", defaultParkedPausedBound)
 	if err != nil {
