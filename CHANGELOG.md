@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.5.0](https://github.com/atqamz/hand/compare/v0.4.0...v0.5.0) (2026-08-20)
+
+
+### Features
+
+* **brief:** make worker briefs execution-ready ([#227](https://github.com/atqamz/hand/issues/227)) ([48fdfe1](https://github.com/atqamz/hand/commit/48fdfe17bc64cea31f0f48be78607d28ec36bfff))
+* **cmd:** surface deterministic session next action ([#238](https://github.com/atqamz/hand/issues/238)) ([d4b8714](https://github.com/atqamz/hand/commit/d4b87149ffef298b02eea73c05cd62b8511faaf2))
+* **doctor:** report project gate and routing health ([#249](https://github.com/atqamz/hand/issues/249)) ([a563b36](https://github.com/atqamz/hand/commit/a563b367350088c6ea7e98c2de736235f2d1a9bc))
+* **runtime:** add deterministic reconciliation ([#229](https://github.com/atqamz/hand/issues/229)) ([bc5c219](https://github.com/atqamz/hand/commit/bc5c21956f592a41076a6c25fd7bdb7f5e83ccaf))
+* **runtime:** give every reconcile repair diagnosis a reachable treatment ([#258](https://github.com/atqamz/hand/issues/258)) ([3029818](https://github.com/atqamz/hand/commit/30298186004b8073742daabc39c0cbc51a543024))
+* **selfupdate:** embed distribution identity in build metadata ([#271](https://github.com/atqamz/hand/issues/271)) ([05a81cc](https://github.com/atqamz/hand/commit/05a81cc1a11b76162da4320c9494d196779c4ada))
+* **store:** split durable tasks from execution attempts ([#219](https://github.com/atqamz/hand/issues/219)) ([c9772bd](https://github.com/atqamz/hand/commit/c9772bd65511a0c3a049b7dc5ff7ac42cb78e888))
+* **update:** refuse to mutate a package-manager-owned build ([#273](https://github.com/atqamz/hand/issues/273)) ([ee3b184](https://github.com/atqamz/hand/commit/ee3b184b08e13f7f3f08aed71f36960dc6d5ad4e))
+
+
+### Bug Fixes
+
+* **gate:** distinguish an unobserved gate run from an absent one ([#264](https://github.com/atqamz/hand/issues/264)) ([5d63cfa](https://github.com/atqamz/hand/commit/5d63cfa573f6992c0a9abd3c2936406eb6545bd3))
+* **ghutil:** observe pull requests as found, absent, or unknown ([#256](https://github.com/atqamz/hand/issues/256)) ([f054c41](https://github.com/atqamz/hand/commit/f054c4141b8e5dd041354bca6db194dcf0d4c289))
+* **project:** preserve operator-owned pull request metadata ([#260](https://github.com/atqamz/hand/issues/260)) ([0eb6dc2](https://github.com/atqamz/hand/commit/0eb6dc25afb92011a516256397b47b68cbea46a6))
+* **runtime:** clear a resource repair code an attestation already resolved ([#272](https://github.com/atqamz/hand/issues/272)) ([b7e4139](https://github.com/atqamz/hand/commit/b7e41390715872a4e1a618cfd1b0cb2b37587a88))
+* **runtime:** converge terminal attempt lifecycle and gate worktree return on commit safety ([#251](https://github.com/atqamz/hand/issues/251)) ([0513224](https://github.com/atqamz/hand/commit/051322413880b2ac31b3b058bebe02510ca329f0))
+* **runtime:** reach pull request head evidence when remote-tracking refs cannot prove durability ([#257](https://github.com/atqamz/hand/issues/257)) ([d36591c](https://github.com/atqamz/hand/commit/d36591c90fb922d1a7f9e1b11cce20ca83f7fde6))
+* **runtime:** recover unobservable worktree ownership ([#248](https://github.com/atqamz/hand/issues/248)) ([cb93eb3](https://github.com/atqamz/hand/commit/cb93eb3e19a60a9e5d43dc80c4954aee8274d1f4))
+* **selfupdate:** reconcile update notice cache ([#237](https://github.com/atqamz/hand/issues/237)) ([2e8d493](https://github.com/atqamz/hand/commit/2e8d493d9803f6dc4939516a94a5eb0af8bf2bf3))
+* **steering:** make terminal sends crash-safe ([#230](https://github.com/atqamz/hand/issues/230)) ([af7e118](https://github.com/atqamz/hand/commit/af7e118d6a236f5d55b727c2644e876fdde9b46e))
+* **watcher:** harden takeover and cancellation lifecycle ([#231](https://github.com/atqamz/hand/issues/231)) ([be189b6](https://github.com/atqamz/hand/commit/be189b62f9008f4fec9f39399744c99a97dd2923))
+* **watcher:** stop teardown from reporting a torn-down worker's success as a failure ([#261](https://github.com/atqamz/hand/issues/261)) ([2486b20](https://github.com/atqamz/hand/commit/2486b20d2ccb9ec67cec1dedddbdba1d3f7fb1fc))
+* **watcher:** suppress false stale events for terminal or delivered tasks ([#236](https://github.com/atqamz/hand/issues/236)) ([152ab71](https://github.com/atqamz/hand/commit/152ab71c7167463605239ddfe89438f281b76cd6))
+* **watcher:** wake on a fleet condition that was already actionable when the watch armed ([#262](https://github.com/atqamz/hand/issues/262)) ([8adb5f1](https://github.com/atqamz/hand/commit/8adb5f1352c583e5e1e25f37a83247694da292a8))
+
 ## [0.4.0](https://github.com/atqamz/hand/compare/v0.3.0...v0.4.0) (2026-08-13)
 
 
