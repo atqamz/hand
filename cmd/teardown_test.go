@@ -47,7 +47,7 @@ func initGitRepo(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	run("add", "README.md")
-	run("commit", "-q", "-m", "initial commit")
+	run("-c", "commit.gpgsign=false", "commit", "-q", "-m", "initial commit")
 }
 
 // The PR recorded on a task whose test does not exercise detection.
