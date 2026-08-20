@@ -3,14 +3,12 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"os"
+	"os/exec"
 	"strings"
 
-	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/selfupdate"
-	"github.com/atqamz/hand/internal/sessionhook"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +58,7 @@ func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 			}
 
 			if !newer || checkOnly {
-				doc := updateDoc(info, target, newer, false, "not-applicable", "not-applicable", nil)
+				doc := updateDoc(info, target, newer, false, "not-applicable", nil)
 				if newer {
 					doc.Help(updateHelp(target, requestedChannel != ""))
 				}
@@ -68,7 +66,7 @@ func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 			}
 
 			if !selfupdate.CanSelfUpdate(info.Distribution) {
-				doc := updateDoc(info, target, true, false, "not-applicable", "not-applicable", nil)
+				doc := updateDoc(info, target, true, false, "not-applicable", nil)
 				doc.Help(ownershipRefusalHelp(info.Distribution))
 				return doc.Render(cmd.OutOrStdout())
 			}
@@ -77,62 +75,22 @@ func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 				return err
 			}
 
-			// The binary is already replaced by this point, so a failed AGENTS.md refresh or skeleton seed is
-			// reported as a warning rather than an error: exiting nonzero here reads as "the update failed" and
-			// invites a pointless re-run.
-			var refresh agentsmd.RefreshResult
-			var hookRemoved bool
-			var seedErr, hookErr error
-			fleetHome, refreshErr := home.Resolve()
-			switch {
-			case refreshErr == nil:
-				refresh, refreshErr = agentsmd.Refresh(fleetHome)
-				// The refreshed template directs the agent at data files an older home never had, so the command
-				// that installs it also leaves those files in place - directories included, since a home resolves
-				// as one on its state/hand.db marker alone.
-				seedErr = initLayout(fleetHome)
-				// Generated instructions supersede the Claude-only hook, so an
-				// update retires Secondhand's command without touching others.
-				if refreshErr == nil {
-					var exe string
-					if exe, hookErr = os.Executable(); hookErr == nil {
-						hookRemoved, hookErr = sessionhook.Remove(fleetHome, exe)
-					}
-				}
-			case errors.Is(refreshErr, home.ErrNotFound):
-				refreshErr = nil
-			}
-
-			if refreshErr != nil {
-				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: refresh AGENTS.md: %v\n", refreshErr); err != nil {
-					return err
-				}
-			}
-			if hookErr != nil {
-				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: retire the session hook: %v\n", hookErr); err != nil {
-					return err
-				}
-			}
-			if seedErr != nil {
-				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: seed data skeletons: %v\n", seedErr); err != nil {
+			// The binary is already replaced by this point, so a failed handoff is reported as a
+			// warning rather than an error: exiting nonzero here reads as "the update failed" and
+			// invites a pointless re-run of a step that already succeeded.
+			result, homeErr := reconcileFleetHome()
+			if homeErr != nil {
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: resolve fleet home for reconciliation: %v\n", homeErr); err != nil {
 					return err
 				}
 			}
 			notes, _ := selfupdate.ReleaseNotes(selfupdate.Repo, target.Tag)
 
-			doc := updateDoc(
-				info,
-				target,
-				true,
-				true,
-				refreshOutcome(fleetHome, refresh.Changed, refreshErr),
-				retirementOutcome(fleetHome, hookRemoved, hookErr),
-				releaseNoteLines(notes),
-			)
-			if refresh.ArchivedPath != "" {
-				doc.Field("agents_md_legacy_archive", refresh.ArchivedPath)
+			doc := updateDoc(info, target, true, true, result.status, releaseNoteLines(notes))
+			if len(result.output) > 0 {
+				doc.List("fleet_reconcile_output", result.output)
 			}
-			doc.Help("Run `hand doctor` to check this home's AGENTS.md against the template " + target.Version + " installed")
+			doc.Help("Run `hand doctor` to check this home's generated surfaces against the template " + target.Version + " installed")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
@@ -142,7 +100,51 @@ func newUpdateCmd(info selfupdate.BuildInfo) *cobra.Command {
 	return cmd
 }
 
-func updateDoc(info selfupdate.BuildInfo, target selfupdate.Target, available, updated bool, agentsMD, sessionHook string, notes []string) axi.Doc {
+// Reports what handing reconciliation to the newly installed binary found.
+type fleetReconcileResult struct {
+	status string
+	output []string
+}
+
+// Hands fleet-home reconciliation to the binary selfupdate.Apply just installed: the old binary
+// only knows how to replace itself, the new one owns what a valid fleet home looks like. The
+// returned error is a resolution failure other than "not found", reported as a warning only.
+func reconcileFleetHome() (fleetReconcileResult, error) {
+	fleetHome, err := home.Resolve()
+	switch {
+	case err == nil:
+	case errors.Is(err, home.ErrNotFound):
+		return fleetReconcileResult{status: "no-fleet-home"}, nil
+	default:
+		return fleetReconcileResult{status: "failed", output: []string{err.Error()}}, err
+	}
+
+	// The same override selfupdate.Apply consults, so a test that stages a fake executable
+	// exercises the actual binary the handoff execs, not the real running process's path.
+	exe, err := selfupdate.ExecutableOverride()
+	if err != nil {
+		return fleetReconcileResult{status: "failed", output: []string{err.Error()}}, nil
+	}
+	out, runErr := exec.Command(exe, "init", fleetHome).CombinedOutput()
+	lines := nonEmptyLines(string(out))
+	if runErr != nil {
+		lines = append(lines, runErr.Error())
+		return fleetReconcileResult{status: "failed", output: lines}, nil
+	}
+	return fleetReconcileResult{status: "ok", output: lines}, nil
+}
+
+func nonEmptyLines(text string) []string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
+}
+
+func updateDoc(info selfupdate.BuildInfo, target selfupdate.Target, available, updated bool, fleetReconcile string, notes []string) axi.Doc {
 	var doc axi.Doc
 	doc.Field("current", info.Version)
 	doc.Field("current_channel", info.Channel)
@@ -153,8 +155,7 @@ func updateDoc(info selfupdate.BuildInfo, target selfupdate.Target, available, u
 	doc.Field("latest_commit", selfupdate.DisplayCommit(target.Commit))
 	doc.Bool("update_available", available)
 	doc.Bool("updated", updated)
-	doc.Field("agents_md", agentsMD)
-	doc.Field("session_hook", sessionHook)
+	doc.Field("fleet_reconcile", fleetReconcile)
 	doc.List("notes", notes)
 	return doc
 }
@@ -164,7 +165,7 @@ func updateHelp(target selfupdate.Target, explicit bool) string {
 	if explicit {
 		command += " --channel " + target.Channel
 	}
-	return "Run `" + command + "` to install " + target.Version + ", which also refreshes this home's AGENTS.md template"
+	return "Run `" + command + "` to install " + target.Version + ", which also reconciles this home's generated fleet surfaces via hand init"
 }
 
 // A package manager's install is its own to manage, and a go/source build was never a
@@ -179,40 +180,6 @@ func ownershipRefusalHelp(distribution string) string {
 	}
 }
 
-// The binary is replaced whatever this says, so every outcome is a value of
-// one field rather than a line that appears or does not.
-func refreshOutcome(fleetHome string, changed bool, err error) string {
-	switch {
-	case err != nil:
-		return "failed"
-	case fleetHome == "":
-		return "no-fleet-home"
-	case changed:
-		return "refreshed"
-	default:
-		return "unchanged"
-	}
-}
-
-func retirementOutcome(fleetHome string, changed bool, err error) string {
-	switch {
-	case err != nil:
-		return "failed"
-	case fleetHome == "":
-		return "no-fleet-home"
-	case changed:
-		return "removed"
-	default:
-		return "unchanged"
-	}
-}
-
 func releaseNoteLines(notes string) []string {
-	var lines []string
-	for _, line := range strings.Split(notes, "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			lines = append(lines, trimmed)
-		}
-	}
-	return lines
+	return nonEmptyLines(notes)
 }
