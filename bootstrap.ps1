@@ -56,6 +56,7 @@ function Install-Hand {
     }
 
     $installDir = if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "hand" }
+    $script:handInstallDir = $installDir
     $sibling = if ($scriptDir) { Join-Path $scriptDir "install.ps1" } else { $null }
     if ($sibling -and (Test-Path -LiteralPath $sibling)) {
         Write-BootstrapLog "installing hand via $sibling"
@@ -120,6 +121,16 @@ if (-not $handAvailable) {
 
 # ---- step 2: detect/install missing foundational dependencies ---------------------------------
 
+function Update-ProcessPathFromRegistry {
+    $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    $pathDirs = @($machinePath, $userPath) | ForEach-Object { if ($_){ $_ -split ';' } } | Where-Object { $_ }
+    if ($script:handInstallDir -and -not ($pathDirs | Where-Object { $_ -ieq $script:handInstallDir })) {
+        $pathDirs = @($script:handInstallDir) + @($pathDirs)
+    }
+    $env:PATH = $pathDirs -join ';'
+}
+
 # Get-DepSource is the source column the consent prompt shows for a missing foundational
 # dependency.
 function Get-DepSource {
@@ -174,13 +185,7 @@ function Invoke-DepAction {
         'cmd' {
             if (-not $action.Value) { return $false }
             & $action.Value[0] @($action.Value[1..($action.Value.Length - 1)])
-            $ok = $LASTEXITCODE -eq 0
-            if ($Dep -eq 'git') {
-                $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
-                $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-                $env:PATH = (@($machinePath, $userPath) | Where-Object { $_ }) -join ';'
-            }
-            return $ok
+            return $LASTEXITCODE -eq 0
         }
         'url' {
             $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".ps1")
@@ -267,6 +272,7 @@ function Install-FoundationalDep {
             $installFailed = $true
             continue
         }
+        Update-ProcessPathFromRegistry
         if (-not (Get-Command $dep -ErrorAction SilentlyContinue)) {
             Write-BootstrapLog "$dep`: installed but still not on PATH"
             $installFailed = $true
