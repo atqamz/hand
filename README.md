@@ -293,10 +293,12 @@ Every command resolves the fleet home from `HAND_HOME` when set, otherwise from 
 
 `hand` itself is a self-contained Go binary. Operating a fleet relies on a few external tools:
 
+- [git](https://git-scm.com/) - repository operations
 - [herdr](https://github.com/ogulcancelik/herdr) - interactive worker sessions and semantic agent state
 - [treehouse](https://github.com/kunchenguid/treehouse) v2.1.0 or newer - isolated git worktree pools
-- [gh](https://github.com/cli/cli) - GitHub pull-request and release operations
 - at least one supported coding-agent harness
+
+Projects using `direct-pr` or `no-mistakes` delivery also require [gh](https://github.com/cli/cli) for GitHub operations.
 
 Optional:
 
@@ -305,6 +307,7 @@ Optional:
 - [qmd](https://github.com/tobi/qmd) - semantic search over historical fleet context beyond `hand search`
 
 `hand init` reports checked tools it cannot find on `PATH`. `hand doctor` reports fleet health: `AGENTS.md` and bundled-skill drift or conflicts, required tools missing from `PATH`, project no-mistakes gate failures, routing configuration drift, effective routing decisions, and the running binary's version, channel, commit, and distribution.
+Its structured output also exposes the bootstrap readiness contract: foundational tools, contextual `gh` requirements, every supported harness as installed or not installed, and the `ready`, `blocking`, and `next` fields.
 
 Building from source additionally requires Go 1.26.5 or newer.
 
