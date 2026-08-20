@@ -13,10 +13,10 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 )
 
-// Everything hand execs beyond these three is faked per test and left unreachable, so a missing fake fails
-// loudly instead of reaching the developer's real tools (e2e_test.go). The three: git, which hand and the
-// helpers really shell out to; sh, for internal/notify's template; cat, for the fake herdr pane status.
-var realBinsOnPath = []string{"git", "sh", "cat"}
+// Everything hand or bootstrap.sh execs beyond these is faked per test and left unreachable (e2e_test.go).
+// git, sh and cat back real production and fixture calls; the rest are plain POSIX utilities bootstrap.sh
+// runs, never one of the backends (herdr, treehouse, gh, no-mistakes) this suite fakes instead.
+var realBinsOnPath = []string{"git", "sh", "cat", "uname", "dirname", "awk", "sed", "head", "grep", "ls", "mkdir", "mktemp", "rm", "chmod"}
 
 // The PATH every test runs under, built once by TestMain from the inherited PATH.
 var hermeticPath string
