@@ -16,12 +16,15 @@ func hasUncommittedChanges(worktreePath string) (bool, error) {
 	return strings.TrimRight(string(out), "\n") != "", nil
 }
 
+// git symbolic-ref, not rev-parse --abbrev-ref: the latter exits 0 and prints the literal string
+// "HEAD" on a detached HEAD instead of failing, which every caller would otherwise have to
+// special-case itself to avoid treating that sentinel as a real branch name.
 func currentBranch(worktreePath string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd := exec.Command("git", "symbolic-ref", "--short", "-q", "HEAD")
 	cmd.Dir = worktreePath
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git rev-parse failed: %w", err)
+		return "", fmt.Errorf("git symbolic-ref failed: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

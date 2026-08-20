@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -66,6 +67,58 @@ func TestFreshSchemaIncludesSendAttemptAuthority(t *testing.T) {
 	}
 	if indexes != 1 {
 		t.Fatal("send_attempt pending index is missing")
+	}
+}
+
+func TestFreshSchemaIncludesAttemptBranch(t *testing.T) {
+	db, _ := openTemp(t)
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name = 'branch'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("attempt branch column = %d, want 1", count)
+	}
+}
+
+func TestMigrationAddsEmptyAttemptBranchToAnExistingDatabase(t *testing.T) {
+	home := t.TempDir()
+	sqlDB, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &DB{sql: sqlDB, home: home}
+	preBranchSchema := strings.Replace(schema, "\tworktree               TEXT NOT NULL DEFAULT '',\n\tbranch                 TEXT NOT NULL DEFAULT '',\n", "\tworktree               TEXT NOT NULL DEFAULT '',\n", 1)
+	if _, err := db.sql.Exec(preBranchSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO task (id) VALUES ('legacy')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`INSERT INTO attempt (task_id, ordinal, lifecycle, harness, model, effort, worktree) VALUES ('legacy', 1, 'running', 'claude', 'opus', 'high', '/w/legacy')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`PRAGMA user_version = ` + strconv.Itoa(len(migrations)-1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrated.Close() }()
+	if version, err := migrated.schemaVersion(); err != nil || version != len(migrations) {
+		t.Fatalf("schemaVersion = %d, %v, want %d", version, err, len(migrations))
+	}
+	history, found, err := migrated.ReadTaskHistory("legacy")
+	if err != nil || !found || len(history.Attempts) != 1 {
+		t.Fatalf("ReadTaskHistory = %+v, %v, %v", history, found, err)
+	}
+	if attempt := history.Attempts[0]; attempt.Worktree != "/w/legacy" || attempt.Branch != "" {
+		t.Fatalf("migrated attempt = %+v, want the pre-existing worktree kept and an empty branch", attempt)
 	}
 }
 

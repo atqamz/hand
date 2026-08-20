@@ -167,6 +167,7 @@ type Attempt struct {
 	RequestedProfile        string           `json:"requested_profile"`
 	RoutingSource           string           `json:"routing_source"`
 	Worktree                string           `json:"worktree"`
+	Branch                  string           `json:"branch"`
 	LeaseID                 string           `json:"lease_id"`
 	Herdr                   Herdr            `json:"herdr"`
 	CreatedAt               string           `json:"created_at"`
@@ -299,6 +300,7 @@ CREATE TABLE IF NOT EXISTS attempt (
 	requested_profile      TEXT NOT NULL DEFAULT '',
 	routing_source        TEXT NOT NULL DEFAULT '',
 	worktree               TEXT NOT NULL DEFAULT '',
+	branch                 TEXT NOT NULL DEFAULT '',
 	lease_id               TEXT NOT NULL DEFAULT '',
 	herdr_session          TEXT NOT NULL DEFAULT '',
 	herdr_workspace_id    TEXT NOT NULL DEFAULT '',
@@ -613,14 +615,16 @@ var attemptColumnNames = []string{
 	"status_changed_at", "status_changed_for", "done_verified", "last_report_state", "last_report_note",
 	"send_undelivered_message", "send_undelivered_at", "parked_fired_for", "usage_limit_retry_at", "usage_limit_attempts",
 	"teardown_terminal_attempt", "teardown_disposition", "teardown_herdr_state", "teardown_worktree_state", "teardown_completion_state",
-	"usage_limit_episode", "usage_limit_stuck_episode",
+	"usage_limit_episode", "usage_limit_stuck_episode", "branch",
 }
 
 var attemptColumns = strings.Join(attemptColumnNames, ", ")
 
-var attemptColumnsBeforeSend = strings.Join(attemptColumnNames[:len(attemptColumnNames)-2], ", ")
+// -3 excludes usage_limit_episode, usage_limit_stuck_episode and branch: all three were added
+// after the send schema, in that order, at the tail of attemptColumnNames.
+var attemptColumnsBeforeSend = strings.Join(attemptColumnNames[:len(attemptColumnNames)-3], ", ")
 
-var attemptColumnNamesBeforeRouting = append(append([]string{}, attemptColumnNames[:7]...), attemptColumnNames[11:len(attemptColumnNames)-2]...)
+var attemptColumnNamesBeforeRouting = append(append([]string{}, attemptColumnNames[:7]...), attemptColumnNames[11:len(attemptColumnNames)-3]...)
 var attemptColumnsBeforeRouting = strings.Join(attemptColumnNamesBeforeRouting, ", ")
 
 func placeholders(count int) string {
@@ -678,7 +682,7 @@ func attemptValues(a Attempt) []any {
 		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
 		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts,
 		a.TeardownTerminalAttempt, a.TeardownDisposition, a.TeardownHerdrState, a.TeardownWorktreeState, a.TeardownCompletionState,
-		a.UsageLimitEpisode, a.UsageLimitStuckEpisode}
+		a.UsageLimitEpisode, a.UsageLimitStuckEpisode, a.Branch}
 }
 
 func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
@@ -690,7 +694,7 @@ func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
 		&a.StatusChangedAt, &a.StatusChangedFor, &a.DoneVerified, &a.LastReportState, &a.LastReportNote,
 		&a.SendUndeliveredMessage, &a.SendUndeliveredAt, &a.ParkedFiredFor, &a.UsageLimitRetryAt, &a.UsageLimitAttempts,
 		&a.TeardownTerminalAttempt, &a.TeardownDisposition, &a.TeardownHerdrState, &a.TeardownWorktreeState, &a.TeardownCompletionState,
-		&a.UsageLimitEpisode, &a.UsageLimitStuckEpisode)
+		&a.UsageLimitEpisode, &a.UsageLimitStuckEpisode, &a.Branch)
 	return a, err
 }
 
@@ -2008,15 +2012,15 @@ func updateTaskFact(result sql.Result, err error, operation, id string) error {
 	return nil
 }
 
-func (db *DB) RecordAttemptWorktree(taskID string, attemptID int64, worktree, leaseID string) error {
-	result, err := db.sql.Exec(`UPDATE attempt SET worktree = ?, lease_id = ?
+func (db *DB) RecordAttemptWorktree(taskID string, attemptID int64, worktree, branch, leaseID string) error {
+	result, err := db.sql.Exec(`UPDATE attempt SET worktree = ?, branch = ?, lease_id = ?
 		WHERE id = ? AND task_id = ? AND lifecycle = 'provisioning'
-		AND EXISTS (SELECT 1 FROM task WHERE id = ? AND lifecycle = 'open' AND active_attempt_id = ?)`, worktree, leaseID, attemptID, taskID, taskID, attemptID)
+		AND EXISTS (SELECT 1 FROM task WHERE id = ? AND lifecycle = 'open' AND active_attempt_id = ?)`, worktree, branch, leaseID, attemptID, taskID, taskID, attemptID)
 	return updateAttemptOwnership(result, err, "record worktree", taskID, attemptID)
 }
 
 func (db *DB) ClearAttemptWorktree(taskID string, attemptID int64) error {
-	result, err := db.sql.Exec(`UPDATE attempt SET worktree = '', lease_id = ''
+	result, err := db.sql.Exec(`UPDATE attempt SET worktree = '', branch = '', lease_id = ''
 		WHERE id = ? AND task_id = ? AND lifecycle = 'provisioning'
 		AND EXISTS (SELECT 1 FROM task WHERE id = ? AND lifecycle = 'open' AND active_attempt_id = ?)`, attemptID, taskID, taskID, attemptID)
 	return updateAttemptOwnership(result, err, "clear returned worktree", taskID, attemptID)

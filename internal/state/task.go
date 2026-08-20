@@ -385,13 +385,13 @@ func ClearTaskRepair(homeDir, id, expectedCode string) error {
 	return db.ClearTaskRepair(id, expectedCode)
 }
 
-func RecordAttemptWorktree(homeDir, taskID string, attemptID int64, worktree, leaseID string) error {
+func RecordAttemptWorktree(homeDir, taskID string, attemptID int64, worktree, branch, leaseID string) error {
 	db, err := store.Open(homeDir)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	return db.RecordAttemptWorktree(taskID, attemptID, worktree, leaseID)
+	return db.RecordAttemptWorktree(taskID, attemptID, worktree, branch, leaseID)
 }
 
 func ClearAttemptWorktree(homeDir, taskID string, attemptID int64) error {

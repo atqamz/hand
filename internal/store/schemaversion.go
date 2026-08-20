@@ -141,6 +141,10 @@ var migrations = []string{
 	// ensureHoldInferredColumn does the real work below: a database already carrying the
 	// column, unstamped past sendHardeningMigrationVersion, must not fail a plain ALTER TABLE.
 	`SELECT 1;`,
+	// ensureAttemptBranchColumn does the real work below, for the same reason: the base schema
+	// already carries the column, so a plain ALTER TABLE would fail wherever a test or a home
+	// builds its fixture from the current schema before stamping an older version onto it.
+	`SELECT 1;`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -160,6 +164,8 @@ const sendSchemaVersion = repairMetadataVersion + 1
 const sendHardeningMigrationVersion = sendSchemaVersion
 
 const holdInferredVersion = sendHardeningMigrationVersion + 1
+
+const attemptBranchVersion = holdInferredVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -412,6 +418,11 @@ func (db *DB) applyMigration(version int) error {
 			return err
 		}
 	}
+	if version == attemptBranchVersion {
+		if err := ensureAttemptBranchColumn(tx); err != nil {
+			return err
+		}
+	}
 	if err := recordSchemaVersion(tx, version+1); err != nil {
 		return err
 	}
@@ -459,6 +470,20 @@ func ensureHoldInferredColumn(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`ALTER TABLE hold ADD COLUMN inferred INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("add hold inferred column: %w", err)
+	}
+	return nil
+}
+
+func ensureAttemptBranchColumn(tx *sql.Tx) error {
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name = 'branch'`).Scan(&count); err != nil {
+		return fmt.Errorf("inspect attempt branch column: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`ALTER TABLE attempt ADD COLUMN branch TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add attempt branch column: %w", err)
 	}
 	return nil
 }

@@ -390,8 +390,8 @@ func TestReopenSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
 	if _, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatalf("Reopen() = %v, want schema v10 upgrade after route validation", err)
 	}
-	if got := runtimeStoreSchemaVersion(t, home); got != 15 {
-		t.Fatalf("schema version after valid Reopen = %d, want 15", got)
+	if got, want := runtimeStoreSchemaVersion(t, home), latestRuntimeStoreSchemaVersion(t); got != want {
+		t.Fatalf("schema version after valid Reopen = %d, want %d", got, want)
 	}
 }
 
@@ -414,8 +414,8 @@ func TestPromoteSchemaV10MigratesOnlyAfterValidRouting(t *testing.T) {
 	if _, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatalf("Promote() = %v, want schema v10 upgrade after route validation", err)
 	}
-	if got := runtimeStoreSchemaVersion(t, home); got != 15 {
-		t.Fatalf("schema version after valid Promote = %d, want 15", got)
+	if got, want := runtimeStoreSchemaVersion(t, home), latestRuntimeStoreSchemaVersion(t); got != want {
+		t.Fatalf("schema version after valid Promote = %d, want %d", got, want)
 	}
 }
 
@@ -530,6 +530,22 @@ func downgradeRuntimeStoreToV10(t *testing.T, home string) {
 	if _, err := db.Exec("PRAGMA user_version = 10"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A fresh store always stamps itself at the newest schema version, so reading one back is how a
+// test asserts "fully migrated" without hardcoding a version number that drifts with every
+// unrelated migration added elsewhere in the package.
+func latestRuntimeStoreSchemaVersion(t *testing.T) int {
+	t.Helper()
+	home := t.TempDir()
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return runtimeStoreSchemaVersion(t, home)
 }
 
 func runtimeStoreSchemaVersion(t *testing.T, home string) int {
