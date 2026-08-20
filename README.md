@@ -42,6 +42,53 @@ Someone still has to:
 
 Secondhand splits those responsibilities cleanly: **the supervisor handles judgment; `hand` handles mechanics.**
 
+## Adoption
+
+### Fastest path
+
+```sh
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.sh | sh
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.ps1 -OutFile bootstrap.ps1
+Set-ExecutionPolicy -Scope Process Bypass
+.\bootstrap.ps1
+```
+
+Optional and explicitly opt-in: acquires `hand` if missing, offers to install missing foundational dependencies (Git, Treehouse, Herdr) with consent, initializes a fleet home (default `~/secondhand-fleet`), and reports readiness from `hand doctor`.
+It never installs a coding-agent harness or no-mistakes, and refuses to adopt a non-empty directory that is not already a recognized fleet.
+Use `--check`/`-Check` for a read-only dry run, `--yes`/`-Yes` for non-interactive consent.
+See [docs/adoption.md](docs/adoption.md) for the full walkthrough, the consent model, and the readiness contract.
+
+### Install `hand` only
+
+Already have Git, Treehouse, Herdr, and a coding-agent harness? See [Installation](#installation) below.
+
+### Manual adoption
+
+```sh
+mkdir -p ~/secondhand-fleet
+cd ~/secondhand-fleet
+hand init
+hand doctor
+```
+
+See [Quick start](#quick-start) for the full walkthrough.
+
+### Agent-assisted adoption
+
+Already have a capable coding agent and prefer to delegate setup:
+
+```text
+Set up Secondhand from atqamz/hand on this machine using its documented
+bootstrap workflow. Inspect first, explain any third-party installations
+before performing them, preserve existing credentials/configuration, and
+finish by running hand doctor.
+```
+
 ## Quick start
 
 ### 1. Install `hand`
@@ -67,8 +114,8 @@ See [Installation](#installation) for every supported option.
 A fleet home is the directory where the supervising agent lives and where Secondhand keeps fleet state.
 
 ```sh
-mkdir ~/fleet
-cd ~/fleet
+mkdir ~/secondhand-fleet
+cd ~/secondhand-fleet
 hand init
 ```
 
@@ -87,7 +134,7 @@ Secondhand clones the repository under the fleet home and prepares it for isolat
 For Claude Code:
 
 ```sh
-cd ~/fleet
+cd ~/secondhand-fleet
 claude
 ```
 
@@ -258,7 +305,7 @@ Use those values as explicit overrides only for a genuine task-specific need; ex
 A fleet home is deliberately separate from the repositories being worked on.
 
 ```text
-~/fleet/
+~/secondhand-fleet/
 ├── AGENTS.md
 ├── CLAUDE.md
 ├── .agents/skills/secondhand/
@@ -357,16 +404,7 @@ irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 
 `HAND_INSTALL_DIR` overrides the install directory (`$HOME/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\hand` on Windows); `HAND_INSTALL_VERSION` pins a release tag instead of the latest.
 
-On native Windows, `bootstrap.ps1` optionally installs `hand`, offers to install missing foundational dependencies, initializes a fleet home, and reports readiness from `hand doctor`:
-
-```powershell
-irm https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.ps1 -OutFile bootstrap.ps1
-Set-ExecutionPolicy -Scope Process Bypass
-.\bootstrap.ps1 -Yes
-```
-
-Use `-Check` to inspect the target without making changes.
-The script never installs a coding-agent harness or no-mistakes, and refuses to adopt a non-empty unrecognized directory.
+To also initialize a fleet home in one step, see [Adoption](#adoption) above.
 
 ### Release binary
 
