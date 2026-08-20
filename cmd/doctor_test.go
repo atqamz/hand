@@ -310,7 +310,7 @@ func TestDoctorTreatsMissingManagedMarkersAsViolation(t *testing.T) {
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	// Refresh first so CLAUDE.md (a plain file on Windows, checked separately from
-	// AGENTS.md's markers) is already correct: the overwrite below isolates the one
+	// AGENTS.md's canonical content) is already correct: the overwrite below isolates the one
 	// violation under test rather than also tripping the Windows-only CLAUDE.md check.
 	if _, err := agentsmd.Refresh(home); err != nil {
 		t.Fatal(err)
@@ -384,7 +384,7 @@ func TestDoctorFailsWhenAgentsFileIsDeletedAfterInitialization(t *testing.T) {
 }
 
 // Every drift shape now collapses to one whole-file finding: the canonical AGENTS.md is
-// compared byte-for-byte, so there is no marker structure left for doctor to diagnose.
+// compared byte-for-byte, so doctor reports no partial-drift detail.
 func TestDoctorReportsDriftForMalformedOrForeignContentWithNoLineNumber(t *testing.T) {
 	tests := []struct {
 		name    string
