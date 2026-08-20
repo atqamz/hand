@@ -24,13 +24,36 @@ var bootstrapPS1Script = func() string {
 // Runs bootstrap.ps1 under an available native Windows PowerShell executable with an explicit,
 // minimal environment - PATH and USERPROFILE (which [Environment]::GetFolderPath('UserProfile')
 // reads) only - so a test can prove nothing beyond those two ever reaches the script.
+func findPowerShell() (string, error) {
+	names := []string{"powershell.exe", "pwsh.exe"}
+	for _, name := range names {
+		if path, err := exec.LookPath(name); err == nil {
+			return path, nil
+		}
+	}
+
+	candidates := make([]string, 0, 4)
+	if root := os.Getenv("SystemRoot"); root != "" {
+		candidates = append(candidates, filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
+	}
+	for _, root := range []string{os.Getenv("ProgramW6432"), os.Getenv("ProgramFiles"), os.Getenv("ProgramFiles(x86)")} {
+		if root != "" {
+			candidates = append(candidates, filepath.Join(root, "PowerShell", "7", "pwsh.exe"))
+		}
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", errors.New("PowerShell was not found on PATH or in its standard Windows install locations")
+}
+
 func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
 	psArgs := append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bootstrapPS1Script}, args...)
-	powershell, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		powershell, err = exec.LookPath("pwsh.exe")
-	}
+	powershell, err := findPowerShell()
 	if err != nil {
 		t.Fatalf("find a native PowerShell executable: %v", err)
 	}
