@@ -181,8 +181,7 @@ func goToolPath() string {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	//nolint:staticcheck // hermetic test PATHs can hide go, so the running toolchain is the reliable fallback.
-	path := filepath.Join(runtime.GOROOT(), "bin", name)
+	path := filepath.Join(runtime.GOROOT(), "bin", name) //nolint:staticcheck // hermetic test PATHs can hide go, so the running toolchain is the reliable fallback.
 	if _, err := os.Stat(path); err == nil {
 		return path
 	}
