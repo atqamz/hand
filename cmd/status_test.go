@@ -1474,9 +1474,8 @@ func TestStatusFleetFlagsInconsistentHold(t *testing.T) {
 	}
 }
 
-// hand watch writes limit holds, so hand status has to render one as the ordinary fact it is. Left out of
-// holdInconsistency it would come out flagged inconsistent, turning every routine usage limit into a
-// report that something outside hand corrupted the database.
+// hand watch writes inferred limit holds, so hand status has to render one as a valid machine conclusion.
+// The inferred label distinguishes its pane-derived reason from direct runtime observation.
 func TestStatusFleetRendersAMachineSetLimitHold(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
