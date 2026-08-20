@@ -1,0 +1,22 @@
+{
+  "name": "@atqamz/hand-win32-x64",
+  "version": "0.5.0",
+  "description": "hand prebuilt binary for win32 x64",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atqamz/hand.git"
+  },
+  "license": "MIT",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin/"
+  ]
+}

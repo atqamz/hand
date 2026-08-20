@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+
+PackageIdentifier: Atqamz.Hand
+PackageVersion: 0.5.0
+PackageLocale: en-US
+Publisher: Atqamz
+PackageName: Hand
+License: MIT
+ShortDescription: Manage a fleet of coding agents
+PackageUrl: https://github.com/atqamz/hand
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

@@ -26,9 +26,10 @@ would mean writing the same safety-critical logic a second time, behind an abstr
 otherwise need, only to reach parity with what already works and is tested.
 
 Homebrew formulae, WinGet manifests, npm packages, an AUR `PKGBUILD`, and `.deb`/`.rpm` packages are each a small,
-well-documented text or archive format. Every one of them can be produced directly from the artifacts
-`release.yaml` and `edge.yaml` already build and checksum, without a templating engine standing between the
-source archive and the package manifest.
+well-documented text or archive format. Every one of them can be produced from the tagged release, without a
+templating engine standing between the source archive and the package manifest. See
+`packaging/README.md` for the per-surface table of which ones read the prebuilt archive directly and which
+build from tagged source instead, and why.
 
 ## Decision
 
@@ -36,9 +37,15 @@ The release pipeline keeps its current shape: release-please owns version/PR/tag
 `.github/workflows/release.yaml` plus `edge.yaml`/`edge-publish.sh` keep owning stable and edge publication
 exactly as documented in `edge-is-one-mutable-tag-published-only-by-ci.md`. GoReleaser is not adopted.
 
-Each new package surface is a small, independent generator that reads the already-built and checksummed release
-archives and produces that surface's manifest or archive: a Homebrew formula, a WinGet manifest, npm package
-files, an AUR `PKGBUILD`, and `.deb`/`.rpm` archives. None of them touches version, tag, or edge-publication logic.
+Each new package surface is a small, independent generator that produces that surface's manifest or archive: a
+Homebrew formula, a WinGet manifest, npm package files, an AUR `PKGBUILD`, and `.deb`/`.rpm` archives. Each reads
+an already-built, checksummed release, but four of them (Homebrew, npm, `.deb`, `.rpm`) build from the tagged
+source with their own `-X main.distribution=<surface>` rather than repackaging the prebuilt
+`hand-*.tar.gz`/`.zip` asset, because that shared asset always embeds `distribution:github` and reusing it
+directly would make `hand update` wrongly try to self-replace a package-manager-owned binary. WinGet and AUR are
+the two that do consume the prebuilt asset directly, since WinGet has no build step and an AUR `-bin` package is
+prebuilt by convention. See `packaging/README.md` for the full per-surface table. None of them touches version,
+tag, or edge-publication logic.
 
 ## Rejected alternatives
 

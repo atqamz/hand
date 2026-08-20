@@ -31,3 +31,10 @@ treehouse.toml
 # etc
 docs/superpowers/*
 .superpowers/*
+
+# npm packaging: generate.sh cross-compiles these from tagged source
+packaging/npm/platforms/*/bin/
+
+# deb/rpm packaging: build.sh output, not source
+*.deb
+*.rpm

@@ -1,0 +1,16 @@
+pkgbase = hand-bin
+	pkgdesc = CLI that manages a fleet of coding agents from a fleet home (prebuilt binary)
+	pkgver = 0.5.0
+	pkgrel = 1
+	url = https://github.com/atqamz/hand
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	provides = hand
+	conflicts = hand
+	source_x86_64 = https://github.com/atqamz/hand/releases/download/v0.5.0/hand-linux-amd64.tar.gz
+	sha256sums_x86_64 = facb93a841b091f84e021357df14c0d65e1a4adf50f704b917437506d61ad803
+	source_aarch64 = https://github.com/atqamz/hand/releases/download/v0.5.0/hand-linux-arm64.tar.gz
+	sha256sums_aarch64 = 394f7e5b9288ee3f49d061eeeaf99f81c2c29e4ba49800228a23709ee7baa980
+
+pkgname = hand-bin
