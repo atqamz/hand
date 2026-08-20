@@ -122,6 +122,8 @@ still useful into data/operator.md or data/learnings.md yourself.
 
 `
 
+const noLegacyContentNote = "No pre-immutable AGENTS.md content needed preserving.\n"
+
 // RefreshResult reports what Refresh did to a fleet home's AGENTS.md.
 type RefreshResult struct {
 	// Changed is true when Refresh wrote a new AGENTS.md, whether that was the first write,
@@ -151,6 +153,9 @@ func Refresh(dir string) (RefreshResult, error) {
 	var result RefreshResult
 	switch {
 	case os.IsNotExist(err):
+		if err := ensureMigrationSentinel(dir); err != nil {
+			return RefreshResult{}, err
+		}
 		if err := atomicfile.Write(path, ".agents.md-", canonical, 0o644); err != nil {
 			return RefreshResult{}, fmt.Errorf("write %s: %w", filename, err)
 		}
@@ -158,6 +163,9 @@ func Refresh(dir string) (RefreshResult, error) {
 	case err != nil:
 		return RefreshResult{}, fmt.Errorf("read %s: %w", filename, err)
 	case string(existing) == generatedBody:
+		if err := ensureMigrationSentinel(dir); err != nil {
+			return RefreshResult{}, err
+		}
 		// Already canonical: leave the file untouched rather than write identical bytes,
 		// which would still swap the inode and reset the mode.
 	default:
@@ -195,8 +203,12 @@ func Refresh(dir string) (RefreshResult, error) {
 // migration is done, drift in an immutable file is a plain restore, not a migration.
 func migrate(dir, existing string) (string, error) {
 	archivePath := filepath.Join(dir, legacyArchiveRel)
-	switch _, err := os.Stat(archivePath); {
+	archive, err := os.ReadFile(archivePath)
+	switch {
 	case err == nil:
+		if !strings.HasPrefix(string(archive), legacyArchiveHeader) {
+			return "", fmt.Errorf("refuse to replace AGENTS.md: %s exists but is not Hand's migration archive", legacyArchiveRel)
+		}
 		return "", nil
 	case !os.IsNotExist(err):
 		return "", fmt.Errorf("check %s: %w", legacyArchiveRel, err)
@@ -207,16 +219,41 @@ func migrate(dir, existing string) (string, error) {
 		return "", err
 	}
 	if strings.TrimSpace(legacy) == "" {
+		if err := writeMigrationSentinel(archivePath, noLegacyContentNote); err != nil {
+			return "", err
+		}
 		return "", nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
-		return "", fmt.Errorf("create %s: %w", filepath.Dir(legacyArchiveRel), err)
-	}
-	if err := atomicfile.Write(archivePath, ".agents-md-legacy-", []byte(legacyArchiveHeader+legacy), 0o644); err != nil {
+	if err := writeMigrationSentinel(archivePath, legacy); err != nil {
 		return "", fmt.Errorf("archive legacy AGENTS.md content: %w", err)
 	}
 	return archivePath, nil
+}
+
+func ensureMigrationSentinel(dir string) error {
+	archivePath := filepath.Join(dir, legacyArchiveRel)
+	archive, err := os.ReadFile(archivePath)
+	if err == nil {
+		if !strings.HasPrefix(string(archive), legacyArchiveHeader) {
+			return fmt.Errorf("refuse to replace AGENTS.md: %s exists but is not Hand's migration archive", legacyArchiveRel)
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("check %s: %w", legacyArchiveRel, err)
+	}
+	return writeMigrationSentinel(archivePath, noLegacyContentNote)
+}
+
+func writeMigrationSentinel(path, body string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(legacyArchiveRel), err)
+	}
+	if err := atomicfile.Write(path, ".agents-md-legacy-", []byte(legacyArchiveHeader+body), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", legacyArchiveRel, err)
+	}
+	return nil
 }
 
 // Extracts what a pre-immutable AGENTS.md carried outside hand's old marked span, verbatim,
