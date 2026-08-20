@@ -3,7 +3,7 @@
 - Date: 2026-08-20
 - Status: accepted
 - Issues: atqamz/hand#244, atqamz/hand#232, atqamz/hand#53, atqamz/hand#149, atqamz/hand#140, atqamz/hand#32, atqamz/hand#65
-- PRs: atqamz/hand#265, atqamz/hand#274
+- PRs: atqamz/hand#265, atqamz/hand#274, atqamz/hand#278
 
 ## Context
 
@@ -147,7 +147,7 @@ A fourth observation, including the report timestamp used by `hand status`, reus
 
 ## Consequences
 
-Four follow-on issues implement the rest, one per invariant: atqamz/hand#266 for invariant 1, atqamz/hand#267 for invariant 3 carrying invariant 4 as an acceptance criterion, atqamz/hand#268 for invariant 5, and atqamz/hand#269 for invariant 6.
+Five follow-on issues implement the rest, one per invariant: atqamz/hand#266 for invariant 1, atqamz/hand#267 for invariant 3 carrying invariant 4 as an acceptance criterion, atqamz/hand#268 for invariant 5, atqamz/hand#269 for invariant 6, and atqamz/hand#270 for invariant 7.
 Invariant 7 is implemented by atqamz/hand#270: status preserves an unknown report timestamp observation instead of rendering it as an absent report, and the already-unified unreachable-pane path renders unknown without guessing.
 Invariant 2 is met today, by atqamz/hand#140's parse fix and atqamz/hand#149's cursor digest, and gets no follow-on issue.
 Invariant 4 is met vacuously and becomes a test obligation on invariant 3's implementation rather than work of its own.

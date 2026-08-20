@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -523,6 +524,46 @@ func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {
 	}
 	if got.Task.PR != "" {
 		t.Fatalf("task.PR = %q, want status to leave persisted state unchanged", got.Task.PR)
+	}
+}
+
+// atqamz/hand#266: an empty durable pr column with a done report and a gate-opened PR observed live
+// used to render the same pr field a recorded PR renders in and tell the operator to run hand merge,
+// which reads the durable column alone, finds it empty, and exits 3.
+func TestStatusThenMergeAgreeOnAnObservedButUnrecordedPR(t *testing.T) {
+	home, worktree := setupTeardownHome(t)
+	setupTeardownGateProject(t, home, worktree, "task-1-branch")
+	writeFakeHerdrPaneStatus(t, "idle")
+	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR https://github.com/owner/repo/pull/9 checks green")
+
+	got := runStatusFor(t, "task-1")
+	if pr := detailField(t, got, "pr"); pr == "https://github.com/owner/repo/pull/9" {
+		t.Fatalf("pr = %q, want the observed URL distinguishable from a recorded one", pr)
+	}
+	if !strings.Contains(got, "hand pr task-1 https://github.com/owner/repo/pull/9") {
+		t.Fatalf("got %q, want the help line to name the recording step before hand merge", got)
+	}
+	if strings.Contains(got, "Run `hand merge task-1` once merging is authorized") {
+		t.Fatalf("got %q, want hand status not to offer hand merge while the PR is unrecorded", got)
+	}
+
+	mergeCmd := newMergeCmd()
+	mergeCmd.SetOut(&bytes.Buffer{})
+	mergeCmd.SetArgs([]string{"task-1"})
+	err := mergeCmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "no PR recorded") {
+		t.Fatalf("err = %v, want hand merge to refuse with no PR recorded", err)
 	}
 }
 
