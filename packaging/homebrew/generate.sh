@@ -12,8 +12,11 @@ if [ -z "$tag" ]; then
 fi
 version="${tag#v}"
 
-git fetch origin "tag" "$tag" >/dev/null 2>&1 || true
-commit=$(git rev-parse "$tag^{commit}")
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(git -C "$script_dir" rev-parse --show-toplevel)
+
+git -C "$repo_root" fetch origin "tag" "$tag" >/dev/null 2>&1 || true
+commit=$(git -C "$repo_root" rev-parse "$tag^{commit}")
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -21,7 +24,6 @@ src_url="https://github.com/$repo/archive/refs/tags/$tag.tar.gz"
 curl -sL -o "$tmp/src.tar.gz" "$src_url"
 sha=$(sha256sum "$tmp/src.tar.gz" | cut -d' ' -f1)
 
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cat >"$script_dir/hand.rb" <<EOF
 class Hand < Formula
   desc "Manage a fleet of coding agents"
