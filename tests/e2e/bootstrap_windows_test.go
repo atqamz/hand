@@ -27,9 +27,12 @@ var bootstrapPS1Script = func() string {
 func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
 	psArgs := append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bootstrapPS1Script}, args...)
-	powershell := "powershell.exe"
-	if _, err := exec.LookPath(powershell); err != nil {
-		powershell = "pwsh.exe"
+	powershell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		powershell, err = exec.LookPath("pwsh.exe")
+	}
+	if err != nil {
+		t.Fatalf("find a native PowerShell executable: %v", err)
 	}
 	cmd := exec.Command(powershell, psArgs...)
 	env := append([]string{"PATH=" + os.Getenv("PATH"), "USERPROFILE=" + home, "SystemRoot=" + os.Getenv("SystemRoot")}, extraEnv...)
