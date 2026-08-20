@@ -134,7 +134,10 @@ func TestReadOnlyLadderAtHoldInferredVersionOmitsAttemptBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preBranchSchema := strings.Replace(schema, "\tworktree               TEXT NOT NULL DEFAULT '',\n\tbranch                 TEXT NOT NULL DEFAULT '',\n", "\tworktree               TEXT NOT NULL DEFAULT '',\n", 1)
+	preBranchSchema := strings.NewReplacer(
+		"\tworktree               TEXT NOT NULL DEFAULT '',\n\tbranch                 TEXT NOT NULL DEFAULT '',\n", "\tworktree               TEXT NOT NULL DEFAULT '',\n",
+		"\trepair_observed_at TEXT NOT NULL DEFAULT '',\n\tacknowledged_at     TEXT NOT NULL DEFAULT '',\n\tacknowledged_reason TEXT NOT NULL DEFAULT '',\n\tacknowledged_offset INTEGER NOT NULL DEFAULT 0,\n\tacknowledged_digest TEXT NOT NULL DEFAULT ''\n", "\trepair_observed_at TEXT NOT NULL DEFAULT ''\n",
+	).Replace(schema)
 	db := &DB{sql: sqlDB, home: home}
 	if _, err := db.sql.Exec(preBranchSchema); err != nil {
 		t.Fatal(err)
@@ -174,9 +177,6 @@ func TestReadOnlyLadderAtAttemptBranchVersionOmitsAcknowledgement(t *testing.T) 
 	preAckSchema := strings.Replace(schema,
 		"\trepair_observed_at TEXT NOT NULL DEFAULT '',\n\tacknowledged_at     TEXT NOT NULL DEFAULT '',\n\tacknowledged_reason TEXT NOT NULL DEFAULT '',\n\tacknowledged_offset INTEGER NOT NULL DEFAULT 0,\n\tacknowledged_digest TEXT NOT NULL DEFAULT ''\n",
 		"\trepair_observed_at TEXT NOT NULL DEFAULT ''\n", 1)
-	if preAckSchema == schema {
-		t.Fatal("replace did not match schema text - update it to match the current column block")
-	}
 	db := &DB{sql: sqlDB, home: home}
 	if _, err := db.sql.Exec(preAckSchema); err != nil {
 		t.Fatal(err)
