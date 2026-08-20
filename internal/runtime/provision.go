@@ -105,7 +105,10 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	}
 	worktreePath := lease.Path
 	if req.attempt.Worktree == "" {
-		if err := state.RecordAttemptWorktree(req.home, req.attempt.TaskID, req.attempt.ID, worktreePath, lease.ID); err != nil {
+		// Best-effort: an attempt whose branch cannot be determined here simply has none
+		// durably recorded, and PR detection falls back to a live re-derivation as before.
+		branch, _ := currentBranch(worktreePath)
+		if err := state.RecordAttemptWorktree(req.home, req.attempt.TaskID, req.attempt.ID, worktreePath, branch, lease.ID); err != nil {
 			return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnLease(lease, true))
 		}
 	}

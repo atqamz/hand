@@ -67,7 +67,7 @@ func TestAttemptUpdatesPreserveExecutionSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "lease-1"); err != nil {
+	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "", "lease-1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.RecordAttemptHerdr("task-1", created.ID, Herdr{PaneID: "pane-1"}, "2026-08-14T00:00:00Z"); err != nil {
@@ -237,7 +237,7 @@ func TestProvisioningEvidenceIsIncrementalAndRequiredBeforeRunning(t *testing.T)
 	if got := read(); got.Worktree != "" || got.Herdr.PaneID != "" || got.LaunchSubmittedAt != "" || got.LaunchConfirmedAt != "" {
 		t.Fatalf("initial provisioning evidence = %+v, want empty boundaries", got)
 	}
-	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "lease-1"); err != nil {
+	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "", "lease-1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.RecordAttemptHerdr("task-1", created.ID, Herdr{PaneID: "pane-1"}, "2026-08-14T00:00:01Z"); err != nil {
@@ -267,7 +267,7 @@ func TestReleasedProvisioningResourcesDoNotLeaveStaleOwnershipEvidence(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "lease-1"); err != nil {
+	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "", "lease-1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.RecordAttemptHerdr("task-1", created.ID, Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, "2026-08-14T00:00:01Z"); err != nil {
@@ -503,7 +503,7 @@ func TestAttemptBookkeepingRequiresCurrentActiveOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.RecordAttemptWorktree("task-1", first.ID, "stale", "stale-lease"); !errors.Is(err, ErrOwnershipConflict) {
+	if err := db.RecordAttemptWorktree("task-1", first.ID, "stale", "", "stale-lease"); !errors.Is(err, ErrOwnershipConflict) {
 		t.Fatalf("historical bookkeeping = %v, want ownership conflict", err)
 	}
 	got, found, err := db.ReadAttempt(second.ID)

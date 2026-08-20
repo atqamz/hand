@@ -33,10 +33,16 @@ func DetectPRReadOnly(ctx context.Context, homeDir string, active state.Attempt,
 	return observePR(ctx, homeDir, active, projectInfo)
 }
 
+// Live worktree state wins when it is determinable, since it is more current than what attempt
+// creation recorded; the durably stored branch is the fallback, since a detached or torn-down
+// worktree cannot answer at all - not evidence that no branch, and so no PR, ever existed.
 func observePR(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {
-	branch, err := currentBranch(active.Worktree)
-	if err != nil {
-		return ghutil.UnknownPRObservation("git rev-parse --abbrev-ref HEAD", fmt.Sprintf("resolve the branch to search for in %s: %v", active.Worktree, err))
+	branch, liveErr := currentBranch(active.Worktree)
+	if liveErr != nil {
+		branch = active.Branch
+	}
+	if branch == "" {
+		return ghutil.UnknownPRObservation("git symbolic-ref --short -q HEAD", fmt.Sprintf("resolve the branch to search for in %s: %v", active.Worktree, liveErr))
 	}
 	repoSlug, err := project.RepoSlug(homeDir, projectInfo)
 	if err != nil {

@@ -697,12 +697,15 @@ func localDefaultBranch(clonePath string) (string, error) {
 	return "", fmt.Errorf("resolve local default branch failed")
 }
 
+// git symbolic-ref, not rev-parse --abbrev-ref: the latter exits 0 and prints the literal string
+// "HEAD" on a detached HEAD instead of failing, which every caller would otherwise have to
+// special-case itself to avoid treating that sentinel as a real branch name.
 func currentBranch(worktreePath string) (string, error) {
-	c := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	c := exec.Command("git", "symbolic-ref", "--short", "-q", "HEAD")
 	c.Dir = worktreePath
 	out, err := c.Output()
 	if err != nil {
-		return "", fmt.Errorf("git rev-parse failed: %w", err)
+		return "", fmt.Errorf("git symbolic-ref failed: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

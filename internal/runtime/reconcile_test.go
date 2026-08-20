@@ -532,7 +532,7 @@ func TestReconcileClearsRepairAfterTeardownAndReopenResolvesOldAttempt(t *testin
 		t.Fatal(err)
 	}
 	newWorktree := filepath.Join(home, "reopened-worktree")
-	if err := state.RecordAttemptWorktree(home, "task-1", newAttempt.ID, newWorktree, "lease-new"); err != nil {
+	if err := state.RecordAttemptWorktree(home, "task-1", newAttempt.ID, newWorktree, "", "lease-new"); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.RecordAttemptHerdr(home, "task-1", newAttempt.ID, state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}, "2026-08-15T00:00:02Z"); err != nil {
