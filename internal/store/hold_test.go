@@ -8,7 +8,7 @@ import (
 func sampleHold() Hold {
 	return Hold{
 		ID: "fix-login", Kind: HoldKindOperator, Reason: "race condition needs a call",
-		SetAt: "2026-07-24T10:00:00Z",
+		SetAt: "2026-07-24T10:00:00Z", Inferred: true,
 	}
 }
 

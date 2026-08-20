@@ -235,13 +235,14 @@ type Project struct {
 
 // Hold is its own row keyed by an arbitrary id, not a foreign key into task: it exists for a
 // question left open by work hand teardown already terminalized, or by no task at all. BlockedOn
-// carries the id a HoldKindBlocked hold waits on, empty for HoldKindOperator.
+// carries the id a HoldKindBlocked hold waits on; Inferred marks a Reason scraped from a pane rather than observed directly.
 type Hold struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	Reason    string `json:"reason"`
 	BlockedOn string `json:"blocked_on"`
 	SetAt     string `json:"set_at"`
+	Inferred  bool   `json:"inferred"`
 }
 
 // Every machine-state file lives here, database included, so a human looking
@@ -345,7 +346,8 @@ CREATE TABLE IF NOT EXISTS hold (
 	kind       TEXT NOT NULL DEFAULT '',
 	reason     TEXT NOT NULL DEFAULT '',
 	blocked_on TEXT NOT NULL DEFAULT '',
-	set_at     TEXT NOT NULL DEFAULT ''
+	set_at     TEXT NOT NULL DEFAULT '',
+	inferred   INTEGER NOT NULL DEFAULT 0
 );
 `
 
@@ -2334,11 +2336,11 @@ func (db *DB) RemoveProject(name string) (bool, error) {
 	return affected > 0, nil
 }
 
-const holdColumns = `id, kind, reason, blocked_on, set_at`
+const holdColumns = `id, kind, reason, blocked_on, set_at, inferred`
 
 func scanHold(row interface{ Scan(...any) error }) (Hold, error) {
 	var h Hold
-	err := row.Scan(&h.ID, &h.Kind, &h.Reason, &h.BlockedOn, &h.SetAt)
+	err := row.Scan(&h.ID, &h.Kind, &h.Reason, &h.BlockedOn, &h.SetAt, &h.Inferred)
 	return h, err
 }
 
@@ -2347,11 +2349,11 @@ func scanHold(row interface{ Scan(...any) error }) (Hold, error) {
 // hold was last set, not when it was first raised.
 func (db *DB) SetHold(h Hold) error {
 	_, err := db.sql.Exec(`INSERT INTO hold (`+holdColumns+`)
-		VALUES (?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			kind = excluded.kind, reason = excluded.reason,
-			blocked_on = excluded.blocked_on, set_at = excluded.set_at`,
-		h.ID, h.Kind, h.Reason, h.BlockedOn, h.SetAt)
+			blocked_on = excluded.blocked_on, set_at = excluded.set_at, inferred = excluded.inferred`,
+		h.ID, h.Kind, h.Reason, h.BlockedOn, h.SetAt, h.Inferred)
 	if err != nil {
 		return fmt.Errorf("write hold %q: %w", h.ID, err)
 	}
@@ -2360,11 +2362,11 @@ func (db *DB) SetHold(h Hold) error {
 
 func (db *DB) SetHoldIfNotOtherKind(h Hold) (bool, error) {
 	result, err := db.sql.Exec(`INSERT INTO hold (`+holdColumns+`)
-		VALUES (?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			kind = excluded.kind, reason = excluded.reason,
-			blocked_on = excluded.blocked_on, set_at = excluded.set_at
-		WHERE hold.kind = excluded.kind`, h.ID, h.Kind, h.Reason, h.BlockedOn, h.SetAt)
+			blocked_on = excluded.blocked_on, set_at = excluded.set_at, inferred = excluded.inferred
+		WHERE hold.kind = excluded.kind`, h.ID, h.Kind, h.Reason, h.BlockedOn, h.SetAt, h.Inferred)
 	if err != nil {
 		return false, fmt.Errorf("write conditional hold %q: %w", h.ID, err)
 	}

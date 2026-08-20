@@ -167,6 +167,9 @@ func TestReconcileRecordsUsageLimitWithStatedRetryTime(t *testing.T) {
 	if err != nil || !found || hold.Kind != state.HoldKindLimit || !strings.Contains(hold.Reason, wantRetryAt) {
 		t.Fatalf("hold=%+v found=%t err=%v, want a limit hold naming the retry time", hold, found, err)
 	}
+	if !hold.Inferred {
+		t.Fatalf("hold.Inferred = false, want true: this conclusion came from a pane scrape, not direct evidence")
+	}
 	if got.Lifecycle != state.AttemptRunning || got.Worktree != "/pool/1" || got.LeaseID != "lease-1" {
 		t.Fatalf("attempt = %+v, want the running attempt and its resources left exactly as they were", got)
 	}

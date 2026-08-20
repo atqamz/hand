@@ -103,6 +103,9 @@ func TestTickResumesALimitedWorkerAndLetsGoWhenItRuns(t *testing.T) {
 	if !exists || held.Kind != state.HoldKindLimit {
 		t.Fatalf("hold = %+v, exists = %v, want a %s hold", held, exists, state.HoldKindLimit)
 	}
+	if !held.Inferred {
+		t.Fatalf("hold.Inferred = false, want true: this conclusion came from a pane scrape, not direct evidence")
+	}
 	_, attempt := readTaskAttempt(t, home, "task-1")
 	if attempt.UsageLimitRetryAt == "" {
 		t.Fatal("usage_limit_retry_at is empty, want the schedule a restart resumes from")

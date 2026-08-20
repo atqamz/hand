@@ -106,6 +106,7 @@ func (r *Runtime) recordUsageLimitHold(home, taskID, retryAt string) error {
 	}
 	if _, err := state.SetHoldIfNotOtherKind(home, state.Hold{
 		ID: taskID, Kind: state.HoldKindLimit, Reason: reason, SetAt: r.deps.now().UTC().Format(time.RFC3339),
+		Inferred: true,
 	}); err != nil {
 		return fmt.Errorf("record usage-limit hold for task %q: %w", taskID, err)
 	}

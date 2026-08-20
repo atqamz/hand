@@ -1484,7 +1484,8 @@ func TestStatusFleetRendersAMachineSetLimitHold(t *testing.T) {
 
 	if err := state.SetHold(home, state.Hold{
 		ID: "fix-login", Kind: state.HoldKindLimit,
-		Reason: "harness stopped on a usage limit; 1 attempt made, next try 2026-08-04T15:01:00Z",
+		Reason:   "harness stopped on a usage limit; 1 attempt made, next try 2026-08-04T15:01:00Z",
+		Inferred: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1501,6 +1502,53 @@ func TestStatusFleetRendersAMachineSetLimitHold(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "limit") || !strings.Contains(out.String(), "next try 2026-08-04T15:01:00Z") {
 		t.Fatalf("got %q, want the limit hold's kind and reason in the held block", out.String())
+	}
+	if !strings.Contains(out.String(), "(inferred from a pane scrape)") {
+		t.Fatalf("got %q, want the pane-derived conclusion labelled as inferred", out.String())
+	}
+}
+
+// atqamz/hand#269: a conclusion scraped from a pane is labelled wherever it renders, so an operator
+// reading the held block never mistakes a mechanism's own guess for a fact the runtime observed
+// directly. An ordinary operator hold, never scraped, carries no such label in either rendering.
+func TestStatusFleetJSONLabelsAnInferredHold(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+
+	if err := state.SetHold(home, state.Hold{
+		ID: "fix-login", Kind: state.HoldKindLimit, Reason: "harness stopped on a usage limit",
+		Inferred: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{
+		ID: "needs-call", Kind: state.HoldKindOperator, Reason: "race condition needs a call",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	var got fleetJSON
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out.String())
+	}
+	byID := map[string]holdJSON{}
+	for _, h := range got.Holds {
+		byID[h.ID] = h
+	}
+	if !byID["fix-login"].Inferred {
+		t.Fatalf("holds = %+v, want fix-login's scrape-derived hold marked inferred", got.Holds)
+	}
+	if byID["needs-call"].Inferred {
+		t.Fatalf("holds = %+v, want needs-call's operator hold not marked inferred", got.Holds)
 	}
 }
 
