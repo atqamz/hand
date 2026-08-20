@@ -78,7 +78,7 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			refreshed, err := agentsmd.Refresh(home)
+			refresh, err := agentsmd.Refresh(home)
 			if err != nil {
 				return err
 			}
@@ -98,7 +98,8 @@ func newInitCmd() *cobra.Command {
 			var doc axi.Doc
 			doc.Field("result", "initialized")
 			doc.Field("home", home)
-			doc.Field("agents_md", writtenOrUnchanged(refreshed))
+			doc.Field("agents_md", writtenOrUnchanged(refresh.Changed))
+			doc.Field("agents_md_legacy_archive", noneIfEmpty(refresh.ArchivedPath))
 			doc.Field("session_hook", removedOrUnchanged(hookRemoved))
 			doc.List("migrated", migrated)
 			cfg, err := currentWorkerConfig(home)
@@ -114,11 +115,17 @@ func newInitCmd() *cobra.Command {
 			case stateDetected:
 				effectiveSettingsHelp = "Start a supervising session in this home; it detects the current harness and uses its native model and effort defaults"
 			}
-			doc.Help(effectiveSettingsHelp,
+			help := []string{
+				effectiveSettingsHelp,
 				"Run `hand config set <key> <value>` only to persist an explicit worker override",
 				"Read AGENTS.md in this home for how a supervising agent is meant to drive it",
 				"Run `hand project add <repo-url>` to register the first project",
-				"AGENTS.md and its CLAUDE.md reference carry the startup integration across harnesses")
+				"AGENTS.md and its CLAUDE.md reference carry the startup integration across harnesses",
+			}
+			if refresh.ArchivedPath != "" {
+				help = append(help, fmt.Sprintf("This home's previous AGENTS.md content was archived verbatim at %s; review it and relocate anything still useful yourself", refresh.ArchivedPath))
+			}
+			doc.Help(help...)
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
@@ -141,6 +148,13 @@ func writtenOrUnchanged(changed bool) string {
 		return "written"
 	}
 	return "unchanged"
+}
+
+func noneIfEmpty(path string) string {
+	if path == "" {
+		return "none"
+	}
+	return path
 }
 
 func removedOrUnchanged(changed bool) string {

@@ -13,10 +13,18 @@ gcc is required because `make test` runs with `-race`, which needs CGO, and jq b
 Without Nix, install those yourself.
 
 To dogfood the tool from its own checkout, enter `nix develop`, run `make build` whenever `./hand` is absent or stale, and launch any supported harness from the checkout root.
-The tracked `AGENTS.md` tells a main session to initialize the checkout when `state/hand.db` is absent and to run `./hand session start` before supervising.
+In a main session, when `HAND_ROLE` is not `worker`, bootstrap before responding or acting: if `state/hand.db` is absent, run `./hand init` first, then run `./hand session start` after initialization and at the start of every later supervising session.
 
 Every directory `hand init` creates at the checkout root is gitignored, so the fleet home lives alongside the source without ever being committed.
-The tracked managed block is already current, so initialization preserves the source-owned instructions and leaves a clean checkout unchanged.
+The tracked `AGENTS.md` is already the exact canonical content `hand init` writes, so initializing a clean checkout leaves it unchanged; `internal/agentsmd`'s `generatedBody` is the authoritative source, and its tests own refresh and `hand doctor` behavior.
+
+## Repository conventions
+
+- Behavioral contracts belong beside their implementation, command help, and focused tests. `docs/adr/README.md` owns the narrow bar for durable architectural rationale.
+- Command output goes through `internal/axi` as TOON and every failure through `cmd/root.go`'s error document; `hand watch`'s event stream is the exception. Package and command tests own these shapes.
+- Harness/herdr syntax, exit enforcement, watch's stdout/errOut split, and first-run prompt handling are owned by their implementations and closest tests under `internal/harness`, `internal/herdr`, `internal/watcher`, and `cmd`.
+- `herdr`, `treehouse` and `gh` are faked once in `internal/faketool` for every suite. `internal/faketool/FIDELITY.md` records observed external behavior, `tests/contract` (`make contract`) rechecks it hermetically, and `make contract-live` separately probes reversible calls against installed tools. Extend the shared fake, never hand-write another.
+- Test, release, and write conventions live as doc comments: `tests/e2e` (`fakes_test.go`, `e2e_test.go`), GitHub access via `gh` (`internal/ghutil`), AGENTS.md refresh (`internal/agentsmd`), atomic writes (`internal/atomicfile`).
 
 ## Dogfooding edge builds
 
@@ -70,7 +78,7 @@ Exempt from both rules: the package doc comment, directives (`//go:build`, `//go
 Rule 2 will occasionally be wrong, because a genuinely subtle invariant sometimes needs a fourth line.
 That is accepted: a rule that is right most of the time and mechanically enforced binds harder than one that is right always and enforced never.
 Behavior a caller depends on belongs with its implementation, command help, and focused tests.
-User or contributor guidance belongs in README.md, AGENTS.md, or this file.
+User or contributor guidance belongs in README.md or this file.
 `docs/adr/README.md` owns the narrower bar for durable architectural rationale.
 
 `go run ./tools/commentlint .` runs the check alone and prints one `file:line:column` per violation.

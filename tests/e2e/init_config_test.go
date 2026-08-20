@@ -151,8 +151,8 @@ func TestInitAndSessionStartNeverBlockOnStdin(t *testing.T) {
 	}
 }
 
-// This is the installed-binary first run: operator-owned instructions survive initialization, and the
-// generated block carries the next supervising session into the complete bootstrap document.
+// This is the installed-binary first run: initialization replaces legacy AGENTS.md content with the
+// canonical supervisor contract and archives the old content for human review.
 func TestFirstRunInstalledCLIBootstrapsADetectedSession(t *testing.T) {
 	isolateGitConfig(t)
 	home := t.TempDir()
@@ -169,16 +169,34 @@ func TestFirstRunInstalledCLIBootstrapsADetectedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const managedBootstrap = `<!-- hand:generated:start -->
-## Secondhand supervisor bootstrap
+	const wantAgents = `## Secondhand supervisor bootstrap
 
 Before responding or acting in a supervising session, run ` + "`hand session start`" + `.
 Do not run supervisor bootstrap when ` + "`HAND_ROLE=worker`" + `.
-<!-- hand:generated:end -->
+
+This file is Hand-owned and immutable: ` + "`hand init`" + ` restores it byte-for-byte, and
+nobody edits it by hand, including the supervisor. The same rule covers every other
+Hand-generated surface in this fleet home.
+
+- Read ` + "`data/operator.md`" + ` before acting; its constraints outrank your own judgment.
+- ` + "`data/**`" + ` is living fleet context and memory, never part of this file.
+- Use the bundled ` + "`secondhand`" + ` Agent Skill for setup, routing, planning, task
+  lifecycle, recovery, and bug-report procedures; this file states invariants, not procedures.
+- Use the ` + "`hand`" + ` CLI and runtime as the source of truth for fleet and machine state
+  instead of reading or editing it directly.
+- Never edit a registered project under ` + "`projects/`" + ` directly; a worker does that in
+  its own worktree.
+- Never merge without explicit operator authorization.
 `
-	wantAgents := preamble + "\n" + managedBootstrap
 	if string(agents) != wantAgents {
-		t.Fatalf("AGENTS.md = %q, want exact preserved preamble plus current managed bootstrap %q", agents, wantAgents)
+		t.Fatalf("AGENTS.md = %q, want the canonical Hand-owned content %q", agents, wantAgents)
+	}
+	archive, err := os.ReadFile(filepath.Join(home, "data", "agents-md-legacy-migration.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(archive), preamble) {
+		t.Fatalf("migration archive = %q, want the original AGENTS.md content preserved", archive)
 	}
 
 	session := runHandEnv(t, home, []string{"HAND_HARNESS=codex"}, "session", "start")
