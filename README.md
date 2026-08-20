@@ -305,6 +305,50 @@ Building from source additionally requires Go 1.26.5 or newer.
 
 ## Installation
 
+### Homebrew
+
+```sh
+brew install atqamz/tap/hand
+```
+
+### Nix
+
+Install into your profile:
+
+```sh
+nix profile install github:atqamz/hand
+```
+
+Or run it without installing:
+
+```sh
+nix shell github:atqamz/hand -c hand --version
+```
+
+The flake covers `aarch64-darwin`, `aarch64-linux`, and `x86_64-linux`. On Intel macOS, use a release binary or `go install`.
+
+### Go
+
+```sh
+go install github.com/atqamz/hand@latest
+```
+
+`go install` does not embed release-version metadata, so the binary reports `dev` and never checks for updates. Prefer a release binary, Homebrew, or Nix for a versioned build.
+
+### Install script
+
+Checksum-verifying installers for Linux, macOS, and Windows. Each installs `hand` only - never Herdr, Treehouse, `gh`, an agent harness, or no-mistakes.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
+```
+
+`HAND_INSTALL_DIR` overrides the install directory (`$HOME/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\hand` on Windows); `HAND_INSTALL_VERSION` pins a release tag instead of the latest.
+
 ### Release binary
 
 Release tar archives are available for Linux and macOS on AMD64 and ARM64. A ZIP archive is available for Windows AMD64. Every release includes `checksums.txt`.
@@ -318,12 +362,6 @@ install -m755 hand ~/.local/bin/hand
 On Windows, download `hand-windows-amd64.zip`, extract `hand.exe`, and place it on `PATH`.
 
 See the [releases page](https://github.com/atqamz/hand/releases) for every asset.
-
-### Homebrew
-
-```sh
-brew install atqamz/tap/hand
-```
 
 ### Edge builds
 
@@ -354,30 +392,6 @@ hand update --check --channel edge
 After an edge binary is installed, plain `hand update` continues tracking edge.
 Switch back explicitly with `hand update --channel stable`.
 That switch is a downgrade from unreleased development state, so it may not be runtime-compatible with every future migration performed while using edge.
-
-### Nix
-
-Install into your profile:
-
-```sh
-nix profile install github:atqamz/hand
-```
-
-Or run it without installing:
-
-```sh
-nix shell github:atqamz/hand -c hand --version
-```
-
-The flake covers `aarch64-darwin`, `aarch64-linux`, and `x86_64-linux`. On Intel macOS, use a release binary or `go install`.
-
-### Go
-
-```sh
-go install github.com/atqamz/hand@latest
-```
-
-`go install` does not embed release-version metadata, so the binary reports `dev` and never checks for updates. Prefer a release binary or Nix installation for a versioned build.
 
 To build a checkout for contributing to Secondhand itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
