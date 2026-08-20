@@ -58,6 +58,7 @@ if [ "$check_only" -eq 0 ] && [ -t 0 ] && [ -t 1 ]; then
   interactive=1
 fi
 
+# shellcheck disable=SC1007
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 # ---- step 1: acquire or verify hand -----------------------------------------------------------
