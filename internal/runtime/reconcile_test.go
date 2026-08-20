@@ -1528,6 +1528,66 @@ func TestReconcileAbandonWorktreeSettlesATerminalAttemptWithoutATeardownDecision
 	}
 }
 
+// atqamz/hand#263: a repair code recorded before an attestation must not survive the attestation it
+// names as the fix, even when the attempt it repairs reached its terminal lifecycle without ever
+// recording a teardown decision, so its completion state and record never get appended.
+func TestReconcileAbandonPaneClearsAPreviouslyRecordedRepairCode(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+		Herdr:             state.Herdr{Session: "default", WorkspaceID: "ws-mismatch", TabID: "tab-mismatch", PaneID: "pane-mismatch"},
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt != nil || history.Attempts[0].TeardownTerminalAttempt != "" || history.Attempts[0].TeardownHerdrState != "" {
+		t.Fatalf("eligible attempt = %+v, want a terminal attempt with no teardown decision and no settled Herdr state", history.Attempts[0])
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	firstReport, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstReport.Results) != 1 || firstReport.Results[0].RepairCode != repairCodeTeardownResourceAmbiguous {
+		t.Fatalf("first report = %+v, want %q recorded before any attestation", firstReport, repairCodeTeardownResourceAmbiguous)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != repairCodeTeardownResourceAmbiguous {
+		t.Fatalf("durable repair code = %q, want %q persisted", history.Task.RepairCode, repairCodeTeardownResourceAmbiguous)
+	}
+	secondReport, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonPane: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secondReport.Results) != 1 || secondReport.Results[0].RepairCode != "" {
+		t.Fatalf("second report = %+v, want the recorded repair code cleared once the pane is abandoned", secondReport)
+	}
+	history, err = state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.RepairCode != "" {
+		t.Fatalf("durable repair code = %q, want cleared", history.Task.RepairCode)
+	}
+	if history.Attempts[0].TeardownHerdrState != state.TeardownResourceAbandoned {
+		t.Fatalf("Herdr teardown state = %q, want abandoned", history.Attempts[0].TeardownHerdrState)
+	}
+}
+
 // A latch is a refusal to guess, not a verdict: the observation that would have refused the release
 // is the one that resumes it once the pool answers again.
 func TestReconcileConvergesALatchedWorktreeOnceOwnershipIsProven(t *testing.T) {

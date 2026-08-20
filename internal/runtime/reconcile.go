@@ -1127,13 +1127,17 @@ func clearResolvedTerminalRepair(home string, history state.TaskHistory) (bool, 
 	if !terminalRepairEvidenceResolved(task.RepairCode, *attempt) {
 		return false, nil
 	}
-	if attempt.TeardownCompletionState != state.TeardownCompletionAppended {
-		return false, nil
-	}
-	if _, found, err := completion.FindAttempt(home, attempt.ID); err != nil {
-		return false, err
-	} else if !found {
-		return false, nil
+	// An attempt that reached its terminal lifecycle without ever recording a teardown decision never
+	// gets a completion record to wait for; the resolved resource evidence above is the whole answer.
+	if attempt.TeardownTerminalAttempt != "" {
+		if attempt.TeardownCompletionState != state.TeardownCompletionAppended {
+			return false, nil
+		}
+		if _, found, err := completion.FindAttempt(home, attempt.ID); err != nil {
+			return false, err
+		} else if !found {
+			return false, nil
+		}
 	}
 	if err := state.ClearTaskRepair(home, task.ID, task.RepairCode); err != nil {
 		return false, err
