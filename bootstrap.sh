@@ -238,7 +238,7 @@ run_dep_action() {
       ;;
     url)
       tmp=$(mktemp) || return 1
-      if ! curl -fsSL -o "$tmp" "$dep_action_value"; then
+      if ! curl -fsSL -o "$tmp" "$dep_action_value" || [ ! -s "$tmp" ]; then
         rm -f "$tmp"
         return 1
       fi
