@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -33,7 +34,11 @@ func buildHermeticPath(dir string) (string, error) {
 		// Each binary is symlinked in individually rather than given its own directory on PATH: on a real
 		// machine git commonly lives in the same directory as real herdr and treehouse, so exposing that
 		// directory would hand the suite straight back the tools it fakes.
-		if err := os.Symlink(resolved, filepath.Join(dir, name)); err != nil {
+		linkName := name
+		if runtime.GOOS == "windows" {
+			linkName += ".exe"
+		}
+		if err := os.Symlink(resolved, filepath.Join(dir, linkName)); err != nil {
 			return "", err
 		}
 	}
