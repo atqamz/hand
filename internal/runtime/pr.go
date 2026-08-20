@@ -26,16 +26,11 @@ func DetectPR(ctx context.Context, homeDir string, task state.Task, active state
 	return updated, observation, nil
 }
 
-func DetectPRReadOnly(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, ghutil.PRObservation) {
-	observation := observePR(ctx, homeDir, active, projectInfo)
-	if !observation.Found() {
-		return task, observation
-	}
-	task.PR = observation.URL
-	if observation.Merged {
-		task.MergeAnnounced = true
-	}
-	return task, observation
+// DetectPRReadOnly answers what GitHub reports without writing task.PR or task.MergeAnnounced, unlike
+// DetectPR: a rendering caller must never receive a task shaped as though the durable record already
+// carried a value only this observation found (ADR attention-is-one-derivation..., invariant 1).
+func DetectPRReadOnly(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {
+	return observePR(ctx, homeDir, active, projectInfo)
 }
 
 func observePR(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {

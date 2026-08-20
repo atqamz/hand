@@ -38,6 +38,10 @@ type taskView struct {
 	hold        state.Hold
 	// Empty where no live lookup applied, which is neither a finding nor an absence.
 	prObserved ghutil.ObservationState
+	// The URL prObserved == ghutil.ObservationFound answers with. Rendered alongside task.PR rather
+	// than folded into it, so a found-but-unrecorded PR never takes the shape a recorded one renders
+	// in (atqamz/hand#266, docs/adr/attention-is-one-derivation-over-three-channels.md invariant 1).
+	prObservedURL string
 	// Empty where the gate-run check does not apply to this task, which is neither a finding nor
 	// an absence either: found, absent and unknown are the only three answers it ever gives.
 	gateObserved ghutil.ObservationState
@@ -187,10 +191,16 @@ var taskFields = []axi.Column[taskView]{
 		return formatReportAge(v.lastReportAt)
 	}},
 	{Name: "pr", Value: func(v taskView) string {
-		if v.task.PR == "" && v.prObserved == ghutil.ObservationUnknown {
-			return "unknown"
+		if v.task.PR != "" {
+			return v.task.PR
 		}
-		return orNone(v.task.PR)
+		switch v.prObserved {
+		case ghutil.ObservationUnknown:
+			return "unknown"
+		case ghutil.ObservationFound:
+			return fmt.Sprintf("none (observed only: %s)", v.prObservedURL)
+		}
+		return "none"
 	}},
 	{Name: "worktree", Value: func(v taskView) string { return orNone(v.execution().Worktree) }},
 	{Name: "herdr", Value: func(v taskView) string {

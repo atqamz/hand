@@ -143,20 +143,24 @@ type statusJSON struct {
 	PR               string      `json:"pr"`
 	// Omitted where no live lookup applied, so a consumer sees "unknown" only where an
 	// empty pr field is a failed observation rather than a PR that is not there.
-	PRObservation   string `json:"pr_observation,omitempty"`
-	MergeExecuted   bool   `json:"merged"`
-	MergeAnnounced  bool   `json:"pr_merged_observed"`
-	DeliveredAt     string `json:"delivered_at,omitempty"`
-	DeliveredReason string `json:"delivered_reason,omitempty"`
-	CreatedAt       string `json:"created_at"`
-	LastReportAt    string `json:"last_report_at,omitempty"`
+	PRObservation string `json:"pr_observation,omitempty"`
+	// Set only alongside PRObservation "found", carrying the URL GitHub answered with. Never mirrored
+	// into PR: that field is the durable record alone, so a found-but-unrecorded PR can never render
+	// as though hand merge's durable check would also see it (atqamz/hand#266).
+	PRObservedURL   string        `json:"pr_observed_url,omitempty"`
+	MergeExecuted   bool          `json:"merged"`
+	MergeAnnounced  bool          `json:"pr_merged_observed"`
+	DeliveredAt     string        `json:"delivered_at,omitempty"`
+	DeliveredReason string        `json:"delivered_reason,omitempty"`
+	CreatedAt       string        `json:"created_at"`
+	LastReportAt    string        `json:"last_report_at,omitempty"`
+	Reported        *reportedJSON `json:"reported,omitempty"`
+	ReportHistory   []string      `json:"report_history,omitempty"`
+	Held            *holdJSON     `json:"held,omitempty"`
 	// Omitted where a report file exists (found) or genuinely never has (absent), the same way
 	// PRObservation is: a consumer sees "unknown" only where an empty last_report_at is a failed
 	// stat rather than a task that has never reported.
-	LastReportObservation string        `json:"last_report_observation,omitempty"`
-	Reported              *reportedJSON `json:"reported,omitempty"`
-	ReportHistory         []string      `json:"report_history,omitempty"`
-	Held                  *holdJSON     `json:"held,omitempty"`
+	LastReportObservation string `json:"last_report_observation,omitempty"`
 	// Omitted where the gate-run check does not apply to this task, the same way PRObservation
 	// is: found, absent and unknown are otherwise distinct answers, never collapsed together.
 	GateObservation  string `json:"gate_observation,omitempty"`
@@ -589,7 +593,7 @@ func (v taskView) json() statusJSON {
 	}
 	return statusJSON{
 		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, ExecutionClass: e.ExecutionClass, Profile: e.RequestedProfile, PlannedAgainst: e.PlannedAgainst, RoutingSource: e.RoutingSource, TaskLifecycle: string(v.task.Lifecycle), AttemptOrdinal: e.Ordinal, AttemptLifecycle: string(e.Lifecycle), Harness: e.Harness, Model: e.Model, Effort: e.Effort,
-		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR, PRObservation: string(v.prObserved),
+		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR, PRObservation: string(v.prObserved), PRObservedURL: v.prObservedURL,
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt, LastReportObservation: lastReportObservationJSON(v.lastReportObserved),
@@ -623,8 +627,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	if err != nil {
 		return asPrecondition(err)
 	}
-	var prObserved ghutil.ObservationState
-	history.Task, prObserved = detectPRForStatus(cmd.Context(), home, history)
+	observed := detectPRForStatus(cmd.Context(), home, history)
 	t := history.Task
 
 	bounds, err := parkedBoundsFromConfig(home)
@@ -635,7 +638,8 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 	// fault is named on the report field and the rest of the detail view still
 	// prints, rather than the whole command failing over one bad read.
 	v, reportLines := buildTaskView(home, client, history, full, true, bounds)
-	v.prObserved = prObserved
+	v.prObserved = observed.State
+	v.prObservedURL = observed.URL
 
 	// Propagated, not degraded: see the same comment in runStatusFleet.
 	hold, held, err := state.ReadHoldReadOnly(home, id)
@@ -747,6 +751,11 @@ func detailHelp(v taskView, full bool) []string {
 	switch {
 	case v.task.DeliveredAt != "" || v.task.MergeExecuted || v.task.MergeAnnounced:
 		help = append(help, "Run `hand teardown "+v.task.ID+"` to clean up this task")
+	// hand merge reads the durable pr column, not this observation, and refuses with "no PR recorded"
+	// against exactly this task until it is recorded - naming the recording step first is what keeps
+	// hand status from promising a command hand merge is guaranteed to refuse (atqamz/hand#266).
+	case v.reportedState == state.ReportDone && v.task.PR == "" && v.prObserved == ghutil.ObservationFound:
+		help = append(help, "Run `hand pr "+v.task.ID+" "+v.prObservedURL+"` to record the PR github reports, then `hand merge "+v.task.ID+"` once merging is authorized")
 	case v.reportedState == state.ReportDone && v.task.PR != "":
 		help = append(help, "Run `hand merge "+v.task.ID+"` once merging is authorized, or `hand deliver "+v.task.ID+" --reason <text>` if landing it is someone else's call")
 	case v.reportedState == state.ReportNeedsDecision || v.reportedState == state.ReportBlocked:
