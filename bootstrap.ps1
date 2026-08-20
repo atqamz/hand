@@ -101,7 +101,7 @@ function Install-Hand {
             }
 
             Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $tmp -Force
-            New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+            New-Item -ItemType Directory -LiteralPath $installDir -Force | Out-Null
             Copy-Item -Path (Join-Path $tmp "hand.exe") -Destination (Join-Path $installDir "hand.exe") -Force
         } finally {
             Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
@@ -340,7 +340,7 @@ if ($Check) {
 # ---- step 4: hand init, then hand doctor for the authoritative readiness result ----------------
 
 if ($state -eq 'absent') {
-    New-Item -ItemType Directory -Path $Fleet -Force | Out-Null
+    New-Item -ItemType Directory -LiteralPath $Fleet -Force | Out-Null
 }
 
 $initOut = (& hand init $Fleet 2>&1 | Out-String)
