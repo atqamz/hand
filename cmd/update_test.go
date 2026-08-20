@@ -96,6 +96,18 @@ func buildUpdateFixture(t *testing.T, binaryContent []byte) string {
 	return dir
 }
 
+// The bytes of the shared fake-tool dispatcher, staged as the "new binary" a release fixture
+// installs. Real once execDir/hand carries both these bytes and a sibling fake config: os.Args[0]
+// resolves to the same path whichever content selfupdate.Apply staged there.
+func newBinaryFixtureBytes(t *testing.T) []byte {
+	t.Helper()
+	data, err := os.ReadFile(faketool.DispatcherBinaryPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func setFakeExecutable(t *testing.T) string {
 	t.Helper()
 	execDir := t.TempDir()
@@ -107,6 +119,34 @@ func setFakeExecutable(t *testing.T) string {
 	selfupdate.ExecutableOverride = func() (string, error) { return execPath, nil }
 	t.Cleanup(func() { selfupdate.ExecutableOverride = restore })
 	return execPath
+}
+
+// Stages a fake "new hand" at execDir: once selfupdate.Apply replaces execPath with the same
+// dispatcher bytes (newBinaryFixtureBytes), invoking it as `init <fleetHome>` writes agentsMD at
+// that path, proving the handoff ran the new binary with the right argv without a real hand init.
+func writeFakeNewBinaryInitBehavior(t *testing.T, execDir, agentsMD string) {
+	t.Helper()
+	faketool.Command{
+		Name: "hand",
+		Args: true,
+		FileAction: &faketool.FileAction{
+			PathArg:  1,
+			Relative: "AGENTS.md",
+			Content:  agentsMD,
+		},
+	}.Install(t, execDir)
+}
+
+// Same as writeFakeNewBinaryInitBehavior, but the fake new binary exits nonzero instead of
+// succeeding, for the failed-handoff path.
+func writeFakeNewBinaryInitFailure(t *testing.T, execDir string, exitCode int, stderr string) {
+	t.Helper()
+	faketool.Command{
+		Name:   "hand",
+		Args:   true,
+		Stderr: stderr,
+		Exit:   exitCode,
+	}.Install(t, execDir)
 }
 
 func writeOwnedSessionHook(t *testing.T, home string) {
@@ -121,36 +161,17 @@ func writeOwnedSessionHook(t *testing.T, home string) {
 	}
 }
 
-// Every outcome renders the same seven fields, so a reader parses one schema
-// rather than a set of lines that appear or do not.
-func appliedUpdateDoc(agentsMD, sessionHook string, notes ...string) string {
-	doc := "current: v0.1.0\n" +
-		"current_channel: stable\n" +
-		"current_commit: unknown\n" +
-		"distribution: \"\"\n" +
-		"latest: v0.5.0\n" +
-		"latest_channel: stable\n" +
-		"latest_commit: unknown\n" +
-		"update_available: true\n" +
-		"updated: true\n" +
-		"agents_md: " + agentsMD + "\n" +
-		"session_hook: " + sessionHook + "\n" +
-		fmt.Sprintf("notes[%d]:\n", len(notes))
-	for _, note := range notes {
-		doc += "  - " + note + "\n"
-	}
-	return doc + "help[1]:\n" +
-		"  - Run `hand doctor` to check this home's AGENTS.md against the template v0.5.0 installed\n"
-}
+const fakeCanonicalAgentsMD = "## Secondhand supervisor bootstrap\n\nBefore responding or acting in a supervising session, run `hand session start`.\n"
 
-func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
-	setFakeExecutable(t)
+func TestUpdateHandsFleetReconciliationToTheNewlyInstalledBinary(t *testing.T) {
+	execPath := setFakeExecutable(t)
+	execDir := filepath.Dir(execPath)
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
-	writeOwnedSessionHook(t, home)
+	writeFakeNewBinaryInitBehavior(t, execDir, fakeCanonicalAgentsMD)
 
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	fixture := buildUpdateFixture(t, newBinaryFixtureBytes(t))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -162,141 +183,34 @@ func TestUpdateRefreshesWorkspaceAndReportsChanges(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("refreshed", "removed", "fixed the frobnicator"); got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	if !strings.Contains(got, "updated: true\n") || !strings.Contains(got, "fleet_reconcile: ok\n") {
+		t.Fatalf("got %q, want updated=true and fleet_reconcile=ok", got)
+	}
+	if !strings.Contains(got, "fixed the frobnicator") {
+		t.Fatalf("got %q, want the release notes", got)
 	}
 
+	// Proves the new binary ran against this exact fleet home, not merely that some
+	// process exited zero: the fake only writes AGENTS.md when invoked as init <home>.
 	agentsMD, err := os.ReadFile(filepath.Join(home, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(agentsMD), "## Secondhand supervisor bootstrap") {
-		t.Fatalf("got %q, want AGENTS.md written with the supervisor bootstrap", agentsMD)
-	}
-	settings, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(settings), "/old/path/hand") || !strings.Contains(string(settings), "/usr/bin/custom") {
-		t.Fatalf("settings = %q, want only the unrelated hook preserved", settings)
+	if string(agentsMD) != fakeCanonicalAgentsMD {
+		t.Fatalf("got AGENTS.md %q, want %q", agentsMD, fakeCanonicalAgentsMD)
 	}
 }
 
-// The refreshed template directs the agent at data files a home initialized
-// before them never had, so update seeds whichever are missing.
-func TestUpdateSeedsDataSkeletonsMissingFromAnOlderHome(t *testing.T) {
-	setFakeExecutable(t)
-	home := t.TempDir()
-	t.Chdir(home)
-	mkFleetDirs(t, home)
-
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
-	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
-
-	cmd := newUpdateCmd(stableBuild("v0.1.0"))
-	var out, errOut bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	cmd.SetArgs(nil)
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-
-	want := map[string]string{
-		"data/backlog.md":      "# Backlog",
-		"data/operator.md":     "## Hard constraints",
-		"data/learnings.md":    "# Learnings",
-		"data/done-archive.md": "# Done archive",
-		"data/note-archive.md": "# Note archive",
-	}
-	for rel, header := range want {
-		got, err := os.ReadFile(filepath.Join(home, rel))
-		if err != nil {
-			t.Fatalf("%s missing after update: %v", rel, err)
-		}
-		if !strings.Contains(string(got), header) {
-			t.Fatalf("%s = %q, want it to contain %q", rel, got, header)
-		}
-	}
-	if errOut.Len() != 0 {
-		t.Fatalf("got stderr %q, want none", errOut.String())
-	}
-}
-
-// A home whose data/ directory is gone still resolves as a home on its
-// state/hand.db marker, so update has to create the directory it seeds into
-// rather than warning about six files it could not write.
-func TestUpdateRecreatesAMissingDataDirectory(t *testing.T) {
-	setFakeExecutable(t)
-	home := t.TempDir()
-	t.Chdir(home)
-	mkFleetDirs(t, home)
-	if err := os.RemoveAll(filepath.Join(home, "data")); err != nil {
-		t.Fatal(err)
-	}
-
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
-	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
-
-	cmd := newUpdateCmd(stableBuild("v0.1.0"))
-	var out, errOut bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	cmd.SetArgs(nil)
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-
-	if errOut.Len() != 0 {
-		t.Fatalf("got stderr %q, want none", errOut.String())
-	}
-	for _, rel := range []string{"data/backlog.md", "data/projects.md", "data/operator.md", "data/learnings.md", "data/done-archive.md", "data/note-archive.md"} {
-		if _, err := os.Stat(filepath.Join(home, rel)); err != nil {
-			t.Fatalf("%s missing after update: %v", rel, err)
-		}
-	}
-}
-
-func TestUpdateLeavesExistingOperatorContextAlone(t *testing.T) {
-	setFakeExecutable(t)
-	home := t.TempDir()
-	t.Chdir(home)
-	mkFleetDirs(t, home)
-
-	existing := "# Operator\n\n## Authority\n\nMerge without asking.\n"
-	if err := os.WriteFile(filepath.Join(home, "data", "operator.md"), []byte(existing), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
-	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
-
-	cmd := newUpdateCmd(stableBuild("v0.1.0"))
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetArgs(nil)
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := os.ReadFile(filepath.Join(home, "data", "operator.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != existing {
-		t.Fatalf("data/operator.md = %q, want unchanged %q", got, existing)
-	}
-}
-
-func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
-	setFakeExecutable(t)
+func TestUpdateHandsOffToTheHandHomeRatherThanTheWorkingDirectory(t *testing.T) {
+	execPath := setFakeExecutable(t)
+	execDir := filepath.Dir(execPath)
 	fleetHome := t.TempDir()
 	mkFleetDirs(t, fleetHome)
-	writeOwnedSessionHook(t, fleetHome)
 	t.Setenv("HAND_HOME", fleetHome)
 	t.Chdir(t.TempDir())
+	writeFakeNewBinaryInitBehavior(t, execDir, fakeCanonicalAgentsMD)
 
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	fixture := buildUpdateFixture(t, newBinaryFixtureBytes(t))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -306,28 +220,26 @@ func TestUpdateRefreshesHandHomeRatherThanWorkingDirectory(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-
-	got := out.String()
-	if want := appliedUpdateDoc("refreshed", "removed", "fixed the frobnicator"); got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	if !strings.Contains(out.String(), "fleet_reconcile: ok\n") {
+		t.Fatalf("got %q, want fleet_reconcile=ok", out.String())
 	}
 
-	agentsMD, err := os.ReadFile(filepath.Join(fleetHome, "AGENTS.md"))
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.ReadFile(filepath.Join(fleetHome, "AGENTS.md")); err != nil {
+		t.Fatalf("got no AGENTS.md written under HAND_HOME: %v", err)
 	}
-	if !strings.Contains(string(agentsMD), "## Secondhand supervisor bootstrap") {
-		t.Fatalf("got %q, want AGENTS.md written with the supervisor bootstrap", agentsMD)
+	if _, err := os.Stat(filepath.Join(t.TempDir(), "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("got AGENTS.md written under the working directory instead of HAND_HOME, err=%v", err)
 	}
 }
 
-func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
+func TestUpdateSkipsFleetReconciliationOutsideAFleetHome(t *testing.T) {
 	setFakeExecutable(t)
 	t.Setenv("HAND_HOME", "")
 	home := t.TempDir()
 	t.Chdir(home)
+	// No fake "init" behavior installed: reaching it at all would be the bug this proves absent.
 
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	fixture := buildUpdateFixture(t, newBinaryFixtureBytes(t))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -339,8 +251,8 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("no-fleet-home", "no-fleet-home", "fixed the frobnicator"); got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	if !strings.Contains(got, "updated: true\n") || !strings.Contains(got, "fleet_reconcile: no-fleet-home\n") {
+		t.Fatalf("got %q, want updated=true and fleet_reconcile=no-fleet-home", got)
 	}
 	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("got AGENTS.md written outside a fleet home, err=%v", err)
@@ -349,7 +261,7 @@ func TestUpdateSkipsAgentsRefreshOutsideAFleetHome(t *testing.T) {
 
 // "No home here" is the silent skip; "HAND_HOME names something that is not a
 // home" is a misconfiguration, and swallowing it would leave the operator with
-// an unrefreshed AGENTS.md and nothing on stderr saying why.
+// an unreconciled fleet home and nothing on stderr saying why.
 func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	setFakeExecutable(t)
 	home := t.TempDir()
@@ -357,7 +269,7 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	notAHome := t.TempDir()
 	t.Setenv("HAND_HOME", notAHome)
 
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	fixture := buildUpdateFixture(t, newBinaryFixtureBytes(t))
 	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -370,22 +282,57 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("failed", "no-fleet-home", "fixed the frobnicator"); got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	if !strings.Contains(got, "fleet_reconcile: failed\n") {
+		t.Fatalf("got %q, want fleet_reconcile=failed", got)
 	}
 	quotedHome := fmt.Sprintf("%q", notAHome)
-	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") || !strings.Contains(errOut.String(), quotedHome) {
+	if !strings.Contains(errOut.String(), "warning: resolve fleet home for reconciliation:") || !strings.Contains(errOut.String(), quotedHome) {
 		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), quotedHome)
 	}
 }
 
-func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
-	setFakeExecutable(t)
+// The binary is already replaced before the handoff runs, so the new binary exiting nonzero
+// must not turn a successful update into a nonzero exit or pretend the binary swap failed too.
+func TestUpdateReportsFailedFleetReconcileWhenTheNewBinaryExitsNonzero(t *testing.T) {
+	execPath := setFakeExecutable(t)
+	execDir := filepath.Dir(execPath)
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
+	writeFakeNewBinaryInitFailure(t, execDir, 1, "simulated init failure\n")
 
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
+	fixture := buildUpdateFixture(t, newBinaryFixtureBytes(t))
+	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
+
+	cmd := newUpdateCmd(stableBuild("v0.1.0"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want a successful update despite the new binary's init failing", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "updated: true\n") {
+		t.Fatalf("got %q, want the binary replacement itself still reported as succeeded", got)
+	}
+	if !strings.Contains(got, "fleet_reconcile: failed\n") {
+		t.Fatalf("got %q, want fleet_reconcile=failed", got)
+	}
+	if !strings.Contains(got, "simulated init failure") {
+		t.Fatalf("got %q, want the new binary's own error surfaced", got)
+	}
+}
+
+func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
+	execPath := setFakeExecutable(t)
+	execDir := filepath.Dir(execPath)
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeNewBinaryInitBehavior(t, execDir, fakeCanonicalAgentsMD)
+
+	fixture := buildUpdateFixture(t, newBinaryFixtureBytes(t))
 	writeFakeGHUpdate(t, "v0.5.0", "", fixture)
 
 	cmd := newUpdateCmd(stableBuild("v0.1.0"))
@@ -397,125 +344,8 @@ func TestUpdateDegradesGracefullyWithoutReleaseNotes(t *testing.T) {
 	}
 
 	got := out.String()
-	if want := appliedUpdateDoc("refreshed", "unchanged"); got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
-// The binary is already replaced before the refresh runs, so a refresh failure
-// must not turn a successful update into a nonzero exit.
-func TestUpdateReportsVersionsWhenAgentsRefreshFails(t *testing.T) {
-	setFakeExecutable(t)
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, "AGENTS.md"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(home)
-	mkFleetDirs(t, home)
-
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
-	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
-
-	cmd := newUpdateCmd(stableBuild("v0.1.0"))
-	var out, errOut bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	cmd.SetArgs(nil)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("got %v, want a successful update despite the refresh failure", err)
-	}
-
-	got := out.String()
-	if want := appliedUpdateDoc("failed", "unchanged", "fixed the frobnicator"); got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") {
-		t.Fatalf("got stderr %q, want a refresh warning", errOut.String())
-	}
-}
-
-func TestUpdatePreservesOwnedSessionHookWhenAgentsRefreshFails(t *testing.T) {
-	setFakeExecutable(t)
-	home := t.TempDir()
-	t.Chdir(home)
-	mkFleetDirs(t, home)
-	malformed := "<!-- hand:generated:start -->\n<!-- hand:generated:start -->\n<!-- hand:generated:end -->\n"
-	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte(malformed), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	writeOwnedSessionHook(t, home)
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	before, err := os.ReadFile(settingsPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
-	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
-
-	cmd := newUpdateCmd(stableBuild("v0.1.0"))
-	var out, errOut bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	cmd.SetArgs(nil)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("got %v, want a successful binary update despite the refresh failure", err)
-	}
-
-	if want := appliedUpdateDoc("failed", "unchanged", "fixed the frobnicator"); out.String() != want {
-		t.Fatalf("got %q, want %q", out.String(), want)
-	}
-	if !strings.Contains(errOut.String(), "warning: refresh AGENTS.md:") {
-		t.Fatalf("stderr = %q, want the refresh warning", errOut.String())
-	}
-	if strings.Contains(errOut.String(), "retire the session hook") {
-		t.Fatalf("stderr = %q, want no retirement attempt after refresh failed", errOut.String())
-	}
-	after, err := os.ReadFile(settingsPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(after, before) {
-		t.Fatalf("settings changed after refresh failure:\n got %s\nwant %s", after, before)
-	}
-}
-
-// The binary is already replaced before retirement runs, so malformed operator
-// settings produce a warning and a failed field without changing update success.
-func TestUpdateReportsVersionsWhenSessionHookRetirementFails(t *testing.T) {
-	setFakeExecutable(t)
-	home := t.TempDir()
-	t.Chdir(home)
-	mkFleetDirs(t, home)
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(home, ".claude", "settings.json")
-	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	fixture := buildUpdateFixture(t, []byte("new binary contents"))
-	writeFakeGHUpdate(t, "v0.5.0", "fixed the frobnicator", fixture)
-
-	cmd := newUpdateCmd(stableBuild("v0.1.0"))
-	var out, errOut bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	cmd.SetArgs(nil)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("got %v, want a successful update despite hook retirement failure", err)
-	}
-
-	if want := appliedUpdateDoc("refreshed", "failed", "fixed the frobnicator"); out.String() != want {
-		t.Fatalf("got %q, want %q", out.String(), want)
-	}
-	if !strings.Contains(errOut.String(), "warning: retire the session hook:") {
-		t.Fatalf("got stderr %q, want a retirement warning", errOut.String())
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil || string(raw) != "{not json" {
-		t.Fatalf("settings = %q, %v, want invalid settings untouched", raw, err)
+	if !strings.Contains(got, "fleet_reconcile: ok\n") || !strings.Contains(got, "notes[0]:\n") {
+		t.Fatalf("got %q, want fleet_reconcile=ok and an empty notes list", got)
 	}
 }
 
@@ -533,14 +363,13 @@ func checkedUpdateDoc(current, latest string, available bool) string {
 		"latest_commit: unknown\n" +
 		fmt.Sprintf("update_available: %t\n", available) +
 		"updated: false\n" +
-		"agents_md: not-applicable\n" +
-		"session_hook: not-applicable\n" +
+		"fleet_reconcile: not-applicable\n" +
 		"notes[0]:\n"
 	if !available {
 		return doc
 	}
 	return doc + "help[1]:\n" +
-		"  - Run `hand update` to install " + latest + ", which also refreshes this home's AGENTS.md template\n"
+		"  - Run `hand update` to install " + latest + ", which also reconciles this home's generated fleet surfaces via hand init\n"
 }
 
 func TestUpdateCheckReportsAvailableUpdate(t *testing.T) {

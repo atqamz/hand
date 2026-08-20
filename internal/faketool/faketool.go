@@ -143,6 +143,14 @@ func installConfigData(t *testing.T, bin, name string, spec installSpec) {
 	writeFile(t, configPath(bin, name), string(config))
 }
 
+// DispatcherBinaryPath returns the shared fake-tool dispatcher binary's own path, building it once
+// per test process, for a caller that needs its bytes directly - such as staging them as a
+// stand-in for a real executable a test subprocess later replaces - rather than installing it.
+func DispatcherBinaryPath(t *testing.T) string {
+	t.Helper()
+	return helperBinary(t)
+}
+
 func helperBinary(t *testing.T) string {
 	t.Helper()
 	helperBuild.Do(func() {
