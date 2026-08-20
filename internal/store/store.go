@@ -556,6 +556,9 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	if current == len(migrations) {
 		return db.ReadTaskHistory(id)
 	}
+	if current == acknowledgedMetadataVersion {
+		return db.ReadTaskHistory(id)
+	}
 	if current == preAcknowledgementVersion {
 		return db.readTaskHistoryBeforeAcknowledgement(id)
 	}
@@ -1097,6 +1100,9 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 	defer func() { _ = db.Close() }()
 	if current == preAcknowledgementVersion {
 		return db.listReconciliationHistoriesBeforeAcknowledgement()
+	}
+	if current == acknowledgedMetadataVersion {
+		return db.ListReconciliationHistories()
 	}
 	if current == repairMetadataVersion || current == sendSchemaVersion {
 		return db.listReconciliationHistoriesBeforeSend()
