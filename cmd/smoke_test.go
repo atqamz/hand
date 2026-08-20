@@ -42,7 +42,7 @@ func TestSmokeInitProjectAddDoctorLifecycle(t *testing.T) {
 		t.Fatalf("clone missing treehouse.toml: %v", err)
 	}
 
-	if err := newDoctorCmd().Execute(); err != nil {
+	if err := newDoctorCmd(stableBuild("v0.1.0")).Execute(); err != nil {
 		t.Fatalf("doctor: %v", err)
 	}
 }

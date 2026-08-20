@@ -13,6 +13,7 @@ import (
 	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/shellquote"
 	hskills "github.com/atqamz/hand/skills"
 )
 
@@ -23,10 +24,39 @@ const Name = "secondhand"
 // have a fixed, cheap starting point rather than a directory listing.
 const entryFile = "SKILL.md"
 
-// The frontmatter line the canonical SKILL.md carries. Presence alone distinguishes a
-// Hand-managed copy from a foreign file at the same destination; not a security boundary,
-// only a deterministic ownership signal.
+// The frontmatter field the canonical SKILL.md's metadata block carries. Presence as an actual
+// frontmatter line, not merely a substring anywhere in the file, distinguishes a Hand-managed
+// copy from a foreign file at the same destination; not a security boundary.
 const managedMarker = "managed-by: hand"
+
+// The frontmatter delimiter Agent Skill files use to bound their YAML metadata block.
+const frontmatterDelimiter = "---"
+
+// Reports whether content's frontmatter block - the span between its first two lines that are
+// exactly "---" - contains managedMarker as one of its own lines, so a foreign file that merely
+// mentions the marker in prose is never mistaken for a Hand-managed copy.
+func isManaged(content string) bool {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != frontmatterDelimiter {
+		return false
+	}
+	closeAt := -1
+	for i, line := range lines[1:] {
+		if strings.TrimSpace(line) == frontmatterDelimiter {
+			closeAt = i
+			break
+		}
+	}
+	if closeAt < 0 {
+		return false
+	}
+	for _, line := range lines[1 : 1+closeAt] {
+		if strings.TrimSpace(line) == managedMarker {
+			return true
+		}
+	}
+	return false
+}
 
 type destination struct {
 	rel string
@@ -111,13 +141,23 @@ func refreshOne(destDir string, files map[string][]byte) (Outcome, error) {
 	existing, err := os.ReadFile(entryPath)
 	switch {
 	case os.IsNotExist(err):
+		occupied, err := destDirHasAnyEntry(destDir)
+		if err != nil {
+			return "", err
+		}
+		if occupied {
+			// SKILL.md is absent, but something else already occupies this destination: a
+			// partial or foreign install with no ownership marker to trust. Refuse rather
+			// than let writeAll silently overwrite whatever is already there.
+			return OutcomeConflict, nil
+		}
 		if err := writeAll(destDir, files); err != nil {
 			return "", err
 		}
 		return OutcomeCreated, nil
 	case err != nil:
 		return "", fmt.Errorf("read %s: %w", entryPath, err)
-	case !strings.Contains(string(existing), managedMarker):
+	case !isManaged(string(existing)):
 		return OutcomeConflict, nil
 	}
 
@@ -132,6 +172,19 @@ func refreshOne(destDir string, files map[string][]byte) (Outcome, error) {
 		return "", err
 	}
 	return OutcomeRefreshed, nil
+}
+
+// Reports whether destDir exists and already contains at least one entry, so a missing SKILL.md
+// is trusted as "genuinely empty destination" only when nothing else backs that assumption up.
+func destDirHasAnyEntry(destDir string) (bool, error) {
+	entries, err := os.ReadDir(destDir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", destDir, err)
+	}
+	return len(entries) > 0, nil
 }
 
 func isStale(destDir string, files map[string][]byte) (bool, error) {
@@ -161,6 +214,78 @@ func writeAll(destDir string, files map[string][]byte) error {
 		}
 	}
 	return nil
+}
+
+// Severity distinguishes a Violation that fails hand doctor from one that is informational.
+type Severity int
+
+const (
+	SeverityViolation Severity = iota
+	SeverityInfo
+)
+
+// Violation is one drift, missing-file, or conflict finding Check found at one destination.
+type Violation struct {
+	Dir      string
+	Text     string
+	Severity Severity
+}
+
+// Check reports whether every supported destination's bundled skill matches the canonical
+// content, without fixing anything, the same report/restore split agentsmd.Check draws for
+// AGENTS.md. A nil result with no error means dir is not a fleet home.
+func Check(dir string) ([]Violation, error) {
+	isHome, err := home.IsHome(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !isHome {
+		return nil, nil
+	}
+
+	files, err := canonicalFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	var violations []Violation
+	for _, destDir := range DestinationDirs(dir) {
+		v, err := checkOne(dir, destDir, files)
+		if err != nil {
+			return nil, fmt.Errorf("check skill at %s: %w", destDir, err)
+		}
+		violations = append(violations, v...)
+	}
+	return violations, nil
+}
+
+func checkOne(fleetHome, destDir string, files map[string][]byte) ([]Violation, error) {
+	entryPath := filepath.Join(destDir, entryFile)
+	existing, err := os.ReadFile(entryPath)
+	switch {
+	case os.IsNotExist(err):
+		occupied, occErr := destDirHasAnyEntry(destDir)
+		if occErr != nil {
+			return nil, occErr
+		}
+		if occupied {
+			return []Violation{{Dir: destDir, Text: fmt.Sprintf("bundled skill at %s has unmanaged content with no SKILL.md to identify it: move it aside, then run hand init %s to install the skill there", destDir, shellquote.Quote(fleetHome))}}, nil
+		}
+		return []Violation{{Dir: destDir, Text: fmt.Sprintf("bundled skill is missing at %s: run hand init %s to install it", destDir, shellquote.Quote(fleetHome))}}, nil
+	case err != nil:
+		return nil, fmt.Errorf("read %s: %w", entryPath, err)
+	case !isManaged(string(existing)):
+		return []Violation{{Dir: destDir, Text: fmt.Sprintf("bundled skill at %s is a foreign, unmanaged file: move it aside, then run hand init %s to install the skill there", destDir, shellquote.Quote(fleetHome))}}, nil
+	}
+
+	stale, err := isStale(destDir, files)
+	if err != nil {
+		return nil, err
+	}
+	if !stale {
+		return nil, nil
+	}
+	return []Violation{{Dir: destDir, Text: fmt.Sprintf("bundled skill at %s has drifted from the canonical content: run hand init %s to refresh it", destDir, shellquote.Quote(fleetHome))}}, nil
 }
 
 // Walks the embedded skill tree once into a flat relative-path -> content map, so every
