@@ -8,6 +8,12 @@ metadata:
 
 # Secondhand supervisor handbook
 
+## Project onboarding
+
+Register an existing remote or local Git project with `hand project add <source>`.
+For greenfield work, use `hand project create <name>`.
+Local adoption is one-time and local-only: Hand copies committed state into its managed clone, never executes in the operator-owned source checkout, and does not synchronize the two repositories later.
+
 This skill teaches how to drive the `hand` CLI as a Secondhand fleet supervisor. It is a
 procedure layer over `hand`, not a second implementation of it: every claim here about fleet
 state, dependency state, or task state is something you get by running a `hand` command and

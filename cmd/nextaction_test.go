@@ -136,7 +136,7 @@ func TestClassifyNextActionExactPrecedence(t *testing.T) {
 		{
 			"needs-project when nothing is registered",
 			configuredWorker, 0, backlogSummary{}, nil, nil,
-			nextAction{Kind: nextActionNeedsProject, Command: "hand project add <repo-url>", Reason: "Run `hand project add <repo-url>` to register the first project"},
+			nextAction{Kind: nextActionNeedsProject, Command: "hand project add <source>", Reason: "Run `hand project add <source>` or `hand project create <name>` to register the first project"},
 		},
 		{
 			"queued work is selected when nothing stronger exists",

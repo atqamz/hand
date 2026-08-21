@@ -38,15 +38,209 @@ func TestValidateProjectURL(t *testing.T) {
 			t.Errorf("validateProjectURL(%q) failed: %v", url, err)
 		}
 	}
-	for _, url := range []string{"", "local", "/tmp/repo", "file:///tmp/repo", "http://github.com/org/repo"} {
+	for _, url := range []string{".", "..", "local", "/tmp/repo", "file:///tmp/repo", `C:\\work\\repo`} {
+		if err := validateProjectURL(url); err != nil {
+			t.Errorf("validateProjectURL(%q) rejected local source: %v", url, err)
+		}
+	}
+	for _, url := range []string{"", "http://github.com/org/repo", "ftp://example.com/repo", "sshx://example.com/repo"} {
 		err := validateProjectURL(url)
 		if err == nil {
-			t.Errorf("validateProjectURL(%q) accepted invalid URL", url)
+			t.Errorf("validateProjectURL(%q) accepted invalid source", url)
 			continue
 		}
 		if code := exitCodeFor(t, err); code != 2 {
 			t.Errorf("validateProjectURL(%q) code = %d, want 2", url, code)
 		}
+	}
+}
+
+func TestProjectCommandRegistersCreate(t *testing.T) {
+	cmd, _, err := newProjectCmd().Find([]string{"create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd == nil {
+		t.Fatal("project command does not register create")
+	}
+}
+
+func TestProjectAddAdoptsLocalGitSourceIntoIndependentLocalProject(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(t.TempDir(), "source with space-世界")
+	initGitRepo(t, source)
+	if err := os.Mkdir(filepath.Join(source, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mkFleetDirs(t, home)
+	t.Chdir(home)
+	faketool.Treehouse{}.Install(t, faketool.Bin(t))
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{filepath.Join(source, "nested"), "--name", "adopted"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	managed := filepath.Join(home, "projects", "adopted")
+	if _, err := os.Stat(managed); err != nil {
+		t.Fatal(err)
+	}
+	if origin := gitConfigOrigin(t, managed); origin != "" {
+		t.Fatalf("managed origin = %q, want no origin", origin)
+	}
+	if err := os.RemoveAll(source); err != nil {
+		t.Fatal(err)
+	}
+	if got := runGitOutput(t, managed, "log", "-1", "--format=%s"); got != "initial commit\n" {
+		t.Fatalf("managed baseline after source removal = %q", got)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "adopted" || projects[0].Mode != project.ModeLocalOnly || !project.IsFileLocator(projects[0].URL) {
+		t.Fatalf("projects = %+v, want one local-only file-locator project", projects)
+	}
+}
+
+func TestProjectAddRefusesExplicitRemoteDeliveryForLocalSource(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(t.TempDir(), "source")
+	initGitRepo(t, source)
+	mkFleetDirs(t, home)
+	t.Chdir(home)
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{source, "--mode", project.ModeDirectPR})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "only --mode local-only") {
+		t.Fatalf("error = %v, want explicit local mode refusal", err)
+	}
+}
+
+func TestProjectAddRejectsUnsafeLocalGitStates(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*testing.T, string)
+		want  string
+	}{
+		{name: "dirty", setup: func(t *testing.T, path string) {
+			initGitRepo(t, path)
+			if err := os.WriteFile(filepath.Join(path, "untracked.txt"), []byte("uncommitted"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "uncommitted or untracked"},
+		{name: "detached", setup: func(t *testing.T, path string) {
+			initGitRepo(t, path)
+			runGitIn(t, path, "checkout", "--detach", "HEAD")
+		}, want: "checked-out branch"},
+		{name: "unborn", setup: func(t *testing.T, path string) {
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGitIn(t, path, "init", "-q", "-b", "main")
+		}, want: "no committed HEAD"},
+		{name: "non-git", setup: func(t *testing.T, path string) {
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "not a Git worktree"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			source := filepath.Join(t.TempDir(), test.name)
+			test.setup(t, source)
+			mkFleetDirs(t, home)
+			t.Chdir(home)
+
+			cmd := newProjectAddCmd()
+			cmd.SetArgs([]string{source, "--name", test.name})
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestProjectCreateMakesDeterministicLocalBaseline(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	t.Chdir(home)
+	faketool.Treehouse{}.Install(t, faketool.Bin(t))
+
+	cmd := newProjectCreateCmd()
+	cmd.SetArgs([]string{"created"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(home, "projects", "created")
+	if got := runGitOutput(t, path, "symbolic-ref", "--short", "HEAD"); got != "main\n" {
+		t.Fatalf("default branch = %q, want main", got)
+	}
+	if got := runGitOutput(t, path, "log", "-1", "--format=%s"); got != "chore: initialize project\n" {
+		t.Fatalf("baseline message = %q", got)
+	}
+	if got := runGitOutput(t, path, "rev-list", "--count", "HEAD"); got != "1\n" {
+		t.Fatalf("baseline commit count = %q, want one commit", got)
+	}
+	if origin := gitConfigOrigin(t, path); origin != "" {
+		t.Fatalf("created origin = %q, want no origin", origin)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Mode != project.ModeLocalOnly || !project.IsFileLocator(projects[0].URL) {
+		t.Fatalf("projects = %+v, want one local-only file-locator project", projects)
+	}
+}
+
+func TestProjectAddPreservesCustomDefaultBranchAfterOriginRemoval(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(t.TempDir(), "custom")
+	initGitRepo(t, source)
+	runGitIn(t, source, "branch", "-m", "trunk")
+	runGitIn(t, source, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/trunk")
+	mkFleetDirs(t, home)
+	t.Chdir(home)
+	faketool.Treehouse{}.Install(t, faketool.Bin(t))
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{source, "--name", "custom"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	managed := filepath.Join(home, "projects", "custom")
+	if got := runGitOutput(t, managed, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); got != "origin/trunk\n" {
+		t.Fatalf("default marker = %q, want origin/trunk", got)
+	}
+	if got := runGitOutput(t, managed, "rev-parse", "refs/remotes/origin/trunk"); got != runGitOutput(t, managed, "rev-parse", "refs/heads/trunk") {
+		t.Fatalf("preserved origin/trunk ref = %q, want local trunk tip", got)
+	}
+}
+
+func TestProjectAddUsesCheckedOutBranchWithoutRemoteDefaultMarker(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(t.TempDir(), "custom")
+	initGitRepo(t, source)
+	runGitIn(t, source, "branch", "-m", "trunk")
+	runGitIn(t, source, "remote", "add", "origin", "file:///does-not-exist")
+	mkFleetDirs(t, home)
+	t.Chdir(home)
+	faketool.Treehouse{}.Install(t, faketool.Bin(t))
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{source, "--name", "custom"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	managed := filepath.Join(home, "projects", "custom")
+	if got := runGitOutput(t, managed, "symbolic-ref", "--short", "HEAD"); got != "trunk\n" {
+		t.Fatalf("checked-out branch = %q, want trunk", got)
 	}
 }
 
@@ -138,9 +332,20 @@ func gitConfigOrigin(t *testing.T, clonePath string) string {
 	t.Helper()
 	out, err := exec.Command("git", "-C", clonePath, "config", "--get", "remote.origin.url").Output()
 	if err != nil {
-		t.Fatalf("git config origin: %v", err)
+		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func runGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
 }
 
 func executeProjectSetURL(t *testing.T, home, url string) error {
@@ -163,6 +368,27 @@ func TestProjectSetURLRejectsInvalidURLBeforeMutation(t *testing.T) {
 	}
 	if projects[0].URL != oldURL || gitConfigOrigin(t, clonePath) != oldURL {
 		t.Fatalf("after invalid URL, project = %+v and origin = %q, want both old", projects[0], gitConfigOrigin(t, clonePath))
+	}
+}
+
+func TestProjectSetURLRefusesLocalManagedProject(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	clonePath := filepath.Join(home, "projects", "local")
+	initGitRepo(t, clonePath)
+	if err := project.Add(home, project.Project{Name: "local", URL: "file:///tmp/local", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectSetURLCmd()
+	cmd.SetArgs([]string{"local", "https://example.com/local"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "local-managed project") {
+		t.Fatalf("error = %v, want local-managed refusal", err)
+	}
+	if got := gitConfigOrigin(t, clonePath); got != "" {
+		t.Fatalf("origin = %q, want no origin after refusal", got)
 	}
 }
 

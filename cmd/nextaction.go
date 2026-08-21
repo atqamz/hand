@@ -95,8 +95,8 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 			Reason: statusReason(v.task.ID, "confirm its delivery gate status")}
 	}
 	if projectCount == 0 {
-		return nextAction{Kind: nextActionNeedsProject, Command: "hand project add <repo-url>",
-			Reason: "Run `hand project add <repo-url>` to register the first project"}
+		return nextAction{Kind: nextActionNeedsProject, Command: "hand project add <source>",
+			Reason: "Run `hand project add <source>` or `hand project create <name>` to register the first project"}
 	}
 	if backlog.Queued > 0 {
 		return nextAction{Kind: nextActionQueued, Command: "hand spawn <id> <project>",

@@ -389,6 +389,23 @@ func TestSyncOneProjectSkipsWhenNoOriginRemote(t *testing.T) {
 	}
 }
 
+func TestSyncOneProjectSkipsLocalManagedProjectBeforeOriginLookup(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects", "myproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	clonePath := filepath.Join(home, "projects", "myproj")
+	initGitRepo(t, clonePath)
+
+	got, err := syncOneProject(home, project.Project{Name: "myproj", URL: "file:///tmp/myproj", Mode: project.ModeLocalOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Result != "skipped" || got.Detail != "local-managed project; no live origin remote" {
+		t.Fatalf("outcome = %+v, want visible local-managed skip", got)
+	}
+}
+
 func TestPruneGoneBranchesDeletesLocalBranchWithGoneUpstream(t *testing.T) {
 	remotePath := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remotePath)
@@ -449,6 +466,39 @@ func TestProjectSyncCommandFastForwardsTheClone(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(movedClone, "new.txt")); err != nil {
 		t.Fatalf("clone did not fast-forward: %v", err)
+	}
+}
+
+func TestProjectSyncCommandContinuesAcrossRemoteAndLocalProjects(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	remoteClone, remotePath := setupSyncProject(t)
+	remoteManaged := filepath.Join(home, "projects", "remote")
+	if err := os.MkdirAll(filepath.Dir(remoteManaged), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(remoteClone, remoteManaged); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "remote", URL: remotePath, Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(home, "projects", "local")
+	initGitRepo(t, localPath)
+	if err := project.Add(home, project.Project{Name: "local", URL: "file:///tmp/local", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectSyncCmd()
+	var output strings.Builder
+	cmd.SetOut(&output)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "count: 2") || !strings.Contains(text, "failed: 0") || !strings.Contains(text, "local-managed project") {
+		t.Fatalf("sync output = %q, want mixed remote/local results", text)
 	}
 }
 

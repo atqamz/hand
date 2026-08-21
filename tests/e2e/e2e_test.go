@@ -514,7 +514,7 @@ func TestExitCodeTwoOnUsageError(t *testing.T) {
 		{"unknown flag", []string{"spawn", "--bogus", "task-1", "demo"}, "unknown flag: --bogus"},
 		{"conflicting merge methods", []string{"merge", "task-1", "--squash", "--rebase"}, "only one of --squash, --merge, --rebase"},
 		{"merge method with local", []string{"merge", "task-1", "--local", "--squash"}, "cannot be combined with --local"},
-		{"invalid project URL", []string{"project", "add", "not-a-url"}, "invalid project URL"},
+		{"missing local project source", []string{"project", "add", "not-a-url"}, `local project source "not-a-url"`},
 		{"invalid project mode", []string{"project", "add", "https://example.com/demo.git", "--mode", "bogus"}, "invalid project mode"},
 		{"invalid poll interval", []string{"watch", "--poll", "nonsense"}, "invalid poll interval"},
 	}

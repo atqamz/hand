@@ -105,3 +105,40 @@ func TestProjectLifecycle(t *testing.T) {
 		t.Fatalf("clone at %s should survive project remove: %v", clonePath, err)
 	}
 }
+
+func TestLocalProjectLifecycle(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "book with space")
+	initGitRepo(t, source)
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+
+	added := runHand(t, home, "project", "add", source, "--name", "book")
+	if added.code != 0 {
+		t.Fatalf("local project add: exit %d, stderr %q", added.code, added.stderr)
+	}
+	if !strings.Contains(added.stdout, "mode: local-only") || !strings.Contains(added.stdout, "source:") {
+		t.Fatalf("local project add stdout = %q, want adoption fields", added.stdout)
+	}
+	if err := os.RemoveAll(source); err != nil {
+		t.Fatal(err)
+	}
+
+	synced := runHand(t, home, "project", "sync", "book")
+	if synced.code != 0 || !strings.Contains(synced.stdout, "local-managed project") {
+		t.Fatalf("local project sync = %+v, want visible local skip", synced)
+	}
+	repointed := runHand(t, home, "project", "set-url", "book", "https://example.com/book.git")
+	if repointed.code == 0 || !strings.Contains(repointed.stderr, "local-managed project") {
+		t.Fatalf("local project set-url = %+v, want refusal", repointed)
+	}
+
+	created := runHand(t, home, "project", "create", "blank")
+	if created.code != 0 || !strings.Contains(created.stdout, "baseline:") || !strings.Contains(created.stdout, "mode: local-only") {
+		t.Fatalf("project create = %+v, want baseline and local-only output", created)
+	}
+	if got := runGitIn(t, filepath.Join(home, "projects", "blank"), "log", "-1", "--format=%s"); got != "chore: initialize project\n" {
+		t.Fatalf("created baseline = %q", got)
+	}
+}

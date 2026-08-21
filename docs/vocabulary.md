@@ -34,7 +34,9 @@ The Projects, Tasks, Attempts, Workers, holds, and context coordinated from one 
 
 ### Project
 
-A repository registered with the Fleet.
+A durable Git-backed body of work registered with the Fleet.
+A Project may enter through a remote clone, one-time adoption of a local Git worktree, or greenfield creation.
+Every Project has one canonical repository under the Fleet and workers never execute directly in an operator-owned source checkout.
 A Project has a delivery mode such as `direct-pr`, `local-only`, or `no-mistakes`.
 
 ### Task
