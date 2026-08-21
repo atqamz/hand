@@ -177,6 +177,22 @@ func TestProjectBaseCommitDoesNotQueryRemoteToResolveBranch(t *testing.T) {
 	}
 }
 
+func TestProjectBaseCommitUsesCustomLocalDefaultMarkerWithoutOrigin(t *testing.T) {
+	clonePath := filepath.Join(t.TempDir(), "clone")
+	initRuntimeGitRepo(t, clonePath)
+	runRuntimeGit(t, clonePath, "branch", "-m", "trunk")
+	runRuntimeGit(t, clonePath, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/trunk")
+	want := gitOutput(t, clonePath, "rev-parse", "refs/heads/trunk")
+
+	got, err := projectBaseCommit(clonePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("projectBaseCommit() = %q, want custom trunk commit %q", got, want)
+	}
+}
+
 func TestSpawnMechanicalPlanStopsBeforeAttemptAndExternalProvisioning(t *testing.T) {
 	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+strings.Repeat("a", 40)+"\n---\nbrief\n")
 	calls := &executionPlanCalls{}

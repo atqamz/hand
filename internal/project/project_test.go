@@ -198,6 +198,84 @@ func TestSetURLReportsProjectionAndRollbackFailures(t *testing.T) {
 	}
 }
 
+func TestAddRollsBackWhenProjectionWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := projectAddProjectionWriter
+	t.Cleanup(func() { projectAddProjectionWriter = original })
+	projectAddProjectionWriter = func(*store.DB, string) error {
+		return errors.New("projection failed")
+	}
+
+	err := Add(dir, Project{Name: "rollback", URL: "file:///tmp/rollback", Mode: ModeLocalOnly})
+	if err == nil || !strings.Contains(err.Error(), "projection failed") {
+		t.Fatalf("Add error = %v, want projection failure", err)
+	}
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 0 {
+		t.Fatalf("projects after failed Add = %+v, want no durable row", projects)
+	}
+}
+
+func TestAddReportsWhenRegistryRollbackFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalProjection := projectAddProjectionWriter
+	originalRemoval := projectAddRowRemover
+	t.Cleanup(func() {
+		projectAddProjectionWriter = originalProjection
+		projectAddRowRemover = originalRemoval
+	})
+	projectAddProjectionWriter = func(*store.DB, string) error { return errors.New("projection failed") }
+	projectAddRowRemover = func(*store.DB, string) (bool, error) { return false, errors.New("database locked") }
+
+	err := Add(dir, Project{Name: "retained", URL: "file:///tmp/retained", Mode: ModeLocalOnly})
+	if err == nil || !IsRegistrationRollbackError(err) || !strings.Contains(err.Error(), "database locked") {
+		t.Fatalf("Add error = %v, want rollback failure context", err)
+	}
+}
+
+func TestFileLocatorRoundTripsSpacesUnicodeAndWindowsDrivePaths(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "project with space-世界")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	locator, err := CanonicalFileLocator(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(locator, "file://") || !strings.Contains(locator, "%20") {
+		t.Fatalf("locator = %q, want canonical file URI with escaped space", locator)
+	}
+	got, err := FileLocatorPath(locator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("FileLocatorPath(%q) = %q, want %q", locator, got, want)
+	}
+	for locator, want := range map[string]string{
+		"file:///C:/work/repo":     "C:/work/repo",
+		"file://server/share/repo": "//server/share/repo",
+	} {
+		got, err := FileLocatorPath(locator)
+		if err != nil || got != filepath.Clean(filepath.FromSlash(want)) {
+			t.Fatalf("FileLocatorPath(%q) = %q, %v, want %q", locator, got, err, want)
+		}
+	}
+}
+
 func TestSetUpstreamNotFound(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n")

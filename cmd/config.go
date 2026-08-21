@@ -183,7 +183,7 @@ func newConfigSetCmd() *cobra.Command {
 			appendWorkerConfig(&doc, cfg)
 			help := workerConfigHelp(cfg)
 			if len(help) == 0 {
-				help = append(help, "Every applicable worker default is configured; run `hand project add <repo-url>` to register a project")
+				help = append(help, "Every applicable worker default is configured; run `hand project add <source>` or `hand project create <name>` to register a project")
 			}
 			doc.Help(help...)
 			return doc.Render(cmd.OutOrStdout())

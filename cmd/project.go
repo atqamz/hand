@@ -27,6 +27,7 @@ func newProjectCmd() *cobra.Command {
 		Short: "Manage the project registry",
 	}
 	cmd.AddCommand(newProjectAddCmd())
+	cmd.AddCommand(newProjectCreateCmd())
 	cmd.AddCommand(newProjectListCmd())
 	cmd.AddCommand(newProjectRemoveCmd())
 	cmd.AddCommand(newProjectSyncCmd())
@@ -51,14 +52,15 @@ var setProjectURL = project.SetURL
 func newProjectSetURLCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set-url <name> <repo-url>",
-		Short: "Repoint a registered project at a new repository URL",
+		Short: "Repoint a remote-backed project at a new repository URL",
 		Long: "Repoint a registered project at a new repository URL. The project name and clone path remain unchanged;\n" +
 			"the registry URL and clone origin are updated together, while tasks and history are preserved.\n" +
+			"Local-managed projects do not have a live origin and must remain local-only.\n" +
 			"The command refuses rather than deliberately leaving a registry-only update.",
 		Args: usageArgs(cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, url := args[0], args[1]
-			if err := validateProjectURL(url); err != nil {
+			if err := validateRemoteProjectURL(url); err != nil {
 				return err
 			}
 			home, err := home.Resolve()
@@ -101,7 +103,10 @@ func repointProject(homeDir, name, url string) (repointResult, error) {
 	if !exists {
 		return repointResult{}, fmt.Errorf("project %q %w", name, project.ErrNotFound)
 	}
-	if err := validateProjectURL(url); err != nil {
+	if project.IsFileLocator(p.URL) {
+		return repointResult{}, fmt.Errorf("project %q is a local-managed project; set-url is supported only for remote-backed projects", name)
+	}
+	if err := validateRemoteProjectURL(url); err != nil {
 		return repointResult{}, err
 	}
 
@@ -207,44 +212,89 @@ func newProjectAddCmd() *cobra.Command {
 	var name string
 
 	cmd := &cobra.Command{
-		Use:   "add <repo-url>",
-		Short: "Clone a git repository and register it",
+		Use:   "add <source>",
+		Short: "Clone or adopt a Git repository and register it",
 		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			url := args[0]
-			if err := validateProjectURL(url); err != nil {
+			source, err := classifyProjectSource(args[0])
+			if err != nil {
+				return &ExitError{Err: err, Code: 2}
+			}
+			if err := validateProjectURL(args[0]); err != nil {
 				return err
+			}
+			if source.remote {
+				if err := validateProjectMode(mode); err != nil {
+					return err
+				}
+			} else if cmd.Flags().Changed("mode") && mode != project.ModeLocalOnly {
+				return &ExitError{Err: fmt.Errorf("local Git sources support only --mode local-only"), Code: 2}
+			} else {
+				mode = project.ModeLocalOnly
 			}
 			if err := validateProjectMode(mode); err != nil {
 				return err
 			}
-			home, err := home.Resolve()
+			fleetHome, err := home.Resolve()
 			if err != nil {
 				return asPrecondition(err)
 			}
 
+			if !source.remote {
+				source, err = resolveLocalProjectSource(source)
+				if err != nil {
+					return &ExitError{Err: err, Code: 2}
+				}
+			}
+			if name == "" && source.remote {
+				name = project.DeriveName(source.input)
+			}
 			if name == "" {
-				name = project.DeriveName(url)
+				name = projectNameFromRoot(source.root)
 			}
 			if err := validateProjectName(name); err != nil {
 				return err
 			}
 
-			if _, exists, err := project.Find(home, name); err != nil {
+			release, err := state.Lock(fleetHome, "project:"+name)
+			if err != nil {
+				return fmt.Errorf("lock project %q: %w", name, err)
+			}
+			defer release()
+
+			if !source.remote {
+				managed, err := project.IsManagedPath(fleetHome, source.root)
+				if err != nil {
+					return err
+				}
+				if managed {
+					return &ExitError{Err: fmt.Errorf("local project source %q is already a managed Hand project", source.input), Code: 3}
+				}
+			}
+
+			if _, exists, err := project.Find(fleetHome, name); err != nil {
 				return err
 			} else if exists {
 				return &ExitError{Err: fmt.Errorf("project %q already registered", name), Code: 3}
 			}
 
-			clonePath := filepath.Join(home, "projects", name)
+			clonePath := filepath.Join(fleetHome, "projects", name)
 			if err := reserveCloneDestination(clonePath); err != nil {
 				return err
 			}
-			if err := gitClone(url, clonePath); err != nil {
-				if cleanupErr := os.RemoveAll(clonePath); cleanupErr != nil {
-					return fmt.Errorf("%w; remove incomplete clone: %v", err, cleanupErr)
+			var cloneErr error
+			if source.remote {
+				cloneErr = gitClone(source.input, clonePath)
+			} else {
+				cloneErr = gitCloneLocal(source.root, clonePath)
+			}
+			if cloneErr != nil {
+				return cleanupCloneAfterFailure(clonePath, cloneErr)
+			}
+			if !source.remote {
+				if err := prepareAdoptedClone(source, clonePath); err != nil {
+					return cleanupCloneAfterFailure(clonePath, err)
 				}
-				return err
 			}
 
 			if mode == project.ModeNoMistakes {
@@ -257,7 +307,14 @@ func newProjectAddCmd() *cobra.Command {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
-			if err := project.Add(home, project.Project{Name: name, URL: url, Mode: mode}); err != nil {
+			locator := source.input
+			if !source.remote {
+				locator = source.locator
+			}
+			if err := project.Add(fleetHome, project.Project{Name: name, URL: locator, Mode: mode}); err != nil {
+				if project.IsRegistrationRollbackError(err) {
+					return fmt.Errorf("%w; managed repository retained at %s for registry repair", err, clonePath)
+				}
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
@@ -265,8 +322,13 @@ func newProjectAddCmd() *cobra.Command {
 			doc.Field("name", name)
 			doc.Field("result", "added")
 			doc.Field("mode", mode)
-			doc.Field("url", url)
+			doc.Field("url", locator)
 			doc.Field("clone", clonePath)
+			if !source.remote {
+				doc.Field("source", source.input)
+				doc.Field("default_branch", source.defaultBranch)
+				doc.Field("baseline", source.baseline)
+			}
 			doc.Help("Run `hand spawn <id> " + name + "` to dispatch a worker into it")
 			return doc.Render(cmd.OutOrStdout())
 		},
@@ -274,6 +336,67 @@ func newProjectAddCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&mode, "mode", project.ModeDirectPR, "delivery mode: no-mistakes, direct-pr, local-only")
 	cmd.Flags().StringVar(&name, "name", "", "override the project name")
+	return cmd
+}
+
+func newProjectCreateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a new Git-backed project in the fleet",
+		Args:  usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			if err := validateProjectName(name); err != nil {
+				return err
+			}
+			fleetHome, err := home.Resolve()
+			if err != nil {
+				return asPrecondition(err)
+			}
+			release, err := state.Lock(fleetHome, "project:"+name)
+			if err != nil {
+				return fmt.Errorf("lock project %q: %w", name, err)
+			}
+			defer release()
+			if _, exists, err := project.Find(fleetHome, name); err != nil {
+				return err
+			} else if exists {
+				return &ExitError{Err: fmt.Errorf("project %q already registered", name), Code: 3}
+			}
+
+			clonePath := filepath.Join(fleetHome, "projects", name)
+			if err := reserveCloneDestination(clonePath); err != nil {
+				return err
+			}
+			baseline, err := initCreatedProject(clonePath)
+			if err != nil {
+				return cleanupCloneAfterFailure(clonePath, err)
+			}
+			if err := treehouseInitIfNeeded(clonePath); err != nil {
+				return cleanupCloneAfterFailure(clonePath, err)
+			}
+			locator, err := project.CanonicalFileLocator(clonePath)
+			if err != nil {
+				return cleanupCloneAfterFailure(clonePath, err)
+			}
+			if err := project.Add(fleetHome, project.Project{Name: name, URL: locator, Mode: project.ModeLocalOnly}); err != nil {
+				if project.IsRegistrationRollbackError(err) {
+					return fmt.Errorf("%w; managed repository retained at %s for registry repair", err, clonePath)
+				}
+				return cleanupCloneAfterFailure(clonePath, err)
+			}
+
+			var doc axi.Doc
+			doc.Field("name", name)
+			doc.Field("result", "created")
+			doc.Field("mode", project.ModeLocalOnly)
+			doc.Field("url", locator)
+			doc.Field("clone", clonePath)
+			doc.Field("baseline", baseline)
+			doc.Help("Run `hand spawn <id> " + name + "` to dispatch a worker into it")
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
 	return cmd
 }
 
@@ -320,10 +443,15 @@ func isRegistrySafeName(name string) bool {
 }
 
 func validateProjectURL(url string) error {
-	for _, prefix := range []string{"https://", "git@", "ssh://", "git://"} {
-		if strings.HasPrefix(url, prefix) {
-			return nil
-		}
+	if _, err := classifyProjectSource(url); err != nil {
+		return &ExitError{Err: fmt.Errorf("invalid project source %q: %w", url, err), Code: 2}
+	}
+	return nil
+}
+
+func validateRemoteProjectURL(url string) error {
+	if isRemoteProjectSource(url) {
+		return nil
 	}
 	return &ExitError{Err: fmt.Errorf("invalid project URL %q: must start with https://, git@, ssh://, or git://", url), Code: 2}
 }
@@ -491,7 +619,7 @@ func newProjectListCmd() *cobra.Command {
 
 func projectListHelp(count, ungated int) []string {
 	if count == 0 {
-		return []string{"Run `hand project add <repo-url>` to register the first project"}
+		return []string{"Run `hand project add <source>` or `hand project create <name>` to register the first project"}
 	}
 	help := []string{"Run `hand spawn <id> <project>` to dispatch a worker into one of these"}
 	if ungated > 0 {
@@ -567,7 +695,7 @@ func hasActiveTasksForProject(home, name string) (bool, error) {
 func newProjectSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync [name]",
-		Short: "Fast-forward project clones to their remote default branch",
+		Short: "Fast-forward remote-backed project clones to their default branch",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := home.Resolve()
@@ -660,6 +788,9 @@ func syncOneProject(home string, p project.Project) (syncOutcome, error) {
 
 func syncOneProjectContext(ctx context.Context, home string, p project.Project) (syncOutcome, error) {
 	clonePath := filepath.Join(home, "projects", p.Name)
+	if project.IsFileLocator(p.URL) {
+		return skippedSync(p.Name, "local-managed project; no live origin remote")
+	}
 
 	origin, err := storedOriginURL(clonePath)
 	if err != nil {

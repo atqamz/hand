@@ -1,63 +1,20 @@
 package cmd
 
 import (
-	"fmt"
-	"os/exec"
-	"strings"
+	"github.com/atqamz/hand/internal/git"
 )
 
 func hasUncommittedChanges(worktreePath string) (bool, error) {
-	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = worktreePath
-	out, err := cmd.Output()
-	if err != nil {
-		return false, fmt.Errorf("git status failed: %w", err)
-	}
-	return strings.TrimRight(string(out), "\n") != "", nil
+	return git.HasUncommittedChanges(worktreePath)
 }
 
 // git symbolic-ref, not rev-parse --abbrev-ref: the latter exits 0 and prints the literal string
 // "HEAD" on a detached HEAD instead of failing, which every caller would otherwise have to
 // special-case itself to avoid treating that sentinel as a real branch name.
 func currentBranch(worktreePath string) (string, error) {
-	cmd := exec.Command("git", "symbolic-ref", "--short", "-q", "HEAD")
-	cmd.Dir = worktreePath
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git symbolic-ref failed: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
+	return git.CurrentBranch(worktreePath)
 }
 
 func defaultBranch(clonePath string) (string, error) {
-	cmd := exec.Command("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-	cmd.Dir = clonePath
-	out, err := cmd.Output()
-	if err == nil {
-		branch := strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/")
-		if branch != "" {
-			return branch, nil
-		}
-	}
-
-	cmd = exec.Command("git", "remote", "show", "origin")
-	cmd.Dir = clonePath
-	out, err = cmd.Output()
-	if err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) == 3 && fields[0] == "HEAD" && fields[1] == "branch:" && fields[2] != "" {
-				return fields[2], nil
-			}
-		}
-	}
-
-	for _, branch := range []string{"main", "master"} {
-		cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-		cmd.Dir = clonePath
-		if err := cmd.Run(); err == nil {
-			return branch, nil
-		}
-	}
-	return "", fmt.Errorf("resolve default branch failed")
+	return git.DefaultBranch(clonePath)
 }

@@ -131,7 +131,7 @@ func newInitCmd() *cobra.Command {
 				effectiveSettingsHelp,
 				"Run `hand config set <key> <value>` only to persist an explicit worker override",
 				"Read AGENTS.md in this home for how a supervising agent is meant to drive it",
-				"Run `hand project add <repo-url>` to register the first project",
+				"Run `hand project add <source>` or `hand project create <name>` to register the first project",
 				"AGENTS.md and its CLAUDE.md reference carry the startup integration across harnesses",
 			}
 			if refresh.ArchivedPath != "" {

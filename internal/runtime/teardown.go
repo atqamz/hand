@@ -13,6 +13,7 @@ import (
 
 	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
@@ -561,33 +562,9 @@ func dirtIsSafeToDiscard(worktreePath, status string) bool {
 	return true
 }
 
-// Resolves the worktree's local knowledge of the default branch without touching the network: a real
-// treehouse worktree shares its refs with the project clone it was leased from, so a prior fetch there
-// already left refs/remotes/origin/HEAD in place for it to read directly.
+// Resolves the worktree's local knowledge of the default branch without touching the network.
 func localDefaultBranchRef(worktreePath string) (string, error) {
-	c := exec.Command("git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
-	c.Dir = worktreePath
-	if out, err := c.Output(); err == nil {
-		if ref := strings.TrimSpace(string(out)); ref != "" {
-			return ref, nil
-		}
-	}
-
-	current, err := currentBranch(worktreePath)
-	if err != nil {
-		return "", err
-	}
-	for _, branch := range []string{"main", "master"} {
-		if branch == current {
-			continue
-		}
-		c := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-		c.Dir = worktreePath
-		if err := c.Run(); err == nil {
-			return branch, nil
-		}
-	}
-	return "", fmt.Errorf("cannot resolve a local default branch ref")
+	return git.LocalDefaultBranchRef(worktreePath)
 }
 
 // Reads path's content at ref. An empty ref reads the index's stage-0 blob, which is what
@@ -628,36 +605,7 @@ func branchIsMerged(clonePath, worktreePath string) (bool, error) {
 }
 
 func defaultBranch(clonePath string) (string, error) {
-	c := exec.Command("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-	c.Dir = clonePath
-	out, err := c.Output()
-	if err == nil {
-		branch := strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/")
-		if branch != "" {
-			return branch, nil
-		}
-	}
-
-	c = exec.Command("git", "remote", "show", "origin")
-	c.Dir = clonePath
-	out, err = c.Output()
-	if err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) == 3 && fields[0] == "HEAD" && fields[1] == "branch:" && fields[2] != "" {
-				return fields[2], nil
-			}
-		}
-	}
-
-	for _, branch := range []string{"main", "master"} {
-		c = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-		c.Dir = clonePath
-		if err := c.Run(); err == nil {
-			return branch, nil
-		}
-	}
-	return "", fmt.Errorf("resolve default branch failed")
+	return git.DefaultBranch(clonePath)
 }
 
 func projectBaseCommit(clonePath string) (string, error) {
@@ -665,47 +613,20 @@ func projectBaseCommit(clonePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ref := "refs/heads/" + branch
-	c := exec.Command("git", "rev-parse", "--verify", ref+"^{commit}")
-	c.Dir = clonePath
-	out, err := c.Output()
+	commit, err := git.BranchCommit(clonePath, branch)
 	if err != nil {
-		return "", fmt.Errorf("resolve local default branch commit %s: %w", ref, err)
-	}
-	commit := strings.TrimSpace(string(out))
-	if commit == "" {
-		return "", fmt.Errorf("resolve local default branch commit %s: empty Git object ID", ref)
+		return "", fmt.Errorf("resolve local default branch commit refs/heads/%s: %w", branch, err)
 	}
 	return commit, nil
 }
 
 func localDefaultBranch(clonePath string) (string, error) {
-	c := exec.Command("git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
-	c.Dir = clonePath
-	if out, err := c.Output(); err == nil {
-		if branch := strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"); branch != "" {
-			return branch, nil
-		}
-	}
-	for _, branch := range []string{"main", "master"} {
-		c := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-		c.Dir = clonePath
-		if err := c.Run(); err == nil {
-			return branch, nil
-		}
-	}
-	return "", fmt.Errorf("resolve local default branch failed")
+	return git.LocalDefaultBranch(clonePath)
 }
 
 // git symbolic-ref, not rev-parse --abbrev-ref: the latter exits 0 and prints the literal string
 // "HEAD" on a detached HEAD instead of failing, which every caller would otherwise have to
 // special-case itself to avoid treating that sentinel as a real branch name.
 func currentBranch(worktreePath string) (string, error) {
-	c := exec.Command("git", "symbolic-ref", "--short", "-q", "HEAD")
-	c.Dir = worktreePath
-	out, err := c.Output()
-	if err != nil {
-		return "", fmt.Errorf("git symbolic-ref failed: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
+	return git.CurrentBranch(worktreePath)
 }

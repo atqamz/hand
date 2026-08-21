@@ -263,6 +263,29 @@ var projectURLUpdater = func(db *store.DB, name, url string) (bool, error) {
 
 var projectURLProjectionWriter = writeProjection
 
+var projectAddProjectionWriter = writeProjection
+
+var projectAddRowRemover = func(db *store.DB, name string) (bool, error) {
+	return db.RemoveProject(name)
+}
+
+type RegistrationRollbackError struct {
+	Name     string
+	Cause    error
+	Rollback error
+}
+
+func (e *RegistrationRollbackError) Error() string {
+	return fmt.Sprintf("register project %q failed: %v; rollback failed: %v", e.Name, e.Cause, e.Rollback)
+}
+
+func (e *RegistrationRollbackError) Unwrap() error { return e.Cause }
+
+func IsRegistrationRollbackError(err error) bool {
+	var target *RegistrationRollbackError
+	return errors.As(err, &target)
+}
+
 // Changes only the registered project's repository URL and its projection.
 func SetURL(homeDir, name, url string) error {
 	unlock, err := lockRegistry(homeDir)
@@ -433,7 +456,17 @@ func Add(homeDir string, p Project) error {
 	if err := db.AddProject(p); err != nil {
 		return err
 	}
-	return writeProjection(db, homeDir)
+	if err := projectAddProjectionWriter(db, homeDir); err != nil {
+		removed, rollbackErr := projectAddRowRemover(db, p.Name)
+		if rollbackErr != nil {
+			return &RegistrationRollbackError{Name: p.Name, Cause: err, Rollback: rollbackErr}
+		}
+		if !removed {
+			return &RegistrationRollbackError{Name: p.Name, Cause: err, Rollback: fmt.Errorf("row was not found")}
+		}
+		return err
+	}
+	return nil
 }
 
 func validMode(mode string) bool {

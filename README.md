@@ -121,13 +121,17 @@ hand init
 
 `hand init` is non-interactive. It creates the fleet structure, installs the bundled `secondhand` Agent Skill for supported harnesses, and writes the canonical, Hand-owned `AGENTS.md`: a small, immutable set of invariants telling any supervising harness to run `hand session start` before acting, restored byte-for-byte on every later `hand init`. A `CLAUDE.md` reference is written alongside it when that name is otherwise absent - a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
 
-### 3. Add a project
+### 3. Add or create a project
 
 ```sh
 hand project add https://github.com/you/project
+hand project add ~/work/project
+hand project create new-project
 ```
 
-Secondhand clones the repository under the fleet home and prepares it for isolated worker worktrees.
+Remote sources are cloned under the fleet home and prepared for isolated worker worktrees.
+Local Git sources are adopted once into a separate Fleet-managed clone; Hand never executes in or synchronizes with the original checkout.
+Created projects start with one empty `main` baseline commit and are also managed locally.
 
 ### 4. Open a supervising session
 
@@ -257,6 +261,20 @@ Choose a mode when registering a project:
 ```sh
 hand project add https://github.com/you/project --mode direct-pr
 ```
+
+Add an existing local Git project or create a new managed project with the local-only mode:
+
+```sh
+hand project add ~/work/project
+hand project add ~/work/project --mode local-only
+hand project create new-project
+```
+
+Local adoption requires a clean, committed, non-detached Git worktree with a resolvable default branch.
+It copies committed state into `projects/<name>` with an independent object store, removes the clone's origin, and leaves the source checkout untouched.
+Local projects do not synchronize with their source later.
+`hand project sync` reports local projects as skipped, and `hand project set-url` is remote-backed-only.
+Use `hand merge --local` to fast-forward local-only work into the canonical managed clone.
 
 For a fork, declare the upstream repository that receives pull requests:
 
@@ -485,8 +503,10 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | Command | Purpose |
 | --- | --- |
 | `hand init` | Create or refresh a fleet home. |
-| `hand project add` | Register a repository with the fleet. |
+| `hand project add <source>` | Clone a remote Git source or adopt a local Git source into the fleet. |
+| `hand project create <name>` | Create a new empty Git-backed local-only project with a real baseline commit. |
 | `hand project set-url <name> <repo-url>` | Recover a registered project after a repository rename or transfer while preserving its local identity and task history. |
+| `hand project sync [name]` | Fast-forward remote-backed clones; report local-managed projects as skipped. |
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
 | `hand reopen <id>` | Reopen a terminal Task by creating a new Attempt. |
 | `hand status` | Read fleet or task state. |
