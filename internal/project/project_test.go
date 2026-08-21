@@ -258,7 +258,11 @@ func TestFileLocatorRoundTripsSpacesUnicodeAndWindowsDrivePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := filepath.Abs(dir)
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err = filepath.Abs(want)
 	if err != nil {
 		t.Fatal(err)
 	}
