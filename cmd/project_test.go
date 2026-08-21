@@ -223,6 +223,27 @@ func TestProjectAddPreservesCustomDefaultBranchAfterOriginRemoval(t *testing.T) 
 	}
 }
 
+func TestProjectAddUsesCheckedOutBranchWithoutRemoteDefaultMarker(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(t.TempDir(), "custom")
+	initGitRepo(t, source)
+	runGitIn(t, source, "branch", "-m", "trunk")
+	runGitIn(t, source, "remote", "add", "origin", "file:///does-not-exist")
+	mkFleetDirs(t, home)
+	t.Chdir(home)
+	faketool.Treehouse{}.Install(t, faketool.Bin(t))
+
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{source, "--name", "custom"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	managed := filepath.Join(home, "projects", "custom")
+	if got := runGitOutput(t, managed, "symbolic-ref", "--short", "HEAD"); got != "trunk\n" {
+		t.Fatalf("checked-out branch = %q, want trunk", got)
+	}
+}
+
 func TestValidateProjectMode(t *testing.T) {
 	for _, mode := range []string{"no-mistakes", "direct-pr", "local-only"} {
 		if err := validateProjectMode(mode); err != nil {

@@ -86,7 +86,7 @@ func resolveLocalProjectSource(source projectSource) (projectSource, error) {
 	if _, err := git.CurrentBranch(root); err != nil {
 		return projectSource{}, fmt.Errorf("local project source %q must have a checked-out branch: %w", source.input, err)
 	}
-	defaultBranch, err := git.DefaultBranch(root)
+	defaultBranch, err := git.LocalDefaultBranch(root)
 	if err != nil {
 		return projectSource{}, fmt.Errorf("local project source %q has no stable default branch: %w", source.input, err)
 	}

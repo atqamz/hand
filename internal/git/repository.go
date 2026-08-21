@@ -107,6 +107,11 @@ func LocalDefaultBranch(path string) (string, error) {
 			return branch, nil
 		}
 	}
+	if branch, err := CurrentBranch(path); err == nil {
+		if _, err := BranchCommit(path, branch); err == nil {
+			return branch, nil
+		}
+	}
 	return "", fmt.Errorf("resolve local Git default branch failed")
 }
 
