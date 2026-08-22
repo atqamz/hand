@@ -86,10 +86,25 @@ func boundBootstrapWithDigest(t *testing.T, path, digest string) string {
 }
 
 func releaseAsset() string {
-	if runtime.GOOS == "darwin" {
-		return "hand-darwin-" + runtime.GOARCH + ".tar.gz"
+	goos := runtime.GOOS
+	if output, err := exec.Command("uname", "-s").Output(); err == nil {
+		switch strings.TrimSpace(string(output)) {
+		case "Darwin":
+			goos = "darwin"
+		case "Linux":
+			goos = "linux"
+		}
 	}
-	return "hand-linux-" + runtime.GOARCH + ".tar.gz"
+	goarch := runtime.GOARCH
+	if output, err := exec.Command("uname", "-m").Output(); err == nil {
+		switch strings.TrimSpace(string(output)) {
+		case "x86_64", "amd64":
+			goarch = "amd64"
+		case "arm64", "aarch64":
+			goarch = "arm64"
+		}
+	}
+	return "hand-" + goos + "-" + goarch + ".tar.gz"
 }
 
 func writeHandArchive(t *testing.T, path string) {
@@ -426,7 +441,7 @@ func TestBootstrapReconcilesAnExistingFleetIdempotently(t *testing.T) {
 func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
 	dir := binDir(t)
 	installFakeHarness(t, dir, "claude")
-	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+	archive := filepath.Join(t.TempDir(), releaseAsset())
 	writeHandArchive(t, archive)
 	logPath := filepath.Join(t.TempDir(), "curl.log")
 	installReleaseCurl(t, dir, archive, logPath, false)
