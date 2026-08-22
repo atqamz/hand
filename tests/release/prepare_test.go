@@ -467,7 +467,7 @@ func envWithPath(path string, extra ...string) []string {
 
 func runPrepareRelease(t *testing.T, output, tag, version, commit string) {
 	t.Helper()
-	cmd := exec.Command("sh", filepath.Join(repoRoot(t), ".github", "scripts", "prepare-release.sh"), tag, version, commit, output)
+	cmd := exec.Command("sh", filepath.Join(repoRoot(t), ".github", "scripts", "prepare-release.sh"), tag, version, commit, filepath.ToSlash(output))
 	cmd.Dir = repoRoot(t)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("prepare-release.sh: %v: %s", err, out)
