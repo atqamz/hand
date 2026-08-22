@@ -462,7 +462,7 @@ func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz\n"
+	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/" + releaseAsset() + "\n"
 	if string(urls) != wantURLs {
 		t.Fatalf("curl URLs = %q, want %q", urls, wantURLs)
 	}

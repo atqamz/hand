@@ -91,7 +91,7 @@ function Invoke-HandCapture {
         } else {
             $env:HAND_HOME = $HandHome
         }
-        $lines = @(& $Path @Arguments 2>&1)
+        $lines = @(& $Path @Arguments 2>&1 | ForEach-Object { $_.ToString() })
         $code = $LASTEXITCODE
         $output = $lines | Out-String
         return [pscustomobject]@{
