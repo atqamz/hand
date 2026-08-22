@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$Fleet = (Join-Path ([Environment]::GetFolderPath('UserProfile')) "secondhand-fleet"),
+    [string]$Fleet = (Join-Path $env:USERPROFILE "secondhand-fleet"),
     [switch]$Yes,
     [switch]$Check
 )

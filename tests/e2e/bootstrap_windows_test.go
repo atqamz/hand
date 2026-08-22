@@ -129,8 +129,8 @@ func TestBootstrapPS1ExecutesThroughIEXWithoutAFilePath(t *testing.T) {
 	fleetLeaf := "secondhand fleet 日本"
 	script := strings.Replace(
 		boundBootstrap(t, bootstrapPS1Script),
-		`[string]$Fleet = (Join-Path ([Environment]::GetFolderPath('UserProfile')) "secondhand-fleet"),`,
-		`[string]$Fleet = (Join-Path ([Environment]::GetFolderPath('UserProfile')) "`+fleetLeaf+`"),`,
+		`[string]$Fleet = (Join-Path $env:USERPROFILE "secondhand-fleet"),`,
+		`[string]$Fleet = (Join-Path $env:USERPROFILE "`+fleetLeaf+`"),`,
 		1,
 	)
 	encoded := base64.StdEncoding.EncodeToString([]byte(script))

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -105,7 +106,16 @@ func sha256Path(t *testing.T, path string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func installReleaseCurl(t *testing.T, dir, archive, checksums, manifest, logPath string, interrupted bool) {
+func releaseAsset() string {
+	platform := runtime.GOOS
+	architecture := runtime.GOARCH
+	if platform == "darwin" {
+		return "hand-darwin-" + architecture + ".tar.gz"
+	}
+	return "hand-linux-" + architecture + ".tar.gz"
+}
+
+func installReleaseCurl(t *testing.T, dir, archive, checksums, manifest, logPath, asset string, interrupted bool) {
 	t.Helper()
 	archiveCopy := fmt.Sprintf("cp %s \"$out\"", shellSingleQuote(archive))
 	if interrupted {
@@ -122,7 +132,7 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%%s\n' "$url" >> %s
 case "$url" in
-  https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz)
+  https://github.com/atqamz/hand/releases/download/v1.2.3/%s)
     %s
     ;;
   https://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt)
@@ -133,7 +143,7 @@ case "$url" in
     ;;
   *) echo "unexpected release URL: $url" >&2; exit 1 ;;
 esac
-`, shellSingleQuote(logPath), archiveCopy, shellSingleQuote(checksums), shellSingleQuote(manifest))
+`, shellSingleQuote(logPath), asset, archiveCopy, shellSingleQuote(checksums), shellSingleQuote(manifest))
 	writeFakeBin(t, dir, "curl", body)
 }
 
@@ -378,18 +388,19 @@ func TestBootstrapReconcilesAnExistingFleetIdempotently(t *testing.T) {
 func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
 	dir := binDir(t)
 	installFakeHarness(t, dir, "claude")
-	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+	asset := releaseAsset()
+	archive := filepath.Join(t.TempDir(), asset)
 	writeHandArchive(t, archive)
 	checksums := filepath.Join(t.TempDir(), "checksums.txt")
 	manifest := filepath.Join(t.TempDir(), "release-manifest.json")
 	if err := os.WriteFile(manifest, []byte(`{"commit":"0123456789abcdef0123456789abcdef01234567"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"+sha256Path(t, manifest)+"  release-manifest.json\n"), 0o644); err != nil {
+	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  "+asset+"\n"+sha256Path(t, manifest)+"  release-manifest.json\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(t.TempDir(), "curl.log")
-	installReleaseCurl(t, dir, archive, checksums, manifest, logPath, false)
+	installReleaseCurl(t, dir, archive, checksums, manifest, logPath, asset, false)
 
 	home := filepath.Join(t.TempDir(), "unicode-home-é")
 	if err := os.MkdirAll(home, 0o755); err != nil {
@@ -407,13 +418,14 @@ func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/release-manifest.json\n"
+	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/" + asset + "\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/release-manifest.json\n"
 	if string(urls) != wantURLs {
 		t.Fatalf("curl URLs = %q, want %q", urls, wantURLs)
 	}
 }
 
 func TestBootstrapRejectsAnInterruptedOrMismatchedReleaseDownload(t *testing.T) {
+	asset := releaseAsset()
 	for _, test := range []struct {
 		name        string
 		interrupted bool
@@ -421,16 +433,16 @@ func TestBootstrapRejectsAnInterruptedOrMismatchedReleaseDownload(t *testing.T) 
 		want        string
 	}{
 		{name: "interrupted", interrupted: true, checksums: "unused", want: "download failed"},
-		{name: "checksum mismatch", checksums: strings.Repeat("0", 64) + "  hand-linux-amd64.tar.gz\n", want: "checksum mismatch"},
+		{name: "checksum mismatch", checksums: strings.Repeat("0", 64) + "  " + asset + "\n", want: "checksum mismatch"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dir := binDir(t)
-			archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+			archive := filepath.Join(t.TempDir(), asset)
 			writeHandArchive(t, archive)
 			checksums := filepath.Join(t.TempDir(), "checksums.txt")
 			checksumData := test.checksums
 			if checksumData == "unused" {
-				checksumData = sha256Path(t, archive) + "  hand-linux-amd64.tar.gz\n"
+				checksumData = sha256Path(t, archive) + "  " + asset + "\n"
 			}
 			if err := os.WriteFile(checksums, []byte(checksumData), 0o644); err != nil {
 				t.Fatal(err)
@@ -440,7 +452,7 @@ func TestBootstrapRejectsAnInterruptedOrMismatchedReleaseDownload(t *testing.T) 
 				t.Fatal(err)
 			}
 			logPath := filepath.Join(t.TempDir(), "curl.log")
-			installReleaseCurl(t, dir, archive, checksums, manifest, logPath, test.interrupted)
+			installReleaseCurl(t, dir, archive, checksums, manifest, logPath, asset, test.interrupted)
 			home := t.TempDir()
 			got := runBootstrap(t, home, nil, "--fleet", filepath.Join(home, "fleet"))
 			if got.code == 0 || !strings.Contains(got.stderr, test.want) {
@@ -455,18 +467,19 @@ func TestBootstrapRejectsAnInterruptedOrMismatchedReleaseDownload(t *testing.T) 
 
 func TestBootstrapReportsAnInstallTargetFailureWithoutUsingSudo(t *testing.T) {
 	dir := binDir(t)
-	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+	asset := releaseAsset()
+	archive := filepath.Join(t.TempDir(), asset)
 	writeHandArchive(t, archive)
 	checksums := filepath.Join(t.TempDir(), "checksums.txt")
 	manifest := filepath.Join(t.TempDir(), "release-manifest.json")
 	if err := os.WriteFile(manifest, []byte(`{"commit":"0123456789abcdef0123456789abcdef01234567"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"+sha256Path(t, manifest)+"  release-manifest.json\n"), 0o644); err != nil {
+	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  "+asset+"\n"+sha256Path(t, manifest)+"  release-manifest.json\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(t.TempDir(), "curl.log")
-	installReleaseCurl(t, dir, archive, checksums, manifest, logPath, false)
+	installReleaseCurl(t, dir, archive, checksums, manifest, logPath, asset, false)
 	home := t.TempDir()
 	installTarget := filepath.Join(home, "not-a-directory")
 	if err := os.WriteFile(installTarget, []byte("occupied"), 0o644); err != nil {
