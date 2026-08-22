@@ -60,6 +60,12 @@ func TestInstallCopiesAndSelectsExplicitExecutable(t *testing.T) {
 	if got, err := store.Resolve("github/gh"); err != nil || got != installed {
 		t.Fatalf("Resolve() = %q, %v; want %q", got, err, installed)
 	}
+	if err := os.WriteFile(installed, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Resolve("github/gh"); err == nil {
+		t.Fatal("Resolve() accepted a modified payload")
+	}
 	if err := store.Remove("github/gh"); err != nil {
 		t.Fatal(err)
 	}

@@ -274,7 +274,14 @@ func seedPrivateRuntime(t *testing.T, home string) {
 		t.Fatal(err)
 	}
 	bundle := filepath.Join(root, "runtime", "bundles", lock.RuntimeID)
+	artifacts := filepath.Join(bundle, "artifacts")
+	if err := os.MkdirAll(artifacts, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for name, component := range target.Components {
+		if err := os.WriteFile(filepath.Join(artifacts, name), []byte(component.SHA256), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		for index, expected := range component.Files {
 			path := filepath.Join(bundle, name, filepath.FromSlash(expected.Path))
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -169,6 +170,30 @@ func (s *Store) Resolve(id string) (string, error) {
 	}
 	if info.Mode()&0111 == 0 && runtime.GOOS != "windows" {
 		return "", fmt.Errorf("optional capability %q path is not executable", id)
+	}
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	if len(parts) != 3 || parts[0] != "payloads" || len(parts[1]) != sha256.Size*2 {
+		return "", fmt.Errorf("optional capability %q selection has no integrity-bound payload", id)
+	}
+	want, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("optional capability %q selection has invalid payload digest", id)
+	}
+	input, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open optional capability %q payload: %w", id, err)
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(hash, input)
+	closeErr := input.Close()
+	if copyErr != nil {
+		return "", fmt.Errorf("hash optional capability %q payload: %w", id, copyErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close optional capability %q payload: %w", id, closeErr)
+	}
+	if !bytes.Equal(hash.Sum(nil), want) {
+		return "", fmt.Errorf("optional capability %q payload digest mismatch", id)
 	}
 	return path, nil
 }
