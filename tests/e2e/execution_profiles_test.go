@@ -27,7 +27,7 @@ func TestExecutionProfilesFreezeExistingAttemptAndRouteFutureTask(t *testing.T) 
 	writeFakeBin(t, dir, "claude", "exit 0\n")
 	writeFakeBin(t, dir, "codex", "exit 0\n")
 	faketool.Treehouse{Slots: []string{worktreeOne, worktreeTwo}}.Install(t, dir)
-	writeFakeHerdrStaticLogged(t, dir, "", herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
+	writeFakeHerdrStaticLogged(t, dir, "", herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo", Agents: []string{"claude", "codex"}})
 
 	for _, args := range [][]string{
 		{"config", "profile", "set", "initial", "--harness", "claude", "--model", "initial-model", "--effort", "high"},

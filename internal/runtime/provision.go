@@ -10,11 +10,14 @@ import (
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
 )
 
 type lifecyclePhase string
+
+type launchSpec = launch.LaunchSpec
 
 const (
 	phaseAttemptCreated        lifecyclePhase = "attempt-created"
@@ -46,8 +49,8 @@ type dependencies struct {
 	herdrFor          func(string) herdrClient
 	worktree          worktreeDependencies
 	projectBaseCommit func(string) (string, error)
-	buildHarness      func(string, harness.Options) (string, error)
-	confirmLaunch     func(herdrClient, string, string) error
+	buildHarness      func(string, harness.Options) (launch.LaunchSpec, error)
+	confirmLaunch     func(herdrClient, string, string, launch.LaunchSpec) error
 	appendCompletion  func(string, completion.Record) error
 	prMerged          func(context.Context, string) ghutil.PRObservation
 	prHead            func(context.Context, string) ghutil.PRObservation
@@ -165,6 +168,14 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		}
 	}
 
+	workerSpec, err := r.deps.buildHarness(req.attempt.Harness, harness.Options{
+		Worktree: worktreePath, Brief: req.briefPath, Model: req.attempt.Model, Effort: req.attempt.Effort,
+		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter,
+	})
+	if err != nil {
+		return "", r.failProvision(req, lease, nil, false, err)
+	}
+
 	session := req.attempt.Herdr.Session
 	if session == "" {
 		fleetID, err := state.FleetID(req.home)
@@ -174,7 +185,11 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		session = herdr.SessionName(fleetID)
 	}
 	client := r.herdrClient(session)
-	workspace, tab, pane, rollback, err := acquireTaskWorkspace(client, worktreePath, req.attempt.TaskID, req.projectName, session)
+	workerSpec, err = composeWorkerSpec(workerSpec, req.home, herdrWorkerEnvironment(client))
+	if err != nil {
+		return "", r.failProvision(req, lease, nil, false, err)
+	}
+	workspace, tab, pane, rollback, err := acquireTaskWorkspace(client, workerSpec.Cwd, workerSpec.Env, req.attempt.TaskID, req.projectName, session)
 	if err != nil {
 		return "", r.failProvision(req, lease, nil, false, err)
 	}
@@ -197,14 +212,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return fail(err)
 	}
 
-	launchCommand, err := r.deps.buildHarness(req.attempt.Harness, harness.Options{
-		Worktree: worktreePath, Brief: req.briefPath, FleetHome: req.home, Model: req.attempt.Model, Effort: req.attempt.Effort,
-		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	if err := client.PaneRun(pane.PaneID, launchCommand); err != nil {
+	if err := client.PaneRunSpec(pane.PaneID, workerSpec); err != nil {
 		return fail(fmt.Errorf("send launch command failed: %w", err))
 	}
 	if err := state.MarkLaunchSubmitted(req.home, req.attempt.TaskID, req.attempt.ID, r.deps.now().Format(time.RFC3339)); err != nil {
@@ -214,7 +222,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return fail(err)
 	}
 
-	if err := r.deps.confirmLaunch(client, pane.PaneID, req.attempt.Harness); err != nil {
+	if err := r.deps.confirmLaunch(client, pane.PaneID, req.attempt.Harness, workerSpec); err != nil {
 		return fail(fmt.Errorf("confirm worker started: %w", err))
 	}
 	if err := state.MarkLaunchConfirmed(req.home, req.attempt.TaskID, req.attempt.ID, r.deps.now().Format(time.RFC3339)); err != nil {
@@ -227,6 +235,19 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return fail(fmt.Errorf("record running attempt: %w", err))
 	}
 	return worktreePath, nil
+}
+
+func composeWorkerSpec(spec launch.LaunchSpec, home string, managed map[string]string) (launch.LaunchSpec, error) {
+	if _, found := managed[harness.RoleEnv]; found {
+		return launch.LaunchSpec{}, fmt.Errorf("managed worker environment cannot override %s", harness.RoleEnv)
+	}
+	if _, found := managed[harness.HomeEnv]; found {
+		return launch.LaunchSpec{}, fmt.Errorf("managed worker environment cannot override %s", harness.HomeEnv)
+	}
+	return spec.MergeEnv(map[string]string{
+		harness.RoleEnv: harness.WorkerRole,
+		harness.HomeEnv: home,
+	}, managed)
 }
 
 func (r *Runtime) afterPhase(phase lifecyclePhase) error { return r.deps.phase(phase) }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
 )
@@ -13,14 +14,15 @@ import (
 type herdrClient interface {
 	FindWorkspaceByLabel(string) (herdr.Workspace, bool, error)
 	WorkspaceList() ([]herdr.Workspace, error)
-	WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error)
+	WorkspaceCreate(string, map[string]string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error)
 	WorkspaceClose(string) error
 	TabList(string) ([]herdr.Tab, error)
-	TabCreate(string, string, string) (herdr.Tab, herdr.Pane, error)
+	TabCreate(string, string, map[string]string, string) (herdr.Tab, herdr.Pane, error)
 	TabRename(string, string) error
 	TabClose(string) error
 	PaneGet(string) (herdr.Pane, error)
-	PaneRun(string, string) error
+	PaneProcessInfo(string) (herdr.ProcessInfo, error)
+	PaneRunSpec(string, launch.LaunchSpec) error
 	PaneSendKeys(string, ...string) error
 	PaneRead(string, int) (string, error)
 }
@@ -29,9 +31,9 @@ func newHerdrClient() herdrClient { return herdr.NewManagedClient() }
 
 func newHerdrSessionClient(session string) herdrClient {
 	if session == "" || session == "default" {
-		return herdr.NewClient()
+		return herdr.NewManagedClient()
 	}
-	return herdr.NewSessionClient(session)
+	return herdr.NewManagedSessionClient(session)
 }
 
 func (r *Runtime) herdrClient(session string) herdrClient {
@@ -44,6 +46,14 @@ func (r *Runtime) herdrClient(session string) herdrClient {
 	return newHerdrSessionClient(session)
 }
 
+func herdrWorkerEnvironment(client herdrClient) map[string]string {
+	provider, ok := client.(interface{ WorkerEnvironment() map[string]string })
+	if !ok {
+		return nil
+	}
+	return provider.WorkerEnvironment()
+}
+
 func herdrWorkspaceLabelForSession(session, projectName string) string {
 	if session == "" || session == "default" {
 		return herdr.LegacyWorkspaceLabel(projectName)
@@ -51,21 +61,21 @@ func herdrWorkspaceLabelForSession(session, projectName string) string {
 	return herdr.WorkspaceLabel(strings.TrimPrefix(session, "hand-"), projectName)
 }
 
-func acquireTaskWorkspace(client herdrClient, worktreePath, taskID, projectName, session string) (herdr.Workspace, herdr.Tab, herdr.Pane, func() error, error) {
+func acquireTaskWorkspace(client herdrClient, worktreePath string, env map[string]string, taskID, projectName, session string) (herdr.Workspace, herdr.Tab, herdr.Pane, func() error, error) {
 	label := herdrWorkspaceLabelForSession(session, projectName)
 	workspace, found, err := client.FindWorkspaceByLabel(label)
 	createdWorkspace := false
 	var rootTab herdr.Tab
 	var rootPane herdr.Pane
 	if err == nil && !found {
-		workspace, rootTab, rootPane, err = client.WorkspaceCreate(worktreePath, label)
+		workspace, rootTab, rootPane, err = client.WorkspaceCreate(worktreePath, env, label)
 		createdWorkspace = err == nil
 	}
 	if err != nil {
 		return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, nil, fmt.Errorf("herdr workspace lookup/create failed: %w", err)
 	}
 
-	tab, pane, err := acquireTaskTab(client, createdWorkspace, workspace.WorkspaceID, worktreePath, taskID, rootTab, rootPane)
+	tab, pane, err := acquireTaskTab(client, createdWorkspace, workspace.WorkspaceID, worktreePath, env, taskID, rootTab, rootPane)
 	if err != nil {
 		return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, nil, reportCleanup(err, rollbackHerdr(client, createdWorkspace, workspace.WorkspaceID, ""))
 	}
@@ -75,14 +85,14 @@ func acquireTaskWorkspace(client herdrClient, worktreePath, taskID, projectName,
 	return workspace, tab, pane, rollback, nil
 }
 
-func acquireTaskTab(client herdrClient, createdWorkspace bool, workspaceID, worktreePath, taskID string, rootTab herdr.Tab, rootPane herdr.Pane) (herdr.Tab, herdr.Pane, error) {
+func acquireTaskTab(client herdrClient, createdWorkspace bool, workspaceID, worktreePath string, env map[string]string, taskID string, rootTab herdr.Tab, rootPane herdr.Pane) (herdr.Tab, herdr.Pane, error) {
 	if createdWorkspace {
 		if err := client.TabRename(rootTab.TabID, taskID); err != nil {
 			return herdr.Tab{}, herdr.Pane{}, fmt.Errorf("herdr tab rename failed: %w", err)
 		}
 		return rootTab, rootPane, nil
 	}
-	tab, pane, err := client.TabCreate(workspaceID, worktreePath, taskID)
+	tab, pane, err := client.TabCreate(workspaceID, worktreePath, env, taskID)
 	if err != nil {
 		return herdr.Tab{}, herdr.Pane{}, fmt.Errorf("herdr tab create failed: %w", err)
 	}

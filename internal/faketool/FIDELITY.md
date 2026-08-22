@@ -228,6 +228,22 @@ Exit 0 with the pane, carrying `agent` (the detected harness name, empty when no
 `hand` polls the API and never focuses a client on a worker's pane, so it observes `done` essentially always for this transition and `idle` essentially never.
 Neither value carries task-outcome information for a headless fleet; see `docs/adr/the-report-channel-is-the-only-outcome-signal.md`.
 
+### `herdr pane process-info --pane <id>`
+
+Exit 0 with a JSON envelope carrying `result.process_info`.
+The observed Herdr 0.8.2 shape includes `pane_id`, numeric `shell_pid`, numeric `foreground_process_group_id`, optional `tty`, and `foreground_processes`.
+Each foreground process may carry numeric `pid`, `name`, `argv`, `argv0`, `cmdline`, and `cwd`.
+
+The pane's idle shell must be present in `foreground_processes` with the reported `shell_pid` before Hand submits a worker launch.
+Hand classifies only `sh`, `bash`, `zsh`, `powershell`, `powershell.exe`, `pwsh`, and `pwsh.exe`; missing or unsupported evidence fails before `pane run`.
+The fake models this response separately from `pane get` and `pane read`.
+
+### Structured worker environment
+
+`workspace create` and `tab create` accept repeated `--env KEY=value` entries after their cwd and label arguments.
+Hand merges inherited harness-marker sanitization, the managed runtime PATH overlay, and the validated worker environment with explicit caller precedence, then serializes the entries in sorted key order.
+The fake preserves these argument boundaries rather than reconstructing a shell command.
+
 ### `herdr pane read <id> --source recent --lines <n>`
 
 Exit 0 with bare text, and **empty for a pane whose own shell has not painted yet** - a read taken immediately after `workspace create` returns nothing at all.

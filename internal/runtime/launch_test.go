@@ -210,7 +210,7 @@ func TestConfirmLaunch(t *testing.T) {
 			}
 			keyLog := fakeLaunchPane(t, tt.frames...)
 
-			err := confirmLaunch(herdr.NewClient(), "wA:pC", tt.harness)
+			err := confirmLaunch(herdr.NewClient(), "wA:pC", tt.harness, launchSpec{Executable: tt.harness})
 			switch {
 			case tt.wantErr == "" && err != nil:
 				t.Fatalf("confirmLaunch() = %v, want success", err)

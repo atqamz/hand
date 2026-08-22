@@ -764,9 +764,9 @@ func executionPlanRuntime(t *testing.T, calls *executionPlanCalls, base func(str
 		calls.worktreeReturns++
 		return nil
 	}
-	r.deps.buildHarness = func(string, harness.Options) (string, error) {
+	r.deps.buildHarness = func(string, harness.Options) (launchSpec, error) {
 		calls.harnessBuilds++
-		return "launch", nil
+		return launchSpec{Executable: "launch"}, nil
 	}
 	return r
 }

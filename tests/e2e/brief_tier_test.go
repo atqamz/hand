@@ -86,8 +86,8 @@ func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 			wantModel:  "claude-opus-5",
 			wantEffort: "high",
 			wantFlags: []string{
-				"--model 'claude-opus-5'",
-				"--effort 'high'",
+				"'--model' 'claude-opus-5'",
+				"'--effort' 'high'",
 				"are dispatch metadata, not task instructions",
 			},
 			denyFlags: []string{"claude-sonnet-5"},
@@ -98,14 +98,14 @@ func TestSpawnHonorsBriefDeclaredTier(t *testing.T) {
 			args:       []string{"--model", "claude-fable-5"},
 			wantModel:  "claude-fable-5",
 			wantEffort: "high",
-			wantFlags:  []string{"--model 'claude-fable-5'", "--effort 'high'"},
+			wantFlags:  []string{"'--model' 'claude-fable-5'", "'--effort' 'high'"},
 			denyFlags:  []string{"claude-opus-5"},
 		},
 		{
 			id:        "task-plain",
 			brief:     plain,
 			wantModel: "claude-sonnet-5",
-			wantFlags: []string{"--model 'claude-sonnet-5'"},
+			wantFlags: []string{"'--model' 'claude-sonnet-5'"},
 			denyFlags: []string{"--effort", "are dispatch metadata, not task instructions"},
 		},
 	}
@@ -202,7 +202,7 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 
 	launch := readLaunchLog(t, launchLog)[0]
 	t.Logf("launch command: %s", launch)
-	if !strings.Contains(launch, "--model 'claude-opus-5' --effort 'max'") {
+	if !strings.Contains(launch, "'--model' 'claude-opus-5' '--effort' 'max'") {
 		t.Fatalf("launch command %q, want the brief's declared tier applied", launch)
 	}
 }
@@ -223,7 +223,7 @@ func TestSpawnWarnsOnEffortIncapableHarness(t *testing.T) {
 	launchLog := filepath.Join(t.TempDir(), "launch.log")
 	dir := binDir(t)
 	writeFakeTreehouse(t, dir, worktree)
-	writeFakeHerdrLaunchLog(t, dir, launchLog, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
+	writeFakeHerdrLaunchLog(t, dir, launchLog, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo", Agent: "opencode"})
 
 	spawned := runHand(t, home, "spawn", "task-1", "demo")
 	if spawned.code != 0 {
@@ -235,7 +235,7 @@ func TestSpawnWarnsOnEffortIncapableHarness(t *testing.T) {
 
 	launch := readLaunchLog(t, launchLog)[0]
 	t.Logf("launch command: %s", launch)
-	if !strings.Contains(launch, "--model 'grok-code'") || strings.Contains(launch, "--effort") {
+	if !strings.Contains(launch, "'--model' 'grok-code'") || strings.Contains(launch, "'--effort'") {
 		t.Fatalf("launch command %q, want the declared model applied and no effort flag", launch)
 	}
 }

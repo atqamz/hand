@@ -2,6 +2,11 @@
 // client.go and internal/faketool/FIDELITY.md own the calls and observed shapes.
 package herdr
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // Status is herdr's agent_status value for a pane. The real vocabulary has five values, not four:
 // idle, working, blocked, done, unknown - and idle and done are one signal, "the pane stopped
 // being busy", which NotBusy is the way to test for.
@@ -37,13 +42,50 @@ type Tab struct {
 	Label       string `json:"label"`
 }
 
+type Process struct {
+	PID     int      `json:"pid"`
+	Name    string   `json:"name"`
+	Argv    []string `json:"argv"`
+	Argv0   string   `json:"argv0"`
+	Cmdline string   `json:"cmdline"`
+	Cwd     string   `json:"cwd"`
+}
+
+type ProcessInfo struct {
+	PaneID                   string    `json:"pane_id"`
+	ShellPID                 int       `json:"shell_pid"`
+	ForegroundProcessGroupID int       `json:"foreground_process_group_id"`
+	TTY                      string    `json:"tty"`
+	ForegroundProcesses      []Process `json:"foreground_processes"`
+}
+
+func (p ProcessInfo) HasExecutable(executable string) bool {
+	executable = processBase(executable)
+	for _, process := range p.ForegroundProcesses {
+		if len(process.Argv) > 0 && processBase(process.Argv[0]) == executable {
+			return true
+		}
+		if processBase(process.Name) == executable || processBase(process.Argv0) == executable {
+			return true
+		}
+	}
+	return false
+}
+
+func processBase(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	return strings.TrimPrefix(filepath.Base(value), "-")
+}
+
 // Agent names the harness herdr detects in the pane, empty when the pane holds no agent - a bare
 // shell, or one whose harness exited. AgentStatus is "unknown" then, but also for a pane herdr has
 // not classified yet, so Agent is the field to test for a running harness.
 type Pane struct {
-	PaneID      string `json:"pane_id"`
-	TabID       string `json:"tab_id"`
-	WorkspaceID string `json:"workspace_id"`
-	Agent       string `json:"agent"`
-	AgentStatus Status `json:"agent_status"`
+	PaneID        string `json:"pane_id"`
+	TabID         string `json:"tab_id"`
+	WorkspaceID   string `json:"workspace_id"`
+	Agent         string `json:"agent"`
+	AgentStatus   Status `json:"agent_status"`
+	Cwd           string `json:"cwd"`
+	ForegroundCwd string `json:"foreground_cwd"`
 }

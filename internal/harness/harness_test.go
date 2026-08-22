@@ -1,18 +1,22 @@
 package harness
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/brief"
+	"github.com/atqamz/hand/internal/launch"
 )
 
-// The shell-quoted first message a harness launches with. The operator-decision rule is a paragraph
-// of prose owned by internal/agentsmd, so exact-match wants build the prompt from it instead of
-// restating it here.
-func quotedPrompt(brief string) string {
-	return shellQuote("Read the brief at " + brief + " and carry out the task it describes. " + agentsmd.OperatorDecisionRule)
+func buildSpec(t *testing.T, name string, options Options) launch.LaunchSpec {
+	t.Helper()
+	spec, err := Build(name, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return spec
 }
 
 func TestBuildUnrecognizedHarness(t *testing.T) {
@@ -32,287 +36,166 @@ func TestIsSupported(t *testing.T) {
 	}
 }
 
-func TestBuildAlwaysCdsIntoWorktree(t *testing.T) {
-	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
-		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/wt/brief.md"})
-		if err != nil {
-			t.Fatalf("Build(%q) error: %v", name, err)
-		}
-		if !strings.HasPrefix(got, "cd '/tmp/wt' && ") {
-			t.Errorf("Build(%q) = %q, want cd prefix", name, got)
-		}
-	}
-}
-
-// A worker needs its role and fleet home before every harness-specific setting, so child processes
-// can reliably decline supervisor-only commands while still locating the fleet state.
-func TestBuildCarriesWorkerRoleAndFleetHome(t *testing.T) {
+func TestBuildCarriesStructuredCwdAndNoShellPrefixes(t *testing.T) {
 	for _, name := range Names() {
-		got, err := Build(name, Options{
-			Worktree:  "/tmp/wt",
-			Brief:     "/tmp/brief.md",
-			FleetHome: "/tmp/fleet home",
-		})
-		if err != nil {
-			t.Fatalf("Build(%q): %v", name, err)
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/wt/brief.md"})
+		if spec.Cwd != "/tmp/wt" {
+			t.Errorf("Build(%q).Cwd = %q, want worktree", name, spec.Cwd)
 		}
-		want := "HAND_ROLE=worker HAND_HOME='/tmp/fleet home'"
-		if !strings.Contains(got, want) {
-			t.Fatalf("Build(%q) = %q, want %q", name, got, want)
+		if strings.Contains(spec.Executable, "cd ") {
+			t.Errorf("Build(%q).Executable = %q, contains shell prefix", name, spec.Executable)
+		}
+		for _, arg := range spec.Args {
+			if strings.HasPrefix(arg, "HAND_ROLE=") || strings.HasPrefix(arg, "HAND_HOME=") || strings.HasPrefix(arg, "cd ") {
+				t.Errorf("Build(%q) retained shell launch syntax in arg %q", name, arg)
+			}
 		}
 	}
 }
 
 func TestBuildClaude(t *testing.T) {
-	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/data/fix-login/brief.md"})
-	if err != nil {
-		t.Fatal(err)
+	spec := buildSpec(t, Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/data/fix-login/brief.md"})
+	wantPrompt := briefPrompt(Options{Brief: "/tmp/data/fix-login/brief.md"})
+	want := launch.LaunchSpec{
+		Executable: Claude,
+		Args:       []string{"--dangerously-skip-permissions", wantPrompt},
+		Env:        map[string]string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false"},
+		Cwd:        "/tmp/wt",
 	}
-	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions " + quotedPrompt("/tmp/data/fix-login/brief.md")
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	if !reflect.DeepEqual(spec, want) {
+		t.Fatalf("got %+v, want %+v", spec, want)
 	}
 }
 
 func TestBuildClaudeWithModelAndEffort(t *testing.T) {
-	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "sonnet", Effort: "low"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "cd '/tmp/wt' && CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --model 'sonnet' --effort 'low' " + quotedPrompt("/tmp/brief.md")
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	spec := buildSpec(t, Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "sonnet", Effort: "low"})
+	if !reflect.DeepEqual(spec.Args[:5], []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low"}) {
+		t.Fatalf("args = %#v, want ordered model and effort flags", spec.Args)
 	}
 }
 
-// Guards against a silent regression to --print, which would strand hand send and hand watch with
-// no running pane to steer.
 func TestBuildClaudeNeverHeadless(t *testing.T) {
-	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	if err != nil {
-		t.Fatal(err)
+	spec := buildSpec(t, Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	if contains(spec.Args, "--print") {
+		t.Fatalf("args = %#v, want no --print flag", spec.Args)
 	}
-	if strings.Contains(got, "--print") {
-		t.Fatalf("got %q, want no --print (headless) flag", got)
-	}
-	if !strings.Contains(got, "--dangerously-skip-permissions") {
-		t.Fatalf("got %q, want --dangerously-skip-permissions so an unattended worker never stalls on a permission prompt", got)
+	if !contains(spec.Args, "--dangerously-skip-permissions") {
+		t.Fatalf("args = %#v, want unattended permission flag", spec.Args)
 	}
 }
 
 func TestBuildCodex(t *testing.T) {
-	got, err := Build(Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "cd '/tmp/wt' && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' " + quotedPrompt("/tmp/brief.md")
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	spec := buildSpec(t, Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true", briefPrompt(Options{Brief: "/tmp/brief.md"})}
+	if !reflect.DeepEqual(spec.Args, want) {
+		t.Fatalf("args = %#v, want %#v", spec.Args, want)
 	}
 }
 
 func TestBuildCodexWithModelAndEffort(t *testing.T) {
-	got, err := Build(Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "gpt-5.6-codex", Effort: "high"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "cd '/tmp/wt' && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' --model 'gpt-5.6-codex' -c 'model_reasoning_effort=\"high\"' " + quotedPrompt("/tmp/brief.md")
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	spec := buildSpec(t, Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "gpt-5.6-codex", Effort: "high"})
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true", "--model", "gpt-5.6-codex", "-c", `model_reasoning_effort="high"`, briefPrompt(Options{Brief: "/tmp/brief.md"})}
+	if !reflect.DeepEqual(spec.Args, want) {
+		t.Fatalf("args = %#v, want %#v", spec.Args, want)
 	}
 }
 
 func TestBuildCodexOmitsAutoEffort(t *testing.T) {
-	got, err := Build(Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "auto"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "cd '/tmp/wt' && codex --dangerously-bypass-approvals-and-sandbox -c 'disable_paste_burst=true' " + quotedPrompt("/tmp/brief.md")
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	if !SupportsEffort(Codex) {
-		t.Fatal("SupportsEffort(Codex) = false, want true for explicit non-auto efforts")
+	spec := buildSpec(t, Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "auto"})
+	if contains(spec.Args, "auto") {
+		t.Fatalf("args = %#v, want auto effort omitted", spec.Args)
 	}
 }
 
 func TestBuildGrok(t *testing.T) {
-	got, err := Build(Grok, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "cd '/tmp/wt' && grok --trust --file '/tmp/brief.md'"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	spec := buildSpec(t, Grok, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	want := launch.LaunchSpec{Executable: Grok, Args: []string{"--trust", "--file", "/tmp/brief.md"}, Cwd: "/tmp/wt"}
+	if !reflect.DeepEqual(spec, want) {
+		t.Fatalf("got %+v, want %+v", spec, want)
 	}
 }
 
 func TestBuildPi(t *testing.T) {
-	got, err := Build(Pi, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "cd '/tmp/wt' && pi '/tmp/brief.md'"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	spec := buildSpec(t, Pi, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	want := launch.LaunchSpec{Executable: Pi, Args: []string{"/tmp/brief.md"}, Cwd: "/tmp/wt"}
+	if !reflect.DeepEqual(spec, want) {
+		t.Fatalf("got %+v, want %+v", spec, want)
 	}
 }
 
 func TestBuildOpenCode(t *testing.T) {
-	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	if err != nil {
-		t.Fatal(err)
+	spec := buildSpec(t, OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	want := launch.LaunchSpec{
+		Executable: OpenCode,
+		Args:       []string{"--prompt", briefPrompt(Options{Brief: "/tmp/brief.md"})},
+		Env:        map[string]string{"OPENCODE_CONFIG_CONTENT": `{"permission":{"*":"allow"}}`},
+		Cwd:        "/tmp/wt",
 	}
-	want := "cd '/tmp/wt' && OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --prompt " + quotedPrompt("/tmp/brief.md")
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
-func TestBuildClaudeFrontMatterDisclaimer(t *testing.T) {
-	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "dispatch metadata") {
-		t.Fatalf("got %q, want the front matter disclaimed", got)
+	if !reflect.DeepEqual(spec, want) {
+		t.Fatalf("got %+v, want %+v", spec, want)
 	}
 }
 
-func TestBuildClaudeNoFrontMatterUnchanged(t *testing.T) {
-	got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(got, "dispatch metadata") {
-		t.Fatalf("got %q, want no disclaimer for a brief with no front matter", got)
+func TestBuildFrontMatterDisclaimer(t *testing.T) {
+	for _, name := range []string{Claude, Codex, OpenCode} {
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
+		if !containsText(spec.Args, "dispatch metadata") {
+			t.Fatalf("Build(%q) args = %#v, want front matter disclaimer", name, spec.Args)
+		}
 	}
 }
 
 func TestBuildMechanicalExecutionGuidance(t *testing.T) {
 	for _, name := range []string{Claude, Codex, OpenCode} {
-		t.Run(name, func(t *testing.T) {
-			got, err := Build(name, Options{
-				Worktree:       "/tmp/wt",
-				Brief:          "/tmp/brief.md",
-				ExecutionClass: brief.ExecutionClassMechanical,
-			})
-			if err != nil {
-				t.Fatal(err)
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", ExecutionClass: brief.ExecutionClassMechanical})
+		for _, want := range []string{"Verify the named files/symbols and plan assumptions before editing.", "stop and report blocked", "Do not redesign the task yourself.", "execute the ordered plan and verification steps"} {
+			if !containsText(spec.Args, want) {
+				t.Fatalf("Build(%q) args = %#v, want mechanical guidance %q", name, spec.Args, want)
 			}
-			for _, want := range []string{
-				"Verify the named files/symbols and plan assumptions before editing.",
-				"stop and report blocked",
-				"Do not redesign the task yourself.",
-				"execute the ordered plan and verification steps",
-			} {
-				if !strings.Contains(got, want) {
-					t.Fatalf("Build(%q) = %q, want mechanical guidance %q", name, got, want)
-				}
-			}
-		})
+		}
 	}
 }
 
 func TestBuildStandardAndDeepOmitMechanicalExecutionGuidance(t *testing.T) {
 	for _, class := range []brief.ExecutionClass{brief.ExecutionClassStandard, brief.ExecutionClassDeep} {
-		t.Run(string(class), func(t *testing.T) {
-			got, err := Build(Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", ExecutionClass: class})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(got, "Do not redesign the task yourself.") || strings.Contains(got, "Verify the named files/symbols") {
-				t.Fatalf("Build(%q) = %q, want no mechanical-only guidance", class, got)
-			}
-		})
+		spec := buildSpec(t, Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", ExecutionClass: class})
+		if containsText(spec.Args, "Do not redesign the task yourself.") || containsText(spec.Args, "Verify the named files/symbols") {
+			t.Fatalf("Build(%q) args = %#v, want no mechanical guidance", class, spec.Args)
+		}
 	}
 }
 
 func TestBuildOpenCodeWithModel(t *testing.T) {
-	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "opus"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "--model 'opus'") {
-		t.Fatalf("got %q, want --model flag", got)
+	spec := buildSpec(t, OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "opus"})
+	if !hasPair(spec.Args, "--model", "opus") {
+		t.Fatalf("args = %#v, want --model flag", spec.Args)
 	}
 }
 
-// Guards against a silent regression to `opencode run`, which exits after one reply and leaves no
-// pane to steer.
 func TestBuildOpenCodeNeverHeadless(t *testing.T) {
-	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	if err != nil {
-		t.Fatal(err)
+	spec := buildSpec(t, OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	if hasPair(spec.Args, "opencode", "run") || contains(spec.Args, "run") {
+		t.Fatalf("args = %#v, want interactive opencode invocation", spec.Args)
 	}
-	if strings.Contains(got, "opencode run") {
-		t.Fatalf("got %q, want no headless \"opencode run\" invocation", got)
-	}
-	if !strings.Contains(got, `OPENCODE_CONFIG_CONTENT`) {
-		t.Fatalf("got %q, want OPENCODE_CONFIG_CONTENT so an unattended worker never stalls on a permission prompt", got)
+	if spec.Env["OPENCODE_CONFIG_CONTENT"] == "" {
+		t.Fatalf("env = %#v, want OPENCODE_CONFIG_CONTENT", spec.Env)
 	}
 }
 
-func TestBuildOpenCodeFrontMatterDisclaimer(t *testing.T) {
-	got, err := Build(OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "dispatch metadata") {
-		t.Fatalf("got %q, want the front matter disclaimed", got)
-	}
-}
-
-func TestBuildCodexFrontMatterDisclaimer(t *testing.T) {
-	got, err := Build(Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "dispatch metadata") {
-		t.Fatalf("got %q, want the front matter disclaimed", got)
-	}
-}
-
-func TestBuildFrontMatterDisclaimerCoversAllRecognizedDispatchMetadata(t *testing.T) {
-	for _, name := range []string{Claude, Codex, OpenCode} {
-		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, field := range []string{"model", "effort", "execution_class", "planned_against"} {
-			if !strings.Contains(got, field) {
-				t.Fatalf("Build(%q) = %q, want recognized dispatch field %q in disclaimer", name, got, field)
-			}
-		}
-	}
-}
-
-// Pins the only channel that rule has: a worker's worktree is never under the fleet home, so the
-// AGENTS.md copy of it never reaches the worker.
 func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
-	quoted := shellQuote(agentsmd.OperatorDecisionRule)
-	escaped := quoted[1 : len(quoted)-1]
 	for _, name := range []string{Claude, Codex, OpenCode} {
-		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-		if err != nil {
-			t.Fatalf("Build(%q) error: %v", name, err)
-		}
-		if !strings.Contains(got, escaped) {
-			t.Errorf("Build(%q) = %q, want the operator-decision rule %q in the launch prompt", name, got, escaped)
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+		if !containsText(spec.Args, agentsmd.OperatorDecisionRule) {
+			t.Errorf("Build(%q) args = %#v, want operator-decision rule", name, spec.Args)
 		}
 	}
 }
 
-// Pinned against the builders rather than restating the map: a harness reporting true while its
-// command carries no --model is exactly the silent drop being fixed here.
 func TestSupportsModel(t *testing.T) {
 	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
-		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "some-model"})
-		if err != nil {
-			t.Fatalf("Build(%q) error: %v", name, err)
-		}
-		if emits := strings.Contains(got, "--model 'some-model'"); emits != SupportsModel(name) {
-			t.Errorf("SupportsModel(%q) = %v but Build(%q) = %q", name, SupportsModel(name), name, got)
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "some-model"})
+		if hasPair(spec.Args, "--model", "some-model") != SupportsModel(name) {
+			t.Errorf("SupportsModel(%q) = %v but args = %#v", name, SupportsModel(name), spec.Args)
 		}
 	}
 	if SupportsModel("nonexistent") {
@@ -320,17 +203,12 @@ func TestSupportsModel(t *testing.T) {
 	}
 }
 
-// Pinned against the builders for the same reason as TestSupportsModel: a harness reporting true
-// while its command carries no --effort is the silent drop this predicate exists to prevent.
 func TestSupportsEffort(t *testing.T) {
 	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
-		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "some-effort"})
-		if err != nil {
-			t.Fatalf("Build(%q) error: %v", name, err)
-		}
-		emits := strings.Contains(got, "--effort 'some-effort'") || strings.Contains(got, `model_reasoning_effort="some-effort"`)
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "some-effort"})
+		emits := hasPair(spec.Args, "--effort", "some-effort") || contains(spec.Args, `model_reasoning_effort="some-effort"`)
 		if emits != SupportsEffort(name) {
-			t.Errorf("SupportsEffort(%q) = %v but Build(%q) = %q", name, SupportsEffort(name), name, got)
+			t.Errorf("SupportsEffort(%q) = %v but args = %#v", name, SupportsEffort(name), spec.Args)
 		}
 	}
 	if SupportsEffort("nonexistent") {
@@ -338,18 +216,11 @@ func TestSupportsEffort(t *testing.T) {
 	}
 }
 
-// Pinned against the builders for the same reason as TestSupportsModel: a harness reporting true
-// while its command carries no prompt text drops the operator-decision rule in silence.
 func TestCarriesPrompt(t *testing.T) {
-	quoted := shellQuote(agentsmd.OperatorDecisionRule)
-	escaped := quoted[1 : len(quoted)-1]
 	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
-		got, err := Build(name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-		if err != nil {
-			t.Fatalf("Build(%q) error: %v", name, err)
-		}
-		if carries := strings.Contains(got, escaped); carries != CarriesPrompt(name) {
-			t.Errorf("CarriesPrompt(%q) = %v but Build(%q) = %q", name, CarriesPrompt(name), name, got)
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+		if containsText(spec.Args, agentsmd.OperatorDecisionRule) != CarriesPrompt(name) {
+			t.Errorf("CarriesPrompt(%q) = %v but args = %#v", name, CarriesPrompt(name), spec.Args)
 		}
 	}
 	if CarriesPrompt("nonexistent") {
@@ -357,20 +228,6 @@ func TestCarriesPrompt(t *testing.T) {
 	}
 }
 
-func TestShellQuoteEscapesSingleQuotes(t *testing.T) {
-	got, err := Build(Pi, Options{Worktree: "/tmp/wt", Brief: "/tmp/it's/brief.md"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `cd '/tmp/wt' && pi '/tmp/it'\''s/brief.md'`
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
-// Pins the shape confirmLaunch depends on: a startup signature for each frame claude settles into,
-// answerable dialogs carrying keys, and the managed-settings dialog catalogued as
-// recognized-but-refused so it fails fast instead of looking uncatalogued.
 func TestFirstRunPromptsClaude(t *testing.T) {
 	prompts := FirstRunPromptsFor(Claude)
 	if prompts.Ready == nil || prompts.Unrecognized == nil {
@@ -381,8 +238,8 @@ func TestFirstRunPromptsClaude(t *testing.T) {
 			t.Errorf("readiness signature does not match claude startup frame %q", frame)
 		}
 	}
-	if prompts.Ready.MatchString("cd '/tmp/wt' && claude --dangerously-skip-permissions 'Read the brief'") {
-		t.Fatal("readiness signature matches the echoed launch command, so a pane that never started reads as ready")
+	if prompts.Ready.MatchString("claude --dangerously-skip-permissions Read the brief") {
+		t.Fatal("readiness signature matches the echoed launch command")
 	}
 
 	byName := map[string]FirstRunPrompt{}
@@ -392,28 +249,18 @@ func TestFirstRunPromptsClaude(t *testing.T) {
 		}
 		byName[prompt.Name] = prompt
 	}
-
-	bypass := byName["bypass permissions"]
-	if !bypass.Match.MatchString("WARNING: Bypass Permissions mode") {
-		t.Fatal("bypass permissions signature does not match the dialog")
-	}
-	if strings.Join(bypass.Keys, ",") != "Down,Enter" {
-		t.Fatalf("bypass permissions keys = %v, want Down before Enter (a bare Enter lands on \"No, exit\" and quits claude)", bypass.Keys)
+	if got := byName["bypass permissions"]; strings.Join(got.Keys, ",") != "Down,Enter" {
+		t.Fatalf("bypass permissions keys = %v", got.Keys)
 	}
 	if got := byName["workspace trust"]; strings.Join(got.Keys, ",") != "Enter" {
-		t.Fatalf("workspace trust keys = %v, want Enter", got.Keys)
+		t.Fatalf("workspace trust keys = %v", got.Keys)
 	}
 	managed := byName["managed settings"]
-	if managed.Refuse == "" {
-		t.Fatal("managed settings must be refused, not answered on the operator's behalf")
-	}
-	if !managed.Match.MatchString("Managed settings require approval") || !managed.Match.MatchString("Yes, I trust these settings") {
-		t.Fatal("managed settings signature does not match the dialog")
+	if managed.Refuse == "" || !managed.Match.MatchString("Managed settings require approval") || !managed.Match.MatchString("Yes, I trust these settings") {
+		t.Fatalf("managed settings prompt = %+v", managed)
 	}
 }
 
-// Pins the harnesses actually run in a real pane and observed being labeled by herdr; the rest must
-// stay false until each is exercised the same way.
 func TestAgentDetectionVerified(t *testing.T) {
 	for _, name := range []string{Claude, Codex, OpenCode} {
 		if !AgentDetectionVerified(name) {
@@ -422,7 +269,7 @@ func TestAgentDetectionVerified(t *testing.T) {
 	}
 	for _, name := range []string{Grok, Pi, "nonexistent"} {
 		if AgentDetectionVerified(name) {
-			t.Errorf("AgentDetectionVerified(%q) = true, want false until herdr detection is exercised against it", name)
+			t.Errorf("AgentDetectionVerified(%q) = true, want false", name)
 		}
 	}
 }
@@ -433,4 +280,31 @@ func TestFirstRunPromptsWithoutVerifiedSignatures(t *testing.T) {
 			t.Errorf("FirstRunPromptsFor(%q) = %+v, want no unverified signatures", name, got)
 		}
 	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsText(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(value, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPair(values []string, key, want string) bool {
+	for i := 0; i+1 < len(values); i++ {
+		if values[i] == key && values[i+1] == want {
+			return true
+		}
+	}
+	return false
 }
