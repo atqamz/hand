@@ -18,6 +18,7 @@ import (
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/notify"
+	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/state"
@@ -30,7 +31,13 @@ var afterWatchTick = func() {}
 var afterArmTick = func() {}
 
 type Config struct {
-	Home           string
+	Home    string
+	FleetID string
+	Targets []TargetBinding
+	// ObserveOnly is used by a bounded session arm: it may classify and persist watcher-owned
+	// observations, but it must not auto-record PRs, recover sends, or steer a worker.
+	ObserveOnly    bool
+	SuppressNotify bool
 	PollInterval   time.Duration
 	StaleThreshold time.Duration
 	// Timeout bounds RunUntilEvent only. Zero blocks until an event arrives.
@@ -44,6 +51,60 @@ type Config struct {
 	// arms. Unexported because it describes this package's own two-tick arming rather than anything a
 	// caller asked for, and nil - matching every kind - on every other tick.
 	catchUp EventFilter
+}
+
+type TargetBinding struct {
+	TaskID string
+	Target orientation.MonitorTarget
+}
+
+type EnsureResult struct {
+	State  orientation.MonitorState
+	Live   bool
+	Reason string
+}
+
+const boundedArmTimeout = 250 * time.Millisecond
+const boundedArmPollInterval = 10 * time.Millisecond
+
+func Ensure(ctx context.Context, cfg Config, targets []TargetBinding) (EnsureResult, error) {
+	fleetID, err := state.FleetIDReadOnly(cfg.Home)
+	if err != nil {
+		return EnsureResult{State: orientation.MonitorStateUnknown, Reason: "Fleet identity is unavailable"}, fmt.Errorf("read Fleet identity for watcher ensure: %w", err)
+	}
+	attached, err := IsAttached(cfg.Home)
+	if err != nil {
+		return EnsureResult{State: orientation.MonitorStateUnknown, Reason: "watcher ownership is unknown"}, err
+	}
+	if attached {
+		return EnsureResult{State: orientation.MonitorStateAlreadyArmed, Live: true, Reason: "a watcher already owns this Fleet home"}, nil
+	}
+	if len(targets) == 0 {
+		return EnsureResult{State: orientation.MonitorStateRearmed, Reason: "no monitor targets require a bounded arm"}, nil
+	}
+
+	armCtx, cancel := withWatchTimeout(ctx, boundedArmTimeout)
+	defer cancel()
+	cfg.FleetID = fleetID
+	cfg.Targets = append([]TargetBinding(nil), targets...)
+	cfg.ObserveOnly = true
+	cfg.SuppressNotify = true
+	cfg.PollInterval = boundedArmPollInterval
+	ownership, err := AcquireContext(armCtx, cfg.Home, false)
+	if errors.Is(err, ErrAttached) {
+		return EnsureResult{State: orientation.MonitorStateAlreadyArmed, Live: true, Reason: "a watcher attached while session start was preparing"}, nil
+	}
+	if err != nil {
+		return EnsureResult{State: orientation.MonitorStateUnknown, Reason: "watcher ownership could not be established"}, err
+	}
+	defer ownership.Release()
+
+	var out, errOut bytes.Buffer
+	err = RunUntilEvent(armCtx, cfg, &out, &errOut)
+	if err == nil || errors.Is(err, ErrNoEvent) {
+		return EnsureResult{State: orientation.MonitorStateRearmed, Reason: "bounded arm completed; run `hand watch --until-event` to keep monitoring"}, nil
+	}
+	return EnsureResult{State: orientation.MonitorStateDegraded, Reason: "bounded arm could not prove monitoring: " + flattenError(err)}, nil
 }
 
 var ErrNoEvent = errors.New("no event")
@@ -96,6 +157,11 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		}
 		return err
 	}
+	fleetID, err := state.FleetID(cfg.Home)
+	if err != nil {
+		return fmt.Errorf("read Fleet identity: %w", err)
+	}
+	cfg.FleetID = fleetID
 
 	states := make(map[string]*TaskState)
 	tick(ctx, cfg, client, states, out, errOut)
@@ -146,8 +212,13 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 		}
 		return err
 	}
+	fleetID, err := state.FleetID(cfg.Home)
+	if err != nil {
+		return fmt.Errorf("read Fleet identity: %w", err)
+	}
+	cfg.FleetID = fleetID
 
-	if err := probeAllTasks(ctx, cfg.Home, client); err != nil {
+	if err := probeAllTasks(ctx, cfg.Home, client, cfg.Targets); err != nil {
 		return err
 	}
 
@@ -217,7 +288,7 @@ func connect(ctx context.Context, client *herdr.Client) error {
 
 // Confirms every running task's pane answers before RunUntilEvent arms; provisioning has no pane
 // contract yet and is intentionally left for a later tick after launch confirmation.
-func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error {
+func probeAllTasks(ctx context.Context, home string, client *herdr.Client, targets []TargetBinding) error {
 	histories, err := state.ListOpenHistories(home)
 	if err != nil {
 		return fmt.Errorf("list tasks: %w", err)
@@ -225,6 +296,9 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client) error
 	done := make(chan error, 1)
 	go func() {
 		for _, history := range histories {
+			if targets != nil && !hasTarget(targets, history.Task.ID) {
+				continue
+			}
 			if history.ActiveAttempt == nil {
 				done <- fmt.Errorf("%w: %s has no active attempt", ErrArmFailed, history.Task.ID)
 				return
@@ -288,6 +362,11 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		_, _ = fmt.Fprintf(errOut, "watch: list tasks failed: %v\n", err)
 		return
 	}
+	if cfg.Targets == nil {
+		cfg.Targets = targetBindings(cfg.FleetID, histories)
+	} else {
+		histories = filterHistories(histories, cfg.Targets)
+	}
 
 	seen := make(map[string]bool, len(histories))
 	now := time.Now()
@@ -328,8 +407,10 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 				status = herdr.StatusUnknown
 			}
 			ts = resumeTaskState(t, attempt, status, now)
-			if err := restoreLimitResumeState(cfg.Home, ts, attempt, errOut); err != nil {
-				_, _ = fmt.Fprintf(errOut, "watch: restore usage-limit resume state for %s failed: %v\n", t.ID, err)
+			if !cfg.ObserveOnly {
+				if err := restoreLimitResumeState(cfg.Home, ts, attempt, errOut); err != nil {
+					_, _ = fmt.Fprintf(errOut, "watch: restore usage-limit resume state for %s failed: %v\n", t.ID, err)
+				}
 			}
 			// False starts ClassifyUnreachable's dwell clock immediately, instead of waiting for a second
 			// failed probe to notice this task at all.
@@ -340,7 +421,13 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 
 		forgetPaneScopedCache(ts, t, attempt, now)
 
-		t = tailReport(ctx, cfg, ts, t, out, errOut)
+		t = tailReport(ctx, cfg, ts, t, attempt, out, errOut)
+		cfg.Targets = replaceTarget(cfg.Targets, targetBindingFor(cfg.FleetID, t, attempt, ts.LastReportState, ts.ReportCursor))
+		emit := func(event *Event) {
+			eventCfg := cfg
+			eventCfg.Targets = replaceTarget(cfg.Targets, targetBindingForState(cfg.FleetID, t, attempt, ts))
+			handleEvent(eventCfg, event, out, errOut)
+		}
 
 		// After the report tail, which may be what explains the stop, and before ClassifyStatus, whose
 		// edge would announce the same fact twice. One look per task: nothing this reads can change
@@ -348,7 +435,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		if probeErr == nil && !ts.CaughtUp {
 			ts.CaughtUp = true
 			if e := ClassifyCatchUp(ts, t.ID, status, attempt.StatusChangedFor, attempt.TeardownHerdrState); e != nil {
-				handleEvent(cfg, e, out, errOut)
+				emit(e)
 			}
 		}
 
@@ -357,13 +444,13 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		justStopped := status.NotBusy() && status != ts.Status
 
 		if e := ClassifyStatus(ts, t.ID, status, probeErr, now, attempt.TeardownHerdrState); e != nil {
-			handleEvent(cfg, e, out, errOut)
+			emit(e)
 		}
 		if e := ClassifyUnreachable(ts, t.ID, now, cfg.StaleThreshold, attempt.TeardownHerdrState); e != nil {
-			handleEvent(cfg, e, out, errOut)
+			emit(e)
 		}
 		if e := ClassifyStale(ts, t.ID, t.DeliveredAt, now, cfg.StaleThreshold); e != nil {
-			handleEvent(cfg, e, out, errOut)
+			emit(e)
 		}
 		if t.PR != "" && !ts.PRMerged {
 			ghCtx, ghCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -371,12 +458,12 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			ghCancel()
 			if err == nil {
 				if e := ClassifyPRMerged(ts, t.ID, merged); e != nil {
-					handleEvent(cfg, e, out, errOut)
+					emit(e)
 				}
 			}
 		}
 		if e := ClassifyDeferredDone(cfg.Home, ts, t); e != nil {
-			handleEvent(cfg, e, out, errOut)
+			emit(e)
 		}
 		// Only shells out to no-mistakes when the check applies and has not already fired: mirrors
 		// !ts.PRMerged above, so an absent gate run does not re-exec no-mistakes on every tick forever.
@@ -386,21 +473,23 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			ClassifyGateProblem(ts, t.ID, false, "")
 		case !ts.GateProblemFired:
 			if e := ClassifyGateProblem(ts, t.ID, true, gateRunObservation(ctx, cfg.Home, t)); e != nil {
-				handleEvent(cfg, e, out, errOut)
+				emit(e)
 			}
 		}
 		if mtime, err := ReportEvidenceTime(cfg.Home, t, attempt); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
 		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
-			handleEvent(cfg, e, out, errOut)
+			emit(e)
 		}
-		if e := classifyUsageLimit(cfg, client, ts, t, attempt, pane, status, probeErr, justStopped, now, errOut); e != nil {
-			handleEvent(cfg, e, out, errOut)
+		if !cfg.ObserveOnly {
+			if e := classifyUsageLimit(cfg, client, ts, t, attempt, pane, status, probeErr, justStopped, now, errOut); e != nil {
+				emit(e)
+			}
 		}
 		// Last, after every event this tick produced has been announced: a marker persisted before its
 		// line is emitted would, if the process died in between, suppress an announcement nothing can
 		// re-derive. A duplicate line is a far cheaper failure than a silently dropped one.
-		syncTaskState(cfg.Home, t.ID, ts, now, errOut)
+		syncTaskState(cfg.Home, t.ID, ts, now, errOut, cfg.ObserveOnly)
 	}
 
 	for id := range states {
@@ -612,7 +701,7 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, a state.Attempt, now tim
 // Classifies whatever report lines have arrived since ts.ReportCursor, before ClassifyStatus runs
 // for this tick, so a report landing in the same poll as a herdr idle transition is already
 // reflected in ts.LastReportState when the idle-vs-idle-unreported decision is made.
-func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, out, errOut io.Writer) state.Task {
+func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, attempt state.Attempt, out, errOut io.Writer) state.Task {
 	path := state.ReportPath(cfg.Home, t.ID)
 	lines, cursor, err := state.TailReport(path, ts.ReportCursor)
 	if err != nil {
@@ -620,13 +709,16 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		return t
 	}
 
+	ts.ReportCursor = cursor
 	for _, line := range lines {
 		if e := ClassifyReportLine(cfg.Home, ts, t, line); e != nil {
-			handleEvent(cfg, e, out, errOut)
+			eventCfg := cfg
+			eventCfg.Targets = replaceTarget(cfg.Targets, targetBindingFor(cfg.FleetID, t, attempt, ts.LastReportState, ts.ReportCursor))
+			handleEvent(eventCfg, e, out, errOut)
 		}
 		// A line carrying exactly one embedded PR URL auto-records it, subject to the same validation
 		// hand pr enforces; more than one URL, or a PR already on record, is left alone.
-		if t.PR == "" {
+		if !cfg.ObserveOnly && t.PR == "" {
 			if urls := state.FindPRURLs(line.Raw); len(urls) == 1 {
 				if err := autoRecordPR(ctx, cfg.Home, t, urls[0]); err != nil {
 					announceAutoRecordFailure(cfg, t, urls[0], err, out, errOut)
@@ -637,7 +729,6 @@ func tailReport(ctx context.Context, cfg Config, ts *TaskState, t state.Task, ou
 		}
 	}
 
-	ts.ReportCursor = cursor
 	return t
 }
 
@@ -839,7 +930,8 @@ func recordedByLockHolder(home, id, url string) error {
 // Writes back the bookkeeping hand watch owns on a task - how far its report file is consumed,
 // whether this watcher's own gh poll announced the PR merged, whether the verified done went out - so
 // a restart neither replays report lines nor re-announces, nor skips, what it cannot re-derive.
-func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writer) {
+func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writer, observeOnly ...bool) {
+	readOnly := len(observeOnly) > 0 && observeOnly[0]
 	if ts.ReportCursor == ts.PersistedCursor && ts.PRMerged == ts.PersistedPRMerged &&
 		ts.DoneVerified == ts.PersistedDoneVerified && ts.ChangedAt.Equal(ts.PersistedChangedAt) &&
 		ts.PersistedChangedFor == string(ts.Status) && ts.ParkedFiredFor.Equal(ts.PersistedParkedFiredFor) &&
@@ -884,19 +976,35 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 		_, _ = fmt.Fprintf(errOut, "watch: read active attempt %s failed: attempt ownership changed\n", id)
 		return
 	}
-	if !ts.LimitRetryAt.IsZero() || ts.LimitResumeBlocked {
-		_ = writeLimitHoldForOwnedAttempt(Config{Home: home}, t, active, ts, errOut)
-	} else if !ts.PersistedLimitRetryAt.IsZero() || ts.PersistedLimitAttempts != 0 {
-		_ = clearLimitHoldForOwnedAttempt(Config{Home: home}, t, active, errOut)
+	if !readOnly {
+		if !ts.LimitRetryAt.IsZero() || ts.LimitResumeBlocked {
+			_ = writeLimitHoldForOwnedAttempt(Config{Home: home}, t, active, ts, errOut)
+		} else if !ts.PersistedLimitRetryAt.IsZero() || ts.PersistedLimitAttempts != 0 {
+			_ = clearLimitHoldForOwnedAttempt(Config{Home: home}, t, active, errOut)
+		}
 	}
 	// A promote may have landed since this tick's state.List. Writing the cached values back would
 	// erase its restamp and leave the disk value matching what this watcher persisted, so no later
 	// tick would find anything to forget either.
 	forgetPaneScopedCache(ts, t, active, now)
+	usageLimitRetryAt := limitRetryStamp(ts.LimitRetryAt)
+	usageLimitAttempts := ts.LimitAttempts
+	usageLimitEpisode := ts.LimitEpisode
+	usageLimitStuckEpisode := ts.LimitStuckEpisode
+	if readOnly {
+		usageLimitRetryAt = active.UsageLimitRetryAt
+		usageLimitAttempts = active.UsageLimitAttempts
+		usageLimitEpisode = active.UsageLimitEpisode
+		usageLimitStuckEpisode = active.UsageLimitStuckEpisode
+		ts.LimitRetryAt = limitRetrySeed(active)
+		ts.LimitAttempts = active.UsageLimitAttempts
+		ts.LimitEpisode = active.UsageLimitEpisode
+		ts.LimitStuckEpisode = active.UsageLimitStuckEpisode
+	}
 	if err := state.UpdateAttemptObservation(home, id, ts.AttemptID, ts.AttemptLifecycle,
 		ts.ChangedAt.UTC().Format(time.RFC3339Nano), string(ts.Status), ts.DoneVerified,
 		ts.LastReportState, ts.LastReportNote, parkedFiredStamp(ts.ParkedFiredFor),
-		limitRetryStamp(ts.LimitRetryAt), ts.LimitAttempts, ts.LimitEpisode, ts.LimitStuckEpisode); err != nil {
+		usageLimitRetryAt, usageLimitAttempts, usageLimitEpisode, usageLimitStuckEpisode); err != nil {
 		_, _ = fmt.Fprintf(errOut, "watch: persist attempt %s failed: %v\n", id, err)
 		return
 	}
@@ -914,6 +1022,13 @@ func syncTaskState(home, id string, ts *TaskState, now time.Time, errOut io.Writ
 // run unconditionally, so narrowing --event never narrows what reaches
 // config/notify.
 func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
+	e.FleetID = cfg.FleetID
+	for _, binding := range cfg.Targets {
+		if binding.TaskID == e.TaskID {
+			e.Target = binding.Target
+			break
+		}
+	}
 	if cfg.EventFilter.Matches(e.Kind) && cfg.catchUp.Matches(e.Kind) {
 		_, _ = fmt.Fprintln(out, e.Text)
 	}
@@ -923,7 +1038,79 @@ func handleEvent(cfg Config, e *Event, out, errOut io.Writer) {
 		_, _ = fmt.Fprintf(errOut, "watch: append events.log failed: %v\n", err)
 	}
 
-	notifyEvent(cfg.Home, e, errOut)
+	if !cfg.SuppressNotify {
+		notifyEvent(cfg.Home, e, errOut)
+	}
+}
+
+func hasTarget(targets []TargetBinding, taskID string) bool {
+	for _, target := range targets {
+		if target.TaskID == taskID {
+			return true
+		}
+	}
+	return false
+}
+
+func filterHistories(histories []state.TaskHistory, targets []TargetBinding) []state.TaskHistory {
+	filtered := make([]state.TaskHistory, 0, len(targets))
+	for _, history := range histories {
+		if hasTarget(targets, history.Task.ID) {
+			filtered = append(filtered, history)
+		}
+	}
+	return filtered
+}
+
+func targetBindings(fleetID string, histories []state.TaskHistory) []TargetBinding {
+	targets := make([]TargetBinding, 0, len(histories))
+	for _, history := range histories {
+		if history.ActiveAttempt == nil {
+			continue
+		}
+		attempt := history.ActiveAttempt
+		targets = append(targets, targetBindingFor(fleetID, history.Task, *attempt, attempt.LastReportState, state.ReportCursor{Offset: history.Task.ReportOffset, Digest: history.Task.ReportDigest}))
+	}
+	return targets
+}
+
+func targetBindingFor(fleetID string, task state.Task, attempt state.Attempt, reportState string, cursor state.ReportCursor) TargetBinding {
+	return TargetBinding{
+		TaskID: task.ID,
+		Target: orientation.TaskTarget(fleetID, orientation.TaskTargetFacts{
+			ID: task.ID, Kind: "task", CreatedAt: task.CreatedAt, Lifecycle: string(task.Lifecycle),
+			ActiveAttemptID: task.ActiveAttemptID, AttemptID: attempt.ID, AttemptLifecycle: string(attempt.Lifecycle),
+			RuntimeIdentity: []string{attempt.Herdr.Session, attempt.Herdr.WorkspaceID, attempt.Herdr.TabID, attempt.Herdr.PaneID},
+			StatusChangedAt: attempt.StatusChangedAt, StatusChangedFor: attempt.StatusChangedFor, ReportState: reportState,
+			ReportOffset: cursor.Offset, ReportDigest: cursor.Digest, DoneVerified: attempt.DoneVerified,
+			PR: task.PR, MergeExecuted: task.MergeExecuted, MergeAnnounced: task.MergeAnnounced,
+		}),
+	}
+}
+
+func targetBindingForState(fleetID string, task state.Task, attempt state.Attempt, tracked *TaskState) TargetBinding {
+	if tracked == nil {
+		return targetBindingFor(fleetID, task, attempt, attempt.LastReportState, state.ReportCursor{Offset: task.ReportOffset, Digest: task.ReportDigest})
+	}
+	updated := attempt
+	updated.StatusChangedAt = tracked.ChangedAt.UTC().Format(time.RFC3339Nano)
+	updated.StatusChangedFor = string(tracked.Status)
+	updated.LastReportState = tracked.LastReportState
+	updated.DoneVerified = tracked.DoneVerified
+	task.MergeAnnounced = tracked.PRMerged
+	task.ReportOffset = tracked.ReportCursor.Offset
+	task.ReportDigest = tracked.ReportCursor.Digest
+	return targetBindingFor(fleetID, task, updated, tracked.LastReportState, tracked.ReportCursor)
+}
+
+func replaceTarget(targets []TargetBinding, replacement TargetBinding) []TargetBinding {
+	for i := range targets {
+		if targets[i].TaskID == replacement.TaskID {
+			targets[i] = replacement
+			return targets
+		}
+	}
+	return append(targets, replacement)
 }
 
 // The unattended hook treats an absent config as disabled, while a configured
@@ -932,7 +1119,7 @@ func notifyEvent(home string, e *Event, errOut io.Writer) {
 	if !NotifyFilter().Matches(e.Kind) {
 		return
 	}
-	if err := notify.Send(home, e.Text); err != nil && !errors.Is(err, notify.ErrNotConfigured) {
+	if err := notify.SendWithWake(home, e.Text, e.Wake()); err != nil && !errors.Is(err, notify.ErrNotConfigured) {
 		_, _ = fmt.Fprintf(errOut, "watch: notify failed: %v\n", err)
 	}
 }

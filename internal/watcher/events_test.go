@@ -1,16 +1,54 @@
 package watcher
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/state"
 )
+
+func TestEventWakeCarriesFleetAndOpaqueExactTarget(t *testing.T) {
+	provider := orientation.NewProvider(func(context.Context) (orientation.Evidence, error) {
+		return orientation.Evidence{
+			FleetID: "f_one",
+			Targets: []orientation.TargetEvidence{{ID: "task-1", Kind: "task", Generation: []string{"attempt-1"}}},
+		}, nil
+	})
+	oriented, err := provider.Orientation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	event := Event{TaskID: "task-1", Kind: KindBlocked, Reason: strings.Repeat("reason ", 100)}
+	event.FleetID = oriented.FleetID
+	event.Target = oriented.Monitors[0]
+	wake := event.Wake()
+	if wake.FleetID != "f_one" || wake.TargetID != oriented.Monitors[0].ID || wake.Currentness != oriented.Monitors[0].Currentness {
+		t.Fatalf("wake = %#v, want exact Fleet target and token", wake)
+	}
+	if len([]rune(wake.Reason)) > MaxWakeReason {
+		t.Fatalf("reason length = %d, want <= %d", len([]rune(wake.Reason)), MaxWakeReason)
+	}
+	if !wake.Current(oriented) {
+		t.Fatal("fresh wake rejected by matching orientation")
+	}
+
+	changed := orientation.Build(orientation.Evidence{
+		FleetID: "f_one",
+		Targets: []orientation.TargetEvidence{{ID: "task-1", Kind: "task", Generation: []string{"attempt-2"}}},
+	})
+	if wake.Current(changed) {
+		t.Fatal("stale wake accepted after target generation changed")
+	}
+}
 
 // Covers herdr's two spellings of "pane stopped being busy" - see herdr.Status's doc for why idle
 // and done must be classified identically: hand's headless polling model observes done, essentially

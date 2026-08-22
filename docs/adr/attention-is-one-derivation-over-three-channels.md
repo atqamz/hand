@@ -15,6 +15,9 @@ Two decisions already settle pieces of it.
 [Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md) made wake level-triggered over durable fleet truth, and deliberately left the acknowledgement model to this record.
 Neither says how many definitions of attention the tool is allowed to have, nor what distinguishes a condition some watcher announced from one a supervisor has taken responsibility for.
 
+The shared evidence-to-actionability adapter now lives in [`internal/attention`](../../internal/attention).
+`internal/orientation` consumes its bounded subjects for supervisor turns, while status and next-action ranking consume the same derivation without merging report claims, runtime evidence, watcher announcements, or acknowledgement.
+
 The listed defects, each mapped to the invariant below that would have prevented it.
 
 - atqamz/hand#65, unbounded worker prose filling a supervising session, is invariant 1.

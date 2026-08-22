@@ -20,6 +20,7 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 )
 
@@ -88,6 +89,11 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 	out := runSessionStartForTest(t)
 	for _, want := range []string{
 		"session_bootstrap: complete\n",
+		"orientation_schema: hand.supervisor.v1\n",
+		"fleet_id: f_",
+		"monitor_state: rearmed\n",
+		"monitor_targets[0]{id,kind,currentness}:\n",
+		"orientation_actionable[0]{target_id,kind,reason,provenance}:\n",
 		"tool: hand\n",
 		"version: test\n",
 		"exec:",
@@ -330,6 +336,34 @@ func TestSessionOverviewsDoNotMutateFleetState(t *testing.T) {
 				t.Fatalf("fleet tree changed:\nbefore: %v\nafter:  %v", before, after)
 			}
 		})
+	}
+}
+
+func TestSessionStartDoesNotAcknowledgeExistingReport(t *testing.T) {
+	home := setupSessionHome(t)
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(store.Task{
+		ID: "reported-task", Project: "demo", Kind: store.KindShip,
+		AcknowledgedAt: "2026-08-22T00:00:00Z", AcknowledgedOffset: 12, AcknowledgedDigest: "ack-digest",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := executeSessionStart(t, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := state.ReadHistoryReadOnly(home, "reported-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Task.AcknowledgedAt != "2026-08-22T00:00:00Z" || after.Task.AcknowledgedOffset != 12 || after.Task.AcknowledgedDigest != "ack-digest" {
+		t.Fatalf("acknowledgement changed after session start: %#v", after.Task)
 	}
 }
 

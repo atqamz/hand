@@ -23,6 +23,9 @@ Arming performs a real observation whose events are delivered.
 
 Announcement, not operator acknowledgement, is the idempotence unit here. The acknowledgement model is defined in [the attention record](attention-is-one-derivation-over-three-channels.md).
 
+`hand session start` may run this same two-pass observation as a bounded arm.
+Because that command exits after the bounded pass, it reports `rearmed` rather than claiming a live watcher and names `hand watch --until-event` as the next re-arm action.
+
 ## Rejected alternatives
 
 - Keeping the silent baseline and letting supervisors poll `hand status` between arms restates the missed condition as the supervisor's problem and reintroduces the ad-hoc `sleep; poll` loop the issue rejects.

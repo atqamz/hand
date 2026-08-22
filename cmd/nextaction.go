@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/atqamz/hand/internal/attention"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -21,6 +22,9 @@ const (
 	nextActionSendPartial      = "send-partial"
 	nextActionReportUnreadable = "report-unreadable"
 	nextActionUnreported       = "unreported"
+	nextActionRuntimeUnknown   = "runtime-unknown"
+	nextActionUnreachable      = "unreachable"
+	nextActionParked           = "parked"
 	nextActionUnacknowledged   = "unacknowledged"
 	nextActionHold             = "hold"
 	nextActionGate             = "gate"
@@ -40,43 +44,55 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 
 	sorted := sortedByTaskID(views)
 
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.task.RepairCode != "" }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindNeedsRepair) }); ok {
 		return nextAction{Kind: nextActionNeedsRepair, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "resolve its repair ambiguity")}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.latestSend != nil && v.latestSend.State == state.SendUncertain }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindSendUncertain) }); ok {
 		return nextAction{Kind: nextActionSendUncertain, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "confirm whether its uncertain send reached the worker")}
 	}
-	if v, ok := firstView(sorted, isSendPartial); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindSendPartial) }); ok {
 		return nextAction{Kind: nextActionSendPartial, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "confirm whether its send needs to be retried")}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.reportedState == state.ReportNeedsDecision }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindReportDecision) }); ok {
 		return nextAction{Kind: state.ReportNeedsDecision, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "answer the operator decision it is waiting on")}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.reportedState == state.ReportFailed }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindReportFailed) }); ok {
 		return nextAction{Kind: state.ReportFailed, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "investigate why it failed")}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.unreadable }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindReportUnreadable) }); ok {
 		return nextAction{Kind: nextActionReportUnreadable, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "investigate its unreadable report")}
 	}
-	if v, ok := firstView(sorted, unreportedStop); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindUnreported) }); ok {
 		return nextAction{Kind: nextActionUnreported, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: fmt.Sprintf("Run `%s`; it stopped without reporting a terminal state", statusCommand(v.task.ID))}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.reportedState == state.ReportBlocked }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindRuntimeUnknown) }); ok {
+		return nextAction{Kind: nextActionRuntimeUnknown, Task: v.task.ID, Command: statusCommand(v.task.ID),
+			Reason: statusReason(v.task.ID, "investigate why its worker runtime is unknown")}
+	}
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindUnreachable) }); ok {
+		return nextAction{Kind: nextActionUnreachable, Task: v.task.ID, Command: statusCommand(v.task.ID),
+			Reason: statusReason(v.task.ID, "investigate why its worker runtime is unreachable")}
+	}
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindParked) }); ok {
+		return nextAction{Kind: nextActionParked, Task: v.task.ID, Command: statusCommand(v.task.ID),
+			Reason: statusReason(v.task.ID, "investigate why its worker has been silent")}
+	}
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindReportBlocked) }); ok {
 		return nextAction{Kind: state.ReportBlocked, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "resolve what is blocking it")}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.reportedState == state.ReportPaused }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindReportPaused) }); ok {
 		return nextAction{Kind: state.ReportPaused, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "resume or resolve why it is paused")}
 	}
-	if v, ok := firstView(sorted, func(v taskView) bool { return v.unacked }); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindUnacknowledged) }); ok {
 		return nextAction{Kind: nextActionUnacknowledged, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "act on its unacknowledged worker event")}
 	}
@@ -90,7 +106,7 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 		return nextAction{Kind: nextActionHold, Task: h.ID, Command: "none",
 			Reason: "Operator or supervisor judgment is needed to resolve its active hold"}
 	}
-	if v, ok := firstView(sorted, gateProblem); ok {
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindGate) }); ok {
 		return nextAction{Kind: nextActionGate, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "confirm its delivery gate status")}
 	}

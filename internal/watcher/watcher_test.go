@@ -16,11 +16,163 @@ import (
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 )
+
+func TestEnsureBoundedArmReleasesOwnershipAndDoesNotClaimLiveWatcher(t *testing.T) {
+	home := t.TempDir()
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.FleetID(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Ensure(context.Background(), Config{Home: home}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != orientation.MonitorStateRearmed || result.Live {
+		t.Fatalf("result = %#v, want bounded rearm without a live watcher", result)
+	}
+	attached, err := IsAttached(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attached {
+		t.Fatal("bounded arm left watcher ownership attached")
+	}
+}
+
+func TestEnsureReportsAlreadyArmedWithoutTakingOverCurrentOwner(t *testing.T) {
+	home := t.TempDir()
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Release()
+
+	target := orientation.TargetFor("f_unused", orientation.TargetEvidence{ID: "task-1", Kind: "task", Generation: []string{"one"}})
+	result, err := Ensure(context.Background(), Config{Home: home}, []TargetBinding{{TaskID: "task-1", Target: target}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != orientation.MonitorStateAlreadyArmed || !result.Live {
+		t.Fatalf("result = %#v, want already-armed live ownership", result)
+	}
+	if got := owner.Generation(); got == "" {
+		t.Fatal("current owner generation was cleared by idempotent ensure")
+	}
+}
+
+func TestEnsureUsesAQuietBoundedArmWithoutAZeroTicker(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	fleetID, err := state.FleetIDReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := orientation.TaskTarget(fleetID, orientation.TaskTargetFacts{ID: "task-1", Kind: "task", Lifecycle: string(state.TaskOpen), RuntimeIdentity: []string{"", "", "", "p1"}})
+
+	result, err := Ensure(context.Background(), Config{Home: home}, []TargetBinding{{TaskID: "task-1", Target: target}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != orientation.MonitorStateRearmed {
+		t.Fatalf("result = %#v, want quiet bounded arm to rearm", result)
+	}
+}
+
+func TestEnsureObserveOnlyArmDoesNotAutoRecordWorkerPRClaim(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: https://github.com/owner/repo/pull/7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "notify")
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte("printf '%s' \"$HAND_MESSAGE\" > "+shellquote.Quote(marker)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fleetID, err := state.FleetIDReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := orientation.TaskTarget(fleetID, orientation.TaskTargetFacts{ID: "task-1", Kind: "task", Lifecycle: string(state.TaskOpen), RuntimeIdentity: []string{"", "", "", "p1"}})
+
+	if _, err := Ensure(context.Background(), Config{Home: home}, []TargetBinding{{TaskID: "task-1", Target: target}}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "" {
+		t.Fatalf("task PR = %q, want bounded session arm to leave task metadata unchanged", task.PR)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("notify marker stat error = %v, want observe-only arm to suppress notifications", err)
+	}
+}
+
+func TestFilterHistoriesHonorsExplicitMonitorTargets(t *testing.T) {
+	histories := []state.TaskHistory{
+		{Task: state.Task{ID: "task-1"}},
+		{Task: state.Task{ID: "task-2"}},
+	}
+	targets := []TargetBinding{{TaskID: "task-2"}}
+	filtered := filterHistories(histories, targets)
+	if len(filtered) != 1 || filtered[0].Task.ID != "task-2" {
+		t.Fatalf("filtered histories = %#v, want only task-2", filtered)
+	}
+}
+
+func TestObserveOnlySyncPreservesUsageLimitObservation(t *testing.T) {
+	retryAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{
+		Lifecycle:          state.AttemptRunning,
+		UsageLimitRetryAt:  retryAt,
+		UsageLimitAttempts: 2,
+		UsageLimitEpisode:  3,
+	})
+	task, attempt := readTaskAttempt(t, home, "task-1")
+	ts := resumeTaskState(task, attempt, herdr.StatusWorking, time.Now())
+	ts.LimitRetryAt = time.Time{}
+	ts.LimitAttempts = 0
+	ts.LimitEpisode = 0
+	ts.ReportCursor = state.ReportCursor{Offset: 1, Digest: "observed"}
+
+	var errBuf bytes.Buffer
+	syncTaskState(home, task.ID, ts, time.Now(), &errBuf, true)
+	if errBuf.Len() != 0 {
+		t.Fatalf("sync errOut = %q", errBuf.String())
+	}
+	_, after := readTaskAttempt(t, home, task.ID)
+	if after.UsageLimitRetryAt != retryAt || after.UsageLimitAttempts != 2 || after.UsageLimitEpisode != 3 {
+		t.Fatalf("usage-limit observation = %q/%d/%d, want observe-only sync to preserve it", after.UsageLimitRetryAt, after.UsageLimitAttempts, after.UsageLimitEpisode)
+	}
+}
 
 // Drives the fake into herdr's failure shape for `pane get` - an error envelope on stdout with exit 0,
 // the shape the envelope check exists for. Exiting nonzero would reach ClassifyStatus's probeErr

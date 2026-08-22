@@ -45,6 +45,27 @@ There is no global active Fleet selection to switch.
 The user-local, non-authoritative SQLite index at `~/.secondhand/registry.db` that retains observed Fleet home locators for discovery.
 Registry absence or degradation does not replace the authoritative identity in a Fleet home.
 
+### Supervisor orientation
+
+A bounded, stateless read model returned by `hand session start`.
+It contains Fleet identity, work and actionable summaries, exact monitor targets, monitor state, next actions, truncation, and uncertainty.
+It is not a durable supervisor session, Task-to-Plan record, FleetSnapshot, or Attention table.
+
+### Monitor target
+
+The smallest exact Fleet-scoped condition a watcher can observe and a supervisor can re-check.
+Its ID and currentness are provider-owned opaque values.
+
+### Currentness token
+
+An opaque provider-owned value for one exact monitor target generation.
+Callers may carry, compare, return, or reject it, but never parse it or infer a newer generation from its bytes.
+
+### Wake hint
+
+A bounded watcher message naming Fleet identity, monitor kind, opaque target, opaque currentness, and reason.
+A wake is not authoritative state and cannot directly mutate work; the supervisor must obtain fresh orientation first.
+
 ### Duplicate Fleet
 
 A Fleet identity that is valid at more than one registered home.

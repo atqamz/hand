@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/age"
+	"github.com/atqamz/hand/internal/attention"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -129,6 +131,42 @@ type Event struct {
 	Text     string
 	Reason   string
 	Verified bool
+	FleetID  string
+	Target   orientation.MonitorTarget
+}
+
+const MaxWakeReason = 240
+
+type Wake struct {
+	FleetID     string                       `json:"fleet_id"`
+	Kind        string                       `json:"kind"`
+	EventKind   string                       `json:"event_kind"`
+	TargetID    string                       `json:"target_id"`
+	Currentness orientation.CurrentnessToken `json:"currentness"`
+	Reason      string                       `json:"reason"`
+}
+
+func (e Event) Wake() Wake {
+	reason := e.Reason
+	if reason == "" {
+		reason = e.Text
+	}
+	if runes := []rune(reason); len(runes) > MaxWakeReason {
+		reason = string(runes[:MaxWakeReason])
+	}
+	return Wake{FleetID: e.FleetID, Kind: e.Target.Kind, EventKind: e.Kind, TargetID: e.Target.ID, Currentness: e.Target.Currentness, Reason: reason}
+}
+
+func (w Wake) Current(current orientation.SupervisorOrientation) bool {
+	if w.FleetID == "" || w.FleetID != current.FleetID || w.TargetID == "" || w.Currentness.IsZero() {
+		return false
+	}
+	for _, target := range current.Monitors {
+		if target.ID == w.TargetID && target.Kind == w.Kind && target.Currentness == w.Currentness {
+			return true
+		}
+	}
+	return false
 }
 
 // TaskState tracks what's already been observed and announced for one task, so the
@@ -247,7 +285,7 @@ func ClassifyStatus(ts *TaskState, id string, status herdr.Status, probeErr erro
 			// Only when nothing has explained the stop: no report at all, or a last report still
 			// "working". Any other reported state - paused, blocked, needs-decision, done, failed -
 			// already explains the pane going quiet, so the transition is absorbed instead of alarming.
-			if ts.LastReportState == "" || ts.LastReportState == state.ReportWorking {
+			if attention.UnreportedRuntime(string(status), ts.LastReportState) {
 				return &Event{TaskID: id, Kind: KindIdleUnreported, Text: fmt.Sprintf("idle-unreported %s", id)}
 			}
 		}
@@ -279,7 +317,7 @@ func ClassifyCatchUp(ts *TaskState, id string, status herdr.Status, observedFor,
 	switch {
 	case status.NotBusy():
 		// The same question ClassifyStatus asks of its own idle edge: has anything explained the stop.
-		if ts.LastReportState == "" || ts.LastReportState == state.ReportWorking {
+		if attention.UnreportedRuntime(string(status), ts.LastReportState) {
 			return &Event{TaskID: id, Kind: KindIdleUnreported, Text: fmt.Sprintf("idle-unreported %s", id)}
 		}
 	case status == herdr.StatusBlocked:

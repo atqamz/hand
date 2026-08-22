@@ -19,6 +19,9 @@ procedure layer over `hand`, not a second implementation of it: every claim here
 state, dependency state, or task state is something you get by running a `hand` command and
 reading its structured output, never by reconstructing it from panes, files, or memory.
 
+Each supervising turn begins with `hand session start`, whose bounded orientation reports Fleet identity,
+exact monitor currentness, actionable provenance, and whether `hand watch --until-event` must be re-armed.
+
 ```text
 wrong: skill checks PATH itself and decides whether Herdr is installed
 right: skill runs `hand doctor` and interprets structured output

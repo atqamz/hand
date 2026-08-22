@@ -57,6 +57,26 @@ func Acquire(homeDir string, takeover bool) (*Ownership, error) {
 	return AcquireContext(context.Background(), homeDir, takeover)
 }
 
+func IsAttached(homeDir string) (bool, error) {
+	home := canonicalHome(homeDir)
+	lockFile, err := os.OpenFile(OwnerPath(home)+".lock", os.O_RDWR, 0o644)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("open watcher lock: %w", err)
+	}
+	defer func() { _ = lockFile.Close() }()
+	if err := lockOwner(lockFile); err == nil {
+		releaseLock(lockFile)
+		return false, nil
+	} else if errors.Is(err, filelock.ErrBusy) {
+		return true, nil
+	} else {
+		return false, fmt.Errorf("inspect watcher lock: %w", err)
+	}
+}
+
 // Context-aware acquisition stops a takeover wait without changing lock authority.
 func AcquireContext(ctx context.Context, homeDir string, takeover bool) (*Ownership, error) {
 	if err := acquisitionContextError(ctx); err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 	"github.com/spf13/cobra"
@@ -182,6 +183,27 @@ func TestClassifyNextActionIsOrderIndependent(t *testing.T) {
 	}
 	if forward.Task != "a-repair" {
 		t.Fatalf("task = %q, want the needs-repair candidate regardless of input order", forward.Task)
+	}
+}
+
+func TestClassifyNextActionRanksRuntimeAttentionFromSharedDerivation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		view   taskView
+		kind   string
+		reason string
+	}{
+		{name: "unreachable", view: taskView{task: state.Task{ID: "unreachable-task"}, unreachable: true}, kind: nextActionUnreachable, reason: "investigate why its worker runtime is unreachable"},
+		{name: "runtime unknown", view: taskView{task: state.Task{ID: "unknown-task"}, attempt: &state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "pane-1"}}, agentState: string(herdr.StatusUnknown)}, kind: nextActionRuntimeUnknown, reason: "investigate why its worker runtime is unknown"},
+		{name: "parked", view: taskView{task: state.Task{ID: "parked-task"}, parked: true}, kind: nextActionParked, reason: "investigate why its worker has been silent"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyNextAction(configuredWorker, 1, backlogSummary{}, []taskView{test.view}, nil)
+			want := nextAction{Kind: test.kind, Task: test.view.task.ID, Command: statusCommand(test.view.task.ID), Reason: statusReason(test.view.task.ID, test.reason)}
+			if got != want {
+				t.Fatalf("classifyNextAction() = %#v, want %#v", got, want)
+			}
+		})
 	}
 }
 

@@ -142,7 +142,9 @@ cd ~/secondhand-fleet
 claude
 ```
 
-The canonical `AGENTS.md` tells the harness to run `hand session start` before responding or acting; that command loads bounded fleet context and reports the first next action, and refuses outright inside a worker's isolated worktree. Any other supported harness reads the same instructions from `AGENTS.md` directly.
+The canonical `AGENTS.md` tells the harness to run `hand session start` before responding or acting; that command loads bounded fleet context, returns Fleet-scoped orientation and monitor currentness, reports the first next action, and refuses outright inside a worker's isolated worktree.
+When it cannot prove a detached watcher, it reports a bounded re-arm and names `hand watch --until-event`.
+Any other supported harness reads the same instructions from `AGENTS.md` directly.
 
 On the first session, the supervisor inspects `hand config`, asks only unresolved configuration policy questions, and persists accepted profile and route choices through the CLI.
 
@@ -534,7 +536,7 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand fleet` | List user-local Fleet homes and their observed identity state. |
 | `hand ack <id> [--reason <text>]` | Record that a supervisor has acknowledged a task's report. |
 | `hand reconcile [id] [--abandon-worktree] [--abandon-pane] [--attempt-never-started]` | Reconcile one Task or the bounded fleet candidate set with observed external reality; given a Task ID, explicitly relinquish a historical worktree lease or Herdr pane identity whose ownership no observation can settle, or attest that a running Attempt's worker took no turn so the ordinary release path can end it. |
-| `hand watch` | Wait for actionable fleet events. |
+| `hand watch` | Wait for actionable fleet events and emit Fleet-scoped structured wake hints. |
 | `hand send` | Steer a running worker. |
 | `hand merge` | Merge completed work after authorization. |
 | `hand deliver` | Mark work as handed off when landing is someone else's decision. |
