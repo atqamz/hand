@@ -3,11 +3,11 @@ package project
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -62,9 +62,7 @@ func RepoSlug(homeDir string, p Project) (string, error) {
 	// config --get, not remote get-url: the latter resolves the URL through any
 	// url.<base>.insteadOf rule (a corporate mirror, an ssh rewrite) first, which could turn a
 	// genuine mismatch into a false match or refusal. hand and gh agree on the stored value.
-	c := exec.Command("git", "config", "--get", "remote.origin.url")
-	c.Dir = filepath.Join(homeDir, "projects", p.Name)
-	out, err := c.Output()
+	out, err := git.Run(filepath.Join(homeDir, "projects", p.Name), "config", "--get", "remote.origin.url")
 	if err != nil {
 		return "", fmt.Errorf("resolve origin remote for project %q: %w", p.Name, err)
 	}

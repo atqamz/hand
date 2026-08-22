@@ -1,12 +1,12 @@
 package ghutil
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/atqamz/hand/internal/integration"
 )
 
 // The repository identity gh reports after resolving a requested slug.
@@ -17,12 +17,9 @@ type CanonicalRepo struct {
 
 // Resolves a repository slug through gh and returns its canonical identity.
 func ResolveCanonicalRepo(ctx context.Context, slug string) (CanonicalRepo, error) {
-	cmd := exec.CommandContext(ctx, "gh", "repo", "view", slug, "--json", "nameWithOwner,url")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, stderr, err := integration.Run(ctx, "github/gh", "", "repo", "view", slug, "--json", "nameWithOwner,url")
 	if err != nil {
-		return CanonicalRepo{}, fmt.Errorf("gh repo view failed for %s: %w: %s", slug, err, strings.TrimSpace(stderr.String()))
+		return CanonicalRepo{}, fmt.Errorf("gh repo view failed for %s: %w: %s", slug, err, strings.TrimSpace(string(stderr)))
 	}
 	var repo CanonicalRepo
 	if err := json.Unmarshal(out, &repo); err != nil {

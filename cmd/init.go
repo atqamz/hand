@@ -11,6 +11,7 @@ import (
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/routing"
@@ -24,8 +25,6 @@ var skillFields = []axi.Column[skill.DestinationResult]{
 	{Name: "dir", Value: func(r skill.DestinationResult) string { return r.Dir }},
 	{Name: "outcome", Value: func(r skill.DestinationResult) string { return string(r.Outcome) }},
 }
-
-var toolCandidates = []string{"treehouse", "herdr", "no-mistakes", "gh"}
 
 const backlogSkeleton = `# Backlog
 
@@ -112,6 +111,10 @@ func newInitCmd() *cobra.Command {
 			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), home); err != nil {
 				return err
 			}
+			runtimeStatus, err := doctorRuntimeStatus()
+			if err != nil {
+				return err
+			}
 
 			var doc axi.Doc
 			doc.Field("result", "initialized")
@@ -123,13 +126,17 @@ func newInitCmd() *cobra.Command {
 			axi.Table(&doc, "skill", skillResults, skillFields)
 			doc.Int("skill_conflicts", skillConflictCount(skillResults))
 			doc.Field("session_hook", removedOrUnchanged(hookRemoved))
+			doc.Bool("runtime_ready", runtimeStatus.Ready)
+			doc.Field("runtime_target", runtimeStatus.Target)
+			doc.Field("runtime_id", valueOrNone(runtimeStatus.RuntimeID))
+			doc.Field("runtime_reason", valueOrNone(runtimeStatus.Reason))
 			doc.List("migrated", migrated)
 			cfg, err := currentWorkerConfig(home)
 			if err != nil {
 				return err
 			}
 			appendWorkerConfig(&doc, cfg)
-			doc.List("missing_tools", missingTools())
+			doc.List("missing_integrations", missingIntegrations())
 			effectiveSettingsHelp := "Start a supervising session in this home; no supported worker harness is configured or detected, so it reports the unanswered harness choice"
 			switch cfg.settings[0].state {
 			case stateConfigured:
@@ -185,11 +192,15 @@ func registerFleet(home, fleetID string) (string, error) {
 
 // Reported rather than resolved: a missing tool is a diagnostic the first session explains in context,
 // and turning bootstrap into a prerequisite wizard is what this command exists not to be.
-func missingTools() []string {
+func missingIntegrations() []string {
 	var missing []string
-	for _, t := range toolCandidates {
-		if !onPath(t) {
-			missing = append(missing, t)
+	statuses, err := integration.DefaultStore().List()
+	if err != nil {
+		return []string{"unavailable: " + err.Error()}
+	}
+	for _, status := range statuses {
+		if status.State == integration.StateMissing {
+			missing = append(missing, status.Capability.ID)
 		}
 	}
 	return missing

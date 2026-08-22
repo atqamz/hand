@@ -1,12 +1,12 @@
 #Requires -Version 5.1
 # Optional, explicitly opt-in Secondhand adoption for native Windows: acquires hand if missing,
-# offers to install missing foundational dependencies (git, treehouse, herdr) with consent,
+# ensures the private pinned core runtime (git, treehouse, herdr),
 # reconciles a fleet home with `hand init`, reads readiness from `hand doctor`, and prints the
 # exact next command. Never installs a coding-agent harness or no-mistakes; never reimplements
 # `hand init` or `hand doctor` validation logic. No WSL: every step below runs as native
 # PowerShell against native Windows tools.
 [CmdletBinding()]
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Yes', Justification = 'read inside Install-Hand and Install-FoundationalDep, which close over this script-scope parameter')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Yes', Justification = 'read inside Install-Hand and Ensure-PrivateRuntime, which close over this script-scope parameter')]
 param(
     [string]$Fleet = (Join-Path ([Environment]::GetFolderPath('UserProfile')) "secondhand-fleet"),
     [switch]$Yes,
@@ -123,182 +123,39 @@ if (-not $handAvailable) {
     $script:handCommandDir = if ($handCommand.Source) { Split-Path -Parent $handCommand.Source } else { $null }
 }
 
-# ---- step 2: detect/install missing foundational dependencies ---------------------------------
+# ---- step 2: ensure the private pinned core runtime --------------------------------------------
 
-function Update-ProcessPathFromRegistry {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'mutates only this process''s in-memory $env:PATH, not persistent or external state, so a -WhatIf/-Confirm contract would serve no one')]
-    param()
-    $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
-    $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-    $pathDirs = @()
-    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($path in @($env:PATH, $machinePath, $userPath)) {
-        foreach ($pathDir in ($path -split ';')) {
-            if ($pathDir -and $seen.Add($pathDir)) {
-                $pathDirs += $pathDir
-            }
-        }
-    }
-    $handDirs = @($script:handCommandDir, $script:handInstallDir) | Where-Object { $_ }
-    foreach ($handDir in $handDirs) {
-        if (-not ($pathDirs | Where-Object { $_ -ieq $handDir })) {
-            $pathDirs = @($handDir) + @($pathDirs)
-        }
-    }
-    $env:PATH = $pathDirs -join ';'
-}
-
-# Get-DepSource is the source column the consent prompt shows for a missing foundational
-# dependency.
-function Get-DepSource {
-    param([string]$Dep)
-    switch ($Dep) {
-        'git' { 'winget (or install Git for Windows manually)' }
-        'treehouse' { 'kunchenguid/treehouse' }
-        'herdr' { 'ogulcancelik/herdr' }
-    }
-}
-
-# Resolve-DepAction returns @{ Kind = 'cmd'|'url'; Value = <winget args>|<installer url> } for
-# $Dep. A url is never invoked directly with `irm ... | iex`: Invoke-DepAction downloads to a
-# file first and only runs it once the download itself is confirmed to have succeeded, the same
-# fetch-then-verify-then-run shape bootstrap.sh uses so a failed fetch can never be mistaken for
-# an empty, successful script.
-function Resolve-DepAction {
-    param([string]$Dep)
-    switch ($Dep) {
-        'git' {
-            if (Get-Command winget -ErrorAction SilentlyContinue) {
-                @{ Kind = 'cmd'; Value = @('winget', 'install', '--id', 'Git.Git', '-e', '--source', 'winget', '--accept-package-agreements', '--accept-source-agreements') }
-            } else {
-                @{ Kind = 'cmd'; Value = $null }
-            }
-        }
-        'treehouse' {
-            @{ Kind = 'url'; Value = 'https://kunchenguid.github.io/treehouse/install.ps1' }
-        }
-        'herdr' {
-            @{ Kind = 'url'; Value = 'https://herdr.dev/install.ps1' }
-        }
-        default {
-            @{ Kind = 'cmd'; Value = $null }
-        }
-    }
-}
-
-function Get-DepActionDescription {
-    param([string]$Dep)
-    $action = Resolve-DepAction $Dep
-    switch ($action.Kind) {
-        'cmd' { if ($action.Value) { $action.Value -join ' ' } else { $null } }
-        'url' { "download and verify $($action.Value), then run only the completed download" }
-    }
-}
-
-function Invoke-DepAction {
-    param([string]$Dep)
-    $action = Resolve-DepAction $Dep
-    switch ($action.Kind) {
-        'cmd' {
-            if (-not $action.Value) { return $false }
-            & $action.Value[0] @($action.Value[1..($action.Value.Length - 1)])
-            return $LASTEXITCODE -eq 0
-        }
-        'url' {
-            $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + ".ps1")
-            try {
-                Invoke-WebRequest -Uri $action.Value -OutFile $tmp
-            } catch {
-                Remove-Item -Force $tmp -ErrorAction SilentlyContinue
-                return $false
-            }
-            if (-not (Test-Path -LiteralPath $tmp) -or (Get-Item -LiteralPath $tmp).Length -eq 0) {
-                Remove-Item -Force $tmp -ErrorAction SilentlyContinue
-                return $false
-            }
-            $ok = $true
-            try {
-                & $tmp
-            } catch {
-                $ok = $false
-            }
-            Remove-Item -Force $tmp -ErrorAction SilentlyContinue
-            return $ok
-        }
-    }
-}
-
-# Get-MissingFoundationalDep lists, in the same order hand doctor's foundational tools table
-# does, every dependency doctor would also report missing - never a schema bootstrap invents.
-function Get-MissingFoundationalDep {
-    @('git', 'treehouse', 'herdr') | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) }
-}
-
-# Install-FoundationalDep returns $true once every foundational dependency is on PATH, and
-# $false whenever one remains missing - declined, failed, unsupported, or check mode. It never
-# treats that as fatal itself: `hand doctor` is the one place a remaining gap is judged blocking.
-function Install-FoundationalDep {
-    $missing = @(Get-MissingFoundationalDep)
-    if ($missing.Count -eq 0) { return $true }
-
+function Ensure-PrivateRuntime {
     if ($Check) {
-        Write-BootstrapLog "missing foundational dependencies (check mode: no changes made):"
-        foreach ($dep in $missing) { Write-BootstrapLog "  $dep" }
-        return $false
-    }
-
-    Write-BootstrapLog "Missing foundational runtime dependencies:"
-    Write-BootstrapLog ""
-    foreach ($dep in $missing) {
-        $desc = Get-DepActionDescription $dep
-        Write-BootstrapLog "  $dep"
-        Write-BootstrapLog "    source: $(Get-DepSource $dep)"
-        if ($desc) {
-            Write-BootstrapLog "    install method: $desc"
-        } else {
-            Write-BootstrapLog "    install method: none detected for this platform; install $dep manually, then rerun bootstrap.ps1"
+        Write-BootstrapLog "private runtime status (check mode: no changes made):"
+        if (-not $handAvailable) {
+            Write-BootstrapLog "hand is not installed; private runtime status cannot be evaluated"
+            return
         }
-        Write-BootstrapLog ""
+        & hand runtime status
+        return
     }
-
-    $proceed = [bool]$Yes
-    if (-not $proceed) {
-        if (-not $interactive) {
-            Write-BootstrapLog "not running interactively and -Yes was not given: declining to install any of the above"
-            return $false
-        }
-        $reply = Read-Host "Install these dependencies? [y/N]"
-        $proceed = $reply -match '^(y|yes)$'
+    $runtimeStatus = (& $handCommand runtime status 2>$null | Out-String)
+    if ($runtimeStatus -match 'ready: true') {
+        return
     }
-    if (-not $proceed) {
-        Write-BootstrapLog "declined: continuing without installing missing foundational dependencies"
-        return $false
+    if (-not $Yes -and -not $interactive) {
+        Fail "private runtime is not installed, and bootstrap is not running interactively without -Yes: refusing to install it"
     }
-
-    $installFailed = $false
-    foreach ($dep in $missing) {
-        $desc = Get-DepActionDescription $dep
-        if (-not $desc) {
-            Write-BootstrapLog "$dep`: no supported install method detected on this platform; skipping"
-            $installFailed = $true
-            continue
-        }
-        Write-BootstrapLog "installing $dep`: $desc"
-        if (-not (Invoke-DepAction $dep)) {
-            Write-BootstrapLog "$dep`: install action failed"
-            $installFailed = $true
-            continue
-        }
-        Update-ProcessPathFromRegistry
-        if (-not (Get-Command $dep -ErrorAction SilentlyContinue)) {
-            Write-BootstrapLog "$dep`: installed but still not on PATH"
-            $installFailed = $true
+    if (-not $Yes) {
+        $reply = Read-Host "private runtime is not installed. Install it now? [y/N]"
+        if ($reply -notmatch '^(y|yes)$') {
+            Fail "private runtime install declined; cannot continue"
         }
     }
-    -not $installFailed
+    Write-BootstrapLog "ensuring private pinned Git, Treehouse, and Herdr runtime"
+    & hand runtime ensure
+    if ($LASTEXITCODE -ne 0) {
+        Fail "private runtime is not ready; repair with: hand runtime ensure"
+    }
 }
 
-$null = Install-FoundationalDep
+Ensure-PrivateRuntime
 
 # ---- step 3: choose a safe fleet-home target ---------------------------------------------------
 

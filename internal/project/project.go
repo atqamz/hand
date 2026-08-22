@@ -5,16 +5,17 @@ package project
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/store"
 )
 
@@ -419,15 +420,13 @@ func GateStatus(clonePath string) (GateState, error) {
 	if _, err := os.Stat(clonePath); err != nil {
 		return GateReady, fmt.Errorf("no-mistakes clone path: %w", err)
 	}
-	cmd := exec.Command("no-mistakes", "status")
-	cmd.Dir = clonePath
-	out, err := cmd.CombinedOutput()
+	stdout, stderr, err := integration.Run(context.Background(), "delivery/no-mistakes", clonePath, "status")
 	if err != nil {
 		// Distinct from GateNotInitialized, because the remedy for a binary that is missing,
 		// unexecutable, or failing unexpectedly is not `no-mistakes init`.
 		return GateReady, fmt.Errorf("no-mistakes binary not found or not runnable: %w", err)
 	}
-	text := string(out)
+	text := string(append(stdout, stderr...))
 	if strings.Contains(text, gateNotInitializedMarker) {
 		return GateNotInitialized, nil
 	}

@@ -1,10 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -117,8 +117,7 @@ func isWindowsPath(value string) bool {
 }
 
 func gitCloneLocal(source, dest string) error {
-	cmd := exec.Command("git", "clone", "--no-local", source, dest)
-	out, err := cmd.CombinedOutput()
+	out, err := runManagedCore(context.Background(), "git", "", "clone", "--no-local", source, dest)
 	if err != nil {
 		return fmt.Errorf("git clone failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -159,12 +158,10 @@ func prepareAdoptedClone(source projectSource, dest string) error {
 }
 
 func initCreatedProject(path string) (string, error) {
-	init := exec.Command("git", "init", "--initial-branch=main", path)
-	if out, err := init.CombinedOutput(); err != nil {
+	if out, err := runManagedCore(context.Background(), "git", "", "init", "--initial-branch=main", path); err != nil {
 		return "", fmt.Errorf("git init failed: %s", strings.TrimSpace(string(out)))
 	}
-	commit := exec.Command("git", "-C", path, "-c", "user.name=hand", "-c", "user.email=hand@localhost", "commit", "--allow-empty", "-m", "chore: initialize project")
-	if out, err := commit.CombinedOutput(); err != nil {
+	if out, err := runManagedCore(context.Background(), "git", "", "-C", path, "-c", "user.name=hand", "-c", "user.email=hand@localhost", "commit", "--allow-empty", "-m", "chore: initialize project"); err != nil {
 		return "", fmt.Errorf("create project baseline commit failed: %s", strings.TrimSpace(string(out)))
 	}
 	baseline, err := git.HeadCommit(path)

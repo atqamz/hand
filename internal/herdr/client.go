@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 // ErrComposerBusyTimeout marks WaitComposerEmpty's own deadline expiry, which a caller has to tell
@@ -18,11 +22,55 @@ import (
 var ErrComposerBusyTimeout = errors.New("composer still busy")
 
 type Client struct {
-	session string
+	session    string
+	executable string
+	env        []string
+	childEnv   []string
+	initErr    error
 }
 
 func NewClient() *Client {
-	return &Client{}
+	return &Client{executable: "herdr"}
+}
+
+func NewClientAt(path string, env []string) (*Client, error) {
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("managed Herdr executable %q must be an absolute path", path)
+	}
+	return &Client{executable: path, env: append([]string(nil), env...)}, nil
+}
+
+func NewManagedClient() *Client {
+	store, err := toolchain.DefaultStore()
+	if err != nil {
+		if legacyHerdrFallback {
+			return NewClient()
+		}
+		return &Client{initErr: err}
+	}
+	runtime, err := store.Selected("", "")
+	if err != nil {
+		if legacyHerdrFallback {
+			return NewClient()
+		}
+		return &Client{initErr: err}
+	}
+	env, err := toolchain.ManagedEnvironment(os.Environ(), runtime.GitBin)
+	if err != nil {
+		if legacyHerdrFallback {
+			return NewClient()
+		}
+		return &Client{initErr: err}
+	}
+	client, err := NewClientAt(runtime.HerdrPath, env)
+	if err != nil {
+		if legacyHerdrFallback {
+			return NewClient()
+		}
+		return &Client{initErr: err}
+	}
+	client.childEnv = []string{"PATH=" + environmentValue(env, "PATH")}
+	return client
 }
 
 func NewSessionClient(session string) *Client {
@@ -42,6 +90,24 @@ func sanitizedEnvArgs() []string {
 		args = append(args, "--env", key+"=")
 	}
 	return args
+}
+
+func (c *Client) childEnvArgs() []string {
+	args := sanitizedEnvArgs()
+	for _, item := range c.childEnv {
+		args = append(args, "--env", item)
+	}
+	return args
+}
+
+func environmentValue(env []string, key string) string {
+	for _, item := range env {
+		name, value, ok := strings.Cut(item, "=")
+		if ok && strings.EqualFold(name, key) {
+			return value
+		}
+	}
+	return ""
 }
 
 type errorBody struct {
@@ -105,7 +171,21 @@ func (c *Client) run(args ...string) ([]byte, string, error) {
 }
 
 func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string, error) {
-	cmd := exec.CommandContext(ctx, "herdr", c.wireArgs(args...)...)
+	executable := "herdr"
+	var env []string
+	if c != nil {
+		if c.initErr != nil {
+			return nil, "", c.initErr
+		}
+		if c.executable != "" {
+			executable = c.executable
+		}
+		env = c.env
+	}
+	cmd := exec.CommandContext(ctx, executable, c.wireArgs(args...)...)
+	if env != nil {
+		cmd.Env = append([]string(nil), env...)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -268,7 +348,7 @@ func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, Tab, Pane, error
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	args = append(args, sanitizedEnvArgs()...)
+	args = append(args, c.childEnvArgs()...)
 	res, err := c.call(args...)
 	if err != nil {
 		return Workspace{}, Tab{}, Pane{}, err
@@ -328,7 +408,7 @@ func (c *Client) TabCreate(workspaceID, cwd, label string) (Tab, Pane, error) {
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	args = append(args, sanitizedEnvArgs()...)
+	args = append(args, c.childEnvArgs()...)
 	res, err := c.call(args...)
 	if err != nil {
 		return Tab{}, Pane{}, err

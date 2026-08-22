@@ -1,12 +1,12 @@
 package ghutil
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/atqamz/hand/internal/integration"
 )
 
 // ObservationState is the vocabulary every observation in hand answers in, GitHub or not - reused by
@@ -89,14 +89,11 @@ func unknownPR(probe Probe, format string, args ...any) PRObservation {
 // observation: absent only for the diagnostic that proves a pull request does not exist, unknown
 // for every other failure, including an unreadable payload at exit 0.
 func decodeGHPayload(ctx context.Context, probe Probe, payload any, args ...string) *PRObservation {
-	cmd := exec.CommandContext(ctx, "gh", args...)
 	// gh writes warnings to stderr ahead of the JSON, so the payload is read from stdout alone;
 	// CombinedOutput here corrupts the parse (atqamz/hand#21).
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, stderr, err := integration.Run(ctx, "github/gh", "", args...)
 	if err != nil {
-		diagnostic := strings.TrimSpace(stderr.String())
+		diagnostic := strings.TrimSpace(string(stderr))
 		if strings.Contains(diagnostic, prAbsentDiagnostic) {
 			observation := absentPR(probe)
 			return &observation

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/integration"
 )
 
 // Bounds how far back `no-mistakes runs` is asked to look. Large enough to cover any project's
@@ -68,16 +68,14 @@ func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) 
 	if _, err := os.Stat(clonePath); err != nil {
 		return nil, fmt.Errorf("no-mistakes clone path: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, "no-mistakes", "runs", "--limit", gateRunLimit)
-	cmd.Dir = clonePath
-	out, err := cmd.CombinedOutput()
+	stdout, stderr, err := integration.Run(ctx, "delivery/no-mistakes", clonePath, "runs", "--limit", gateRunLimit)
 	// Checked ahead of the output text: a subprocess ctx killed mid-write can still leave text
 	// that happens to contain a marker, and blaming the binary for a deadline hand itself set
 	// would name a remedy that would not help either.
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("no-mistakes runs did not complete: %w", ctx.Err())
 	}
-	text := string(out)
+	text := string(append(stdout, stderr...))
 	// Both read out of the output text rather than the exit code, the way GateStatus reads
 	// them: `no-mistakes runs` exits 1 for an uninitialized gate and for a non-git clone path
 	// alike, leaving the exit code with nothing to tell the two apart.
