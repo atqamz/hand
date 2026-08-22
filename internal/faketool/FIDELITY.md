@@ -7,7 +7,7 @@ Only the calls `hand` makes are recorded, plus the release writes `.github/scrip
 A behaviour no test exercises does not belong here.
 
 Every entry was observed by running the real binary, not read off its documentation.
-Versions probed: `treehouse v2.1.0`, `herdr 0.7.5`, `gh 2.97.0`.
+Versions probed: `treehouse v2.1.0`, `herdr 0.8.2`, `gh 2.97.0`.
 
 `make contract-live` re-runs reversible calls against the real tools under the `contractlive` build tag, skipping where a binary is absent, so a record that has gone stale against a newer tool is discoverable without making the default suite depend on installed tools or the network.
 `make contract` exercises shared fake fixtures only.
@@ -35,6 +35,7 @@ A version banner goes to **stderr**, the JSON payload to **stdout**, which is wh
 
 `lease_id` is fresh on every acquisition, including a slot that was just returned and handed straight back out.
 `lease_holder` and `leased_at` are read by nothing in `hand`, so only `path` and `lease_id` are load-bearing.
+Hand runtime acquisitions identify the diagnostic holder as `hand:<fleet_id>:<task_id>`; direct worktree and contract fixtures may use another explicit holder because Treehouse ownership proof remains the persisted lease ID.
 An update-available notice shares stderr with the banner when one is due, which is the second reason nothing may read this call's output as a whole.
 A treehouse older than v2.1.0 reports `path` alone with no identity, which stays a usable lease: `worktree.CheckCollision` falls back to comparing paths for it.
 
@@ -168,6 +169,9 @@ For the single `Enter` key invocation used by Hand steering, `pane_send_failed` 
 Herdr processes encoded key sequences incrementally, so a `pane send-keys` failure for a multi-key invocation does not prove that no earlier key was accepted.
 That typed rejection is distinct from a process, transport or protocol failure, which does not prove whether the bytes were accepted.
 `pane read` is the one command whose success is bare text on stdout rather than an envelope.
+
+Hand's named-session calls prepend `--session <name>` before the command.
+The same response and side-effect contracts apply within that session, and a named session does not authorize Hand to stop or delete another session during normal cleanup.
 
 Identifiers are assigned by herdr: workspaces `wX`, their tabs `wX:t1`, their panes `wX:p1`.
 

@@ -127,6 +127,31 @@ func TestHerdrClosingTheSoleTabTakesTheWorkspaceWithIt(t *testing.T) {
 	}
 }
 
+func TestHerdrNamedSessionsKeepWorkspaceInventoriesSeparate(t *testing.T) {
+	requireBin(t, "herdr")
+	cwd := t.TempDir()
+	sessions := []string{"hand-contract-a", "hand-contract-b"}
+	ids := make(map[string]string, len(sessions))
+	for _, session := range sessions {
+		created := envelope(t, run(t, cwd, "herdr", "--session", session, "workspace", "create",
+			"--no-focus", "--cwd", cwd, "--label", session).requireCode(t, 0))
+		id := created.Result.Workspace.WorkspaceID
+		if id == "" {
+			t.Fatalf("session %s workspace create returned no id", session)
+		}
+		ids[session] = id
+		t.Cleanup(func() {
+			run(t, cwd, "herdr", "--session", session, "workspace", "close", id)
+		})
+	}
+	for _, session := range sessions {
+		listed := envelope(t, run(t, cwd, "herdr", "--session", session, "workspace", "list").requireCode(t, 0))
+		if len(listed.Result.Workspaces) != 1 || listed.Result.Workspaces[0].WorkspaceID != ids[session] {
+			t.Fatalf("session %s workspace list = %+v, want only %s", session, listed.Result.Workspaces, ids[session])
+		}
+	}
+}
+
 // Bare text on success, unlike every other command, so an envelope here would
 // be read as pane content.
 func readPane(t *testing.T, cwd, pane, source string) string {

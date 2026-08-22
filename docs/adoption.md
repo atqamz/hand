@@ -26,6 +26,13 @@ Bootstrap calls it; it never reimplements fleet setup in shell or PowerShell.
 `hand doctor` is the only readiness and diagnostic authority.
 Bootstrap, a human, and a supervising agent all read the same structured output rather than a second schema invented in a script.
 
+`hand init` gives each home one durable opaque Fleet identity and registers its canonical path in the user-local registry.
+Repeat initialization keeps the same identity and refreshes that home's locator.
+Moving a home keeps the identity because it moves with `state/hand.db`.
+Copying a home also keeps the identity, so the registry reports a duplicate and Fleet-bound runtime or mutation commands refuse to proceed until the operator resolves the copied state.
+Use `hand fleet` outside any Fleet home to inspect the discovered homes.
+There is intentionally no `hand fleet switch` command or global active-Fleet setting.
+
 ## Fastest path
 
 ```sh
@@ -131,6 +138,10 @@ next[1]:
 `git`, `treehouse`, and `herdr` are always required; `gh` is required only when a registered project's delivery mode is `direct-pr` or `no-mistakes`.
 Harnesses are reported purely as installed or not - `hand` never picks one on the operator's behalf.
 
+`hand fleet` is the discovery view for users with more than one Fleet home.
+It reads the user-local registry without selecting an active Fleet or changing any home.
+Read a `duplicate`, `identity-mismatch`, `ambiguous`, or `unreadable` state as an ownership boundary, not as permission to choose a path yourself.
+
 ## Idempotency and recovery
 
 Repeated bootstrap runs are safe:
@@ -142,6 +153,9 @@ Repeated bootstrap runs are safe:
 | existing valid Hand fleet | reconciled by `hand init`, no destructive rewrite |
 | existing, non-empty, not a recognized fleet | refused |
 | already healthy | reports ready, mutates nothing |
+
+The registry is discovery metadata, not a second source of Fleet state.
+Deleting or temporarily losing it does not change a Fleet identity; discovery remains empty until `hand init` registers each known home again.
 
 A partial failure is never reported as success.
 If a dependency install fails or `hand init`/`hand doctor` reports a blocker, bootstrap exits non-zero with the exact recovery command - typically resolving the reported blocker, then rerunning `hand doctor` or the bootstrap script itself.

@@ -52,10 +52,10 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(spawnLog), "herdr tab rename tab-1 task-1") {
+	if !strings.Contains(string(spawnLog), " tab rename tab-1 task-1") {
 		t.Fatalf("invocation log = %q, want spawn to rename the fresh workspace's root tab to the task id", spawnLog)
 	}
-	if strings.Contains(string(spawnLog), "herdr tab create") {
+	if strings.Contains(string(spawnLog), " tab create") {
 		t.Fatalf("invocation log = %q, want spawn to reuse the root tab instead of creating a second one", spawnLog)
 	}
 
@@ -95,10 +95,10 @@ func TestSpawnTeardownCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(finalLog), "herdr workspace close ws-1") {
+	if !strings.Contains(string(finalLog), " workspace close ws-1") {
 		t.Fatalf("invocation log = %q, want teardown to close the now-empty workspace", finalLog)
 	}
-	if strings.Contains(string(finalLog), "herdr tab close tab-1") {
+	if strings.Contains(string(finalLog), " tab close tab-1") {
 		t.Fatalf("invocation log = %q, want teardown to close the workspace, not just the sole tab in it", finalLog)
 	}
 }

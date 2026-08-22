@@ -2240,8 +2240,8 @@ func (*missingReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, boo
 	return herdr.Workspace{}, false, nil
 }
 
-func (f *healthyReconcileHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
-	return herdr.Workspace{WorkspaceID: "ws-1", Label: "hand:demo"}, true, nil
+func (f *healthyReconcileHerdr) FindWorkspaceByLabel(label string) (herdr.Workspace, bool, error) {
+	return herdr.Workspace{WorkspaceID: "ws-1", Label: label}, true, nil
 }
 func (f *healthyReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
 func (f *healthyReconcileHerdr) WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {

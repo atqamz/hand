@@ -17,10 +17,16 @@ import (
 // transient and worth retrying, a pane that stopped answering will never answer a retry.
 var ErrComposerBusyTimeout = errors.New("composer still busy")
 
-type Client struct{}
+type Client struct {
+	session string
+}
 
 func NewClient() *Client {
 	return &Client{}
+}
+
+func NewSessionClient(session string) *Client {
+	return &Client{session: session}
 }
 
 // The harness-identity variables a pane must never inherit from the herdr server it is a child of
@@ -99,7 +105,7 @@ func (c *Client) run(args ...string) ([]byte, string, error) {
 }
 
 func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string, error) {
-	cmd := exec.CommandContext(ctx, "herdr", args...)
+	cmd := exec.CommandContext(ctx, "herdr", c.wireArgs(args...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -108,6 +114,15 @@ func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string
 		runErr = &ExecError{Started: cmd.ProcessState != nil, Err: runErr}
 	}
 	return bytes.TrimSpace(stdout.Bytes()), strings.TrimSpace(stderr.String()), runErr
+}
+
+func (c *Client) wireArgs(args ...string) []string {
+	if c.session == "" {
+		return args
+	}
+	wire := make([]string, 0, len(args)+2)
+	wire = append(wire, "--session", c.session)
+	return append(wire, args...)
 }
 
 func parseEnvelope(args []string, trimmed []byte) (envelope, error) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -57,11 +58,12 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 	bin := faketool.Bin(t)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
 	t.Setenv("HERDR_CALL_LOG", callLog)
-	herdr.Log = callLog
-	herdr.Install(t, bin)
 	faketool.Treehouse{Slots: []string{newWorktree, oldWorktree}, Log: callLog}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
+	herdr = scopeHerdrForFleet(t, home, herdr)
+	herdr.Log = callLog
+	herdr.Install(t, bin)
 	return home
 }
 
@@ -249,7 +251,11 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	if got.Worktree != newWt || got.LeaseID != "lease-1" {
 		t.Fatalf("worktree/lease = %q/%q, want the new ship execution identity", got.Worktree, got.LeaseID)
 	}
-	if got.Herdr.Session != "default" || got.Herdr.WorkspaceID != "wA" || got.Herdr.TabID != "wA:tNew" || got.Herdr.PaneID != "wA:pNew" {
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Herdr.Session != herdr.SessionName(fleetID) || got.Herdr.WorkspaceID != "wA" || got.Herdr.TabID != "wA:tNew" || got.Herdr.PaneID != "wA:pNew" {
 		t.Fatalf("herdr = %+v, want the new ship execution identity", got.Herdr)
 	}
 	if history.Task.ReportOffset != 42 {

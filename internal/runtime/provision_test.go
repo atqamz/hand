@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +66,26 @@ func TestProvisionFailureAfterWorktreeRecordClearsOnlyReturnedEvidence(t *testin
 	}
 	if got.Lifecycle != state.AttemptProvisioning {
 		t.Fatalf("attempt lifecycle = %q, want provisioning", got.Lifecycle)
+	}
+}
+
+func TestProvisionUsesFleetScopedTreehouseLeaseHolder(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	var holder string
+	r := testProvisionRuntime(&provisionHerdr{}, func(lifecyclePhase) error { return nil })
+	r.deps.worktree.get = func(path, gotHolder string) (worktree.Lease, error) {
+		holder = gotHolder
+		return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
+	}
+
+	if _, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(holder, "hand:f_") || !strings.HasSuffix(holder, ":task-1") {
+		t.Fatalf("Treehouse lease holder = %q, want hand:f_<identity>:task-1", holder)
 	}
 }
 

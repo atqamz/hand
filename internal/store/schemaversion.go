@@ -149,6 +149,10 @@ var migrations = []string{
 	// like ensureUsageLimitEpisodeColumns: a home already carrying the current schema.Task layout when
 	// its version is forced backward must replay this step without a duplicate-column error.
 	`SELECT 1;`,
+	`CREATE TABLE IF NOT EXISTS fleet_identity (
+		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+		fleet_id TEXT NOT NULL UNIQUE
+	);`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -175,6 +179,8 @@ const attemptBranchVersion = holdInferredVersion + 1
 const preAcknowledgementVersion = attemptBranchVersion + 1
 
 const acknowledgedMetadataVersion = preAcknowledgementVersion + 1
+
+const fleetIdentityVersion = acknowledgedMetadataVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -411,6 +417,9 @@ func (db *DB) createSchema(isNew bool, latest int) error {
 		if _, err := tx.Exec(sendSchema); err != nil {
 			return fmt.Errorf("create send schema: %w", err)
 		}
+		if err := ensureFleetIdentityTx(tx); err != nil {
+			return err
+		}
 		if err := recordSchemaVersion(tx, latest); err != nil {
 			return err
 		}
@@ -479,6 +488,11 @@ func (db *DB) applyMigration(version int) error {
 	}
 	if version == preAcknowledgementVersion {
 		if err := ensureAcknowledgementColumns(tx); err != nil {
+			return err
+		}
+	}
+	if version == fleetIdentityVersion-1 {
+		if err := ensureFleetIdentityTx(tx); err != nil {
 			return err
 		}
 	}

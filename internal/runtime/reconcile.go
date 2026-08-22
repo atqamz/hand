@@ -182,6 +182,9 @@ const (
 const reconcileIterationLimit = 8
 
 func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
+	if err := fleetPreflightReadOnly(req.Home); err != nil {
+		return ReconcileReport{}, Precondition(err)
+	}
 	ctx := req.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -607,60 +610,109 @@ func mergeWorktreeAttempt(history state.TaskHistory) (*state.Attempt, error) {
 }
 
 func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
-	client := r.deps.herdr()
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		return nil, err
+	}
+	client := r.herdrClient(herdr.SessionName(fleetID))
 	ownerships, err := state.ListHerdrOwnerships(home)
 	if err != nil {
 		return nil, err
 	}
 	ownershipCandidates := make(map[string][]string, len(ownerships))
+	legacyWorkspaces := make(map[string]bool)
 	for _, ownership := range ownerships {
 		if ownership.WorkspaceID != "" && ownership.TabID != "" {
-			key := ownership.WorkspaceID + "\x00" + ownership.TabID
+			key := herdrIdentityKey(herdrSession(ownership.Session), ownership.WorkspaceID, ownership.TabID)
 			if !containsString(ownershipCandidates[key], ownership.TaskID) {
 				ownershipCandidates[key] = append(ownershipCandidates[key], ownership.TaskID)
 			}
+		}
+		if (ownership.Session == "" || ownership.Session == "default") && ownership.WorkspaceID != "" {
+			legacyWorkspaces[herdrIdentityKey("default", ownership.WorkspaceID, "")] = true
 		}
 	}
 	workspaces, err := client.WorkspaceList()
 	if err != nil {
 		return nil, fmt.Errorf("list Herdr workspaces: %w", err)
 	}
-	sort.Slice(workspaces, func(i, j int) bool {
-		if workspaces[i].Label != workspaces[j].Label {
-			return workspaces[i].Label < workspaces[j].Label
-		}
-		return workspaces[i].WorkspaceID < workspaces[j].WorkspaceID
-	})
 	var anomalies []ReconcileAnomaly
-	for _, workspace := range workspaces {
-		if !strings.HasPrefix(workspace.Label, "hand:") {
-			continue
-		}
-		tabs, err := client.TabList(workspace.WorkspaceID)
-		if err != nil {
-			return nil, fmt.Errorf("list Herdr tabs for workspace %s: %w", workspace.WorkspaceID, err)
-		}
-		sort.Slice(tabs, func(i, j int) bool {
-			if tabs[i].TabID != tabs[j].TabID {
-				return tabs[i].TabID < tabs[j].TabID
+	currentSession := herdr.SessionName(fleetID)
+	if r.deps.herdrFor == nil {
+		currentSession = "default"
+	}
+	currentSkip := legacyWorkspaces
+	if currentSession == "default" {
+		currentSkip = nil
+	}
+	inspect := func(inventory herdrClient, session string, candidates []herdr.Workspace, skip map[string]bool) error {
+		sort.Slice(candidates, func(i, j int) bool {
+			if candidates[i].Label != candidates[j].Label {
+				return candidates[i].Label < candidates[j].Label
 			}
-			return tabs[i].Label < tabs[j].Label
+			return candidates[i].WorkspaceID < candidates[j].WorkspaceID
 		})
-		for _, tab := range tabs {
-			anomaly, err := r.classifyHerdrTab(home, client, workspace, tab, ownershipCandidates)
+		for _, workspace := range candidates {
+			if !strings.HasPrefix(workspace.Label, "hand:") || skip[herdrIdentityKey(session, workspace.WorkspaceID, "")] {
+				continue
+			}
+			tabs, err := inventory.TabList(workspace.WorkspaceID)
 			if err != nil {
-				return nil, err
+				return fmt.Errorf("list Herdr tabs for workspace %s: %w", workspace.WorkspaceID, err)
 			}
-			if anomaly != nil {
-				anomalies = append(anomalies, *anomaly)
+			sort.Slice(tabs, func(i, j int) bool {
+				if tabs[i].TabID != tabs[j].TabID {
+					return tabs[i].TabID < tabs[j].TabID
+				}
+				return tabs[i].Label < tabs[j].Label
+			})
+			for _, tab := range tabs {
+				anomaly, err := r.classifyHerdrTab(home, inventory, session, workspace, tab, ownershipCandidates)
+				if err != nil {
+					return err
+				}
+				if anomaly != nil {
+					anomalies = append(anomalies, *anomaly)
+				}
 			}
+		}
+		return nil
+	}
+	if err := inspect(client, currentSession, workspaces, currentSkip); err != nil {
+		return nil, err
+	}
+	if len(legacyWorkspaces) > 0 && r.deps.herdrFor != nil {
+		legacyClient := r.herdrClient("default")
+		workspaces, err := legacyClient.WorkspaceList()
+		if err != nil {
+			return nil, fmt.Errorf("list legacy Herdr workspaces: %w", err)
+		}
+		selected := make([]herdr.Workspace, 0, len(workspaces))
+		for _, workspace := range workspaces {
+			if legacyWorkspaces[herdrIdentityKey("default", workspace.WorkspaceID, "")] {
+				selected = append(selected, workspace)
+			}
+		}
+		if err := inspect(legacyClient, "default", selected, nil); err != nil {
+			return nil, err
 		}
 	}
 	return anomalies, nil
 }
 
-func (r *Runtime) classifyHerdrTab(home string, client herdrClient, workspace herdr.Workspace, tab herdr.Tab, ownershipCandidates map[string][]string) (*ReconcileAnomaly, error) {
-	candidates := append([]string(nil), ownershipCandidates[workspace.WorkspaceID+"\x00"+tab.TabID]...)
+func herdrSession(session string) string {
+	if session == "" {
+		return "default"
+	}
+	return session
+}
+
+func herdrIdentityKey(session, workspaceID, tabID string) string {
+	return herdrSession(session) + "\x00" + workspaceID + "\x00" + tabID
+}
+
+func (r *Runtime) classifyHerdrTab(home string, client herdrClient, session string, workspace herdr.Workspace, tab herdr.Tab, ownershipCandidates map[string][]string) (*ReconcileAnomaly, error) {
+	candidates := append([]string(nil), ownershipCandidates[herdrIdentityKey(session, workspace.WorkspaceID, tab.TabID)]...)
 	if state.ValidateID(tab.Label) == nil && !containsString(candidates, tab.Label) {
 		candidates = append(candidates, tab.Label)
 	}
@@ -819,7 +871,7 @@ func (r *Runtime) pendingHistoricalAttempt(_ string, history state.TaskHistory) 
 
 func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, task state.Task, attempt state.Attempt, attest reconcileAttestations) (bool, reconciliationDecision, error) {
 	if hasHerdrIdentity(attempt.Herdr) && !herdrCleanupSettled(attempt.TeardownHerdrState) {
-		observation, err := observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
+		observation, err := observeHerdrOwnership(r.herdrClient(attempt.Herdr.Session), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
 			return false, reconciliationDecision{}, err
 		}
@@ -855,7 +907,7 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 					return false, reconciliationDecision{}, err
 				}
 			}
-			if err := closeTaskTab(r.deps.herdr(), attempt.Herdr.WorkspaceID, attempt.Herdr.TabID); err != nil {
+			if err := closeTaskTab(r.herdrClient(attempt.Herdr.Session), attempt.Herdr.WorkspaceID, attempt.Herdr.TabID); err != nil {
 				_ = state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceAmbiguous)
 				return false, reconciliationDecision{}, fmt.Errorf("close historical Herdr resource: %w", err)
 			}
@@ -1206,7 +1258,7 @@ func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attemp
 	}
 	if hasHerdrIdentity(attempt.Herdr) && !skipHerdrObservation {
 		var err error
-		observation.Herdr, err = observeHerdrOwnership(r.deps.herdr(), attempt.Herdr, task.ID, task.Project)
+		observation.Herdr, err = observeHerdrOwnership(r.herdrClient(attempt.Herdr.Session), attempt.Herdr, task.ID, task.Project)
 		if err != nil {
 			return observation, err
 		}
@@ -1245,7 +1297,7 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 		})
 		return err
 	case reconciliationActionConfirmLaunch:
-		if err := r.deps.confirmLaunch(r.deps.herdr(), attempt.Herdr.PaneID, attempt.Harness); err != nil {
+		if err := r.deps.confirmLaunch(r.herdrClient(attempt.Herdr.Session), attempt.Herdr.PaneID, attempt.Harness); err != nil {
 			return fmt.Errorf("confirm persisted launch: %w", err)
 		}
 		return state.MarkLaunchConfirmed(home, task.ID, attempt.ID, r.deps.now().Format(time.RFC3339))

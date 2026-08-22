@@ -45,7 +45,10 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			client := herdr.NewClient()
+			client, err := currentHerdrClient(home)
+			if err != nil {
+				return err
+			}
 
 			if len(args) == 1 {
 				return runStatusSingle(cmd, home, client, args[0], asJSON, full, cols)
@@ -521,7 +524,7 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 	if attempt != nil {
 		e = *attempt
 	}
-	agentState, reachable := probePaneStatus(client, e.Herdr.PaneID)
+	agentState, reachable := probePaneStatus(herdrClientForAttempt(attempt, client), e.Herdr.PaneID)
 	data, readErr := state.ReadReportData(home, t.ID)
 	lines := state.ReportLinesInData(data)
 	reported, reportedOK := state.LastReportedState(lines)

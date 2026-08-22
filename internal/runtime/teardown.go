@@ -96,6 +96,9 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 	}
 	defer releaseProject()
 
+	if err := fleetPreflight(req.Home); err != nil {
+		return fail(Precondition(err))
+	}
 	if err := r.releaseHerdr(req.Home, req.ID, active, &warnings); err != nil {
 		return fail(err)
 	}
@@ -190,7 +193,7 @@ func (r *Runtime) releaseHerdr(home, taskID string, attempt state.Attempt, warni
 	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleasing); err != nil {
 		return fmt.Errorf("record Herdr release phase: %w", err)
 	}
-	if err := closeTaskTab(r.deps.herdr(), attempt.Herdr.WorkspaceID, attempt.Herdr.TabID); err != nil {
+	if err := closeTaskTab(r.herdrClient(attempt.Herdr.Session), attempt.Herdr.WorkspaceID, attempt.Herdr.TabID); err != nil {
 		if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceAmbiguous); stateErr != nil {
 			return fmt.Errorf("record failed Herdr release: %w", stateErr)
 		}

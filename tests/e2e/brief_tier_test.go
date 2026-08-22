@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -41,7 +42,7 @@ func readLaunchLog(t *testing.T, path string) []string {
 	}
 	var launches []string
 	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
-		if strings.HasPrefix(line, "herdr pane run ") {
+		if strings.Contains(line, " pane run ") {
 			launches = append(launches, line)
 		}
 	}
@@ -173,8 +174,12 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 	launchLog := filepath.Join(t.TempDir(), "launch.log")
 	dir := binDir(t)
 	writeFakeTreehouse(t, dir, filepath.Join(home, "wt-ship-new"), filepath.Join(home, "wt-scout-old"))
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
 	faketool.Herdr{
-		Workspaces: []faketool.HerdrWorkspace{{ID: "ws-old", Label: "hand:demo", Tabs: []faketool.HerdrTab{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "ws-old", Label: herdr.WorkspaceLabel(fleetID, "demo"), Tabs: []faketool.HerdrTab{
 			{ID: "tab-old", Label: "task-1", Pane: "pane-old"},
 			{ID: "tab-other", Label: "other", Pane: "pane-other"},
 		}}},

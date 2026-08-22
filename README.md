@@ -235,6 +235,21 @@ SQLite is durable intent and history, while Git, treehouse, herdr, and worker pr
 The [deterministic reconciliation decision record](docs/adr/deterministic-reconciliation-observes-before-mutating.md) owns the recovery invariants.
 `hand status` remains read-only and displays repair markers without attempting cleanup.
 
+Each Fleet home has one opaque, durable Fleet identity in `state/hand.db`.
+The identity survives restarts, moving the home, and deleting the user-local registry.
+It is never derived from the path, project names, or the current machine.
+
+One OS user may have multiple independent Fleet homes.
+`hand fleet` lists homes discovered through the user-local `~/.secondhand/registry.db` registry, including missing homes, identity mismatches, and duplicate copied identities.
+The registry is discovery metadata rather than Fleet authority, so a missing registry leaves discovery empty and does not become a global active-Fleet switch.
+
+Copied Fleet databases retain their identity by design.
+When the registry can prove that one identity is valid at more than one home, runtime and mutating commands fail closed until the duplicate is resolved by the operator.
+This boundary prevents accidental cross-Fleet ownership but is logical isolation, not an OS security boundary.
+
+New Herdr workspaces use a Fleet-scoped named session and label.
+Legacy Attempts with an empty or `default` session remain in the legacy Herdr session and are cleaned up only through their exact persisted workspace, tab, and pane identities.
+
 ### Safe lifecycle boundaries
 
 `hand` fails closed around destructive or irreversible transitions. Teardown refuses unlanded work unless it was explicitly delivered, and the generated supervisor rules prohibit merging without operator authorization.
@@ -349,6 +364,7 @@ The important pieces are:
 - `data/learnings.md` - durable operational knowledge discovered by the fleet
 - `projects/` - registered project clones
 - `state/hand.db` - authoritative machine state
+- `state/index.db` - local full-text index of Fleet prose
 
 You normally do not manage these by hand. The supervisor and `hand` own the workflow.
 
@@ -510,6 +526,7 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
 | `hand reopen <id>` | Reopen a terminal Task by creating a new Attempt. |
 | `hand status` | Read fleet or task state. |
+| `hand fleet` | List user-local Fleet homes and their observed identity state. |
 | `hand ack <id> [--reason <text>]` | Record that a supervisor has acknowledged a task's report. |
 | `hand reconcile [id] [--abandon-worktree] [--abandon-pane] [--attempt-never-started]` | Reconcile one Task or the bounded fleet candidate set with observed external reality; given a Task ID, explicitly relinquish a historical worktree lease or Herdr pane identity whose ownership no observation can settle, or attest that a running Attempt's worker took no turn so the ordinary release path can end it. |
 | `hand watch` | Wait for actionable fleet events. |

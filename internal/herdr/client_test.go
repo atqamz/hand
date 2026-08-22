@@ -33,6 +33,26 @@ func TestWorkspaceListParsesResult(t *testing.T) {
 	}
 }
 
+func TestNamedSessionPrefixesHerdrInvocation(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{herdrResponse("workspace list", "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[]}}")},
+		Log:       callLog,
+	}.Install(t, bin)
+
+	if _, err := NewSessionClient("hand-f-fleet").WorkspaceList(); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "--session hand-f-fleet workspace list") {
+		t.Fatalf("calls = %q, want named session before command", calls)
+	}
+}
+
 func TestFindWorkspaceByLabelFound(t *testing.T) {
 	writeFakeHerdr(t, herdrResponse("workspace list", "{\"id\":\"cli:1\",\"result\":{\"workspaces\":[{\"workspace_id\":\"wA\",\"label\":\"proj\"}]}}"))
 	c := NewClient()

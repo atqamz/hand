@@ -311,7 +311,11 @@ func waitForInvocations(t *testing.T, logPath, substr string, want int, timeout 
 		if err != nil && !os.IsNotExist(err) {
 			t.Fatalf("read invocation log %s: %v", logPath, err)
 		}
-		if strings.Count(string(data), substr) >= want {
+		count := strings.Count(string(data), substr)
+		if strings.HasPrefix(substr, "herdr ") {
+			count = max(count, strings.Count(string(data), " "+strings.TrimPrefix(substr, "herdr ")))
+		}
+		if count >= want {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

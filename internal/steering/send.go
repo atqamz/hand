@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -79,6 +80,9 @@ func (e *Error) SendFields() (int64, int64, string, string, bool, bool) {
 }
 
 func Execute(req Request) (Result, error) {
+	if _, err := registry.Preflight(req.Home, false); err != nil {
+		return Result{}, &Error{Cause: err, Precondition: true}
+	}
 	if req.Client == nil {
 		return Result{}, &Error{Cause: errors.New("steering client is required"), Precondition: true}
 	}

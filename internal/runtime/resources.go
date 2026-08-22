@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
@@ -24,12 +25,36 @@ type herdrClient interface {
 	PaneRead(string, int) (string, error)
 }
 
-func newHerdrClient() herdrClient { return herdr.NewClient() }
+func newHerdrClient() herdrClient {
+	return herdr.NewClient()
+}
 
-func herdrWorkspaceLabel(projectName string) string { return "hand:" + projectName }
+func newHerdrSessionClient(session string) herdrClient {
+	if session == "" || session == "default" {
+		return herdr.NewClient()
+	}
+	return herdr.NewSessionClient(session)
+}
 
-func acquireTaskWorkspace(client herdrClient, worktreePath, taskID, projectName string) (herdr.Workspace, herdr.Tab, herdr.Pane, func() error, error) {
-	label := herdrWorkspaceLabel(projectName)
+func (r *Runtime) herdrClient(session string) herdrClient {
+	if r.deps.herdrFor != nil {
+		return r.deps.herdrFor(session)
+	}
+	if r.deps.herdr != nil {
+		return r.deps.herdr()
+	}
+	return newHerdrSessionClient(session)
+}
+
+func herdrWorkspaceLabelForSession(session, projectName string) string {
+	if session == "" || session == "default" {
+		return herdr.LegacyWorkspaceLabel(projectName)
+	}
+	return herdr.WorkspaceLabel(strings.TrimPrefix(session, "hand-"), projectName)
+}
+
+func acquireTaskWorkspace(client herdrClient, worktreePath, taskID, projectName, session string) (herdr.Workspace, herdr.Tab, herdr.Pane, func() error, error) {
+	label := herdrWorkspaceLabelForSession(session, projectName)
 	workspace, found, err := client.FindWorkspaceByLabel(label)
 	createdWorkspace := false
 	var rootTab herdr.Tab
@@ -139,14 +164,32 @@ func observeHerdrOwnership(client herdrClient, expected state.Herdr, taskID, pro
 	if expected.WorkspaceID == "" && expected.TabID == "" && expected.PaneID == "" {
 		return herdrObservation{State: herdrOwnershipUnobserved}, nil
 	}
-	workspace, found, err := client.FindWorkspaceByLabel(herdrWorkspaceLabel(projectName))
+	label := herdrWorkspaceLabelForSession(expected.Session, projectName)
+	var workspace herdr.Workspace
+	var found bool
+	var err error
+	if expected.Session == "" || expected.Session == "default" {
+		workspace, found, err = client.FindWorkspaceByLabel(label)
+		if err == nil && !found {
+			var workspaces []herdr.Workspace
+			workspaces, err = client.WorkspaceList()
+			for _, candidate := range workspaces {
+				if candidate.WorkspaceID == expected.WorkspaceID {
+					workspace, found = candidate, true
+					break
+				}
+			}
+		}
+	} else {
+		workspace, found, err = client.FindWorkspaceByLabel(label)
+	}
 	if err != nil {
 		return herdrObservation{}, fmt.Errorf("find Herdr workspace: %w", err)
 	}
 	if !found {
 		return herdrObservation{State: herdrOwnershipAbsent}, nil
 	}
-	if workspace.WorkspaceID != expected.WorkspaceID || workspace.Label != herdrWorkspaceLabel(projectName) {
+	if workspace.WorkspaceID != expected.WorkspaceID || workspace.Label != label {
 		return herdrObservation{State: herdrOwnershipMismatch}, nil
 	}
 	tabs, err := client.TabList(workspace.WorkspaceID)

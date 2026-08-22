@@ -9,6 +9,7 @@ import (
 	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
 )
@@ -42,6 +43,7 @@ type worktreeDependencies struct {
 type dependencies struct {
 	now               func() time.Time
 	herdr             func() herdrClient
+	herdrFor          func(string) herdrClient
 	worktree          worktreeDependencies
 	projectBaseCommit func(string) (string, error)
 	buildHarness      func(string, harness.Options) (string, error)
@@ -55,7 +57,11 @@ type dependencies struct {
 
 type Runtime struct{ deps dependencies }
 
-func New() *Runtime { return &Runtime{deps: defaultDependencies()} }
+func New() *Runtime {
+	deps := defaultDependencies()
+	deps.herdrFor = newHerdrSessionClient
+	return &Runtime{deps: deps}
+}
 
 func defaultDependencies() dependencies {
 	return dependencies{
@@ -98,7 +104,11 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	lease := worktree.Lease{Path: req.attempt.Worktree, ID: req.attempt.LeaseID}
 	var err error
 	if lease.Path == "" {
-		lease, err = r.deps.worktree.get(req.clonePath, "hand:"+req.attempt.TaskID)
+		fleetID, err := state.FleetID(req.home)
+		if err != nil {
+			return "", fmt.Errorf("read Fleet identity for Treehouse lease holder: %w", err)
+		}
+		lease, err = r.deps.worktree.get(req.clonePath, "hand:"+fleetID+":"+req.attempt.TaskID)
 		if err != nil {
 			return "", fmt.Errorf("acquire treehouse worktree: %w", err)
 		}
@@ -155,8 +165,16 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		}
 	}
 
-	client := r.deps.herdr()
-	workspace, tab, pane, rollback, err := acquireTaskWorkspace(client, worktreePath, req.attempt.TaskID, req.projectName)
+	session := req.attempt.Herdr.Session
+	if session == "" {
+		fleetID, err := state.FleetID(req.home)
+		if err != nil {
+			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("read Fleet identity for Herdr session: %w", err))
+		}
+		session = herdr.SessionName(fleetID)
+	}
+	client := r.herdrClient(session)
+	workspace, tab, pane, rollback, err := acquireTaskWorkspace(client, worktreePath, req.attempt.TaskID, req.projectName, session)
 	if err != nil {
 		return "", r.failProvision(req, lease, nil, false, err)
 	}
@@ -170,7 +188,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		startedAt = r.deps.now().Format(time.RFC3339)
 	}
 	if err := state.RecordAttemptHerdr(req.home, req.attempt.TaskID, req.attempt.ID, state.Herdr{
-		Session: "default", WorkspaceID: workspace.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID,
+		Session: session, WorkspaceID: workspace.WorkspaceID, TabID: tab.TabID, PaneID: pane.PaneID,
 	}, startedAt); err != nil {
 		return fail(fmt.Errorf("record Herdr ownership: %w", err))
 	}

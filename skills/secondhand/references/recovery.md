@@ -7,6 +7,12 @@ so - `unknown`, `needs-repair`, or an explicit unprovable condition - rather tha
 best case. Read that signal as exactly what it is, and do not resolve it with an assumption of
 your own either.
 
+### Duplicate Fleet identity
+
+`hand fleet` reports a duplicate when the same authoritative Fleet identity is valid at more than one registered home.
+Do not delete a locator, re-key a database, or choose a home by path as a shortcut.
+Runtime and mutation commands fail closed until the operator has resolved the copied-home evidence and rerun `hand fleet`.
+
 ## `hand status`'s repair fields
 
 A task's `repair`, `repair_code`, `repair_attempt`, `repair_reason`, and `repair_observed_at`
