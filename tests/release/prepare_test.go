@@ -413,7 +413,8 @@ func writeExecutable(t *testing.T, path, contents string) {
 func envWithPath(path string, extra ...string) []string {
 	env := make([]string, 0, len(os.Environ())+len(extra)+1)
 	for _, entry := range os.Environ() {
-		if strings.HasPrefix(entry, "PATH=") {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.EqualFold(name, "PATH") {
 			continue
 		}
 		env = append(env, entry)
