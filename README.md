@@ -241,7 +241,7 @@ It is never derived from the path, project names, or the current machine.
 
 One OS user may have multiple independent Fleet homes.
 `hand fleet` lists homes discovered through the user-local `~/.secondhand/registry.db` registry, including missing homes, identity mismatches, and duplicate copied identities.
-The registry is discovery metadata rather than Fleet authority, so a missing registry is a warning and does not become a global active-Fleet switch.
+The registry is discovery metadata rather than Fleet authority, so a missing registry leaves discovery empty and does not become a global active-Fleet switch.
 
 Copied Fleet databases retain their identity by design.
 When the registry can prove that one identity is valid at more than one home, runtime and mutating commands fail closed until the duplicate is resolved by the operator.

@@ -155,7 +155,7 @@ Repeated bootstrap runs are safe:
 | already healthy | reports ready, mutates nothing |
 
 The registry is discovery metadata, not a second source of Fleet state.
-Deleting or temporarily losing it does not change a Fleet identity; rerun `hand init` in each known home to register it again.
+Deleting or temporarily losing it does not change a Fleet identity; discovery remains empty until `hand init` registers each known home again.
 
 A partial failure is never reported as success.
 If a dependency install fails or `hand init`/`hand doctor` reports a blocker, bootstrap exits non-zero with the exact recovery command - typically resolving the reported blocker, then rerunning `hand doctor` or the bootstrap script itself.
