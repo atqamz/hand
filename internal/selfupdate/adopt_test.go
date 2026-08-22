@@ -12,6 +12,7 @@ import (
 )
 
 func TestAdoptInstallsAnExactDirectBuildIntoAnEmptyTarget(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	want := BuildInfo{Version: "1.2.3", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}
 	source := writeIdentityExecutable(t, want, "source")
 	target := testHandPath(filepath.Join(t.TempDir(), "bin"))
@@ -78,17 +79,21 @@ func TestAdoptRefusesAStagedIdentityMismatchBeforeMutation(t *testing.T) {
 	source := writeIdentityExecutable(t, BuildInfo{Version: "1.2.3", Channel: ChannelStable, Commit: edgeTestCommit, Distribution: DistributionGitHub}, "wrong-source")
 	target := testHandPath(t.TempDir())
 	writeIdentityExecutableAt(t, target, want, "existing-target")
-
-	_, err := Adopt(context.Background(), source, target, want)
-	if err == nil || !strings.Contains(err.Error(), "build identity mismatch") {
-		t.Fatalf("Adopt() error = %v, want staged identity mismatch", err)
-	}
-	content, err := os.ReadFile(target)
+	before, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), "existing-target") {
-		t.Fatalf("target changed after staged identity refusal: %q", content)
+
+	_, err = Adopt(context.Background(), source, target, want)
+	if err == nil || !strings.Contains(err.Error(), "build identity mismatch") {
+		t.Fatalf("Adopt() error = %v, want staged identity mismatch", err)
+	}
+	after, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("target changed after staged identity refusal")
 	}
 }
 

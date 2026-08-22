@@ -14,6 +14,7 @@ import (
 )
 
 func TestAdoptCommandInstallsTheVerifiedSourceWithoutFleetState(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	want := selfupdate.BuildInfo{
 		Version:      "1.2.3",
 		Channel:      selfupdate.ChannelStable,
