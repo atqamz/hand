@@ -112,20 +112,11 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	}
 
 	next := classifyNextAction(cfg, len(projects), backlog, views, holds)
-	oriented, err := buildSessionOrientation(cmd.Context(), fleetHome, views, next, orientation.MonitorStateUnknown, "", registryWarnings)
+	monitorState, monitorReason, err := readOnlyMonitorState(fleetHome, monitorTargetCount(views))
 	if err != nil {
 		return err
 	}
-	ensure, err := watcher.Ensure(cmd.Context(), watcher.Config{Home: fleetHome}, sessionTargets(oriented.FleetID, views))
-	if err != nil {
-		return err
-	}
-	views, holds, err = fleetViews(cmd, fleetHome, client, true)
-	if err != nil {
-		return err
-	}
-	next = classifyNextAction(cfg, len(projects), backlog, views, holds)
-	oriented, err = buildSessionOrientation(cmd.Context(), fleetHome, views, next, ensure.State, ensure.Reason, registryWarnings)
+	oriented, err := buildSessionOrientation(cmd.Context(), fleetHome, views, next, monitorState, monitorReason, registryWarnings)
 	if err != nil {
 		return err
 	}
@@ -207,6 +198,30 @@ func sessionTargets(fleetID string, views []taskView) []watcher.TargetBinding {
 		targets = append(targets, watcher.TargetBinding{TaskID: view.task.ID, Target: target})
 	}
 	return targets
+}
+
+func monitorTargetCount(views []taskView) int {
+	count := 0
+	for _, view := range views {
+		if monitorableView(view) {
+			count++
+		}
+	}
+	return count
+}
+
+func readOnlyMonitorState(fleetHome string, targetCount int) (orientation.MonitorState, string, error) {
+	attached, err := watcher.IsAttached(fleetHome)
+	if err != nil {
+		return orientation.MonitorStateUnknown, "watcher ownership is unknown: " + err.Error(), nil
+	}
+	if attached {
+		return orientation.MonitorStateAlreadyArmed, "a watcher already owns this Fleet home", nil
+	}
+	if targetCount == 0 {
+		return orientation.MonitorStateRearmed, "no monitor targets require a bounded arm", nil
+	}
+	return orientation.MonitorStateUnknown, "run `hand watch --until-event` to establish monitoring", nil
 }
 
 func monitorableView(view taskView) bool {
