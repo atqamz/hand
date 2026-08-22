@@ -103,7 +103,7 @@ cat > "$output/release-manifest.json.tmp" <<EOF
 EOF
 mv "$output/release-manifest.json.tmp" "$output/release-manifest.json"
 
-(cd "$output" && sha256sum \
+(cd "$output" && sha256sum --text \
   hand-linux-amd64.tar.gz \
   hand-linux-arm64.tar.gz \
   hand-darwin-amd64.tar.gz \
