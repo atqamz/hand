@@ -166,6 +166,7 @@ func runtimeUnknown(v taskView) bool {
 	return v.attempt != nil &&
 		v.attempt.Lifecycle == state.AttemptRunning &&
 		v.execution().Herdr.PaneID != "" &&
+		!v.unreachable &&
 		v.agentState == string(herdr.StatusUnknown)
 }
 

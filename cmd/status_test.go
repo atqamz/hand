@@ -892,6 +892,9 @@ func TestStatusFleetFlagsUnreachablePaneAndCountsAttention(t *testing.T) {
 	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "unreachable") {
 		t.Fatalf("flags = %v, want unreachable", got)
 	}
+	if got := fleetFlags(t, out.String(), "task-1"); slices.Contains(got, "runtime-unknown") {
+		t.Fatalf("flags = %v, want unreachable without runtime-unknown", got)
+	}
 }
 
 // atqamz/hand#268's disagreement 2: KindParked existed only in hand watch, and atqamz/hand#32's own

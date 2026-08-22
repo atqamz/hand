@@ -116,7 +116,7 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	if err != nil {
 		return err
 	}
-	ensure, err := watcher.Ensure(cmd.Context(), watcher.Config{Home: fleetHome}, sessionTargets(oriented, views))
+	ensure, err := watcher.Ensure(cmd.Context(), watcher.Config{Home: fleetHome}, sessionTargets(oriented.FleetID, views))
 	if err != nil {
 		return err
 	}
@@ -171,6 +171,9 @@ func buildSessionOrientation(ctx context.Context, fleetHome string, views []task
 			}
 			evidence.Work = append(evidence.Work, orientation.WorkEvidence{ID: view.task.ID, Kind: "task", State: view.agentState, Reported: view.reportedState})
 			for _, subject := range attention.Derive(taskAttentionEvidence(view)) {
+				if !subject.Actionable {
+					continue
+				}
 				evidence.Actionable = append(evidence.Actionable, orientation.ActionableEvidence{
 					TargetID: view.task.ID, TargetKind: "task", Generation: targetEvidence.Generation,
 					Kind: subject.Kind, Reason: subject.Reason, Provenance: subject.Provenance,
@@ -194,19 +197,14 @@ func buildSessionOrientation(ctx context.Context, fleetHome string, views []task
 	return provider.Orientation(ctx)
 }
 
-func sessionTargets(result orientation.SupervisorOrientation, views []taskView) []watcher.TargetBinding {
-	byID := make(map[string]orientation.MonitorTarget, len(result.Monitors))
-	for _, target := range result.Monitors {
-		byID[target.ID] = target
-	}
+func sessionTargets(fleetID string, views []taskView) []watcher.TargetBinding {
 	targets := make([]watcher.TargetBinding, 0, len(views))
 	for _, view := range views {
 		if !monitorableView(view) {
 			continue
 		}
-		if target, ok := byID[orientation.TargetFor(result.FleetID, orientation.TargetEvidence{ID: view.task.ID, Kind: "task"}).ID]; ok {
-			targets = append(targets, watcher.TargetBinding{TaskID: view.task.ID, Target: target})
-		}
+		target := orientation.TaskTarget(fleetID, taskTargetFacts(view))
+		targets = append(targets, watcher.TargetBinding{TaskID: view.task.ID, Target: target})
 	}
 	return targets
 }

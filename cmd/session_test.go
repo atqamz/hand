@@ -19,9 +19,11 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
 func setupSessionHome(t *testing.T) string {
@@ -119,6 +121,27 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 	}
 	if strings.Contains(out, "private implementation body") {
 		t.Fatalf("out = %q, want indented backlog bodies omitted", out)
+	}
+}
+
+func TestSessionTargetsIncludesEveryRunningTaskBeyondOrientationBound(t *testing.T) {
+	views := make([]taskView, 65)
+	for i := range views {
+		views[i] = taskView{
+			task:    state.Task{ID: fmt.Sprintf("task-%02d", i), Lifecycle: state.TaskOpen},
+			attempt: &state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "pane"}},
+		}
+	}
+
+	targets := sessionTargets("fleet-1", views)
+	if len(targets) != len(views) {
+		t.Fatalf("targets = %d, want %d", len(targets), len(views))
+	}
+	for i, target := range targets {
+		want := orientation.TaskTarget("fleet-1", taskTargetFacts(views[i]))
+		if target.Target != want || target.TaskID != views[i].task.ID {
+			t.Fatalf("target %d = %#v, want %#v", i, target, watcher.TargetBinding{TaskID: views[i].task.ID, Target: want})
+		}
 	}
 }
 
