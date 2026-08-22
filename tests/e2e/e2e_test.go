@@ -60,7 +60,7 @@ func TestMain(m *testing.M) {
 	// go test's result cache is keyed on this package's own inputs, not on this nested go build, so changing
 	// production code alone will not invalidate a cached e2e run - pass -count=1 when checking red/green
 	// behavior after a production-code-only edit.
-	build := exec.Command("go", "build", "-tags", "e2e", "-o", handBin, ".")
+	build := exec.Command("go", "build", "-tags", "e2e,test", "-o", handBin, ".")
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build hand: %v: %s\n", err, out)

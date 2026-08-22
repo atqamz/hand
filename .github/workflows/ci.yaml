@@ -48,7 +48,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Test
-        run: go test -race ./...
+        run: go test -tags=test -race ./...
       - name: Build
         run: go build -o hand .
 
@@ -62,7 +62,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: End-to-end
-        run: go test -tags=e2e -timeout=10m ./tests/e2e/...
+        run: go test -tags=e2e,test -timeout=10m ./tests/e2e/...
 
   e2e-windows:
     name: E2E (windows-latest, bootstrap.ps1)
@@ -74,7 +74,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: End-to-end (bootstrap.ps1)
-        run: go test -tags=e2e -timeout=10m -run "^TestBootstrapPS1" ./tests/e2e/...
+        run: go test -tags=e2e,test -timeout=10m -run "^TestBootstrapPS1" ./tests/e2e/...
 
   e2e-macos:
     name: E2E (macos-latest, bootstrap.sh)
@@ -86,7 +86,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: End-to-end (bootstrap.sh)
-        run: go test -tags=e2e -timeout=10m -run "^TestBootstrap" ./tests/e2e/...
+        run: go test -tags=e2e,test -timeout=10m -run "^TestBootstrap" ./tests/e2e/...
 
   contract:
     name: Contract

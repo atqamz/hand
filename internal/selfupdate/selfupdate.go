@@ -282,6 +282,7 @@ func githubAPI(ctx context.Context, repo, suffix string, result any) error {
 }
 
 func downloadGitHubAsset(ctx context.Context, rawURL, path string) error {
+	const maxAssetSize = 2 << 30
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return fmt.Errorf("create release asset request: %w", err)
@@ -299,17 +300,24 @@ func downloadGitHubAsset(ctx context.Context, rawURL, path string) error {
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("download release asset: HTTP %s", response.Status)
 	}
+	if response.ContentLength > maxAssetSize {
+		return fmt.Errorf("download release asset is too large: %d bytes", response.ContentLength)
+	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("create release asset %s: %w", filepath.Base(path), err)
 	}
-	_, copyErr := io.Copy(file, response.Body)
+	limited := io.LimitReader(response.Body, maxAssetSize+1)
+	n, copyErr := io.Copy(file, limited)
 	closeErr := file.Close()
 	if copyErr != nil {
 		return fmt.Errorf("write release asset %s: %w", filepath.Base(path), copyErr)
 	}
 	if closeErr != nil {
 		return fmt.Errorf("close release asset %s: %w", filepath.Base(path), closeErr)
+	}
+	if n > maxAssetSize {
+		return fmt.Errorf("download release asset exceeds %d bytes", maxAssetSize)
 	}
 	return nil
 }

@@ -75,7 +75,7 @@ func (s ProcessSpec) Output(ctx context.Context) ([]byte, error) {
 }
 
 func RunLegacyForTests(ctx context.Context, name, dir string, args ...string) ([]byte, []byte, error) {
-	if !strings.HasSuffix(os.Args[0], ".test") {
+	if !legacyFallbackAllowed {
 		return nil, nil, errors.New("legacy PATH execution is available only to test binaries")
 	}
 	cmd := exec.CommandContext(ctx, name, args...)

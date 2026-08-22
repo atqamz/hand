@@ -10,7 +10,7 @@ build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" .
 
 test:
-	go test -race ./...
+	go test -tags=test -race ./...
 
 fmt:
 	gofmt -w .
@@ -22,7 +22,7 @@ lint:
 	go run ./tools/commentlint .
 
 e2e:
-	go test -tags=e2e -timeout=10m ./tests/e2e/...
+	go test -tags=e2e,test -timeout=10m ./tests/e2e/...
 
 contract:
 	go test -tags=contract -count=1 -timeout=10m ./tests/contract/...
