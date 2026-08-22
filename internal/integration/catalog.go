@@ -71,7 +71,7 @@ func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, e
 	}
 	path, err := DefaultStore().Resolve(id)
 	if err != nil {
-		if strings.HasSuffix(os.Args[0], ".test") {
+		if legacyCapabilityFallback {
 			cmd := exec.CommandContext(ctx, capability.Executable, args...)
 			cmd.Dir = dir
 			var stdout, stderr bytes.Buffer

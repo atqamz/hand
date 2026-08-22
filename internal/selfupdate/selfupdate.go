@@ -303,10 +303,12 @@ func downloadGitHubAsset(ctx context.Context, rawURL, path string) error {
 	if response.ContentLength > maxAssetSize {
 		return fmt.Errorf("download release asset is too large: %d bytes", response.ContentLength)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	file, err := os.CreateTemp(filepath.Dir(path), ".hand-release-*")
 	if err != nil {
 		return fmt.Errorf("create release asset %s: %w", filepath.Base(path), err)
 	}
+	tempPath := file.Name()
+	defer func() { _ = os.Remove(tempPath) }()
 	limited := io.LimitReader(response.Body, maxAssetSize+1)
 	n, copyErr := io.Copy(file, limited)
 	closeErr := file.Close()
@@ -318,6 +320,9 @@ func downloadGitHubAsset(ctx context.Context, rawURL, path string) error {
 	}
 	if n > maxAssetSize {
 		return fmt.Errorf("download release asset exceeds %d bytes", maxAssetSize)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("publish release asset %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }

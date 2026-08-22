@@ -43,28 +43,28 @@ func NewClientAt(path string, env []string) (*Client, error) {
 func NewManagedClient() *Client {
 	store, err := toolchain.DefaultStore()
 	if err != nil {
-		if strings.HasSuffix(os.Args[0], ".test") {
+		if legacyHerdrFallback {
 			return NewClient()
 		}
 		return &Client{initErr: err}
 	}
 	runtime, err := store.Selected("", "")
 	if err != nil {
-		if strings.HasSuffix(os.Args[0], ".test") {
+		if legacyHerdrFallback {
 			return NewClient()
 		}
 		return &Client{initErr: err}
 	}
 	env, err := toolchain.ManagedEnvironment(os.Environ(), runtime.GitBin)
 	if err != nil {
-		if strings.HasSuffix(os.Args[0], ".test") {
+		if legacyHerdrFallback {
 			return NewClient()
 		}
 		return &Client{initErr: err}
 	}
 	client, err := NewClientAt(runtime.HerdrPath, env)
 	if err != nil {
-		if strings.HasSuffix(os.Args[0], ".test") {
+		if legacyHerdrFallback {
 			return NewClient()
 		}
 		return &Client{initErr: err}

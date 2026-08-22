@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -177,7 +176,7 @@ func doctorRuntimeStatus() (toolchain.Status, error) {
 }
 
 func legacyDoctorCompatibility() bool {
-	return strings.HasSuffix(os.Args[0], ".test") && os.Getenv("SECONDHAND_HOME") == ""
+	return legacyDoctorCompat
 }
 
 func doctorFindings(fleetHome string) ([]doctorFinding, error) {
