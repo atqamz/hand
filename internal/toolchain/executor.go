@@ -24,14 +24,14 @@ type ProcessSpec struct {
 }
 
 func NewProcessSpec(path string, args []string, env []string) (ProcessSpec, error) {
-	if err := requireAbsolute(path); err != nil {
+	if err := requireExecutable(path); err != nil {
 		return ProcessSpec{}, err
 	}
 	return ProcessSpec{Path: path, Args: append([]string(nil), args...), Env: append([]string(nil), env...)}, nil
 }
 
 func (s ProcessSpec) Command(ctx context.Context) (*exec.Cmd, error) {
-	if err := requireAbsolute(s.Path); err != nil {
+	if err := requireExecutable(s.Path); err != nil {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, s.Path, s.Args...)
@@ -137,12 +137,19 @@ func (r Runtime) Process(path string, args ...string) (ProcessSpec, error) {
 	return NewProcessSpec(path, args, env)
 }
 
-func requireAbsolute(path string) error {
-	if path == "" || !filepath.IsAbs(path) {
-		return fmt.Errorf("managed core executable %q must be an absolute path", path)
+func requireExecutable(path string) error {
+	if err := requireAbsolute(path); err != nil {
+		return err
 	}
 	if runtime.GOOS == "windows" && !strings.ContainsAny(filepath.Base(path), ".") {
 		return fmt.Errorf("managed Windows executable %q must include its suffix", path)
+	}
+	return nil
+}
+
+func requireAbsolute(path string) error {
+	if path == "" || !filepath.IsAbs(path) {
+		return fmt.Errorf("managed core executable %q must be an absolute path", path)
 	}
 	return nil
 }
