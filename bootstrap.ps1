@@ -135,6 +135,19 @@ function Ensure-PrivateRuntime {
         & hand runtime status
         return
     }
+    $runtimeStatus = (& $handCommand runtime status 2>$null | Out-String)
+    if ($runtimeStatus -match 'ready: true') {
+        return
+    }
+    if (-not $Yes -and -not $interactive) {
+        Fail "private runtime is not installed, and bootstrap is not running interactively without -Yes: refusing to install it"
+    }
+    if (-not $Yes) {
+        $reply = Read-Host "private runtime is not installed. Install it now? [y/N]"
+        if ($reply -notmatch '^(y|yes)$') {
+            Fail "private runtime install declined; cannot continue"
+        }
+    }
     Write-BootstrapLog "ensuring private pinned Git, Treehouse, and Herdr runtime"
     & hand runtime ensure
     if ($LASTEXITCODE -ne 0) {

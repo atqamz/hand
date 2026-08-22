@@ -166,6 +166,21 @@ ensure_private_runtime() {
     "$hand_command" runtime status || true
     return 0
   fi
+  runtime_status=$($hand_command runtime status 2>/dev/null || true)
+  case "$runtime_status" in
+    *"ready: true"*) return 0 ;;
+  esac
+  if [ "$consent_yes" -eq 0 ] && [ "$interactive" -eq 0 ]; then
+    die "private runtime is not installed, and bootstrap is not running interactively without --yes: refusing to install it"
+  fi
+  if [ "$consent_yes" -eq 0 ]; then
+    printf 'private runtime is not installed. Install it now? [y/N] '
+    read -r reply || reply=""
+    case "$reply" in
+      y|Y|yes|YES) ;;
+      *) die "private runtime install declined; cannot continue" ;;
+    esac
+  fi
   log "ensuring private pinned Git, Treehouse, and Herdr runtime"
   "$hand_command" runtime ensure || {
     log "private runtime is not ready; repair with: hand runtime ensure"
