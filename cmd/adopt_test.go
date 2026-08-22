@@ -14,7 +14,6 @@ import (
 )
 
 func TestAdoptCommandInstallsTheVerifiedSourceWithoutFleetState(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
 	want := selfupdate.BuildInfo{
 		Version:      "1.2.3",
 		Channel:      selfupdate.ChannelStable,
@@ -22,6 +21,7 @@ func TestAdoptCommandInstallsTheVerifiedSourceWithoutFleetState(t *testing.T) {
 		Distribution: selfupdate.DistributionGitHub,
 	}
 	source := writeAdoptIdentityExecutable(t, want)
+	t.Setenv("PATH", t.TempDir())
 	target := filepath.Join(t.TempDir(), "bin", "hand")
 	if runtime.GOOS == "windows" {
 		target += ".exe"

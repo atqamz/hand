@@ -63,7 +63,7 @@ func replaceExecutableWithRollback(execPath, stagedPath string) (executableRepla
 			}
 			return renameFile(backupPath, execPath)
 		},
-		commit: func() error { return os.Remove(backupPath) },
+		commit: func() error { return nil },
 	}, nil
 }
 

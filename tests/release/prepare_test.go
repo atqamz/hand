@@ -355,7 +355,7 @@ func executeWorkflowBuild(t *testing.T, step workflowStepDef, goos, goarch strin
 	run := substituteWorkflowExpressions(step.Run, goos, goarch)
 	cmd := exec.Command("sh", "-eu", "-c", run)
 	cmd.Dir = t.TempDir()
-	cmd.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "GOOS="+goos, "GOARCH="+goarch)
+	cmd.Env = envWithPath(fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"), "GOOS="+goos, "GOARCH="+goarch)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("workflow build step failed: %v: %s", err, out)
 	}
@@ -374,7 +374,7 @@ func executeWorkflowGhStep(t *testing.T, step workflowStepDef, action string) {
 	fakeBin := t.TempDir()
 	writeExecutable(t, filepath.Join(fakeBin, "gh"), "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\ncase \"$*\" in\n  *'--jq .isDraft'*) printf 'true\\n' ;;\n  *' --json assets '*) printf 'hand-linux-amd64.tar.gz\\nhand-linux-arm64.tar.gz\\nhand-darwin-amd64.tar.gz\\nhand-darwin-arm64.tar.gz\\nhand-windows-amd64.zip\\nbootstrap.sh\\nbootstrap.ps1\\nchecksums.txt\\n' ;;\n  *'release edit'*) : ;;\n  *) exit 1 ;;\nesac\n")
 	cmd := exec.Command("sh", "-eu", "-c", substituteWorkflowExpressions(step.Run, "", ""))
-	cmd.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "RELEASE_TAG=v1.2.3", "GH_TOKEN=test", "GITHUB_REPOSITORY=atqamz/hand")
+	cmd.Env = envWithPath(fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"), "RELEASE_TAG=v1.2.3", "GH_TOKEN=test", "GITHUB_REPOSITORY=atqamz/hand")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("workflow gh %s step failed: %v: %s", action, err, out)
 	}
@@ -401,6 +401,18 @@ func writeExecutable(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func envWithPath(path string, extra ...string) []string {
+	env := make([]string, 0, len(os.Environ())+len(extra)+1)
+	for _, entry := range os.Environ() {
+		if strings.HasPrefix(entry, "PATH=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env, append([]string{"PATH=" + path}, extra...)...)
+	return env
 }
 
 func runPrepareRelease(t *testing.T, output, tag, version, commit string) {

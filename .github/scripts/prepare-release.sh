@@ -72,17 +72,29 @@ render() {
     printf '%s\n' "prepare-release.sh: template $template has no release binding" >&2
     exit 1
   }
-  sed \
-    -e "s|@HAND_RELEASE_TAG@|$tag|g" \
-    -e "s|@HAND_RELEASE_VERSION@|$version|g" \
-    -e "s|@HAND_RELEASE_COMMIT@|$commit|g" \
-    -e "s|@HAND_RELEASE_RUNTIME_ID@|$runtime_id|g" \
-    -e "s|@HAND_RELEASE_SHA256_LINUX_AMD64@|$digest_linux_amd64|g" \
-    -e "s|@HAND_RELEASE_SHA256_LINUX_ARM64@|$digest_linux_arm64|g" \
-    -e "s|@HAND_RELEASE_SHA256_DARWIN_AMD64@|$digest_darwin_amd64|g" \
-    -e "s|@HAND_RELEASE_SHA256_DARWIN_ARM64@|$digest_darwin_arm64|g" \
-    -e "s|@HAND_RELEASE_SHA256_WINDOWS_AMD64@|$digest_windows_amd64|g" \
-    "$root/$template" > "$destination.tmp"
+  awk \
+    -v tag="$tag" \
+    -v version="$version" \
+    -v commit="$commit" \
+    -v runtime_id="$runtime_id" \
+    -v digest_linux_amd64="$digest_linux_amd64" \
+    -v digest_linux_arm64="$digest_linux_arm64" \
+    -v digest_darwin_amd64="$digest_darwin_amd64" \
+    -v digest_darwin_arm64="$digest_darwin_arm64" \
+    -v digest_windows_amd64="$digest_windows_amd64" '
+    {
+      gsub("@HAND_RELEASE_TAG@", tag)
+      gsub("@HAND_RELEASE_VERSION@", version)
+      gsub("@HAND_RELEASE_COMMIT@", commit)
+      gsub("@HAND_RELEASE_RUNTIME_ID@", runtime_id)
+      gsub("@HAND_RELEASE_SHA256_LINUX_AMD64@", digest_linux_amd64)
+      gsub("@HAND_RELEASE_SHA256_LINUX_ARM64@", digest_linux_arm64)
+      gsub("@HAND_RELEASE_SHA256_DARWIN_AMD64@", digest_darwin_amd64)
+      gsub("@HAND_RELEASE_SHA256_DARWIN_ARM64@", digest_darwin_arm64)
+      gsub("@HAND_RELEASE_SHA256_WINDOWS_AMD64@", digest_windows_amd64)
+      print
+    }
+  ' "$root/$template" > "$destination.tmp"
   if grep -q '@HAND_RELEASE_' "$destination.tmp"; then
     rm -f "$destination.tmp"
     printf '%s\n' "prepare-release.sh: unresolved release binding in $template" >&2
