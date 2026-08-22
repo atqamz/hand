@@ -119,7 +119,7 @@ func validateChannel(channel string) error {
 }
 
 func edgeCommit(ctx context.Context, repo string) (string, error) {
-	if isTestBinary() {
+	if selfUpdateTestFallback {
 		out, err := runTestGH(ctx, "api", "repos/"+repo+"/commits/edge", "--jq", ".sha")
 		if err != nil {
 			return "", fmt.Errorf("query edge commit: %w", err)

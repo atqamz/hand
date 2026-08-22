@@ -271,6 +271,9 @@ func seedPrivateRuntime(t *testing.T, home string) {
 	}
 	target, err := lock.Target("", "")
 	if err != nil {
+		if strings.Contains(err.Error(), "private Secondhand runtime does not support") {
+			t.Skipf("runtime fixture unavailable: %v", err)
+		}
 		t.Fatal(err)
 	}
 	bundle := filepath.Join(root, "runtime", "bundles", lock.RuntimeID)

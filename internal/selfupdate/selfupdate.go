@@ -41,7 +41,7 @@ func archiveBinaryName(goos string) string {
 }
 
 func latestTag(ctx context.Context, repo string) (string, error) {
-	if isTestBinary() {
+	if selfUpdateTestFallback {
 		out, err := runTestGH(ctx, "release", "view", "--repo", repo, "--json", "tagName", "--jq", ".tagName")
 		if err != nil {
 			return "", fmt.Errorf("query latest release: %w", err)
@@ -67,7 +67,7 @@ func ReleaseNotes(repo, tag string) (string, error) {
 }
 
 func releaseNotes(ctx context.Context, repo, tag string) (string, error) {
-	if isTestBinary() {
+	if selfUpdateTestFallback {
 		out, err := runTestGH(ctx, "release", "view", tag, "--repo", repo, "--json", "body", "--jq", ".body")
 		if err != nil {
 			return "", fmt.Errorf("query release notes: %w", err)
@@ -172,7 +172,7 @@ func Apply(repo, tag string) error {
 }
 
 func downloadAssets(ctx context.Context, repo, tag, dir string, patterns ...string) error {
-	if isTestBinary() {
+	if selfUpdateTestFallback {
 		args := []string{"release", "download", tag, "--repo", repo, "--dir", dir, "--clobber"}
 		for _, p := range patterns {
 			args = append(args, "--pattern", p)
@@ -325,10 +325,6 @@ func downloadGitHubAsset(ctx context.Context, rawURL, path string) error {
 		return fmt.Errorf("publish release asset %s: %w", filepath.Base(path), err)
 	}
 	return nil
-}
-
-func isTestBinary() bool {
-	return strings.HasSuffix(os.Args[0], ".test")
 }
 
 func runTestGH(ctx context.Context, args ...string) (string, error) {
