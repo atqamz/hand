@@ -56,8 +56,15 @@ for asset in \
 done
 
 sha256_asset() {
-  digest_line=$(sha256sum "$output/$1")
-  printf '%s\n' "${digest_line%% *}"
+  digest=$(sha256sum "$output/$1" | cut -d ' ' -f 1 | tr -d '\r')
+  [ "${#digest}" -eq 64 ] || {
+    printf '%s\n' "prepare-release.sh: checksum for $1 is not a 64-character digest" >&2
+    exit 1
+  }
+  case "$digest" in
+    *[!0-9a-fA-F]*) printf '%s\n' "prepare-release.sh: checksum for $1 is not hexadecimal" >&2; exit 1 ;;
+  esac
+  printf '%s\n' "$digest"
 }
 
 digest_linux_amd64=$(sha256_asset hand-linux-amd64.tar.gz)
