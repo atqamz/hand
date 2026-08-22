@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -34,6 +35,11 @@ func (db *DB) FleetID() (string, error) {
 }
 
 func FleetIDReadOnly(homeDir string) (string, error) {
+	if _, err := os.Stat(Path(homeDir)); os.IsNotExist(err) {
+		return "", ErrFleetIdentityMissing
+	} else if err != nil {
+		return "", fmt.Errorf("check %s: %w", Path(homeDir), err)
+	}
 	db, _, err := openReadOnlyForLifecycle(homeDir)
 	if err != nil {
 		return "", err
