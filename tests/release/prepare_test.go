@@ -342,25 +342,23 @@ func executeWorkflowBuild(t *testing.T, step workflowStepDef, goos, goarch strin
 	t.Helper()
 	fakeBin := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "tool.log")
-	if runtime.GOOS == "windows" {
-		writeExecutable(t, filepath.Join(fakeBin, "git.cmd"), "@echo off\necho %*>>\""+logPath+"\"\nif \"%1\"==\"rev-parse\" if \"%2\"==\"HEAD\" echo "+releaseCommit+"\n")
-		writeExecutable(t, filepath.Join(fakeBin, "go.cmd"), "@echo off\necho go %*>>\""+logPath+"\"\nif \"%1\"==\"env\" if \"%2\"==\"GOHOSTOS\" echo linux\nif \"%1\"==\"env\" if \"%2\"==\"GOHOSTARCH\" echo amd64\nif \"%1\"==\"build\" (echo fake>hand.exe)\n")
-		writeExecutable(t, filepath.Join(fakeBin, "tar.cmd"), "@echo off\n")
-		writeExecutable(t, filepath.Join(fakeBin, "zip.cmd"), "@echo off\n")
-		writeExecutable(t, filepath.Join(fakeBin, "git"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\n[ \"$1\" = rev-parse ] && [ \"$2\" = HEAD ] && printf '%s\\n' '"+releaseCommit+"'\n")
-		writeExecutable(t, filepath.Join(fakeBin, "go"), "#!/bin/sh\nset -eu\nprintf 'go %s\\n' \"$*\" >> '"+logPath+"'\ncase \"$1 $2\" in\n  'env GOHOSTOS') printf 'linux\\n' ;;\n  'env GOHOSTARCH') printf 'amd64\\n' ;;\n  build*) out=hand; while [ \"$#\" -gt 0 ]; do if [ \"$1\" = -o ]; then out=$2; shift 2; else shift; fi; done; cat > \"$out\" <<'EOF'\n#!/bin/sh\nprintf '%s\\n' 'version: 1.2.3' 'channel: stable' 'commit: "+releaseCommit+"' 'distribution: github'\nEOF\nchmod 755 \"$out\" ;;\n  *) exit 1 ;;\nesac\n")
-		writeExecutable(t, filepath.Join(fakeBin, "tar"), "#!/bin/sh\nfor arg do case \"$arg\" in *.tar.gz) : > \"$arg\" ;; esac; done\n")
-		writeExecutable(t, filepath.Join(fakeBin, "zip"), "#!/bin/sh\n: > \"$1\"\n")
-	} else {
+	if runtime.GOOS != "windows" {
 		writeExecutable(t, filepath.Join(fakeBin, "git"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\n[ \"$1\" = rev-parse ] && [ \"$2\" = HEAD ] && printf '%s\\n' '"+releaseCommit+"'\n")
 		writeExecutable(t, filepath.Join(fakeBin, "go"), "#!/bin/sh\nset -eu\nprintf 'go %s\\n' \"$*\" >> '"+logPath+"'\ncase \"$1 $2\" in\n  'env GOHOSTOS') printf 'linux\\n' ;;\n  'env GOHOSTARCH') printf 'amd64\\n' ;;\n  build*) out=hand; while [ \"$#\" -gt 0 ]; do if [ \"$1\" = -o ]; then out=$2; shift 2; else shift; fi; done; cat > \"$out\" <<'EOF'\n#!/bin/sh\nprintf '%s\\n' 'version: 1.2.3' 'channel: stable' 'commit: "+releaseCommit+"' 'distribution: github'\nEOF\nchmod 755 \"$out\" ;;\n  *) exit 1 ;;\nesac\n")
 		writeExecutable(t, filepath.Join(fakeBin, "tar"), "#!/bin/sh\nfor arg do case \"$arg\" in *.tar.gz) : > \"$arg\" ;; esac; done\n")
 		writeExecutable(t, filepath.Join(fakeBin, "zip"), "#!/bin/sh\n: > \"$1\"\n")
 	}
 	run := substituteWorkflowExpressions(step.Run, goos, goarch)
+	if runtime.GOOS == "windows" {
+		run = windowsWorkflowFixtureFunctions() + run
+	}
 	cmd := exec.Command("sh", "-eu", "-c", run)
 	cmd.Dir = t.TempDir()
-	cmd.Env = envWithPath(fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"), "GOOS="+goos, "GOARCH="+goarch)
+	extra := []string{"GOOS=" + goos, "GOARCH=" + goarch}
+	if runtime.GOOS == "windows" {
+		extra = append(extra, "HAND_WORKFLOW_LOG="+filepath.ToSlash(logPath))
+	}
+	cmd.Env = envWithPath(fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"), extra...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("workflow build step failed: %v: %s", err, out)
 	}
@@ -371,6 +369,26 @@ func executeWorkflowBuild(t *testing.T, step workflowStepDef, goos, goarch strin
 	if !strings.Contains(string(log), "main.commit="+releaseCommit) {
 		t.Fatalf("workflow build did not pass the release commit to go: %q", log)
 	}
+}
+
+func windowsWorkflowFixtureFunctions() string {
+	return "git() {\n" +
+		"  printf '%s\\n' \"$*\" >> \"$HAND_WORKFLOW_LOG\"\n" +
+		"  [ \"$1\" = rev-parse ] && [ \"$2\" = HEAD ] && printf '%s\\n' '" + releaseCommit + "'\n" +
+		"}\n" +
+		"go() {\n" +
+		"  printf 'go %s\\n' \"$*\" >> \"$HAND_WORKFLOW_LOG\"\n" +
+		"  case \"$1 $2\" in\n" +
+		"    'env GOHOSTOS') printf 'windows\\n' ;;\n" +
+		"    'env GOHOSTARCH') printf 'amd64\\n' ;;\n" +
+		"    build*) out=hand; while [ \"$#\" -gt 0 ]; do if [ \"$1\" = -o ]; then out=$2; shift 2; else shift; fi; done; : > \"$out\" ;;\n" +
+		"    *) return 1 ;;\n" +
+		"  esac\n" +
+		"}\n" +
+		"tar() {\n" +
+		"  for arg do case \"$arg\" in *.tar.gz) : > \"$arg\" ;; esac; done\n" +
+		"}\n" +
+		"zip() { : > \"$1\"; }\n"
 }
 
 func executeWorkflowGhStep(t *testing.T, step workflowStepDef, action string) {

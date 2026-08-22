@@ -56,7 +56,8 @@ for asset in \
 done
 
 sha256_asset() {
-  sha256sum "$output/$1" | awk '{print $1}'
+  digest_line=$(sha256sum "$output/$1")
+  printf '%s\n' "${digest_line%% *}"
 }
 
 digest_linux_amd64=$(sha256_asset hand-linux-amd64.tar.gz)
