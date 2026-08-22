@@ -97,13 +97,10 @@ func Resolve() (Runtime, error) {
 }
 
 func (s *Store) Status(goos, goarch string) (Status, error) {
+	targetName := currentTargetName(goos, goarch)
 	target, err := s.Lock.Target(goos, goarch)
 	if err != nil {
-		return Status{Target: goos + "/" + goarch, Reason: err.Error()}, nil
-	}
-	targetName := goos + "/" + goarch
-	if goos == "" || goarch == "" {
-		targetName = currentTargetName(goos, goarch)
+		return Status{Target: targetName, Reason: err.Error()}, nil
 	}
 	current, err := s.readCurrent()
 	if errors.Is(err, os.ErrNotExist) {

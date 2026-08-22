@@ -114,6 +114,15 @@ func (l Lock) Validate() error {
 			if len(component.Files) == 0 {
 				return fmt.Errorf("target %s component %s has no expected files", targetName, name)
 			}
+			switch component.Format {
+			case "binary":
+				if len(component.Files) != 1 {
+					return fmt.Errorf("target %s component %s binary format requires exactly one expected file", targetName, name)
+				}
+			case "tar.gz", "zip":
+			default:
+				return fmt.Errorf("target %s component %s has unsupported format %q", targetName, name, component.Format)
+			}
 			if err := validateRelativePath(component.Root, "component root"); err != nil {
 				return fmt.Errorf("target %s component %s: %w", targetName, name, err)
 			}

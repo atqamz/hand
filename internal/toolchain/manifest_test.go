@@ -41,6 +41,40 @@ func TestEmbeddedLockHasCompleteTargets(t *testing.T) {
 	}
 }
 
+func TestLockValidateRejectsUnsafeComponentFormats(t *testing.T) {
+	base, err := LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		format string
+		files  []ExpectedFile
+	}{
+		{name: "binary without exactly one file", format: "binary", files: []ExpectedFile{{Path: "git", Regular: true}, {Path: "git-extra", Regular: true}}},
+		{name: "unsupported format", format: "msi", files: []ExpectedFile{{Path: "git", Regular: true}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lock := base
+			target := lock.Targets["linux/amd64"]
+			component := target.Components["git"]
+			component.Format = test.format
+			component.Files = test.files
+			target.Components["git"] = component
+			lock.Targets["linux/amd64"] = target
+			lock.RuntimeID, err = lock.DeterministicID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := lock.Validate(); err == nil {
+				t.Fatal("unsafe component format was accepted")
+			}
+		})
+	}
+}
+
 func TestProcessSpecRequiresAbsoluteExecutable(t *testing.T) {
 	if _, err := NewProcessSpec("git", nil, nil); err == nil {
 		t.Fatal("bare executable was accepted")
