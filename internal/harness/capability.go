@@ -57,6 +57,10 @@ func SupportsSupervisor(name string) bool {
 	return name != Antigravity && IsSupported(name)
 }
 
+func IsOneShot(name string) bool {
+	return name == Antigravity
+}
+
 func Inspect(name string, probe CapabilityProbe) Capability {
 	result := Capability{Name: name, Executable: Executable(name)}
 	if !IsSupported(name) {

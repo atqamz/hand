@@ -16,6 +16,15 @@ func TestExecutableMapsAntigravityToAgy(t *testing.T) {
 	}
 }
 
+func TestIsOneShot(t *testing.T) {
+	if !IsOneShot(Antigravity) {
+		t.Fatal("IsOneShot(antigravity) = false, want true")
+	}
+	if IsOneShot(Claude) {
+		t.Fatal("IsOneShot(claude) = true, want false")
+	}
+}
+
 func TestInspectAntigravityCapabilityStates(t *testing.T) {
 	tests := []struct {
 		name       string
