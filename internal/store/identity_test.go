@@ -83,6 +83,14 @@ func TestReadOnlyLegacySchemaReportsMissingFleetIdentity(t *testing.T) {
 	}
 }
 
+func TestReadOnlyMissingDatabaseReportsMissingFleetIdentity(t *testing.T) {
+	home := t.TempDir()
+
+	if _, err := FleetIDReadOnly(home); !errors.Is(err, ErrFleetIdentityMissing) {
+		t.Fatalf("FleetIDReadOnly error = %v, want ErrFleetIdentityMissing", err)
+	}
+}
+
 func TestMigrationGeneratesFleetIdentityOnce(t *testing.T) {
 	home := t.TempDir()
 	sqlDB, err := open(Path(home))

@@ -59,7 +59,7 @@ func Preflight(home string, readOnly bool) ([]string, error) {
 		var err error
 		fleetID, err = store.FleetIDReadOnly(home)
 		if err != nil {
-			if strings.Contains(err.Error(), "no such table: fleet_identity") {
+			if errors.Is(err, store.ErrFleetIdentityMissing) {
 				return nil, nil
 			}
 			return nil, err

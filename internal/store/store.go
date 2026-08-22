@@ -465,7 +465,6 @@ func OpenReadOnly(homeDir string) (*DB, error) {
 			_ = sqlDB.Close()
 			return nil, err
 		}
-		db.empty = false
 		if _, err := sqlDB.Exec("PRAGMA query_only = 1"); err != nil {
 			_ = sqlDB.Close()
 			return nil, fmt.Errorf("set read-only state: %w", err)
