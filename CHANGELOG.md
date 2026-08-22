@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/atqamz/hand/compare/v0.6.0...v0.7.0) (2026-08-22)
+
+
+### Features
+
+* **launch:** replace shell-assembled worker launches ([#349](https://github.com/atqamz/hand/issues/349)) ([e08071b](https://github.com/atqamz/hand/commit/e08071b3b7e19be1716b8f5fb7187594ed1f6d64))
+* **orientation:** make supervisor orientation stateless and Fleet-scoped ([#350](https://github.com/atqamz/hand/issues/350)) ([ebce096](https://github.com/atqamz/hand/commit/ebce0968ae76f565d026096c77b87a0edb03131f))
+* **project:** add local Git project adoption and creation ([#334](https://github.com/atqamz/hand/issues/334)) ([42883fe](https://github.com/atqamz/hand/commit/42883fe270cf7b54350e20af79c8dca25ec23299))
+* **runtime:** add fleet identity and registry isolation ([#341](https://github.com/atqamz/hand/issues/341)) ([a3cdd3d](https://github.com/atqamz/hand/commit/a3cdd3db8a1df8d3852c18a44056e63f013f1d46))
+* **toolchain:** add private pinned core runtime ([#342](https://github.com/atqamz/hand/issues/342)) ([749d1cc](https://github.com/atqamz/hand/commit/749d1ccf9c52f7825d5608ca635722fd57c6b1a2))
+
 ## [0.6.0](https://github.com/atqamz/hand/compare/v0.5.0...v0.6.0) (2026-08-20)
 
 
