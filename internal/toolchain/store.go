@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -768,10 +767,10 @@ func safeJoin(root, name string) (string, error) {
 
 func currentTargetName(goos, goarch string) string {
 	if goos == "" {
-		goos = runtime.GOOS
+		goos, _ = targetPlatform()
 	}
 	if goarch == "" {
-		goarch = runtime.GOARCH
+		_, goarch = targetPlatform()
 	}
 	return goos + "/" + goarch
 }

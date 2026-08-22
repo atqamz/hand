@@ -180,10 +180,10 @@ func (l Lock) DeterministicID() (string, error) {
 
 func (l Lock) Target(goos, goarch string) (Target, error) {
 	if goos == "" {
-		goos = runtime.GOOS
+		goos, _ = targetPlatform()
 	}
 	if goarch == "" {
-		goarch = runtime.GOARCH
+		_, goarch = targetPlatform()
 	}
 	key := goos + "/" + goarch
 	target, ok := l.Targets[key]
