@@ -68,6 +68,7 @@ jobs:
         run: |
           commit=$(git rev-parse HEAD)
           go build -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }} -X main.channel=stable -X main.commit=${commit} -X main.distribution=github" -o hand .
+          test "$(./hand --version)" = "v${{ needs.release-please.outputs.version }}"
           tar czf hand-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz hand
       - name: Build (windows)
         if: matrix.goos == 'windows'
@@ -90,12 +91,21 @@ jobs:
     needs: [release-please, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - name: Generate checksums
-        run: sha256sum hand-*.tar.gz hand-*.zip > checksums.txt
+      - name: Prepare release-bound adoption assets
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -eu
+          RELEASE_COMMIT=$(git rev-parse HEAD)
+          .github/scripts/prepare-release.sh "$RELEASE_TAG" "$RELEASE_VERSION" "$RELEASE_COMMIT" .
       - name: Upload to release
         uses: softprops/action-gh-release@v3
         with:
@@ -103,4 +113,7 @@ jobs:
           files: |
             hand-*.tar.gz
             hand-*.zip
+            bootstrap.sh
+            bootstrap.ps1
+            release-manifest.json
             checksums.txt

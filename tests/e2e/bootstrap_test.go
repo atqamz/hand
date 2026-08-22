@@ -3,7 +3,12 @@
 package e2e
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,9 +33,11 @@ var bootstrapScript = func() string {
 func runBootstrap(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
 	seedPrivateRuntime(t, home)
-	cmd := exec.Command("sh", append([]string{bootstrapScript}, args...)...)
+	cmd := exec.Command("sh", append([]string{"-s", "--"}, args...)...)
+	cmd.Dir = home
 	env := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb", "SECONDHAND_HOME=" + filepath.Join(home, ".secondhand")}, extraEnv...)
 	cmd.Env = env
+	cmd.Stdin = strings.NewReader(boundBootstrap(t, bootstrapScript))
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -45,6 +52,86 @@ func runBootstrap(t *testing.T, home string, extraEnv []string, args ...string) 
 	t.Logf("$ bootstrap.sh %s\n  exit %d\n  stdout: %s\n  stderr: %s",
 		strings.Join(args, " "), code, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()))
 	return invocation{code: code, stdout: stdout.String(), stderr: stderr.String()}
+}
+
+func boundBootstrap(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.NewReplacer(
+		"@HAND_RELEASE_TAG@", "v1.2.3",
+		"@HAND_RELEASE_VERSION@", "1.2.3",
+		"@HAND_RELEASE_COMMIT@", "0123456789abcdef0123456789abcdef01234567",
+		"@HAND_RELEASE_RUNTIME_ID@", "rd2343fe130ff5ba2",
+	).Replace(string(data))
+}
+
+func writeHandArchive(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	gzipWriter := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gzipWriter)
+	data, err := os.ReadFile(handBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "hand", Mode: 0o755, Size: int64(len(data))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tarWriter.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func sha256Path(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func installReleaseCurl(t *testing.T, dir, archive, checksums, logPath string, interrupted bool) {
+	t.Helper()
+	archiveCopy := fmt.Sprintf("cp %s \"$out\"", shellSingleQuote(archive))
+	if interrupted {
+		archiveCopy = fmt.Sprintf("dd if=%s of=\"$out\" bs=1 count=8 2>/dev/null; exit 1", shellSingleQuote(archive))
+	}
+	body := fmt.Sprintf(`set -eu
+out=""
+url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift 2 ;;
+    *) url=$1; shift ;;
+  esac
+done
+printf '%%s\n' "$url" >> %s
+case "$url" in
+  https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz)
+    %s
+    ;;
+  https://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt)
+    cp %s "$out"
+    ;;
+  *) echo "unexpected release URL: $url" >&2; exit 1 ;;
+esac
+`, shellSingleQuote(logPath), archiveCopy, shellSingleQuote(checksums))
+	writeFakeBin(t, dir, "curl", body)
 }
 
 // Puts a symlink to the already-built hand binary on dir, the way a real install.sh would leave
@@ -282,5 +369,102 @@ func TestBootstrapReconcilesAnExistingFleetIdempotently(t *testing.T) {
 	}
 	if !strings.Contains(second.stderr, "Secondhand is ready.") {
 		t.Fatalf("second run stderr = %q, want a ready fleet on a repeat run", second.stderr)
+	}
+}
+
+func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
+	dir := binDir(t)
+	installFakeHarness(t, dir, "claude")
+	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+	writeHandArchive(t, archive)
+	checksums := filepath.Join(t.TempDir(), "checksums.txt")
+	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "curl.log")
+	installReleaseCurl(t, dir, archive, checksums, logPath, false)
+
+	home := filepath.Join(t.TempDir(), "unicode-home-é")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fleet := filepath.Join(home, "secondhand fleet 日本")
+	got := runBootstrap(t, home, nil, "--fleet", fleet)
+	if got.code != 0 {
+		t.Fatalf("exit = %d (stderr %q)", got.code, got.stderr)
+	}
+	if !isFleetHome(fleet) {
+		t.Fatalf("%s was not initialized", fleet)
+	}
+	urls, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt\n"
+	if string(urls) != wantURLs {
+		t.Fatalf("curl URLs = %q, want %q", urls, wantURLs)
+	}
+}
+
+func TestBootstrapRejectsAnInterruptedOrMismatchedReleaseDownload(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		interrupted bool
+		checksums   string
+		want        string
+	}{
+		{name: "interrupted", interrupted: true, checksums: "unused", want: "download failed"},
+		{name: "checksum mismatch", checksums: strings.Repeat("0", 64) + "  hand-linux-amd64.tar.gz\n", want: "checksum mismatch"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := binDir(t)
+			archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+			writeHandArchive(t, archive)
+			checksums := filepath.Join(t.TempDir(), "checksums.txt")
+			checksumData := test.checksums
+			if checksumData == "unused" {
+				checksumData = sha256Path(t, archive) + "  hand-linux-amd64.tar.gz\n"
+			}
+			if err := os.WriteFile(checksums, []byte(checksumData), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			logPath := filepath.Join(t.TempDir(), "curl.log")
+			installReleaseCurl(t, dir, archive, checksums, logPath, test.interrupted)
+			home := t.TempDir()
+			got := runBootstrap(t, home, nil, "--fleet", filepath.Join(home, "fleet"))
+			if got.code == 0 || !strings.Contains(got.stderr, test.want) {
+				t.Fatalf("exit = %d, stderr = %q, want %q", got.code, got.stderr, test.want)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".local", "bin", "hand")); !os.IsNotExist(err) {
+				t.Fatalf("failed download left an installed hand at %s", filepath.Join(home, ".local", "bin", "hand"))
+			}
+		})
+	}
+}
+
+func TestBootstrapReportsAnInstallTargetFailureWithoutUsingSudo(t *testing.T) {
+	dir := binDir(t)
+	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+	writeHandArchive(t, archive)
+	checksums := filepath.Join(t.TempDir(), "checksums.txt")
+	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "curl.log")
+	installReleaseCurl(t, dir, archive, checksums, logPath, false)
+	home := t.TempDir()
+	installTarget := filepath.Join(home, "not-a-directory")
+	if err := os.WriteFile(installTarget, []byte("occupied"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := runBootstrap(t, home, []string{"HAND_INSTALL_DIR=" + installTarget}, "--fleet", filepath.Join(home, "fleet"))
+	if got.code == 0 {
+		t.Fatalf("exit = 0, stderr = %q", got.stderr)
+	}
+	if !strings.Contains(got.stderr, "without sudo") {
+		t.Fatalf("stderr = %q, want an explicit no-sudo recovery message", got.stderr)
+	}
+	if strings.Contains(got.stderr, "sudo mkdir") || strings.Contains(got.stderr, "sudo install") {
+		t.Fatalf("stderr = %q, must not recommend a sudo command", got.stderr)
 	}
 }

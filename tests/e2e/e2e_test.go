@@ -308,7 +308,16 @@ func seedPrivateRuntime(t *testing.T, home string) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					body += "exec " + shellSingleQuote(git) + " \"$@\"\n"
+					subcommand := map[string]string{
+						"git-receive-pack":   "receive-pack",
+						"git-upload-archive": "upload-archive",
+						"git-upload-pack":    "upload-pack",
+					}[filepath.Base(expected.Path)]
+					if subcommand != "" {
+						body += "exec " + shellSingleQuote(git) + " " + subcommand + " \"$@\"\n"
+					} else {
+						body += "exec " + shellSingleQuote(git) + " \"$@\"\n"
+					}
 				default:
 					body += "exec " + name + " \"$@\"\n"
 				}

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -77,6 +78,15 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	if err := os.Setenv("USERPROFILE", testUserHome); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	gitConfig := filepath.Join(testUserHome, ".gitconfig")
+	if err := os.WriteFile(gitConfig, []byte("[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n"), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("GIT_CONFIG_GLOBAL", gitConfig); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

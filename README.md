@@ -47,20 +47,18 @@ Secondhand splits those responsibilities cleanly: **the supervisor handles judgm
 ### Fastest path
 
 ```sh
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.sh | sh -s -- --yes
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh | sh
 ```
 
 ```powershell
-# Windows
-irm https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.ps1 -OutFile bootstrap.ps1
-Set-ExecutionPolicy -Scope Process Bypass
-.\bootstrap.ps1
+irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 | iex
 ```
 
-Optional and explicitly opt-in: acquires `hand` if missing, ensures its pinned private Git, Treehouse, and Herdr runtime under `~/.secondhand/`, initializes a fleet home (default `~/secondhand-fleet`), and reports readiness from `hand doctor`.
-It never installs a coding-agent harness or optional integration, and refuses to adopt a non-empty directory that is not already a recognized fleet.
-Use `--check`/`-Check` for a read-only dry run, `--yes`/`-Yes` for non-interactive consent.
+The canonical stable command acquires `hand` if missing, ensures its pinned private Git, Treehouse, and Herdr runtime under `~/.secondhand/`, initializes a fleet home (default `~/secondhand-fleet`), and reports readiness from `hand doctor`.
+GitHub resolves `latest` only for the bootstrap asset; that generated asset carries one exact release tag, source commit, runtime ID, platform asset set, and checksum asset, then downloads every release artifact from that exact tag.
+It never installs a coding-agent harness or optional integration, takes over an existing `hand` binary, or adopts a non-empty directory that is not already a recognized fleet.
+Use `--check`/`-Check` for a read-only dry run; `--yes`/`-Yes` remains accepted for compatibility.
+Stable adoption is distinct from the mutable `main` checkout and rolling `edge` release documented below.
 See [docs/adoption.md](docs/adoption.md) for the full walkthrough, the consent model, and the readiness contract.
 
 ### Install `hand` only

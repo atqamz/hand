@@ -1,12 +1,5 @@
 #Requires -Version 5.1
-# Optional, explicitly opt-in Secondhand adoption for native Windows: acquires hand if missing,
-# ensures the private pinned core runtime (git, treehouse, herdr),
-# reconciles a fleet home with `hand init`, reads readiness from `hand doctor`, and prints the
-# exact next command. Never installs a coding-agent harness or no-mistakes; never reimplements
-# `hand init` or `hand doctor` validation logic. No WSL: every step below runs as native
-# PowerShell against native Windows tools.
 [CmdletBinding()]
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Yes', Justification = 'read inside Install-Hand and Ensure-PrivateRuntime, which close over this script-scope parameter')]
 param(
     [string]$Fleet = (Join-Path ([Environment]::GetFolderPath('UserProfile')) "secondhand-fleet"),
     [switch]$Yes,
@@ -14,6 +7,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+$HAND_RELEASE_TAG = '@HAND_RELEASE_TAG@'
+$HAND_RELEASE_VERSION = '@HAND_RELEASE_VERSION@'
+$HAND_RELEASE_COMMIT = '@HAND_RELEASE_COMMIT@'
+$HAND_RELEASE_RUNTIME_ID = '@HAND_RELEASE_RUNTIME_ID@'
+$HAND_RELEASE_CHECKSUMS_ASSET = 'checksums.txt'
+$HAND_RELEASE_ASSET = 'hand-windows-amd64.zip'
 
 function Write-BootstrapLog {
     param([string]$Message)
@@ -26,142 +26,110 @@ function Fail {
     exit 1
 }
 
-$interactive = (-not $Check) -and (-not [Console]::IsInputRedirected) -and (-not [Console]::IsOutputRedirected)
-
-$scriptDir = $null
-if ($PSCommandPath) {
-    $scriptDir = Split-Path -Parent $PSCommandPath
+$releasePlaceholderPrefix = '@HAND' + '_RELEASE_'
+if ($HAND_RELEASE_TAG -like "$releasePlaceholderPrefix*" -or
+    $HAND_RELEASE_VERSION -like "$releasePlaceholderPrefix*" -or
+    $HAND_RELEASE_COMMIT -like "$releasePlaceholderPrefix*" -or
+    $HAND_RELEASE_RUNTIME_ID -like "$releasePlaceholderPrefix*") {
+    Fail 'this source template is not a release-bound bootstrap asset'
 }
-
-# ---- step 1: acquire or verify hand ------------------------------------------------------------
 
 $handCommand = Get-Command hand -ErrorAction SilentlyContinue
 $handAvailable = [bool]$handCommand
-$script:handCommandDir = if ($handCommand.Source) { Split-Path -Parent $handCommand.Source } else { $null }
 
-# Install-Hand only ever runs when hand is missing. In check mode it reports and returns without
-# mutating; otherwise it fails with an actionable message on every path that cannot end with hand
-# on PATH, so callers never have to re-check its result.
+function Get-Sha256 {
+    param([string]$Path)
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
 function Install-Hand {
     if ($Check) {
-        Write-BootstrapLog "hand: not installed (check mode: no changes made)"
+        Write-BootstrapLog 'hand: not installed (check mode: no changes made)'
         return
     }
-    if (-not $Yes -and -not $interactive) {
-        Fail "hand is not installed, and bootstrap is not running interactively without -Yes: refusing to install it"
-    }
-    if (-not $Yes) {
-        $reply = Read-Host "hand is not installed. Install it now via install.ps1? [y/N]"
-        if ($reply -notmatch '^(y|yes)$') {
-            Fail "hand install declined; cannot continue"
-        }
-    }
 
-    $installDir = if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "hand" }
-    $script:handInstallDir = $installDir
-    $sibling = if ($scriptDir) { Join-Path $scriptDir "install.ps1" } else { $null }
-    if ($sibling -and (Test-Path -LiteralPath $sibling)) {
-        Write-BootstrapLog "installing hand via $sibling"
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    try {
+        $baseUrl = "https://github.com/atqamz/hand/releases/download/$HAND_RELEASE_TAG"
+        $archive = Join-Path $tmp $HAND_RELEASE_ASSET
+        $checksums = Join-Path $tmp $HAND_RELEASE_CHECKSUMS_ASSET
         try {
-            & $sibling
+            Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$HAND_RELEASE_ASSET" -OutFile $archive
+            Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$HAND_RELEASE_CHECKSUMS_ASSET" -OutFile $checksums
         } catch {
-            Fail "install.ps1 failed: $($_.Exception.Message); recover by resolving the reported error and rerunning bootstrap.ps1"
+            Fail "download failed for the exact release $HAND_RELEASE_TAG`: $($_.Exception.Message)"
         }
-    } else {
-        Write-BootstrapLog "installing hand from checksum-verified GitHub release"
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
-        New-Item -ItemType Directory -Path $tmp | Out-Null
+        if (-not (Test-Path -LiteralPath $archive -PathType Leaf) -or (Get-Item -LiteralPath $archive).Length -eq 0) {
+            Fail "downloaded hand release archive is empty"
+        }
+
+        $escapedAsset = [regex]::Escape($HAND_RELEASE_ASSET)
+        $line = Get-Content -LiteralPath $checksums | Where-Object { $_ -match "^\s*([0-9a-fA-F]{64})\s+\*?$escapedAsset\s*$" } | Select-Object -First 1
+        if (-not $line) {
+            Fail "$HAND_RELEASE_CHECKSUMS_ASSET has no entry for $HAND_RELEASE_ASSET"
+        }
+        $want = (($line -split '\s+')[0]).ToLowerInvariant()
+        $got = Get-Sha256 $archive
+        if ($got -ne $want) {
+            Fail "checksum mismatch for ${HAND_RELEASE_ASSET}: want $want, got $got"
+        }
+
+        Expand-Archive -LiteralPath $archive -DestinationPath $tmp -Force
+        $handSource = Join-Path $tmp 'hand.exe'
+        if (-not (Test-Path -LiteralPath $handSource -PathType Leaf)) {
+            Fail 'verified release archive does not contain hand.exe'
+        }
+
+        $installDir = if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'hand' }
         try {
-            $repo = "atqamz/hand"
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest"
-            $tag = $release.tag_name
-            if (-not $tag) {
-                Fail "could not resolve the latest hand release tag"
-            }
-            $asset = "hand-windows-amd64.zip"
-            $baseUrl = "https://github.com/$repo/releases/download/$tag"
-            try {
-                Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile (Join-Path $tmp $asset)
-                Invoke-WebRequest -Uri "$baseUrl/checksums.txt" -OutFile (Join-Path $tmp "checksums.txt")
-            } catch {
-                Fail "could not download the hand release or checksums: $($_.Exception.Message)"
-            }
-            if ((Get-Item -LiteralPath (Join-Path $tmp $asset)).Length -eq 0) {
-                Fail "downloaded hand release archive is empty"
-            }
-
-            $line = Get-Content (Join-Path $tmp "checksums.txt") | Where-Object { $_ -match [regex]::Escape($asset) + '\s*$' }
-            if (-not $line) {
-                Fail "checksums.txt has no entry for $asset"
-            }
-            $want = (($line | Select-Object -First 1) -split '\s+')[0].ToLower()
-            $got = (Get-FileHash -Algorithm SHA256 (Join-Path $tmp $asset)).Hash.ToLower()
-            if ($got -ne $want) {
-                Fail "checksum mismatch for ${asset}: want $want, got $got"
-            }
-
-            Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $tmp -Force
             New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-            Copy-Item -Path (Join-Path $tmp "hand.exe") -Destination (Join-Path $installDir "hand.exe") -Force
-        } finally {
-            Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+            Copy-Item -LiteralPath $handSource -Destination (Join-Path $installDir 'hand.exe') -Force
+        } catch {
+            Fail "could not install hand to $installDir; resolve permissions without sudo and rerun bootstrap.ps1: $($_.Exception.Message)"
         }
+        $pathDirs = @($env:PATH -split ';')
+        if ($pathDirs -notcontains $installDir) {
+            $env:PATH = "$installDir;$env:PATH"
+        }
+    } finally {
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    $pathDirs = $env:PATH -split ';'
-    if ($pathDirs -notcontains $installDir) {
-        $env:PATH = "$installDir;$env:PATH"
-    }
     if (-not (Get-Command hand -ErrorAction SilentlyContinue)) {
-        Fail "hand was installed but is still not on PATH; add $installDir to PATH and rerun bootstrap.ps1"
+        Fail "hand was installed but is not on PATH; add $installDir to PATH and rerun bootstrap.ps1"
     }
 }
 
 if (-not $handAvailable) {
     Install-Hand
     $handCommand = Get-Command hand -ErrorAction SilentlyContinue
-    $script:handCommandDir = if ($handCommand.Source) { Split-Path -Parent $handCommand.Source } else { $null }
+    $handAvailable = [bool]$handCommand
 }
-
-# ---- step 2: ensure the private pinned core runtime --------------------------------------------
 
 function Ensure-PrivateRuntime {
     if ($Check) {
-        Write-BootstrapLog "private runtime status (check mode: no changes made):"
+        Write-BootstrapLog 'private runtime status (check mode: no changes made):'
         if (-not $handAvailable) {
-            Write-BootstrapLog "hand is not installed; private runtime status cannot be evaluated"
+            Write-BootstrapLog 'hand is not installed; private runtime status cannot be evaluated'
             return
         }
         & hand runtime status
         return
     }
-    $runtimeStatus = (& $handCommand runtime status 2>$null | Out-String)
+    $runtimeStatus = (& hand runtime status 2>$null | Out-String)
     if ($runtimeStatus -match 'ready: true') {
         return
     }
-    if (-not $Yes -and -not $interactive) {
-        Fail "private runtime is not installed, and bootstrap is not running interactively without -Yes: refusing to install it"
-    }
-    if (-not $Yes) {
-        $reply = Read-Host "private runtime is not installed. Install it now? [y/N]"
-        if ($reply -notmatch '^(y|yes)$') {
-            Fail "private runtime install declined; cannot continue"
-        }
-    }
-    Write-BootstrapLog "ensuring private pinned Git, Treehouse, and Herdr runtime"
+    Write-BootstrapLog "ensuring private pinned Git, Treehouse, and Herdr runtime for $HAND_RELEASE_VERSION ($HAND_RELEASE_RUNTIME_ID)"
     & hand runtime ensure
     if ($LASTEXITCODE -ne 0) {
-        Fail "private runtime is not ready; repair with: hand runtime ensure"
+        Fail 'private runtime is not ready; repair with: hand runtime ensure'
     }
 }
 
 Ensure-PrivateRuntime
 
-# ---- step 3: choose a safe fleet-home target ---------------------------------------------------
-
-# Get-FleetState never duplicates hand doctor's or hand init's own validation: it only decides the
-# one thing bootstrap alone is responsible for before ever invoking hand init - whether this
-# target is safe to hand to it at all.
 function Get-FleetState {
     if (-not (Test-Path -LiteralPath $Fleet)) {
         return 'absent'
@@ -169,10 +137,11 @@ function Get-FleetState {
     if (-not (Test-Path -LiteralPath $Fleet -PathType Container)) {
         Fail "$Fleet exists and is not a directory"
     }
-    if ((Test-Path -LiteralPath (Join-Path $Fleet "state\hand.db") -PathType Leaf)) {
+    if (Test-Path -LiteralPath (Join-Path $Fleet 'state\hand.db') -PathType Leaf) {
         return 'fleet'
     }
-    if ((Test-Path -LiteralPath (Join-Path $Fleet "data\projects.md") -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $Fleet "state") -PathType Container)) {
+    if ((Test-Path -LiteralPath (Join-Path $Fleet 'data\projects.md') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $Fleet 'state') -PathType Container)) {
         return 'fleet'
     }
     try {
@@ -195,11 +164,11 @@ if ($Check) {
     Write-BootstrapLog ""
     Write-BootstrapLog "fleet target: $Fleet ($state)"
     if ($state -ne 'fleet') {
-        Write-BootstrapLog "hand init has not run here yet; check mode makes no changes, so readiness cannot be evaluated further"
+        Write-BootstrapLog 'hand init has not run here; check mode makes no changes, so readiness cannot be evaluated further'
         exit 0
     }
     if (-not $handAvailable) {
-        Write-BootstrapLog "hand is not installed; readiness cannot be evaluated further"
+        Write-BootstrapLog 'hand is not installed; readiness cannot be evaluated further'
         exit 0
     }
     $env:HAND_HOME = $Fleet
@@ -208,8 +177,6 @@ if ($Check) {
     Write-BootstrapLog $doctorOut
     exit 0
 }
-
-# ---- step 4: hand init, then hand doctor for the authoritative readiness result ----------------
 
 if ($state -eq 'absent') {
     New-Item -ItemType Directory -Path $Fleet -Force | Out-Null
@@ -227,7 +194,6 @@ $doctorOut = (& hand doctor 2>&1 | Out-String)
 Write-BootstrapLog ""
 Write-BootstrapLog $doctorOut
 
-# Get-DoctorField extracts a scalar TOON field ("key: value") from hand doctor's stdout.
 function Get-DoctorField {
     param([string]$Name, [string]$Text)
     foreach ($line in ($Text -split "`r?`n")) {
@@ -236,7 +202,6 @@ function Get-DoctorField {
     return $null
 }
 
-# Get-DoctorList extracts the "  - item" lines under one TOON list block ("name[N]:").
 function Get-DoctorList {
     param([string]$Name, [string]$Text)
     $items = @()
@@ -249,14 +214,12 @@ function Get-DoctorList {
     return $items
 }
 
-# Get-InstalledHarness reads the harnesses[N]{name,installed} rows hand doctor already
-# computed, in the order hand reports them, so bootstrap never re-detects harnesses on its own.
 function Get-InstalledHarness {
     param([string]$Text)
     $names = @()
     $inBlock = $false
     foreach ($line in ($Text -split "`r?`n")) {
-        if ($line -like "harnesses[[]*") { $inBlock = $true; continue }
+        if ($line -like 'harnesses[[]*') { $inBlock = $true; continue }
         if ($inBlock -and $line -match '^  (\w+),(true|false)$') {
             if ($Matches[2] -eq 'true') { $names += $Matches[1] }
             continue
@@ -270,24 +233,23 @@ $ready = Get-DoctorField 'ready' $doctorOut
 if ($ready -ne 'true') {
     $blocking = Get-DoctorList 'blocking' $doctorOut
     Write-BootstrapLog ""
-    Write-BootstrapLog "Secondhand is not ready yet. Blocking:"
+    Write-BootstrapLog 'Secondhand is not ready yet. Blocking:'
     foreach ($item in $blocking) { Write-BootstrapLog "  - $item" }
     Fail "recover the items above, then rerun: `$env:HAND_HOME='$Fleet'; hand doctor"
 }
 
 $harnesses = @(Get-InstalledHarness $doctorOut)
-
 Write-BootstrapLog ""
-Write-BootstrapLog "Secondhand is ready."
+Write-BootstrapLog 'Secondhand is ready.'
 Write-BootstrapLog ""
-Write-BootstrapLog "Next:"
+Write-BootstrapLog 'Next:'
 Write-BootstrapLog ""
 Write-BootstrapLog "  cd $Fleet"
 if ($harnesses.Count -eq 1) {
     Write-BootstrapLog "  $($harnesses[0])"
 } elseif ($harnesses.Count -gt 1) {
-    Write-BootstrapLog "  <choose one of the installed harnesses below>"
+    Write-BootstrapLog '  <choose one of the installed harnesses below>'
     foreach ($h in $harnesses) { Write-BootstrapLog "    $h" }
 } else {
-    Write-BootstrapLog "  <install and authenticate at least one supported coding-agent harness, then run hand doctor>"
+    Write-BootstrapLog '  <install and authenticate at least one supported coding-agent harness, then run hand doctor>'
 }

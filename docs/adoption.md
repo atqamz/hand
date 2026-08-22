@@ -37,18 +37,19 @@ There is intentionally no `hand fleet switch` command or global active-Fleet set
 ## Fastest path
 
 ```sh
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.sh | sh -s -- --yes
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh | sh
 ```
 
 ```powershell
-# Windows
-irm https://raw.githubusercontent.com/atqamz/hand/main/bootstrap.ps1 -OutFile bootstrap.ps1
-Set-ExecutionPolicy -Scope Process Bypass
-.\bootstrap.ps1
+irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 | iex
 ```
 
-Both scripts acquire `hand` if it is missing, ensure its private pinned core runtime with consent, choose a safe fleet-home target (default `~/secondhand-fleet`), run `hand init` and `hand doctor`, and print the exact next command:
+Both scripts acquire `hand` if it is missing, ensure its private pinned core runtime, choose a safe fleet-home target (default `~/secondhand-fleet`), run `hand init` and `hand doctor`, and print the exact next command:
+
+GitHub resolves `latest` only to select the bootstrap asset.
+The generated asset is bound to one exact stable release tag, version, source commit, runtime ID, platform asset set, and checksum asset before it is published.
+After that selection, every download targets the bound release tag directly, so a later release cannot mix into the run.
+The checked-in `main` templates are preparation inputs, not a stable adoption channel.
 
 ```text
 Secondhand is ready.
@@ -66,7 +67,7 @@ Flags, identical in effect on both platforms:
 | Shell | PowerShell | Effect |
 | --- | --- | --- |
 | `--fleet PATH` | `-Fleet PATH` | fleet home to create or reconcile (default `~/secondhand-fleet`) |
-| `--yes` | `-Yes` | explicit non-interactive consent to acquire `hand` and ensure its private runtime |
+| `--yes` | `-Yes` | accepted for compatibility; the canonical release command already expresses the adoption choice |
 | `--check` | `-Check` | read-only: report readiness, install or mutate nothing |
 
 A target that already exists, is non-empty, and is not a recognized Hand fleet is refused rather than silently adopted.
@@ -106,7 +107,7 @@ If adoption ever needs a longer, more specialized prompt than this, that is a si
 Bootstrap runs at a high-trust boundary and is deliberately conservative:
 
 - Runtime acquisition uses the source-controlled lock, HTTPS, staged downloads, SHA-256 verification, safe extraction, and atomic selection.
-- `--yes` is explicit non-interactive consent for acquiring `hand` and ensuring its private runtime.
+- The canonical release command is explicit consent to acquire `hand` and ensure its private runtime; `--yes` remains accepted for compatibility.
 - `--check` is a pure read-only dry run; it never installs or mutates anything, including the fleet target.
 - A dependency fetched from a URL is downloaded to a file and its download verified before that file is ever run - never `curl | sh` or `irm | iex` piped directly, which would treat a failed or interrupted fetch as an empty, successful script.
 - `hand` itself, when bootstrap must acquire it, is verified against the same checksummed GitHub release artifact `install.sh`/`install.ps1` use.

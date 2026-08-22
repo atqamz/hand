@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"encoding/base64"
 	"errors"
 	"os"
 	"os/exec"
@@ -89,7 +90,11 @@ func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...strin
 			t.Fatal(err)
 		}
 	}
-	psArgs := append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bootstrapPS1Script}, args...)
+	boundPath := filepath.Join(t.TempDir(), "bootstrap.ps1")
+	if err := os.WriteFile(boundPath, []byte(boundBootstrap(t, bootstrapPS1Script)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	psArgs := append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", boundPath}, args...)
 	powershell, err := findPowerShell()
 	if err != nil {
 		t.Fatalf("find a native PowerShell executable: %v", err)
@@ -111,6 +116,53 @@ func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...strin
 	t.Logf("$ bootstrap.ps1 %s\n  exit %d\n  stdout: %s\n  stderr: %s",
 		strings.Join(args, " "), code, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()))
 	return invocation{code: code, stdout: stdout.String(), stderr: stderr.String()}
+}
+
+func TestBootstrapPS1ExecutesThroughIEXWithoutAFilePath(t *testing.T) {
+	dir := binDir(t)
+	installFakeHandExe(t, dir)
+	installFakeCmdExe(t, dir, "treehouse")
+	installFakeCmdExe(t, dir, "herdr")
+	installFakeCmdExe(t, dir, "claude")
+
+	home := t.TempDir()
+	fleetLeaf := "secondhand fleet 日本"
+	script := strings.Replace(
+		boundBootstrap(t, bootstrapPS1Script),
+		`[string]$Fleet = (Join-Path ([Environment]::GetFolderPath('UserProfile')) "secondhand-fleet"),`,
+		`[string]$Fleet = (Join-Path ([Environment]::GetFolderPath('UserProfile')) "`+fleetLeaf+`"),`,
+		1,
+	)
+	encoded := base64.StdEncoding.EncodeToString([]byte(script))
+	command := "$script = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')); Invoke-Expression $script"
+	powershell, err := findPowerShell()
+	if err != nil {
+		t.Fatalf("find a native PowerShell executable: %v", err)
+	}
+	cmd := exec.Command(powershell, "-NoProfile", "-NonInteractive", "-Command", command)
+	cmd.Env = windowsIsolatedEnv(home, []string{"SECONDHAND_HOME=" + filepath.Join(home, ".secondhand")})
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("run bootstrap.ps1 through IEX: %v", err)
+		}
+		code = exitErr.ExitCode()
+	}
+	fleet := filepath.Join(home, fleetLeaf)
+	t.Logf("$ bootstrap.ps1 through IEX\n  exit %d\n  stdout: %s\n  stderr: %s", code, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()))
+	if code != 0 {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+	if !isFleetHomeWindows(fleet) {
+		t.Fatalf("%s was not initialized", fleet)
+	}
+	if !strings.Contains(stdout.String(), "Secondhand is ready.") {
+		t.Fatalf("stdout = %q, want a ready fleet", stdout.String())
+	}
 }
 
 // Puts a copy of the already-built hand binary on dir as hand.exe, the extension native Windows
