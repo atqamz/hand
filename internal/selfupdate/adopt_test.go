@@ -12,9 +12,17 @@ import (
 )
 
 func TestAdoptInstallsAnExactDirectBuildIntoAnEmptyTarget(t *testing.T) {
+	goPath := ""
+	if runtime.GOOS == "windows" {
+		var err error
+		goPath, err = exec.LookPath("go")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Setenv("PATH", t.TempDir())
 	want := BuildInfo{Version: "1.2.3", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}
-	source := writeIdentityExecutable(t, want, "source")
+	source := writeIdentityExecutable(t, want, "source", goPath)
 	target := testHandPath(filepath.Join(t.TempDir(), "bin"))
 
 	got, err := Adopt(context.Background(), source, target, want)
@@ -109,16 +117,16 @@ func TestAdoptRefusesANewerDirectBuild(t *testing.T) {
 	}
 }
 
-func writeIdentityExecutable(t *testing.T, info BuildInfo, marker string) string {
+func writeIdentityExecutable(t *testing.T, info BuildInfo, marker string, goPath ...string) string {
 	path := filepath.Join(t.TempDir(), binaryName)
 	if runtime.GOOS == "windows" {
 		path += ".exe"
 	}
-	writeIdentityExecutableAt(t, path, info, marker)
+	writeIdentityExecutableAt(t, path, info, marker, goPath...)
 	return path
 }
 
-func writeIdentityExecutableAt(t *testing.T, path string, info BuildInfo, marker string) {
+func writeIdentityExecutableAt(t *testing.T, path string, info BuildInfo, marker string, goPath ...string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -129,7 +137,11 @@ func writeIdentityExecutableAt(t *testing.T, path string, info BuildInfo, marker
 		if !ok {
 			t.Fatal("runtime.Caller failed")
 		}
-		cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", path, ".")
+		goExecutable := "go"
+		if len(goPath) > 0 && goPath[0] != "" {
+			goExecutable = goPath[0]
+		}
+		cmd := exec.Command(goExecutable, "build", "-ldflags", ldflags, "-o", path, ".")
 		cmd.Dir = filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build Windows Hand fixture: %v\n%s", err, output)
