@@ -193,8 +193,6 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		}
 	}()
 	for name, component := range target.Components {
-		installedComponent := component
-		installedComponent.Files = append([]ExpectedFile(nil), component.Files...)
 		if err := s.installComponent(ctx, stage, name, component); err != nil {
 			return Runtime{}, fmt.Errorf("install %s: %w", name, err)
 		}
@@ -264,7 +262,18 @@ func (s *Store) installComponent(ctx context.Context, stage, name string, compon
 	if err := extract(artifactPath, dir, component); err != nil {
 		return err
 	}
-	return verifyComponent(dir, component)
+	if err := verifyComponent(dir, component); err != nil {
+		return err
+	}
+	artifactDir := filepath.Join(stage, "artifacts")
+	if err := os.MkdirAll(artifactDir, 0o700); err != nil {
+		return fmt.Errorf("create runtime artifact store: %w", err)
+	}
+	if err := os.Rename(artifactPath, filepath.Join(artifactDir, name)); err != nil {
+		return fmt.Errorf("retain verified runtime artifact: %w", err)
+	}
+	artifactPath = ""
+	return nil
 }
 
 func download(ctx context.Context, client *http.Client, rawURL string, dst io.Writer, max int64) error {
@@ -557,6 +566,9 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 	}
 	paths := map[string]*string{}
 	for name, component := range target.Components {
+		if err := verifyInstalledComponentAgainstArtifact(bundle, name, component); err != nil {
+			return Runtime{}, fmt.Errorf("%w: selected runtime component %s failed immutable artifact verification: %v", ErrRuntimeNotReady, name, err)
+		}
 		if err := verifyComponent(filepath.Join(bundle, name), component); err != nil {
 			return Runtime{}, fmt.Errorf("%w: selected runtime component %s is incomplete: %v", ErrRuntimeNotReady, name, err)
 		}
@@ -625,6 +637,66 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 		HerdrVersion:     target.Components["herdr"].Version,
 		GitBin:           filepath.Dir(*gitPath),
 	}, nil
+}
+
+func verifyInstalledComponentAgainstArtifact(bundle, name string, component Component) error {
+	artifact := filepath.Join(bundle, "artifacts", name)
+	info, err := os.Lstat(artifact)
+	if err != nil {
+		return fmt.Errorf("read retained artifact: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("retained artifact is not a regular file")
+	}
+	digest, err := fileDigest(artifact)
+	if err != nil {
+		return err
+	}
+	if digest != component.SHA256 {
+		return fmt.Errorf("retained artifact digest mismatch: got %s, want %s", digest, component.SHA256)
+	}
+	temporary, err := os.MkdirTemp(filepath.Dir(bundle), ".runtime-verify-")
+	if err != nil {
+		return fmt.Errorf("create artifact verification directory: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(temporary) }()
+	extracted := filepath.Join(temporary, name)
+	if err := extract(artifact, extracted, component); err != nil {
+		return fmt.Errorf("extract retained artifact: %w", err)
+	}
+	if err := verifyComponent(extracted, component); err != nil {
+		return fmt.Errorf("verify retained artifact files: %w", err)
+	}
+	for _, expected := range component.Files {
+		installedRoot, err := componentRootPath(filepath.Join(bundle, name), component.Root)
+		if err != nil {
+			return err
+		}
+		installedPath, err := safeJoin(installedRoot, expected.Path)
+		if err != nil {
+			return err
+		}
+		extractedRoot, err := componentRootPath(extracted, component.Root)
+		if err != nil {
+			return err
+		}
+		extractedPath, err := safeJoin(extractedRoot, expected.Path)
+		if err != nil {
+			return err
+		}
+		installedDigest, err := fileDigest(installedPath)
+		if err != nil {
+			return err
+		}
+		extractedDigest, err := fileDigest(extractedPath)
+		if err != nil {
+			return err
+		}
+		if installedDigest != extractedDigest {
+			return fmt.Errorf("installed file %s differs from verified artifact", expected.Path)
+		}
+	}
+	return nil
 }
 
 func targetDigest(target Target) (string, error) {

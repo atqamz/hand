@@ -100,7 +100,7 @@ func TestSafeJoinRejectsAbsoluteAndParentPaths(t *testing.T) {
 	}
 }
 
-func TestStatusUsesSelectedBundleAndVerifiesInstalledManifest(t *testing.T) {
+func TestStatusRejectsBundleWithoutImmutableArtifacts(t *testing.T) {
 	lock, err := LoadLock()
 	if err != nil {
 		t.Fatal(err)
@@ -164,19 +164,8 @@ func TestStatusUsesSelectedBundleAndVerifiesInstalledManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Ready || status.BundleDir != bundle {
-		t.Fatalf("status = %+v, want ready selected bundle %s", status, bundle)
-	}
-
-	if err := os.WriteFile(filepath.Join(bundle, "git", target.Components["git"].Files[0].Path), []byte("tampered"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	status, err = store.Status("linux", "amd64")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if status.Ready || status.Reason == "" {
-		t.Fatalf("status = %+v, want file digest failure", status)
+		t.Fatalf("status = %+v, want immutable artifact failure", status)
 	}
 
 	if err := os.WriteFile(filepath.Join(bundle, manifestName), []byte(fmt.Sprintf("%q", "not a target")), 0o600); err != nil {
