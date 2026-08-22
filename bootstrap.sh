@@ -133,7 +133,7 @@ ensure_hand() {
   [ "${#manifest_want}" -eq 64 ] || die "invalid checksum for $HAND_RELEASE_MANIFEST_ASSET"
   manifest_got=$(sha256_file "$hand_tmp/$HAND_RELEASE_MANIFEST_ASSET")
   [ "$manifest_got" = "$manifest_want" ] || die "checksum mismatch for $HAND_RELEASE_MANIFEST_ASSET: want $manifest_want, got $manifest_got"
-  manifest_commit=$(sed -n 's/^[[:space:]]*"commit":[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p' "$hand_tmp/$HAND_RELEASE_MANIFEST_ASSET" | head -n1)
+  manifest_commit=$(sed -n 's/.*"commit"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p' "$hand_tmp/$HAND_RELEASE_MANIFEST_ASSET" | head -n1)
   [ "$manifest_commit" = "$HAND_RELEASE_COMMIT" ] || die "release manifest commit does not match $HAND_RELEASE_COMMIT"
 
   case "$hand_asset" in

@@ -46,37 +46,7 @@ Secondhand splits those responsibilities cleanly: **the supervisor handles judgm
 
 ### Fastest path
 
-```sh
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh -o "$tmp/bootstrap.sh"
-curl -fsSL https://github.com/atqamz/hand/releases/latest/download/checksums.txt -o "$tmp/checksums.txt"
-(cd "$tmp" && sha256sum -c <(grep '  bootstrap.sh$' checksums.txt))
-sh "$tmp/bootstrap.sh"
-```
-
-```powershell
-$tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
-New-Item -ItemType Directory -Path $tmp | Out-Null
-try {
-  irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 -OutFile (Join-Path $tmp bootstrap.ps1)
-  irm https://github.com/atqamz/hand/releases/latest/download/checksums.txt -OutFile (Join-Path $tmp checksums.txt)
-  $line = Get-Content (Join-Path $tmp checksums.txt) | Where-Object { $_ -match '^([0-9a-fA-F]{64})\s+\*?bootstrap\.ps1$' } | Select-Object -First 1
-  if (-not $line) { throw 'checksums.txt has no bootstrap.ps1 entry' }
-  if ((Get-FileHash -Algorithm SHA256 (Join-Path $tmp bootstrap.ps1)).Hash -ne (($line -split '\s+')[0])) { throw 'bootstrap.ps1 checksum mismatch' }
-  Set-ExecutionPolicy -Scope Process Bypass
-  & (Join-Path $tmp bootstrap.ps1)
-} finally {
-  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-}
-```
-
-The canonical stable command acquires `hand` if missing, ensures its pinned private Git, Treehouse, and Herdr runtime under `~/.secondhand/`, initializes a fleet home (default `~/secondhand-fleet`), and reports readiness from `hand doctor`.
-GitHub resolves `latest` only for the bootstrap asset; that generated asset carries one exact release tag, source commit, runtime ID, platform asset set, and checksum asset, then downloads every release artifact from that exact tag.
-It never installs a coding-agent harness or optional integration, takes over an existing `hand` binary, or adopts a non-empty directory that is not already a recognized fleet.
-Use `--check`/`-Check` for a read-only dry run; `--yes`/`-Yes` remains accepted for compatibility.
-Stable adoption is distinct from the mutable `main` checkout and rolling `edge` release documented below.
-See [docs/adoption.md](docs/adoption.md) for the full walkthrough, the consent model, and the readiness contract.
+See [docs/adoption.md](docs/adoption.md) for the verified Unix and PowerShell commands, stable-release binding, consent model, and readiness contract.
 
 ### Install `hand` only
 
@@ -464,15 +434,19 @@ To also initialize a fleet home in one step, see [Adoption](#adoption) above.
 
 ### Release binary
 
-Release tar archives are available for Linux and macOS on AMD64 and ARM64. A ZIP archive is available for Windows AMD64. Every release includes `checksums.txt`.
+Release tar archives are available for Linux and macOS on AMD64 and ARM64. A ZIP archive is available for Windows AMD64. Every release includes `checksums.txt` and a release manifest binding its assets to one source commit.
 
 ```sh
-curl -fsSLO https://github.com/atqamz/hand/releases/latest/download/hand-linux-amd64.tar.gz
-tar xzf hand-linux-amd64.tar.gz
-install -m755 hand ~/.local/bin/hand
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/hand-linux-amd64.tar.gz -o "$tmp/hand-linux-amd64.tar.gz"
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/checksums.txt -o "$tmp/checksums.txt"
+(cd "$tmp" && sha256sum -c <(grep '  hand-linux-amd64.tar.gz$' checksums.txt))
+tar xzf "$tmp/hand-linux-amd64.tar.gz" -C "$tmp"
+install -m755 "$tmp/hand" ~/.local/bin/hand
 ```
 
-On Windows, download `hand-windows-amd64.zip`, extract `hand.exe`, and place it on `PATH`.
+On Windows, download `hand-windows-amd64.zip` and `checksums.txt` from the same release, verify the ZIP with `Get-FileHash -Algorithm SHA256`, then extract `hand.exe` and place it on `PATH`.
 
 See the [releases page](https://github.com/atqamz/hand/releases) for every asset.
 
