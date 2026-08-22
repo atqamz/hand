@@ -273,15 +273,9 @@ func seedPrivateRuntime(t *testing.T, home string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	targetData, err := json.Marshal(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := sha256.Sum256(targetData)
 	bundle := filepath.Join(root, "runtime", "bundles", lock.RuntimeID)
-	fileSHA256 := make(map[string]string)
 	for name, component := range target.Components {
-		for _, expected := range component.Files {
+		for index, expected := range component.Files {
 			path := filepath.Join(bundle, name, filepath.FromSlash(expected.Path))
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
@@ -304,9 +298,15 @@ func seedPrivateRuntime(t *testing.T, home string) {
 				t.Fatal(err)
 			}
 			fileDigest := sha256.Sum256([]byte(body))
-			fileSHA256[name+"/"+filepath.ToSlash(expected.Path)] = fmt.Sprintf("%x", fileDigest)
+			component.Files[index].SHA256 = fmt.Sprintf("%x", fileDigest)
 		}
+		target.Components[name] = component
 	}
+	targetData, err := json.Marshal(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(targetData)
 	manifestPath := filepath.Join(bundle, "manifest.json")
 	if err := os.WriteFile(manifestPath, append(targetData, '\n'), 0o600); err != nil {
 		t.Fatal(err)
@@ -317,7 +317,6 @@ func seedPrivateRuntime(t *testing.T, home string) {
 		Target:         currentTargetNameForTest(),
 		Bundle:         filepath.ToSlash(filepath.Join("bundles", lock.RuntimeID)),
 		ManifestSHA256: fmt.Sprintf("%x", digest),
-		FileSHA256:     fileSHA256,
 		SelectedAt:     time.Now().UTC(),
 	}
 	data, err := json.MarshalIndent(current, "", "  ")

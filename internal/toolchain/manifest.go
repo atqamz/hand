@@ -48,6 +48,7 @@ type ExpectedFile struct {
 	Path       string `json:"path"`
 	Executable bool   `json:"executable"`
 	Regular    bool   `json:"regular"`
+	SHA256     string `json:"sha256,omitempty"`
 }
 
 func LoadLock() (Lock, error) {

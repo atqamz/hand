@@ -36,13 +36,12 @@ type Store struct {
 }
 
 type Current struct {
-	Schema         int               `json:"schema"`
-	RuntimeID      string            `json:"runtime_id"`
-	Target         string            `json:"target"`
-	Bundle         string            `json:"bundle,omitempty"`
-	ManifestSHA256 string            `json:"manifest_sha256"`
-	FileSHA256     map[string]string `json:"file_sha256"`
-	SelectedAt     time.Time         `json:"selected_at"`
+	Schema         int       `json:"schema"`
+	RuntimeID      string    `json:"runtime_id"`
+	Target         string    `json:"target"`
+	Bundle         string    `json:"bundle,omitempty"`
+	ManifestSHA256 string    `json:"manifest_sha256"`
+	SelectedAt     time.Time `json:"selected_at"`
 }
 
 type Status struct {
@@ -194,6 +193,8 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		}
 	}()
 	for name, component := range target.Components {
+		installedComponent := component
+		installedComponent.Files = append([]ExpectedFile(nil), component.Files...)
 		if err := s.installComponent(ctx, stage, name, component); err != nil {
 			return Runtime{}, fmt.Errorf("install %s: %w", name, err)
 		}
@@ -209,22 +210,22 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		return Runtime{}, fmt.Errorf("publish runtime bundle: %w", err)
 	}
 	stage = ""
-	manifestDigest, err := targetDigest(target)
+	installedTarget, err := targetWithFileDigests(bundle, target)
+	if err != nil {
+		return Runtime{}, fmt.Errorf("digest installed runtime files: %w", err)
+	}
+	manifestDigest, err := targetDigest(installedTarget)
 	if err != nil {
 		return Runtime{}, err
 	}
-	manifestData, err := json.MarshalIndent(target, "", "  ")
+	manifestData, err := json.MarshalIndent(installedTarget, "", "  ")
 	if err != nil {
 		return Runtime{}, fmt.Errorf("encode installed runtime manifest: %w", err)
 	}
 	if err := atomicfile.Write(filepath.Join(bundle, manifestName), ".manifest-", append(manifestData, '\n'), 0o600); err != nil {
 		return Runtime{}, fmt.Errorf("publish runtime manifest: %w", err)
 	}
-	fileSHA256, err := installedFileDigests(bundle, target)
-	if err != nil {
-		return Runtime{}, fmt.Errorf("digest installed runtime files: %w", err)
-	}
-	current := Current{Schema: s.Lock.Schema, RuntimeID: s.Lock.RuntimeID, Target: targetName, Bundle: filepath.ToSlash(bundleName), ManifestSHA256: manifestDigest, FileSHA256: fileSHA256, SelectedAt: time.Now().UTC()}
+	current := Current{Schema: s.Lock.Schema, RuntimeID: s.Lock.RuntimeID, Target: targetName, Bundle: filepath.ToSlash(bundleName), ManifestSHA256: manifestDigest, SelectedAt: time.Now().UTC()}
 	data, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
 		return Runtime{}, fmt.Errorf("encode selected runtime: %w", err)
@@ -449,30 +450,30 @@ func verifyComponent(root string, component Component) error {
 	return nil
 }
 
-func installedFileDigests(bundle string, target Target) (map[string]string, error) {
-	digests := make(map[string]string)
+func targetWithFileDigests(bundle string, target Target) (Target, error) {
+	installed := target
+	installed.Components = make(map[string]Component, len(target.Components))
 	for name, component := range target.Components {
+		installedComponent := component
+		installedComponent.Files = append([]ExpectedFile(nil), component.Files...)
 		componentDir, err := componentRootPath(filepath.Join(bundle, name), component.Root)
 		if err != nil {
-			return nil, err
+			return Target{}, err
 		}
-		for _, expected := range component.Files {
+		for index, expected := range component.Files {
 			path, err := safeJoin(componentDir, expected.Path)
 			if err != nil {
-				return nil, err
+				return Target{}, err
 			}
 			digest, err := fileDigest(path)
 			if err != nil {
-				return nil, fmt.Errorf("digest %s: %w", expected.Path, err)
+				return Target{}, fmt.Errorf("digest %s: %w", expected.Path, err)
 			}
-			digests[runtimeFileKey(name, expected.Path)] = digest
+			installedComponent.Files[index].SHA256 = digest
 		}
+		installed.Components[name] = installedComponent
 	}
-	return digests, nil
-}
-
-func runtimeFileKey(component, path string) string {
-	return component + "/" + filepath.ToSlash(path)
+	return installed, nil
 }
 
 func componentRoot(destination, root string) (string, error) {
@@ -551,7 +552,7 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 	if err != nil {
 		return Runtime{}, err
 	}
-	if current.ManifestSHA256 != digest || installedDigest != digest {
+	if current.ManifestSHA256 != installedDigest || targetDigestWithoutFileDigests(installed) != digest {
 		return Runtime{}, fmt.Errorf("%w: selected runtime manifest digest is invalid; run `hand runtime ensure`", ErrRuntimeNotReady)
 	}
 	paths := map[string]*string{}
@@ -559,24 +560,28 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 		if err := verifyComponent(filepath.Join(bundle, name), component); err != nil {
 			return Runtime{}, fmt.Errorf("%w: selected runtime component %s is incomplete: %v", ErrRuntimeNotReady, name, err)
 		}
+		installedComponent, ok := installed.Components[name]
+		if !ok || len(installedComponent.Files) != len(component.Files) {
+			return Runtime{}, fmt.Errorf("%w: selected runtime component %s manifest is incomplete", ErrRuntimeNotReady, name)
+		}
 		componentDir, err := componentRootPath(filepath.Join(bundle, name), component.Root)
 		if err != nil {
 			return Runtime{}, err
 		}
-		for _, file := range component.Files {
+		for index, file := range component.Files {
 			path, err := safeJoin(componentDir, file.Path)
 			if err != nil {
 				return Runtime{}, err
 			}
-			want, ok := current.FileSHA256[runtimeFileKey(name, file.Path)]
-			if !ok {
+			installedFile := installedComponent.Files[index]
+			if installedFile.Path != file.Path || installedFile.SHA256 == "" {
 				return Runtime{}, fmt.Errorf("%w: selected runtime file digest is missing for %s", ErrRuntimeNotReady, file.Path)
 			}
 			got, err := fileDigest(path)
 			if err != nil {
 				return Runtime{}, fmt.Errorf("%w: digest selected runtime file %s: %v", ErrRuntimeNotReady, file.Path, err)
 			}
-			if got != want {
+			if got != installedFile.SHA256 {
 				return Runtime{}, fmt.Errorf("%w: selected runtime file %s digest mismatch", ErrRuntimeNotReady, file.Path)
 			}
 		}
@@ -629,6 +634,21 @@ func targetDigest(target Target) (string, error) {
 	}
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+func targetDigestWithoutFileDigests(target Target) string {
+	copyTarget := target
+	copyTarget.Components = make(map[string]Component, len(target.Components))
+	for name, component := range target.Components {
+		copyComponent := component
+		copyComponent.Files = append([]ExpectedFile(nil), component.Files...)
+		for index := range copyComponent.Files {
+			copyComponent.Files[index].SHA256 = ""
+		}
+		copyTarget.Components[name] = copyComponent
+	}
+	digest, _ := targetDigest(copyTarget)
+	return digest
 }
 
 func fileDigest(path string) (string, error) {

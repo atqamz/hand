@@ -130,22 +130,22 @@ func TestStatusUsesSelectedBundleAndVerifiesInstalledManifest(t *testing.T) {
 			}
 		}
 	}
-	manifest, err := json.Marshal(target)
+	installedTarget, err := targetWithFileDigests(bundle, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(installedTarget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(bundle, manifestName), manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	digest, err := targetDigest(target)
+	digest, err := targetDigest(installedTarget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fileSHA256, err := installedFileDigests(bundle, target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	current := Current{Schema: lock.Schema, RuntimeID: lock.RuntimeID, Target: "linux/amd64", Bundle: filepath.ToSlash(bundleName), ManifestSHA256: digest, FileSHA256: fileSHA256, SelectedAt: time.Now().UTC()}
+	current := Current{Schema: lock.Schema, RuntimeID: lock.RuntimeID, Target: "linux/amd64", Bundle: filepath.ToSlash(bundleName), ManifestSHA256: digest, SelectedAt: time.Now().UTC()}
 	data, err := json.Marshal(current)
 	if err != nil {
 		t.Fatal(err)
