@@ -1,12 +1,12 @@
 package ghutil
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/atqamz/hand/internal/integration"
 )
 
 // PRMetadata is everything about a pull request that an operator, not a delivery pipeline, owns:
@@ -153,11 +153,9 @@ func RestorePRMetadata(ctx context.Context, pr string, live, want PRMetadata) er
 }
 
 func runGH(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("gh %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	_, stderr, err := integration.Run(ctx, "github/gh", "", args...)
+	if err != nil {
+		return fmt.Errorf("gh %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
 	}
 	return nil
 }

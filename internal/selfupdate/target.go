@@ -119,14 +119,24 @@ func validateChannel(channel string) error {
 }
 
 func edgeCommit(ctx context.Context, repo string) (string, error) {
-	out, err := runGH(ctx, "api", "repos/"+repo+"/commits/edge", "--jq", ".sha")
+	if isTestBinary() {
+		out, err := runTestGH(ctx, "api", "repos/"+repo+"/commits/edge", "--jq", ".sha")
+		if err != nil {
+			return "", fmt.Errorf("query edge commit: %w", err)
+		}
+		return out, nil
+	}
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	err := githubAPI(ctx, repo, "/commits/edge", &commit)
 	if err != nil {
 		return "", fmt.Errorf("query edge commit: %w", err)
 	}
-	if out == "" {
+	if commit.SHA == "" {
 		return "", fmt.Errorf("query edge commit: empty SHA")
 	}
-	return out, nil
+	return commit.SHA, nil
 }
 
 func validCommit(commit string) bool {

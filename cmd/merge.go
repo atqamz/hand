@@ -1,11 +1,10 @@
 package cmd
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
@@ -125,7 +125,8 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		return &ExitError{Err: fmt.Errorf("PR checks for %s are not green", t.ID), Code: 3}
 	}
 
-	out, err := exec.Command("gh", "pr", "merge", t.PR, "--"+method).CombinedOutput()
+	out, stderr, err := integration.Run(context.Background(), "github/gh", "", "pr", "merge", t.PR, "--"+method)
+	out = append(out, stderr...)
 	if err != nil {
 		return fmt.Errorf("gh pr merge failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -190,16 +191,12 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task, active state.A
 		return err
 	}
 
-	checkout := exec.Command("git", "checkout", defaultBr)
-	checkout.Dir = clonePath
-	if out, err := checkout.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout %s failed: %s", defaultBr, strings.TrimSpace(string(out)))
+	if out, err := runManagedCore(context.Background(), "git", clonePath, "checkout", defaultBr); err != nil {
+		return fmt.Errorf("git checkout %s failed: %s", defaultBr, managedCommandFailure(out, err))
 	}
 
-	merge := exec.Command("git", "merge", "--ff-only", branch)
-	merge.Dir = clonePath
-	if out, err := merge.CombinedOutput(); err != nil {
-		return &ExitError{Err: fmt.Errorf("fast-forward not possible: %s", strings.TrimSpace(string(out))), Code: 3}
+	if out, err := runManagedCore(context.Background(), "git", clonePath, "merge", "--ff-only", branch); err != nil {
+		return &ExitError{Err: fmt.Errorf("fast-forward not possible: %s", managedCommandFailure(out, err)), Code: 3}
 	}
 
 	mergedAt := time.Now().UTC().Format(time.RFC3339)
@@ -223,18 +220,14 @@ func runLocalMerge(cmd *cobra.Command, home string, t state.Task, active state.A
 // Parses `gh pr checks --json bucket` rather than trusting the process exit code, since gh's exit codes
 // (0 pass, 8 pending, 1 fail) are harder to distinguish reliably across gh versions than the JSON payload.
 func prChecksGreen(pr string) (bool, error) {
-	var stdout, stderr bytes.Buffer
-	c := exec.Command("gh", "pr", "checks", pr, "--json", "bucket")
-	c.Stdout = &stdout
-	c.Stderr = &stderr
-	runErr := c.Run()
+	stdout, stderr, runErr := integration.Run(context.Background(), "github/gh", "", "pr", "checks", pr, "--json", "bucket")
 
 	var checks []struct {
 		Bucket string `json:"bucket"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &checks); err != nil {
+	if err := json.Unmarshal(stdout, &checks); err != nil {
 		if runErr != nil {
-			return false, fmt.Errorf("gh pr checks failed: %s", strings.TrimSpace(stderr.String()))
+			return false, fmt.Errorf("gh pr checks failed: %s", strings.TrimSpace(string(stderr)))
 		}
 		return false, fmt.Errorf("parse gh pr checks output: %w", err)
 	}

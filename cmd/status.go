@@ -50,10 +50,10 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 
-			if len(args) == 1 {
+ 			if len(args) == 1 {
 				return runStatusSingle(cmd, home, client, args[0], asJSON, full, cols)
 			}
-			return runStatusFleet(cmd, home, client, asJSON, cols)
+ 			return runStatusFleet(cmd, home, client, asJSON, cols)
 		},
 	}
 

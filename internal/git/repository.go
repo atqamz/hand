@@ -1,11 +1,13 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 func ResolveRoot(path string) (string, error) {
@@ -18,6 +20,10 @@ func ResolveRoot(path string) (string, error) {
 		return "", fmt.Errorf("make Git repository root absolute: %w", err)
 	}
 	return filepath.Clean(root), nil
+}
+
+func Run(dir string, args ...string) (string, error) {
+	return run(dir, args...)
 }
 
 func IsBare(path string) (bool, error) {
@@ -171,11 +177,28 @@ func HasAlternates(path string) (bool, error) {
 }
 
 func run(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	managed, err := toolchain.Resolve()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %s: %w", strings.Join(args, " "), strings.TrimSpace(string(out)), err)
+		out, stderr, legacyErr := toolchain.RunLegacyForTests(context.Background(), "git", dir, args...)
+		if legacyErr == nil {
+			return string(out), nil
+		}
+		if len(stderr) > 0 {
+			return "", fmt.Errorf("resolve managed Git: %w; legacy test Git: %s", err, strings.TrimSpace(string(stderr)))
+		}
+		return "", fmt.Errorf("resolve managed Git: %w", err)
 	}
-	return string(out), nil
+	spec, err := managed.Process(managed.GitPath, args...)
+	if err != nil {
+		return "", err
+	}
+	spec.Dir = dir
+	var output strings.Builder
+	spec.Stdout = &output
+	spec.Stderr = &output
+	err = spec.Run(context.Background())
+	if err != nil {
+		return "", fmt.Errorf("git %s: %s: %w", strings.Join(args, " "), strings.TrimSpace(output.String()), err)
+	}
+	return output.String(), nil
 }

@@ -8,12 +8,14 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ import (
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 var handBin string
@@ -185,8 +188,10 @@ func envValues(env []string, wantName string) []string {
 // Child processes start with neutral semantic harness state; explicit entries replace it.
 func runHandEnv(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
+	seedPrivateRuntime(t, home)
 	cmd := exec.Command(handBin, args...)
 	cmd.Dir = home
+	extraEnv = append(extraEnv, "SECONDHAND_HOME="+filepath.Join(home, ".secondhand"))
 	cmd.Env = handProcessEnv(extraEnv...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -235,9 +240,10 @@ type backgroundHand struct {
 
 func startHandBackground(t *testing.T, home string, args ...string) *backgroundHand {
 	t.Helper()
+	seedPrivateRuntime(t, home)
 	cmd := exec.Command(handBin, args...)
 	cmd.Dir = home
-	cmd.Env = handProcessEnv()
+	cmd.Env = handProcessEnv("SECONDHAND_HOME=" + filepath.Join(home, ".secondhand"))
 	stdout := &syncBuffer{}
 	stderr := &syncBuffer{}
 	cmd.Stdout = stdout
@@ -254,6 +260,76 @@ func startHandBackground(t *testing.T, home string, args ...string) *backgroundH
 		_ = cmd.Wait()
 	})
 	return b
+}
+
+func seedPrivateRuntime(t *testing.T, home string) {
+	t.Helper()
+	root := filepath.Join(home, ".secondhand")
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := lock.Target("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetData, err := json.Marshal(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(targetData)
+	bundle := filepath.Join(root, "runtime", "bundles", lock.RuntimeID)
+	for name, component := range target.Components {
+		for _, expected := range component.Files {
+			path := filepath.Join(bundle, name, filepath.FromSlash(expected.Path))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			body := "\n"
+			if expected.Executable {
+				body = "#!/bin/sh\n"
+				switch name {
+				case "git":
+					git, err := exec.LookPath("git")
+					if err != nil {
+						t.Fatal(err)
+					}
+					body += "exec " + shellSingleQuote(git) + " \"$@\"\n"
+				default:
+					body += "exec " + name + " \"$@\"\n"
+				}
+			}
+			if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	manifestPath := filepath.Join(bundle, "manifest.json")
+	if err := os.WriteFile(manifestPath, append(targetData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	current := toolchain.Current{
+		Schema:         lock.Schema,
+		RuntimeID:      lock.RuntimeID,
+		Target:         currentTargetNameForTest(),
+		Bundle:         filepath.ToSlash(filepath.Join("bundles", lock.RuntimeID)),
+		ManifestSHA256: fmt.Sprintf("%x", digest),
+		SelectedAt:     time.Now().UTC(),
+	}
+	data, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, "runtime", "current.json")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "runtime", "current.json"), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func currentTargetNameForTest() string {
+	return runtime.GOOS + "/" + runtime.GOARCH
 }
 
 func (b *backgroundHand) waitForStdout(t *testing.T, substr string, timeout time.Duration) {

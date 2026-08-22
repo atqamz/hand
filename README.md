@@ -58,14 +58,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\bootstrap.ps1
 ```
 
-Optional and explicitly opt-in: acquires `hand` if missing, offers to install missing foundational dependencies (Git, Treehouse, Herdr) with consent, initializes a fleet home (default `~/secondhand-fleet`), and reports readiness from `hand doctor`.
-It never installs a coding-agent harness or no-mistakes, and refuses to adopt a non-empty directory that is not already a recognized fleet.
+Optional and explicitly opt-in: acquires `hand` if missing, ensures its pinned private Git, Treehouse, and Herdr runtime under `~/.secondhand/`, initializes a fleet home (default `~/secondhand-fleet`), and reports readiness from `hand doctor`.
+It never installs a coding-agent harness or optional integration, and refuses to adopt a non-empty directory that is not already a recognized fleet.
 Use `--check`/`-Check` for a read-only dry run, `--yes`/`-Yes` for non-interactive consent.
 See [docs/adoption.md](docs/adoption.md) for the full walkthrough, the consent model, and the readiness contract.
 
 ### Install `hand` only
 
-Already have Git, Treehouse, Herdr, and a coding-agent harness? See [Installation](#installation) below.
+Already have a coding-agent harness? See [Installation](#installation) below.
 
 ### Manual adoption
 
@@ -372,11 +372,10 @@ Every command resolves the fleet home from `HAND_HOME` when set, otherwise from 
 
 ## Requirements
 
-`hand` itself is a self-contained Go binary. Operating a fleet relies on a few external tools:
+`hand` itself is a self-contained Go binary.
+Operating a fleet uses a private, pinned Git, Treehouse, and Herdr runtime under `~/.secondhand/`.
+The runtime is selected by absolute path and does not require persistent `PATH` changes.
 
-- [git](https://git-scm.com/) - repository operations
-- [herdr](https://github.com/ogulcancelik/herdr) - interactive worker sessions and semantic agent state
-- [treehouse](https://github.com/kunchenguid/treehouse) v2.1.0 or newer - isolated git worktree pools
 - at least one supported coding-agent harness
 
 Projects using `direct-pr` or `no-mistakes` delivery also require [gh](https://github.com/cli/cli) for GitHub operations.
@@ -387,8 +386,14 @@ Optional:
 - [no-mistakes](https://github.com/kunchenguid/no-mistakes) - required only by projects using `no-mistakes` mode
 - [qmd](https://github.com/tobi/qmd) - semantic search over historical fleet context beyond `hand search`
 
-`hand init` reports checked tools it cannot find on `PATH`. `hand doctor` reports fleet health: `AGENTS.md` and bundled-skill drift or conflicts, required tools missing from `PATH`, project no-mistakes gate failures, routing configuration drift, effective routing decisions, and the running binary's version, channel, commit, and distribution.
-Its structured output also exposes the bootstrap readiness contract: foundational tools, contextual `gh` requirements, every supported harness as installed or not installed, and the `ready`, `blocking`, and `next` fields.
+`hand runtime status` reports the selected private runtime without mutating the machine.
+`hand runtime ensure` explicitly installs or repairs the exact locked bundle and works before a Fleet exists.
+`hand doctor` reports runtime identity and readiness separately from optional integrations, external harnesses, project gates, routing, and fleet health.
+Its structured output also exposes the `ready`, `blocking`, and `next` fields.
+
+`hand integration list` reports the closed optional capability catalog without downloading anything.
+`hand integration install <id> --path <executable>` copies an explicitly installed optional executable into the private store without changing `PATH`.
+`hand integration remove <id>` removes the selected optional capability while retaining its versioned payload for recovery.
 
 Building from source additionally requires Go 1.26.5 or newer.
 

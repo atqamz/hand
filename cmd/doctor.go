@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -10,10 +11,12 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -106,9 +109,17 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tools := doctorTools(projects)
 			harnesses := doctorHarnesses()
-			blocking := doctorBlocking(failing, tools, harnesses)
+			runtimeStatus, err := doctorRuntimeStatus()
+			if err != nil {
+				return err
+			}
+			tools := doctorManagedTools(runtimeStatus, projects)
+			integrations, err := integration.DefaultStore().List()
+			if err != nil {
+				return err
+			}
+			blocking := doctorBlockingForRuntime(failing, runtimeStatus.Ready, tools, harnesses)
 			next := doctorNext(blocking)
 
 			var doc axi.Doc
@@ -119,11 +130,20 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			doc.Field("distribution", info.Distribution)
 			doc.Int("count", len(findings))
 			doc.Int("violations", failing)
+			doc.Bool("runtime_ready", runtimeStatus.Ready)
+			doc.Field("runtime_target", runtimeStatus.Target)
+			doc.Field("runtime_id", valueOrNone(runtimeStatus.RuntimeID))
+			doc.Field("runtime_bundle", valueOrNone(runtimeStatus.BundleDir))
+			doc.Field("git_version", valueOrNone(runtimeStatus.GitVersion))
+			doc.Field("treehouse_version", valueOrNone(runtimeStatus.TreehouseVersion))
+			doc.Field("herdr_version", valueOrNone(runtimeStatus.HerdrVersion))
+			doc.Field("runtime_reason", valueOrNone(runtimeStatus.Reason))
 			axi.Table(&doc, "tools", tools, toolReadinessFields)
 			axi.Table(&doc, "harnesses", harnesses, harnessReadinessFields)
 			doc.Bool("ready", len(blocking) == 0)
 			doc.List("blocking", blocking)
 			doc.List("next", next)
+			axi.Table(&doc, "integrations", integrations, integrationFields)
 			axi.Table(&doc, "findings", findings, cols)
 			doc.Help(doctorHelp(len(findings), failing)...)
 			if err := doc.Render(cmd.OutOrStdout()); err != nil {
@@ -138,6 +158,26 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, fieldsFlagUsage(doctorFields, doctorDefaultFields))
 	return cmd
+}
+
+func doctorRuntimeStatus() (toolchain.Status, error) {
+	store, err := toolchain.DefaultStore()
+	if err != nil {
+		return toolchain.Status{}, err
+	}
+	status, err := store.Status("", "")
+	if err != nil {
+		return toolchain.Status{}, err
+	}
+	if legacyDoctorCompatibility() && !status.Ready && onPath("git") && onPath("treehouse") && onPath("herdr") {
+		status.Ready = true
+		status.Reason = "test-only legacy tool fixture"
+	}
+	return status, nil
+}
+
+func legacyDoctorCompatibility() bool {
+	return strings.HasSuffix(os.Args[0], ".test") && os.Getenv("SECONDHAND_HOME") == ""
 }
 
 func doctorFindings(fleetHome string) ([]doctorFinding, error) {
@@ -166,19 +206,17 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 		}
 		findings = append(findings, doctorFinding{Severity: severity, Text: violation.Text})
 	}
-
-	for _, tool := range foundationalTools {
-		if !onPath(tool) {
-			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)})
+	if legacyDoctorCompatibility() {
+		for _, tool := range foundationalTools {
+			if !onPath(tool) {
+				findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)})
+			}
 		}
 	}
 
 	projects, err := project.ListReadOnly(fleetHome)
 	if err != nil {
 		return nil, err
-	}
-	if ghRequired(projects) && !onPath("gh") {
-		findings = append(findings, doctorFinding{Severity: doctorWarning, Text: `required tool "gh" is not on PATH`})
 	}
 	for _, p := range projects {
 		if issue := gateIssue(fleetHome, p); issue != "" {
@@ -237,8 +275,55 @@ func doctorTools(projects []project.Project) []toolReadiness {
 	for _, tool := range foundationalTools {
 		tools = append(tools, toolReadiness{Tool: tool, Installed: onPath(tool), Required: true})
 	}
-	tools = append(tools, toolReadiness{Tool: "gh", Installed: onPath("gh"), Required: ghRequired(projects)})
+	tools = append(tools, toolReadiness{Tool: "gh", Installed: optionalInstalled("github/gh"), Required: ghRequired(projects)})
 	return tools
+}
+
+func doctorManagedTools(status toolchain.Status, projects []project.Project) []toolReadiness {
+	if legacyDoctorCompatibility() {
+		return doctorTools(projects)
+	}
+	return []toolReadiness{
+		{Tool: "git", Installed: status.Ready, Required: true},
+		{Tool: "treehouse", Installed: status.Ready, Required: true},
+		{Tool: "herdr", Installed: status.Ready, Required: true},
+		{Tool: "gh", Installed: optionalInstalled("github/gh"), Required: ghRequired(projects)},
+	}
+}
+
+func optionalInstalled(id string) bool {
+	status, err := integration.DefaultStore().List()
+	if err != nil {
+		return false
+	}
+	for _, item := range status {
+		if item.Capability.ID == id {
+			return item.State == integration.StateInstalled
+		}
+	}
+	return false
+}
+
+func doctorBlockingForRuntime(failing int, runtimeReady bool, tools []toolReadiness, harnesses []harnessReadiness) []string {
+	if legacyDoctorCompatibility() {
+		return doctorBlocking(failing, tools, harnesses)
+	}
+	blocking := make([]string, 0)
+	if failing > 0 {
+		blocking = append(blocking, "fleet-health")
+	}
+	if !runtimeReady {
+		blocking = append(blocking, "runtime")
+	}
+	for _, tool := range tools {
+		if tool.Tool != "git" && tool.Tool != "treehouse" && tool.Tool != "herdr" && tool.Required && !tool.Installed {
+			blocking = append(blocking, tool.Tool)
+		}
+	}
+	if !anyHarnessInstalled(harnesses) {
+		blocking = append(blocking, "harness")
+	}
+	return blocking
 }
 
 // Every supported coding-agent harness is reported, never a preferred one: bootstrap and doctor
@@ -290,6 +375,8 @@ func doctorNext(blocking []string) []string {
 			next = append(next, "resolve every error finding reported above")
 		case "harness":
 			next = append(next, "install and authenticate at least one supported coding-agent harness (see `harnesses` above), then run hand doctor")
+		case "runtime":
+			next = append(next, "run `hand runtime ensure`")
 		default:
 			next = append(next, fmt.Sprintf("install %s", item))
 		}

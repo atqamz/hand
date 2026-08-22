@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -472,9 +471,7 @@ func isCompletedScout(home string, t state.Task, worktree string) bool {
 	if err != nil {
 		return false
 	}
-	c := exec.Command("git", "rev-list", "--count", baseRef+"..HEAD")
-	c.Dir = worktree
-	out, err := c.Output()
+	out, err := git.Run(worktree, "rev-list", "--count", baseRef+"..HEAD")
 	if err != nil {
 		return false
 	}
@@ -482,9 +479,7 @@ func isCompletedScout(home string, t state.Task, worktree string) bool {
 }
 
 func gitStatusPorcelain(worktreePath string) (string, error) {
-	c := exec.Command("git", "status", "--porcelain")
-	c.Dir = worktreePath
-	out, err := c.Output()
+	out, err := git.Run(worktreePath, "status", "--porcelain")
 	if err != nil {
 		return "", fmt.Errorf("git status failed: %w", err)
 	}
@@ -573,13 +568,11 @@ func localDefaultBranchRef(worktreePath string) (string, error) {
 // Reads path's content at ref. An empty ref reads the index's stage-0 blob, which is what
 // `git show :path` means.
 func gitShowBlob(worktreePath, ref, path string) ([]byte, error) {
-	c := exec.Command("git", "show", ref+":"+path)
-	c.Dir = worktreePath
-	out, err := c.Output()
+	out, err := git.Run(worktreePath, "show", ref+":"+path)
 	if err != nil {
 		return nil, fmt.Errorf("git show %s:%s failed: %w", ref, path, err)
 	}
-	return out, nil
+	return []byte(out), nil
 }
 
 func branchIsMerged(clonePath, worktreePath string) (bool, error) {
@@ -592,9 +585,7 @@ func branchIsMerged(clonePath, worktreePath string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	c := exec.Command("git", "branch", "--merged", defaultBranch)
-	c.Dir = clonePath
-	out, err := c.Output()
+	out, err := git.Run(clonePath, "branch", "--merged", defaultBranch)
 	if err != nil {
 		return false, fmt.Errorf("git branch --merged %s failed: %w", defaultBranch, err)
 	}

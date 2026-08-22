@@ -17,8 +17,9 @@ hand doctor                -> "Is this fleet ready, and what is blocking it?"
 It never installs Treehouse, Herdr, `gh`, a coding-agent harness, or no-mistakes.
 
 `bootstrap.*` is optional and explicitly opt-in.
-It may install missing foundational dependencies (Git, Treehouse, Herdr) with consent, because the operator explicitly chose an adoption workflow by running it.
-It never installs a coding-agent harness or no-mistakes: those require account, provider, and authentication choices only the operator can make.
+It ensures the exact private Git, Treehouse, and Herdr runtime under `~/.secondhand/` through `hand runtime ensure`.
+It never installs core tools into machine locations or edits persistent `PATH`.
+It never installs a coding-agent harness or optional integration: those require account, provider, and authentication choices only the operator can make.
 
 `hand init` is the only fleet initialize/reconcile operation.
 Bootstrap calls it; it never reimplements fleet setup in shell or PowerShell.
@@ -104,7 +105,8 @@ If adoption ever needs a longer, more specialized prompt than this, that is a si
 
 Bootstrap runs at a high-trust boundary and is deliberately conservative:
 
-- Every missing foundational dependency is listed with its source and install method before anything runs; `--yes` is explicit non-interactive consent, and a non-interactive invocation without it declines rather than guessing.
+- Runtime acquisition uses the source-controlled lock, HTTPS, staged downloads, SHA-256 verification, safe extraction, and atomic selection.
+- `--yes` is explicit non-interactive consent for acquiring `hand` and ensuring its private runtime.
 - `--check` is a pure read-only dry run; it never installs or mutates anything, including the fleet target.
 - A dependency fetched from a URL is downloaded to a file and its download verified before that file is ever run - never `curl | sh` or `irm | iex` piped directly, which would treat a failed or interrupted fetch as an empty, successful script.
 - `hand` itself, when bootstrap must acquire it, is verified against the same checksummed GitHub release artifact `install.sh`/`install.ps1` use.
@@ -117,11 +119,20 @@ Bootstrap runs at a high-trust boundary and is deliberately conservative:
 `hand doctor` exposes the same readiness contract bootstrap reads, so a human or a supervising agent gets identical answers:
 
 ```text
+runtime_ready: false
+runtime_target: linux/amd64
+runtime_id: rNN
+runtime_reason: no selected runtime; run `hand runtime ensure`
 tools[4]{tool,installed,required}:
   git,true,true
   treehouse,false,true
   herdr,true,true
   gh,false,false
+integrations[4]{id,executable,owner,state,path}:
+  github/gh,gh,GitHub,missing,none
+  gitlab/glab,glab,GitLab,missing,none
+  delivery/no-mistakes,no-mistakes,no-mistakes,missing,none
+  delivery/witness,witness,Witness,missing,none
 harnesses[5]{name,installed}:
   claude,true
   codex,false
@@ -130,12 +141,13 @@ harnesses[5]{name,installed}:
   opencode,false
 ready: false
 blocking[1]:
-  - treehouse
+  - runtime
 next[1]:
-  - install treehouse
+  - run `hand runtime ensure`
 ```
 
-`git`, `treehouse`, and `herdr` are always required; `gh` is required only when a registered project's delivery mode is `direct-pr` or `no-mistakes`.
+The private runtime is always required, and its three components are selected together by one runtime ID.
+Optional integrations are missing without blocking readiness until a registered workflow selects one.
 Harnesses are reported purely as installed or not - `hand` never picks one on the operator's behalf.
 
 `hand fleet` is the discovery view for users with more than one Fleet home.

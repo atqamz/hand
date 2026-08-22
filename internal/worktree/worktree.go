@@ -3,15 +3,16 @@ package worktree
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 // Known non-force aborts are classified while the same lease remains held.
@@ -143,8 +144,7 @@ func unknownLease(worktreePath, reason string) LeaseObservation {
 }
 
 func ObserveCleanliness(worktreePath string) (Cleanliness, error) {
-	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain", "--untracked-files=all")
-	out, err := cmd.Output()
+	out, _, err := runCore("git", worktreePath, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return "", fmt.Errorf("git worktree status failed: %w", err)
 	}
@@ -260,9 +260,7 @@ func prunedUpstream(worktreePath string) (string, bool) {
 }
 
 func gitOutput(worktreePath string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = worktreePath
-	out, err := cmd.Output()
+	out, _, err := runCore("git", worktreePath, args...)
 	if err != nil {
 		return "", err
 	}
@@ -287,15 +285,11 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	if leaseHolder != "" {
 		args = append(args, "--lease-holder", leaseHolder)
 	}
-	cmd := exec.Command("treehouse", args...)
-	cmd.Dir = clonePath
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	out, stderr, err := runCore("treehouse", clonePath, args...)
 	// Banners land on stderr ahead of the JSON, so the payload has to be read from stdout alone -
 	// CombinedOutput here corrupts every parse (atqamz/hand#21).
-	out, err := cmd.Output()
 	if err != nil {
-		return Lease{}, fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return Lease{}, fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(string(stderr)))
 	}
 
 	var payload struct {
@@ -313,9 +307,7 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 
 // Reads the full commit object ID currently checked out by a leased worktree.
 func HeadCommit(worktreePath string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--verify", "HEAD^{commit}")
-	cmd.Dir = worktreePath
-	out, err := cmd.Output()
+	out, _, err := runCore("git", worktreePath, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree HEAD: %w", err)
 	}
@@ -355,9 +347,10 @@ func ReturnLease(worktreePath, leaseID string, force bool) error {
 }
 
 func returnTreehouse(worktreePath string, args []string, force bool) error {
-	out, err := exec.Command("treehouse", args...).CombinedOutput()
+	stdout, stderr, err := runCore("treehouse", "", args...)
+	out := append(stdout, stderr...)
 	if err != nil {
-		return fmt.Errorf("treehouse return failed: %s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("treehouse return failed: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	if !force && strings.Contains(string(out), "Aborted") {
 		return &returnAbortedError{message: fmt.Sprintf("treehouse return aborted, worktree %s is still leased: %s", worktreePath, strings.TrimSpace(string(out)))}
@@ -368,16 +361,12 @@ func returnTreehouse(worktreePath string, args []string, force bool) error {
 // Reports the pool entries, or the reason the pool could not be observed. A missing executable, a
 // non-zero exit and unparsable output are all unobservability, never absence and never a mismatch.
 func treehouseStatus(worktreePath string) ([]statusEntry, string) {
-	cmd := exec.Command("treehouse", "status", "--json")
-	cmd.Dir = worktreePath
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, stderr, err := runCore("treehouse", worktreePath, "status", "--json")
 	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
+		if strings.Contains(err.Error(), "executable file not found") {
 			return nil, fmt.Sprintf("treehouse is not executable: %v", err)
 		}
-		detail := strings.TrimSpace(stderr.String())
+		detail := strings.TrimSpace(string(stderr))
 		if detail == "" {
 			return nil, fmt.Sprintf("treehouse status failed: %v", err)
 		}
@@ -388,6 +377,36 @@ func treehouseStatus(worktreePath string) ([]statusEntry, string) {
 		return nil, fmt.Sprintf("treehouse status output is not a JSON array: %v", err)
 	}
 	return entries, ""
+}
+
+func runCore(tool, dir string, args ...string) ([]byte, []byte, error) {
+	managed, err := toolchain.Resolve()
+	if err != nil {
+		stdout, stderr, legacyErr := toolchain.RunLegacyForTests(context.Background(), tool, dir, args...)
+		if legacyErr == nil {
+			return stdout, stderr, nil
+		}
+		return stdout, stderr, fmt.Errorf("resolve managed %s: %w; legacy test command: %v", tool, err, legacyErr)
+	}
+	var path string
+	switch tool {
+	case "git":
+		path = managed.GitPath
+	case "treehouse":
+		path = managed.TreehousePath
+	default:
+		return nil, nil, fmt.Errorf("unsupported core tool %q", tool)
+	}
+	spec, err := managed.Process(path, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	spec.Dir = dir
+	var stdout, stderr bytes.Buffer
+	spec.Stdout = &stdout
+	spec.Stderr = &stderr
+	err = spec.Run(context.Background())
+	return stdout.Bytes(), stderr.Bytes(), err
 }
 
 // CheckCollision cross-checks a freshly acquired lease against every other task's recorded one,

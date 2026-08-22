@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
@@ -141,9 +141,7 @@ func repointProject(homeDir, name, url string) (repointResult, error) {
 }
 
 func storedOriginURL(clonePath string) (string, error) {
-	c := exec.Command("git", "config", "--get", "remote.origin.url")
-	c.Dir = clonePath
-	out, err := c.Output()
+	out, err := runManagedCore(context.Background(), "git", clonePath, "config", "--get", "remote.origin.url")
 	if err != nil {
 		return "", fmt.Errorf("read stored origin: %w", err)
 	}
@@ -155,9 +153,7 @@ func storedOriginURL(clonePath string) (string, error) {
 }
 
 func setOriginURL(clonePath, url string) error {
-	c := exec.Command("git", "remote", "set-url", "origin", url)
-	c.Dir = clonePath
-	out, err := c.CombinedOutput()
+	out, err := runManagedCore(context.Background(), "git", clonePath, "remote", "set-url", "origin", url)
 	if err != nil {
 		return fmt.Errorf("set origin in %s: %s", clonePath, strings.TrimSpace(string(out)))
 	}
@@ -466,8 +462,7 @@ func validateProjectMode(mode string) error {
 }
 
 func gitClone(url, dest string) error {
-	c := exec.Command("git", "clone", url, dest)
-	out, err := c.CombinedOutput()
+	out, err := runManagedCore(context.Background(), "git", "", "clone", url, dest)
 	if err != nil {
 		return fmt.Errorf("git clone failed: %s", string(out))
 	}
@@ -475,9 +470,8 @@ func gitClone(url, dest string) error {
 }
 
 func noMistakesInit(clonePath string) error {
-	c := exec.Command("no-mistakes", "init")
-	c.Dir = clonePath
-	out, err := c.CombinedOutput()
+	stdout, stderr, err := integration.Run(context.Background(), "delivery/no-mistakes", clonePath, "init")
+	out := append(stdout, stderr...)
 	if err != nil {
 		return fmt.Errorf("no-mistakes init failed: %s", string(out))
 	}
@@ -488,9 +482,7 @@ func treehouseInitIfNeeded(clonePath string) error {
 	if _, err := os.Stat(filepath.Join(clonePath, "treehouse.toml")); err == nil {
 		return excludeLocally(clonePath, "treehouse.toml")
 	}
-	c := exec.Command("treehouse", "init")
-	c.Dir = clonePath
-	out, err := c.CombinedOutput()
+	out, err := runManagedCore(context.Background(), "treehouse", clonePath, "init")
 	if err != nil {
 		return fmt.Errorf("treehouse init failed: %s", string(out))
 	}
@@ -503,12 +495,9 @@ func treehouseInitIfNeeded(clonePath string) error {
 func excludeLocally(clonePath, pattern string) error {
 	// info/exclude rather than .gitignore: it is per-clone and never committed, so hand cannot leave a
 	// change of its own in the operator's repo.
-	c := exec.Command("git", "-C", clonePath, "rev-parse", "--git-path", "info/exclude")
-	var stderr strings.Builder
-	c.Stderr = &stderr
-	out, err := c.Output()
+	out, err := runManagedCore(context.Background(), "git", clonePath, "rev-parse", "--git-path", "info/exclude")
 	if err != nil {
-		return fmt.Errorf("resolve info/exclude in %s: %w: %s", clonePath, err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("resolve info/exclude in %s: %w", clonePath, err)
 	}
 	path := strings.TrimSpace(string(out))
 	if !filepath.IsAbs(path) {
@@ -801,9 +790,7 @@ func syncOneProjectContext(ctx context.Context, home string, p project.Project) 
 		return syncOutcome{}, err
 	}
 
-	fetch := exec.Command("git", "fetch", "origin", "--prune")
-	fetch.Dir = clonePath
-	if out, err := fetch.CombinedOutput(); err != nil {
+	if out, err := runManagedCore(ctx, "git", clonePath, "fetch", "origin", "--prune"); err != nil {
 		return syncOutcome{}, fmt.Errorf("%s: git fetch failed: %s", p.Name, strings.TrimSpace(string(out)))
 	}
 
@@ -850,9 +837,7 @@ func syncOneProjectContext(ctx context.Context, home string, p project.Project) 
 		return skippedSync(p.Name, "diverged from "+remoteRef)
 	}
 
-	merge := exec.Command("git", "merge", "--ff-only", remoteRef)
-	merge.Dir = clonePath
-	if out, err := merge.CombinedOutput(); err != nil {
+	if out, err := runManagedCore(ctx, "git", clonePath, "merge", "--ff-only", remoteRef); err != nil {
 		return skippedSync(p.Name, "fast-forward failed: "+strings.TrimSpace(string(out)))
 	}
 	detail := fmt.Sprintf("%s, was %d behind", remoteRef, behind)
@@ -891,9 +876,7 @@ func repairProjectRename(ctx context.Context, home string, p project.Project, or
 }
 
 func commitCount(clonePath, revRange string) (int, error) {
-	c := exec.Command("git", "rev-list", "--count", revRange)
-	c.Dir = clonePath
-	out, err := c.Output()
+	out, err := runManagedCore(context.Background(), "git", clonePath, "rev-list", "--count", revRange)
 	if err != nil {
 		return 0, fmt.Errorf("git rev-list --count %s failed: %w", revRange, err)
 	}
@@ -907,9 +890,7 @@ func commitCount(clonePath, revRange string) (int, error) {
 // Best-effort deletes local branches whose upstream tracking branch is gone. Branches still checked out
 // in a worktree refuse deletion; that failure is ignored since pruning must never block a sync.
 func pruneGoneBranches(clonePath string) {
-	c := exec.Command("git", "for-each-ref", "--format=%(refname:short)|%(upstream:track)", "refs/heads/")
-	c.Dir = clonePath
-	out, err := c.Output()
+	out, err := runManagedCore(context.Background(), "git", clonePath, "for-each-ref", "--format=%(refname:short)|%(upstream:track)", "refs/heads/")
 	if err != nil {
 		return
 	}
@@ -921,8 +902,6 @@ func pruneGoneBranches(clonePath string) {
 		if len(parts) != 2 || !strings.Contains(parts[1], "[gone]") {
 			continue
 		}
-		del := exec.Command("git", "branch", "-D", parts[0])
-		del.Dir = clonePath
-		_ = del.Run()
+		_, _ = runManagedCore(context.Background(), "git", clonePath, "branch", "-D", parts[0])
 	}
 }

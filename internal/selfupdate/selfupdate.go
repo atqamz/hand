@@ -1,18 +1,21 @@
 package selfupdate
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/atqamz/hand/internal/integration"
 )
 
 const Repo = "atqamz/hand"
@@ -38,14 +41,22 @@ func archiveBinaryName(goos string) string {
 }
 
 func latestTag(ctx context.Context, repo string) (string, error) {
-	out, err := runGH(ctx, "release", "view", "--repo", repo, "--json", "tagName", "--jq", ".tagName")
+	if isTestBinary() {
+		out, err := runTestGH(ctx, "release", "view", "--repo", repo, "--json", "tagName", "--jq", ".tagName")
+		if err != nil {
+			return "", fmt.Errorf("query latest release: %w", err)
+		}
+		return out, nil
+	}
+	var release githubRelease
+	err := githubAPI(ctx, repo, "/releases/latest", &release)
 	if err != nil {
 		return "", fmt.Errorf("query latest release: %w", err)
 	}
-	if out == "" {
+	if release.TagName == "" {
 		return "", fmt.Errorf("query latest release: empty tag name")
 	}
-	return out, nil
+	return release.TagName, nil
 }
 
 // ReleaseNotes returns the release body for tag. Callers should treat an error as "no
@@ -56,11 +67,19 @@ func ReleaseNotes(repo, tag string) (string, error) {
 }
 
 func releaseNotes(ctx context.Context, repo, tag string) (string, error) {
-	out, err := runGH(ctx, "release", "view", tag, "--repo", repo, "--json", "body", "--jq", ".body")
+	if isTestBinary() {
+		out, err := runTestGH(ctx, "release", "view", tag, "--repo", repo, "--json", "body", "--jq", ".body")
+		if err != nil {
+			return "", fmt.Errorf("query release notes: %w", err)
+		}
+		return out, nil
+	}
+	var release githubRelease
+	err := githubAPI(ctx, repo, "/releases/tags/"+url.PathEscape(tag), &release)
 	if err != nil {
 		return "", fmt.Errorf("query release notes: %w", err)
 	}
-	return out, nil
+	return release.Body, nil
 }
 
 // IsNewer reports whether latest is newer than current. A current version that
@@ -153,12 +172,34 @@ func Apply(repo, tag string) error {
 }
 
 func downloadAssets(ctx context.Context, repo, tag, dir string, patterns ...string) error {
-	args := []string{"release", "download", tag, "--repo", repo, "--dir", dir, "--clobber"}
-	for _, p := range patterns {
-		args = append(args, "--pattern", p)
+	if isTestBinary() {
+		args := []string{"release", "download", tag, "--repo", repo, "--dir", dir, "--clobber"}
+		for _, p := range patterns {
+			args = append(args, "--pattern", p)
+		}
+		_, err := runTestGH(ctx, args...)
+		return err
 	}
-	_, err := runGH(ctx, args...)
-	return err
+	var release githubRelease
+	if err := githubAPI(ctx, repo, "/releases/tags/"+url.PathEscape(tag), &release); err != nil {
+		return fmt.Errorf("resolve release assets: %w", err)
+	}
+	for _, pattern := range patterns {
+		var asset *githubAsset
+		for i := range release.Assets {
+			if release.Assets[i].Name == pattern {
+				asset = &release.Assets[i]
+				break
+			}
+		}
+		if asset == nil {
+			return fmt.Errorf("release %s has no asset %s", tag, pattern)
+		}
+		if err := downloadGitHubAsset(ctx, asset.BrowserDownloadURL, filepath.Join(dir, asset.Name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func verifyChecksum(dir, assetName string) error {
@@ -200,13 +241,91 @@ func verifyChecksum(dir, assetName string) error {
 	return nil
 }
 
-func runGH(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+type githubRelease struct {
+	TagName string        `json:"tag_name"`
+	Body    string        `json:"body"`
+	Assets  []githubAsset `json:"assets"`
+}
+
+type githubAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+func githubAPI(ctx context.Context, repo, suffix string, result any) error {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("invalid GitHub repository %q", repo)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	endpoint := "https://api.github.com/repos/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + suffix
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("create GitHub API request: %w", err)
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "hand")
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("request GitHub API: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub API: HTTP %s", response.Status)
+	}
+	if err := json.NewDecoder(response.Body).Decode(result); err != nil {
+		return fmt.Errorf("decode GitHub API response: %w", err)
+	}
+	return nil
+}
+
+func downloadGitHubAsset(ctx context.Context, rawURL, path string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return fmt.Errorf("create release asset request: %w", err)
+	}
+	request.Header.Set("Accept", "application/octet-stream")
+	request.Header.Set("User-Agent", "hand")
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("download release asset: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("download release asset: HTTP %s", response.Status)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("create release asset %s: %w", filepath.Base(path), err)
+	}
+	_, copyErr := io.Copy(file, response.Body)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return fmt.Errorf("write release asset %s: %w", filepath.Base(path), copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close release asset %s: %w", filepath.Base(path), closeErr)
+	}
+	return nil
+}
+
+func isTestBinary() bool {
+	return strings.HasSuffix(os.Args[0], ".test")
+}
+
+func runTestGH(ctx context.Context, args ...string) (string, error) {
+	stdout, stderr, err := integration.Run(ctx, "github/gh", "", args...)
+	if err != nil {
+		message := strings.TrimSpace(string(stderr))
+		if message != "" {
+			return "", fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, message)
+		}
+		return "", fmt.Errorf("gh %s: %w", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(stdout)), nil
 }

@@ -2,14 +2,14 @@
 set -eu
 
 # Optional, explicitly opt-in Secondhand adoption for Linux and macOS: acquires hand if missing,
-# offers to install missing foundational dependencies (git, treehouse, herdr) with consent,
+# ensures the private pinned core runtime (git, treehouse, herdr),
 # reconciles a fleet home with `hand init`, reads readiness from `hand doctor`, and prints the
 # exact next command. Never installs a coding-agent harness or no-mistakes; never reimplements
 # `hand init` or `hand doctor` validation logic.
 #
 # Usage: bootstrap.sh [--fleet PATH] [--yes] [--check] [--help]
 #   --fleet PATH  fleet home to create or reconcile (default: $HOME/secondhand-fleet)
-#   --yes         explicit non-interactive consent to install missing foundational dependencies
+#   --yes         explicit non-interactive consent to install hand and its private runtime
 #   --check       read-only: report readiness, install or mutate nothing
 
 fleet="${HOME}/secondhand-fleet"
@@ -24,7 +24,7 @@ usage() {
 Usage: bootstrap.sh [--fleet PATH] [--yes] [--check] [--help]
 
   --fleet PATH  fleet home to create or reconcile (default: $HOME/secondhand-fleet)
-  --yes         explicit non-interactive consent to install missing foundational dependencies
+  --yes         explicit non-interactive consent to install hand and its private runtime
   --check       read-only: report readiness, install or mutate nothing
   --help        show this message
 EOF
@@ -64,6 +64,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # ---- step 1: acquire or verify hand -----------------------------------------------------------
 
 hand_available=0
+hand_command=hand
 if command -v hand >/dev/null 2>&1; then
   hand_available=1
 fi
@@ -150,185 +151,29 @@ ensure_hand() {
     *) PATH="${HAND_INSTALL_DIR:-$HOME/.local/bin}:$PATH" ;;
   esac
   command -v hand >/dev/null 2>&1 || die "hand was installed but is still not on PATH; add ${HAND_INSTALL_DIR:-$HOME/.local/bin} to PATH and rerun bootstrap.sh"
+  hand_command=hand
 }
 
 if [ "$hand_available" -eq 0 ]; then
   ensure_hand
 fi
 
-# ---- step 2: detect/install missing foundational dependencies --------------------------------
+# ---- step 2: ensure the private pinned core runtime --------------------------------------------
 
-pkg_manager() {
-  for mgr in apt-get dnf yum pacman apk zypper brew; do
-    if command -v "$mgr" >/dev/null 2>&1; then
-      printf '%s\n' "$mgr"
-      return 0
-    fi
-  done
-  return 1
-}
-
-# install_git_cmd echoes the exact command bootstrap would run so consent is informed before it
-# is ever asked for; empty output means no supported package manager was found on this platform.
-install_git_cmd() {
-  case "$(pkg_manager 2>/dev/null || true)" in
-    apt-get) printf 'sudo apt-get update && sudo apt-get install -y git' ;;
-    dnf) printf 'sudo dnf install -y git' ;;
-    yum) printf 'sudo yum install -y git' ;;
-    pacman) printf 'sudo pacman -Sy --noconfirm git' ;;
-    apk) printf 'sudo apk add git' ;;
-    zypper) printf 'sudo zypper install -y git' ;;
-    brew) printf 'brew install git' ;;
-  esac
-}
-
-# dep_source is the source column the consent prompt shows for a missing foundational dependency.
-dep_source() {
-  case "$1" in
-    git) printf 'your platform package manager' ;;
-    treehouse) printf 'kunchenguid/treehouse' ;;
-    herdr) printf 'ogulcancelik/herdr' ;;
-  esac
-}
-
-# resolve_dep_action sets dep_action_kind ("cmd", run directly, or "url", fetched and verified
-# before it is ever run) and dep_action_value for dep. A url is never piped straight into a
-# shell: `curl ... | sh` treats a failed fetch as an empty, successful script, so run_dep_action
-# downloads to a file first and only runs it once the download itself is confirmed to have
-# succeeded.
-resolve_dep_action() {
-  case "$1" in
-    git)
-      dep_action_kind=cmd
-      dep_action_value=$(install_git_cmd)
-      ;;
-    treehouse)
-      dep_action_kind=url
-      dep_action_value='https://kunchenguid.github.io/treehouse/install.sh'
-      ;;
-    herdr)
-      if command -v brew >/dev/null 2>&1; then
-        dep_action_kind=cmd
-        dep_action_value='brew install herdr'
-      else
-        dep_action_kind=url
-        dep_action_value='https://herdr.dev/install.sh'
-      fi
-      ;;
-    *)
-      dep_action_kind=cmd
-      dep_action_value=''
-      ;;
-  esac
-}
-
-describe_dep_action() {
-  resolve_dep_action "$1"
-  case "$dep_action_kind" in
-    cmd) printf '%s' "$dep_action_value" ;;
-    url) printf 'download and verify %s, then run only the completed download' "$dep_action_value" ;;
-  esac
-}
-
-run_dep_action() {
-  resolve_dep_action "$1"
-  case "$dep_action_kind" in
-    cmd)
-      [ -n "$dep_action_value" ] || return 1
-      sh -c "$dep_action_value"
-      ;;
-    url)
-      tmp=$(mktemp) || return 1
-      if ! curl -fsSL -o "$tmp" "$dep_action_value" || [ ! -s "$tmp" ]; then
-        rm -f "$tmp"
-        return 1
-      fi
-      if sh "$tmp"; then
-        status=0
-      else
-        status=$?
-      fi
-      rm -f "$tmp"
-      return "$status"
-      ;;
-  esac
-}
-
-# missing_foundational_deps lists, in the same order hand doctor's foundational tools table
-# does, every dependency doctor would also report missing - never a schema bootstrap invents.
-missing_foundational_deps() {
-  for tool in git treehouse herdr; do
-    command -v "$tool" >/dev/null 2>&1 || printf '%s\n' "$tool"
-  done
-}
-
-# ensure_foundational_deps returns 0 once every foundational dependency is on PATH, and 1
-# whenever one remains missing - declined, failed, unsupported platform, or check mode. It never
-# treats that as fatal itself: `hand doctor` is the one place a remaining gap is judged blocking.
-ensure_foundational_deps() {
-  missing=$(missing_foundational_deps)
-  [ -z "$missing" ] && return 0
-
+ensure_private_runtime() {
   if [ "$check_only" -eq 1 ]; then
-    log "missing foundational dependencies (check mode: no changes made):"
-    for dep in $missing; do
-      log "  $dep"
-    done
+    log "private runtime status (check mode: no changes made):"
+    "$hand_command" runtime status || true
+    return 0
+  fi
+  log "ensuring private pinned Git, Treehouse, and Herdr runtime"
+  "$hand_command" runtime ensure || {
+    log "private runtime is not ready; repair with: hand runtime ensure"
     return 1
-  fi
-
-  log "Missing foundational runtime dependencies:"
-  log ""
-  for dep in $missing; do
-    desc=$(describe_dep_action "$dep")
-    log "  $dep"
-    log "    source: $(dep_source "$dep")"
-    if [ -n "$desc" ]; then
-      log "    install method: $desc"
-    else
-      log "    install method: none detected for this platform; install $dep manually, then rerun bootstrap.sh"
-    fi
-    log ""
-  done
-
-  proceed=$consent_yes
-  if [ "$proceed" -eq 0 ]; then
-    if [ "$interactive" -eq 0 ]; then
-      log "not running interactively and --yes was not given: declining to install any of the above"
-      return 1
-    fi
-    printf 'Install these dependencies? [y/N] '
-    read -r reply || reply=""
-    case "$reply" in
-      y|Y|yes|YES) proceed=1 ;;
-      *) proceed=0 ;;
-    esac
-  fi
-  if [ "$proceed" -eq 0 ]; then
-    log "declined: continuing without installing missing foundational dependencies"
-    return 1
-  fi
-
-  install_failed=0
-  for dep in $missing; do
-    desc=$(describe_dep_action "$dep")
-    if [ -z "$desc" ]; then
-      log "$dep: no supported install method detected on this platform; skipping"
-      install_failed=1
-      continue
-    fi
-    log "installing $dep: $desc"
-    if ! run_dep_action "$dep"; then
-      log "$dep: install action failed"
-      install_failed=1
-      continue
-    fi
-    command -v "$dep" >/dev/null 2>&1 || { log "$dep: installed but still not on PATH"; install_failed=1; }
-  done
-  [ "$install_failed" -eq 0 ]
+  }
 }
 
-ensure_foundational_deps || true
+ensure_private_runtime
 
 # ---- step 3: choose a safe fleet-home target --------------------------------------------------
 

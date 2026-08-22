@@ -25,9 +25,7 @@ type herdrClient interface {
 	PaneRead(string, int) (string, error)
 }
 
-func newHerdrClient() herdrClient {
-	return herdr.NewClient()
-}
+func newHerdrClient() herdrClient { return herdr.NewManagedClient() }
 
 func newHerdrSessionClient(session string) herdrClient {
 	if session == "" || session == "default" {

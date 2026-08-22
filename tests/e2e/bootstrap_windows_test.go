@@ -83,6 +83,7 @@ func windowsIsolatedEnv(home string, extraEnv []string) []string {
 // so a test can prove nothing beyond that isolated environment ever reaches the script.
 func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
+	seedPrivateRuntime(t, home)
 	for _, dir := range []string{filepath.Join(home, "AppData", "Local"), filepath.Join(home, "AppData", "Roaming"), filepath.Join(home, "Temp")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -94,6 +95,7 @@ func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...strin
 		t.Fatalf("find a native PowerShell executable: %v", err)
 	}
 	cmd := exec.Command(powershell, psArgs...)
+	extraEnv = append(extraEnv, "SECONDHAND_HOME="+filepath.Join(home, ".secondhand"))
 	cmd.Env = windowsIsolatedEnv(home, extraEnv)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -205,31 +207,25 @@ func TestBootstrapPS1CheckModeNeverMutatesAnAbsentFleetTarget(t *testing.T) {
 	}
 }
 
-func TestBootstrapPS1DeclinesMissingDependenciesNonInteractivelyWithoutYesAndFailsClosed(t *testing.T) {
+func TestBootstrapPS1UsesPrivateRuntimeWithoutCoreToolsOnPath(t *testing.T) {
 	dir := binDir(t)
 	installFakeHandExe(t, dir)
-	installFakeCmdExe(t, dir, "herdr")
-	// treehouse deliberately left missing, and PowerShell's stdin is not an interactive console
-	// under exec.Command, so bootstrap must decline installing it rather than hang or guess consent.
+	installFakeCmdExe(t, dir, "claude")
 
 	home := t.TempDir()
 	fleet := filepath.Join(home, "secondhand-fleet")
 
 	got := runBootstrapPS1(t, home, nil, "-Fleet", fleet)
-	if got.code != 1 {
-		t.Fatalf("exit = %d, want 1 (stdout %q, stderr %q)", got.code, got.stdout, got.stderr)
+	if got.code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout %q, stderr %q)", got.code, got.stdout, got.stderr)
 	}
-	for _, want := range []string{
-		"declining to install any of the above",
-		"- treehouse",
-		"recover the items above, then rerun",
-	} {
-		if !strings.Contains(got.stdout, want) {
-			t.Fatalf("stdout = %q, want it to contain %q", got.stdout, want)
+	for _, notWant := range []string{"declining to install", "installing treehouse", "installing herdr", "installing git"} {
+		if strings.Contains(got.stdout, notWant) {
+			t.Fatalf("stdout = %q, must not contain legacy PATH installation %q", got.stdout, notWant)
 		}
 	}
-	if !isFleetHomeWindows(fleet) {
-		t.Fatal("hand init did not run even though only a foundational dependency was missing; a partial setup must still be retained and reconciled")
+	if !strings.Contains(got.stdout, "ready: true") {
+		t.Fatalf("stdout = %q, want private runtime readiness", got.stdout)
 	}
 }
 

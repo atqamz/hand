@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,8 +27,9 @@ var bootstrapScript = func() string {
 // prove nothing beyond those two ever reaches the script.
 func runBootstrap(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
+	seedPrivateRuntime(t, home)
 	cmd := exec.Command("sh", append([]string{bootstrapScript}, args...)...)
-	env := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb"}, extraEnv...)
+	env := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb", "SECONDHAND_HOME=" + filepath.Join(home, ".secondhand")}, extraEnv...)
 	cmd.Env = env
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -63,33 +63,7 @@ func installFakeHarness(t *testing.T, dir, name string) {
 	writeFakeBin(t, dir, name, "exit 0\n")
 }
 
-// Drops a fake curl on dir that answers only "-fsSL -o <file> <url>" for wantURL, writing
-// scriptBody to the requested output file, and fails loudly on any other invocation so a test
-// never silently passes through a real fetch.
-func installFakeCurlServingURL(t *testing.T, dir, wantURL, scriptBody string) {
-	t.Helper()
-	body := fmt.Sprintf(`out=""
-url=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -o) out=$2; shift 2 ;;
-    -*) shift ;;
-    *) url=$1; shift ;;
-  esac
-done
-if [ "$url" != %s ]; then
-  echo "fake curl: unexpected url $url" >&2
-  exit 1
-fi
-cat > "$out" <<'INNER'
-%s
-INNER
-`, shellSingleQuote(wantURL), scriptBody)
-	writeFakeBin(t, dir, "curl", body)
-}
-
-// Drops a fake curl that always fails, standing in for a network or download failure partway
-// through a dependency install.
+// Drops a fake curl that always fails, proving bootstrap does not use curl for core runtime setup.
 func installFakeCurlFailing(t *testing.T, dir string) {
 	t.Helper()
 	writeFakeBin(t, dir, "curl", "exit 1\n")
@@ -170,42 +144,33 @@ func TestBootstrapCheckModeNeverMutatesAnAbsentFleetTarget(t *testing.T) {
 	}
 }
 
-func TestBootstrapDeclinesMissingDependenciesNonInteractivelyWithoutYesAndFailsClosed(t *testing.T) {
+func TestBootstrapUsesPrivateRuntimeWithoutCoreToolsOnPath(t *testing.T) {
 	dir := binDir(t)
 	installFakeHand(t, dir)
-	faketool.Herdr{}.Install(t, dir)
-	// treehouse deliberately left missing, and stdin is not a tty under exec.Command, so
-	// bootstrap must decline installing it rather than hang or guess consent.
+	installFakeHarness(t, dir, "claude")
 
 	home := t.TempDir()
 	fleet := filepath.Join(home, "secondhand-fleet")
 
 	got := runBootstrap(t, home, nil, "--fleet", fleet)
-	if got.code != 1 {
-		t.Fatalf("exit = %d, want 1 (stderr %q)", got.code, got.stderr)
+	if got.code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", got.code, got.stderr)
 	}
-	for _, want := range []string{
-		"declining to install any of the above",
-		"- treehouse",
-		"recover the items above, then rerun",
-	} {
-		if !strings.Contains(got.stderr, want) {
-			t.Fatalf("stderr = %q, want it to contain %q", got.stderr, want)
+	for _, notWant := range []string{"declining to install", "installing treehouse", "installing herdr", "installing git"} {
+		if strings.Contains(got.stderr, notWant) {
+			t.Fatalf("stderr = %q, must not contain legacy PATH installation %q", got.stderr, notWant)
 		}
 	}
-	if !isFleetHome(fleet) {
-		t.Fatal("hand init did not run even though only a foundational dependency was missing; a partial setup must still be retained and reconciled")
+	if !strings.Contains(got.stderr, "ready: true") {
+		t.Fatalf("stderr = %q, want private runtime readiness", got.stderr)
 	}
 }
 
-func TestBootstrapYesInstallsOnlyTheMissingFoundationalDependency(t *testing.T) {
+func TestBootstrapDoesNotUseCurlForCoreRuntime(t *testing.T) {
 	dir := binDir(t)
 	installFakeHand(t, dir)
-	faketool.Herdr{}.Install(t, dir)
 	installFakeHarness(t, dir, "claude")
-	installFakeCurlServingURL(t, dir, "https://kunchenguid.github.io/treehouse/install.sh",
-		fmt.Sprintf("#!/bin/sh\ncat > %s/treehouse <<'LEAF'\n#!/bin/sh\nexit 0\nLEAF\nchmod +x %s/treehouse\n",
-			shellSingleQuote(dir), shellSingleQuote(dir)))
+	installFakeCurlFailing(t, dir)
 
 	home := t.TempDir()
 	fleet := filepath.Join(home, "secondhand-fleet")
@@ -217,43 +182,13 @@ func TestBootstrapYesInstallsOnlyTheMissingFoundationalDependency(t *testing.T) 
 	if !isFleetHome(fleet) {
 		t.Fatalf("%s was not initialized", fleet)
 	}
-	if !strings.Contains(got.stderr, "installing treehouse:") {
-		t.Fatalf("stderr = %q, want it to report installing the missing dependency", got.stderr)
-	}
-	for _, notWant := range []string{"installing herdr:", "installing git:"} {
+	for _, notWant := range []string{"installing treehouse", "installing herdr", "installing git", "installing dependencies"} {
 		if strings.Contains(got.stderr, notWant) {
-			t.Fatalf("stderr = %q, want it to leave an already-present dependency alone", got.stderr)
+			t.Fatalf("stderr = %q, must not install core tools through curl", got.stderr)
 		}
 	}
 	if !strings.Contains(got.stderr, "ready: true") {
-		t.Fatalf("stderr = %q, want readiness once the installed dependency is on PATH", got.stderr)
-	}
-}
-
-func TestBootstrapFailedDependencyDownloadProducesActionableRecovery(t *testing.T) {
-	dir := binDir(t)
-	installFakeHand(t, dir)
-	faketool.Herdr{}.Install(t, dir)
-	installFakeCurlFailing(t, dir)
-
-	home := t.TempDir()
-	fleet := filepath.Join(home, "secondhand-fleet")
-
-	got := runBootstrap(t, home, nil, "--fleet", fleet, "--yes")
-	if got.code != 1 {
-		t.Fatalf("exit = %d, want 1 (stderr %q)", got.code, got.stderr)
-	}
-	for _, want := range []string{
-		"treehouse: install action failed",
-		"- treehouse",
-		"recover the items above, then rerun",
-	} {
-		if !strings.Contains(got.stderr, want) {
-			t.Fatalf("stderr = %q, want it to contain %q", got.stderr, want)
-		}
-	}
-	if !isFleetHome(fleet) {
-		t.Fatal("a failed dependency install must not prevent retaining and reconciling the rest of the setup")
+		t.Fatalf("stderr = %q, want readiness from the private runtime", got.stderr)
 	}
 }
 

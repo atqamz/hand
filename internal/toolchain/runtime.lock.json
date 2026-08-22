@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "runtime_id": "rd2343fe130ff5ba2",
+  "generated_by": "hand-runtime-lock/1",
+  "targets": {
+    "darwin/amd64": {
+      "unsupported": "No qualified self-contained Git artifact is published for macOS amd64 yet"
+    },
+    "darwin/arm64": {
+      "unsupported": "No qualified self-contained Git artifact is published for macOS arm64 yet"
+    },
+    "linux/amd64": {
+      "components": {
+        "git": {
+          "name": "git",
+          "version": "2.51.0",
+          "revision": "2.51.0",
+          "url": "https://github.com/darkvertex/static-git/releases/download/2.51.0/git-binaries.linux-64bit.tar.gz",
+          "sha256": "3a9e3a757ac1b5950dff03e4de74bab21d15e3bd3a389bceaf3ecedc72ab1f7c",
+          "format": "tar.gz",
+          "root": ".",
+          "files": [
+            {"path": "git", "executable": true, "regular": true},
+            {"path": "git-cvsserver", "executable": true, "regular": true},
+            {"path": "git-receive-pack", "executable": true, "regular": true},
+            {"path": "git-shell", "executable": true, "regular": true},
+            {"path": "git-upload-archive", "executable": true, "regular": true},
+            {"path": "git-upload-pack", "executable": true, "regular": true},
+            {"path": "gitk", "executable": true, "regular": true},
+            {"path": "scalar", "executable": true, "regular": true}
+          ]
+        },
+        "treehouse": {
+          "name": "treehouse",
+          "version": "2.2.1",
+          "revision": "v2.2.1",
+          "url": "https://github.com/kunchenguid/treehouse/releases/download/v2.2.1/treehouse-v2.2.1-linux-amd64.tar.gz",
+          "sha256": "7d2173ecd021a510f7db22c9b62e615b5ea4e6d3309245cb71c911fd1aa0ae31",
+          "format": "tar.gz",
+          "root": ".",
+          "files": [{"path": "treehouse", "executable": true, "regular": true}]
+        },
+        "herdr": {
+          "name": "herdr",
+          "version": "0.8.2",
+          "revision": "v0.8.2",
+          "url": "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-linux-x86_64",
+          "sha256": "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4",
+          "format": "binary",
+          "root": ".",
+          "files": [{"path": "herdr", "executable": true, "regular": true}]
+        }
+      }
+    },
+    "linux/arm64": {
+      "unsupported": "No qualified self-contained Git artifact is published for Linux arm64 yet"
+    },
+    "windows/amd64": {
+      "components": {
+        "git": {
+          "name": "git",
+          "version": "2.51.0",
+          "revision": "v2.51.0.windows.1",
+          "url": "https://github.com/git-for-windows/git/releases/download/v2.51.0.windows.1/MinGit-2.51.0-64-bit.zip",
+          "sha256": "c2c955a21fa99889d83f485f24fa5d9a38fffc2d509d4022385510e11c26b250",
+          "format": "zip",
+          "root": ".",
+          "files": [{"path": "cmd/git.exe", "executable": true, "regular": true}]
+        },
+        "treehouse": {
+          "name": "treehouse",
+          "version": "2.2.1",
+          "revision": "v2.2.1",
+          "url": "https://github.com/kunchenguid/treehouse/releases/download/v2.2.1/treehouse-v2.2.1-windows-amd64.zip",
+          "sha256": "1caf1b7512097b9a4af700b7ad5cec5b8d0d25e13ced4131def52b69603c63b8",
+          "format": "zip",
+          "root": ".",
+          "files": [{"path": "treehouse.exe", "executable": true, "regular": true}]
+        },
+        "herdr": {
+          "name": "herdr",
+          "version": "0.8.2",
+          "revision": "v0.8.2",
+          "url": "https://github.com/herdrdev/herdr/releases/download/v0.8.2/herdr-windows-x86_64.zip",
+          "sha256": "0ab3d0fe1434d55757997542b978c771d642987bb15a7130f4160f0db38821d5",
+          "format": "zip",
+          "root": ".",
+          "files": [
+            {"path": "herdr.exe", "executable": true, "regular": true},
+            {"path": "conpty/arm64/OpenConsole.exe", "executable": true, "regular": true},
+            {"path": "conpty/conpty.dll", "executable": false, "regular": true},
+            {"path": "conpty/herdr-conpty.json", "executable": false, "regular": true},
+            {"path": "conpty/x64/OpenConsole.exe", "executable": true, "regular": true},
+            {"path": "THIRD-PARTY-NOTICES/Microsoft.Windows.Console.ConPTY-LICENSE.txt", "executable": false, "regular": true},
+            {"path": "THIRD-PARTY-NOTICES/Microsoft.Windows.Console.ConPTY-NOTICE.md", "executable": false, "regular": true}
+          ]
+        }
+      }
+    },
+    "windows/arm64": {
+      "unsupported": "Hand does not publish a Windows arm64 binary"
+    }
+  }
+}
