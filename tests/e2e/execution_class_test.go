@@ -28,7 +28,7 @@ func TestMechanicalPlanDispatchesAgainstTheRegisteredBase(t *testing.T) {
 	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") {
 		t.Fatalf("treehouse log = %q, want acquisition", log)
 	}
-	if log := readOptionalLog(t, herdrLog); !strings.Contains(log, "herdr pane run") {
+	if log := readOptionalLog(t, herdrLog); !strings.Contains(log, " pane run") {
 		t.Fatalf("herdr log = %q, want launch", log)
 	}
 	if current := strings.TrimSpace(runGitIn(t, clonePath, "rev-parse", "refs/heads/main^{commit}")); current != base {
@@ -122,7 +122,7 @@ func TestStandardAndDeepPlansDoNotUseMechanicalStaleRefusal(t *testing.T) {
 			if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") {
 				t.Fatalf("treehouse log = %q, want acquisition", log)
 			}
-			if log := readOptionalLog(t, herdrLog); !strings.Contains(log, "herdr pane run") {
+			if log := readOptionalLog(t, herdrLog); !strings.Contains(log, " pane run") {
 				t.Fatalf("herdr log = %q, want launch", log)
 			}
 		})
@@ -144,7 +144,7 @@ func TestLegacyBriefStillDispatchesWithoutExecutionPlanPreflight(t *testing.T) {
 	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") {
 		t.Fatalf("treehouse log = %q, want acquisition", log)
 	}
-	if log := readOptionalLog(t, herdrLog); !strings.Contains(log, "herdr pane run") {
+	if log := readOptionalLog(t, herdrLog); !strings.Contains(log, " pane run") {
 		t.Fatalf("herdr log = %q, want launch", log)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/notify"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -85,8 +86,11 @@ func contextLifecycleError(ctx context.Context) error {
 // typed lifecycle result for cancellation or an error if herdr is unreachable at startup. out
 // receives the actionable event stream, while errOut receives internal diagnostics.
 func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
-	client, err := connect(ctx)
+	client, err := prepareClient(cfg.Home)
 	if err != nil {
+		return err
+	}
+	if err := connect(ctx, client); err != nil {
 		if lifecycleErr := contextLifecycleError(ctx); lifecycleErr != nil {
 			return lifecycleErr
 		}
@@ -108,6 +112,17 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 }
 
+func prepareClient(home string) (*herdr.Client, error) {
+	if _, err := registry.Preflight(home, false); err != nil {
+		return nil, err
+	}
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		return nil, fmt.Errorf("read Fleet identity: %w", err)
+	}
+	return herdr.NewSessionClient(herdr.SessionName(fleetID)), nil
+}
+
 // RunUntilEvent observes what is already actionable, then blocks until a tick produces events, writes
 // them to out and returns nil - the exit is the delivery, since it is the one signal a supervisory
 // agent's background-task runner already honors.
@@ -118,8 +133,14 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 		defer cancel()
 	}
 
-	client, err := connect(ctx)
+	client, err := prepareClient(cfg.Home)
 	if err != nil {
+		if errors.Is(err, ErrNoEvent) {
+			return fmt.Errorf("%w within %s: %w", ErrNoEvent, cfg.Timeout, err)
+		}
+		return err
+	}
+	if err := connect(ctx, client); err != nil {
 		if errors.Is(err, ErrNoEvent) {
 			return fmt.Errorf("%w within %s: %w", ErrNoEvent, cfg.Timeout, err)
 		}
@@ -175,23 +196,22 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 
 // Races the reachability probe against ctx because unbounded, a wedged herdr daemon blocks
 // RunUntilEvent's --timeout from ever starting to count.
-func connect(ctx context.Context) (*herdr.Client, error) {
-	client := herdr.NewClient()
+func connect(ctx context.Context, client *herdr.Client) error {
 	done := make(chan error, 1)
 	go func() { _, err := client.WorkspaceListContext(ctx); done <- err }()
 	select {
 	// Recheck lifecycle cause after the operation: a configured until-event timeout is ErrNoEvent,
 	// while generic cancellation and proven takeover retain their own typed results.
 	case <-ctx.Done():
-		return nil, connectContextError(ctx)
+		return connectContextError(ctx)
 	case err := <-done:
 		if ctxErr := contextLifecycleError(ctx); ctxErr != nil {
-			return nil, connectContextError(ctx)
+			return connectContextError(ctx)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("herdr unreachable: %w", err)
+			return fmt.Errorf("herdr unreachable: %w", err)
 		}
-		return client, nil
+		return nil
 	}
 }
 

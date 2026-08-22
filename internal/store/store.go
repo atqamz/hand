@@ -353,6 +353,10 @@ CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS fleet_identity (
+	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+	fleet_id TEXT NOT NULL UNIQUE
+);
 CREATE TABLE IF NOT EXISTS hold (
 	id         TEXT PRIMARY KEY,
 	kind       TEXT NOT NULL DEFAULT '',
@@ -422,6 +426,12 @@ func Open(homeDir string) (*DB, error) {
 	if err := db.migrateLegacy(true); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
+	}
+	if len(migrations) >= fleetIdentityVersion {
+		if _, err := db.FleetID(); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
 	}
 	return db, nil
 }

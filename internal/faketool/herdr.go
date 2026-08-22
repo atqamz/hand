@@ -137,14 +137,20 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 	if err := json.Unmarshal(payload, &spec); err != nil {
 		return fail("decode herdr config: %v", err)
 	}
-	if len(args) < 2 {
+	stateDir, err := herdrStateDirForSession(spec.StateDir, args)
+	if err != nil {
+		return fail("prepare Herdr session state: %v", err)
+	}
+	spec.StateDir = stateDir
+	logicalArgs := herdrLogicalArgs(args)
+	if len(logicalArgs) < 2 {
 		return fail("unexpected herdr invocation: %s", strings.Join(args, " "))
 	}
-	command := args[0] + " " + args[1]
+	command := logicalArgs[0] + " " + logicalArgs[1]
 	for _, blocked := range spec.Hang {
 		if blocked == command {
 			if spec.MutateBeforeHang {
-				if exit := runHerdrState(spec, command, args); exit != 0 {
+				if exit := runHerdrState(spec, command, logicalArgs); exit != 0 {
 					return exit
 				}
 			}
@@ -163,9 +169,9 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 		return 1
 	}
 	for _, response := range spec.Responses {
-		if response.Command == command && (response.Args == nil || sameArgs(response.Args, args[2:])) {
+		if response.Command == command && (response.Args == nil || sameArgs(response.Args, logicalArgs[2:])) {
 			if response.MutateBeforeResponse {
-				if exit := runHerdrState(spec, command, args); exit != 0 {
+				if exit := runHerdrState(spec, command, logicalArgs); exit != 0 {
 					return exit
 				}
 			}
@@ -177,11 +183,63 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 			return response.Exit
 		}
 	}
-	exit := runHerdrState(spec, command, args)
+	exit := runHerdrState(spec, command, logicalArgs)
 	if err := logHerdrInvocation(spec, args); err != nil {
 		return fail("log herdr invocation: %v", err)
 	}
 	return exit
+}
+
+func herdrStateDirForSession(base string, args []string) (string, error) {
+	session := herdrSession(args)
+	if session == "" || session == "default" {
+		return base, nil
+	}
+	safe := strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(session)
+	dir := filepath.Join(base, "sessions", safe)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	ready := filepath.Join(dir, ".ready")
+	if _, err := os.Stat(ready); err == nil {
+		return dir, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == "sessions" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(base, entry.Name()))
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(filepath.Join(dir, entry.Name()), data, 0o600); err != nil {
+			return "", err
+		}
+	}
+	if err := os.WriteFile(ready, nil, 0o600); err != nil && !os.IsExist(err) {
+		return "", err
+	}
+	return dir, nil
+}
+
+func herdrSession(args []string) string {
+	if len(args) >= 2 && args[0] == "--session" {
+		return args[1]
+	}
+	return ""
+}
+
+func herdrLogicalArgs(args []string) []string {
+	if len(args) >= 2 && args[0] == "--session" {
+		return args[2:]
+	}
+	return args
 }
 
 func logHerdrInvocation(spec herdrSpec, args []string) error {
@@ -192,6 +250,7 @@ func logHerdrInvocation(spec herdrSpec, args []string) error {
 }
 
 func commandName(args []string) string {
+	args = herdrLogicalArgs(args)
 	if len(args) < 2 {
 		return strings.Join(args, " ")
 	}

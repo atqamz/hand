@@ -48,13 +48,14 @@ func setupSpawnHome(t *testing.T, worktreePath string, herdr faketool.Herdr) str
 	bin := faketool.Bin(t)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
 	t.Setenv("HERDR_CALL_LOG", callLog)
-	herdr.Log = callLog
-	herdr.Install(t, bin)
 	treehouseLog := filepath.Join(t.TempDir(), "treehouse.log")
 	t.Setenv("TREEHOUSE_CALL_LOG", treehouseLog)
 	faketool.Treehouse{Slots: []string{worktreePath}, Log: treehouseLog}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
+	herdr = scopeHerdrForFleet(t, home, herdr)
+	herdr.Log = callLog
+	herdr.Install(t, bin)
 	return home
 }
 

@@ -47,6 +47,9 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 	if !exists {
 		return fail(Precondition(fmt.Errorf("project %q not registered", req.Project)))
 	}
+	if err := fleetPreflight(req.Home); err != nil {
+		return fail(Precondition(err))
+	}
 
 	releaseClaim, err := state.Claim(req.Home, req.ID)
 	if err != nil {

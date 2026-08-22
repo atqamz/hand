@@ -213,8 +213,12 @@ func countInvocations(t *testing.T, logPath, substr string) int {
 		t.Fatal(err)
 	}
 	count := 0
+	suffix := ""
+	if strings.HasPrefix(substr, "herdr ") {
+		suffix = " " + strings.TrimPrefix(substr, "herdr ")
+	}
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if line == substr {
+		if line == substr || (suffix != "" && strings.HasSuffix(line, suffix)) {
 			count++
 		}
 	}

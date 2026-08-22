@@ -10,9 +10,9 @@ import (
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
-	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/spf13/cobra"
 )
@@ -69,6 +69,9 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	if err != nil {
 		return sessionContextError(fleetHome, backlogPath, err)
 	}
+	if _, err := registry.Preflight(fleetHome, true); err != nil {
+		return asPrecondition(err)
+	}
 	projects, err := project.ListReadOnly(fleetHome)
 	if err != nil {
 		return err
@@ -81,7 +84,11 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	if err != nil {
 		return err
 	}
-	views, holds, err := fleetViews(cmd, fleetHome, herdr.NewClient(), true)
+	client, err := currentHerdrClient(fleetHome)
+	if err != nil {
+		return err
+	}
+	views, holds, err := fleetViews(cmd, fleetHome, client, true)
 	if err != nil {
 		return err
 	}

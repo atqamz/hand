@@ -30,6 +30,11 @@ wrong: skill reconstructs lifecycle state from terminal panes
 right: skill uses `hand status`, `hand watch`, and hand's own reconciliation results
 ```
 
+Every home has an opaque durable Fleet identity.
+Use `hand fleet` to inspect user-local discovery when the current invocation context is unclear; do not invent a global active Fleet or look for a `fleet switch` command.
+If Hand reports a duplicate or identity mismatch, stop runtime and mutation commands and resolve the home evidence before acting.
+New workers use Fleet-scoped Herdr sessions, while legacy Attempts are observed and cleaned up only through their exact persisted Herdr identities.
+
 `AGENTS.md` states the invariants that hold regardless of session; this skill states the
 procedures for acting on them. If the two ever seem to disagree, `AGENTS.md` wins, and that is
 itself worth reporting as a drift signal rather than silently resolving.

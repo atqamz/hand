@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/axi"
-	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/steering"
@@ -56,7 +55,15 @@ func newSendCmd() *cobra.Command {
 				return usageValue(waitFromFlag, fmt.Errorf("invalid wait duration %q: %w", wait, err))
 			}
 
-			client := herdr.NewClient()
+			history, err := state.ReadHistoryReadOnly(fleetHome, args[0])
+			if err != nil {
+				return asPrecondition(err)
+			}
+			var attempt *state.Attempt
+			if history.ActiveAttempt != nil {
+				attempt = history.ActiveAttempt
+			}
+			client := herdrClientForAttempt(attempt, nil)
 			result, err := steering.Execute(steering.Request{
 				Home: fleetHome, TaskID: args[0], Message: message, Origin: steeringOperator,
 				Client: client, Wait: waitDuration, WaitComposer: client.WaitComposerEmpty, TryTaskLock: true,

@@ -10,6 +10,8 @@ import (
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/registry"
+	"github.com/atqamz/hand/internal/store"
 )
 
 func TestInitCreatesTheHandDbMarker(t *testing.T) {
@@ -32,6 +34,49 @@ func TestInitCreatesTheHandDbMarker(t *testing.T) {
 	}
 	if !ok {
 		t.Fatal("got IsHome false right after init, want true")
+	}
+}
+
+func TestInitRegistersDurableFleetIdentity(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	cmd := newInitCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetID, err := db.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "fleet_id: "+fleetID+"\n") || !strings.Contains(out.String(), "registry: registered\n") {
+		t.Fatalf("init output = %q, want identity and registry outcome", out.String())
+	}
+
+	registryDB, err := registry.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	fleets, err := registryDB.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fleets) != 1 || fleets[0].ID != fleetID || fleets[0].State != registry.StateReady {
+		t.Fatalf("registered fleets = %+v, want ready %s", fleets, fleetID)
 	}
 }
 

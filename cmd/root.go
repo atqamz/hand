@@ -11,6 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/store"
 	"github.com/spf13/cobra"
@@ -22,6 +23,9 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		Short:   "You lead. hand runs the crew.",
 		Version: info.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Name() == "fleet" {
+				return nil
+			}
 			if fleetHome, err := home.Resolve(); err == nil {
 				startupOverview := cmd.Name() == "hand" || cmd.CommandPath() == "hand session start"
 				if cmd.Name() != "init" && !startupOverview && cmd.Name() != "status" {
@@ -39,6 +43,17 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 				if cmd.Name() != "update" && !startupOverview {
 					if notice := selfupdate.CheckNoticeForBuild(fleetHome, selfupdate.Repo, info); notice != "" {
 						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
+					}
+				}
+				if shouldGuardFleet(cmd) {
+					warnings, err := registry.Preflight(fleetHome, cmd.Name() == "status" || startupOverview)
+					if err != nil {
+						return asPrecondition(err)
+					}
+					for _, warning := range warnings {
+						if _, err := fmt.Fprintln(cmd.ErrOrStderr(), warning); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -61,6 +76,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newProjectCmd())
 	root.AddCommand(newSpawnCmd())
 	root.AddCommand(newStatusCmd())
+	root.AddCommand(newFleetCmd())
 	root.AddCommand(newReconcileCmd())
 	root.AddCommand(newSessionCmd(info.Version))
 	root.AddCommand(newSendCmd())
@@ -81,6 +97,10 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.InitDefaultCompletionCmd()
 	guardSubcommandGroups(root)
 	return root
+}
+
+func shouldGuardFleet(cmd *cobra.Command) bool {
+	return cmd.Name() != "init" && cmd.Name() != "fleet" && cmd.CommandPath() != "hand" && cmd.CommandPath() != "hand session start"
 }
 
 // Makes every subcommand-only group below c reject an unknown subcommand with exit code 2.

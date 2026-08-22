@@ -172,7 +172,7 @@ func TestWatchMapsContextCancelToInterruption(t *testing.T) {
 	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
 		calls, err := os.ReadFile(os.Getenv("HERDR_CALL_LOG"))
-		if err == nil && bytes.Contains(calls, []byte("herdr workspace list\n")) {
+		if err == nil && bytes.Contains(calls, []byte(" workspace list\n")) {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)

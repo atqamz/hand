@@ -16,6 +16,9 @@ import (
 )
 
 func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, error) {
+	if err := fleetPreflightReadOnly(req.Home); err != nil {
+		return Result{}, Precondition(err)
+	}
 	history, err := state.ReadHistoryReadOnly(req.Home, req.ID)
 	if err != nil {
 		if errors.Is(err, state.ErrTaskNotFound) {
@@ -35,7 +38,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if _, err := os.Stat(filepath.Join(req.Home, reportRel)); err != nil {
 		return Result{}, Precondition(fmt.Errorf("scout report not found at %s", reportRel))
 	}
-	client := r.deps.herdr()
+	client := r.herdrClient(scout.Herdr.Session)
 	status := herdr.StatusUnknown
 	if scout.Herdr.PaneID != "" {
 		if pane, err := client.PaneGet(scout.Herdr.PaneID); err == nil && pane.AgentStatus != "" {
@@ -45,7 +48,6 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if !status.NotBusy() && status != herdr.StatusUnknown {
 		return Result{}, Precondition(fmt.Errorf("task %q is not a completed scout (agent state: %s)", req.ID, status))
 	}
-
 	briefRel := filepath.Join("data", req.ID, "brief.md")
 	briefPath := filepath.Join(req.Home, briefRel)
 	if _, err := os.Stat(briefPath); err != nil {
@@ -84,6 +86,9 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	}
 	if !exists {
 		return fail(Precondition(fmt.Errorf("project %q not registered", task.Project)))
+	}
+	if err := fleetPreflight(req.Home); err != nil {
+		return fail(Precondition(err))
 	}
 	release, err := state.Lock(req.Home, "task:"+req.ID)
 	if err != nil {
@@ -163,7 +168,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 }
 
 func (r *Runtime) cleanupScout(homeDir, taskID string, scout state.Attempt) ([]string, error) {
-	client := r.deps.herdr()
+	client := r.herdrClient(scout.Herdr.Session)
 	var warnings []string
 	setState := func(resource, next string) error {
 		if scout.ID == 0 {

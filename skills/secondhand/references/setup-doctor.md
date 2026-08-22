@@ -40,6 +40,10 @@ Do not assume categories beyond what a given `hand doctor` build actually report
 reference and a live run disagree, the live run is right; report the mismatch rather than
 trusting the stale prose.
 
+`hand fleet` is the discovery view for users with more than one Fleet home.
+It reads the user-local registry without selecting an active Fleet or changing any home.
+Read a `duplicate`, `identity-mismatch`, `ambiguous`, or `unreadable` state as an ownership boundary, not as permission to choose a path yourself.
+
 ## Distinguishing what a finding actually means
 
 Doctor's findings distinguish concepts that are easy to blur:

@@ -148,6 +148,30 @@ func TestHerdrWorkspaceCreateAddsAWorkspaceToTheListing(t *testing.T) {
 	}
 }
 
+func TestHerdrNamedSessionsKeepWorkspaceStateSeparate(t *testing.T) {
+	Herdr{Creates: []HerdrWorkspace{
+		{ID: "wN", Tabs: []HerdrTab{{ID: "wN:t1", Pane: "wN:p1"}}},
+	}}.Install(t, Bin(t))
+
+	for session, label := range map[string]string{"hand-a": "fleet-a", "hand-b": "fleet-b"} {
+		if _, errOut, code := runHerdr(t, "--session", session, "workspace", "create", "--cwd", "/tmp/wt", "--label", label); code != 0 {
+			t.Fatalf("workspace create for %s = exit %d (%q)", session, code, errOut)
+		}
+	}
+	for session, labels := range map[string][2]string{
+		"hand-a": [2]string{"fleet-a", "fleet-b"},
+		"hand-b": [2]string{"fleet-b", "fleet-a"},
+	} {
+		list, errOut, code := runHerdr(t, "--session", session, "workspace", "list")
+		if code != 0 {
+			t.Fatalf("workspace list for %s = exit %d (%q)", session, code, errOut)
+		}
+		if !strings.Contains(list, `"label":"`+labels[0]+`"`) || strings.Contains(list, `"label":"`+labels[1]+`"`) {
+			t.Fatalf("workspace list for %s = %q, want only %s", session, list, labels[0])
+		}
+	}
+}
+
 func TestHerdrTabCreateAttachesToTheWorkspaceAskedFor(t *testing.T) {
 	h := twoTabWorkspace()
 	h.TabCreates = []HerdrTab{{ID: "wA:t3", Pane: "wA:p3"}}

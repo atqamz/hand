@@ -100,7 +100,7 @@ func (r *Runtime) recordAttemptLiveness(home string, task state.Task, attempt st
 // per-harness capability internal/harness/usagelimit.go catalogues. This never steers the pane -
 // reconcile does not implement the send protocol - it only leaves the fact durable for the next observer.
 func (r *Runtime) probeUsageLimit(attempt state.Attempt) (time.Time, bool) {
-	text, err := r.deps.herdr().PaneRead(attempt.Herdr.PaneID, usageLimitReadLines)
+	text, err := r.herdrClient(attempt.Herdr.Session).PaneRead(attempt.Herdr.PaneID, usageLimitReadLines)
 	if err != nil {
 		return time.Time{}, false
 	}

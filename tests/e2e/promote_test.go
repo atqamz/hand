@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -95,8 +96,12 @@ func TestPromoteScoutToShip(t *testing.T) {
 	if attempt.Herdr.WorkspaceID != "ws-new" || attempt.Herdr.TabID != "tab-new" || attempt.Herdr.PaneID != "pane-new" {
 		t.Fatalf("attempt.Herdr = %+v, want the new ws-new/tab-new/pane-new identifiers", attempt.Herdr)
 	}
-	if attempt.Herdr.Session != "default" {
-		t.Fatalf("attempt.Herdr.Session = %q, want %q", attempt.Herdr.Session, "default")
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.Herdr.Session != herdr.SessionName(fleetID) {
+		t.Fatalf("attempt.Herdr.Session = %q, want %q", attempt.Herdr.Session, herdr.SessionName(fleetID))
 	}
 	if attempt.Harness != "claude" {
 		t.Fatalf("attempt.Harness = %q, want the default harness recorded", attempt.Harness)
@@ -110,19 +115,19 @@ func TestPromoteScoutToShip(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := string(logData)
-	if !strings.Contains(log, "herdr tab list --workspace ws-old") {
+	if !strings.Contains(log, " tab list --workspace ws-old") {
 		t.Fatalf("invocation log = %q, want promote to have queried the OLD workspace's tabs to release them", log)
 	}
-	if !strings.Contains(log, "herdr tab close tab-old") {
+	if !strings.Contains(log, " tab close tab-old") {
 		t.Fatalf("invocation log = %q, want promote to have actually closed the OLD tab, not just listed it", log)
 	}
-	if strings.Contains(log, "herdr tab close tab-new") || strings.Contains(log, "herdr workspace close ws-new") {
+	if strings.Contains(log, " tab close tab-new") || strings.Contains(log, " workspace close ws-new") {
 		t.Fatalf("invocation log = %q, want promote to leave the NEW ship tab open", log)
 	}
-	if !strings.Contains(log, "herdr tab rename tab-new task-1") {
+	if !strings.Contains(log, " tab rename tab-new task-1") {
 		t.Fatalf("invocation log = %q, want promote to rename the new workspace's own root tab to the task id", log)
 	}
-	if strings.Contains(log, "herdr tab create --workspace ws-new") {
+	if strings.Contains(log, " tab create --workspace ws-new") {
 		t.Fatalf("invocation log = %q, want promote to reuse the new workspace's root tab instead of creating a second one", log)
 	}
 	if !strings.Contains(log, "treehouse return --force --if-lease-id lease-old "+oldWorktree) {

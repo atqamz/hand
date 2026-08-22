@@ -136,7 +136,7 @@ func waitForPaneGets(t *testing.T, callLog string, want int) {
 func waitForHerdrCalls(t *testing.T, callLog, command string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
-	prefix := []byte("herdr " + command)
+	needle := []byte(" " + command)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(callLog)
 		if err != nil && !os.IsNotExist(err) {
@@ -144,7 +144,7 @@ func waitForHerdrCalls(t *testing.T, callLog, command string, want int) {
 		}
 		calls := 0
 		for _, line := range bytes.Split(data, []byte("\n")) {
-			if bytes.HasPrefix(line, prefix) {
+			if bytes.Contains(line, needle) {
 				calls++
 			}
 		}
@@ -2281,6 +2281,49 @@ func TestRunFailsWhenHerdrUnreachable(t *testing.T) {
 	err := Run(context.Background(), Config{Home: home, PollInterval: time.Second, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "herdr unreachable") {
 		t.Fatalf("got err %v, want herdr unreachable", err)
+	}
+}
+
+func TestRunUsesTheFleetScopedHerdrSession(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "herdr-calls")
+	faketool.Herdr{Log: callLog, LogCommands: []string{"workspace list"}}.Install(t, faketool.Bin(t))
+	home := setupWatcherHome(t, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptProvisioning})
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Minute}, &bytes.Buffer{}, io.Discard)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, readErr := os.ReadFile(callLog); readErr == nil && strings.Contains(string(data), "workspace list") {
+			break
+		}
+		select {
+		case runErr := <-done:
+			t.Fatalf("Run returned before Herdr connection: %v", runErr)
+		default:
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if data, readErr := os.ReadFile(callLog); readErr != nil || !strings.Contains(string(data), "workspace list") {
+		t.Fatalf("Herdr call log = %q, read error = %v", data, readErr)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("Run returned %v, want ErrInterrupted", err)
+	}
+	data, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--session " + herdr.SessionName(fleetID) + " workspace list"
+	if !strings.Contains(string(data), want) {
+		t.Fatalf("Herdr calls = %q, want %q", data, want)
 	}
 }
 

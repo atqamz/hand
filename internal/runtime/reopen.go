@@ -69,6 +69,9 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 	if !exists {
 		return fail(Precondition(fmt.Errorf("project %q not registered", task.Project)))
 	}
+	if err := fleetPreflight(req.Home); err != nil {
+		return fail(Precondition(err))
+	}
 	release, err := state.Lock(req.Home, "task:"+req.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)

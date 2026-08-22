@@ -7,13 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/sessionhook"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -80,6 +83,11 @@ func newInitCmd() *cobra.Command {
 			if err := initMarker(home); err != nil {
 				return err
 			}
+			fleetID, err := state.FleetID(home)
+			if err != nil {
+				return fmt.Errorf("read Fleet identity after initialization: %w", err)
+			}
+			registryOutcome, registryErr := registerFleet(home, fleetID)
 			migrated, err := migrateWorkerSettings(home)
 			if err != nil {
 				return err
@@ -108,6 +116,8 @@ func newInitCmd() *cobra.Command {
 			var doc axi.Doc
 			doc.Field("result", "initialized")
 			doc.Field("home", home)
+			doc.Field("fleet_id", fleetID)
+			doc.Field("registry", registryOutcome)
 			doc.Field("agents_md", writtenOrUnchanged(refresh.Changed))
 			doc.Field("agents_md_legacy_archive", noneIfEmpty(refresh.ArchivedPath))
 			axi.Table(&doc, "skill", skillResults, skillFields)
@@ -141,9 +151,36 @@ func newInitCmd() *cobra.Command {
 				help = append(help, fmt.Sprintf("%d bundled-skill destination(s) already hold a foreign file at the managed entry path and were left untouched; move each aside, then run hand init again to install the skill there", n))
 			}
 			doc.Help(help...)
-			return doc.Render(cmd.OutOrStdout())
+			if err := doc.Render(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+			if registryErr != nil {
+				return fmt.Errorf("fleet initialized at %s with fleet_id %s, but registry discovery update failed: %w", home, fleetID, registryErr)
+			}
+			return nil
 		},
 	}
+}
+
+func registerFleet(home, fleetID string) (string, error) {
+	db, err := registry.Open()
+	if err != nil {
+		return "failed", err
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.Register(home, fleetID, time.Now().UTC()); err != nil {
+		return "failed", err
+	}
+	fleets, err := db.List(home)
+	if err != nil {
+		return "failed", err
+	}
+	for _, fleet := range fleets {
+		if fleet.ID == fleetID && fleet.State == registry.StateDuplicate {
+			return string(fleet.State), nil
+		}
+	}
+	return "registered", nil
 }
 
 // Reported rather than resolved: a missing tool is a diagnostic the first session explains in context,

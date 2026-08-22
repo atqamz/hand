@@ -26,9 +26,34 @@ Hand owns lifecycle, durable state, isolation, process supervision, routing reso
 
 The directory containing one Hand Fleet's durable context and state.
 
+### Fleet identity
+
+The opaque immutable identifier stored authoritatively in a Fleet home's `state/hand.db`.
+It is stable across restarts and home moves and is not derived from a path, host, user, project, or timestamp.
+
 ### Fleet
 
 The Projects, Tasks, Attempts, Workers, holds, and context coordinated from one Fleet home.
+
+### Current invocation context
+
+The Fleet home selected for one command by `HAND_HOME`, the current directory, or nearest-ancestor discovery.
+There is no global active Fleet selection to switch.
+
+### Fleet registry
+
+The user-local, non-authoritative SQLite index at `~/.secondhand/registry.db` that retains observed Fleet home locators for discovery.
+Registry absence or degradation does not replace the authoritative identity in a Fleet home.
+
+### Duplicate Fleet
+
+A Fleet identity that is valid at more than one registered home.
+Runtime and mutating commands refuse positive duplicate evidence rather than guessing which home owns external resources.
+
+### Legacy Herdr namespace
+
+The global or `default` Herdr session used by Attempts written before Fleet-scoped sessions.
+Legacy cleanup requires the exact persisted workspace, tab, and pane identities and never adopts a workspace by project label alone.
 
 ## Work model
 

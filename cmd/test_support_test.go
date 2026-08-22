@@ -3,8 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -29,7 +32,27 @@ func readTaskAttempt(t *testing.T, home, id string) state.Attempt {
 	return attempt
 }
 
+func scopeHerdrForFleet(t *testing.T, home string, h faketool.Herdr) faketool.Herdr {
+	t.Helper()
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range h.Workspaces {
+		project := strings.TrimPrefix(h.Workspaces[i].Label, "hand:")
+		if project != h.Workspaces[i].Label && !strings.HasPrefix(project, "f_") {
+			h.Workspaces[i].Label = herdr.WorkspaceLabel(fleetID, project)
+		}
+	}
+	return h
+}
+
 func TestMain(m *testing.M) {
+	testUserHome, err := os.MkdirTemp("", "hand-cmd-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	for _, tc := range []struct {
 		name  string
 		value string
@@ -43,7 +66,17 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
-	os.Exit(m.Run())
+	if err := os.Setenv("HOME", testUserHome); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("USERPROFILE", testUserHome); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(testUserHome)
+	os.Exit(code)
 }
 
 func TestCommandPackageStartsWithNeutralEnvironment(t *testing.T) {
