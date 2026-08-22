@@ -29,4 +29,6 @@ Launch arguments and dialog signatures belong to [`internal/harness`](../../inte
 
 ## Consequences
 
-Dialog wording is an external compatibility surface and may need maintenance as harnesses change. Unknown shells and dialogs fail toward an unconfirmed launch. Submission remains separately recorded from confirmation so a lost response cannot trigger an unsafe duplicate launch.
+Dialog wording is an external compatibility surface and may need maintenance as harnesses change.
+Unknown shells and dialogs fail toward an unconfirmed launch.
+Submission remains separately recorded from confirmation so a lost response cannot trigger an unsafe duplicate launch.
