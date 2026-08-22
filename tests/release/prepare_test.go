@@ -29,7 +29,7 @@ func TestPrepareReleaseBindsEveryAssetToOneExactRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bootstrap.Mode()&0o111 == 0 {
+	if runtime.GOOS != "windows" && bootstrap.Mode()&0o111 == 0 {
 		t.Fatal("generated bootstrap.sh is not executable")
 	}
 
