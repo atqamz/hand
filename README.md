@@ -47,11 +47,28 @@ Secondhand splits those responsibilities cleanly: **the supervisor handles judgm
 ### Fastest path
 
 ```sh
-curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh | sh
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh -o "$tmp/bootstrap.sh"
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/checksums.txt -o "$tmp/checksums.txt"
+(cd "$tmp" && sha256sum -c <(grep '  bootstrap.sh$' checksums.txt))
+sh "$tmp/bootstrap.sh"
 ```
 
 ```powershell
-irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 | iex
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+New-Item -ItemType Directory -Path $tmp | Out-Null
+try {
+  irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 -OutFile (Join-Path $tmp bootstrap.ps1)
+  irm https://github.com/atqamz/hand/releases/latest/download/checksums.txt -OutFile (Join-Path $tmp checksums.txt)
+  $line = Get-Content (Join-Path $tmp checksums.txt) | Where-Object { $_ -match '^([0-9a-fA-F]{64})\s+\*?bootstrap\.ps1$' } | Select-Object -First 1
+  if (-not $line) { throw 'checksums.txt has no bootstrap.ps1 entry' }
+  if ((Get-FileHash -Algorithm SHA256 (Join-Path $tmp bootstrap.ps1)).Hash -ne (($line -split '\s+')[0])) { throw 'bootstrap.ps1 checksum mismatch' }
+  Set-ExecutionPolicy -Scope Process Bypass
+  & (Join-Path $tmp bootstrap.ps1)
+} finally {
+  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
 ```
 
 The canonical stable command acquires `hand` if missing, ensures its pinned private Git, Treehouse, and Herdr runtime under `~/.secondhand/`, initializes a fleet home (default `~/secondhand-fleet`), and reports readiness from `hand doctor`.

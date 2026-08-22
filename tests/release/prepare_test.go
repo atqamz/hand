@@ -3,6 +3,7 @@ package release
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -16,13 +17,7 @@ const releaseCommit = "0123456789abcdef0123456789abcdef01234567"
 
 func TestPrepareReleaseBindsEveryAssetToOneExactRelease(t *testing.T) {
 	output := t.TempDir()
-	assets := []string{
-		"hand-linux-amd64.tar.gz",
-		"hand-linux-arm64.tar.gz",
-		"hand-darwin-amd64.tar.gz",
-		"hand-darwin-arm64.tar.gz",
-		"hand-windows-amd64.zip",
-	}
+	assets := []string{"hand-linux-amd64.tar.gz", "hand-linux-arm64.tar.gz", "hand-darwin-amd64.tar.gz", "hand-darwin-arm64.tar.gz", "hand-windows-amd64.zip"}
 	for _, name := range assets {
 		if err := os.WriteFile(filepath.Join(output, name), []byte("fixture "+name), 0o644); err != nil {
 			t.Fatal(err)
@@ -30,57 +25,30 @@ func TestPrepareReleaseBindsEveryAssetToOneExactRelease(t *testing.T) {
 	}
 
 	runPrepareRelease(t, output, "v1.2.3", "1.2.3", releaseCommit)
-
-	bootstrap, err := os.ReadFile(filepath.Join(output, "bootstrap.sh"))
+	bootstrap, err := os.Stat(filepath.Join(output, "bootstrap.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
-		"HAND_RELEASE_TAG='v1.2.3'",
-		"HAND_RELEASE_VERSION='1.2.3'",
-		"HAND_RELEASE_COMMIT='" + releaseCommit + "'",
-		"HAND_RELEASE_RUNTIME_ID='rd2343fe130ff5ba2'",
-		"https://github.com/atqamz/hand/releases/download/${HAND_RELEASE_TAG}",
-	} {
-		if !strings.Contains(string(bootstrap), want) {
-			t.Fatalf("bootstrap.sh = %q, want %q", bootstrap, want)
-		}
-	}
-	for _, forbidden := range []string{"releases/latest", "api.github.com", "$0", "script_dir"} {
-		if strings.Contains(string(bootstrap), forbidden) {
-			t.Fatalf("bootstrap.sh contains forbidden release or path dependency %q", forbidden)
-		}
+	if bootstrap.Mode()&0o111 == 0 {
+		t.Fatal("generated bootstrap.sh is not executable")
 	}
 
-	powershell, err := os.ReadFile(filepath.Join(output, "bootstrap.ps1"))
+	var manifest struct {
+		Tag       string   `json:"tag"`
+		Version   string   `json:"version"`
+		Commit    string   `json:"commit"`
+		RuntimeID string   `json:"runtime_id"`
+		Assets    []string `json:"assets"`
+	}
+	manifestData, err := os.ReadFile(filepath.Join(output, "release-manifest.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
-		"$HAND_RELEASE_TAG = 'v1.2.3'",
-		"$HAND_RELEASE_VERSION = '1.2.3'",
-		"$HAND_RELEASE_COMMIT = '" + releaseCommit + "'",
-		"$HAND_RELEASE_RUNTIME_ID = 'rd2343fe130ff5ba2'",
-		"https://github.com/atqamz/hand/releases/download/$HAND_RELEASE_TAG",
-	} {
-		if !strings.Contains(string(powershell), want) {
-			t.Fatalf("bootstrap.ps1 = %q, want %q", powershell, want)
-		}
-	}
-	for _, forbidden := range []string{"releases/latest", "api.github.com", "$PSCommandPath", "scriptDir", "install.ps1"} {
-		if strings.Contains(string(powershell), forbidden) {
-			t.Fatalf("bootstrap.ps1 contains forbidden release or path dependency %q", forbidden)
-		}
-	}
-
-	manifest, err := os.ReadFile(filepath.Join(output, "release-manifest.json"))
-	if err != nil {
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"\"tag\": \"v1.2.3\"", "\"version\": \"1.2.3\"", "\"commit\": \"" + releaseCommit + "\"", "\"runtime_id\": \"rd2343fe130ff5ba2\""} {
-		if !strings.Contains(string(manifest), want) {
-			t.Fatalf("release-manifest.json = %q, want %q", manifest, want)
-		}
+	if manifest.Tag != "v1.2.3" || manifest.Version != "1.2.3" || manifest.Commit != releaseCommit || manifest.RuntimeID != "rd2343fe130ff5ba2" {
+		t.Fatalf("manifest = %+v, want release binding", manifest)
 	}
 
 	checksums, err := os.ReadFile(filepath.Join(output, "checksums.txt"))

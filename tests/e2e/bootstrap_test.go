@@ -105,7 +105,7 @@ func sha256Path(t *testing.T, path string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func installReleaseCurl(t *testing.T, dir, archive, checksums, logPath string, interrupted bool) {
+func installReleaseCurl(t *testing.T, dir, archive, checksums, manifest, logPath string, interrupted bool) {
 	t.Helper()
 	archiveCopy := fmt.Sprintf("cp %s \"$out\"", shellSingleQuote(archive))
 	if interrupted {
@@ -128,9 +128,12 @@ case "$url" in
   https://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt)
     cp %s "$out"
     ;;
+  https://github.com/atqamz/hand/releases/download/v1.2.3/release-manifest.json)
+    cp %s "$out"
+    ;;
   *) echo "unexpected release URL: $url" >&2; exit 1 ;;
 esac
-`, shellSingleQuote(logPath), archiveCopy, shellSingleQuote(checksums))
+`, shellSingleQuote(logPath), archiveCopy, shellSingleQuote(checksums), shellSingleQuote(manifest))
 	writeFakeBin(t, dir, "curl", body)
 }
 
@@ -378,11 +381,15 @@ func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
 	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
 	writeHandArchive(t, archive)
 	checksums := filepath.Join(t.TempDir(), "checksums.txt")
-	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"), 0o644); err != nil {
+	manifest := filepath.Join(t.TempDir(), "release-manifest.json")
+	if err := os.WriteFile(manifest, []byte(`{"commit":"0123456789abcdef0123456789abcdef01234567"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"+sha256Path(t, manifest)+"  release-manifest.json\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(t.TempDir(), "curl.log")
-	installReleaseCurl(t, dir, archive, checksums, logPath, false)
+	installReleaseCurl(t, dir, archive, checksums, manifest, logPath, false)
 
 	home := filepath.Join(t.TempDir(), "unicode-home-é")
 	if err := os.MkdirAll(home, 0o755); err != nil {
@@ -400,7 +407,7 @@ func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt\n"
+	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/checksums.txt\nhttps://github.com/atqamz/hand/releases/download/v1.2.3/release-manifest.json\n"
 	if string(urls) != wantURLs {
 		t.Fatalf("curl URLs = %q, want %q", urls, wantURLs)
 	}
@@ -428,8 +435,12 @@ func TestBootstrapRejectsAnInterruptedOrMismatchedReleaseDownload(t *testing.T) 
 			if err := os.WriteFile(checksums, []byte(checksumData), 0o644); err != nil {
 				t.Fatal(err)
 			}
+			manifest := filepath.Join(t.TempDir(), "release-manifest.json")
+			if err := os.WriteFile(manifest, []byte(`{"commit":"0123456789abcdef0123456789abcdef01234567"}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			logPath := filepath.Join(t.TempDir(), "curl.log")
-			installReleaseCurl(t, dir, archive, checksums, logPath, test.interrupted)
+			installReleaseCurl(t, dir, archive, checksums, manifest, logPath, test.interrupted)
 			home := t.TempDir()
 			got := runBootstrap(t, home, nil, "--fleet", filepath.Join(home, "fleet"))
 			if got.code == 0 || !strings.Contains(got.stderr, test.want) {
@@ -447,11 +458,15 @@ func TestBootstrapReportsAnInstallTargetFailureWithoutUsingSudo(t *testing.T) {
 	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
 	writeHandArchive(t, archive)
 	checksums := filepath.Join(t.TempDir(), "checksums.txt")
-	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"), 0o644); err != nil {
+	manifest := filepath.Join(t.TempDir(), "release-manifest.json")
+	if err := os.WriteFile(manifest, []byte(`{"commit":"0123456789abcdef0123456789abcdef01234567"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(checksums, []byte(sha256Path(t, archive)+"  hand-linux-amd64.tar.gz\n"+sha256Path(t, manifest)+"  release-manifest.json\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(t.TempDir(), "curl.log")
-	installReleaseCurl(t, dir, archive, checksums, logPath, false)
+	installReleaseCurl(t, dir, archive, checksums, manifest, logPath, false)
 	home := t.TempDir()
 	installTarget := filepath.Join(home, "not-a-directory")
 	if err := os.WriteFile(installTarget, []byte("occupied"), 0o644); err != nil {

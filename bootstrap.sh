@@ -6,6 +6,7 @@ HAND_RELEASE_VERSION='@HAND_RELEASE_VERSION@'
 HAND_RELEASE_COMMIT='@HAND_RELEASE_COMMIT@'
 HAND_RELEASE_RUNTIME_ID='@HAND_RELEASE_RUNTIME_ID@'
 HAND_RELEASE_CHECKSUMS_ASSET='checksums.txt'
+HAND_RELEASE_MANIFEST_ASSET='release-manifest.json'
 HAND_RELEASE_ASSET_LINUX_AMD64='hand-linux-amd64.tar.gz'
 HAND_RELEASE_ASSET_LINUX_ARM64='hand-linux-arm64.tar.gz'
 HAND_RELEASE_ASSET_DARWIN_AMD64='hand-darwin-amd64.tar.gz'
@@ -118,6 +119,7 @@ ensure_hand() {
   hand_base="https://github.com/atqamz/hand/releases/download/${HAND_RELEASE_TAG}"
   download "$hand_tmp/$hand_asset" "$hand_base/$hand_asset"
   download "$hand_tmp/$HAND_RELEASE_CHECKSUMS_ASSET" "$hand_base/$HAND_RELEASE_CHECKSUMS_ASSET"
+  download "$hand_tmp/$HAND_RELEASE_MANIFEST_ASSET" "$hand_base/$HAND_RELEASE_MANIFEST_ASSET"
 
   hand_want=$(awk -v asset="$hand_asset" '$2 == asset || $2 == "*" asset {print $1; exit}' "$hand_tmp/$HAND_RELEASE_CHECKSUMS_ASSET")
   [ -n "$hand_want" ] || die "$HAND_RELEASE_CHECKSUMS_ASSET has no entry for $hand_asset"
@@ -127,6 +129,12 @@ ensure_hand() {
   esac
   hand_got=$(sha256_file "$hand_tmp/$hand_asset")
   [ "$hand_got" = "$hand_want" ] || die "checksum mismatch for $hand_asset: want $hand_want, got $hand_got"
+  manifest_want=$(awk -v asset="$HAND_RELEASE_MANIFEST_ASSET" '$2 == asset || $2 == "*" asset {print $1; exit}' "$hand_tmp/$HAND_RELEASE_CHECKSUMS_ASSET")
+  [ "${#manifest_want}" -eq 64 ] || die "invalid checksum for $HAND_RELEASE_MANIFEST_ASSET"
+  manifest_got=$(sha256_file "$hand_tmp/$HAND_RELEASE_MANIFEST_ASSET")
+  [ "$manifest_got" = "$manifest_want" ] || die "checksum mismatch for $HAND_RELEASE_MANIFEST_ASSET: want $manifest_want, got $manifest_got"
+  manifest_commit=$(sed -n 's/^[[:space:]]*"commit":[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p' "$hand_tmp/$HAND_RELEASE_MANIFEST_ASSET" | head -n1)
+  [ "$manifest_commit" = "$HAND_RELEASE_COMMIT" ] || die "release manifest commit does not match $HAND_RELEASE_COMMIT"
 
   case "$hand_asset" in
     *.tar.gz)

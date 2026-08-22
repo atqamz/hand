@@ -13,6 +13,7 @@ $HAND_RELEASE_VERSION = '@HAND_RELEASE_VERSION@'
 $HAND_RELEASE_COMMIT = '@HAND_RELEASE_COMMIT@'
 $HAND_RELEASE_RUNTIME_ID = '@HAND_RELEASE_RUNTIME_ID@'
 $HAND_RELEASE_CHECKSUMS_ASSET = 'checksums.txt'
+$HAND_RELEASE_MANIFEST_ASSET = 'release-manifest.json'
 $HAND_RELEASE_ASSET = 'hand-windows-amd64.zip'
 
 function Write-BootstrapLog {
@@ -57,6 +58,7 @@ function Install-Hand {
         try {
             Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$HAND_RELEASE_ASSET" -OutFile $archive
             Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$HAND_RELEASE_CHECKSUMS_ASSET" -OutFile $checksums
+            Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$HAND_RELEASE_MANIFEST_ASSET" -OutFile (Join-Path $tmp $HAND_RELEASE_MANIFEST_ASSET)
         } catch {
             Fail "download failed for the exact release $HAND_RELEASE_TAG`: $($_.Exception.Message)"
         }
@@ -73,6 +75,20 @@ function Install-Hand {
         $got = Get-Sha256 $archive
         if ($got -ne $want) {
             Fail "checksum mismatch for ${HAND_RELEASE_ASSET}: want $want, got $got"
+        }
+        $manifestPath = Join-Path $tmp $HAND_RELEASE_MANIFEST_ASSET
+        $manifestLine = Get-Content -LiteralPath $checksums | Where-Object { $_ -match "^\s*([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($HAND_RELEASE_MANIFEST_ASSET))\s*$" } | Select-Object -First 1
+        if (-not $manifestLine) {
+            Fail "$HAND_RELEASE_CHECKSUMS_ASSET has no entry for $HAND_RELEASE_MANIFEST_ASSET"
+        }
+        $manifestWant = (($manifestLine -split '\s+')[0]).ToLowerInvariant()
+        $manifestGot = Get-Sha256 $manifestPath
+        if ($manifestGot -ne $manifestWant) {
+            Fail "checksum mismatch for $HAND_RELEASE_MANIFEST_ASSET`: want $manifestWant, got $manifestGot"
+        }
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ($manifest.commit -ne $HAND_RELEASE_COMMIT) {
+            Fail "release manifest commit does not match $HAND_RELEASE_COMMIT"
         }
 
         Expand-Archive -LiteralPath $archive -DestinationPath $tmp -Force

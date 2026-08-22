@@ -37,11 +37,28 @@ There is intentionally no `hand fleet switch` command or global active-Fleet set
 ## Fastest path
 
 ```sh
-curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh | sh
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh -o "$tmp/bootstrap.sh"
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/checksums.txt -o "$tmp/checksums.txt"
+(cd "$tmp" && sha256sum -c <(grep '  bootstrap.sh$' checksums.txt))
+sh "$tmp/bootstrap.sh"
 ```
 
 ```powershell
-irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 | iex
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+New-Item -ItemType Directory -Path $tmp | Out-Null
+try {
+  irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 -OutFile (Join-Path $tmp bootstrap.ps1)
+  irm https://github.com/atqamz/hand/releases/latest/download/checksums.txt -OutFile (Join-Path $tmp checksums.txt)
+  $line = Get-Content (Join-Path $tmp checksums.txt) | Where-Object { $_ -match '^([0-9a-fA-F]{64})\s+\*?bootstrap\.ps1$' } | Select-Object -First 1
+  if (-not $line) { throw 'checksums.txt has no bootstrap.ps1 entry' }
+  if ((Get-FileHash -Algorithm SHA256 (Join-Path $tmp bootstrap.ps1)).Hash -ne (($line -split '\s+')[0])) { throw 'bootstrap.ps1 checksum mismatch' }
+  Set-ExecutionPolicy -Scope Process Bypass
+  & (Join-Path $tmp bootstrap.ps1)
+} finally {
+  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
 ```
 
 Both scripts acquire `hand` if it is missing, ensure its private pinned core runtime, choose a safe fleet-home target (default `~/secondhand-fleet`), run `hand init` and `hand doctor`, and print the exact next command:
