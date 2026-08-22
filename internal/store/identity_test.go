@@ -65,6 +65,24 @@ func TestCurrentSchemaWithoutFleetIdentityFailsClosed(t *testing.T) {
 	}
 }
 
+func TestReadOnlyLegacySchemaReportsMissingFleetIdentity(t *testing.T) {
+	home := t.TempDir()
+	db, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.Exec(`DROP TABLE fleet_identity`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := FleetIDReadOnly(home); !errors.Is(err, ErrFleetIdentityMissing) {
+		t.Fatalf("FleetIDReadOnly error = %v, want ErrFleetIdentityMissing", err)
+	}
+}
+
 func TestMigrationGeneratesFleetIdentityOnce(t *testing.T) {
 	home := t.TempDir()
 	sqlDB, err := open(Path(home))

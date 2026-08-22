@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const FleetIdentityLock = "fleet-identity"
@@ -21,7 +22,7 @@ func (db *DB) FleetID() (string, error) {
 	}
 	var id string
 	if err := db.sql.QueryRow(`SELECT fleet_id FROM fleet_identity WHERE singleton = 1`).Scan(&id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table: fleet_identity") {
 			return "", ErrFleetIdentityMissing
 		}
 		return "", fmt.Errorf("read fleet identity: %w", err)
