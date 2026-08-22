@@ -56,8 +56,9 @@ for a routine session; each is designed to be fetched only when its phase applie
 ## What this skill never introduces
 
 No generic Hand plugin or runtime framework, no marketplace for third-party skills, no
-automatic installation of Herdr, Treehouse, a harness, `gh`, or `no-mistakes`, no hard-coded
+automatic installation of a harness, optional integration, or delivery tool, no hard-coded
 vendor or model policy, no cross-profile model shopping, no provider billing or quota
-introspection, and no `hand judge`, `hand critic`, or generic agent-swarm pattern. Where a
+introspection, and no `hand judge`, `hand critic`, or generic agent-swarm pattern. Hand's
+bootstrap and `hand runtime ensure` own acquisition of the pinned core runtime. Where a
 procedure below needs a decision only Hand's own deterministic state can make, it says to run
 a command and read the result - it does not invent a second, prose-only answer.

@@ -48,7 +48,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\bootstrap.ps1
 ```
 
-Both scripts acquire `hand` if it is missing, detect and offer to install missing foundational dependencies, choose a safe fleet-home target (default `~/secondhand-fleet`), run `hand init` and `hand doctor`, and print the exact next command:
+Both scripts acquire `hand` if it is missing, ensure its private pinned core runtime with consent, choose a safe fleet-home target (default `~/secondhand-fleet`), run `hand init` and `hand doctor`, and print the exact next command:
 
 ```text
 Secondhand is ready.
@@ -66,14 +66,14 @@ Flags, identical in effect on both platforms:
 | Shell | PowerShell | Effect |
 | --- | --- | --- |
 | `--fleet PATH` | `-Fleet PATH` | fleet home to create or reconcile (default `~/secondhand-fleet`) |
-| `--yes` | `-Yes` | explicit non-interactive consent to install missing foundational dependencies |
+| `--yes` | `-Yes` | explicit non-interactive consent to acquire `hand` and ensure its private runtime |
 | `--check` | `-Check` | read-only: report readiness, install or mutate nothing |
 
 A target that already exists, is non-empty, and is not a recognized Hand fleet is refused rather than silently adopted.
 
 ## Install `hand` only
 
-Already have Git, Treehouse, Herdr, and a coding-agent harness, and only want the binary?
+Already have a coding-agent harness and only want the binary?
 See [Installation](../README.md#installation) in the README for Homebrew, Nix, `go install`, the install script, and release binaries.
 
 ## Manual adoption
@@ -81,7 +81,7 @@ See [Installation](../README.md#installation) in the README for Homebrew, Nix, `
 For operators who prefer to run each step themselves, using whichever package manager they already trust:
 
 ```sh
-# install git, treehouse, herdr, and a coding-agent harness with your preferred package managers
+# install a coding-agent harness with your preferred package manager
 mkdir -p ~/secondhand-fleet
 cd ~/secondhand-fleet
 hand init

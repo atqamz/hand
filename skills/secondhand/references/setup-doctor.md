@@ -7,7 +7,7 @@ fleet-generated surfaces, or whenever something feels off. It is report-only: it
 anything, so every finding it prints is yours to act on, not something it will fix on a later run.
 
 `hand doctor` prints a readiness contract alongside the `findings` table.
-The contract uses flat TOON blocks: `tools`, `harnesses`, `ready`, `blocking`, and `next`.
+The contract uses flat TOON blocks: runtime fields, `tools`, `integrations`, `harnesses`, `ready`, `blocking`, and `next`.
 The `findings` table has `line`, `severity`, and `finding` columns.
 Severity `error` means the run fails (nonzero exit); `warning` and `info` do not. Read every
 line, not just the exit code: a clean exit with warnings still means something is worth a look.
@@ -25,9 +25,14 @@ line, not just the exit code: a clean exit with warnings still means something i
 - Each registered project's no-mistakes gate state (`gate-absent`, or another gate problem).
 - Routing/configuration validity: missing Profiles or Routes, and whether the fleet is running
   on explicit configuration or falling back to legacy defaults.
-- Foundational external tools (`git`, `treehouse`, `herdr`) missing from `PATH` (`warning`);
-  `gh` is checked only when a registered project uses `direct-pr` or `no-mistakes` delivery.
-  The `tools` block reports each tool's `installed` and `required` state.
+- The selected private Git, Treehouse, and Herdr runtime, including its target, runtime ID,
+  bundle, component paths and versions, and readiness reason. Core execution does not fall back
+  to machine `PATH` in production.
+- The closed optional capability catalog in `integrations`; these capabilities are selected
+  explicitly and are not downloaded by core bootstrap. A registered project's delivery mode can
+  make a capability such as `gh` required.
+- The `tools` block reports the core components and optional tool requirements as `installed` and
+  `required`; `harnesses` reports supported coding-agent harnesses reachable on `PATH`.
 - Every supported coding-agent harness is listed in `harnesses` as installed or not installed.
   No harness is preferred by this contract.
 - `ready` is false when fleet health has errors, a required tool is missing, or no supported
@@ -50,7 +55,8 @@ Doctor's findings distinguish concepts that are easy to blur:
 
 ```text
 supported by Hand       - the harness/tool is one Hand knows how to drive
-installed on PATH       - the binary is actually reachable from this environment
+installed in private store - the capability or core runtime is available to Hand
+installed on PATH       - a harness is actually reachable from this environment
 configured              - an operator explicitly persisted a choice through hand config
 required                - this fleet or project cannot proceed without it
 optional                - useful but not blocking (no-mistakes is optional, never assumed)
