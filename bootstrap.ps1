@@ -128,6 +128,10 @@ if (-not $handAvailable) {
 function Ensure-PrivateRuntime {
     if ($Check) {
         Write-BootstrapLog "private runtime status (check mode: no changes made):"
+        if (-not $handAvailable) {
+            Write-BootstrapLog "hand is not installed; private runtime status cannot be evaluated"
+            return
+        }
         & hand runtime status
         return
     }

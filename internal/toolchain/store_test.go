@@ -4,13 +4,78 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestEnsureInstallsRuntimeBelowStoreRoot(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := filepath.Base(r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("fixture-" + name))
+	}))
+	defer server.Close()
+
+	components := make(map[string]Component, 3)
+	for _, name := range []string{"git", "treehouse", "herdr"} {
+		data := []byte("fixture-" + name)
+		digest := sha256.Sum256(data)
+		file := executableName(name)
+		components[name] = Component{
+			Name: name, Version: "test", Revision: "test", URL: server.URL + "/" + name,
+			SHA256: hex.EncodeToString(digest[:]), Format: "binary", Root: ".",
+			Files: []ExpectedFile{{Path: file, Executable: true, Regular: true}},
+		}
+	}
+	lock := Lock{Schema: 1, GeneratedBy: "store-test", Targets: map[string]Target{
+		runtime.GOOS + "/" + runtime.GOARCH: {Components: components},
+	}}
+	var err error
+	lock.RuntimeID, err = lock.DeterministicID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	store, err := NewStore(root, lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.HTTPClient = server.Client()
+	installed, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed.ID != lock.RuntimeID {
+		t.Fatalf("runtime ID = %q, want %q", installed.ID, lock.RuntimeID)
+	}
+	if !strings.HasPrefix(installed.BundleDir, filepath.Join(root, "runtime")+string(filepath.Separator)) {
+		t.Fatalf("bundle directory escaped store root: %s", installed.BundleDir)
+	}
+	for _, path := range []string{installed.GitPath, installed.TreehousePath, installed.HerdrPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("installed executable %s: %v", path, err)
+		}
+	}
+	status, err := store.Status("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Ready || status.BundleDir != installed.BundleDir {
+		t.Fatalf("status = %+v, want ready runtime %s", status, installed.BundleDir)
+	}
+}
 
 func TestExtractRejectsArchiveTraversalBeforeWritingOutsideDestination(t *testing.T) {
 	archive := tarGzipFixture(t, "../escape", []byte("unsafe"))

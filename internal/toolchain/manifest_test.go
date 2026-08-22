@@ -1,7 +1,6 @@
 package toolchain
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,15 +79,4 @@ func valueFor(env []string, key string) string {
 		}
 	}
 	return ""
-}
-
-func TestInstalledExecutableStaysBelowSecondhandHome(t *testing.T) {
-	root := filepath.Join(t.TempDir(), ".secondhand")
-	path := filepath.Join(root, "runtime", "bundles", "r1", "git", "bin", executableName("git"))
-	if !strings.HasPrefix(path, root+string(filepath.Separator)) {
-		t.Fatal("fixture path escaped secondhand root")
-	}
-	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
-		t.Fatalf("fixture unexpectedly exists: %v", err)
-	}
 }
