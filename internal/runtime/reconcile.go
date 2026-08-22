@@ -623,13 +623,13 @@ func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
 	legacyWorkspaces := make(map[string]bool)
 	for _, ownership := range ownerships {
 		if ownership.WorkspaceID != "" && ownership.TabID != "" {
-			key := ownership.WorkspaceID + "\x00" + ownership.TabID
+			key := herdrIdentityKey(herdrSession(ownership.Session), ownership.WorkspaceID, ownership.TabID)
 			if !containsString(ownershipCandidates[key], ownership.TaskID) {
 				ownershipCandidates[key] = append(ownershipCandidates[key], ownership.TaskID)
 			}
 		}
 		if (ownership.Session == "" || ownership.Session == "default") && ownership.WorkspaceID != "" {
-			legacyWorkspaces[ownership.WorkspaceID] = true
+			legacyWorkspaces[herdrIdentityKey("default", ownership.WorkspaceID, "")] = true
 		}
 	}
 	workspaces, err := client.WorkspaceList()
@@ -637,7 +637,15 @@ func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
 		return nil, fmt.Errorf("list Herdr workspaces: %w", err)
 	}
 	var anomalies []ReconcileAnomaly
-	inspect := func(inventory herdrClient, candidates []herdr.Workspace, skip map[string]bool) error {
+	currentSession := herdr.SessionName(fleetID)
+	if r.deps.herdrFor == nil {
+		currentSession = "default"
+	}
+	currentSkip := legacyWorkspaces
+	if currentSession == "default" {
+		currentSkip = nil
+	}
+	inspect := func(inventory herdrClient, session string, candidates []herdr.Workspace, skip map[string]bool) error {
 		sort.Slice(candidates, func(i, j int) bool {
 			if candidates[i].Label != candidates[j].Label {
 				return candidates[i].Label < candidates[j].Label
@@ -645,7 +653,7 @@ func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
 			return candidates[i].WorkspaceID < candidates[j].WorkspaceID
 		})
 		for _, workspace := range candidates {
-			if !strings.HasPrefix(workspace.Label, "hand:") || skip[workspace.WorkspaceID] {
+			if !strings.HasPrefix(workspace.Label, "hand:") || skip[herdrIdentityKey(session, workspace.WorkspaceID, "")] {
 				continue
 			}
 			tabs, err := inventory.TabList(workspace.WorkspaceID)
@@ -659,7 +667,7 @@ func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
 				return tabs[i].Label < tabs[j].Label
 			})
 			for _, tab := range tabs {
-				anomaly, err := r.classifyHerdrTab(home, inventory, workspace, tab, ownershipCandidates)
+				anomaly, err := r.classifyHerdrTab(home, inventory, session, workspace, tab, ownershipCandidates)
 				if err != nil {
 					return err
 				}
@@ -670,10 +678,10 @@ func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
 		}
 		return nil
 	}
-	if err := inspect(client, workspaces, legacyWorkspaces); err != nil {
+	if err := inspect(client, currentSession, workspaces, currentSkip); err != nil {
 		return nil, err
 	}
-	if len(legacyWorkspaces) > 0 {
+	if len(legacyWorkspaces) > 0 && r.deps.herdrFor != nil {
 		legacyClient := r.herdrClient("default")
 		workspaces, err := legacyClient.WorkspaceList()
 		if err != nil {
@@ -681,19 +689,30 @@ func (r *Runtime) observeHerdrOrphans(home string) ([]ReconcileAnomaly, error) {
 		}
 		selected := make([]herdr.Workspace, 0, len(workspaces))
 		for _, workspace := range workspaces {
-			if legacyWorkspaces[workspace.WorkspaceID] {
+			if legacyWorkspaces[herdrIdentityKey("default", workspace.WorkspaceID, "")] {
 				selected = append(selected, workspace)
 			}
 		}
-		if err := inspect(legacyClient, selected, nil); err != nil {
+		if err := inspect(legacyClient, "default", selected, nil); err != nil {
 			return nil, err
 		}
 	}
 	return anomalies, nil
 }
 
-func (r *Runtime) classifyHerdrTab(home string, client herdrClient, workspace herdr.Workspace, tab herdr.Tab, ownershipCandidates map[string][]string) (*ReconcileAnomaly, error) {
-	candidates := append([]string(nil), ownershipCandidates[workspace.WorkspaceID+"\x00"+tab.TabID]...)
+func herdrSession(session string) string {
+	if session == "" {
+		return "default"
+	}
+	return session
+}
+
+func herdrIdentityKey(session, workspaceID, tabID string) string {
+	return herdrSession(session) + "\x00" + workspaceID + "\x00" + tabID
+}
+
+func (r *Runtime) classifyHerdrTab(home string, client herdrClient, session string, workspace herdr.Workspace, tab herdr.Tab, ownershipCandidates map[string][]string) (*ReconcileAnomaly, error) {
+	candidates := append([]string(nil), ownershipCandidates[herdrIdentityKey(session, workspace.WorkspaceID, tab.TabID)]...)
 	if state.ValidateID(tab.Label) == nil && !containsString(candidates, tab.Label) {
 		candidates = append(candidates, tab.Label)
 	}
