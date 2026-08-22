@@ -137,6 +137,7 @@ func installReleaseCurl(t *testing.T, dir, archive, logPath string, interrupted 
 	if interrupted {
 		archiveCopy = fmt.Sprintf("dd if=%s of=\"$out\" bs=1 count=8 2>/dev/null; exit 1", shellSingleQuote(archive))
 	}
+	wantURL := fmt.Sprintf("https://github.com/atqamz/hand/releases/download/v1.2.3/%s", releaseAsset())
 	body := fmt.Sprintf(`set -eu
 out=""
 url=""
@@ -148,12 +149,12 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%%s\n' "$url" >> %s
 case "$url" in
-  https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz)
+  %s)
     %s
     ;;
   *) echo "unexpected release URL: $url" >&2; exit 1 ;;
 esac
-`, shellSingleQuote(logPath), archiveCopy)
+`, shellSingleQuote(logPath), shellSingleQuote(wantURL), archiveCopy)
 	writeFakeBin(t, dir, "curl", body)
 }
 

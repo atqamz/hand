@@ -58,7 +58,13 @@ $handTarget = Join-Path $handInstallDir 'hand.exe'
 
 function Get-Sha256 {
     param([string]$Path)
-    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
 }
 
 function Get-Field {
@@ -76,14 +82,14 @@ function Get-Field {
 }
 
 function Invoke-HandCapture {
-    param([string]$Path, [string]$Home, [string[]]$Arguments)
+    param([string]$Path, [string]$HandHome, [string[]]$Arguments)
     $hadHome = Test-Path Env:HAND_HOME
     $previousHome = $env:HAND_HOME
     try {
-        if ($null -eq $Home) {
+        if ($null -eq $HandHome) {
             Remove-Item Env:HAND_HOME -ErrorAction SilentlyContinue
         } else {
-            $env:HAND_HOME = $Home
+            $env:HAND_HOME = $HandHome
         }
         $output = (& $Path @Arguments 2>&1 | Out-String)
         return [pscustomobject]@{
@@ -127,11 +133,11 @@ function Assert-HandIdentity {
 }
 
 function Invoke-HandOutsideFleet {
-    param([string]$Path, [string]$Home, [string[]]$Arguments)
+    param([string]$Path, [string]$HandHome, [string[]]$Arguments)
     $location = Get-Location
     try {
         Set-Location ([IO.Path]::GetPathRoot($Path))
-        return Invoke-HandCapture $Path $Home $Arguments
+        return Invoke-HandCapture $Path $HandHome $Arguments
     } finally {
         Set-Location $location
     }

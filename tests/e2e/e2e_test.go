@@ -28,6 +28,7 @@ import (
 )
 
 var handBin string
+var goBin string
 
 // The tools hand shells out to that this suite never runs for real. None of them may resolve on the
 // hermetic PATH: a real one would silently answer in place of a test's fake, so the affected test would
@@ -57,10 +58,15 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	handBin = filepath.Join(dir, "hand")
+	goBin, err = exec.LookPath("go")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "find go: %v\n", err)
+		os.Exit(1)
+	}
 	// go test's result cache is keyed on this package's own inputs, not on this nested go build, so changing
 	// production code alone will not invalidate a cached e2e run - pass -count=1 when checking red/green
 	// behavior after a production-code-only edit.
-	build := exec.Command("go", "build", "-tags", "e2e,test", "-ldflags", "-X main.version=1.2.3 -X main.channel=stable -X main.commit=0123456789abcdef0123456789abcdef01234567 -X main.distribution=github", "-o", handBin, ".")
+	build := exec.Command(goBin, "build", "-tags", "e2e,test", "-ldflags", "-X main.version=1.2.3 -X main.channel=stable -X main.commit=0123456789abcdef0123456789abcdef01234567 -X main.distribution=github", "-o", handBin, ".")
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build hand: %v: %s\n", err, out)

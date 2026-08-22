@@ -192,7 +192,7 @@ func TestBootstrapPS1RejectsArchiveDigestMismatchBeforeExtraction(t *testing.T) 
 func buildWindowsHandWithDistribution(t *testing.T, path, distribution string) {
 	t.Helper()
 	ldflags := fmt.Sprintf("-X main.version=1.2.3 -X main.channel=stable -X main.commit=0123456789abcdef0123456789abcdef01234567 -X main.distribution=%s", distribution)
-	cmd := exec.Command("go", "build", "-tags", "e2e,test", "-ldflags", ldflags, "-o", path, ".")
+	cmd := exec.Command(goBin, "build", "-tags", "e2e,test", "-ldflags", ldflags, "-o", path, ".")
 	cmd.Dir = filepath.Join("..", "..")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build %s Hand fixture: %v\n%s", distribution, err, output)
