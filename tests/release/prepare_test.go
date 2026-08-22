@@ -299,33 +299,22 @@ func TestReleaseWorkflowPublishesOneDraftAssetSetFromExactCheckout(t *testing.T)
 	}
 
 	build := document.Jobs["build"]
-	buildRun := workflowRun(t, build.Steps, "commit='${{ needs.release-please.outputs.sha }}'")
-	if !strings.Contains(buildRun, "git rev-parse HEAD") {
-		t.Fatalf("build identity check does not compare the checkout with the release SHA: %q", buildRun)
+	if got, want := workflowValue(t, build.Steps, "checkout", "ref"), "${{ needs.release-please.outputs.sha }}"; got != want {
+		t.Fatalf("build checkout ref = %q, want %q", got, want)
 	}
-	if !strings.Contains(buildRun, "go env GOHOSTOS") || !strings.Contains(buildRun, "go env GOHOSTARCH") {
-		t.Fatalf("cross-compiled build verification does not use the runner host identity: %q", buildRun)
-	}
-	if !strings.Contains(workflowValue(t, build.Steps, "checkout", "ref"), "needs.release-please.outputs.sha") {
-		t.Fatalf("build checkout is not pinned to the release SHA")
-	}
+	executeWorkflowBuild(t, workflowStep(t, build.Steps, "Build (unix)"), "linux", "amd64")
+	executeWorkflowBuild(t, workflowStep(t, build.Steps, "Build (windows)"), "windows", "amd64")
 
 	publish := document.Jobs["publish"]
-	if !strings.Contains(workflowValue(t, publish.Steps, "checkout", "ref"), "needs.release-please.outputs.sha") {
-		t.Fatalf("publish checkout is not pinned to the release SHA")
+	if got, want := workflowValue(t, publish.Steps, "checkout", "ref"), "${{ needs.release-please.outputs.sha }}"; got != want {
+		t.Fatalf("publish checkout ref = %q, want %q", got, want)
 	}
 	upload := workflowStep(t, publish.Steps, "Upload to release")
 	if upload.With["draft"] != true || upload.With["fail_on_unmatched_files"] != true {
 		t.Fatalf("release upload inputs = %#v, want a complete draft upload", upload.With)
 	}
-	verifyRun := workflowRun(t, publish.Steps, "Verify complete draft before publication")
-	if !strings.Contains(verifyRun, "gh release view") || !strings.Contains(verifyRun, "isDraft") || !strings.Contains(verifyRun, "checksums.txt") {
-		t.Fatalf("draft verification does not validate release state and required assets: %q", verifyRun)
-	}
-	publishRun := workflowRun(t, publish.Steps, "Publish complete release")
-	if !strings.Contains(publishRun, "gh release edit") || !strings.Contains(publishRun, "--draft=false") {
-		t.Fatalf("publication does not explicitly publish the verified draft: %q", publishRun)
-	}
+	executeWorkflowGhStep(t, workflowStep(t, publish.Steps, "Verify complete draft before publication"), "view")
+	executeWorkflowGhStep(t, workflowStep(t, publish.Steps, "Publish complete release"), "edit")
 }
 
 func workflowStep(t *testing.T, steps []workflowStepDef, name string) workflowStepDef {
@@ -345,17 +334,6 @@ func workflowStep(t *testing.T, steps []workflowStepDef, name string) workflowSt
 	return workflowStepDef{}
 }
 
-func workflowRun(t *testing.T, steps []workflowStepDef, nameOrText string) string {
-	t.Helper()
-	for _, step := range steps {
-		if step.Name == nameOrText || strings.Contains(step.Run, nameOrText) {
-			return step.Run
-		}
-	}
-	t.Fatalf("workflow run step %q not found", nameOrText)
-	return ""
-}
-
 func workflowValue(t *testing.T, steps []workflowStepDef, stepName, key string) string {
 	t.Helper()
 	step := workflowStep(t, steps, stepName)
@@ -364,6 +342,65 @@ func workflowValue(t *testing.T, steps []workflowStepDef, stepName, key string) 
 		t.Fatalf("workflow step %q value %q = %#v, want string", stepName, key, step.With[key])
 	}
 	return value
+}
+
+func executeWorkflowBuild(t *testing.T, step workflowStepDef, goos, goarch string) {
+	t.Helper()
+	fakeBin := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "tool.log")
+	writeExecutable(t, filepath.Join(fakeBin, "git"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\n[ \"$1\" = rev-parse ] && [ \"$2\" = HEAD ] && printf '%s\\n' '"+releaseCommit+"'\n")
+	writeExecutable(t, filepath.Join(fakeBin, "go"), "#!/bin/sh\nset -eu\nprintf 'go %s\\n' \"$*\" >> '"+logPath+"'\ncase \"$1 $2\" in\n  'env GOHOSTOS') printf 'linux\\n' ;;\n  'env GOHOSTARCH') printf 'amd64\\n' ;;\n  build*) out=hand; while [ \"$#\" -gt 0 ]; do if [ \"$1\" = -o ]; then out=$2; shift 2; else shift; fi; done; cat > \"$out\" <<'EOF'\n#!/bin/sh\nprintf '%s\\n' 'version: 1.2.3' 'channel: stable' 'commit: "+releaseCommit+"' 'distribution: github'\nEOF\nchmod 755 \"$out\" ;;\n  *) exit 1 ;;\nesac\n")
+	writeExecutable(t, filepath.Join(fakeBin, "tar"), "#!/bin/sh\nfor arg do case \"$arg\" in *.tar.gz) : > \"$arg\" ;; esac; done\n")
+	writeExecutable(t, filepath.Join(fakeBin, "zip"), "#!/bin/sh\n: > \"$1\"\n")
+	run := substituteWorkflowExpressions(step.Run, goos, goarch)
+	cmd := exec.Command("sh", "-eu", "-c", run)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "GOOS="+goos, "GOARCH="+goarch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("workflow build step failed: %v: %s", err, out)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "main.commit="+releaseCommit) {
+		t.Fatalf("workflow build did not pass the release commit to go: %q", log)
+	}
+}
+
+func executeWorkflowGhStep(t *testing.T, step workflowStepDef, action string) {
+	t.Helper()
+	logPath := filepath.Join(t.TempDir(), "gh.log")
+	fakeBin := t.TempDir()
+	writeExecutable(t, filepath.Join(fakeBin, "gh"), "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\ncase \"$*\" in\n  *'--jq .isDraft'*) printf 'true\\n' ;;\n  *' --json assets '*) printf 'hand-linux-amd64.tar.gz\\nhand-linux-arm64.tar.gz\\nhand-darwin-amd64.tar.gz\\nhand-darwin-arm64.tar.gz\\nhand-windows-amd64.zip\\nbootstrap.sh\\nbootstrap.ps1\\nchecksums.txt\\n' ;;\n  *'release edit'*) : ;;\n  *) exit 1 ;;\nesac\n")
+	cmd := exec.Command("sh", "-eu", "-c", substituteWorkflowExpressions(step.Run, "", ""))
+	cmd.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "RELEASE_TAG=v1.2.3", "GH_TOKEN=test", "GITHUB_REPOSITORY=atqamz/hand")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("workflow gh %s step failed: %v: %s", action, err, out)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "release "+action) {
+		t.Fatalf("workflow gh %s step did not invoke gh release %s: %q", action, action, log)
+	}
+}
+
+func substituteWorkflowExpressions(run, goos, goarch string) string {
+	return strings.NewReplacer(
+		"${{ needs.release-please.outputs.sha }}", releaseCommit,
+		"${{ needs.release-please.outputs.version }}", "1.2.3",
+		"${{ matrix.goos }}", goos,
+		"${{ matrix.goarch }}", goarch,
+	).Replace(run)
+}
+
+func writeExecutable(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func runPrepareRelease(t *testing.T, output, tag, version, commit string) {
