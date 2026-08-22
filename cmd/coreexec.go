@@ -20,9 +20,9 @@ func managedCommandFailure(output []byte, err error) string {
 func runManagedCore(ctx context.Context, name, dir string, args ...string) ([]byte, error) {
 	managed, err := toolchain.Resolve()
 	if err != nil {
-		stdout, stderr, legacyErr := toolchain.RunLegacyForTests(ctx, name, dir, args...)
+		stdout, _, legacyErr := toolchain.RunLegacyForTests(ctx, name, dir, args...)
 		if legacyErr == nil {
-			return append(stdout, stderr...), nil
+			return stdout, nil
 		}
 		return nil, fmt.Errorf("resolve managed %s: %w", name, err)
 	}
@@ -44,11 +44,14 @@ func runManagedCore(ctx context.Context, name, dir string, args ...string) ([]by
 	spec.Stdout = &stdout
 	spec.Stderr = &stderr
 	if err := spec.Run(ctx); err != nil {
-		combined := append(stdout.Bytes(), stderr.Bytes()...)
-		if len(combined) == 0 {
-			combined = []byte(err.Error())
+		output := stderr.Bytes()
+		if len(output) == 0 {
+			output = stdout.Bytes()
 		}
-		return combined, err
+		if len(output) == 0 {
+			output = []byte(err.Error())
+		}
+		return output, err
 	}
-	return append(stdout.Bytes(), stderr.Bytes()...), nil
+	return stdout.Bytes(), nil
 }

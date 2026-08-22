@@ -279,6 +279,7 @@ func seedPrivateRuntime(t *testing.T, home string) {
 	}
 	digest := sha256.Sum256(targetData)
 	bundle := filepath.Join(root, "runtime", "bundles", lock.RuntimeID)
+	fileSHA256 := make(map[string]string)
 	for name, component := range target.Components {
 		for _, expected := range component.Files {
 			path := filepath.Join(bundle, name, filepath.FromSlash(expected.Path))
@@ -302,6 +303,8 @@ func seedPrivateRuntime(t *testing.T, home string) {
 			if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 				t.Fatal(err)
 			}
+			fileDigest := sha256.Sum256([]byte(body))
+			fileSHA256[name+"/"+filepath.ToSlash(expected.Path)] = fmt.Sprintf("%x", fileDigest)
 		}
 	}
 	manifestPath := filepath.Join(bundle, "manifest.json")
@@ -314,6 +317,7 @@ func seedPrivateRuntime(t *testing.T, home string) {
 		Target:         currentTargetNameForTest(),
 		Bundle:         filepath.ToSlash(filepath.Join("bundles", lock.RuntimeID)),
 		ManifestSHA256: fmt.Sprintf("%x", digest),
+		FileSHA256:     fileSHA256,
 		SelectedAt:     time.Now().UTC(),
 	}
 	data, err := json.MarshalIndent(current, "", "  ")
