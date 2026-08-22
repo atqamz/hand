@@ -770,12 +770,13 @@ func TestDoctorReportsReadyWhenEveryFoundationalToolAndOneHarnessArePresent(t *t
 		"  treehouse,true,true\n" +
 		"  herdr,true,true\n" +
 		"  gh,false,false\n" +
-		"harnesses[5]{name,installed}:\n" +
+		"harnesses[6]{name,installed}:\n" +
 		"  claude,true\n" +
 		"  codex,false\n" +
 		"  grok,false\n" +
 		"  pi,false\n" +
 		"  opencode,false\n" +
+		"  antigravity,false\n" +
 		"ready: true\n" +
 		"blocking[0]:\n" +
 		"next[0]:\n"

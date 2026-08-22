@@ -225,7 +225,8 @@ Every worker operates in a git worktree leased through [treehouse](https://githu
 
 ### Live supervision
 
-Workers run interactively inside [herdr](https://github.com/ogulcancelik/herdr), so the supervisor can observe semantic agent state, send follow-up instructions with `hand send`, and react to fleet events with `hand watch` without scraping a terminal for meaning.
+Interactive workers run inside [herdr](https://github.com/ogulcancelik/herdr), so the supervisor can observe semantic agent state, send follow-up instructions with `hand send`, and react to fleet events with `hand watch` without scraping a terminal for meaning.
+Antigravity is the one-shot exception: its headless worker exits after one prompt and does not support follow-up turns or supervisor steering.
 Send outcomes are recorded against the Attempt and visible in `hand status <id>`; unresolved outcomes require operator judgment before steering again.
 The [terminal submission uncertainty decision record](docs/adr/steering-records-terminal-submission-uncertainty.md) owns the outcome and recovery contract.
 
@@ -317,6 +318,7 @@ Secondhand can launch workers through:
 - Grok (`grok`)
 - Pi (`pi`)
 - OpenCode (`opencode`)
+- Google Antigravity CLI (`antigravity`, executable `agy`)
 
 Without an override, workers inherit the harness detected as the current supervisor; only when none can be detected does `hand config` report the harness as `missing`. Inspect and configure fleet defaults with:
 
@@ -331,6 +333,9 @@ hand config route set ship standard claude
 The `harnesses` table lists supported harnesses and whether each is installed on `PATH`.
 Model and effort support depends on the harness: `hand config` reports each as `native-default`, `configured`, or `unsupported` instead of silently storing a setting a harness cannot carry.
 Overrides are stored per harness, so switching harnesses never hands a worker a model or effort chosen for a different tool.
+Antigravity is optional and operator-owned: Hand never installs it or stores its credentials.
+Antigravity workers use the CLI's headless prompt mode, support model slugs reported by `agy models`, and accept only `low`, `medium`, or `high` effort.
+Antigravity is not supported as a Hand supervisor because its qualified contract does not provide the resident interactive session required by supervisor bootstrap and monitoring.
 
 Normally, a task brief omits model and effort front matter so its configured route controls execution.
 Use those values as explicit overrides only for a genuine task-specific need; explicit spawn or promote flags win over brief values, which win over profile values.

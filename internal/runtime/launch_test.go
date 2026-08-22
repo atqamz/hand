@@ -110,6 +110,11 @@ func TestConfirmLaunch(t *testing.T) {
 			frames:  []launchFrame{{text: "opencode ready", agent: "opencode"}},
 		},
 		{
+			name:    "a one-shot worker is confirmed after its response exits",
+			harness: "antigravity",
+			frames:  []launchFrame{{text: "agy response", agent: "antigravity"}, exited("agy response")},
+		},
+		{
 			// The failure this whole function exists for: the dialog text is still on screen but
 			// the harness behind it is gone, so there is no worker to confirm.
 			name:    "a harness that exited on a dialog is not confirmed",

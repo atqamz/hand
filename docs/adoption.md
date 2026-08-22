@@ -133,12 +133,13 @@ integrations[4]{id,executable,owner,state,path}:
   gitlab/glab,glab,GitLab,missing,none
   delivery/no-mistakes,no-mistakes,no-mistakes,missing,none
   delivery/witness,witness,Witness,missing,none
-harnesses[5]{name,installed}:
+harnesses[6]{name,installed}:
   claude,true
   codex,false
   grok,false
   pi,false
   opencode,false
+  antigravity,false
 ready: false
 blocking[1]:
   - runtime

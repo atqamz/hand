@@ -144,6 +144,7 @@ func TestConfigApplicabilityFollowsTheHarnessContract(t *testing.T) {
 		{harness.Codex, stateNativeDefault, stateNativeDefault},
 		{harness.Grok, stateUnsupported, stateUnsupported},
 		{harness.Pi, stateUnsupported, stateUnsupported},
+		{harness.Antigravity, stateNativeDefault, stateNativeDefault},
 	} {
 		mustConfigSet(t, settingHarness, tc.harness)
 		if got := settingState(t, home, settingModel); got != tc.model {
@@ -545,7 +546,7 @@ func TestConfigSummaryReportsRoutingConfigurationAndProblems(t *testing.T) {
 	out := mustConfig(t)
 	for _, want := range []string{
 		"supervisor_harness: claude\n",
-		"harnesses[5]{name,installed,model,effort}:\n",
+		"harnesses[6]{name,installed,model,effort}:\n",
 		"config[3]{key,state,value}:\n",
 		"profiles[1]{name,harness,model,effort}:\n",
 		"routes[6]{kind,execution_class,profile,state}:\n",

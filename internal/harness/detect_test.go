@@ -59,6 +59,7 @@ func TestDetectMatchesHarnessProcesses(t *testing.T) {
 		{name: "node opencode", info: processInfo{name: "node", args: "node /path/to/opencode"}, want: OpenCode},
 		{name: "python opencode", info: processInfo{name: "python", args: "python /path/to/opencode"}, want: OpenCode},
 		{name: "python3 opencode", info: processInfo{name: "python3", args: "python3 /path/to/opencode"}, want: OpenCode},
+		{name: "antigravity", info: processInfo{name: "agy"}, want: Antigravity},
 	}
 
 	for _, test := range tests {

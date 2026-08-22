@@ -12,19 +12,20 @@ import (
 )
 
 const (
-	Claude     = "claude"
-	Codex      = "codex"
-	Grok       = "grok"
-	Pi         = "pi"
-	OpenCode   = "opencode"
-	RoleEnv    = "HAND_ROLE"
-	HomeEnv    = "HAND_HOME"
-	WorkerRole = "worker"
+	Claude      = "claude"
+	Codex       = "codex"
+	Grok        = "grok"
+	Pi          = "pi"
+	OpenCode    = "opencode"
+	Antigravity = "antigravity"
+	RoleEnv     = "HAND_ROLE"
+	HomeEnv     = "HAND_HOME"
+	WorkerRole  = "worker"
 )
 
 // The one list of supported harnesses. Anything that offers a choice of harness derives it from here
 // rather than repeating the names, so a harness added below is offered everywhere at once.
-var names = []string{Claude, Codex, Grok, Pi, OpenCode}
+var names = []string{Claude, Codex, Grok, Pi, OpenCode, Antigravity}
 
 func Names() []string {
 	return slices.Clone(names)
@@ -140,20 +141,23 @@ type Options struct {
 }
 
 var modelCapable = map[string]bool{
-	Claude:   true,
-	Codex:    true,
-	OpenCode: true,
+	Claude:      true,
+	Codex:       true,
+	OpenCode:    true,
+	Antigravity: true,
 }
 
 var effortCapable = map[string]bool{
-	Claude: true,
-	Codex:  true,
+	Claude:      true,
+	Codex:       true,
+	Antigravity: true,
 }
 
 var promptCapable = map[string]bool{
-	Claude:   true,
-	Codex:    true,
-	OpenCode: true,
+	Claude:      true,
+	Codex:       true,
+	OpenCode:    true,
+	Antigravity: true,
 }
 
 // False means the caller must warn instead of silently dropping the model.
@@ -174,9 +178,12 @@ func CarriesPrompt(name string) bool {
 }
 
 // Build constructs the executable, arguments, environment, and working directory for a harness.
-// Every launch is interactive, never one-shot: hand send steers a running pane, hand watch
-// classifies its lifecycle, and a no-mistakes pipeline drives many turns a one-shot cannot.
+// Interactive harnesses stay resident for shared Hand steering; Antigravity uses its qualified
+// headless single-prompt contract and remains unsupported as a supervisor.
 func Build(name string, opts Options) (launch.LaunchSpec, error) {
+	if err := ValidateEffort(name, opts.Effort); err != nil {
+		return launch.LaunchSpec{}, err
+	}
 	var spec launch.LaunchSpec
 	// Flags for claude, codex, and opencode are verified against the installed CLI's own --help, and
 	// this file is the source of truth for those three.
@@ -191,11 +198,25 @@ func Build(name string, opts Options) (launch.LaunchSpec, error) {
 		spec = buildPi(opts)
 	case OpenCode:
 		spec = buildOpenCode(opts)
+	case Antigravity:
+		spec = buildAntigravity(opts)
 	default:
 		return launch.LaunchSpec{}, fmt.Errorf("harness %q not recognized", name)
 	}
 	spec.Cwd = opts.Worktree
 	return launch.NewSpec(spec)
+}
+
+func buildAntigravity(o Options) launch.LaunchSpec {
+	args := []string{}
+	if o.Model != "" {
+		args = append(args, "--model", o.Model)
+	}
+	if o.Effort != "" {
+		args = append(args, "--effort", o.Effort)
+	}
+	args = append(args, "-p", briefPrompt(o))
+	return launch.LaunchSpec{Executable: Executable(Antigravity), Args: args}
 }
 
 // Launches claude interactively - no --print - so the pane stays resident for hand send and hand

@@ -56,11 +56,25 @@ func runSessionStart(cmd *cobra.Command, version string) error {
 	if os.Getenv(harness.RoleEnv) == harness.WorkerRole {
 		return &ExitError{Err: fmt.Errorf("supervisor session bootstrap is unavailable when %s=%s", harness.RoleEnv, harness.WorkerRole), Code: 3}
 	}
+	if err := refuseUnsupportedSupervisorHarness(); err != nil {
+		return err
+	}
 	fleetHome, err := home.Resolve()
 	if err != nil {
 		return asPrecondition(err)
 	}
 	return renderSessionOverview(cmd, version, fleetHome)
+}
+
+func refuseUnsupportedSupervisorHarness() error {
+	detection, err := harness.DetectCurrent()
+	if err != nil {
+		return err
+	}
+	if detection.Name != "" && !harness.SupportsSupervisor(detection.Name) {
+		return &ExitError{Err: fmt.Errorf("supervisor mode is unsupported for harness %q", detection.Name), Code: 3}
+	}
+	return nil
 }
 
 func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error {

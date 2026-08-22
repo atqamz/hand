@@ -127,6 +127,9 @@ func runRootOverview(cmd *cobra.Command, version string) error {
 	if os.Getenv(harness.RoleEnv) == harness.WorkerRole {
 		return &ExitError{Err: fmt.Errorf("supervisor session bootstrap is unavailable when %s=%s", harness.RoleEnv, harness.WorkerRole), Code: 3}
 	}
+	if err := refuseUnsupportedSupervisorHarness(); err != nil {
+		return err
+	}
 	fleetHome, err := home.Resolve()
 	if err == nil {
 		return renderSessionOverview(cmd, version, fleetHome)

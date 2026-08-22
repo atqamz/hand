@@ -72,6 +72,8 @@ func confirmLaunch(client herdrClient, paneID, harnessName string, spec launch.L
 		case !processPresent:
 			quiet = 0
 			switch {
+			case harness.IsOneShot(harnessName) && sawAgent && !known && len(answered) == 0:
+				return nil
 			case (known || len(answered) > 0) && (sawAgent || detected):
 				stall = "the harness exited on a first-run dialog instead of starting up"
 			case known:

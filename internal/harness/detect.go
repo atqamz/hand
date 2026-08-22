@@ -107,6 +107,8 @@ func processHarness(process processInfo) string {
 		return Grok
 	case name == Pi || strings.HasPrefix(name, "pi-"):
 		return Pi
+	case name == Executable(Antigravity):
+		return Antigravity
 	case name == "node" || name == "python" || name == "python3":
 		for _, argument := range strings.Fields(process.args) {
 			if filepath.Base(argument) == OpenCode {

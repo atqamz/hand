@@ -586,7 +586,7 @@ func harnessCarries(key, harnessName string) bool {
 }
 
 func onPath(name string) bool {
-	_, err := exec.LookPath(name)
+	_, err := exec.LookPath(harness.Executable(name))
 	return err == nil
 }
 
