@@ -183,7 +183,8 @@ func open(path string, readOnly bool) (*sql.DB, error) {
 	if readOnly {
 		query = "?mode=ro&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=query_only(1)"
 	}
-	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: path}).EscapedPath()+query)
+	uriPath := filepath.ToSlash(path)
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: uriPath}).EscapedPath()+query)
 	if err != nil {
 		return nil, fmt.Errorf("open registry %s: %w", path, err)
 	}
