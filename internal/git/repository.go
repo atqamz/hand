@@ -193,12 +193,16 @@ func run(dir string, args ...string) (string, error) {
 		return "", err
 	}
 	spec.Dir = dir
-	var output strings.Builder
+	var output, diagnostics strings.Builder
 	spec.Stdout = &output
-	spec.Stderr = &output
+	spec.Stderr = &diagnostics
 	err = spec.Run(context.Background())
 	if err != nil {
-		return "", fmt.Errorf("git %s: %s: %w", strings.Join(args, " "), strings.TrimSpace(output.String()), err)
+		message := strings.TrimSpace(diagnostics.String())
+		if message == "" {
+			message = strings.TrimSpace(output.String())
+		}
+		return "", fmt.Errorf("git %s: %s: %w", strings.Join(args, " "), message, err)
 	}
 	return output.String(), nil
 }

@@ -141,7 +141,11 @@ func TestStatusUsesSelectedBundleAndVerifiesInstalledManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	current := Current{Schema: lock.Schema, RuntimeID: lock.RuntimeID, Target: "linux/amd64", Bundle: filepath.ToSlash(bundleName), ManifestSHA256: digest, SelectedAt: time.Now().UTC()}
+	fileSHA256, err := installedFileDigests(bundle, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := Current{Schema: lock.Schema, RuntimeID: lock.RuntimeID, Target: "linux/amd64", Bundle: filepath.ToSlash(bundleName), ManifestSHA256: digest, FileSHA256: fileSHA256, SelectedAt: time.Now().UTC()}
 	data, err := json.Marshal(current)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +166,17 @@ func TestStatusUsesSelectedBundleAndVerifiesInstalledManifest(t *testing.T) {
 	}
 	if !status.Ready || status.BundleDir != bundle {
 		t.Fatalf("status = %+v, want ready selected bundle %s", status, bundle)
+	}
+
+	if err := os.WriteFile(filepath.Join(bundle, "git", target.Components["git"].Files[0].Path), []byte("tampered"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	status, err = store.Status("linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Ready || status.Reason == "" {
+		t.Fatalf("status = %+v, want file digest failure", status)
 	}
 
 	if err := os.WriteFile(filepath.Join(bundle, manifestName), []byte(fmt.Sprintf("%q", "not a target")), 0o600); err != nil {
