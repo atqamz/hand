@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/toolchain"
 )
 
@@ -77,25 +79,50 @@ func NewSessionClient(session string) *Client {
 	return &Client{session: session}
 }
 
+func NewManagedSessionClient(session string) *Client {
+	client := NewManagedClient()
+	client.session = session
+	return client
+}
+
+func (c *Client) WorkerEnvironment() map[string]string {
+	result := make(map[string]string)
+	for _, item := range c.childEnv {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			result[key] = value
+		}
+	}
+	return result
+}
+
 // The harness-identity variables a pane must never inherit from the herdr server it is a child of
 // (atqamz/hand#109). A server inside a Claude Code session passes its own session identity
 // down, and CLAUDE_CODE_CHILD_SESSION disables the pane's transcript - a worker's only record.
 var sanitizedEnvKeys = []string{"CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE"}
 
-// Blanking them at creation removes the failure for every pane hand creates, rather than depending
-// on the herdr server's own environment being clean.
-func sanitizedEnvArgs() []string {
-	args := make([]string, 0, len(sanitizedEnvKeys)*2)
+func (c *Client) childEnvArgs(extra map[string]string) []string {
+	values := make(map[string]string, len(sanitizedEnvKeys)+len(c.childEnv)+len(extra))
 	for _, key := range sanitizedEnvKeys {
-		args = append(args, "--env", key+"=")
+		values[key] = ""
 	}
-	return args
-}
-
-func (c *Client) childEnvArgs() []string {
-	args := sanitizedEnvArgs()
 	for _, item := range c.childEnv {
-		args = append(args, "--env", item)
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	for key, value := range extra {
+		values[key] = value
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	args := make([]string, 0, len(keys)*2)
+	for _, key := range keys {
+		args = append(args, "--env", key+"="+values[key])
 	}
 	return args
 }
@@ -340,7 +367,7 @@ func (c *Client) FindWorkspaceByLabel(label string) (Workspace, bool, error) {
 // WorkspaceCreate also returns the root tab and pane herdr creates at cwd as a side effect of
 // creating the workspace - herdr has no way to create an empty workspace - so a caller that
 // discards them leaves a live, unowned shell behind in the workspace.
-func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, Tab, Pane, error) {
+func (c *Client) WorkspaceCreate(cwd string, env map[string]string, label string) (Workspace, Tab, Pane, error) {
 	args := []string{"workspace", "create", "--no-focus"}
 	if cwd != "" {
 		args = append(args, "--cwd", cwd)
@@ -348,7 +375,7 @@ func (c *Client) WorkspaceCreate(cwd, label string) (Workspace, Tab, Pane, error
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	args = append(args, c.childEnvArgs()...)
+	args = append(args, c.childEnvArgs(env)...)
 	res, err := c.call(args...)
 	if err != nil {
 		return Workspace{}, Tab{}, Pane{}, err
@@ -400,7 +427,7 @@ func (c *Client) TabList(workspaceID string) ([]Tab, error) {
 	return body.Tabs, nil
 }
 
-func (c *Client) TabCreate(workspaceID, cwd, label string) (Tab, Pane, error) {
+func (c *Client) TabCreate(workspaceID, cwd string, env map[string]string, label string) (Tab, Pane, error) {
 	args := []string{"tab", "create", "--workspace", workspaceID, "--no-focus"}
 	if cwd != "" {
 		args = append(args, "--cwd", cwd)
@@ -408,7 +435,7 @@ func (c *Client) TabCreate(workspaceID, cwd, label string) (Tab, Pane, error) {
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	args = append(args, c.childEnvArgs()...)
+	args = append(args, c.childEnvArgs(env)...)
 	res, err := c.call(args...)
 	if err != nil {
 		return Tab{}, Pane{}, err
@@ -472,9 +499,50 @@ func (c *Client) paneGet(ctx context.Context, paneID string) (Pane, error) {
 	return body.Pane, nil
 }
 
-// PaneRun types command into the pane followed by Enter.
-func (c *Client) PaneRun(paneID, command string) error {
+func (c *Client) PaneProcessInfo(paneID string) (ProcessInfo, error) {
+	res, err := c.call("pane", "process-info", "--pane", paneID)
+	if err != nil {
+		return ProcessInfo{}, err
+	}
+	var body struct {
+		ProcessInfo ProcessInfo `json:"process_info"`
+	}
+	if err := json.Unmarshal(res, &body); err != nil {
+		return ProcessInfo{}, fmt.Errorf("parse pane process info: %w", err)
+	}
+	if body.ProcessInfo.PaneID == "" || body.ProcessInfo.PaneID != paneID || body.ProcessInfo.ShellPID <= 0 {
+		return ProcessInfo{}, fmt.Errorf("parse pane process info: missing or mismatched pane or shell pid")
+	}
+	return body.ProcessInfo, nil
+}
+
+func (c *Client) paneRun(paneID, command string) error {
 	return c.callVoid("pane", "run", paneID, command)
+}
+
+func (c *Client) PaneRunSpec(paneID string, spec launch.LaunchSpec) error {
+	if err := spec.Validate(); err != nil {
+		return fmt.Errorf("validate launch spec: %w", err)
+	}
+	info, err := c.PaneProcessInfo(paneID)
+	if err != nil {
+		return fmt.Errorf("observe pane shell: %w", err)
+	}
+	shell, err := shellForProcess(info)
+	if err != nil {
+		return err
+	}
+	var command string
+	switch shell {
+	case shellPOSIX:
+		command, err = renderPOSIX(spec.Executable, spec.Args)
+	case shellPowerShell:
+		command, err = renderPowerShell(spec.Executable, spec.Args)
+	}
+	if err != nil {
+		return fmt.Errorf("render launch for %s: %w", shell, err)
+	}
+	return c.paneRun(paneID, command)
 }
 
 func (c *Client) PaneSendText(paneID, text string) error {

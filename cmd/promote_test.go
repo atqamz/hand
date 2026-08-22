@@ -133,13 +133,10 @@ func TestPromoteLaunchCarriesWorkerRoleAndResolvedFleetHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	launch := string(calls)
-	env := "HAND_ROLE=worker HAND_HOME='" + home + "'"
-	envAt := strings.Index(launch, env)
-	if envAt < 0 {
-		t.Fatalf("launch = %q, want absolute worker environment %q", launch, env)
-	}
-	if harnessAt := strings.Index(launch, "claude --dangerously"); harnessAt < 0 || envAt > harnessAt {
-		t.Fatalf("launch = %q, want worker environment before harness executable", launch)
+	for _, want := range []string{"--env HAND_HOME=" + home, "--env HAND_ROLE=worker"} {
+		if !strings.Contains(launch, want) {
+			t.Fatalf("launch = %q, want structured worker environment entry %q", launch, want)
+		}
 	}
 }
 

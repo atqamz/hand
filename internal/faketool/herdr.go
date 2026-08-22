@@ -50,6 +50,8 @@ type Herdr struct {
 	Creates            []HerdrWorkspace
 	TabCreates         []HerdrTab
 	PaneAgent          string
+	ProcessAgent       string
+	ProcessAgents      []string
 	PaneStatus         string
 	PaneStatusSequence []string
 	PaneReadOut        string
@@ -78,6 +80,8 @@ type herdrSpec struct {
 	Creates            []HerdrWorkspace
 	TabCreates         []HerdrTab
 	PaneAgent          string
+	ProcessAgent       string
+	ProcessAgents      []string
 	PaneStatus         string
 	PaneStatusSequence []string
 	PaneReadOut        string
@@ -121,7 +125,7 @@ func (h Herdr) Install(t *testing.T, bin string) {
 	}
 	installConfig(t, bin, "herdr", "herdr", herdrSpec{
 		Workspaces: h.Workspaces, Creates: h.Creates, TabCreates: h.TabCreates,
-		PaneAgent: h.PaneAgent, PaneStatus: h.PaneStatus, PaneReadOut: h.PaneReadOut,
+		PaneAgent: h.PaneAgent, ProcessAgent: h.ProcessAgent, ProcessAgents: h.ProcessAgents, PaneStatus: h.PaneStatus, PaneReadOut: h.PaneReadOut,
 		PaneStatusSequence: h.PaneStatusSequence,
 		PaneStatusFile:     h.PaneStatusFile, Frames: h.Frames, Responses: h.Responses,
 		Hang: h.Hang, Unreachable: h.Unreachable, KeyLog: h.KeyLog, TextLog: h.TextLog,
@@ -286,6 +290,8 @@ func runHerdrState(spec herdrSpec, command string, args []string) int {
 		return herdrTabClose(spec, workspaces, tabs, args)
 	case "pane get":
 		return herdrPaneGet(spec, tabs, args)
+	case "pane process-info":
+		return herdrPaneProcessInfo(spec, tabs, args)
 	case "pane read":
 		return herdrPaneRead(spec, tabs, args)
 	case "pane run", "pane send-text", "pane send-keys":
@@ -496,6 +502,39 @@ func herdrPaneGet(spec herdrSpec, tabs []herdrTabRef, args []string) int {
 	return 0
 }
 
+func herdrPaneProcessInfo(spec herdrSpec, tabs []herdrTabRef, args []string) int {
+	pane := flagValue(args, "--pane")
+	if pane == "" || (herdrPaneRef(spec, tabs, pane).Tab.ID == "" && !spec.AllowUnknownPane) {
+		return herdrError("pane_not_found", "pane "+pane+" not found", "cli:pane:process_info")
+	}
+	agents := append([]string(nil), spec.ProcessAgents...)
+	if len(agents) == 0 {
+		agent := spec.ProcessAgent
+		if agent == "" {
+			agent = spec.PaneAgent
+		}
+		if agent != "" {
+			agents = []string{agent}
+		}
+	}
+	if spec.PaneAgentEnv {
+		agents = []string{os.Getenv("PANE_AGENT")}
+	}
+	if len(spec.Frames) > 0 {
+		index := herdrProcessFrameAdvance(spec.StateDir, len(spec.Frames))
+		agents = []string{spec.Frames[index].Agent}
+	}
+	foreground := `{"pid":1,"name":"bash","argv":["bash"]}`
+	for i, agent := range agents {
+		if agent == "" {
+			continue
+		}
+		foreground += fmt.Sprintf(`,{"pid":%d,"name":%s,"argv":[%s]}`, i+2, jsonQuote(agent), jsonQuote(agent))
+	}
+	_, _ = fmt.Fprintf(os.Stdout, `{"id":"cli:pane:process_info","result":{"process_info":{"pane_id":%s,"shell_pid":1,"foreground_processes":[%s]}}}`+"\n", jsonQuote(pane), foreground)
+	return 0
+}
+
 func herdrPaneRead(spec herdrSpec, tabs []herdrTabRef, args []string) int {
 	if len(args) < 3 {
 		return herdrError("pane_not_found", "pane not found", "cli:pane:read")
@@ -686,6 +725,14 @@ func herdrFrameAdvance(state string, count int) int {
 
 func herdrFrameCurrent(state string, count int) int {
 	return min(max(herdrCounter(state, "frames")-1, 0), count-1)
+}
+
+func herdrProcessFrameAdvance(state string, count int) int {
+	current := herdrCounter(state, "process-frames")
+	if err := atomicWrite(herdrCounterPath(state, "process-frames"), strconv.Itoa(current+1)+"\n"); err != nil {
+		return min(current, count-1)
+	}
+	return min(current, count-1)
 }
 
 func herdrStatusAdvance(state string, count int) int {

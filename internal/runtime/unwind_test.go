@@ -10,6 +10,7 @@ import (
 	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
 )
@@ -27,7 +28,7 @@ func fakeSwitchablePane(t *testing.T, agent string) func(string) {
 			{ID: "ws-1", Label: "hand:demo", Tabs: []faketool.HerdrTab{{ID: "tab-1", Label: "1", Pane: "pane-1"}}},
 			{ID: "ws-2", Label: "hand:demo", Tabs: []faketool.HerdrTab{{ID: "tab-2", Label: "1", Pane: "pane-2"}}},
 		},
-		PaneAgentEnv: true, PaneReadFileEnv: true, PaneStatus: "idle",
+		PaneAgent: agent, PaneReadFileEnv: true, PaneStatus: "idle",
 		KeyLog: filepath.Join(dir, "keys.log"),
 	}.Install(t, bin)
 	t.Setenv("PANE_AGENT", agent)
@@ -47,7 +48,8 @@ func unwindRuntime(t *testing.T, returns *int) *Runtime {
 	r := reconcileRuntime(nil, func(string, string) (worktree.Lease, error) {
 		return worktree.Lease{Path: filepath.Join(pool, "slot-1"), ID: "lease-1"}, nil
 	})
-	r.deps.herdr = newHerdrClient
+	r.deps.herdr = func() herdrClient { return herdr.NewClient() }
+	r.deps.buildHarness = harness.Build
 	r.deps.confirmLaunch = confirmLaunch
 	r.deps.worktree.returnWorktree = func(string, bool) error { *returns++; return nil }
 	r.deps.worktree.returnWithID = func(string, string, bool) error { *returns++; return nil }

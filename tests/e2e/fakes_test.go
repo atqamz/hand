@@ -92,6 +92,8 @@ type herdrIDs struct {
 	PaneID      string
 	Label       string
 	PaneStatus  string // agent_status reported by "pane get"; defaults to "working" if empty
+	Agent       string // harness process reported by pane get and pane process-info; defaults to claude
+	Agents      []string
 }
 
 // The herdr fake for a spawn (or promote) followed by a teardown within one test: no workspace exists
@@ -119,14 +121,20 @@ func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs)
 			Pane: fmt.Sprintf("%s-%d", ids.PaneID, i+2),
 		}
 	}
+	agent := ids.Agent
+	if agent == "" {
+		agent = "claude"
+	}
 	faketool.Herdr{
 		Creates: []faketool.HerdrWorkspace{{ID: ids.WorkspaceID, Label: ids.Label, Tabs: []faketool.HerdrTab{
 			{ID: ids.TabID, Label: "1", Pane: ids.PaneID},
 		}}},
-		TabCreates: spares,
-		PaneAgent:  "claude",
-		PaneStatus: ids.PaneStatus,
-		Log:        logPath,
+		TabCreates:    spares,
+		PaneAgent:     agent,
+		ProcessAgent:  agent,
+		ProcessAgents: ids.Agents,
+		PaneStatus:    ids.PaneStatus,
+		Log:           logPath,
 	}.Install(t, dir)
 }
 

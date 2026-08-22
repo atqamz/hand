@@ -13,6 +13,7 @@ import (
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
@@ -1297,7 +1298,19 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 		})
 		return err
 	case reconciliationActionConfirmLaunch:
-		if err := r.deps.confirmLaunch(r.herdrClient(attempt.Herdr.Session), attempt.Herdr.PaneID, attempt.Harness); err != nil {
+		briefPath := filepath.Join(home, task.Brief)
+		_, hasFrontMatter, err := brief.Parse(briefPath)
+		if err != nil {
+			return fmt.Errorf("parse persisted brief for launch confirmation: %w", err)
+		}
+		spec, err := r.deps.buildHarness(attempt.Harness, harness.Options{
+			Worktree: attempt.Worktree, Brief: briefPath, Model: attempt.Model, Effort: attempt.Effort,
+			ExecutionClass: brief.ExecutionClass(attempt.ExecutionClass), BriefHasFrontMatter: hasFrontMatter,
+		})
+		if err != nil {
+			return fmt.Errorf("build persisted launch evidence: %w", err)
+		}
+		if err := r.deps.confirmLaunch(r.herdrClient(attempt.Herdr.Session), attempt.Herdr.PaneID, attempt.Harness, spec); err != nil {
 			return fmt.Errorf("confirm persisted launch: %w", err)
 		}
 		return state.MarkLaunchConfirmed(home, task.ID, attempt.ID, r.deps.now().Format(time.RFC3339))

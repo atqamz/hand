@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/launch"
 )
 
 func writeFakeHerdr(t *testing.T, responses ...faketool.HerdrResponse) {
@@ -83,7 +84,7 @@ func TestFindWorkspaceByLabelNotFound(t *testing.T) {
 func TestWorkspaceCreateParsesRootTabAndPane(t *testing.T) {
 	writeFakeHerdr(t, herdrResponse("workspace create", "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\",\"tab_count\":1},\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\",\"label\":\"1\"},\"root_pane\":{\"pane_id\":\"wA:pC\",\"tab_id\":\"wA:tB\",\"agent_status\":\"idle\"}}}"))
 	c := NewClient()
-	ws, tab, pane, err := c.WorkspaceCreate("/tmp/clone", "proj")
+	ws, tab, pane, err := c.WorkspaceCreate("/tmp/clone", nil, "proj")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestWorkspaceCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
 	}.Install(t, bin)
 
 	c := NewClient()
-	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err != nil {
+	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", nil, "proj"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,10 +129,31 @@ func TestWorkspaceCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCreateCarriesSortedStructuredEnvironmentWithCallerPrecedence(t *testing.T) {
+	bin := faketool.Bin(t)
+	faketool.Herdr{Responses: []faketool.HerdrResponse{{
+		Command: "workspace create",
+		Args: []string{
+			"--no-focus", "--cwd", "/tmp/clone", "--label", "proj",
+			"--env", "CLAUDECODE=", "--env", "CLAUDE_CODE_CHILD_SESSION=", "--env", "CLAUDE_CODE_SESSION_ID=",
+			"--env", "CUSTOM=literal", "--env", "HAND_ROLE=worker", "--env", "PATH=/managed/bin",
+		},
+		Stdout: "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\"},\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\"},\"root_pane\":{\"pane_id\":\"wA:pC\",\"tab_id\":\"wA:tB\"}}}",
+	}}}.Install(t, bin)
+
+	if _, _, _, err := NewClient().WorkspaceCreate("/tmp/clone", map[string]string{
+		"CUSTOM":    "literal",
+		"HAND_ROLE": "worker",
+		"PATH":      "/managed/bin",
+	}, "proj"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorkspaceCreateRejectsMissingRootTabOrPane(t *testing.T) {
 	writeFakeHerdr(t, herdrResponse("workspace create", "{\"id\":\"cli:1\",\"result\":{\"workspace\":{\"workspace_id\":\"wA\",\"label\":\"proj\"}}}"))
 	c := NewClient()
-	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
+	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", nil, "proj"); err == nil {
 		t.Fatal("expected an error when the response omits the root tab and pane")
 	}
 }
@@ -151,7 +173,7 @@ func TestWorkspaceCreateClosesWorkspaceOnPartialResponse(t *testing.T) {
 	}.Install(t, bin)
 
 	c := NewClient()
-	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
+	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", nil, "proj"); err == nil {
 		t.Fatal("expected an error when the response omits the root tab and pane")
 	}
 
@@ -179,7 +201,7 @@ func TestWorkspaceCreateClosesWorkspaceOnMalformedResponse(t *testing.T) {
 	}.Install(t, bin)
 
 	c := NewClient()
-	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", "proj"); err == nil {
+	if _, _, _, err := c.WorkspaceCreate("/tmp/clone", nil, "proj"); err == nil {
 		t.Fatal("expected an error when the response mistypes the tab field")
 	}
 
@@ -250,15 +272,110 @@ func TestCallRejectsNonObjectResult(t *testing.T) {
 func TestPaneRunSucceedsOnEmptyStdout(t *testing.T) {
 	writeFakeHerdr(t, herdrResponse("pane run", ""))
 	c := NewClient()
-	if err := c.PaneRun("wA:pB", "echo hi"); err != nil {
+	if err := c.paneRun("wA:pB", "echo hi"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPaneProcessInfoParsesShellEvidence(t *testing.T) {
+	writeFakeHerdr(t, herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","argv":["bash","-l"],"argv0":"bash","cmdline":"bash -l","cwd":"/tmp/wt"}]}}}`))
+	info, err := NewClient().PaneProcessInfo("wA:pB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.PaneID != "wA:pB" || info.ShellPID != 42 || len(info.ForegroundProcesses) != 1 || info.ForegroundProcesses[0].Name != "bash" {
+		t.Fatalf("process info = %+v", info)
+	}
+}
+
+func TestPaneProcessInfoRejectsEvidenceForAnotherPane(t *testing.T) {
+	writeFakeHerdr(t, herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"other-pane","shell_pid":42,"foreground_processes":[{"pid":42,"name":"bash"}]}}}`))
+	if _, err := NewClient().PaneProcessInfo("wA:pB"); err == nil || !strings.Contains(err.Error(), "mismatched pane") {
+		t.Fatalf("PaneProcessInfo() = %v, want mismatched pane error", err)
+	}
+}
+
+func TestPaneRunSpecDetectsPOSIXShellBeforeSubmission(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{
+			herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_processes":[{"pid":42,"name":"bash"}]}}}`),
+			herdrResponse("pane run", ""),
+		},
+		Log: callLog,
+	}.Install(t, bin)
+	spec, err := launch.NewSpec(launch.LaunchSpec{Executable: "worker name", Args: []string{"$literal", "has spaces"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := NewClient().PaneRunSpec("wA:pB", spec); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "pane process-info --pane wA:pB") || !strings.Contains(string(calls), `pane run wA:pB 'worker name' '$literal' 'has spaces'`) {
+		t.Fatalf("calls = %q, want process evidence before quoted run", calls)
+	}
+}
+
+func TestPaneRunSpecDetectsPowerShell(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{
+			herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_processes":[{"pid":42,"name":"pwsh.exe"}]}}}`),
+			herdrResponse("pane run", ""),
+		},
+		Log: callLog,
+	}.Install(t, bin)
+	spec, err := launch.NewSpec(launch.LaunchSpec{Executable: "worker", Args: []string{"it's literal"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := NewClient().PaneRunSpec("wA:pB", spec); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), `pane run wA:pB & 'worker' 'it''s literal'`) {
+		t.Fatalf("calls = %q, want PowerShell call operator and literal quoting", calls)
+	}
+}
+
+func TestPaneRunSpecFailsClosedForUnknownShell(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	bin := faketool.Bin(t)
+	faketool.Herdr{
+		Responses: []faketool.HerdrResponse{
+			herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_processes":[{"pid":42,"name":"cmd.exe"}]}}}`),
+		},
+		Log: callLog,
+	}.Install(t, bin)
+	spec, err := launch.NewSpec(launch.LaunchSpec{Executable: "worker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := NewClient().PaneRunSpec("wA:pB", spec); err == nil || !strings.Contains(err.Error(), "unsupported shell") {
+		t.Fatalf("PaneRunSpec() = %v, want unsupported shell error", err)
+	}
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "pane run") {
+		t.Fatalf("calls = %q, want no pane run after unknown shell", calls)
 	}
 }
 
 func TestPaneRunSurfacesErrorEnvelopeEvenOnExitZero(t *testing.T) {
 	writeFakeHerdr(t, herdrResponse("pane run", "{\"id\":\"cli:1\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"pane missing\"}}"))
 	c := NewClient()
-	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "pane missing") {
+	if err := c.paneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "pane missing") {
 		t.Fatalf("got err %v, want pane missing", err)
 	}
 }
@@ -330,7 +447,7 @@ func TestPaneSendKeysSucceedsOnEmptyStdout(t *testing.T) {
 func TestCallVoidFailsOnNonZeroExitWithNoStdout(t *testing.T) {
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane run", Stderr: "binary crashed\n", Exit: 1})
 	c := NewClient()
-	if err := c.PaneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "binary crashed") {
+	if err := c.paneRun("wA:pB", "echo hi"); err == nil || !strings.Contains(err.Error(), "binary crashed") {
 		t.Fatalf("got err %v, want binary crashed failure", err)
 	}
 }
@@ -338,7 +455,7 @@ func TestCallVoidFailsOnNonZeroExitWithNoStdout(t *testing.T) {
 func TestTabCreateParsesTabAndRootPane(t *testing.T) {
 	writeFakeHerdr(t, herdrResponse("tab create", "{\"id\":\"cli:1\",\"result\":{\"tab\":{\"tab_id\":\"wA:tB\",\"workspace_id\":\"wA\",\"label\":\"task\"},\"root_pane\":{\"pane_id\":\"wA:pC\",\"tab_id\":\"wA:tB\",\"agent_status\":\"idle\"}}}"))
 	c := NewClient()
-	tab, pane, err := c.TabCreate("wA", "/tmp/wt", "task")
+	tab, pane, err := c.TabCreate("wA", "/tmp/wt", nil, "task")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +479,7 @@ func TestTabCreateSanitizesInheritedHarnessMarkers(t *testing.T) {
 	}.Install(t, bin)
 
 	c := NewClient()
-	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err != nil {
+	if _, _, err := c.TabCreate("wA", "/tmp/wt", nil, "task"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -392,7 +509,7 @@ func TestTabCreateClosesTabOnPartialResponse(t *testing.T) {
 	}.Install(t, bin)
 
 	c := NewClient()
-	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err == nil {
+	if _, _, err := c.TabCreate("wA", "/tmp/wt", nil, "task"); err == nil {
 		t.Fatal("expected an error when the response omits the root pane")
 	}
 
@@ -420,7 +537,7 @@ func TestTabCreateClosesTabOnMalformedResponse(t *testing.T) {
 	}.Install(t, bin)
 
 	c := NewClient()
-	if _, _, err := c.TabCreate("wA", "/tmp/wt", "task"); err == nil {
+	if _, _, err := c.TabCreate("wA", "/tmp/wt", nil, "task"); err == nil {
 		t.Fatal("expected an error when the response mistypes the root pane field")
 	}
 
@@ -434,14 +551,14 @@ func TestTabCreateClosesTabOnMalformedResponse(t *testing.T) {
 }
 
 func TestPaneGetParsesAgentStatus(t *testing.T) {
-	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"))
+	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\",\"cwd\":\"/tmp/worktree\",\"foreground_cwd\":\"/tmp/worktree/worker\"}}}"))
 	c := NewClient()
 	pane, err := c.PaneGet("wA:pB")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pane.AgentStatus != StatusWorking {
-		t.Fatalf("got %q, want working", pane.AgentStatus)
+	if pane.AgentStatus != StatusWorking || pane.Cwd != "/tmp/worktree" || pane.ForegroundCwd != "/tmp/worktree/worker" {
+		t.Fatalf("got %+v, want status and cwd evidence", pane)
 	}
 }
 

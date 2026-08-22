@@ -1,15 +1,14 @@
-// Package harness constructs the per-harness command used to launch a worker agent.
+// Package harness constructs the per-harness process used to launch a worker agent.
 package harness
 
 import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/brief"
-	"github.com/atqamz/hand/internal/shellquote"
+	"github.com/atqamz/hand/internal/launch"
 )
 
 const (
@@ -134,7 +133,6 @@ func AgentDetectionVerified(name string) bool {
 type Options struct {
 	Worktree            string
 	Brief               string
-	FleetHome           string
 	Model               string
 	Effort              string
 	ExecutionClass      brief.ExecutionClass
@@ -175,88 +173,85 @@ func CarriesPrompt(name string) bool {
 	return promptCapable[name]
 }
 
-// Build constructs the shell command that cds into the worktree and launches the harness against
-// the brief. Every launch is interactive, never one-shot: hand send steers a running pane, hand
-// watch classifies its lifecycle, and a no-mistakes pipeline drives many turns a one-shot cannot.
-func Build(name string, opts Options) (string, error) {
-	var launch string
+// Build constructs the executable, arguments, environment, and working directory for a harness.
+// Every launch is interactive, never one-shot: hand send steers a running pane, hand watch
+// classifies its lifecycle, and a no-mistakes pipeline drives many turns a one-shot cannot.
+func Build(name string, opts Options) (launch.LaunchSpec, error) {
+	var spec launch.LaunchSpec
 	// Flags for claude, codex, and opencode are verified against the installed CLI's own --help, and
 	// this file is the source of truth for those three.
 	switch name {
 	case Claude:
-		launch = buildClaude(opts)
+		spec = buildClaude(opts)
 	case Codex:
-		launch = buildCodex(opts)
+		spec = buildCodex(opts)
 	case Grok:
-		launch = buildGrok(opts)
+		spec = buildGrok(opts)
 	case Pi:
-		launch = buildPi(opts)
+		spec = buildPi(opts)
 	case OpenCode:
-		launch = buildOpenCode(opts)
+		spec = buildOpenCode(opts)
 	default:
-		return "", fmt.Errorf("harness %q not recognized", name)
+		return launch.LaunchSpec{}, fmt.Errorf("harness %q not recognized", name)
 	}
-	env := ""
-	if opts.FleetHome != "" {
-		env = RoleEnv + "=" + WorkerRole + " " + HomeEnv + "=" + shellQuote(opts.FleetHome) + " "
-	}
-	return fmt.Sprintf("cd %s && %s%s", shellQuote(opts.Worktree), env, launch), nil
+	spec.Cwd = opts.Worktree
+	return launch.NewSpec(spec)
 }
 
 // Launches claude interactively - no --print - so the pane stays resident for hand send and hand
 // watch across a multi-turn no-mistakes pipeline. Verified via `claude --help`: --model, --effort
 // and --dangerously-skip-permissions all apply outside --print.
-func buildClaude(o Options) string {
+func buildClaude(o Options) launch.LaunchSpec {
 	// --dangerously-skip-permissions, or an unattended worker stalls on a permission prompt.
 	// CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false suppresses the dim predicted-next-prompt ghost text,
 	// which a pane-watching supervisor would otherwise read as typed input under an idle worker.
-	args := []string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false", "claude", "--dangerously-skip-permissions"}
+	args := []string{"--dangerously-skip-permissions"}
 	if o.Model != "" {
-		args = append(args, "--model", shellQuote(o.Model))
+		args = append(args, "--model", o.Model)
 	}
 	if o.Effort != "" {
-		args = append(args, "--effort", shellQuote(o.Effort))
+		args = append(args, "--effort", o.Effort)
 	}
-	args = append(args, shellQuote(briefPrompt(o)))
-	return strings.Join(args, " ")
+	args = append(args, briefPrompt(o))
+	return launch.LaunchSpec{Executable: Claude, Args: args, Env: map[string]string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false"}}
 }
 
 // Launches Codex CLI 0.146.0 interactively with its positional prompt. Its help and config schema
 // expose the flags below; paste-burst buffering otherwise absorbs hand send's immediate Enter, and
 // auto effort means inherit Codex's default rather than pass a literal value.
-func buildCodex(o Options) string {
-	args := []string{"codex", "--dangerously-bypass-approvals-and-sandbox", "-c", shellQuote("disable_paste_burst=true")}
+func buildCodex(o Options) launch.LaunchSpec {
+	args := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true"}
 	if o.Model != "" {
-		args = append(args, "--model", shellQuote(o.Model))
+		args = append(args, "--model", o.Model)
 	}
 	if o.Effort != "" && o.Effort != "auto" {
-		args = append(args, "-c", shellQuote(fmt.Sprintf(`model_reasoning_effort="%s"`, o.Effort)))
+		args = append(args, "-c", fmt.Sprintf(`model_reasoning_effort="%s"`, o.Effort))
 	}
-	args = append(args, shellQuote(briefPrompt(o)))
-	return strings.Join(args, " ")
+	args = append(args, briefPrompt(o))
+	return launch.LaunchSpec{Executable: Codex, Args: args}
 }
 
-func buildGrok(o Options) string {
-	return fmt.Sprintf("grok --trust --file %s", shellQuote(o.Brief))
+func buildGrok(o Options) launch.LaunchSpec {
+	return launch.LaunchSpec{Executable: Grok, Args: []string{"--trust", "--file", o.Brief}}
 }
 
-func buildPi(o Options) string {
-	return fmt.Sprintf("pi %s", shellQuote(o.Brief))
+func buildPi(o Options) launch.LaunchSpec {
+	return launch.LaunchSpec{Executable: Pi, Args: []string{o.Brief}}
 }
 
 // Uses the bare `opencode` command (verified via `opencode --help`), which opens an interactive TUI,
 // rather than `opencode run` - that one is explicitly headless and exits after a single reply.
-func buildOpenCode(o Options) string {
+func buildOpenCode(o Options) launch.LaunchSpec {
 	// OPENCODE_CONFIG_CONTENT grants blanket tool permission so an unattended worker does not stall
 	// on a permission prompt.
-	args := []string{"OPENCODE_CONFIG_CONTENT=" + shellQuote(`{"permission":{"*":"allow"}}`), "opencode"}
+	args := []string{}
 	if o.Model != "" {
-		args = append(args, "--model", shellQuote(o.Model))
+		args = append(args, "--model", o.Model)
 	}
 	// The bare command has no --file flag and no effort or variant flag, so the brief path rides in
 	// the --prompt text and Options.Effort is dropped here rather than passed.
-	args = append(args, "--prompt", shellQuote(briefPrompt(o)))
-	return strings.Join(args, " ")
+	args = append(args, "--prompt", briefPrompt(o))
+	return launch.LaunchSpec{Executable: OpenCode, Args: args, Env: map[string]string{"OPENCODE_CONFIG_CONTENT": `{"permission":{"*":"allow"}}`}}
 }
 
 // Shared so the wording cannot drift between harnesses. It ends with agentsmd.OperatorDecisionRule
@@ -271,8 +266,4 @@ func briefPrompt(o Options) string {
 		prompt += " Verify the named files/symbols and plan assumptions before editing. If materially stale or contradictory, stop and report blocked. Do not redesign the task yourself. Otherwise execute the ordered plan and verification steps."
 	}
 	return prompt + " " + agentsmd.OperatorDecisionRule
-}
-
-func shellQuote(s string) string {
-	return shellquote.Quote(s)
 }

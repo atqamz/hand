@@ -484,10 +484,10 @@ func TestProvisionBuildsFromPersistedAttemptSnapshot(t *testing.T) {
 	var gotHarness string
 	var gotOptions harness.Options
 	r := testProvisionRuntime(&provisionHerdr{}, func(lifecyclePhase) error { return nil })
-	r.deps.buildHarness = func(name string, options harness.Options) (string, error) {
+	r.deps.buildHarness = func(name string, options harness.Options) (launchSpec, error) {
 		gotHarness = name
 		gotOptions = options
-		return "launch", nil
+		return launchSpec{Executable: "launch"}, nil
 	}
 
 	if _, err := r.provision(context.Background(), provisioningRequest{

@@ -227,18 +227,22 @@ func (f *reconcileHerdrClient) FindWorkspaceByLabel(string) (herdr.Workspace, bo
 	return f.workspace, f.workspace.WorkspaceID != "", nil
 }
 func (f *reconcileHerdrClient) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
-func (f *reconcileHerdrClient) WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
+func (f *reconcileHerdrClient) WorkspaceCreate(string, map[string]string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
 	return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, errors.New("unused")
 }
 func (f *reconcileHerdrClient) WorkspaceClose(string) error         { return errors.New("unused") }
 func (f *reconcileHerdrClient) TabList(string) ([]herdr.Tab, error) { return f.tabs, nil }
-func (f *reconcileHerdrClient) TabCreate(string, string, string) (herdr.Tab, herdr.Pane, error) {
+func (f *reconcileHerdrClient) TabCreate(string, string, map[string]string, string) (herdr.Tab, herdr.Pane, error) {
 	return herdr.Tab{}, herdr.Pane{}, errors.New("unused")
 }
-func (f *reconcileHerdrClient) TabRename(string, string) error       { return errors.New("unused") }
-func (f *reconcileHerdrClient) TabClose(string) error                { return errors.New("unused") }
-func (f *reconcileHerdrClient) PaneGet(string) (herdr.Pane, error)   { return f.pane, nil }
-func (f *reconcileHerdrClient) PaneRun(string, string) error         { return errors.New("unused") }
+func (f *reconcileHerdrClient) TabRename(string, string) error     { return errors.New("unused") }
+func (f *reconcileHerdrClient) TabClose(string) error              { return errors.New("unused") }
+func (f *reconcileHerdrClient) PaneGet(string) (herdr.Pane, error) { return f.pane, nil }
+func (f *reconcileHerdrClient) PaneRun(string, string) error       { return errors.New("unused") }
+func (f *reconcileHerdrClient) PaneProcessInfo(string) (herdr.ProcessInfo, error) {
+	return herdr.ProcessInfo{ShellPID: 1, ForegroundProcesses: []herdr.Process{{PID: 1, Name: "bash"}}}, nil
+}
+func (f *reconcileHerdrClient) PaneRunSpec(string, launchSpec) error { return errors.New("unused") }
 func (f *reconcileHerdrClient) PaneSendKeys(string, ...string) error { return errors.New("unused") }
 func (f *reconcileHerdrClient) PaneRead(string, int) (string, error) { return "", errors.New("unused") }
 
@@ -299,9 +303,9 @@ func TestReconcileNeverReroutesAnExistingAttempt(t *testing.T) {
 	var gotHarness string
 	var got harness.Options
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.buildHarness = func(name string, options harness.Options) (string, error) {
+	r.deps.buildHarness = func(name string, options harness.Options) (launchSpec, error) {
 		gotHarness, got = name, options
-		return "launch", nil
+		return launchSpec{Executable: "launch"}, nil
 	}
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatal(err)
@@ -2153,8 +2157,8 @@ func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lea
 			returnWorktree: func(string, bool) error { return nil },
 			returnWithID:   func(string, string, bool) error { return nil },
 		},
-		buildHarness:     func(string, harness.Options) (string, error) { return "launch", nil },
-		confirmLaunch:    func(herdrClient, string, string) error { return nil },
+		buildHarness:     func(string, harness.Options) (launchSpec, error) { return launchSpec{Executable: "launch"}, nil },
+		confirmLaunch:    func(herdrClient, string, string, launchSpec) error { return nil },
 		appendCompletion: completion.Append,
 		phase:            func(lifecyclePhase) error { return nil },
 	}}
@@ -2244,14 +2248,14 @@ func (f *healthyReconcileHerdr) FindWorkspaceByLabel(label string) (herdr.Worksp
 	return herdr.Workspace{WorkspaceID: "ws-1", Label: label}, true, nil
 }
 func (f *healthyReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
-func (f *healthyReconcileHerdr) WorkspaceCreate(string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
+func (f *healthyReconcileHerdr) WorkspaceCreate(string, map[string]string, string) (herdr.Workspace, herdr.Tab, herdr.Pane, error) {
 	return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, errors.New("unused")
 }
 func (f *healthyReconcileHerdr) WorkspaceClose(string) error { f.closed++; return nil }
 func (f *healthyReconcileHerdr) TabList(string) ([]herdr.Tab, error) {
 	return []herdr.Tab{{TabID: "tab-1", WorkspaceID: "ws-1", Label: "task-1"}}, nil
 }
-func (f *healthyReconcileHerdr) TabCreate(string, string, string) (herdr.Tab, herdr.Pane, error) {
+func (f *healthyReconcileHerdr) TabCreate(string, string, map[string]string, string) (herdr.Tab, herdr.Pane, error) {
 	return herdr.Tab{TabID: "tab-1", WorkspaceID: "ws-1", Label: "task-1"}, herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "ws-1"}, nil
 }
 func (f *healthyReconcileHerdr) TabRename(string, string) error { return nil }
@@ -2259,6 +2263,10 @@ func (f *healthyReconcileHerdr) TabClose(string) error          { return nil }
 func (f *healthyReconcileHerdr) PaneGet(string) (herdr.Pane, error) {
 	return herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "ws-1", Agent: "claude"}, nil
 }
+func (f *healthyReconcileHerdr) PaneProcessInfo(string) (herdr.ProcessInfo, error) {
+	return herdr.ProcessInfo{ShellPID: 1, ForegroundProcesses: []herdr.Process{{PID: 1, Name: "bash"}}}, nil
+}
+func (f *healthyReconcileHerdr) PaneRunSpec(string, launchSpec) error { f.runs++; return nil }
 func (f *healthyReconcileHerdr) PaneRun(string, string) error         { f.runs++; return nil }
 func (f *healthyReconcileHerdr) PaneSendKeys(string, ...string) error { return nil }
 func (f *healthyReconcileHerdr) PaneRead(string, int) (string, error) { return "ready", nil }

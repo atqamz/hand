@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/launch"
 )
 
 type launchPoll struct {
@@ -37,7 +38,7 @@ func ConfigureLaunchPollingForTest(interval, timeout, keySettle time.Duration, q
 
 func SetLaunchTimeoutForTest(timeout time.Duration) { launchPolling.Timeout = timeout }
 
-func confirmLaunch(client herdrClient, paneID, harnessName string) error {
+func confirmLaunch(client herdrClient, paneID, harnessName string, spec launch.LaunchSpec) error {
 	prompts := harness.FirstRunPromptsFor(harnessName)
 	deadline := time.Now().Add(launchPolling.Timeout)
 	quiet := 0
@@ -51,6 +52,11 @@ func confirmLaunch(client herdrClient, paneID, harnessName string) error {
 	var stall string
 
 	for {
+		processInfo, err := client.PaneProcessInfo(paneID)
+		if err != nil {
+			return fmt.Errorf("observe worker process: %w", err)
+		}
+		processPresent := processInfo.HasExecutable(spec.Executable)
 		pane, err := client.PaneGet(paneID)
 		if err != nil {
 			return err
@@ -60,10 +66,10 @@ func confirmLaunch(client herdrClient, paneID, harnessName string) error {
 			return err
 		}
 
-		sawAgent = sawAgent || pane.Agent != ""
+		sawAgent = sawAgent || pane.Agent != "" || processPresent
 		prompt, known := matchFirstRunPrompt(prompts.Known, text)
 		switch {
-		case pane.Agent == "":
+		case !processPresent:
 			quiet = 0
 			switch {
 			case (known || len(answered) > 0) && (sawAgent || detected):
