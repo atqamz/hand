@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -746,14 +747,15 @@ func safeJoin(root, name string) (string, error) {
 	if name == "" || strings.ContainsRune(name, 0) {
 		return "", fmt.Errorf("archive path %q is invalid", name)
 	}
-	name = filepath.FromSlash(name)
-	if filepath.IsAbs(name) {
+	portable := strings.ReplaceAll(name, "\\", "/")
+	if isPortableAbsolutePath(portable) {
 		return "", fmt.Errorf("archive path %q is absolute", name)
 	}
-	clean := filepath.Clean(name)
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	cleanPortable := pathpkg.Clean(portable)
+	if cleanPortable == ".." || strings.HasPrefix(cleanPortable, "../") {
 		return "", fmt.Errorf("archive path %q escapes staging directory", name)
 	}
+	clean := filepath.FromSlash(cleanPortable)
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err

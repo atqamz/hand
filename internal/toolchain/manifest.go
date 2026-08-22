@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -141,7 +142,7 @@ func validateExpectedFiles(files []ExpectedFile) error {
 		if err := validateRelativePath(file.Path, "expected file path"); err != nil {
 			return fmt.Errorf("%w escapes component", err)
 		}
-		clean := filepath.Clean(filepath.FromSlash(file.Path))
+		clean := pathpkg.Clean(strings.ReplaceAll(file.Path, "\\", "/"))
 		if clean == "." {
 			return fmt.Errorf("expected file path %q is invalid", file.Path)
 		}
@@ -157,14 +158,19 @@ func validateExpectedFiles(files []ExpectedFile) error {
 }
 
 func validateRelativePath(path, label string) error {
-	if path == "" || filepath.IsAbs(filepath.FromSlash(path)) || strings.ContainsRune(path, 0) {
+	portable := strings.ReplaceAll(path, "\\", "/")
+	if path == "" || isPortableAbsolutePath(portable) || strings.ContainsRune(path, 0) {
 		return fmt.Errorf("%s %q is invalid", label, path)
 	}
-	clean := filepath.Clean(filepath.FromSlash(path))
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	clean := pathpkg.Clean(portable)
+	if clean == ".." || strings.HasPrefix(clean, "../") {
 		return fmt.Errorf("%s %q escapes component", label, path)
 	}
 	return nil
+}
+
+func isPortableAbsolutePath(path string) bool {
+	return strings.HasPrefix(path, "/") || (len(path) >= 2 && path[1] == ':')
 }
 
 func (l Lock) DeterministicID() (string, error) {

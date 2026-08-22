@@ -93,7 +93,7 @@ func TestExtractRejectsArchiveTraversalBeforeWritingOutsideDestination(t *testin
 }
 
 func TestSafeJoinRejectsAbsoluteAndParentPaths(t *testing.T) {
-	for _, name := range []string{"/tmp/escape", "../escape", "nested/../../escape"} {
+	for _, name := range []string{"/tmp/escape", `\tmp\escape`, `C:\tmp\escape`, "../escape", `..\escape`, "nested/../../escape", `nested\..\..\escape`} {
 		if _, err := safeJoin(t.TempDir(), name); err == nil {
 			t.Fatalf("safeJoin accepted %q", name)
 		}

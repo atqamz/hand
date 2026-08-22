@@ -82,8 +82,8 @@ func TestProcessSpecRequiresAbsoluteExecutable(t *testing.T) {
 }
 
 func TestManagedEnvironmentPrependsGitBinWithoutDroppingUserEnvironment(t *testing.T) {
-	managed := filepath.Join(string(filepath.Separator), "private", "runtime", "git", "bin")
-	oldPath := filepath.Join(string(filepath.Separator), "machine", "bin")
+	managed := filepath.Join(t.TempDir(), "private", "runtime", "git", "bin")
+	oldPath := filepath.Join(t.TempDir(), "machine", "bin")
 	env, err := ManagedEnvironment([]string{
 		"HOME=/user/home",
 		"USERPROFILE=C:\\Users\\user",
