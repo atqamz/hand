@@ -45,8 +45,12 @@ func TestRegisterAndListReadyFleet(t *testing.T) {
 	if fleets[0].ID != fleetID || fleets[0].State != StateReady || !fleets[0].Current {
 		t.Fatalf("fleet = %+v, want ready current %s", fleets[0], fleetID)
 	}
-	if len(fleets[0].Locations) != 1 || fleets[0].Locations[0] != home {
-		t.Fatalf("locations = %+v, want %q", fleets[0].Locations, home)
+	canonicalHome, err := canonicalPath(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fleets[0].Locations) != 1 || fleets[0].Locations[0] != canonicalHome {
+		t.Fatalf("locations = %+v, want %q", fleets[0].Locations, canonicalHome)
 	}
 }
 
