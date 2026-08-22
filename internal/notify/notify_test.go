@@ -114,6 +114,29 @@ func TestSendRunsTheTemplateWithTheMessage(t *testing.T) {
 	}
 }
 
+func TestSendWithWakeProvidesStructuredHintAlongsideMessage(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(home, "marker.txt")
+	template := "printf '%s\\n%s' \"$HAND_MESSAGE\" \"$HAND_WAKE\" > " + shellquote.Quote(marker)
+	if err := os.WriteFile(filepath.Join(home, "config", "notify"), []byte(template), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SendWithWake(home, "blocked task-1", map[string]string{"fleet_id": "f_one", "currentness": "c_one"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "blocked task-1\n{\"currentness\":\"c_one\",\"fleet_id\":\"f_one\"}" {
+		t.Fatalf("marker content = %q, want message and structured wake", got)
+	}
+}
+
 func TestSendReportsTemplateFailureRatherThanSwallowingIt(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {

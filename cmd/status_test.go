@@ -16,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/ghutil"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/state"
@@ -890,6 +891,9 @@ func TestStatusFleetFlagsUnreachablePaneAndCountsAttention(t *testing.T) {
 	}
 	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "unreachable") {
 		t.Fatalf("flags = %v, want unreachable", got)
+	}
+	if got := fleetFlags(t, out.String(), "task-1"); slices.Contains(got, "runtime-unknown") {
+		t.Fatalf("flags = %v, want unreachable without runtime-unknown", got)
 	}
 }
 
@@ -1969,6 +1973,28 @@ func TestStatusFlagsPartialSendAfterFreshRead(t *testing.T) {
 			got := latestSendJSON(view.latestSend)
 			if got == nil || got.NeedsAttention != test.wantAttention || got.RetrySafe != test.wantRetrySafe {
 				t.Fatalf("latest send JSON = %+v, want attention=%t retry_safe=%t", got, test.wantAttention, test.wantRetrySafe)
+			}
+		})
+	}
+}
+
+func TestRuntimeUnknownRequiresConcreteExecutionPane(t *testing.T) {
+	tests := []struct {
+		name   string
+		paneID string
+		want   bool
+	}{
+		{name: "synthetic attempt has no pane", want: false},
+		{name: "real attempt pane is unknown", paneID: "pane-1", want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			view := taskView{
+				attempt:    &state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: test.paneID}},
+				agentState: string(herdr.StatusUnknown),
+			}
+			if got := runtimeUnknown(view); got != test.want {
+				t.Fatalf("runtimeUnknown() = %t, want %t", got, test.want)
 			}
 		})
 	}

@@ -69,19 +69,19 @@ func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, e
 	if !ok {
 		return nil, nil, fmt.Errorf("unsupported optional capability %q", id)
 	}
+	// Test builds must use the caller's PATH so per-test fakes cannot be bypassed by a private
+	// integration installed in the developer's SECONDHAND_HOME.
+	if legacyCapabilityFallback {
+		return runExecutable(ctx, capability.Executable, dir, args...)
+	}
 	path, err := DefaultStore().Resolve(id)
 	if err != nil {
-		if legacyCapabilityFallback {
-			cmd := exec.CommandContext(ctx, capability.Executable, args...)
-			cmd.Dir = dir
-			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-			runErr := cmd.Run()
-			return stdout.Bytes(), stderr.Bytes(), runErr
-		}
 		return nil, nil, err
 	}
+	return runExecutable(ctx, path, dir, args...)
+}
+
+func runExecutable(ctx context.Context, path, dir string, args ...string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer

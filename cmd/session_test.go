@@ -19,8 +19,11 @@ import (
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
 func setupSessionHome(t *testing.T) string {
@@ -88,6 +91,11 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 	out := runSessionStartForTest(t)
 	for _, want := range []string{
 		"session_bootstrap: complete\n",
+		"orientation_schema: hand.supervisor.v1\n",
+		"fleet_id: f_",
+		"monitor_state: rearmed\n",
+		"monitor_targets[0]{id,kind,currentness}:\n",
+		"orientation_actionable[0]{target_id,kind,reason,provenance}:\n",
 		"tool: hand\n",
 		"version: test\n",
 		"exec:",
@@ -113,6 +121,27 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 	}
 	if strings.Contains(out, "private implementation body") {
 		t.Fatalf("out = %q, want indented backlog bodies omitted", out)
+	}
+}
+
+func TestSessionTargetsIncludesEveryRunningTaskBeyondOrientationBound(t *testing.T) {
+	views := make([]taskView, 65)
+	for i := range views {
+		views[i] = taskView{
+			task:    state.Task{ID: fmt.Sprintf("task-%02d", i), Lifecycle: state.TaskOpen},
+			attempt: &state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "pane"}},
+		}
+	}
+
+	targets := sessionTargets("fleet-1", views)
+	if len(targets) != len(views) {
+		t.Fatalf("targets = %d, want %d", len(targets), len(views))
+	}
+	for i, target := range targets {
+		want := orientation.TaskTarget("fleet-1", taskTargetFacts(views[i]))
+		if target.Target != want || target.TaskID != views[i].task.ID {
+			t.Fatalf("target %d = %#v, want %#v", i, target, watcher.TargetBinding{TaskID: views[i].task.ID, Target: want})
+		}
 	}
 }
 
@@ -330,6 +359,34 @@ func TestSessionOverviewsDoNotMutateFleetState(t *testing.T) {
 				t.Fatalf("fleet tree changed:\nbefore: %v\nafter:  %v", before, after)
 			}
 		})
+	}
+}
+
+func TestSessionStartDoesNotAcknowledgeExistingReport(t *testing.T) {
+	home := setupSessionHome(t)
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(store.Task{
+		ID: "reported-task", Project: "demo", Kind: store.KindShip,
+		AcknowledgedAt: "2026-08-22T00:00:00Z", AcknowledgedOffset: 12, AcknowledgedDigest: "ack-digest",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := executeSessionStart(t, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := state.ReadHistoryReadOnly(home, "reported-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Task.AcknowledgedAt != "2026-08-22T00:00:00Z" || after.Task.AcknowledgedOffset != 12 || after.Task.AcknowledgedDigest != "ack-digest" {
+		t.Fatalf("acknowledgement changed after session start: %#v", after.Task)
 	}
 }
 

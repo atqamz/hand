@@ -42,3 +42,6 @@ Copied homes intentionally share an identity, so they must not share an IPC rout
 Operators can discover multiple homes from outside any Fleet while each command remains explicitly bound to its resolved home.
 Copied databases are visible and safe to refuse, but resolving a duplicate remains an operator decision because automatic re-keying would be irreversible and could orphan external resources.
 Herdr supports concurrent Fleet sessions without requiring Hand to stop or delete a named session during normal teardown.
+
+Supervisor monitor targets and currentness tokens include the authoritative Fleet identity, while watcher ownership remains scoped by canonical home and watcher generation.
+This keeps copied homes with colliding human-readable IDs from sharing wake routing or condition currentness.

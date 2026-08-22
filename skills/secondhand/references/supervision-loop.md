@@ -56,6 +56,10 @@ still looks the way it did before you acted.
 wrong: keeping your own running list of "what's next" across a long session
 right: re-reading hand session start's next_action_* fields after every action that could have
        changed fleet state
+
+The same output includes a bounded `orientation_*` view with Fleet identity, exact monitor targets,
+currentness, actionable provenance, and `monitor_state`.
+When that state is `rearmed`, follow its `monitor-rearm` action and run `hand watch --until-event` to keep monitoring.
 ```
 
 ## Watching, phase by phase

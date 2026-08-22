@@ -24,3 +24,6 @@ Until-event mode takes a baseline, exits after the first new matching event, and
 ## Consequences
 
 One invocation delivers one wake and must be re-armed. Events consumed during baseline remain in durable channels even though they do not cause that invocation to exit.
+
+Each delivered event can also carry a structured wake hint with Fleet identity, exact monitor target, opaque currentness, and a bounded reason.
+Consumers re-orient before acting and discard a wake whose target or currentness is stale.

@@ -5,6 +5,7 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -28,6 +29,18 @@ var sendTimeout = 10 * time.Second
 // $HAND_MESSAGE, in-process rather than through the hand notify subcommand, and
 // reports whether the template actually ran and succeeded.
 func Send(home, message string) error {
+	return send(home, message, "")
+}
+
+func SendWithWake(home, message string, wake any) error {
+	data, err := json.Marshal(wake)
+	if err != nil {
+		return fmt.Errorf("marshal notification wake: %w", err)
+	}
+	return send(home, message, string(data))
+}
+
+func send(home, message, wake string) error {
 	template, err := os.ReadFile(filepath.Join(home, "config", "notify"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -50,6 +63,9 @@ func Send(home, message string) error {
 	defer cancel()
 	run := exec.CommandContext(ctx, shell, "-c", command)
 	run.Env = append(os.Environ(), "HAND_MESSAGE="+message)
+	if wake != "" {
+		run.Env = append(run.Env, "HAND_WAKE="+wake)
+	}
 	// Without WaitDelay, a template that backgrounds a child holding the output
 	// pipe keeps CombinedOutput waiting past the kill, defeating the timeout.
 	run.WaitDelay = time.Second

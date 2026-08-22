@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atqamz/hand/internal/attention"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
@@ -48,14 +49,6 @@ type taskView struct {
 	// Empty where the gate-run check does not apply to this task, which is neither a finding nor
 	// an absence either: found, absent and unknown are the only three answers it ever gives.
 	gateObserved ghutil.ObservationState
-}
-
-// Reports whether the gate-run check found something an operator should look at: a found run and a
-// check that does not apply are both fine, so only absent and unknown count. watcher.GateKind is the
-// one place that decision is made, shared with hand watch's own gate classifier (atqamz/hand#268).
-func gateProblem(v taskView) bool {
-	_, ok := watcher.GateKind(v.gateObserved)
-	return ok
 }
 
 func (v taskView) execution() state.Attempt {
@@ -104,6 +97,9 @@ func taskFlags(v taskView) []string {
 	if v.unreachable {
 		flags = append(flags, "unreachable")
 	}
+	if runtimeUnknown(v) {
+		flags = append(flags, "runtime-unknown")
+	}
 	if v.parked {
 		flags = append(flags, "parked")
 	}
@@ -138,20 +134,49 @@ func taskFlags(v taskView) []string {
 // every consumer reads (atqamz/hand#268, docs/adr/attention-is-one-derivation-over-three-channels.md).
 // No elapsed-time staleness condition here, matching CatchUpFilter's own deliberate KindStale exclusion.
 func needsAttention(v taskView) bool {
-	if v.unreadable || v.unacked || gateProblem(v) || v.task.RepairCode != "" {
-		return true
+	return attention.NeedsAttention(taskAttentionEvidence(v))
+}
+
+func taskAttentionEvidence(v taskView) attention.Evidence {
+	evidence := attention.Evidence{
+		ID:               v.task.ID,
+		ReportUnreadable: v.unreadable,
+		Unacknowledged:   v.unacked,
+		Unannounced:      v.unannounced,
+		Unreported:       unreportedStop(v),
+		RuntimeUnknown:   runtimeUnknown(v),
+		Unreachable:      v.unreachable,
+		Parked:           v.parked,
+		Repair:           v.task.RepairCode != "",
+		ReportClaim:      v.reportedState != "",
+		ReportedState:    v.reportedState,
 	}
-	if v.unreachable || v.parked {
-		return true
+	if v.latestSend != nil {
+		evidence.SendPending = v.latestSend.State == state.SendPending
+		evidence.SendUncertain = v.latestSend.State == state.SendUncertain
+		evidence.SendPartial = isSendPartial(v)
 	}
-	if v.latestSend != nil && state.SendNeedsAttention(*v.latestSend) {
-		return true
+	if kind, ok := watcher.GateKind(v.gateObserved); ok {
+		evidence.GateProblem = kind
 	}
-	switch v.reportedState {
-	case state.ReportPaused, state.ReportBlocked, state.ReportNeedsDecision, state.ReportFailed:
-		return true
+	return evidence
+}
+
+func runtimeUnknown(v taskView) bool {
+	return v.attempt != nil &&
+		v.attempt.Lifecycle == state.AttemptRunning &&
+		v.execution().Herdr.PaneID != "" &&
+		!v.unreachable &&
+		v.agentState == string(herdr.StatusUnknown)
+}
+
+func hasAttentionKind(v taskView, kind string) bool {
+	for _, subject := range attention.Derive(taskAttentionEvidence(v)) {
+		if subject.Kind == kind {
+			return true
+		}
 	}
-	return unreportedStop(v)
+	return false
 }
 
 // The vocabulary --fields draws from, for both status views. One registry rather than one per view: a

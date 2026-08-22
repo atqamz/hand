@@ -20,7 +20,7 @@
             vendorHash = "sha256-v84XwEQIPE8kqHDOhWcOS9pwk+ebjRJ/3XFuuwa0+aU=";
             checkFlags = [ "-tags=test" ];
             ldflags = [ "-s" "-w" "-X main.version=v${version}" "-X main.channel=stable" "-X main.commit=" "-X main.distribution=nix" ];
-            nativeCheckInputs = [ pkgs.git ]; # test suite execs git directly
+            nativeCheckInputs = [ pkgs.git pkgs.gh ]; # test suite execs git and gh directly
             meta.mainProgram = "hand";
           };
         }
