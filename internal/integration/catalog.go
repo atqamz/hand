@@ -249,6 +249,13 @@ func (s *Store) Install(id, source string) (string, error) {
 	} else if err != nil {
 		return "", fmt.Errorf("inspect optional capability bundle: %w", err)
 	}
+	destinationDigest, err := digestFile(destination)
+	if err != nil {
+		return "", fmt.Errorf("hash optional capability bundle: %w", err)
+	}
+	if destinationDigest != digest {
+		return "", fmt.Errorf("optional capability source changed while installing %q", id)
+	}
 	selected := selection{Path: filepath.ToSlash(filepath.Join("payloads", digest, capability.Executable))}
 	data, err := json.MarshalIndent(selected, "", "  ")
 	if err != nil {
@@ -285,4 +292,17 @@ func executable(name string) string {
 		return name + ".exe"
 	}
 	return name
+}
+
+func digestFile(path string) (string, error) {
+	input, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = input.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, input); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }

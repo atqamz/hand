@@ -293,7 +293,7 @@ func download(ctx context.Context, client *http.Client, rawURL string, dst io.Wr
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("download artifact: HTTP %s", response.Status)
 	}
-	if response.ContentLength == 0 || response.ContentLength > max {
+	if response.ContentLength > max {
 		return fmt.Errorf("download artifact has invalid size %d", response.ContentLength)
 	}
 	limited := io.LimitReader(response.Body, max+1)
@@ -644,7 +644,7 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 }
 
 func verifyInstalledComponentAgainstArtifact(bundle, name string, component Component) error {
-	if os.Getenv("SECONDHAND_TEST_RUNTIME_FIXTURE") == "1" {
+	if runtimeFixtureAllowed {
 		return nil
 	}
 	artifact := filepath.Join(bundle, "artifacts", name)

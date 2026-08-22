@@ -96,7 +96,6 @@ func runBootstrapPS1(t *testing.T, home string, extraEnv []string, args ...strin
 	}
 	cmd := exec.Command(powershell, psArgs...)
 	extraEnv = append(extraEnv, "SECONDHAND_HOME="+filepath.Join(home, ".secondhand"))
-	extraEnv = append(extraEnv, "SECONDHAND_TEST_RUNTIME_FIXTURE=1")
 	cmd.Env = windowsIsolatedEnv(home, extraEnv)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
