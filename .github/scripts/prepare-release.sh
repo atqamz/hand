@@ -55,6 +55,16 @@ for asset in \
   }
 done
 
+sha256_asset() {
+  sha256sum "$output/$1" | awk '{print $1}'
+}
+
+digest_linux_amd64=$(sha256_asset hand-linux-amd64.tar.gz)
+digest_linux_arm64=$(sha256_asset hand-linux-arm64.tar.gz)
+digest_darwin_amd64=$(sha256_asset hand-darwin-amd64.tar.gz)
+digest_darwin_arm64=$(sha256_asset hand-darwin-arm64.tar.gz)
+digest_windows_amd64=$(sha256_asset hand-windows-amd64.zip)
+
 render() {
   template=$1
   destination=$2
@@ -67,6 +77,11 @@ render() {
     -e "s|@HAND_RELEASE_VERSION@|$version|g" \
     -e "s|@HAND_RELEASE_COMMIT@|$commit|g" \
     -e "s|@HAND_RELEASE_RUNTIME_ID@|$runtime_id|g" \
+    -e "s|@HAND_RELEASE_SHA256_LINUX_AMD64@|$digest_linux_amd64|g" \
+    -e "s|@HAND_RELEASE_SHA256_LINUX_ARM64@|$digest_linux_arm64|g" \
+    -e "s|@HAND_RELEASE_SHA256_DARWIN_AMD64@|$digest_darwin_amd64|g" \
+    -e "s|@HAND_RELEASE_SHA256_DARWIN_ARM64@|$digest_darwin_arm64|g" \
+    -e "s|@HAND_RELEASE_SHA256_WINDOWS_AMD64@|$digest_windows_amd64|g" \
     "$root/$template" > "$destination.tmp"
   if grep -q '@HAND_RELEASE_' "$destination.tmp"; then
     rm -f "$destination.tmp"
@@ -80,28 +95,7 @@ render bootstrap.sh "$output/bootstrap.sh"
 render bootstrap.ps1 "$output/bootstrap.ps1"
 chmod 755 "$output/bootstrap.sh"
 
-cat > "$output/release-manifest.json.tmp" <<EOF
-{
-  "schema": 1,
-  "channel": "stable",
-  "tag": "$tag",
-  "version": "$version",
-  "commit": "$commit",
-  "runtime_id": "$runtime_id",
-  "checksums": "checksums.txt",
-  "assets": [
-    "hand-linux-amd64.tar.gz",
-    "hand-linux-arm64.tar.gz",
-    "hand-darwin-amd64.tar.gz",
-    "hand-darwin-arm64.tar.gz",
-    "hand-windows-amd64.zip",
-    "bootstrap.sh",
-    "bootstrap.ps1",
-    "release-manifest.json"
-  ]
-}
-EOF
-mv "$output/release-manifest.json.tmp" "$output/release-manifest.json"
+rm -f "$output/release-manifest.json"
 
 (cd "$output" && sha256sum --text \
   hand-linux-amd64.tar.gz \
@@ -110,6 +104,5 @@ mv "$output/release-manifest.json.tmp" "$output/release-manifest.json"
   hand-darwin-arm64.tar.gz \
   hand-windows-amd64.zip \
   bootstrap.sh \
-  bootstrap.ps1 \
-  release-manifest.json) > "$output/checksums.txt.tmp"
+  bootstrap.ps1) > "$output/checksums.txt.tmp"
 mv "$output/checksums.txt.tmp" "$output/checksums.txt"

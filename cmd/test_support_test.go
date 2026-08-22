@@ -90,6 +90,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	configureSelfUpdateTests()
 	code := m.Run()
 	_ = os.RemoveAll(testUserHome)
 	os.Exit(code)

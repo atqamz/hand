@@ -46,7 +46,19 @@ Secondhand splits those responsibilities cleanly: **the supervisor handles judgm
 
 ### Fastest path
 
-See [docs/adoption.md](docs/adoption.md) for the verified Unix and PowerShell commands, stable-release binding, consent model, and readiness contract.
+Linux and macOS:
+
+```sh
+curl -fsSL https://github.com/atqamz/hand/releases/latest/download/bootstrap.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://github.com/atqamz/hand/releases/latest/download/bootstrap.ps1 | iex
+```
+
+See [docs/adoption.md](docs/adoption.md) for the release binding, consent model, and readiness contract.
 
 ### Install `hand` only
 
@@ -434,19 +446,26 @@ To also initialize a fleet home in one step, see [Adoption](#adoption) above.
 
 ### Release binary
 
-Release tar archives are available for Linux and macOS on AMD64 and ARM64. A ZIP archive is available for Windows AMD64. Every release includes `checksums.txt` and a release manifest binding its assets to one source commit.
+Release tar archives are available for Linux and macOS on AMD64 and ARM64. A ZIP archive is available for Windows AMD64. Every release includes `checksums.txt` for `hand update` and direct archive verification.
 
 ```sh
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL https://github.com/atqamz/hand/releases/latest/download/hand-linux-amd64.tar.gz -o "$tmp/hand-linux-amd64.tar.gz"
-curl -fsSL https://github.com/atqamz/hand/releases/latest/download/checksums.txt -o "$tmp/checksums.txt"
-(cd "$tmp" && sha256sum -c <(grep '  hand-linux-amd64.tar.gz$' checksums.txt))
+tag=v0.6.0 # replace with the exact release you intend to verify
+curl -fsSL "https://github.com/atqamz/hand/releases/download/$tag/hand-linux-amd64.tar.gz" -o "$tmp/hand-linux-amd64.tar.gz"
+curl -fsSL "https://github.com/atqamz/hand/releases/download/$tag/checksums.txt" -o "$tmp/checksums.txt"
+want=$(awk '$2 == "hand-linux-amd64.tar.gz" { print tolower($1); exit }' "$tmp/checksums.txt")
+if command -v sha256sum >/dev/null 2>&1; then
+  got=$(sha256sum "$tmp/hand-linux-amd64.tar.gz" | awk '{ print tolower($1) }')
+else
+  got=$(shasum -a 256 "$tmp/hand-linux-amd64.tar.gz" | awk '{ print tolower($1) }')
+fi
+[ "$got" = "$want" ]
 tar xzf "$tmp/hand-linux-amd64.tar.gz" -C "$tmp"
 install -m755 "$tmp/hand" ~/.local/bin/hand
 ```
 
-On Windows, download `hand-windows-amd64.zip` and `checksums.txt` from the same release, verify the ZIP with `Get-FileHash -Algorithm SHA256`, then extract `hand.exe` and place it on `PATH`.
+On Windows, download `hand-windows-amd64.zip` and `checksums.txt` for one exact release tag, compare the checksum with `Get-FileHash -Algorithm SHA256`, then extract `hand.exe` and place it on `PATH`.
 
 See the [releases page](https://github.com/atqamz/hand/releases) for every asset.
 
