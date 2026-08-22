@@ -117,11 +117,8 @@ func TestPreparedBootstrapRunsAgainstOnlyItsEmbeddedArchiveDigest(t *testing.T) 
 		t.Skip("Unix bootstrap behavior is covered on Unix runners")
 	}
 	output := t.TempDir()
-	for _, name := range []string{"hand-linux-arm64.tar.gz", "hand-darwin-amd64.tar.gz", "hand-darwin-arm64.tar.gz", "hand-windows-amd64.zip"} {
-		if err := os.WriteFile(filepath.Join(output, name), []byte("fixture "+name), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	asset := unixBootstrapAsset(t)
+	writePlaceholderReleaseAssets(t, output, asset)
 
 	handDir := t.TempDir()
 	hand := filepath.Join(handDir, "hand")
@@ -129,13 +126,14 @@ func TestPreparedBootstrapRunsAgainstOnlyItsEmbeddedArchiveDigest(t *testing.T) 
 	if err := os.WriteFile(hand, []byte(handScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTarGzHand(t, filepath.Join(output, "hand-linux-amd64.tar.gz"), hand)
+	writeTarGzHand(t, filepath.Join(output, asset), hand)
 	runPrepareRelease(t, output, "v1.2.3", "1.2.3", releaseCommit)
 
 	fakeBin := t.TempDir()
-	archive := filepath.Join(output, "hand-linux-amd64.tar.gz")
+	archive := filepath.Join(output, asset)
+	assetURL := "https://github.com/atqamz/hand/releases/download/v1.2.3/" + asset
 	logPath := filepath.Join(t.TempDir(), "curl.log")
-	curl := "#!/bin/sh\nset -eu\nout=\nurl=\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in -o) out=$2; shift 2 ;; *) url=$1; shift ;; esac; done\nprintf '%s\\n' \"$url\" >> '" + logPath + "'\ncase \"$url\" in\n  https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz) cp '" + archive + "' \"$out\" ;;\n  *) exit 1 ;;\nesac\n"
+	curl := "#!/bin/sh\nset -eu\nout=\nurl=\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in -o) out=$2; shift 2 ;; *) url=$1; shift ;; esac; done\nprintf '%s\\n' \"$url\" >> '" + logPath + "'\ncase \"$url\" in\n  " + assetURL + ") cp '" + archive + "' \"$out\" ;;\n  *) exit 1 ;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(fakeBin, "curl"), []byte(curl), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +163,7 @@ func TestPreparedBootstrapRunsAgainstOnlyItsEmbeddedArchiveDigest(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(urls), "https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz\n"; got != want {
+	if got, want := string(urls), assetURL+"\n"; got != want {
 		t.Fatalf("curl URLs = %q, want %q", got, want)
 	}
 }
@@ -184,18 +182,16 @@ func TestPreparedBootstrapRejectsAValidArchiveWithWrongExecutableIdentity(t *tes
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output := t.TempDir()
-			for _, name := range []string{"hand-linux-arm64.tar.gz", "hand-darwin-amd64.tar.gz", "hand-darwin-arm64.tar.gz", "hand-windows-amd64.zip"} {
-				if err := os.WriteFile(filepath.Join(output, name), []byte("fixture "+name), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
+			asset := unixBootstrapAsset(t)
+			writePlaceholderReleaseAssets(t, output, asset)
 			hand := buildReleaseFixtureHand(t, test.version, test.channel, test.commit, test.distribution)
-			archive := filepath.Join(output, "hand-linux-amd64.tar.gz")
+			archive := filepath.Join(output, asset)
 			writeTarGzHand(t, archive, hand)
 			runPrepareRelease(t, output, "v1.2.3", "1.2.3", releaseCommit)
 
 			fakeBin := t.TempDir()
-			curl := "#!/bin/sh\nset -eu\nout=\nurl=\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in -o) out=$2; shift 2 ;; *) url=$1; shift ;; esac; done\ncase \"$url\" in\n  https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz) cp '" + archive + "' \"$out\" ;;\n  *) exit 1 ;;\nesac\n"
+			assetURL := "https://github.com/atqamz/hand/releases/download/v1.2.3/" + asset
+			curl := "#!/bin/sh\nset -eu\nout=\nurl=\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in -o) out=$2; shift 2 ;; *) url=$1; shift ;; esac; done\ncase \"$url\" in\n  " + assetURL + ") cp '" + archive + "' \"$out\" ;;\n  *) exit 1 ;;\nesac\n"
 			if err := os.WriteFile(filepath.Join(fakeBin, "curl"), []byte(curl), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -223,22 +219,20 @@ func TestPreparedBootstrapRechecksTheSelectedExecutableIdentity(t *testing.T) {
 		t.Skip("Unix bootstrap behavior is covered on Unix runners")
 	}
 	output := t.TempDir()
-	for _, name := range []string{"hand-linux-arm64.tar.gz", "hand-darwin-amd64.tar.gz", "hand-darwin-arm64.tar.gz", "hand-windows-amd64.zip"} {
-		if err := os.WriteFile(filepath.Join(output, name), []byte("fixture "+name), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	asset := unixBootstrapAsset(t)
+	writePlaceholderReleaseAssets(t, output, asset)
 	hand := filepath.Join(t.TempDir(), "hand")
 	handScript := "#!/bin/sh\ncase \"$1\" in\n  build-info) printf 'version: 1.2.3\\nchannel: stable\\ncommit: " + releaseCommit + "\\ndistribution: github\\n' ;;\n  adopt) target=; while [ \"$#\" -gt 0 ]; do case \"$1\" in --target) target=$2; shift 2 ;; *) shift ;; esac; done; mkdir -p \"$(dirname \"$target\")\"; cat > \"$target\" <<'EOF'\n#!/bin/sh\nif [ \"$1\" = build-info ]; then printf 'version: 1.2.3\\nchannel: stable\\ncommit: fedcba9876543210fedcba9876543210fedcba98\\ndistribution: github\\n'; exit 0; fi\nexit 1\nEOF\nchmod 755 \"$target\"; printf 'result: installed\\npath: %s\\n' \"$target\" ;;\n  *) exit 1 ;;\nesac\n"
 	if err := os.WriteFile(hand, []byte(handScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTarGzHand(t, filepath.Join(output, "hand-linux-amd64.tar.gz"), hand)
+	writeTarGzHand(t, filepath.Join(output, asset), hand)
 	runPrepareRelease(t, output, "v1.2.3", "1.2.3", releaseCommit)
 
 	fakeBin := t.TempDir()
-	archive := filepath.Join(output, "hand-linux-amd64.tar.gz")
-	curl := "#!/bin/sh\nset -eu\nout=\nurl=\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in -o) out=$2; shift 2 ;; *) url=$1; shift ;; esac; done\ncase \"$url\" in\n  https://github.com/atqamz/hand/releases/download/v1.2.3/hand-linux-amd64.tar.gz) cp '" + archive + "' \"$out\" ;;\n  *) exit 1 ;;\nesac\n"
+	archive := filepath.Join(output, asset)
+	assetURL := "https://github.com/atqamz/hand/releases/download/v1.2.3/" + asset
+	curl := "#!/bin/sh\nset -eu\nout=\nurl=\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in -o) out=$2; shift 2 ;; *) url=$1; shift ;; esac; done\ncase \"$url\" in\n  " + assetURL + ") cp '" + archive + "' \"$out\" ;;\n  *) exit 1 ;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(fakeBin, "curl"), []byte(curl), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -353,6 +347,10 @@ func executeWorkflowBuild(t *testing.T, step workflowStepDef, goos, goarch strin
 		writeExecutable(t, filepath.Join(fakeBin, "go.cmd"), "@echo off\necho go %*>>\""+logPath+"\"\nif \"%1\"==\"env\" if \"%2\"==\"GOHOSTOS\" echo linux\nif \"%1\"==\"env\" if \"%2\"==\"GOHOSTARCH\" echo amd64\nif \"%1\"==\"build\" (echo fake>hand.exe)\n")
 		writeExecutable(t, filepath.Join(fakeBin, "tar.cmd"), "@echo off\n")
 		writeExecutable(t, filepath.Join(fakeBin, "zip.cmd"), "@echo off\n")
+		writeExecutable(t, filepath.Join(fakeBin, "git"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\n[ \"$1\" = rev-parse ] && [ \"$2\" = HEAD ] && printf '%s\\n' '"+releaseCommit+"'\n")
+		writeExecutable(t, filepath.Join(fakeBin, "go"), "#!/bin/sh\nset -eu\nprintf 'go %s\\n' \"$*\" >> '"+logPath+"'\ncase \"$1 $2\" in\n  'env GOHOSTOS') printf 'linux\\n' ;;\n  'env GOHOSTARCH') printf 'amd64\\n' ;;\n  build*) out=hand; while [ \"$#\" -gt 0 ]; do if [ \"$1\" = -o ]; then out=$2; shift 2; else shift; fi; done; cat > \"$out\" <<'EOF'\n#!/bin/sh\nprintf '%s\\n' 'version: 1.2.3' 'channel: stable' 'commit: "+releaseCommit+"' 'distribution: github'\nEOF\nchmod 755 \"$out\" ;;\n  *) exit 1 ;;\nesac\n")
+		writeExecutable(t, filepath.Join(fakeBin, "tar"), "#!/bin/sh\nfor arg do case \"$arg\" in *.tar.gz) : > \"$arg\" ;; esac; done\n")
+		writeExecutable(t, filepath.Join(fakeBin, "zip"), "#!/bin/sh\n: > \"$1\"\n")
 	} else {
 		writeExecutable(t, filepath.Join(fakeBin, "git"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\n[ \"$1\" = rev-parse ] && [ \"$2\" = HEAD ] && printf '%s\\n' '"+releaseCommit+"'\n")
 		writeExecutable(t, filepath.Join(fakeBin, "go"), "#!/bin/sh\nset -eu\nprintf 'go %s\\n' \"$*\" >> '"+logPath+"'\ncase \"$1 $2\" in\n  'env GOHOSTOS') printf 'linux\\n' ;;\n  'env GOHOSTARCH') printf 'amd64\\n' ;;\n  build*) out=hand; while [ \"$#\" -gt 0 ]; do if [ \"$1\" = -o ]; then out=$2; shift 2; else shift; fi; done; cat > \"$out\" <<'EOF'\n#!/bin/sh\nprintf '%s\\n' 'version: 1.2.3' 'channel: stable' 'commit: "+releaseCommit+"' 'distribution: github'\nEOF\nchmod 755 \"$out\" ;;\n  *) exit 1 ;;\nesac\n")
@@ -407,6 +405,32 @@ func writeExecutable(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func unixBootstrapAsset(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("Unix bootstrap behavior is covered on Unix runners")
+	}
+	return fmt.Sprintf("hand-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+}
+
+func writePlaceholderReleaseAssets(t *testing.T, output, selected string) {
+	t.Helper()
+	for _, name := range []string{
+		"hand-linux-amd64.tar.gz",
+		"hand-linux-arm64.tar.gz",
+		"hand-darwin-amd64.tar.gz",
+		"hand-darwin-arm64.tar.gz",
+		"hand-windows-amd64.zip",
+	} {
+		if name == selected {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(output, name), []byte("fixture "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

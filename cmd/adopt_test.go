@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -40,7 +41,11 @@ func TestAdoptCommandInstallsTheVerifiedSourceWithoutFleetState(t *testing.T) {
 	if _, err := root.ExecuteC(); err != nil {
 		t.Fatalf("adopt command error = %v", err)
 	}
-	if !strings.Contains(output.String(), "result: installed") || !strings.Contains(output.String(), "path: "+target) {
+	wantPath := target
+	if runtime.GOOS == "windows" {
+		wantPath = strconv.Quote(target)
+	}
+	if !strings.Contains(output.String(), "result: installed") || !strings.Contains(output.String(), "path: "+wantPath) {
 		t.Fatalf("adopt output = %q, want installed path", output.String())
 	}
 	if _, err := os.Stat(target); err != nil {
