@@ -11,6 +11,7 @@ import (
 
 func TestReopenCreatesANewAttemptWithoutResurrectingTheOldOne(t *testing.T) {
 	herdr := defaultSpawnHerdr(harness.Claude)
+	herdr.ProcessAgents = []string{harness.Claude, harness.Codex}
 	herdr.TabCreates = []faketool.HerdrTab{
 		{ID: "wA:tB", Label: "task-1", Pane: "wA:pC"},
 		{ID: "wA:tC", Label: "task-1", Pane: "wA:pD"},
