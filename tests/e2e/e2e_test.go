@@ -188,10 +188,22 @@ func envValues(env []string, wantName string) []string {
 // Child processes start with neutral semantic harness state; explicit entries replace it.
 func runHandEnv(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
-	seedPrivateRuntime(t, home)
+	runtimeHome := home
+	for _, entry := range extraEnv {
+		if name, value, ok := strings.Cut(entry, "="); ok && strings.EqualFold(name, "HAND_HOME") {
+			runtimeHome = value
+			break
+		}
+	}
+	currentRuntime := filepath.Join(runtimeHome, ".secondhand", "runtime", "current.json")
+	if _, err := os.Stat(currentRuntime); os.IsNotExist(err) {
+		seedPrivateRuntime(t, runtimeHome)
+	} else if err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command(handBin, args...)
 	cmd.Dir = home
-	extraEnv = append(extraEnv, "SECONDHAND_HOME="+filepath.Join(home, ".secondhand"))
+	extraEnv = append(extraEnv, "SECONDHAND_HOME="+filepath.Join(runtimeHome, ".secondhand"))
 	cmd.Env = handProcessEnv(extraEnv...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
