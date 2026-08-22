@@ -1,4 +1,4 @@
-# Harnesses launch interactively, with liveness owned by herdr
+# Interactive harnesses launch with liveness owned by herdr
 
 - Date: 2026-08-04
 - Status: accepted
@@ -7,7 +7,8 @@
 
 ## Context
 
-Workers must survive multiple steers and gate turns. Interactive launches provide that resident process but expose first-run dialogs. Pane text can outlive a dead process, while herdr can identify a live harness without knowing what dialog blocks it.
+Interactive workers must survive multiple steers and gate turns. Interactive launches provide that resident process but expose first-run dialogs. Pane text can outlive a dead process, while herdr can identify a live harness without knowing what dialog blocks it.
+One-shot harnesses are a separate qualified contract and do not use this interactive supervision model.
 Shell syntax also varies across the pane's actual shell, so a host operating-system guess is not sufficient for a safe launch.
 
 ## Decision
@@ -20,7 +21,7 @@ Launch arguments and dialog signatures belong to [`internal/harness`](../../inte
 
 ## Rejected alternatives
 
-- Headless reinvocation has no resident session for `hand send`, watching, or multi-turn gates.
+- Treating a headless harness as interactive has no resident session for `hand send`, watching, or multi-turn gates.
 - A wrapper around headless runs would reimplement harness continuity and make pane state describe the wrapper.
 - Building one opaque POSIX command string cannot preserve process argument boundaries across POSIX and PowerShell.
 - Selecting a renderer from host `GOOS`, `$SHELL`, or a configuration default does not prove which shell owns the pane.

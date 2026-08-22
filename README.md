@@ -225,7 +225,8 @@ Every worker operates in a git worktree leased through [treehouse](https://githu
 
 ### Live supervision
 
-Workers run interactively inside [herdr](https://github.com/ogulcancelik/herdr), so the supervisor can observe semantic agent state, send follow-up instructions with `hand send`, and react to fleet events with `hand watch` without scraping a terminal for meaning.
+Interactive workers run inside [herdr](https://github.com/ogulcancelik/herdr), so the supervisor can observe semantic agent state, send follow-up instructions with `hand send`, and react to fleet events with `hand watch` without scraping a terminal for meaning.
+Antigravity is the one-shot exception: its headless worker exits after one prompt and does not support follow-up turns or supervisor steering.
 Send outcomes are recorded against the Attempt and visible in `hand status <id>`; unresolved outcomes require operator judgment before steering again.
 The [terminal submission uncertainty decision record](docs/adr/steering-records-terminal-submission-uncertainty.md) owns the outcome and recovery contract.
 
