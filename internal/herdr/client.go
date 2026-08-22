@@ -22,7 +22,7 @@ import (
 var ErrComposerBusyTimeout = errors.New("composer still busy")
 
 type Client struct {
-	session string
+	session    string
 	executable string
 	env        []string
 	childEnv   []string
