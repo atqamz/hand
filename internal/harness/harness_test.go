@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -26,13 +27,50 @@ func TestBuildUnrecognizedHarness(t *testing.T) {
 }
 
 func TestIsSupported(t *testing.T) {
-	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode, Antigravity} {
 		if !IsSupported(name) {
 			t.Errorf("IsSupported(%q) = false, want true", name)
 		}
 	}
 	if IsSupported("nonexistent") {
 		t.Error("IsSupported(nonexistent) = true, want false")
+	}
+}
+
+func TestBuildAntigravity(t *testing.T) {
+	options := Options{Worktree: "/tmp/space unicode/wt", Brief: "/tmp/space unicode/wt/brief.md"}
+	spec := buildSpec(t, Antigravity, options)
+	want := launch.LaunchSpec{
+		Executable: "agy",
+		Args:       []string{"-p", briefPrompt(options)},
+		Cwd:        options.Worktree,
+	}
+	if !reflect.DeepEqual(spec, want) {
+		t.Fatalf("got %+v, want %+v", spec, want)
+	}
+	if strings.Contains(spec.Executable, " ") || strings.Contains(spec.Executable, "cd ") {
+		t.Fatalf("executable %q contains shell syntax", spec.Executable)
+	}
+	for _, value := range spec.Args {
+		if strings.HasPrefix(value, "cd ") || strings.HasPrefix(value, "HAND_ROLE=") || strings.HasPrefix(value, "HAND_HOME=") {
+			t.Fatalf("argument %q contains shell launch syntax", value)
+		}
+	}
+}
+
+func TestBuildAntigravityWithModelAndEffort(t *testing.T) {
+	options := Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "gemini-3.5-flash-medium", Effort: "high"}
+	spec := buildSpec(t, Antigravity, options)
+	want := []string{"--model", options.Model, "--effort", options.Effort, "-p", briefPrompt(options)}
+	if !reflect.DeepEqual(spec.Args, want) {
+		t.Fatalf("args = %#v, want %#v", spec.Args, want)
+	}
+}
+
+func TestBuildAntigravityRejectsUnsupportedEffort(t *testing.T) {
+	_, err := Build(Antigravity, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "x-high"})
+	if err == nil || !strings.Contains(err.Error(), "low, medium, or high") {
+		t.Fatalf("Build() error = %v, want unsupported effort error", err)
 	}
 }
 
@@ -137,7 +175,7 @@ func TestBuildOpenCode(t *testing.T) {
 }
 
 func TestBuildFrontMatterDisclaimer(t *testing.T) {
-	for _, name := range []string{Claude, Codex, OpenCode} {
+	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
 		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", BriefHasFrontMatter: true})
 		if !containsText(spec.Args, "dispatch metadata") {
 			t.Fatalf("Build(%q) args = %#v, want front matter disclaimer", name, spec.Args)
@@ -146,7 +184,7 @@ func TestBuildFrontMatterDisclaimer(t *testing.T) {
 }
 
 func TestBuildMechanicalExecutionGuidance(t *testing.T) {
-	for _, name := range []string{Claude, Codex, OpenCode} {
+	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
 		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", ExecutionClass: brief.ExecutionClassMechanical})
 		for _, want := range []string{"Verify the named files/symbols and plan assumptions before editing.", "stop and report blocked", "Do not redesign the task yourself.", "execute the ordered plan and verification steps"} {
 			if !containsText(spec.Args, want) {
@@ -183,7 +221,7 @@ func TestBuildOpenCodeNeverHeadless(t *testing.T) {
 }
 
 func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
-	for _, name := range []string{Claude, Codex, OpenCode} {
+	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
 		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
 		if !containsText(spec.Args, agentsmd.OperatorDecisionRule) {
 			t.Errorf("Build(%q) args = %#v, want operator-decision rule", name, spec.Args)
@@ -192,7 +230,7 @@ func TestBuildCarriesOperatorDecisionRule(t *testing.T) {
 }
 
 func TestSupportsModel(t *testing.T) {
-	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode, Antigravity} {
 		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "some-model"})
 		if hasPair(spec.Args, "--model", "some-model") != SupportsModel(name) {
 			t.Errorf("SupportsModel(%q) = %v but args = %#v", name, SupportsModel(name), spec.Args)
@@ -204,9 +242,13 @@ func TestSupportsModel(t *testing.T) {
 }
 
 func TestSupportsEffort(t *testing.T) {
-	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode} {
-		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: "some-effort"})
-		emits := hasPair(spec.Args, "--effort", "some-effort") || contains(spec.Args, `model_reasoning_effort="some-effort"`)
+	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode, Antigravity} {
+		effort := "some-effort"
+		if name == Antigravity {
+			effort = "high"
+		}
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Effort: effort})
+		emits := hasPair(spec.Args, "--effort", effort) || contains(spec.Args, fmt.Sprintf(`model_reasoning_effort="%s"`, effort))
 		if emits != SupportsEffort(name) {
 			t.Errorf("SupportsEffort(%q) = %v but args = %#v", name, SupportsEffort(name), spec.Args)
 		}
@@ -267,7 +309,7 @@ func TestAgentDetectionVerified(t *testing.T) {
 			t.Errorf("AgentDetectionVerified(%q) = false, want true", name)
 		}
 	}
-	for _, name := range []string{Grok, Pi, "nonexistent"} {
+	for _, name := range []string{Grok, Pi, Antigravity, "nonexistent"} {
 		if AgentDetectionVerified(name) {
 			t.Errorf("AgentDetectionVerified(%q) = true, want false", name)
 		}
@@ -275,7 +317,7 @@ func TestAgentDetectionVerified(t *testing.T) {
 }
 
 func TestFirstRunPromptsWithoutVerifiedSignatures(t *testing.T) {
-	for _, name := range []string{Grok, Pi, OpenCode, "nonexistent"} {
+	for _, name := range []string{Grok, Pi, OpenCode, Antigravity, "nonexistent"} {
 		if got := FirstRunPromptsFor(name); got.Ready != nil || got.Known != nil || got.Unrecognized != nil {
 			t.Errorf("FirstRunPromptsFor(%q) = %+v, want no unverified signatures", name, got)
 		}

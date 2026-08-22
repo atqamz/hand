@@ -159,6 +159,18 @@ func TestSessionStartRefusesWorkerRoleBeforeReadingContext(t *testing.T) {
 	}
 }
 
+func TestSessionStartRefusesAntigravitySupervisorRole(t *testing.T) {
+	setupSessionHome(t)
+	t.Setenv(harness.RoleEnv, "")
+	t.Setenv("HAND_HARNESS", harness.Antigravity)
+
+	_, err := executeSessionStart(t, nil)
+	assertExitCode(t, err, 3)
+	if want := "supervisor mode is unsupported for harness \"antigravity\""; !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %q, want %q", err, want)
+	}
+}
+
 func TestSessionStartRefusesOutsideFleetHome(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("HAND_HOME", "")

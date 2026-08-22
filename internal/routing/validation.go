@@ -99,6 +99,9 @@ func ValidateProfile(profile Profile) error {
 	if profile.Effort != "" && !harness.SupportsEffort(profile.Harness) {
 		return &profileValidationError{code: ConfigProblemUnsupportedEffort, err: fmt.Errorf("harness %q takes no effort", profile.Harness)}
 	}
+	if err := harness.ValidateEffort(profile.Harness, profile.Effort); err != nil {
+		return &profileValidationError{code: ConfigProblemUnsupportedEffort, err: err}
+	}
 	return nil
 }
 

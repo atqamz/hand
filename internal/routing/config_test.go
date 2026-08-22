@@ -250,6 +250,7 @@ func TestLoadDistinguishesUnsupportedProfileCapabilities(t *testing.T) {
 		{Name: "unknown", Harness: "unknown"},
 		{Name: "model", Harness: "pi", Model: "provider/model"},
 		{Name: "effort", Harness: "opencode", Effort: "high"},
+		{Name: "antigravity-effort", Harness: "antigravity", Effort: "x-high"},
 	} {
 		dir := filepath.Join(home, "config", "profiles", profile.Name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -283,6 +284,7 @@ func TestLoadDistinguishesUnsupportedProfileCapabilities(t *testing.T) {
 		{profile: "unknown", code: ConfigProblemUnsupportedHarness},
 		{profile: "model", code: ConfigProblemUnsupportedModel},
 		{profile: "effort", code: ConfigProblemUnsupportedEffort},
+		{profile: "antigravity-effort", code: ConfigProblemUnsupportedEffort},
 	} {
 		if !hasProblemForProfile(config.Problems, want.profile, want.code) {
 			t.Fatalf("Load().Problems = %+v, want %s for %q", config.Problems, want.code, want.profile)

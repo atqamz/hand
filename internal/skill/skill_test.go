@@ -51,6 +51,9 @@ func TestDestinationDirsCoverEverySupportedHarnessWithNoDuplicates(t *testing.T)
 		seen[d] = true
 	}
 	for _, h := range harness.Names() {
+		if !harness.SupportsSupervisor(h) {
+			continue
+		}
 		rel, ok := harnessRel[h]
 		if !ok {
 			t.Fatalf("harness %q has no mapped skill destination", h)

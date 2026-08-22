@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -304,6 +305,68 @@ func TestResolveProfiledValidation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := Resolve(test.request, test.config, LegacyDefaults{}, test.availability)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Resolve() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestResolveExplicitAntigravityUsesNormalResolver(t *testing.T) {
+	availability := testAvailability()
+	availability.IsSupported = func(name string) bool { return name == "antigravity" }
+	availability.OnPath = func(name string) bool { return name == "antigravity" }
+	availability.SupportsModel = func(name string) bool { return name == "antigravity" }
+	availability.SupportsEffort = func(name string) bool { return name == "antigravity" }
+	availability.CarriesPrompt = func(name string) bool { return name == "antigravity" }
+	config := Config{Profiles: []Profile{{Name: "agy", Harness: "antigravity"}}}
+	got, err := Resolve(Request{
+		Kind:            TaskKindShip,
+		Profile:         "agy",
+		ProfileFromFlag: true,
+		Harness:         "antigravity",
+		HarnessFromFlag: true,
+	}, config, LegacyDefaults{}, availability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Harness != "antigravity" || got.Profile != "agy" || got.Source != RoutingSourceExplicitProfile {
+		t.Fatalf("resolved route = %+v, want normal explicit antigravity route", got)
+	}
+}
+
+func TestResolveAntigravityRejectsCapabilitiesBeforeLaunch(t *testing.T) {
+	availability := testAvailability()
+	availability.IsSupported = func(name string) bool { return name == "antigravity" }
+	availability.OnPath = func(name string) bool { return name == "antigravity" }
+	availability.SupportsModel = func(name string) bool { return name == "antigravity" }
+	availability.SupportsEffort = func(name string) bool { return name == "antigravity" }
+	availability.CarriesPrompt = func(name string) bool { return name == "antigravity" }
+	availability.ValidateModel = func(name, model string) error {
+		return fmt.Errorf("harness %q does not support model %q", name, model)
+	}
+	availability.ValidateEffort = func(name, effort string) error {
+		return fmt.Errorf("harness %q does not support effort %q", name, effort)
+	}
+	config := Config{Profiles: []Profile{{Name: "agy", Harness: "antigravity"}}}
+	for _, test := range []struct {
+		name    string
+		request Request
+		want    string
+	}{
+		{
+			name:    "model",
+			request: Request{Kind: TaskKindShip, Profile: "agy", ProfileFromFlag: true, Model: "bad", ModelFromFlag: true},
+			want:    "does not support model",
+		},
+		{
+			name:    "effort",
+			request: Request{Kind: TaskKindShip, Profile: "agy", ProfileFromFlag: true, Effort: "bad", EffortFromFlag: true},
+			want:    "does not support effort",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Resolve(test.request, config, LegacyDefaults{}, availability)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Resolve() error = %v, want %q", err, test.want)
 			}

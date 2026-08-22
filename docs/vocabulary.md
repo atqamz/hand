@@ -151,7 +151,7 @@ Compatibility names such as `HAND_ROLE=worker` and `WorkerRole` remain unchanged
 
 ### Harness
 
-The local agent executable or integration Hand launches, such as `codex`, `claude`, `opencode`, `grok`, or `pi`.
+The local agent executable or integration Hand launches, such as `codex`, `claude`, `opencode`, `grok`, `pi`, or Antigravity's `agy`.
 Harness is not synonymous with model provider.
 
 ## Configuration and delivery
