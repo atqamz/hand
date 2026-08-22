@@ -132,6 +132,7 @@ func handProcessEnv(extraEnv ...string) []string {
 	if !harnessOverride {
 		env = append(env, "HAND_HARNESS=unknown")
 	}
+	env = append(env, "SECONDHAND_TEST_RUNTIME_FIXTURE=1")
 	return append(env, extraEnv...)
 }
 

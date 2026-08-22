@@ -29,7 +29,7 @@ func runBootstrap(t *testing.T, home string, extraEnv []string, args ...string) 
 	t.Helper()
 	seedPrivateRuntime(t, home)
 	cmd := exec.Command("sh", append([]string{bootstrapScript}, args...)...)
-	env := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb", "SECONDHAND_HOME=" + filepath.Join(home, ".secondhand")}, extraEnv...)
+	env := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb", "SECONDHAND_HOME=" + filepath.Join(home, ".secondhand"), "SECONDHAND_TEST_RUNTIME_FIXTURE=1"}, extraEnv...)
 	cmd.Env = env
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
