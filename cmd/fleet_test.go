@@ -13,8 +13,7 @@ import (
 
 func TestFleetListsKnownHomesOutsideFleetContext(t *testing.T) {
 	userHome := t.TempDir()
-	t.Setenv("HOME", userHome)
-	t.Setenv("USERPROFILE", userHome)
+	setTestUserHome(t, userHome)
 	t.Setenv("HAND_HOME", "")
 	t.Chdir(t.TempDir())
 	firstHome := filepath.Join(t.TempDir(), "first")
@@ -58,8 +57,7 @@ func TestFleetListsKnownHomesOutsideFleetContext(t *testing.T) {
 
 func TestFleetListsHomesWhenExplicitContextIsInvalid(t *testing.T) {
 	userHome := t.TempDir()
-	t.Setenv("HOME", userHome)
-	t.Setenv("USERPROFILE", userHome)
+	setTestUserHome(t, userHome)
 	badHome := filepath.Join(t.TempDir(), "not-a-fleet")
 	t.Setenv("HAND_HOME", badHome)
 	t.Chdir(t.TempDir())

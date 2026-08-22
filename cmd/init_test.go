@@ -40,7 +40,7 @@ func TestInitCreatesTheHandDbMarker(t *testing.T) {
 func TestInitRegistersDurableFleetIdentity(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	userHome := t.TempDir()
-	t.Setenv("HOME", userHome)
+	setTestUserHome(t, userHome)
 	dir := t.TempDir()
 	t.Chdir(dir)
 

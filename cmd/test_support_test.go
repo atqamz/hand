@@ -32,6 +32,12 @@ func readTaskAttempt(t *testing.T, home, id string) state.Attempt {
 	return attempt
 }
 
+func setTestUserHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+}
+
 func scopeHerdrForFleet(t *testing.T, home string, h faketool.Herdr) faketool.Herdr {
 	t.Helper()
 	fleetID, err := state.FleetID(home)
