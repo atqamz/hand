@@ -65,7 +65,11 @@ function Get-Field {
     param([string]$Text, [string]$Name)
     foreach ($line in ($Text -split '\r?\n')) {
         if ($line -match ('^' + [regex]::Escape($Name) + ': (.*)$')) {
-            return $Matches[1].Trim().Trim('"')
+            $value = $Matches[1].Trim()
+            if ($value.StartsWith('"') -and $value.EndsWith('"')) {
+                return ($value | ConvertFrom-Json)
+            }
+            return $value
         }
     }
     return $null
