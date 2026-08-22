@@ -74,7 +74,11 @@ func (p ProcessInfo) HasExecutable(executable string) bool {
 
 func processBase(value string) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
-	return strings.TrimPrefix(filepath.Base(value), "-")
+	value = strings.TrimPrefix(filepath.Base(value), "-")
+	if len(value) >= len(".exe") && strings.EqualFold(value[len(value)-len(".exe"):], ".exe") {
+		value = value[:len(value)-len(".exe")]
+	}
+	return value
 }
 
 // Agent names the harness herdr detects in the pane, empty when the pane holds no agent - a bare
