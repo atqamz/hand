@@ -74,7 +74,7 @@ func writeHandArchive(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	gzipWriter := gzip.NewWriter(file)
 	tarWriter := tar.NewWriter(gzipWriter)
 	data, err := os.ReadFile(handBin)

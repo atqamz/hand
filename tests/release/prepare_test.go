@@ -74,7 +74,7 @@ func TestPrepareReleaseRejectsAReleaseBindingMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(filepath.Join(repoRoot(t), ".github", "scripts", "prepare-release.sh"), "release-1.2.3", "1.2.3", releaseCommit, output)
+	cmd := exec.Command("sh", filepath.Join(repoRoot(t), ".github", "scripts", "prepare-release.sh"), "release-1.2.3", "1.2.3", releaseCommit, output)
 	cmd.Dir = repoRoot(t)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -91,7 +91,7 @@ func TestPrepareReleaseRejectsAReleaseBindingMismatch(t *testing.T) {
 
 func runPrepareRelease(t *testing.T, output, tag, version, commit string) {
 	t.Helper()
-	cmd := exec.Command(filepath.Join(repoRoot(t), ".github", "scripts", "prepare-release.sh"), tag, version, commit, output)
+	cmd := exec.Command("sh", filepath.Join(repoRoot(t), ".github", "scripts", "prepare-release.sh"), tag, version, commit, output)
 	cmd.Dir = repoRoot(t)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("prepare-release.sh: %v: %s", err, out)
