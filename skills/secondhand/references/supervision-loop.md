@@ -70,7 +70,7 @@ wake semantics while the host owns converting them into your next reasoning oppo
 
 ```text
 claude    -> Hand-owned Stop hook: an eligible wake returns exit 2 feedback that starts a follow-up turn
-codex     -> hand supervision wait --host codex --deliver enqueues the wake on the live thread via codex queue
+codex     -> the Fleet-local .codex/hooks.json Stop hook owns the post-turn wait and enqueues the wake on the exact live thread via codex queue
 opencode  -> persistent plugin arms one wait child per idle session and delivers through the synchronous prompt API
 pi        -> extension arms one wait child and sends the wake as a followUp message that triggers a turn
 grok      -> a host-owned background task runs hand supervision wait --host grok; its completion notification re-enters you

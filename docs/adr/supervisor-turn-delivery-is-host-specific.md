@@ -30,7 +30,7 @@ Per host:
 
 ```text
 claude    -> Hand-owned Stop hook in project .claude/settings.json; eligible wake = exit 2 feedback = follow-up turn
-codex     -> codex queue --thread $CODEX_THREAD_ID --message <wake>, capability-probed, not foreground polling
+codex     -> Fleet-local .codex/hooks.json async Stop hook owns the post-turn wait; it reads the thread from the Stop payload and enqueues codex queue on that exact thread
 opencode  -> persistent TUI plugin; synchronous prompt API only; promptAsync/204 is not delivery
 pi        -> extension followUp message with turn trigger; session generations retire stale callbacks
 grok      -> host-owned background task completion notification re-enters the model
@@ -47,8 +47,9 @@ progress; one generic supervision healthy boolean; canonicalizing runtime/conver
 
 ## Consequences
 
-Every harness carries an explicit qualified outcome - supported, degraded, or unsupported with
-the exact reason - surfaced separately through `hand doctor`, `hand session start`, and
-`hand orient` diagnostics. A provider whose host lacks the required primitive is reported as
-not unattended-supervision capable instead of silently healthy. Live no-operator-input dogfood
-per claimed host remains the release gate for the 0.7 support matrix.
+Every harness carries an explicit qualified outcome - supported (live-proven only), available-unqualified
+(static preconditions hold, live proof pending), degraded, or unsupported, always with the exact reason -
+surfaced separately through `hand doctor`, `hand session start`, and `hand orient` diagnostics. A provider
+whose host lacks the required primitive is reported as not unattended-supervision capable instead of silently
+healthy. Live no-operator-input dogfood per claimed host remains the release gate for the 0.7 support matrix;
+until then every host reports available-unqualified at best.

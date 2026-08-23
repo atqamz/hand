@@ -20,8 +20,10 @@ state, dependency state, or task state is something you get by running a `hand` 
 reading its structured output, never by reconstructing it from panes, files, or memory.
 
 Each supervising runtime begins once with `hand session start`, which qualifies the Supervisor
-Harness, its addressable runtime identity, and whether unattended wake delivery is supported,
-degraded, or unsupported on it.
+Harness, its addressable runtime identity, and the exact state of unattended wake delivery:
+`supported` means live-qualified, `available-unqualified` means every static precondition holds
+but live proof does not exist yet, `degraded` names what drifted, and `unsupported` means no
+path at all. Treat `available-unqualified` as working-but-unproven, never as supported.
 Every reasoning turn - including one an automatic wake re-enters - begins with `hand orient`,
 whose bounded orientation reports Fleet identity, exact monitor currentness, actionable
 provenance, and monitoring state.
