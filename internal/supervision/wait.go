@@ -3,6 +3,7 @@ package supervision
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -61,9 +62,9 @@ type Waiter struct {
 // WakeSchema versions the machine protocol host adapters consume.
 const WakeSchema = "hand.supervision.wake.v1"
 
-// Wait blocks until at least one current actionable episode can be claimed
-// atomically, records the claim plus this runtime's bridge attachment, and
-// returns the coalesced wake. Typed watcher results pass through unchanged.
+// Wait blocks until at least one current actionable episode is claimed by a
+// runtime that provably still holds THE Fleet Supervisor bridge, then returns
+// the coalesced wake. Typed watcher results pass through unchanged.
 func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -76,7 +77,19 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	if err != nil {
 		return Wake{}, err
 	}
+
+	// The bridge is claimed BEFORE any eligibility decision: from here until
+	// stop, this runtime either provably owns the Fleet bridge or has already
+	// been kicked out with ErrBridgeOwned.
+	guard, err := acquireBridge(ctx, w, cfg, wake.FleetID)
+	if err != nil {
+		return Wake{}, err
+	}
+	defer guard.stop()
+
 	if len(eligible) > 0 {
+		// Acquisition just proved ownership under the same lock; claiming
+		// immediately keeps that proof contiguous with the claim boundary.
 		wake, won, claimErr := claimAndDeliver(w, cfg, wake, allEpisodes)
 		if claimErr != nil || won {
 			return wake, claimErr
@@ -89,9 +102,9 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 		return Wake{}, err
 	}
 	if attached {
-		return pollUntilEligible(ctx, w, cfg)
+		return pollUntilEligible(ctx, guard, w, cfg)
 	}
-	return waitOwned(ctx, w, cfg)
+	return waitOwned(ctx, guard, w, cfg)
 }
 
 // Derives episodes from authoritative evidence and reports all of them plus
@@ -107,9 +120,9 @@ func currentEpisodes(ctx context.Context, w Waiter, host string) (Wake, []Episod
 	return wake, episodes, w.Ledger.Eligible(episodes), nil
 }
 
-// CAS-claims the host bridge under the attachment file lock, keeping its
-// record fresh until stopped. Faults and theft arrive on the guard channel:
-// a waiter running after losing its record would otherwise read as attached.
+// CAS-claims THE one Fleet bridge under the attachment file lock - exclusive
+// across every harness - and derives the wait's cancellation domain: theft
+// or refresh faults cancel guardCtx immediately, ending any in-flight wait.
 func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string) (*bridgeGuard, error) {
 	interval := intervalOr(cfg.PollInterval)
 	if interval < time.Second {
@@ -120,6 +133,7 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		runtime = fmt.Sprintf("pid:%d", os.Getpid())
 	}
 	now := time.Now()
+	lease := 3 * interval
 	record := AttachmentRecord{
 		Host:        cfg.Host,
 		Runtime:     runtime,
@@ -127,7 +141,7 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		FleetID:     fleetID,
 		StartedAt:   now,
 		HeartbeatAt: now,
-		ExpiresAt:   now.Add(3 * interval),
+		ExpiresAt:   now.Add(lease),
 	}
 	acquired, err := AcquireAttachment(w.Home, record)
 	if err != nil {
@@ -137,10 +151,17 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		return nil, ErrBridgeOwned
 	}
 
-	guard := &bridgeGuard{stopc: make(chan struct{}), errc: make(chan error, 1)}
+	guardCtx, cancel := context.WithCancelCause(ctx)
+	guard := &bridgeGuard{
+		ctx: guardCtx, cancel: cancel,
+		stopc: make(chan struct{}), errc: make(chan error, 1),
+		home: w.Home, host: cfg.Host, runtime: runtime,
+		record: record, lease: lease,
+	}
 	guard.stop = sync.OnceFunc(func() {
 		close(guard.stopc)
 		ClearAttachment(w.Home, cfg.Host, runtime)
+		cancel(errors.New("supervision bridge stopped"))
 	})
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -151,17 +172,12 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 				return
 			case <-ctx.Done():
 				return
+			case <-guardCtx.Done():
+				return
 			case <-ticker.C:
-				now := time.Now()
-				record.HeartbeatAt = now
-				record.ExpiresAt = now.Add(3 * interval)
-				ours, refreshErr := RefreshAttachment(w.Home, record)
-				if refreshErr != nil {
-					guard.errc <- fmt.Errorf("attachment heartbeat: %w", refreshErr)
-					return
-				}
-				if !ours {
-					guard.errc <- ErrBridgeOwned
+				if proofErr := guard.prove(); proofErr != nil {
+					guard.errc <- proofErr
+					cancel(proofErr)
 					return
 				}
 			}
@@ -170,14 +186,40 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	return guard, nil
 }
 
-// Advances one poll interval, aborting early on cancellation or a bridge-guard
-// fault so a stolen or unwritable attachment never reads as a healthy wait.
-func waitStep(ctx context.Context, guard *bridgeGuard, d time.Duration) error {
+// Proves current bridge ownership by refreshing this exact owner's record
+// under the attachment lock. Runs at every claim boundary after any blocking
+// wait so a successful ClaimEligible implies ownership held at that instant.
+func (g *bridgeGuard) prove() error {
+	ours, err := RefreshAttachment(g.home, g.record, g.lease)
+	if err != nil {
+		return fmt.Errorf("bridge ownership proof: %w", err)
+	}
+	if !ours {
+		return ErrBridgeOwned
+	}
+	return nil
+}
+
+// The first heartbeat/theft error, if the guard already reported one non-
+// blockingly.
+func (g *bridgeGuard) takeFault() error {
+	select {
+	case err := <-g.errc:
+		return err
+	default:
+		return nil
+	}
+}
+
+// Advances one poll interval on the guarded cancellation domain, aborting
+// early on cancellation or a bridge-guard fault so a stolen or unwritable
+// attachment never reads as a healthy wait.
+func waitStep(guard *bridgeGuard, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
-	case <-ctx.Done():
-		return context.Cause(ctx)
+	case <-guard.ctx.Done():
+		return context.Cause(guard.ctx)
 	case err := <-guard.errc:
 		return err
 	case <-timer.C:
@@ -186,62 +228,55 @@ func waitStep(ctx context.Context, guard *bridgeGuard, d time.Duration) error {
 }
 
 // Serves the case where another watcher owns the fleet home: stealing its
-// ownership would break that arm, so this wait levels on authoritative
-// evidence instead of watcher edges.
-func pollUntilEligible(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
-	wake, _, _, err := currentEpisodes(ctx, w, cfg.Host)
-	if err != nil {
-		return Wake{}, err
-	}
-	guard, err := acquireBridge(ctx, w, cfg, wake.FleetID)
-	if err != nil {
-		return Wake{}, err
-	}
-	defer guard.stop()
+// ownership would break that arm, so this wait levels on evidence instead.
+// Every claim re-proves bridge ownership under the attachment lock first.
+func pollUntilEligible(ctx context.Context, guard *bridgeGuard, w Waiter, cfg WaitConfig) (Wake, error) {
 	for {
-		if err := waitStep(ctx, guard, intervalOr(cfg.PollInterval)); err != nil {
+		if err := waitStep(guard, intervalOr(cfg.PollInterval)); err != nil {
 			return Wake{}, err
 		}
 		wake, _, eligible, err := currentEpisodes(ctx, w, cfg.Host)
 		if err != nil {
 			return Wake{}, err
 		}
-		if len(eligible) > 0 {
-			wake, won, claimErr := claimAndDeliver(w, cfg, wake, eligible)
-			if claimErr != nil || won {
-				return wake, claimErr
-			}
-			// Lost the transaction race: the holder keeps delivering; keep
-			// observing for new work.
+		if len(eligible) == 0 {
+			continue
 		}
+		if proofErr := guard.prove(); proofErr != nil {
+			return Wake{}, proofErr
+		}
+		wake, won, claimErr := claimAndDeliver(w, cfg, wake, eligible)
+		if claimErr != nil || won {
+			return wake, claimErr
+		}
+		// Lost the transaction race: the holder keeps delivering; keep
+		// observing for new work.
 	}
 }
 
-// Holds watcher ownership and drives RunUntilEvent cycles until a delivered
-// cycle leaves something eligible. All-deduped cycles must not spin: an
-// unchanged key set backs off one poll interval; new episodes retry at once.
-func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
+// Drives RunUntilEvent cycles on the guarded cancellation domain; claims need
+// a fresh ownership proof at the boundary. All-deduped cycles back off one
+// poll interval instead of spinning; new episodes retry at once.
+func waitOwned(ctx context.Context, guard *bridgeGuard, w Waiter, cfg WaitConfig) (Wake, error) {
 	ownership, err := acquireWatcherOwnership(ctx, w.Home, false)
 	if err != nil {
 		return Wake{}, err
 	}
 	defer ownership.Release()
 
-	wake, _, _, err := currentEpisodes(ctx, w, cfg.Host)
-	if err != nil {
-		return Wake{}, err
-	}
-	guard, err := acquireBridge(ctx, w, cfg, wake.FleetID)
-	if err != nil {
-		return Wake{}, err
-	}
-	defer guard.stop()
-
 	var previous []string
 	for {
 		var caught bytes.Buffer
-		err := runWatcherUntilEvent(ctx, ownedWatcherConfig(w, cfg), &caught, io.Discard)
+		err := runWatcherUntilEvent(guard.ctx, ownedWatcherConfig(w, cfg), &caught, io.Discard)
 		if err != nil {
+			// Ownership loss cancels guardCtx mid-wait; surface that exact
+			// cause rather than the watcher's generic interruption wrapper.
+			if faultErr := guard.takeFault(); faultErr != nil {
+				return Wake{}, faultErr
+			}
+			if cause := context.Cause(guard.ctx); errors.Is(cause, ErrBridgeOwned) {
+				return Wake{}, cause
+			}
 			return Wake{}, err
 		}
 		wake, episodes, eligible, catchUpErr := currentEpisodes(ctx, w, cfg.Host)
@@ -249,6 +284,12 @@ func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 			return Wake{}, catchUpErr
 		}
 		if len(eligible) > 0 {
+			// Claim-boundary proof: a watcher cycle can sit through an entire
+			// ownership handover; the episode must go to whoever owns the
+			// bridge NOW, and this runtime must not consume it stale.
+			if proofErr := guard.prove(); proofErr != nil {
+				return Wake{}, proofErr
+			}
 			wake, won, claimErr := claimAndDeliver(w, cfg, wake, eligible)
 			if claimErr != nil || won {
 				return wake, claimErr
@@ -258,7 +299,7 @@ func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 		}
 		keys := Keys(episodes)
 		if slices.Equal(keys, previous) {
-			if err := waitStep(ctx, guard, intervalOr(cfg.PollInterval)); err != nil {
+			if err := waitStep(guard, intervalOr(cfg.PollInterval)); err != nil {
 				return Wake{}, err
 			}
 		}
@@ -307,10 +348,19 @@ func intervalOr(d time.Duration) time.Duration {
 	return d
 }
 
-// Owns one runtime's live attachment: stop() clears the record; errc carries
-// the first heartbeat fault or ownership theft.
+// Owns one runtime's live attachment and the wait's cancellation domain:
+// stop() clears the record; theft or faults cancel ctx with the exact cause
+// and mirror it on errc.
 type bridgeGuard struct {
-	stopc chan struct{}
-	stop  func()
-	errc  chan error
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	stopc  chan struct{}
+	stop   func()
+	errc   chan error
+
+	home    string
+	host    string
+	runtime string
+	record  AttachmentRecord
+	lease   time.Duration
 }

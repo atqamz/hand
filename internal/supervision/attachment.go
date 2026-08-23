@@ -105,14 +105,20 @@ func mutateAttachment(home string, change func(existing *AttachmentRecord) (*Att
 	return nil
 }
 
-// Claims host's bridge for rec's runtime under the file lock. Returns false
-// when a fresh record shows another live runtime still holds it; stale,
-// foreign-schema, and absent records never block a takeover.
+// The exact bridge-owner identity combines harness AND runtime: the harness
+// selects the delivery mechanism, never an ownership domain - a Fleet holds
+// one live Supervisor bridge regardless of provider.
+func ownerKey(rec AttachmentRecord) string {
+	return rec.Host + "\x00" + rec.Runtime
+}
+
+// Claims THE Fleet bridge for rec's owner under the file lock, exclusive
+// across every harness: false means a fresh record shows another live owner
+// still holding it. Stale or absent records never block a takeover.
 func AcquireAttachment(home string, rec AttachmentRecord) (bool, error) {
 	acquired := false
 	err := mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		if existing != nil && existing.Fresh(time.Now()) &&
-			existing.Host == rec.Host && existing.Runtime != "" && existing.Runtime != rec.Runtime {
+		if existing != nil && existing.Fresh(time.Now()) && ownerKey(*existing) != ownerKey(rec) {
 			return nil, false, nil
 		}
 		acquired = true
@@ -124,22 +130,20 @@ func AcquireAttachment(home string, rec AttachmentRecord) (bool, error) {
 	return acquired, nil
 }
 
-// Re-stamps the heartbeat when the record still belongs to rec's runtime.
+// Re-stamps the heartbeat when the record still belongs to rec's exact owner,
+// preserving the original StartedAt and advancing the lease explicitly.
 // False means ownership moved elsewhere: stop claiming the bridge.
-func RefreshAttachment(home string, rec AttachmentRecord) (bool, error) {
+func RefreshAttachment(home string, rec AttachmentRecord, lease time.Duration) (bool, error) {
 	ours := false
 	err := mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		if existing == nil || existing.Runtime != rec.Runtime || existing.Host != rec.Host {
+		if existing == nil || ownerKey(*existing) != ownerKey(rec) {
 			return nil, false, nil
 		}
 		now := time.Now()
 		fresh := rec
 		fresh.StartedAt = existing.StartedAt
 		fresh.HeartbeatAt = now
-		fresh.ExpiresAt = now.Add(time.Until(rec.ExpiresAt))
-		if fresh.ExpiresAt.Before(now) {
-			fresh.ExpiresAt = now.Add(time.Minute)
-		}
+		fresh.ExpiresAt = now.Add(lease)
 		ours = true
 		return &fresh, true, nil
 	})

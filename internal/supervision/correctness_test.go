@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +19,12 @@ import (
 	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/watcher"
 )
+
+// Carries one Wait outcome from a goroutine back to its test.
+type waitResult struct {
+	wake Wake
+	err  error
+}
 
 // Two concurrent waiters racing on the same exact episode must produce
 // exactly ONE successful non-empty wake overall; every loser keeps waiting
@@ -280,7 +288,8 @@ func runSupervisionChild(op string) int {
 	case "acquire":
 		now := time.Now()
 		acquired, err := AcquireAttachment(home, AttachmentRecord{
-			Host: "opencode", Runtime: os.Getenv("HAND_SUPERVISION_CHILD_RUNTIME"), PID: os.Getpid(),
+			Host:    os.Getenv("HAND_SUPERVISION_CHILD_HOST"),
+			Runtime: os.Getenv("HAND_SUPERVISION_CHILD_RUNTIME"), PID: os.Getpid(),
 			FleetID: "f_fix", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
 		})
 		if err != nil {
@@ -313,7 +322,7 @@ func TestClaimIsAtomicAcrossProcesses(t *testing.T) {
 		t.Skip("child mode")
 	}
 	home := t.TempDir()
-	wins := spawnSupervisionChildren(t, home, "claim", 8)
+	wins := spawnSupervisionChildren(t, home, "claim", []string{"opencode", "opencode", "opencode", "opencode", "opencode", "opencode", "opencode", "opencode"})
 	if wins != 1 {
 		t.Fatalf("winning claims across 8 processes = %d, want exactly one", wins)
 	}
@@ -326,14 +335,38 @@ func TestAttachmentAcquireIsAtomicAcrossProcesses(t *testing.T) {
 		t.Skip("child mode")
 	}
 	home := t.TempDir()
-	wins := spawnSupervisionChildren(t, home, "acquire", 2)
+	wins := spawnSupervisionChildren(t, home, "acquire", []string{"opencode", "opencode"})
 	if wins != 1 {
 		t.Fatalf("winning acquisitions across 2 processes = %d, want exactly one holder", wins)
 	}
 }
 
-func spawnSupervisionChildren(t *testing.T, home, op string, n int) int {
+// Harness name selects a delivery mechanism, never an ownership domain: every
+// representative pair contends for the SAME Fleet bridge, proven with real
+// subprocesses where flock is the only coordination.
+func TestAttachmentAcquireIsFleetExclusiveAcrossHosts(t *testing.T) {
+	if os.Getenv("HAND_SUPERVISION_CHILD_OP") != "" {
+		t.Skip("child mode")
+	}
+	for _, pair := range [][2]string{
+		{"opencode", "claude"},
+		{"claude", "codex"},
+		{"pi", "grok"},
+		{"grok", "opencode"},
+	} {
+		t.Run(pair[0]+"-vs-"+pair[1], func(t *testing.T) {
+			home := t.TempDir()
+			wins := spawnSupervisionChildren(t, home, "acquire", pair[:])
+			if wins != 1 {
+				t.Fatalf("holders for %s vs %s = %d, want exactly ONE Fleet bridge owner", pair[0], pair[1], wins)
+			}
+		})
+	}
+}
+
+func spawnSupervisionChildren(t *testing.T, home, op string, hosts []string) int {
 	t.Helper()
+	n := len(hosts)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -348,6 +381,7 @@ func spawnSupervisionChildren(t *testing.T, home, op string, n int) int {
 		cmd.Env = append(os.Environ(),
 			"HAND_SUPERVISION_CHILD_OP="+op,
 			"HAND_SUPERVISION_CHILD_HOME="+home,
+			"HAND_SUPERVISION_CHILD_HOST="+hosts[i],
 			"HAND_SUPERVISION_CHILD_RUNTIME="+fmt.Sprintf("runtime-%d", i),
 			"HAND_SUPERVISION_CHILD_OUT="+out,
 		)
@@ -435,5 +469,229 @@ func writeAttachmentRecord(t *testing.T, home string, record AttachmentRecord) {
 	path := filepath.Join(home, "state", "runtime", "supervision-attachment.json")
 	if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Harness name changes HOW a runtime is woken, never WHO owns the Fleet
+// bridge: every fresh different-owner combination is rejected, expired
+// owners are takeover-eligible, and only the exact owner may refresh.
+func TestAttachmentOwnershipIsFleetExclusiveAcrossHosts(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	writeAttachmentRecord(t, home, AttachmentRecord{
+		Host: "opencode", Runtime: "session-a", PID: 1, FleetID: "f_1",
+		StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	})
+
+	incoming := func(host, runtimeName string) AttachmentRecord {
+		return AttachmentRecord{Host: host, Runtime: runtimeName, PID: 2, FleetID: "f_1",
+			StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute)}
+	}
+
+	if acquired, err := AcquireAttachment(home, incoming("claude", "session-b")); err != nil || acquired {
+		t.Fatalf("claude over fresh opencode owner = %v, %v; want rejected", acquired, err)
+	}
+	if owner := BridgeOwner(home, "opencode", now); owner != "session-a" {
+		t.Fatalf("owner = %q after foreign attempt, want the original untouched", owner)
+	}
+
+	if acquired, err := AcquireAttachment(home, incoming("codex", "thr-a")); err != nil || acquired {
+		t.Fatalf("codex over fresh opencode owner = %v, %v; want rejected", acquired, err)
+	}
+
+	if _, err := AcquireAttachment(home, incoming("opencode", "session-a")); err != nil {
+		t.Fatal(err)
+	}
+	ours, err := RefreshAttachment(home, incoming("opencode", "session-a"), time.Minute)
+	if err != nil || !ours {
+		t.Fatalf("exact-owner refresh = %v, %v; want allowed", ours, err)
+	}
+	foreignOurs, err := RefreshAttachment(home, incoming("codex", "thr-a"), time.Minute)
+	if err != nil || foreignOurs {
+		t.Fatalf("foreign-host refresh = %v, %v; want refused", foreignOurs, err)
+	}
+}
+
+func TestAttachmentExpiredOwnerAllowsCrossHostTakeover(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	writeAttachmentRecord(t, home, AttachmentRecord{
+		Host: "pi", Runtime: "pi-a", PID: 1, FleetID: "f_1",
+		StartedAt: now.Add(-time.Hour), HeartbeatAt: now.Add(-time.Hour), ExpiresAt: now.Add(-time.Second),
+	})
+
+	acquired, err := AcquireAttachment(home, AttachmentRecord{
+		Host: "claude", Runtime: "claude-b", PID: 2, FleetID: "f_1",
+		StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	})
+	if err != nil || !acquired {
+		t.Fatalf("takeover over expired owner = %v, %v; want allowed", acquired, err)
+	}
+	if owner := BridgeOwner(home, "claude", now); owner != "claude-b" {
+		t.Fatalf("owner = %q, want the successor", owner)
+	}
+}
+
+func TestRefreshPreservesStartedAtAndAdvancesLeaseExplicitly(t *testing.T) {
+	home := t.TempDir()
+	started := time.Now().Add(-time.Hour)
+	writeAttachmentRecord(t, home, AttachmentRecord{
+		Host: "pi", Runtime: "pi-a", PID: 1, FleetID: "f_1",
+		StartedAt: started, HeartbeatAt: started, ExpiresAt: started.Add(3 * time.Second),
+	})
+	rec := AttachmentRecord{Host: "pi", Runtime: "pi-a", PID: 1, FleetID: "f_1"}
+
+	before := ReadAttachment(home)
+	lease := time.Minute
+	ours, err := RefreshAttachment(home, rec, lease)
+	if err != nil || !ours {
+		t.Fatalf("refresh = %v, %v; want owned", ours, err)
+	}
+	after := ReadAttachment(home)
+	if !after.StartedAt.Equal(before.StartedAt) {
+		t.Fatalf("StartedAt moved from %v to %v; refresh must preserve it", before.StartedAt, after.StartedAt)
+	}
+	if remaining := time.Until(after.ExpiresAt); remaining > lease || remaining < lease-time.Second {
+		t.Fatalf("lease after refresh = %v, want ~%v regardless of prior staleness", remaining, lease)
+	}
+}
+
+// Losing bridge ownership mid-wait cancels the active watcher wait and
+// forbids any claim: the retired runtime must not deliver as if it still
+// owned delivery.
+func TestOwnershipLossCancelsActiveWaitAndForbidsClaim(t *testing.T) {
+	home := t.TempDir()
+	ledger := OpenLedger(home)
+
+	origRun := runWatcherUntilEvent
+	stolen := make(chan struct{})
+	runWatcherUntilEvent = func(ctx context.Context, cfg watcher.Config, out, errOut io.Writer) error {
+		<-ctx.Done() // blocks exactly like a live watcher wait; only guard cancellation ends it
+		return context.Cause(ctx)
+	}
+	origAcquire := acquireWatcherOwnership
+	acquireWatcherOwnership = func(context.Context, string, bool) (*watcher.Ownership, error) { return nil, nil }
+	restore := func() {
+		runWatcherUntilEvent = origRun
+		acquireWatcherOwnership = origAcquire
+		watcherAttached = func(string) (bool, error) { return false, nil }
+	}
+	watcherAttached = func(string) (bool, error) { return false, nil }
+	defer restore()
+
+	results := make(chan waitResult, 1)
+	go func() {
+		wake, err := Wait(context.Background(), Waiter{
+			Home:         home,
+			ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1"}),
+			Ledger:       ledger,
+		}, WaitConfig{Host: "claude", RuntimeSession: "runtime-old", PollInterval: time.Millisecond})
+		results <- waitResult{wake, err}
+	}()
+
+	waitForAttachmentRuntime(t, home, "runtime-old")
+	// Successor takes the Fleet bridge while the old waiter sits blocked.
+	writeAttachmentRecord(t, home, AttachmentRecord{
+		Host: "claude", Runtime: "runtime-new", PID: 999999, FleetID: "f_1",
+		StartedAt: time.Now(), HeartbeatAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute),
+	})
+	close(stolen)
+
+	select {
+	case got := <-results:
+		if !errors.Is(got.err, ErrBridgeOwned) {
+			t.Fatalf("err = %v, want ErrBridgeOwned from ownership loss", got.err)
+		}
+		if len(got.wake.Episodes) != 0 {
+			t.Fatalf("episodes = %d, want zero claimed by the retired runtime", len(got.wake.Episodes))
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("wait was not cancelled after ownership loss; it kept blocking on the watcher")
+	}
+
+	// The episode stays available to the true owner: no requested stamp was
+	// written by the retired runtime.
+	evidence := orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{actionableEvidence("t1", "g1", "blocked")}}
+	claimed, claimErr := ledger.ClaimEligible(FromEvidence(evidence))
+	if claimErr != nil || len(claimed) != 1 {
+		t.Fatalf("true owner claim = %d, %v; want the episode unsuppressed", len(claimed), claimErr)
+	}
+}
+
+func waitForAttachmentRuntime(t *testing.T, home, runtimeName string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if record := ReadAttachment(home); record != nil && record.Runtime == runtimeName && record.Fresh(time.Now()) {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("attachment for %q never appeared", runtimeName)
+}
+
+// Takeover racing the watcher event: the stale runtime fails its pre-claim
+// proof, consumes nothing, and the episode stays claimable by the new owner.
+func TestClaimBoundaryTakeoverKeepsEpisodeAvailable(t *testing.T) {
+	home := t.TempDir()
+	ledger := OpenLedger(home)
+	evidence := orientation.Evidence{FleetID: "f_1"}
+	eventReady := make(chan struct{})
+	release := make(chan struct{})
+
+	origRun := runWatcherUntilEvent
+	var once sync.Once
+	runWatcherUntilEvent = func(ctx context.Context, cfg watcher.Config, out, errOut io.Writer) error {
+		once.Do(func() {
+			evidence.Actionable = append(evidence.Actionable, actionableEvidence("t9", "g1", "parked"))
+			close(eventReady)
+		})
+		<-release
+		return nil
+	}
+	origAcquire := acquireWatcherOwnership
+	acquireWatcherOwnership = func(context.Context, string, bool) (*watcher.Ownership, error) { return nil, nil }
+	watcherAttached = func(string) (bool, error) { return false, nil }
+	defer func() {
+		runWatcherUntilEvent = origRun
+		acquireWatcherOwnership = origAcquire
+	}()
+
+	results := make(chan waitResult, 1)
+	go func() {
+		wake, err := Wait(context.Background(), Waiter{
+			Home:         home,
+			ReadEvidence: fixedReader(evidence),
+			Ledger:       ledger,
+		}, WaitConfig{Host: "claude", RuntimeSession: "runtime-old", PollInterval: time.Millisecond})
+		results <- waitResult{wake, err}
+	}()
+
+	<-eventReady
+	writeAttachmentRecord(t, home, AttachmentRecord{
+		Host: "claude", Runtime: "runtime-new", PID: 999999, FleetID: "f_1",
+		StartedAt: time.Now(), HeartbeatAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute),
+	})
+	close(release)
+
+	select {
+	case got := <-results:
+		if !errors.Is(got.err, ErrBridgeOwned) {
+			t.Fatalf("err = %v, want the pre-claim ownership proof to reject the stale runtime", got.err)
+		}
+		if len(got.wake.Episodes) != 0 {
+			t.Fatalf("stale runtime claimed %d episodes across the handover", len(got.wake.Episodes))
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("wait did not return after the handover")
+	}
+
+	raw, readErr := os.ReadFile(filepath.Join(home, "state", "runtime", "supervision-wake.json"))
+	if readErr == nil && strings.Contains(string(raw), `"delivery_requested"`) {
+		t.Fatal("episode was durably consumed by the stale runtime; it must stay available to the new owner")
+	}
+	claimed, claimErr := ledger.ClaimEligible(FromEvidence(evidence))
+	if claimErr != nil || len(claimed) != 1 {
+		t.Fatalf("new-owner claim = %d, %v; want the episode fully available", len(claimed), claimErr)
 	}
 }
