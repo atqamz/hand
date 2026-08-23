@@ -1,19 +1,24 @@
 package supervision
 
-import "embed"
+import (
+	"bytes"
+	"embed"
+	"encoding/json"
+)
 
 //go:embed assets
 var assetsFS embed.FS
 
-// Asset describes one managed host-integration file rendered into its
-// destination with install-time substitutions applied.
+// One managed host-integration file. Script assets carry a template body
+// whose path placeholders are substituted as JSON string literals; structured
+// documents carry a Render function producing their full bytes.
 type Asset struct {
 	// RelPath is the destination path relative to the fleet home.
 	RelPath string
-	// Body is the canonical template. The __HAND_EXECUTABLE__ and
-	// __HAND_HOME__ placeholders are replaced with quoted absolute paths at
-	// render time, so doctor can compare exact bytes to detect staleness.
+	// Body is the canonical template for placeholder substitution.
 	Body []byte
+	// Render, when set, produces the entire file and Body is unused.
+	Render func(exe string) []byte
 }
 
 func asset(name string) []byte {
@@ -24,9 +29,9 @@ func asset(name string) []byte {
 	return data
 }
 
-// HostAssets returns the managed files for one host. Grok needs none: its
-// bridge is the host's own background-task lifecycle, established through the
-// generated Supervisor instructions rather than an installed file.
+// HostAssets returns the managed script-template files for one host. Grok
+// needs none: its bridge is instruction-established. Codex is absent too: its
+// Fleet-local hooks.json is merged through InstallCodexHooks instead.
 func HostAssets(host string) []Asset {
 	switch host {
 	case "opencode":
@@ -44,14 +49,31 @@ func HostAssets(host string) []Asset {
 	}
 }
 
-// AllManagedAssets maps every host with installed assets to them, in the
-// stable harness-name order used by init and doctor.
-func AllManagedAssets() map[string][]Asset {
-	hosts := map[string][]Asset{}
-	for _, host := range []string{"opencode", "pi"} {
-		if list := HostAssets(host); len(list) > 0 {
-			hosts[host] = list
-		}
+// ManagedAssetHosts lists every host whose bridge installs through the
+// template pipeline, in the stable order used by init.
+func ManagedAssetHosts() []string {
+	return []string{"opencode", "pi"}
+}
+
+// CodexHooksRelPath is the Fleet-local hooks document hand owns a Stop group
+// inside.
+const CodexHooksRelPath = ".codex/hooks.json"
+
+// Produces one asset's final bytes with install-time substitutions applied.
+func renderAsset(a Asset, exe, home string) []byte {
+	if a.Render != nil {
+		return a.Render(exe)
 	}
-	return hosts
+	body := bytes.ReplaceAll(a.Body, []byte("__HAND_EXECUTABLE__"), mustJSONString(exe))
+	return bytes.ReplaceAll(body, []byte("__HAND_HOME__"), mustJSONString(home))
+}
+
+// Yields a complete JSON string literal: encoding/json owns
+// the escaping grammar, so no path byte can survive misquoted.
+func mustJSONString(value string) []byte {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic("supervision: json string marshal failed: " + err.Error())
+	}
+	return encoded
 }

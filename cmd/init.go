@@ -160,12 +160,18 @@ func newInitCmd() *cobra.Command {
 			if n := skillConflictCount(skillResults); n > 0 {
 				help = append(help, fmt.Sprintf("%d bundled-skill destination(s) already hold a foreign file at the managed entry path and were left untouched; move each aside, then run hand init again to install the skill there", n))
 			}
+			if len(supervisionConflicts) > 0 {
+				help = append(help, fmt.Sprintf("%d supervisor wake integration surface(s) hold foreign content at Hand-managed paths and were left untouched; move each aside, then run hand init again", len(supervisionConflicts)))
+			}
 			doc.Help(help...)
 			if err := doc.Render(cmd.OutOrStdout()); err != nil {
 				return err
 			}
 			if registryErr != nil {
 				return fmt.Errorf("fleet initialized at %s with fleet_id %s, but registry discovery update failed: %w", home, fleetID, registryErr)
+			}
+			if len(supervisionConflicts) > 0 {
+				return &ExitError{Err: fmt.Errorf("initialized %s, but %d supervisor wake integration surface(s) are conflicted and were left untouched; unattended turn delivery stays degraded until they are resolved", home, len(supervisionConflicts)), Code: 3}
 			}
 			return nil
 		},

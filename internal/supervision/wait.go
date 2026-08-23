@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/atqamz/hand/internal/orientation"
@@ -23,7 +25,11 @@ var (
 // to arm and poll. Timeout bounds the whole wait and only ever produces the
 // explicit checkpoint result (exit 4) the caller asked for.
 type WaitConfig struct {
-	Host           string
+	Host string
+	// RuntimeSession names the exact host runtime arming this wait (an
+	// OpenCode session ID, a Codex thread). It scopes the bridge-attachment
+	// record so a secondary runtime defers instead of stealing.
+	RuntimeSession string
 	PollInterval   time.Duration
 	StaleThreshold time.Duration
 	ParkedBounds   watcher.ParkedBounds
@@ -33,9 +39,10 @@ type WaitConfig struct {
 // Wake is one coalesced delivery: every currently eligible episode collapses
 // into one reasoning opportunity rather than one turn per subject.
 type Wake struct {
-	Host     string
-	FleetID  string
-	Text     string
+	Schema   string `json:"schema"`
+	FleetID  string `json:"fleet_id"`
+	Host     string `json:"host"`
+	Message  string `json:"message"`
 	Episodes []Episode
 }
 
@@ -51,9 +58,12 @@ type Waiter struct {
 	Ledger       *Ledger
 }
 
-// Wait blocks until at least one current actionable episode is wake-eligible,
-// records the delivery request, and returns the coalesced wake. Typed watcher
-// results pass through for the caller's exit-taxonomy mapping.
+// WakeSchema versions the machine protocol host adapters consume.
+const WakeSchema = "hand.supervision.wake.v1"
+
+// Wait blocks until at least one current actionable episode can be claimed
+// atomically, records the claim plus this runtime's bridge attachment, and
+// returns the coalesced wake. Typed watcher results pass through unchanged.
 func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -62,14 +72,13 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 		defer cancel()
 	}
 
-	wake, _, eligible, err := currentEpisodes(ctx, w, cfg.Host)
-	if err != nil || len(eligible) > 0 {
-		if len(eligible) > 0 {
-			return requestDelivery(w, wake, eligible)
-		}
+	wake, allEpisodes, eligible, err := currentEpisodes(ctx, w, cfg.Host)
+	if err != nil {
 		return Wake{}, err
 	}
-
+	if len(eligible) > 0 {
+		return claimAndDeliver(w, cfg, wake, allEpisodes)
+	}
 	attached, err := watcherAttached(w.Home)
 	if err != nil {
 		return Wake{}, err
@@ -80,18 +89,9 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	return waitOwned(ctx, w, cfg)
 }
 
-func requestDelivery(w Waiter, wake Wake, eligible []Episode) (Wake, error) {
-	if err := w.Ledger.MarkRequested(eligible); err != nil {
-		return Wake{}, err
-	}
-	wake.Episodes = eligible
-	wake.Text = WakeText(wake.FleetID)
-	return wake, nil
-}
-
 // Derives episodes from authoritative evidence and reports all of them plus
-// the subset that may wake now. An already-actionable condition has no next
-// transition left to wait for, so arming observes it first.
+// the subset that may be claimed now. An already-actionable condition has no
+// next transition left to wait for, so arming observes it first.
 func currentEpisodes(ctx context.Context, w Waiter, host string) (Wake, []Episode, []Episode, error) {
 	evidence, err := w.ReadEvidence(ctx)
 	if err != nil {
@@ -102,10 +102,88 @@ func currentEpisodes(ctx context.Context, w Waiter, host string) (Wake, []Episod
 	return wake, episodes, w.Ledger.Eligible(episodes), nil
 }
 
+// Keeps the bridge-attachment record fresh while this wait runs and clears it
+// on exit. Attachment thus means "a live child of this runtime holds this
+// host's bridge" - mechanically independent from watcher liveness.
+func runHeartbeat(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string) (stop func()) {
+	interval := intervalOr(cfg.PollInterval)
+	if interval < time.Second {
+		interval = time.Second
+	}
+	runtime := cfg.RuntimeSession
+	if runtime == "" {
+		runtime = fmt.Sprintf("pid:%d", os.Getpid())
+	}
+	now := time.Now()
+	record := AttachmentRecord{
+		Host:        cfg.Host,
+		Runtime:     runtime,
+		PID:         os.Getpid(),
+		FleetID:     fleetID,
+		StartedAt:   now,
+		HeartbeatAt: now,
+		ExpiresAt:   now.Add(3 * interval),
+	}
+	_ = WriteAttachment(w.Home, record)
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				ClearAttachment(w.Home, cfg.Host, runtime)
+				close(done)
+				return
+			case <-ticker.C:
+				now := time.Now()
+				record.HeartbeatAt = now
+				record.ExpiresAt = now.Add(3 * interval)
+				_ = WriteAttachment(w.Home, record)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			ClearAttachment(w.Home, cfg.Host, runtime)
+			go func() {
+				select {
+				case <-done:
+				case <-time.After(2 * interval):
+				}
+			}()
+		})
+	}
+}
+
+// Reports whether a fresh record for this host names a different live runtime,
+// in which case this waiter must defer rather than steal the bridge.
+func bridgeOwnedByAnotherRuntime(w Waiter, cfg WaitConfig) bool {
+	owner := BridgeOwner(w.Home, cfg.Host, time.Now())
+	if owner == "" || owner == cfg.RuntimeSession {
+		return false
+	}
+	return !stringsHasPrefix(owner, fmt.Sprintf("pid:%d", os.Getpid()))
+}
+
+func stringsHasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
 // Serves the case where another watcher owns the fleet home: stealing its
 // ownership would break that arm, so this wait levels on authoritative
 // evidence instead of watcher edges.
 func pollUntilEligible(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
+	if bridgeOwnedByAnotherRuntime(w, cfg) {
+		return Wake{}, ErrBridgeOwned
+	}
+	wake, _, _, err := currentEpisodes(ctx, w, cfg.Host)
+	if err != nil {
+		return Wake{}, err
+	}
+	stop := runHeartbeat(ctx, w, cfg, wake.FleetID)
+	defer stop()
 	for {
 		if err := sleepCtx(ctx, intervalOr(cfg.PollInterval)); err != nil {
 			return Wake{}, err
@@ -115,7 +193,7 @@ func pollUntilEligible(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, err
 			return Wake{}, err
 		}
 		if len(eligible) > 0 {
-			return requestDelivery(w, wake, eligible)
+			return claimAndDeliver(w, cfg, wake, eligible)
 		}
 	}
 }
@@ -124,11 +202,21 @@ func pollUntilEligible(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, err
 // cycle leaves something eligible. All-deduped cycles must not spin: an
 // unchanged key set backs off one poll interval; new episodes retry at once.
 func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
+	if bridgeOwnedByAnotherRuntime(w, cfg) {
+		return Wake{}, ErrBridgeOwned
+	}
 	ownership, err := acquireWatcherOwnership(ctx, w.Home, false)
 	if err != nil {
 		return Wake{}, err
 	}
 	defer ownership.Release()
+
+	wake, _, _, err := currentEpisodes(ctx, w, cfg.Host)
+	if err != nil {
+		return Wake{}, err
+	}
+	stop := runHeartbeat(ctx, w, cfg, wake.FleetID)
+	defer stop()
 
 	var previous []string
 	for {
@@ -142,7 +230,7 @@ func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 			return Wake{}, catchUpErr
 		}
 		if len(eligible) > 0 {
-			return requestDelivery(w, wake, eligible)
+			return claimAndDeliver(w, cfg, wake, eligible)
 		}
 		keys := Keys(episodes)
 		if slices.Equal(keys, previous) {
@@ -152,6 +240,19 @@ func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 		}
 		previous = keys
 	}
+}
+
+// Performs the atomic eligibility-and-request transaction and fills in the
+// machine-protocol fields on the result.
+func claimAndDeliver(w Waiter, cfg WaitConfig, wake Wake, all []Episode) (Wake, error) {
+	claimed := w.Ledger.ClaimEligible(all)
+	if len(claimed) == 0 {
+		return Wake{}, nil
+	}
+	wake.Schema = WakeSchema
+	wake.Episodes = claimed
+	wake.Message = WakeText(wake.FleetID)
+	return wake, nil
 }
 
 func ownedWatcherConfig(w Waiter, cfg WaitConfig) watcher.Config {

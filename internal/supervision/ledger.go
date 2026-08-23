@@ -77,9 +77,34 @@ func OpenLedger(home string) *Ledger {
 
 func (l *Ledger) lockPath() string { return l.path + ledgerLockSuffix }
 
-// Filters current episodes down to the ones a wake may be requested for now:
-// unseen, requested-but-unaccepted past the delivery window, or accepted-
-// but-never-oriented past the progress window. Aged memory re-eligibles.
+// ClaimEligible atomically decides which current episodes may wake AND stamps
+// their delivery request inside one locked transaction: two concurrent
+// waiters can never both claim the same exact episode.
+func (l *Ledger) ClaimEligible(episodes []Episode) []Episode {
+	var claimed []Episode
+	_ = l.update(func(file *ledgerFile, now time.Time) {
+		for _, episode := range episodes {
+			record, exists := file.Episodes[episode.Key()]
+			if !exists || l.eligibleRecord(record) {
+				stamp := now
+				if !exists {
+					record = &episodeRecord{Key: episode.Key(), FirstSeen: now}
+					file.Episodes[episode.Key()] = record
+				}
+				record.SeenAt = now
+				record.DeliveryRequested = &stamp
+				record.HostAccepted = nil
+				record.Oriented = nil
+				claimed = append(claimed, episode)
+			}
+		}
+	})
+	return claimed
+}
+
+// Eligible filters current episodes down to the ones a wake may be requested
+// for now. Read-only: claiming goes through ClaimEligible so the stamp lands
+// atomically.
 func (l *Ledger) Eligible(episodes []Episode) []Episode {
 	file := l.read()
 	var eligible []Episode
@@ -172,6 +197,20 @@ func (l *Ledger) LastErrorBefore(keys []string, window time.Duration) bool {
 		}
 	}
 	return false
+}
+
+// MarkErrorByKeys records bounded mechanism failure evidence against claimed
+// episode keys, so a failed host delivery can retry boundedly later without
+// fabricating Episode values it never held.
+func (l *Ledger) MarkErrorByKeys(keys []string, reason string) error {
+	return l.update(func(file *ledgerFile, now time.Time) {
+		for _, key := range keys {
+			record := ensureKey(file, key, now)
+			record.LastError = reason
+			stamp := now
+			record.LastErrorAt = &stamp
+		}
+	})
 }
 
 // BridgeErrorKey namespaces a host bridge's own failure evidence, which is

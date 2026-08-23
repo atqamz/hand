@@ -78,6 +78,31 @@ func Keys(episodes []Episode) []string {
 	return keys
 }
 
+// EpisodePayload is one episode's machine-protocol projection: exact
+// identifiers only, no report prose, plan briefs, or environment.
+type EpisodePayload struct {
+	Key         string `json:"key"`
+	TargetID    string `json:"target_id"`
+	TargetKind  string `json:"target_kind"`
+	Currentness string `json:"currentness"`
+	Action      string `json:"action"`
+}
+
+// EpisodePayloads projects episodes for the versioned wake protocol.
+func EpisodePayloads(episodes []Episode) []EpisodePayload {
+	payloads := make([]EpisodePayload, 0, len(episodes))
+	for _, episode := range episodes {
+		payloads = append(payloads, EpisodePayload{
+			Key:         episode.Key(),
+			TargetID:    episode.TargetID,
+			TargetKind:  episode.TargetKind,
+			Currentness: episode.Currentness.String(),
+			Action:      episode.Kind,
+		})
+	}
+	return payloads
+}
+
 const maxWakeReason = 240
 
 // WakeText is the bounded mechanism input handed to a host bridge. It carries

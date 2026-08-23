@@ -55,8 +55,8 @@ func newSessionCmd(version string) *cobra.Command {
 }
 
 // One-time runtime bootstrap: resolve the Fleet, validate the role, identify
-// the harness and its runtime, install or validate the host bridge. Not the
-// ordinary current-work read; turns observe through `hand orient` instead.
+// the harness and its runtime, qualify the installed bridge. Read-only against
+// static integration (init owns those bytes) and not a current-work read.
 func runSessionStart(cmd *cobra.Command, version string) error {
 	if os.Getenv(harness.RoleEnv) == harness.WorkerRole {
 		return &ExitError{Err: fmt.Errorf("supervisor session bootstrap is unavailable when %s=%s", harness.RoleEnv, harness.WorkerRole), Code: 3}
@@ -83,7 +83,6 @@ func runSessionStart(cmd *cobra.Command, version string) error {
 		return err
 	}
 
-	installs, installErrs := installSupervisorBridge(fleetHome, detection.Name, exe)
 	status, err := supervision.IntegrationStatus(cmd.Context(), supervision.StatusInput{
 		Home:      fleetHome,
 		Detection: detection,
@@ -105,7 +104,6 @@ func runSessionStart(cmd *cobra.Command, version string) error {
 	doc.Field("runtime_identity_detail", orNone(status.RuntimeDetail))
 	doc.Field("bootstrap_integration_status", orNone(status.Integration))
 	doc.Field("bootstrap_integration_detail", orNone(status.IntegrationDetail))
-	doc.Rows("integration", []string{"host", "path", "state", "detail"}, installRows(installs))
 	doc.Field("wake_delivery_capability", status.WakeDelivery)
 	doc.Field("wake_delivery_reason", orNone(status.WakeDeliveryReason))
 	doc.Field("wake_delivery_attachment_status", orNone(status.Attachment))
@@ -118,49 +116,19 @@ func runSessionStart(cmd *cobra.Command, version string) error {
 		"Before reasoning or acting in every Supervisor turn, run `hand orient`",
 		"After an automatic wake/re-entry, run `hand orient` before any action",
 	}
-	if status.WakeDelivery != supervision.CapabilitySupported {
-		help = append(help, "Unattended Supervisor turn delivery is "+status.WakeDelivery+" here: "+status.WakeDeliveryReason)
+	switch status.WakeDelivery {
+	case supervision.CapabilityDegraded:
+		help = append(help, "Unattended Supervisor turn delivery is degraded here: "+status.WakeDeliveryReason)
+	case supervision.CapabilityUnsupported:
+		help = append(help, "Unattended Supervisor turn delivery is unsupported here: "+status.WakeDeliveryReason)
+	case supervision.CapabilityUnqualified:
+		help = append(help, "Wake delivery is available but not yet live-qualified on this build: "+status.WakeDeliveryReason)
 	}
-	help = append(help, installErrs...)
+	if status.Integration == "stale" || status.Integration == "absent" || status.Integration == "conflict" {
+		help = append(help, "Repair Hand-owned integration with `hand init "+shellquote.Quote(fleetHome)+"`; then restart or reload this harness if it caches configuration at startup")
+	}
 	doc.Help(help...)
 	return doc.Render(cmd.OutOrStdout())
-}
-
-// Installs or refreshes the detected host's Hand-owned wait-to-turn bridge.
-// Conflicts are diagnostics, not bootstrap failures: hand init and doctor are
-// the repair paths, and a foreign managed-path file is the operator's to move.
-func installSupervisorBridge(fleetHome, host, exe string) ([]supervision.InstallResult, []string) {
-	var results []supervision.InstallResult
-	var errs []string
-	switch host {
-	case harness.Claude:
-		result, err := supervision.InstallClaudeStopHook(fleetHome, exe)
-		results = append(results, result)
-		if err != nil {
-			errs = append(errs, result.Detail)
-		}
-	case harness.OpenCode, harness.Pi:
-		assetResults, err := supervision.InstallHostAssets(fleetHome, host, exe)
-		if err != nil {
-			errs = append(errs, err.Error())
-			break
-		}
-		results = assetResults
-		for _, result := range assetResults {
-			if result.State == "conflict" {
-				errs = append(errs, result.Path+": "+result.Detail)
-			}
-		}
-	}
-	return results, errs
-}
-
-func installRows(results []supervision.InstallResult) [][]string {
-	rows := make([][]string, 0, len(results))
-	for _, result := range results {
-		rows = append(rows, []string{result.Host, result.Path, result.State, result.Detail})
-	}
-	return rows
 }
 
 func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error {
