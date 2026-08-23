@@ -97,8 +97,10 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 		"supervisor_harness: codex\n",
 		"supervisor_harness_source: override\n",
 		"runtime_identity_status: unidentified\n",
-		"bootstrap_integration_status: not-required\n",
-		"wake_delivery_capability:",
+		// Session start never installs; an un-integrated home reports the
+		// absence and degrades honestly instead of repairing silently.
+		"bootstrap_integration_status: absent\n",
+		"wake_delivery_capability: degraded\n",
 		"wake_delivery_attachment_status:",
 		"watcher_observer_liveness:",
 		"next_command: hand orient\n",

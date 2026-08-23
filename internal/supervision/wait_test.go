@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,10 +25,10 @@ func fixedReader(evidence orientation.Evidence) EvidenceReader {
 }
 
 // Replaces the three watcher-boundary seams so tests drive delivery without
-// herdr.
+// herdr. Counters stay atomic because concurrent waiters share one stub.
 type watcherStub struct {
-	acquired int
-	cycles   int
+	acquired atomic.Int64
+	cycles   atomic.Int64
 	onCycle  func(s *watcherStub) error
 }
 
@@ -41,11 +42,11 @@ func newWatcherStub(t *testing.T, attached bool, onCycle func(*watcherStub) erro
 	}
 	origAcquire, origRun, origAttached := acquireWatcherOwnership, runWatcherUntilEvent, watcherAttached
 	acquireWatcherOwnership = func(context.Context, string, bool) (*watcher.Ownership, error) {
-		stub.acquired++
+		stub.acquired.Add(1)
 		return nil, nil
 	}
 	runWatcherUntilEvent = func(ctx context.Context, cfg watcher.Config, out, errOut io.Writer) error {
-		stub.cycles++
+		stub.cycles.Add(1)
 		return stub.onCycle(stub)
 	}
 	watcherAttached = func(string) (bool, error) { return attached, nil }
@@ -66,7 +67,7 @@ func TestWaitReturnsImmediatelyOnAlreadyActionableWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wake.Episodes) != 1 || wake.Text == "" || wake.Host != "codex" || wake.FleetID != "f_1" {
+	if len(wake.Episodes) != 1 || wake.Message == "" || wake.Host != "codex" || wake.FleetID != "f_1" {
 		t.Fatalf("wake = %#v, want one coalesced eligible episode with bounded text", wake)
 	}
 }
@@ -116,8 +117,8 @@ func TestSameEpisodeRepeatedlyObservedDoesNotStorm(t *testing.T) {
 	if !errors.Is(err, watcher.ErrNoEvent) || len(checkpoint.Episodes) != 0 {
 		t.Fatalf("second wait = %v, %d episodes, want the checkpoint result and no wake", err, len(checkpoint.Episodes))
 	}
-	if stub.cycles < 2 {
-		t.Fatalf("cycles = %d, want the wait to keep re-arming instead of waking on unchanged currentness", stub.cycles)
+	if stub.cycles.Load() < 2 {
+		t.Fatalf("cycles = %d, want the wait to keep re-arming instead of waking on unchanged currentness", stub.cycles.Load())
 	}
 }
 
@@ -165,8 +166,8 @@ func TestEventAfterArmWakesFromAuthoritativeLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wake.Episodes) != 1 || wake.Episodes[0].TargetID != "t9" || stub.cycles < 1 {
-		t.Fatalf("wake = %#v after %d cycles, want the post-arm condition delivered once", wake, stub.cycles)
+	if len(wake.Episodes) != 1 || wake.Episodes[0].TargetID != "t9" || stub.cycles.Load() < 1 {
+		t.Fatalf("wake = %#v after %d cycles, want the post-arm condition delivered once", wake, stub.cycles.Load())
 	}
 }
 
@@ -193,7 +194,7 @@ func TestAttachedWatcherDefersToLevelPolling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stub.acquired != 0 {
+	if stub.acquired.Load() != 0 {
 		t.Fatal("an attached operator watcher keeps its ownership; supervision wait polls instead")
 	}
 	if len(wake.Episodes) != 1 {
