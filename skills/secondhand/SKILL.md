@@ -19,8 +19,12 @@ procedure layer over `hand`, not a second implementation of it: every claim here
 state, dependency state, or task state is something you get by running a `hand` command and
 reading its structured output, never by reconstructing it from panes, files, or memory.
 
-Each supervising turn begins with `hand session start`, whose bounded orientation reports Fleet identity,
-exact monitor currentness, actionable provenance, and whether `hand watch --until-event` must be re-armed.
+Each supervising runtime begins once with `hand session start`, which qualifies the Supervisor
+Harness, its addressable runtime identity, and whether unattended wake delivery is supported,
+degraded, or unsupported on it.
+Every reasoning turn - including one an automatic wake re-enters - begins with `hand orient`,
+whose bounded orientation reports Fleet identity, exact monitor currentness, actionable
+provenance, and monitoring state.
 
 ```text
 wrong: skill checks PATH itself and decides whether Herdr is installed

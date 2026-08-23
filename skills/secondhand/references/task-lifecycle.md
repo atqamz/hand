@@ -5,6 +5,7 @@
 ```sh
 hand spawn <id> <project> [--scout] [--profile <name>]     # launch a worker
 hand status [id]                                            # fleet overview, or one task's detail
+hand orient                                                 # first Hand read of every reasoning turn
 hand watch --until-event [--event <kinds>] [--timeout <d>]  # wait for the fleet's next actionable event
 hand send <id> <message>                                    # steer a running worker
 hand hold set <id> --kind operator --reason <text>           # waiting on the operator

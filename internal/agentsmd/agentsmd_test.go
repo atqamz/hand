@@ -8,13 +8,6 @@ import (
 	"testing"
 )
 
-func withWindows(t *testing.T) {
-	t.Helper()
-	restore := isWindows
-	isWindows = func() bool { return true }
-	t.Cleanup(func() { isWindows = restore })
-}
-
 func makeWorkspace(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -76,23 +69,19 @@ func TestRefreshWritesCanonicalAgentsMdAndClaudeReferenceWhenMissing(t *testing.
 		t.Fatalf("got archive %q, want the migration sentinel", archive)
 	}
 
-	claudePath := filepath.Join(dir, "CLAUDE.md")
-	if runtime.GOOS == "windows" {
-		got, err := os.ReadFile(claudePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != windowsClaudeContent {
-			t.Fatalf("got CLAUDE.md content %q, want %q", got, windowsClaudeContent)
-		}
-	} else {
-		link, err := os.Readlink(claudePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if link != "AGENTS.md" {
-			t.Fatalf("got CLAUDE.md -> %q, want AGENTS.md", link)
-		}
+	got, err = os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != claudeContent {
+		t.Fatalf("got CLAUDE.md content %q, want the %q pointer file", got, claudeContent)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("got CLAUDE.md as a symlink, want a regular pointer file on every platform")
 	}
 }
 
@@ -339,8 +328,38 @@ func TestRefreshDoesNotOverwriteExistingClaudeSymlink(t *testing.T) {
 	}
 }
 
-func TestRefreshWritesWindowsClaudeFileWhenMissing(t *testing.T) {
-	withWindows(t)
+// The Hand-era Unix symlink to AGENTS.md upgrades to the pointer file every
+// platform now uses; a foreign target never does.
+func TestRefreshMigratesHandOwnedSymlinkToPointerFile(t *testing.T) {
+	dir := makeWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(generatedBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("AGENTS.md", filepath.Join(dir, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Refresh(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Lstat(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("got the old symlink left in place, want it migrated to the pointer file")
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != claudeContent {
+		t.Fatalf("got CLAUDE.md content %q, want %q", got, claudeContent)
+	}
+}
+
+func TestRefreshWritesClaudePointerWhenMissing(t *testing.T) {
 	dir := makeWorkspace(t)
 
 	if _, err := Refresh(dir); err != nil {
@@ -352,20 +371,22 @@ func TestRefreshWritesWindowsClaudeFileWhenMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("got CLAUDE.md as a symlink, want a regular file on Windows")
+		t.Fatal("got CLAUDE.md as a symlink, want a regular pointer file")
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != windowsClaudeContent {
-		t.Fatalf("got CLAUDE.md content %q, want %q", got, windowsClaudeContent)
+	if string(got) != claudeContent {
+		t.Fatalf("got CLAUDE.md content %q, want %q", got, claudeContent)
 	}
 }
 
-func TestRefreshDoesNotOverwriteExistingWindowsClaudeFile(t *testing.T) {
-	withWindows(t)
+func TestRefreshDoesNotOverwriteExistingClaudeFile(t *testing.T) {
 	dir := makeWorkspace(t)
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(generatedBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("custom\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -480,8 +501,7 @@ func TestCheckCleanRightAfterRefresh(t *testing.T) {
 	}
 }
 
-func TestCheckCleanForWindowsClaudeFileRightAfterRefresh(t *testing.T) {
-	withWindows(t)
+func TestCheckCleanForClaudePointerRightAfterRefresh(t *testing.T) {
 	dir := makeWorkspace(t)
 	if _, err := Refresh(dir); err != nil {
 		t.Fatal(err)
@@ -496,8 +516,7 @@ func TestCheckCleanForWindowsClaudeFileRightAfterRefresh(t *testing.T) {
 	}
 }
 
-func TestCheckFlagsMissingWindowsClaudeFile(t *testing.T) {
-	withWindows(t)
+func TestCheckFlagsMissingClaudePointer(t *testing.T) {
 	dir := makeWorkspace(t)
 	if _, err := Refresh(dir); err != nil {
 		t.Fatal(err)
@@ -515,8 +534,7 @@ func TestCheckFlagsMissingWindowsClaudeFile(t *testing.T) {
 	}
 }
 
-func TestCheckFlagsDriftedWindowsClaudeFile(t *testing.T) {
-	withWindows(t)
+func TestCheckFlagsDriftedClaudePointer(t *testing.T) {
 	dir := makeWorkspace(t)
 	if _, err := Refresh(dir); err != nil {
 		t.Fatal(err)
@@ -529,7 +547,7 @@ func TestCheckFlagsDriftedWindowsClaudeFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasViolation(violations, "CLAUDE.md is not the Windows") {
+	if !hasViolation(violations, "CLAUDE.md is not the @AGENTS.md pointer") {
 		t.Fatalf("got %v, want a drifted CLAUDE.md violation", violations)
 	}
 }

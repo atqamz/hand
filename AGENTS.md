@@ -1,7 +1,9 @@
 ## Secondhand supervisor bootstrap
 
-Before responding or acting in a supervising session, run `hand session start`.
-Do not run supervisor bootstrap when `HAND_ROLE=worker`.
+At the beginning of a new Supervisor runtime/session, run `hand session start` once.
+Before reasoning or acting in every Supervisor turn, run `hand orient`.
+After an automatic wake/re-entry, run `hand orient` before any action.
+Do not run supervisor commands when `HAND_ROLE=worker`.
 
 This file is Hand-owned and immutable: `hand init` restores it byte-for-byte, and
 nobody edits it by hand, including the supervisor. The same rule covers every other
