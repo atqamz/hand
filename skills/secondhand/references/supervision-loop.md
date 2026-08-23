@@ -46,26 +46,49 @@ STOP when the goal/terminal condition is satisfied
 
 ## Deciding the next action
 
-Do not maintain a separate mental precedence table for what to do next: `hand session start`
+Do not maintain a separate mental precedence table for what to do next: `hand orient`
 already reports one, deterministically, in its `next_action_kind`, `next_action_task`,
 `next_action_command`, and `next_action_reason` fields. Read those, act on the named command,
-and re-run `hand session start` (or `hand status`) after acting rather than assuming the fleet
-still looks the way it did before you acted.
+and run `hand orient` again after acting rather than assuming the fleet still looks the way it
+did before you acted.
 
 ```text
 wrong: keeping your own running list of "what's next" across a long session
-right: re-reading hand session start's next_action_* fields after every action that could have
-       changed fleet state
+right: re-reading hand orient's next_action_* fields after every action that could have changed
+       fleet state
 
 The same output includes a bounded `orientation_*` view with Fleet identity, exact monitor targets,
 currentness, actionable provenance, and `monitor_state`.
-When that state is `rearmed`, follow its `monitor-rearm` action and run `hand watch --until-event` to keep monitoring.
+When that state is `rearmed`, follow its `monitor-rearm` action and keep monitoring through your
+harness's wake bridge rather than model memory.
 ```
+
+## Wakes and turn delivery
+
+There is no universal way to wake an agent; each host has its own bridge, and Hand owns the
+wake semantics while the host owns converting them into your next reasoning opportunity.
+
+```text
+claude    -> Hand-owned Stop hook: an eligible wake returns exit 2 feedback that starts a follow-up turn
+codex     -> the Fleet-local .codex/hooks.json Stop hook owns the post-turn wait and enqueues the wake on the exact live thread via codex queue
+opencode  -> persistent plugin arms one wait child per idle session and delivers through the synchronous prompt API
+pi        -> extension arms one wait child and sends the wake as a followUp message that triggers a turn
+grok      -> a host-owned background task runs hand supervision wait --host grok; its completion notification re-enters you
+```
+
+Run `hand doctor` and read its supervisor fields when unsure what your harness supports:
+watcher liveness, bridge attachment, wake acceptance, and orientation progress are separate
+answers, and only orientation progress demonstrates a reasoning turn actually happened.
+
+After any automatic wake, run `hand orient` before acting - the wake that reached you is one
+fact, not the full current truth, and can be stale relative to everything else that has
+happened since.
 
 ## Watching, phase by phase
 
-There is no one universal "actionable events" list to filter on; the right `--event` filter
-depends on what phase of the loop you are in.
+`hand watch --until-event` remains the operator-facing watcher: arming observes the fleet's
+already-actionable state first, then exits on the first new event with typed exits
+(8 interrupted, 9 replaced). The `--event` filter depends on what phase of the loop you are in.
 
 ```text
 wrong: always run hand watch --until-event with no --event filter, every time, at every phase

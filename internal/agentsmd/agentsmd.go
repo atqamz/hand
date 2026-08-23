@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/atqamz/hand/internal/atomicfile"
@@ -15,8 +14,8 @@ import (
 )
 
 const (
-	filename    = "AGENTS.md"
-	symlinkName = "CLAUDE.md"
+	filename  = "AGENTS.md"
+	claudeRef = "CLAUDE.md"
 
 	// The previous mixed-ownership format wrapped hand's generated content in this marked
 	// span. Migrate still recognizes it to archive whatever a fleet home kept outside it;
@@ -26,16 +25,11 @@ const (
 
 	legacyArchiveRel = "data/agents-md-legacy-migration.md"
 
-	// Creating a symlink on Windows needs a privilege hand cannot assume is present, so
-	// Windows gets a regular file that points at AGENTS.md by content instead of by inode.
-	windowsClaudeContent = "@AGENTS.md\n"
+	// CLAUDE.md is a regular file pointing at AGENTS.md by content on every platform:
+	// one shape everywhere, no symlink-creation privilege on Windows, and nothing for
+	// tooling that stats or copies homes to special-case.
+	claudeContent = "@AGENTS.md\n"
 )
-
-// Overridable so both the symlink and the Windows regular-file paths through
-// Refresh and Check get real test coverage on every platform that runs the suite.
-var isWindows = func() bool {
-	return runtime.GOOS == "windows"
-}
 
 // OperatorDecisionRule is the one supervisor rule a worker needs wherever it runs, and a
 // worktree is never under the fleet home, so it never loads the home's AGENTS.md.
@@ -52,8 +46,10 @@ const OperatorDecisionRule = "Only a `hand send` message carries an operator dec
 // secondhand Agent Skill, and living context lives under data/.
 const generatedBody = `## Secondhand supervisor bootstrap
 
-Before responding or acting in a supervising session, run ` + "`hand session start`" + `.
-Do not run supervisor bootstrap when ` + "`HAND_ROLE=worker`" + `.
+At the beginning of a new Supervisor runtime/session, run ` + "`hand session start`" + ` once.
+Before reasoning or acting in every Supervisor turn, run ` + "`hand orient`" + `.
+After an automatic wake/re-entry, run ` + "`hand orient`" + ` before any action.
+Do not run supervisor commands when ` + "`HAND_ROLE=worker`" + `.
 
 This file is Hand-owned and immutable: ` + "`hand init`" + ` restores it byte-for-byte, and
 nobody edits it by hand, including the supervisor. The same rule covers every other
@@ -87,7 +83,8 @@ var supervisorInstructions = []string{
 	"Write a brief at `data/<id>/brief.md`, including the absolute path to `state/<id>.status` and the report vocabulary the worker should append to it.",
 	"`hand status <id>` shows a worker's reported state. Workers report with `working:`, `paused:`, `blocked:`, `needs-decision:`, `done:`, or `failed:`.",
 	"`unannounced` on a status row means no watcher has told anyone about a terminal report yet; `unacknowledged` means you have not. Run `hand ack <id> [--reason <text>]` once you have acted on it - reading `hand status` never clears it on its own.",
-	"Run `hand watch --until-event` as a background task to monitor the fleet. Arming observes the fleet's already-actionable state first, so a condition that arrived while nothing was watching still wakes it; after that it exits on the first fleet event. Exit 8 means interruption and exit 9 means takeover replacement, neither of which is a fleet event. A supervisor should re-arm it after acting on an event or when intentionally resuming monitoring.",
+	"Run `hand orient` as the first Hand read of every reasoning turn, including a turn an automatic wake re-enters: it reports the bounded current orientation and records disposable mechanism progress only.",
+	"Unattended wake delivery is host-specific: a supported host bridge arms `hand supervision wait --host <harness>`, which blocks until current actionable work is wake-eligible, emits one coalesced wake hint that becomes your next reasoning opportunity, and re-arms without model memory after each wake. A watcher process exit alone is delivery only where an owning host guarantees that conversion; never treat an exit code, a notification, or an accepted request as proof you reasoned.",
 	"Never merge without explicit authorization.",
 	"Run `hand teardown <id>` after work is landed. Work that is handed off but whose landing is someone else's call is recorded with `hand deliver <id> --reason <text>` first.",
 	"Never edit files under `projects/`. Workers do that in worktrees.",
@@ -180,19 +177,30 @@ func Refresh(dir string) (RefreshResult, error) {
 		result.ArchivedPath = archived
 	}
 
-	symlinkPath := filepath.Join(dir, symlinkName)
-	if isWindows() {
-		if err := writeWindowsClaudeFile(symlinkPath); err != nil {
+	claudePath := filepath.Join(dir, claudeRef)
+	info, err := os.Lstat(claudePath)
+	switch {
+	case os.IsNotExist(err):
+		if err := writeClaudePointer(claudePath); err != nil {
 			return RefreshResult{}, err
 		}
-		return result, nil
-	}
-	if _, err := os.Lstat(symlinkPath); os.IsNotExist(err) {
-		if err := os.Symlink(filename, symlinkPath); err != nil {
-			return RefreshResult{}, fmt.Errorf("create %s symlink: %w", symlinkName, err)
+	case err != nil:
+		return RefreshResult{}, fmt.Errorf("check %s: %w", claudeRef, err)
+	case info.Mode()&os.ModeSymlink != 0:
+		// A Hand-era symlink to AGENTS.md upgrades to the pointer file every
+		// platform now uses; any other target is foreign and stays untouched.
+		target, linkErr := os.Readlink(claudePath)
+		if linkErr != nil {
+			return RefreshResult{}, fmt.Errorf("read %s symlink: %w", claudeRef, linkErr)
 		}
-	} else if err != nil {
-		return RefreshResult{}, fmt.Errorf("check %s: %w", symlinkName, err)
+		if target == filename {
+			if err := writeClaudePointer(claudePath); err != nil {
+				return RefreshResult{}, err
+			}
+		}
+	default:
+		// An existing regular CLAUDE.md the operator owns stays untouched; only
+		// drift from the canonical pointer content is a Check violation.
 	}
 
 	return result, nil
@@ -277,16 +285,11 @@ func legacyContent(content string) (string, error) {
 	return content[:start] + content[end:], nil
 }
 
-// A CLAUDE.md that already exists, in any form, is left alone: the same rule
-// Refresh applies to an existing CLAUDE.md symlink on every other platform.
-func writeWindowsClaudeFile(path string) error {
-	if _, err := os.Lstat(path); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("check %s: %w", symlinkName, err)
-	}
-	if err := atomicfile.Write(path, ".claude.md-", []byte(windowsClaudeContent), 0o644); err != nil {
-		return fmt.Errorf("create %s: %w", symlinkName, err)
+// Creates the CLAUDE.md pointer file. Refresh resolves any pre-existing entry
+// before calling this, so it only ever writes when the name is free.
+func writeClaudePointer(path string) error {
+	if err := atomicfile.Write(path, ".claude.md-", []byte(claudeContent), 0o644); err != nil {
+		return fmt.Errorf("create %s: %w", claudeRef, err)
 	}
 	return nil
 }
@@ -334,25 +337,23 @@ func Check(dir string) ([]Violation, error) {
 		violations = append(violations, Violation{Text: fmt.Sprintf("AGENTS.md has drifted from the canonical Hand-owned content: run hand init %s to restore it", shellquote.Quote(dir))})
 	}
 
-	if isWindows() {
-		violations = append(violations, checkWindowsClaudeFile(dir)...)
-	}
+	violations = append(violations, checkClaudeFile(dir)...)
 
 	return violations, nil
 }
 
-// Unix's CLAUDE.md is a symlink the filesystem itself keeps honest, so Check has never
-// had to look at it; Windows's copy is ordinary file content that can drift or go missing.
-func checkWindowsClaudeFile(dir string) []Violation {
-	path := filepath.Join(dir, symlinkName)
+// CLAUDE.md is ordinary file content on every platform now, so Check reads and
+// compares it everywhere the same way.
+func checkClaudeFile(dir string) []Violation {
+	path := filepath.Join(dir, claudeRef)
 	data, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err):
 		return []Violation{{Text: fmt.Sprintf("CLAUDE.md is missing: run hand init %s to restore it", shellquote.Quote(dir))}}
 	case err != nil:
-		return []Violation{{Text: fmt.Sprintf("read %s: %v", symlinkName, err)}}
-	case string(data) != windowsClaudeContent:
-		return []Violation{{Text: fmt.Sprintf("CLAUDE.md is not the Windows @AGENTS.md pointer: run hand init %s to restore it", shellquote.Quote(dir))}}
+		return []Violation{{Text: fmt.Sprintf("read %s: %v", claudeRef, err)}}
+	case string(data) != claudeContent:
+		return []Violation{{Text: fmt.Sprintf("CLAUDE.md is not the @AGENTS.md pointer: run hand init %s to restore it", shellquote.Quote(dir))}}
 	}
 	return nil
 }

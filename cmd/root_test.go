@@ -196,11 +196,30 @@ func TestBareInvocationReportsConfigurationStateAndAsksTheOperator(t *testing.T)
 	}
 }
 
-func TestBareInvocationInHomeUsesTheSessionStartRenderer(t *testing.T) {
+// Since the #353 split, bare hand keeps the ordinary fleet overview while
+// `hand session start` is one-time runtime bootstrap: the two documents are
+// deliberately different answers to different questions.
+func TestBareInvocationInHomeRendersTheFleetOverviewNotBootstrap(t *testing.T) {
 	setupSessionHome(t)
-	want := runSessionStartForTest(t)
-	if got := runBareRoot(t); got != want {
-		t.Fatalf("bare hand = %q, want the exact hand session start overview %q", got, want)
+	out := runBareRoot(t)
+	for _, want := range []string{
+		"orientation_schema: hand.supervisor.v1\n",
+		"tasks[0]{id,state,reported,age,flags}:\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out = %q, want the fleet overview to contain %q", out, want)
+		}
+	}
+	if strings.Contains(out, "next_command: hand orient\n") {
+		t.Fatalf("out = %q, want the overview not to answer the bootstrap question", out)
+	}
+
+	started := runSessionStartForTest(t)
+	if !strings.Contains(started, "session_bootstrap: complete\n") || !strings.Contains(started, "next_command: hand orient\n") {
+		t.Fatalf("session start = %q, want the bootstrap contract", started)
+	}
+	if started == out {
+		t.Fatal("bare hand rendered the same document as hand session start")
 	}
 }
 

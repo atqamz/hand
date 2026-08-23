@@ -143,6 +143,7 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			doc.List("blocking", blocking)
 			doc.List("next", next)
 			axi.Table(&doc, "integrations", integrations, integrationFields)
+			appendSupervisionDiagnostics(&doc, cmd.Context(), fleetHome)
 			axi.Table(&doc, "findings", findings, cols)
 			doc.Help(doctorHelp(len(findings), failing)...)
 			if err := doc.Render(cmd.OutOrStdout()); err != nil {

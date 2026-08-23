@@ -1,7 +1,7 @@
 # Process exit delivers watcher events to the supervisor
 
 - Date: 2026-08-04
-- Status: accepted, with its silent baseline superseded by [Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md)
+- Status: accepted, with its silent baseline superseded by [Arming a watch observes before it waits](arming-a-watch-observes-before-it-waits.md), and its delivery claim narrowed by [Supervisor turn delivery is host-specific](supervisor-turn-delivery-is-host-specific.md)
 - Issues: none
 - PRs: atqamz/hand#125
 
@@ -27,3 +27,6 @@ One invocation delivers one wake and must be re-armed. Events consumed during ba
 
 Each delivered event can also carry a structured wake hint with Fleet identity, exact monitor target, opaque currentness, and a bounded reason.
 Consumers re-orient before acting and discard a wake whose target or currentness is stale.
+
+Narrowed by [Supervisor turn delivery is host-specific](supervisor-turn-delivery-is-host-specific.md): a process exit is a usable delivery primitive only where an owning host is guaranteed to convert it into another Supervisor reasoning opportunity.
+Once the outer Supervisor turn has ended, an exit code alone proves nothing followed; supported hosts get their turn through their own bridge (`hand supervision wait --host <harness>` plus the per-host mechanism), and the resulting reasoning turn begins with `hand orient`.

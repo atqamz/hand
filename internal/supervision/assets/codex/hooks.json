@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          __HAND_CODEX_STOP__
+        ]
+      }
+    ]
+  }
+}

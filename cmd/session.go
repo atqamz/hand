@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/watcher"
 	"github.com/spf13/cobra"
 )
@@ -52,6 +54,9 @@ func newSessionCmd(version string) *cobra.Command {
 	return cmd
 }
 
+// One-time runtime bootstrap: resolve the Fleet, validate the role, identify
+// the harness and its runtime, qualify the installed bridge. Read-only against
+// static integration (init owns those bytes) and not a current-work read.
 func runSessionStart(cmd *cobra.Command, version string) error {
 	if os.Getenv(harness.RoleEnv) == harness.WorkerRole {
 		return &ExitError{Err: fmt.Errorf("supervisor session bootstrap is unavailable when %s=%s", harness.RoleEnv, harness.WorkerRole), Code: 3}
@@ -60,7 +65,70 @@ func runSessionStart(cmd *cobra.Command, version string) error {
 	if err != nil {
 		return asPrecondition(err)
 	}
-	return renderSessionOverview(cmd, version, fleetHome)
+	if _, err := state.FleetIDReadOnly(fleetHome); err != nil {
+		// A home without fleet identity is a bootstrap precondition: the
+		// remedy is init. Any other store fault stays the owning reader's
+		// general error rather than being reclassified.
+		if errors.Is(err, state.ErrFleetIdentityMissing) {
+			return &ExitError{Err: fmt.Errorf("read Fleet identity for supervisor bootstrap: %w; run `hand init %s` to restore it", err, shellquote.Quote(fleetHome)), Code: 3}
+		}
+		return fmt.Errorf("read Fleet identity for supervisor bootstrap: %w", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "unknown"
+	}
+	detection, err := harness.DetectCurrent()
+	if err != nil {
+		return err
+	}
+
+	status, err := supervision.IntegrationStatus(cmd.Context(), supervision.StatusInput{
+		Home:      fleetHome,
+		Detection: detection,
+		Exe:       exe,
+	})
+	if err != nil {
+		return err
+	}
+
+	var doc axi.Doc
+	doc.Field("session_bootstrap", "complete")
+	doc.Field("tool", "hand")
+	doc.Field("version", version)
+	doc.Field("exec", tildePath(exe))
+	doc.Field("home", tildePath(fleetHome))
+	doc.Field("supervisor_harness", orNone(status.Harness))
+	doc.Field("supervisor_harness_source", orNone(status.HarnessSource))
+	doc.Field("runtime_identity_status", orNone(status.RuntimeIdentity))
+	doc.Field("runtime_identity_detail", orNone(status.RuntimeDetail))
+	doc.Field("bootstrap_integration_status", orNone(status.Integration))
+	doc.Field("bootstrap_integration_detail", orNone(status.IntegrationDetail))
+	doc.Field("wake_delivery_capability", status.WakeDelivery)
+	doc.Field("wake_delivery_reason", orNone(status.WakeDeliveryReason))
+	doc.Field("wake_delivery_attachment_status", orNone(status.Attachment))
+	doc.Field("watcher_observer_liveness", orNone(status.WatcherLiveness))
+	lastAccepted, lastOriented := supervision.OpenLedger(fleetHome).Progress()
+	doc.Field("wake_delivery_last_accepted", timestampOrNone(lastAccepted))
+	doc.Field("orientation_progress", timestampOrNone(lastOriented))
+	doc.Field("next_command", "hand orient")
+	help := []string{
+		"Before reasoning or acting in every Supervisor turn, run `hand orient`",
+		"After an automatic wake/re-entry, run `hand orient` before any action",
+	}
+	switch status.WakeDelivery {
+	case supervision.CapabilityDegraded:
+		help = append(help, "Unattended Supervisor turn delivery is degraded here: "+status.WakeDeliveryReason)
+	case supervision.CapabilityUnsupported:
+		help = append(help, "Unattended Supervisor turn delivery is unsupported here: "+status.WakeDeliveryReason)
+	case supervision.CapabilityUnqualified:
+		help = append(help, "Wake delivery is available but not yet live-qualified on this build: "+status.WakeDeliveryReason)
+	}
+	if status.Integration == "stale" || status.Integration == "absent" || status.Integration == "conflict" {
+		help = append(help, "Repair Hand-owned integration with `hand init "+shellquote.Quote(fleetHome)+"`; then restart or reload this harness if it caches configuration at startup")
+	}
+	doc.Help(help...)
+	return doc.Render(cmd.OutOrStdout())
 }
 
 func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error {
@@ -94,7 +162,7 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	if err != nil {
 		return err
 	}
-	views, holds, err := fleetViews(cmd, fleetHome, client, true)
+	views, holds, err := fleetViews(cmd.Context(), cmd.ErrOrStderr(), fleetHome, client, true)
 	if err != nil {
 		return err
 	}

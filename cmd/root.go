@@ -79,6 +79,8 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newFleetCmd())
 	root.AddCommand(newReconcileCmd())
 	root.AddCommand(newSessionCmd(info.Version))
+	root.AddCommand(newOrientCmd())
+	root.AddCommand(newSupervisionCmd())
 	root.AddCommand(newSendCmd())
 	root.AddCommand(newHoldCmd())
 	root.AddCommand(newDeliverCmd())

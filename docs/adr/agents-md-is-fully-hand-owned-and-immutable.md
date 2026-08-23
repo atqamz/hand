@@ -19,6 +19,8 @@ The first time `hand init` finds a fleet home's `AGENTS.md` predating this model
 
 `hand doctor`'s drift check now compares the whole file against the canonical body byte-for-byte instead of scanning for perishable content or marker damage, since there is no longer a span within the file that legitimately differs.
 
+`CLAUDE.md`, the reference Claude reads when the name is otherwise absent, is the regular `@AGENTS.md` pointer file on every platform (2026-08-23, operator decision). One shape everywhere removes the Windows symlink-creation privilege dependency and gives stat/copy tooling nothing to special-case; a Hand-era Unix symlink to `AGENTS.md` upgrades to the pointer file on the next refresh, while any other pre-existing `CLAUDE.md` stays untouched as operator-owned content.
+
 ## Rejected alternatives
 
 - Keeping the marked-span model and only shrinking its content leaves every cost this decision removes: merge logic, drift heuristics for content the span cannot own, and an unsettled boundary between `AGENTS.md` and the fleet home's own notes.

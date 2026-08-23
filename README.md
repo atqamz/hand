@@ -119,7 +119,7 @@ cd ~/secondhand-fleet
 hand init
 ```
 
-`hand init` is non-interactive. It creates the fleet structure, installs the bundled `secondhand` Agent Skill for supported harnesses, and writes the canonical, Hand-owned `AGENTS.md`: a small, immutable set of invariants telling any supervising harness to run `hand session start` before acting, restored byte-for-byte on every later `hand init`. A `CLAUDE.md` reference is written alongside it when that name is otherwise absent - a symlink on Unix and an `@AGENTS.md` pointer file on Windows.
+`hand init` is non-interactive. It creates the fleet structure, installs the bundled `secondhand` Agent Skill for supported harnesses, installs or refreshes the Hand-owned supervisor wake bridges (the Claude Stop hook entry in `.claude/settings.json`, the OpenCode plugin, the Pi extension, and the Codex project-scope Stop hook in `.codex/hooks.json`), and writes the canonical, Hand-owned `AGENTS.md`: a small, immutable set of invariants telling any supervising harness to run `hand session start` once per runtime and `hand orient` every turn, restored byte-for-byte on every later `hand init`. A `CLAUDE.md` reference is written alongside it when that name is otherwise absent - the `@AGENTS.md` pointer file on every platform.
 
 ### 3. Add or create a project
 
@@ -142,8 +142,9 @@ cd ~/secondhand-fleet
 claude
 ```
 
-The canonical `AGENTS.md` tells the harness to run `hand session start` before responding or acting; that command loads bounded fleet context, returns Fleet-scoped orientation and monitor currentness, reports the first next action, and refuses outright inside a worker's isolated worktree.
-When it cannot prove a detached watcher, it reports a bounded re-arm and names `hand watch --until-event`.
+The canonical `AGENTS.md` tells the harness to run `hand session start` once at the beginning of a new Supervisor runtime - one-time read-only bootstrap that identifies the Supervisor Harness, qualifies whether unattended wake delivery is supported, degraded, or unsupported on it, and reports the installed integration state without touching any static byte (only `hand init` installs or repairs those) - and `hand orient` before reasoning or acting in every turn, including a turn an automatic wake re-enters.
+Both commands refuse outright inside a worker's isolated worktree (`HAND_ROLE=worker`).
+Unattended wake delivery is host-specific: each supported harness gets its next reasoning opportunity through its own bridge (Claude Stop hook asyncRewake, Codex project-scope Stop hook driving the same-thread queue, OpenCode persistent plugin with the synchronous prompt API, Pi extension follow-up, Grok host-owned background completion), never through a watcher process exit alone.
 Any other supported harness reads the same instructions from `AGENTS.md` directly.
 
 On the first session, the supervisor inspects `hand config`, asks only unresolved configuration policy questions, and persists accepted profile and route choices through the CLI.

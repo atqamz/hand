@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,10 +16,10 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/axi"
-	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
 	"github.com/atqamz/hand/internal/watcher"
@@ -91,36 +90,41 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 	out := runSessionStartForTest(t)
 	for _, want := range []string{
 		"session_bootstrap: complete\n",
-		"orientation_schema: hand.supervisor.v1\n",
-		"fleet_id: f_",
-		"monitor_state: rearmed\n",
-		"monitor_targets[0]{id,kind,currentness}:\n",
-		"orientation_actionable[0]{target_id,kind,reason,provenance}:\n",
 		"tool: hand\n",
 		"version: test\n",
 		"exec:",
 		"home: " + axi.Value(home) + "\n",
 		"supervisor_harness: codex\n",
 		"supervisor_harness_source: override\n",
-		"harness,detected,codex",
-		"model,native-default,none",
-		"operator: \"## Hard constraints\\nKeep every line.\\nIncluding: punctuation.\"\n",
-		"instructions[",
-		"projects[0]{name,mode,url,upstream}:\n",
-		"backlog[2]:\n",
-		"count: 0\n",
-		"attention: 0\n",
-		"held: 0\n",
-		"tasks[0]{id,state,reported,age,flags}:\n",
-		"holds[0]{id,kind,detail,age}:\n",
-		"help[1]:\n",
+		"runtime_identity_status: unidentified\n",
+		// Session start never installs; an un-integrated home reports the
+		// absence and degrades honestly instead of repairing silently.
+		"bootstrap_integration_status: absent\n",
+		"wake_delivery_capability: degraded\n",
+		"wake_delivery_attachment_status:",
+		"watcher_observer_liveness:",
+		"next_command: hand orient\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("out = %q, want %q", out, want)
 		}
 	}
-	if strings.Contains(out, "private implementation body") {
-		t.Fatalf("out = %q, want indented backlog bodies omitted", out)
+	// Bootstrap is not the ordinary current-work read: no orientation dump, no
+	// project/backlog/operator context, no instruction list. Every reasoning
+	// turn observes through hand orient instead.
+	for _, banned := range []string{
+		"orientation_schema:",
+		"orientation_actionable",
+		"projects[0]{name,mode,url,upstream}:",
+		"backlog[",
+		"operator: ",
+		"instructions[",
+		"tasks[0]{id,state,reported,age,flags}:",
+		"private implementation body",
+	} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("out = %q, want bootstrap output without %q", out, banned)
+		}
 	}
 }
 
@@ -172,32 +176,32 @@ func TestSessionStartRefusesOutsideFleetHome(t *testing.T) {
 	}
 }
 
-func TestSessionStartMissingRequiredContextNamesPathAndRecovery(t *testing.T) {
+// data/operator.md and data/backlog.md are the supervisor's own reading list,
+// not bootstrap inputs: one-time runtime qualification must complete without
+// them and leave their absence to the generated instructions to surface.
+func TestSessionStartCompletesWithoutOperatorOrBacklogContext(t *testing.T) {
+	home := setupSessionHome(t)
 	for _, name := range []string{"operator.md", "backlog.md"} {
-		t.Run(name, func(t *testing.T) {
-			home := setupSessionHome(t)
-			path := filepath.Join(home, "data", name)
-			if err := os.Remove(path); err != nil {
-				t.Fatal(err)
-			}
+		if err := os.Remove(filepath.Join(home, "data", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
 
-			_, err := executeSessionStart(t, nil)
-			assertExitCode(t, err, 3)
-			for _, want := range []string{path, "hand init '" + home + "'"} {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("err = %q, want %q", err, want)
-				}
-			}
-		})
+	out, err := executeSessionStart(t, nil)
+	if err != nil {
+		t.Fatalf("session start = %v, want a completed bootstrap", err)
+	}
+	if !strings.Contains(out, "session_bootstrap: complete\n") || !strings.Contains(out, "next_command: hand orient\n") {
+		t.Fatalf("out = %q, want the bootstrap contract", out)
 	}
 }
 
-func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
+func TestSessionStartResolvesFleetIdentityBeforeQualifyingTheRuntime(t *testing.T) {
 	parent := t.TempDir()
 	home := filepath.Join(parent, "fleet path's `printf injected`;printf injected")
 	mkFleetDirs(t, home)
 	writeSessionContext(t, home, "operator", "# Backlog\n")
-	if err := os.Remove(filepath.Join(home, "data", "operator.md")); err != nil {
+	if err := os.Remove(filepath.Join(home, "state", "hand.db")); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HAND_HOME", home)
@@ -205,25 +209,12 @@ func TestSessionStartRecoveryCommandQuotesFleetHomeForPOSIXShell(t *testing.T) {
 	t.Setenv(harness.RoleEnv, "")
 	t.Chdir(parent)
 
-	bin := faketool.Bin(t)
-	faketool.Command{Name: "hand", Args: true}.Install(t, bin)
-
 	_, err := executeSessionStart(t, nil)
 	assertExitCode(t, err, 3)
-	message := err.Error()
-	start := strings.LastIndex(message, "; run `")
-	end := strings.LastIndex(message, "` to restore it")
-	if start < 0 || end <= start {
-		t.Fatalf("err = %q, want an executable recovery command", message)
-	}
-	recovery := message[start+len("; run `") : end]
-	got, runErr := exec.Command("sh", "-c", recovery).CombinedOutput()
-	if runErr != nil {
-		t.Fatalf("run recovery %q: %v: %s", recovery, runErr, got)
-	}
-	want := "2\ninit\n" + home + "\n"
-	if string(got) != want {
-		t.Fatalf("recovery argv = %q, want %q", got, want)
+	for _, want := range []string{"fleet identity missing", "run `hand init " + shellquote.Quote(home)} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %q, want it to name %q", err, want)
+		}
 	}
 }
 
@@ -349,10 +340,16 @@ func TestSessionOverviewsDoNotMutateFleetState(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{"sqlite-project", "sqlite-task", "sqlite-hold"} {
-				if !strings.Contains(out, want) {
-					t.Fatalf("out = %q, want current SQLite-backed %q", out, want)
+			// Bootstrap qualifies the runtime without rendering current work;
+			// the bare overview is the surface that reports SQLite-backed state.
+			if len(test.args) == 0 {
+				for _, want := range []string{"sqlite-project", "sqlite-task", "sqlite-hold"} {
+					if !strings.Contains(out, want) {
+						t.Fatalf("out = %q, want current SQLite-backed %q", out, want)
+					}
 				}
+			} else if !strings.Contains(out, "session_bootstrap: complete\n") {
+				t.Fatalf("out = %q, want a completed bootstrap", out)
 			}
 			after := snapshotFleetTree(t, home)
 			if !slices.Equal(after, before) {
@@ -443,10 +440,18 @@ func TestOldFleetRequiresExplicitRecoveryBeforeReadOnlyOverview(t *testing.T) {
 		if err != nil {
 			t.Fatalf("overview %d: %v", i+1, err)
 		}
-		for _, want := range []string{"legacy-project", "legacy-task"} {
-			if !strings.Contains(out, want) {
-				t.Fatalf("overview %d = %q, want migrated %q", i+1, out, want)
+		// Bootstrap qualifies the runtime without rendering current work; the
+		// bare overview is the surface that reports migrated tasks.
+		if len(args) == 0 {
+			for _, want := range []string{"legacy-project", "legacy-task"} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("overview %d = %q, want migrated %q", i+1, out, want)
+				}
 			}
+			continue
+		}
+		if !strings.Contains(out, "session_bootstrap: complete\n") {
+			t.Fatalf("overview %d = %q, want a completed bootstrap", i+1, out)
 		}
 		if afterOverview := snapshotFleetTree(t, home); !slices.Equal(afterOverview, afterRecovery) {
 			t.Fatalf("overview %d mutated the recovered fleet:\nbefore: %v\nafter:  %v", i+1, afterRecovery, afterOverview)
@@ -584,10 +589,10 @@ func TestReadBacklogSummaryBoundsIdentityLinesAndCountsTheWholeQueue(t *testing.
 	}
 }
 
-// classifyNextAction's own precedence and determinism coverage lives in cmd/nextaction_test.go; this
-// test is the session start integration boundary: the fleet-state-derived next_action_* fields and
-// help line actually reach the rendered document atqamz/hand#234 asks a supervisor to consume.
-func TestSessionStartRendersNextActionFromFleetState(t *testing.T) {
+// classifyNextAction precedence coverage lives in cmd/nextaction_test.go; this
+// is the orient integration boundary: fleet-state-derived fields, the bounded
+// orientation view, and the progress receipt reach one rendered document.
+func TestOrientRendersNextActionFromFleetState(t *testing.T) {
 	home := setupSessionHome(t)
 	db, err := store.Open(home)
 	if err != nil {
@@ -604,16 +609,61 @@ func TestSessionStartRendersNextActionFromFleetState(t *testing.T) {
 	}
 	writeSessionContext(t, home, "operator", "# Backlog\n\n## Queue\n- queued-task\n")
 
-	out := runSessionStartForTest(t)
+	root := newRootCmd(devBuild("test"))
+	root.SetArgs([]string{"orient"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(new(bytes.Buffer))
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
 	for _, want := range []string{
+		"orientation_schema: hand.supervisor.v1\n",
+		"fleet_id: f_",
+		"orientation_actionable[",
 		"next_action_kind: needs-repair\n",
 		"next_action_task: needs-repair-task\n",
 		"next_action_command: hand status needs-repair-task\n",
 		"next_action_reason: Run `hand status needs-repair-task` and resolve its repair ambiguity\n",
-		"help[1]:\n  - Run `hand status needs-repair-task` and resolve its repair ambiguity\n",
+		"wake_delivery_last_accepted: none\n",
 	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("out = %q, want %q", out, want)
+		if !strings.Contains(got, want) {
+			t.Fatalf("out = %q, want %q", got, want)
 		}
+	}
+
+	// The reasoning re-entry is recorded only as disposable mechanism progress:
+	// state/runtime/supervision-wake.json exists and carries oriented stamps,
+	// while canonical task truth stays untouched.
+	raw, err := os.ReadFile(filepath.Join(home, "state", "runtime", "supervision-wake.json"))
+	if err != nil {
+		t.Fatalf("read wake ledger: %v", err)
+	}
+	if !strings.Contains(string(raw), `"oriented":`) || !strings.Contains(string(raw), "hand.supervision.wake.v1") {
+		t.Fatalf("ledger = %q, want oriented stamps under the wake schema", raw)
+	}
+	after, err := state.ReadHistoryReadOnly(home, "needs-repair-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Task.RepairCode != "E_ORPHAN" {
+		t.Fatalf("task mutated by orient: %#v", after.Task)
+	}
+}
+
+func TestOrientRefusesWorkerRole(t *testing.T) {
+	setupSessionHome(t)
+	t.Setenv(harness.RoleEnv, harness.WorkerRole)
+
+	root := newRootCmd(devBuild("test"))
+	root.SetArgs([]string{"orient"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(new(bytes.Buffer))
+	_, err := root.ExecuteC()
+	assertExitCode(t, err, 3)
+	if want := "hand orient is unavailable when HAND_ROLE=worker"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %q, want %q", err, want)
 	}
 }
