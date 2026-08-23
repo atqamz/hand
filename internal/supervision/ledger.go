@@ -77,12 +77,12 @@ func OpenLedger(home string) *Ledger {
 
 func (l *Ledger) lockPath() string { return l.path + ledgerLockSuffix }
 
-// ClaimEligible atomically decides which current episodes may wake AND stamps
-// their delivery request inside one locked transaction: two concurrent
-// waiters can never both claim the same exact episode.
-func (l *Ledger) ClaimEligible(episodes []Episode) []Episode {
+// Atomically decides which current episodes may wake and stamps their delivery
+// request in one locked transaction: two waiters can never both claim the same
+// exact episode. Transaction faults return as errors, never empty claims.
+func (l *Ledger) ClaimEligible(episodes []Episode) ([]Episode, error) {
 	var claimed []Episode
-	_ = l.update(func(file *ledgerFile, now time.Time) {
+	err := l.update(func(file *ledgerFile, now time.Time) {
 		for _, episode := range episodes {
 			record, exists := file.Episodes[episode.Key()]
 			if !exists || l.eligibleRecord(record) {
@@ -99,7 +99,10 @@ func (l *Ledger) ClaimEligible(episodes []Episode) []Episode {
 			}
 		}
 	})
-	return claimed
+	if err != nil {
+		return nil, err
+	}
+	return claimed, nil
 }
 
 // Eligible filters current episodes down to the ones a wake may be requested

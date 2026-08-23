@@ -77,7 +77,12 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 		return Wake{}, err
 	}
 	if len(eligible) > 0 {
-		return claimAndDeliver(w, cfg, wake, allEpisodes)
+		wake, won, claimErr := claimAndDeliver(w, cfg, wake, allEpisodes)
+		if claimErr != nil || won {
+			return wake, claimErr
+		}
+		// Another waiter claimed these episodes first: fall through and keep
+		// waiting instead of answering an empty success.
 	}
 	attached, err := watcherAttached(w.Home)
 	if err != nil {
@@ -102,10 +107,10 @@ func currentEpisodes(ctx context.Context, w Waiter, host string) (Wake, []Episod
 	return wake, episodes, w.Ledger.Eligible(episodes), nil
 }
 
-// Keeps the bridge-attachment record fresh while this wait runs and clears it
-// on exit. Attachment thus means "a live child of this runtime holds this
-// host's bridge" - mechanically independent from watcher liveness.
-func runHeartbeat(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string) (stop func()) {
+// CAS-claims the host bridge under the attachment file lock, keeping its
+// record fresh until stopped. Faults and theft arrive on the guard channel:
+// a waiter running after losing its record would otherwise read as attached.
+func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string) (*bridgeGuard, error) {
 	interval := intervalOr(cfg.PollInterval)
 	if interval < time.Second {
 		interval = time.Second
@@ -124,68 +129,77 @@ func runHeartbeat(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string)
 		HeartbeatAt: now,
 		ExpiresAt:   now.Add(3 * interval),
 	}
-	_ = WriteAttachment(w.Home, record)
-	done := make(chan struct{})
+	acquired, err := AcquireAttachment(w.Home, record)
+	if err != nil {
+		return nil, fmt.Errorf("claim bridge attachment: %w", err)
+	}
+	if !acquired {
+		return nil, ErrBridgeOwned
+	}
+
+	guard := &bridgeGuard{stopc: make(chan struct{}), errc: make(chan error, 1)}
+	guard.stop = sync.OnceFunc(func() {
+		close(guard.stopc)
+		ClearAttachment(w.Home, cfg.Host, runtime)
+	})
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
+			case <-guard.stopc:
+				return
 			case <-ctx.Done():
-				ClearAttachment(w.Home, cfg.Host, runtime)
-				close(done)
 				return
 			case <-ticker.C:
 				now := time.Now()
 				record.HeartbeatAt = now
 				record.ExpiresAt = now.Add(3 * interval)
-				_ = WriteAttachment(w.Home, record)
+				ours, refreshErr := RefreshAttachment(w.Home, record)
+				if refreshErr != nil {
+					guard.errc <- fmt.Errorf("attachment heartbeat: %w", refreshErr)
+					return
+				}
+				if !ours {
+					guard.errc <- ErrBridgeOwned
+					return
+				}
 			}
 		}
 	}()
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			ClearAttachment(w.Home, cfg.Host, runtime)
-			go func() {
-				select {
-				case <-done:
-				case <-time.After(2 * interval):
-				}
-			}()
-		})
-	}
+	return guard, nil
 }
 
-// Reports whether a fresh record for this host names a different live runtime,
-// in which case this waiter must defer rather than steal the bridge.
-func bridgeOwnedByAnotherRuntime(w Waiter, cfg WaitConfig) bool {
-	owner := BridgeOwner(w.Home, cfg.Host, time.Now())
-	if owner == "" || owner == cfg.RuntimeSession {
-		return false
+// Advances one poll interval, aborting early on cancellation or a bridge-guard
+// fault so a stolen or unwritable attachment never reads as a healthy wait.
+func waitStep(ctx context.Context, guard *bridgeGuard, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case err := <-guard.errc:
+		return err
+	case <-timer.C:
+		return nil
 	}
-	return !stringsHasPrefix(owner, fmt.Sprintf("pid:%d", os.Getpid()))
-}
-
-func stringsHasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 // Serves the case where another watcher owns the fleet home: stealing its
 // ownership would break that arm, so this wait levels on authoritative
 // evidence instead of watcher edges.
 func pollUntilEligible(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
-	if bridgeOwnedByAnotherRuntime(w, cfg) {
-		return Wake{}, ErrBridgeOwned
-	}
 	wake, _, _, err := currentEpisodes(ctx, w, cfg.Host)
 	if err != nil {
 		return Wake{}, err
 	}
-	stop := runHeartbeat(ctx, w, cfg, wake.FleetID)
-	defer stop()
+	guard, err := acquireBridge(ctx, w, cfg, wake.FleetID)
+	if err != nil {
+		return Wake{}, err
+	}
+	defer guard.stop()
 	for {
-		if err := sleepCtx(ctx, intervalOr(cfg.PollInterval)); err != nil {
+		if err := waitStep(ctx, guard, intervalOr(cfg.PollInterval)); err != nil {
 			return Wake{}, err
 		}
 		wake, _, eligible, err := currentEpisodes(ctx, w, cfg.Host)
@@ -193,7 +207,12 @@ func pollUntilEligible(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, err
 			return Wake{}, err
 		}
 		if len(eligible) > 0 {
-			return claimAndDeliver(w, cfg, wake, eligible)
+			wake, won, claimErr := claimAndDeliver(w, cfg, wake, eligible)
+			if claimErr != nil || won {
+				return wake, claimErr
+			}
+			// Lost the transaction race: the holder keeps delivering; keep
+			// observing for new work.
 		}
 	}
 }
@@ -202,9 +221,6 @@ func pollUntilEligible(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, err
 // cycle leaves something eligible. All-deduped cycles must not spin: an
 // unchanged key set backs off one poll interval; new episodes retry at once.
 func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
-	if bridgeOwnedByAnotherRuntime(w, cfg) {
-		return Wake{}, ErrBridgeOwned
-	}
 	ownership, err := acquireWatcherOwnership(ctx, w.Home, false)
 	if err != nil {
 		return Wake{}, err
@@ -215,8 +231,11 @@ func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	if err != nil {
 		return Wake{}, err
 	}
-	stop := runHeartbeat(ctx, w, cfg, wake.FleetID)
-	defer stop()
+	guard, err := acquireBridge(ctx, w, cfg, wake.FleetID)
+	if err != nil {
+		return Wake{}, err
+	}
+	defer guard.stop()
 
 	var previous []string
 	for {
@@ -230,11 +249,16 @@ func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 			return Wake{}, catchUpErr
 		}
 		if len(eligible) > 0 {
-			return claimAndDeliver(w, cfg, wake, eligible)
+			wake, won, claimErr := claimAndDeliver(w, cfg, wake, eligible)
+			if claimErr != nil || won {
+				return wake, claimErr
+			}
+			// Lost the transaction race: re-arm and observe again instead of
+			// answering an empty success.
 		}
 		keys := Keys(episodes)
 		if slices.Equal(keys, previous) {
-			if err := sleepCtx(ctx, intervalOr(cfg.PollInterval)); err != nil {
+			if err := waitStep(ctx, guard, intervalOr(cfg.PollInterval)); err != nil {
 				return Wake{}, err
 			}
 		}
@@ -242,17 +266,21 @@ func waitOwned(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	}
 }
 
-// Performs the atomic eligibility-and-request transaction and fills in the
-// machine-protocol fields on the result.
-func claimAndDeliver(w Waiter, cfg WaitConfig, wake Wake, all []Episode) (Wake, error) {
-	claimed := w.Ledger.ClaimEligible(all)
+// Performs the atomic eligibility-and-request transaction. Won=false means
+// another waiter claimed inside the transaction: callers keep waiting and
+// never answer an empty success.
+func claimAndDeliver(w Waiter, cfg WaitConfig, wake Wake, all []Episode) (Wake, bool, error) {
+	claimed, claimErr := w.Ledger.ClaimEligible(all)
+	if claimErr != nil {
+		return Wake{}, false, claimErr
+	}
 	if len(claimed) == 0 {
-		return Wake{}, nil
+		return Wake{}, false, nil
 	}
 	wake.Schema = WakeSchema
 	wake.Episodes = claimed
 	wake.Message = WakeText(wake.FleetID)
-	return wake, nil
+	return wake, true, nil
 }
 
 func ownedWatcherConfig(w Waiter, cfg WaitConfig) watcher.Config {
@@ -279,13 +307,10 @@ func intervalOr(d time.Duration) time.Duration {
 	return d
 }
 
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return context.Cause(ctx)
-	case <-timer.C:
-		return nil
-	}
+// Owns one runtime's live attachment: stop() clears the record; errc carries
+// the first heartbeat fault or ownership theft.
+type bridgeGuard struct {
+	stopc chan struct{}
+	stop  func()
+	errc  chan error
 }

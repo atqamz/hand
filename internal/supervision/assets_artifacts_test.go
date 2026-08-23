@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -30,10 +29,7 @@ func TestGeneratedOpenCodePluginParsesAsESM(t *testing.T) {
 func TestGeneratedPiExtensionTranspiles(t *testing.T) {
 	bunPath, err := exec.LookPath("bun")
 	if err != nil {
-		bunPath, err = exec.LookPath("npx")
-		if err != nil {
-			t.Skip("neither bun nor npx is available for artifact transpiling")
-		}
+		t.Skip("bun is not available for artifact transpiling")
 	}
 	rendered := renderAsset(HostAssets("pi")[0], `/opt/my hand\bin`, "/fleet home")
 	dir := t.TempDir()
@@ -41,13 +37,24 @@ func TestGeneratedPiExtensionTranspiles(t *testing.T) {
 	if err := os.WriteFile(path, rendered, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var cmd *exec.Cmd
-	if strings.HasSuffix(bunPath, "bun") {
-		cmd = exec.Command(bunPath, "build", path, "--outfile", filepath.Join(dir, "out.js"))
-	} else {
-		cmd = exec.Command(bunPath, "--yes", "esbuild@latest", path, "--loader=ts", "--outfile="+filepath.Join(dir, "out.js"))
+	// Stub the host's extension module so bundling resolves offline; only
+	// syntax and type-stripping of the generated artifact are under test.
+	stub := filepath.Join(dir, "node_modules", "@earendil-works", "pi-coding-agent")
+	if err := os.MkdirAll(stub, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	out, err := cmd.CombinedOutput()
+	pkg := `{"name":"@earendil-works/pi-coding-agent","version":"0.0.0","types":"./index.d.ts","main":"./index.js"}`
+	if err := os.WriteFile(filepath.Join(stub, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stub, "index.d.ts"), []byte("export type ExtensionAPI = any;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stub, "index.js"), []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := exec.Command(bunPath, "build", path, "--outdir", filepath.Join(dir, "out")).CombinedOutput()
 	if err != nil {
 		t.Fatalf("transpiler rejected the generated extension: %v\n%s", err, out)
 	}
@@ -101,9 +108,6 @@ console.log("ok");
 // Executes the generated Pi extension's protocol parser in bun when present:
 // only the versioned machine protocol parses; human rendering never does.
 func TestGeneratedPiProtocolParserExecutes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("bun execution path verified on unix runners")
-	}
 	bunPath, err := exec.LookPath("bun")
 	if err != nil {
 		t.Skip("bun is not available to execute the generated extension")

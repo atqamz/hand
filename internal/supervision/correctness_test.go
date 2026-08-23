@@ -2,8 +2,12 @@ package supervision
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,8 +19,8 @@ import (
 )
 
 // Two concurrent waiters racing on the same exact episode must produce
-// exactly one successful claim overall: eligibility and the requested stamp
-// happen inside one ledger transaction.
+// exactly ONE successful non-empty wake overall; every loser keeps waiting
+// until its checkpoint and never answers an empty success.
 func TestConcurrentWaitersClaimExactlyOnce(t *testing.T) {
 	ledger := OpenLedger(t.TempDir())
 	evidence := orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{actionableEvidence("t1", "g1", "blocked")}}
@@ -24,7 +28,7 @@ func TestConcurrentWaitersClaimExactlyOnce(t *testing.T) {
 	stub, restore := newWatcherStub(t, false, nil)
 	defer restore()
 
-	var total atomic.Int64
+	var wakes, empties, checkpoints atomic.Int64
 	var wg sync.WaitGroup
 	for i := range 10 {
 		wg.Add(1)
@@ -35,16 +39,31 @@ func TestConcurrentWaitersClaimExactlyOnce(t *testing.T) {
 				PollInterval: time.Millisecond,
 				Timeout:      150 * time.Millisecond,
 			})
-			if err != nil && !errors.Is(err, watcher.ErrNoEvent) {
+			switch {
+			case err != nil && errors.Is(err, watcher.ErrNoEvent):
+				checkpoints.Add(1)
+				if len(wake.Episodes) != 0 {
+					t.Errorf("waiter %d: checkpoint carried episodes", i)
+				}
+			case err != nil:
 				t.Errorf("waiter %d: %v", i, err)
-				return
+			case len(wake.Episodes) == 0:
+				t.Errorf("waiter %d answered an empty successful wake", i)
+				empties.Add(1)
+			default:
+				wakes.Add(1)
 			}
-			total.Add(int64(len(wake.Episodes)))
 		}(i)
 	}
 	wg.Wait()
-	if total.Load() != 1 {
-		t.Fatalf("claims = %d across 10 concurrent waiters, want exactly one", total.Load())
+	if wakes.Load() != 1 {
+		t.Fatalf("successful wakes = %d across 10 concurrent waiters, want exactly one", wakes.Load())
+	}
+	if empties.Load() != 0 {
+		t.Fatalf("empty successful wakes = %d, want zero", empties.Load())
+	}
+	if checkpoints.Load() != 9 {
+		t.Fatalf("losers that waited to checkpoint = %d, want all nine losers", checkpoints.Load())
 	}
 	if stub.acquired.Load() > 9 {
 		t.Fatalf("ownership acquisitions = %d, want one per losing waiter at most", stub.acquired.Load())
@@ -93,8 +112,8 @@ func TestSixteenDistinctEpisodesEachWakeOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 		// The unchanged episode never re-claims afterwards.
-		if again := ledger.ClaimEligible(FromEvidence(evidence)); len(again) != 0 {
-			t.Fatalf("episode %d re-claimed after orient: %d", i, len(again))
+		if again, claimErr := ledger.ClaimEligible(FromEvidence(evidence)); claimErr != nil || len(again) != 0 {
+			t.Fatalf("episode %d re-claimed after orient: %d, %v", i, len(again), claimErr)
 		}
 	}
 }
@@ -104,12 +123,10 @@ func TestSixteenDistinctEpisodesEachWakeOnce(t *testing.T) {
 func TestAttachmentIsIndependentFromWatcherLiveness(t *testing.T) {
 	home := t.TempDir()
 	now := time.Now()
-	if err := WriteAttachment(home, AttachmentRecord{
+	writeAttachmentRecord(t, home, AttachmentRecord{
 		Host: "opencode", Runtime: "ses-1", PID: 1, FleetID: "f_1",
 		StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	status := Status{Harness: harness.OpenCode}
 	status.finishIndependentFields(StatusInput{Home: home})
 	if status.Attachment != "attached:ses-1" {
@@ -121,12 +138,10 @@ func TestAttachmentIsIndependentFromWatcherLiveness(t *testing.T) {
 
 	expired := home
 	status2 := Status{Harness: harness.OpenCode}
-	if err := WriteAttachment(expired, AttachmentRecord{
+	writeAttachmentRecord(t, expired, AttachmentRecord{
 		Host: "opencode", Runtime: "ses-9", PID: 1, FleetID: "f_1",
 		StartedAt: now.Add(-time.Hour), HeartbeatAt: now.Add(-time.Hour), ExpiresAt: now.Add(-time.Minute),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	status2.finishIndependentFields(StatusInput{Home: expired})
 	if status2.Attachment != "detached" {
 		t.Fatalf("expired heartbeat reads %q, want detached", status2.Attachment)
@@ -138,12 +153,10 @@ func TestAttachmentIsIndependentFromWatcherLiveness(t *testing.T) {
 func TestSecondaryRuntimeCannotStealAnAttachedBridge(t *testing.T) {
 	home := t.TempDir()
 	now := time.Now()
-	if err := WriteAttachment(home, AttachmentRecord{
+	writeAttachmentRecord(t, home, AttachmentRecord{
 		Host: "opencode", Runtime: "primary-session", PID: 424242, FleetID: "f_1",
 		StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	evidence := orientation.Evidence{FleetID: "f_1"}
 	stub, restore := newWatcherStub(t, true, nil)
 	defer restore()
@@ -224,9 +237,9 @@ func TestAcceptedThenCrashRecoversBounded(t *testing.T) {
 	evidence := orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{actionableEvidence("t1", "g1", "unacknowledged")}}
 	episodes := FromEvidence(evidence)
 
-	claimed := ledger.ClaimEligible(episodes)
-	if len(claimed) != 1 {
-		t.Fatalf("claim = %d, want the episode", len(claimed))
+	claimed, claimErr := ledger.ClaimEligible(episodes)
+	if claimErr != nil || len(claimed) != 1 {
+		t.Fatalf("claim = %d, %v; want the episode", len(claimed), claimErr)
 	}
 	if err := ledger.MarkAccepted(Keys(claimed)); err != nil {
 		t.Fatal(err)
@@ -238,5 +251,189 @@ func TestAcceptedThenCrashRecoversBounded(t *testing.T) {
 	now = now.Add(2 * DefaultPolicy().ProgressTimeout)
 	if eligible := ledger.Eligible(episodes); len(eligible) != 1 {
 		t.Fatal("past the window bounded recovery re-eligibles the episode")
+	}
+}
+
+// The one deterministic episode cross-process children and parent both
+// derive, so their keys always agree.
+func fixedClaimEpisode() Episode {
+	return Episode{
+		FleetID: "f_fix", TargetID: "t_fix", TargetKind: "task",
+		Currentness: orientation.TargetFor("f_fix", orientation.TargetEvidence{ID: "t_fix", Kind: "task", Generation: []string{"gfix"}}).Currentness,
+		Kind:        "blocked",
+	}
+}
+
+// Child body for the cross-process tests: performs exactly one operation and
+// writes a JSON verdict, so the parent can count winners across real process
+// boundaries where flock - not a mutex - is the only coordination.
+func runSupervisionChild(op string) int {
+	home := os.Getenv("HAND_SUPERVISION_CHILD_HOME")
+	switch op {
+	case "claim":
+		claimed, err := OpenLedger(home).ClaimEligible([]Episode{fixedClaimEpisode()})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "child claim:", err)
+			return 3
+		}
+		return writeChildVerdict(len(claimed))
+	case "acquire":
+		now := time.Now()
+		acquired, err := AcquireAttachment(home, AttachmentRecord{
+			Host: "opencode", Runtime: os.Getenv("HAND_SUPERVISION_CHILD_RUNTIME"), PID: os.Getpid(),
+			FleetID: "f_fix", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "child acquire:", err)
+			return 3
+		}
+		return writeChildVerdict(map[bool]int{true: 1, false: 0}[acquired])
+	}
+	fmt.Fprintln(os.Stderr, "unknown child op")
+	return 2
+}
+
+func writeChildVerdict(won int) int {
+	out := os.Getenv("HAND_SUPERVISION_CHILD_OUT")
+	if out == "" {
+		return 4
+	}
+	if err := os.WriteFile(out, []byte(fmt.Sprintf(`{"won":%d}`, won)), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "child verdict:", err)
+		return 4
+	}
+	return 0
+}
+
+// Spawns eight real processes that each attempt the same single-episode wake
+// claim simultaneously. Exactly one may win; the file lock is the only thing
+// coordinating them.
+func TestClaimIsAtomicAcrossProcesses(t *testing.T) {
+	if os.Getenv("HAND_SUPERVISION_CHILD_OP") != "" {
+		t.Skip("child mode")
+	}
+	home := t.TempDir()
+	wins := spawnSupervisionChildren(t, home, "claim", 8)
+	if wins != 1 {
+		t.Fatalf("winning claims across 8 processes = %d, want exactly one", wins)
+	}
+}
+
+// Two runtimes racing to acquire the same host bridge across process
+// boundaries: exactly one holds it, the other is told it is owned.
+func TestAttachmentAcquireIsAtomicAcrossProcesses(t *testing.T) {
+	if os.Getenv("HAND_SUPERVISION_CHILD_OP") != "" {
+		t.Skip("child mode")
+	}
+	home := t.TempDir()
+	wins := spawnSupervisionChildren(t, home, "acquire", 2)
+	if wins != 1 {
+		t.Fatalf("winning acquisitions across 2 processes = %d, want exactly one holder", wins)
+	}
+}
+
+func spawnSupervisionChildren(t *testing.T, home, op string, n int) int {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outs := make([]string, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range n {
+		out := filepath.Join(t.TempDir(), fmt.Sprintf("verdict-%d.json", i))
+		outs[i] = out
+		cmd := exec.Command(exe, "-test.run=TestSupervisionChildProcess$", "-test.timeout=60s")
+		cmd.Env = append(os.Environ(),
+			"HAND_SUPERVISION_CHILD_OP="+op,
+			"HAND_SUPERVISION_CHILD_HOME="+home,
+			"HAND_SUPERVISION_CHILD_RUNTIME="+fmt.Sprintf("runtime-%d", i),
+			"HAND_SUPERVISION_CHILD_OUT="+out,
+		)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			if runErr := cmd.Run(); runErr != nil {
+				t.Errorf("child %d exited %v", i, runErr)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	won := 0
+	for _, out := range outs {
+		data, readErr := os.ReadFile(out)
+		if readErr != nil {
+			t.Fatalf("child verdict %s: %v", out, readErr)
+		}
+		var v struct {
+			Won int `json:"won"`
+		}
+		if json.Unmarshal(data, &v) != nil {
+			t.Fatalf("verdict %s unparsable: %s", out, data)
+		}
+		won += v.Won
+	}
+	return won
+}
+
+// Guarded entry point the parent re-executes as a child process.
+func TestSupervisionChildProcess(t *testing.T) {
+	op := os.Getenv("HAND_SUPERVISION_CHILD_OP")
+	if op == "" {
+		t.Skip("parent mode")
+	}
+	code := runSupervisionChild(op)
+	if code != 0 {
+		t.Fatalf("child failed with code %d", code)
+	}
+}
+
+// In-process twin of the cross-process acquisition proof.
+func TestAttachmentAcquireAllowsExactlyOneHolderConcurrently(t *testing.T) {
+	home := t.TempDir()
+	mkRecord := func(runtimeName string) AttachmentRecord {
+		now := time.Now()
+		return AttachmentRecord{Host: "pi", Runtime: runtimeName, PID: os.Getpid(), FleetID: "f_1",
+			StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute)}
+	}
+	var holders atomic.Int64
+	var wg sync.WaitGroup
+	for i := range 6 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			acquired, err := AcquireAttachment(home, mkRecord(fmt.Sprintf("runtime-%d", i)))
+			if err != nil {
+				t.Errorf("runtime-%d: %v", i, err)
+				return
+			}
+			if acquired {
+				holders.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if holders.Load() != 1 {
+		t.Fatalf("holders = %d across 6 concurrent acquirers, want exactly one", holders.Load())
+	}
+}
+
+func writeAttachmentRecord(t *testing.T, home string, record AttachmentRecord) {
+	t.Helper()
+	record.Schema = AttachmentSchema
+	if err := os.MkdirAll(filepath.Join(home, "state", "runtime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "state", "runtime", "supervision-attachment.json")
+	if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

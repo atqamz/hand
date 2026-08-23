@@ -107,7 +107,7 @@ type StatusInput struct {
 	Exe       string
 }
 
-// The wake mechanism each registry host relies on.
+// Wake mechanism each registry host relies on.
 var hostMechanisms = map[string]string{
 	harness.Claude:   "Stop hook asyncRewake",
 	harness.Codex:    "same-thread codex queue driven by project-scope Stop hook",
