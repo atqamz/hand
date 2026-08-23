@@ -41,19 +41,19 @@ func Write(path, tempPrefix string, data []byte, mode os.FileMode) error {
 		removeTemp()
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	// Windows refuses Rename onto a target a reader still holds open without
-	// share-delete, turning concurrent reads into transient "Access is denied".
-	// A short bounded retry rides it out; Unix never hits this path.
+	// Windows denies Rename while a reader or scanner holds the new file
+	// open (concurrent reads, first-write AV sweeps); the swap retries on an
+	// exponential curve to a ~2s ceiling. Unix never hits this path.
 	var renameErr error
-	for attempt := range 5 {
+	for attempt := range 8 {
 		renameErr = os.Rename(tmpName, path)
 		if renameErr == nil {
 			return nil
 		}
-		if !isTransientRenameDenied(renameErr) {
+		if !isTransientRenameDenied(renameErr) || attempt == 7 {
 			break
 		}
-		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+		time.Sleep((time.Duration(1) << uint(attempt)) * 15 * time.Millisecond)
 	}
 	if renameErr != nil {
 		removeTemp()

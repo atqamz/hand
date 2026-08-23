@@ -36,7 +36,7 @@ func TestConcurrentWaitersClaimExactlyOnce(t *testing.T) {
 	stub, restore := newWatcherStub(t, false, nil)
 	defer restore()
 
-	var wakes, empties, checkpoints atomic.Int64
+	var wakes, empties, noEventLosers atomic.Int64
 	var wg sync.WaitGroup
 	for i := range 10 {
 		wg.Add(1)
@@ -45,11 +45,11 @@ func TestConcurrentWaitersClaimExactlyOnce(t *testing.T) {
 			wake, err := Wait(context.Background(), Waiter{Home: t.TempDir(), ReadEvidence: reader, Ledger: ledger}, WaitConfig{
 				Host:         "opencode",
 				PollInterval: time.Millisecond,
-				Timeout:      150 * time.Millisecond,
+				Timeout:      250 * time.Millisecond,
 			})
 			switch {
 			case err != nil && errors.Is(err, watcher.ErrNoEvent):
-				checkpoints.Add(1)
+				noEventLosers.Add(1)
 				if len(wake.Episodes) != 0 {
 					t.Errorf("waiter %d: checkpoint carried episodes", i)
 				}
@@ -70,8 +70,8 @@ func TestConcurrentWaitersClaimExactlyOnce(t *testing.T) {
 	if empties.Load() != 0 {
 		t.Fatalf("empty successful wakes = %d, want zero", empties.Load())
 	}
-	if checkpoints.Load() != 9 {
-		t.Fatalf("losers that waited to checkpoint = %d, want all nine losers", checkpoints.Load())
+	if noEventLosers.Load() != 9 {
+		t.Fatalf("losers ending in a clean checkpoint = %d, want all nine", noEventLosers.Load())
 	}
 	if stub.acquired.Load() > 9 {
 		t.Fatalf("ownership acquisitions = %d, want one per losing waiter at most", stub.acquired.Load())
