@@ -277,10 +277,9 @@ func ensureKey(file *ledgerFile, key string, now time.Time) *episodeRecord {
 	return record
 }
 
-// read stays lock-free on purpose: POSIX rename is atomic so a concurrent
-// swap never tears this read, and taking the writer's lock here would litter
-// every read-only command with lock files. Writer-side retries absorb the one
-// platform (Windows) where rename can fail against an open reader.
+// Stays lock-free on purpose: POSIX rename is atomic so a concurrent swap
+// never tears this read, and the writer's lock here would litter read-only
+// commands with lock files. Writer retries absorb Windows rename races.
 func (l *Ledger) read() ledgerFile {
 	data, err := os.ReadFile(l.path)
 	if err != nil {
