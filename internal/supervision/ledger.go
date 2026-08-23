@@ -277,10 +277,26 @@ func ensureKey(file *ledgerFile, key string, now time.Time) *episodeRecord {
 	return record
 }
 
-// Stays lock-free on purpose: POSIX rename is atomic so a concurrent swap
-// never tears this read, and the writer's lock here would litter read-only
-// commands with lock files. Writer retries absorb Windows rename races.
+// Reads the ledger without ever creating a lock file: with no writer lock on
+// disk nothing can race the raw read, and once one exists readers take it, so
+// a Windows rename never competes with an open reader under poll traffic.
 func (l *Ledger) read() ledgerFile {
+	if _, err := os.Stat(l.lockPath()); os.IsNotExist(err) {
+		return l.parseFile()
+	}
+	lock, err := os.OpenFile(l.lockPath(), os.O_RDWR, 0o644)
+	if err != nil {
+		return l.parseFile()
+	}
+	defer func() { _ = lock.Close() }()
+	if err := filelock.Lock(lock, true); err != nil {
+		return l.parseFile()
+	}
+	defer func() { _ = filelock.Unlock(lock) }()
+	return l.parseFile()
+}
+
+func (l *Ledger) parseFile() ledgerFile {
 	data, err := os.ReadFile(l.path)
 	if err != nil {
 		return ledgerFile{Schema: ledgerSchema, Episodes: map[string]*episodeRecord{}}

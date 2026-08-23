@@ -165,9 +165,25 @@ func ClearAttachment(home, host, runtime string) {
 }
 
 // Diagnostics read of the current record, or nil when absent or corrupt.
-// Deliberately lock-free: diagnostics must not litter the observed home with
-// lock files, and POSIX rename never tears an unlocked read.
+// Never creates a lock file: with no writer lock on disk nothing can race,
+// and once one exists the read takes it so Windows renames never starve.
 func ReadAttachment(home string) *AttachmentRecord {
+	if _, err := os.Stat(attachmentLockPath(home)); os.IsNotExist(err) {
+		return readAttachmentFile(home)
+	}
+	lock, err := os.OpenFile(attachmentLockPath(home), os.O_RDWR, 0o644)
+	if err != nil {
+		return readAttachmentFile(home)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := filelock.Lock(lock, true); err != nil {
+		return readAttachmentFile(home)
+	}
+	defer func() { _ = filelock.Unlock(lock) }()
+	return readAttachmentFile(home)
+}
+
+func readAttachmentFile(home string) *AttachmentRecord {
 	data, err := os.ReadFile(attachmentPath(home))
 	if err != nil {
 		return nil
