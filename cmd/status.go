@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"time"
@@ -337,7 +338,7 @@ func gateRunObservation(home string, t state.Task, reportedDone bool, p project.
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
-	views, holds, err := fleetViews(cmd, home, client, true)
+	views, holds, err := fleetViews(cmd.Context(), cmd.ErrOrStderr(), home, client, true)
 	if err != nil {
 		return err
 	}
@@ -386,7 +387,7 @@ func appendFleetState(doc *axi.Doc, views []taskView, holds []state.Hold, cols [
 	return attention
 }
 
-func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly bool) ([]taskView, []state.Hold, error) {
+func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *herdr.Client, readOnly bool) ([]taskView, []state.Hold, error) {
 	listHistories := state.ListReconciliationHistories
 	listHolds := state.ListHolds
 	listProjects := project.List
@@ -414,7 +415,7 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly 
 	if projectsErr != nil {
 		// Named on stderr all the same - silently dropping every (gate: ...) marker fleet-wide would render
 		// an ungated PR as clean, the false all-clear this feature exists to avoid.
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project registry unreadable, gate-run checks skipped: %v\n", projectsErr); err != nil {
+		if _, err := fmt.Fprintf(warnOut, "warning: project registry unreadable, gate-run checks skipped: %v\n", projectsErr); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -422,7 +423,7 @@ func fleetViews(cmd *cobra.Command, home string, client *herdr.Client, readOnly 
 	for _, p := range projects {
 		projectByName[p.Name] = p
 	}
-	runPRs := newGateRunReader(cmd.Context())
+	runPRs := newGateRunReader(ctx)
 	bounds, err := parkedBoundsFromConfig(home)
 	if err != nil {
 		return nil, nil, err

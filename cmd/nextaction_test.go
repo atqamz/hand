@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"io"
 	"reflect"
 	"testing"
 
@@ -9,7 +11,6 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -244,7 +245,7 @@ func TestClassifyNextActionFieldNamesArePinned(t *testing.T) {
 
 func observeNextAction(t *testing.T, home string) nextAction {
 	t.Helper()
-	views, holds, err := fleetViews(&cobra.Command{}, home, nil, true)
+	views, holds, err := fleetViews(context.Background(), io.Discard, home, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

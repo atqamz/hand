@@ -122,9 +122,9 @@ func newWatchCmd() *cobra.Command {
 				return mapWatchResult(watcher.Run(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			}
 
-			// The exit code is the delivery, so a watcher that stopped without an
-			// event must not exit 0: a caller re-arming on 0 would read it as fleet
-			// news, and one distinguishing it from a crash needs its own code.
+			// The exit code is delivery only where an owning host converts it into
+			// another Supervisor reasoning turn (docs/adr/supervisor-turn-delivery-is-host-specific.md).
+			// No-event stops must not exit 0: re-arming on 0 would misread silence as fleet news.
 			return mapWatchResult(watcher.RunUntilEvent(ctx, cfg, cmd.OutOrStdout(), cmd.ErrOrStderr()))
 		},
 	}

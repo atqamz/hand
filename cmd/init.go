@@ -107,6 +107,7 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			supervisionInstalls, supervisionConflicts := installSupervisorBridgesForInit(home, exe)
 
 			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), home); err != nil {
 				return err
@@ -126,6 +127,8 @@ func newInitCmd() *cobra.Command {
 			axi.Table(&doc, "skill", skillResults, skillFields)
 			doc.Int("skill_conflicts", skillConflictCount(skillResults))
 			doc.Field("session_hook", removedOrUnchanged(hookRemoved))
+			axi.Table(&doc, "supervision_integration", supervisionInstalls, supervisionInstallFields)
+			doc.Int("supervision_conflicts", len(supervisionConflicts))
 			doc.Bool("runtime_ready", runtimeStatus.Ready)
 			doc.Field("runtime_target", runtimeStatus.Target)
 			doc.Field("runtime_id", valueOrNone(runtimeStatus.RuntimeID))
