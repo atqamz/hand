@@ -38,6 +38,7 @@ var (
 	ErrSendOwnershipConflict = store.ErrSendOwnershipConflict
 	ErrSendInFlight          = store.ErrSendInFlight
 	ErrInvalidSendTransition = store.ErrInvalidSendTransition
+	ErrFleetIdentityMissing  = store.ErrFleetIdentityMissing
 )
 
 const (
