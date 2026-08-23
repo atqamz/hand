@@ -164,27 +164,30 @@ func ClearAttachment(home, host, runtime string) {
 	})
 }
 
-// Diagnostics read of the current record under the attachment lock: Windows
-// rename-vs-read races would otherwise tear it. Nil when absent or corrupt.
+// ReadAttachment returns the current record for diagnostics, or nil when
+// none exists or the file is unreadable/corrupt. Deliberately lock-free:
+// diagnostics must not create lock files in the home they only observe, and
+// POSIX rename keeps an unlocked read from ever tearing.
 func ReadAttachment(home string) *AttachmentRecord {
-	var record *AttachmentRecord
-	_ = mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		record = existing
-		return nil, false, nil
-	})
-	return record
+	data, err := os.ReadFile(attachmentPath(home))
+	if err != nil {
+		return nil
+	}
+	var record AttachmentRecord
+	if json.Unmarshal(data, &record) != nil || record.Schema != AttachmentSchema {
+		return nil
+	}
+	return &record
 }
 
 // BridgeOwner reports the live runtime holding host's bridge, or empty when
-// no fresh record exists for that host. Locked like every other ownership
-// decision path.
+// no fresh record exists for that host. Ownership DECISIONS still go through
+// the locked acquire/refresh paths; this read only informs diagnostics and
+// deferral checks, where a just-expired record is a safe false negative.
 func BridgeOwner(home string, host string, now time.Time) string {
-	var owner string
-	_ = mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		if existing != nil && existing.Fresh(now) && existing.Host == host {
-			owner = existing.Runtime
-		}
-		return nil, false, nil
-	})
-	return owner
+	record := ReadAttachment(home)
+	if record == nil || !record.Fresh(now) || record.Host != host {
+		return ""
+	}
+	return record.Runtime
 }

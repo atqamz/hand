@@ -277,30 +277,20 @@ func ensureKey(file *ledgerFile, key string, now time.Time) *episodeRecord {
 	return record
 }
 
-// Same advisory lock as writers before touching the file: on Windows an atomic
-// replacement fails while any reader holds the target open, so unlocked reads
-// turn every write into a rename race.
+// read stays lock-free on purpose: POSIX rename is atomic so a concurrent
+// swap never tears this read, and taking the writer's lock here would litter
+// every read-only command with lock files. Writer-side retries absorb the one
+// platform (Windows) where rename can fail against an open reader.
 func (l *Ledger) read() ledgerFile {
-	file := ledgerFile{Schema: ledgerSchema, Episodes: map[string]*episodeRecord{}}
-	lock, err := os.OpenFile(l.lockPath(), os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return file
-	}
-	defer func() { _ = lock.Close() }()
-	if err := filelock.Lock(lock, true); err != nil {
-		return file
-	}
-	defer func() { _ = filelock.Unlock(lock) }()
-
 	data, err := os.ReadFile(l.path)
 	if err != nil {
-		return file
+		return ledgerFile{Schema: ledgerSchema, Episodes: map[string]*episodeRecord{}}
 	}
 	return l.parse(data)
 }
 
-// Decodes already-read ledger bytes; locked callers use this to avoid
-// re-entering the lock.
+// Decodes already-read ledger bytes; update uses this inside the lock to
+// avoid re-entering it.
 func (l *Ledger) parse(data []byte) ledgerFile {
 	var parsed ledgerFile
 	if json.Unmarshal(data, &parsed) != nil || parsed.Schema != ledgerSchema || parsed.Episodes == nil {
