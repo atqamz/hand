@@ -8,9 +8,13 @@
 package atomicfile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
+	"time"
 )
 
 // Write creates or replaces path with data and mode. tempPrefix names the
@@ -37,9 +41,36 @@ func Write(path, tempPrefix string, data []byte, mode os.FileMode) error {
 		removeTemp()
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	// Windows refuses Rename onto a target a reader still holds open without
+	// share-delete, turning concurrent reads into transient "Access is denied".
+	// A short bounded retry rides it out; Unix never hits this path.
+	var renameErr error
+	for attempt := range 5 {
+		renameErr = os.Rename(tmpName, path)
+		if renameErr == nil {
+			return nil
+		}
+		if !isTransientRenameDenied(renameErr) {
+			break
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
+	if renameErr != nil {
 		removeTemp()
-		return fmt.Errorf("rename temp file: %w", err)
+		return fmt.Errorf("rename temp file: %w", renameErr)
 	}
 	return nil
+}
+
+func isTransientRenameDenied(err error) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	// 32 = ERROR_ACCESS_DENIED, 33 = ERROR_SHARING_VIOLATION; the Win32
+	// constants live in x/sys, which this tiny helper must not pull in.
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno == 32 || errno == 33
+	}
+	return false
 }

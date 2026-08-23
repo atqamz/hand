@@ -277,12 +277,31 @@ func ensureKey(file *ledgerFile, key string, now time.Time) *episodeRecord {
 	return record
 }
 
+// Same advisory lock as writers before touching the file: on Windows an atomic
+// replacement fails while any reader holds the target open, so unlocked reads
+// turn every write into a rename race.
 func (l *Ledger) read() ledgerFile {
 	file := ledgerFile{Schema: ledgerSchema, Episodes: map[string]*episodeRecord{}}
+	lock, err := os.OpenFile(l.lockPath(), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return file
+	}
+	defer func() { _ = lock.Close() }()
+	if err := filelock.Lock(lock, true); err != nil {
+		return file
+	}
+	defer func() { _ = filelock.Unlock(lock) }()
+
 	data, err := os.ReadFile(l.path)
 	if err != nil {
 		return file
 	}
+	return l.parse(data)
+}
+
+// Decodes already-read ledger bytes; locked callers use this to avoid
+// re-entering the lock.
+func (l *Ledger) parse(data []byte) ledgerFile {
 	var parsed ledgerFile
 	if json.Unmarshal(data, &parsed) != nil || parsed.Schema != ledgerSchema || parsed.Episodes == nil {
 		// Corruption is the disposable case: bounded duplicate wakes replace
@@ -319,7 +338,13 @@ func (l *Ledger) update(mutate func(*ledgerFile, time.Time)) error {
 	defer func() { _ = filelock.Unlock(lock) }()
 
 	now := l.now()
-	file := l.read()
+	data, readErr := os.ReadFile(l.path)
+	var file ledgerFile
+	if readErr == nil {
+		file = l.parse(data)
+	} else {
+		file = ledgerFile{Schema: ledgerSchema, Episodes: map[string]*episodeRecord{}}
+	}
 	mutate(&file, now)
 	prune(file.Episodes, now)
 	file.Schema = ledgerSchema

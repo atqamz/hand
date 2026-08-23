@@ -80,7 +80,8 @@ func TestGeneratedOpenCodeOwnershipPredicateExecutes(t *testing.T) {
 	}
 	rendered := string(renderAsset(HostAssets("opencode")[0], "/opt/bin/hand", "/fleet/home"))
 	script := `
-const { qualifiesSession } = await import(process.env.HAND_PLUGIN_PATH);
+import { pathToFileURL } from "node:url";
+const { qualifiesSession } = await import(pathToFileURL(process.env.HAND_PLUGIN_PATH));
 const assert = (cond, msg) => { if (!cond) { console.error(msg); process.exit(1); } };
 assert(qualifiesSession({ directory: "/fleet/home" }, "/fleet/home") === true, "primary session must qualify");
 assert(qualifiesSession({ directory: "/fleet/home", parentID: "p1" }, "/fleet/home") === false, "subagent must not qualify");

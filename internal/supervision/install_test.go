@@ -19,14 +19,14 @@ func TestRenderAssetSubstitutesExactJSONStringLiterals(t *testing.T) {
 		}
 	}
 	var gotExe string
-	if err := json.Unmarshal([]byte(strBetween(rendered, "const HAND_EXE = ", ";\n")), &gotExe); err != nil {
+	if err := json.Unmarshal([]byte(strBetween(rendered, "const HAND_EXE = ", ";")), &gotExe); err != nil {
 		t.Fatalf("HAND_EXE is not a valid JSON string literal: %v\n%s", err, rendered)
 	}
 	if gotExe != exe {
 		t.Fatalf("HAND_EXE = %q, want the exact original path %q", gotExe, exe)
 	}
 	var gotHome string
-	if err := json.Unmarshal([]byte(strBetween(rendered, "const HAND_HOME = ", ";\n")), &gotHome); err != nil {
+	if err := json.Unmarshal([]byte(strBetween(rendered, "const HAND_HOME = ", ";")), &gotHome); err != nil {
 		t.Fatalf("HAND_HOME is not a valid JSON string literal: %v", err)
 	}
 	if gotHome != home {
@@ -43,7 +43,8 @@ func strBetween(s, start, end string) string {
 	if j < 0 {
 		return ""
 	}
-	return s[i+len(start) : i+len(start)+j]
+	trimmed := s[i+len(start) : i+len(start)+j]
+	return strings.TrimSuffix(trimmed, "\r")
 }
 
 func TestInstallHostAssetsIdempotentStaleAndConflict(t *testing.T) {

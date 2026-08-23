@@ -59,12 +59,15 @@ func ManagedAssetHosts() []string {
 // inside.
 const CodexHooksRelPath = ".codex/hooks.json"
 
-// Produces one asset's final bytes with install-time substitutions applied.
+// Produces one asset's final bytes with substitutions applied. Templates are
+// normalized to LF first: a Windows checkout may hand the embed CRLF content,
+// and idempotent byte-compare must not depend on the checkout platform.
 func renderAsset(a Asset, exe, home string) []byte {
+	body := bytes.ReplaceAll(a.Body, []byte("\r\n"), []byte("\n"))
 	if a.Render != nil {
 		return a.Render(exe)
 	}
-	body := bytes.ReplaceAll(a.Body, []byte("__HAND_EXECUTABLE__"), mustJSONString(exe))
+	body = bytes.ReplaceAll(body, []byte("__HAND_EXECUTABLE__"), mustJSONString(exe))
 	return bytes.ReplaceAll(body, []byte("__HAND_HOME__"), mustJSONString(home))
 }
 
