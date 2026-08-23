@@ -41,9 +41,9 @@ func hookCommands(t *testing.T, settings map[string]any) []string {
 	if !ok {
 		t.Fatalf("settings = %+v, want a hooks object", settings)
 	}
-	matchers, ok := hooks[event].([]any)
+	matchers, ok := hooks[legacyEvent].([]any)
 	if !ok {
-		t.Fatalf("hooks = %+v, want a %s array", hooks, event)
+		t.Fatalf("hooks = %+v, want a %s array", hooks, legacyEvent)
 	}
 	var lines []string
 	for _, matcher := range matchers {
@@ -60,7 +60,7 @@ func hookCommands(t *testing.T, settings map[string]any) []string {
 func TestRemoveDeletesOnlyOwnedHandHook(t *testing.T) {
 	dir := mkHome(t)
 	writeSettings(t, dir, map[string]any{"hooks": map[string]any{
-		event: []any{
+		legacyEvent: []any{
 			map[string]any{"matcher": "startup", "hooks": []any{
 				map[string]any{"type": "command", "command": "/old/path/hand"},
 				map[string]any{"type": "command", "command": "/usr/bin/custom"},
@@ -80,7 +80,7 @@ func TestRemoveDeletesOnlyOwnedHandHook(t *testing.T) {
 func TestRemovePreservesNonCommandHooksWithAHandCommandField(t *testing.T) {
 	dir := mkHome(t)
 	prompt := map[string]any{"type": "prompt", "command": "hand session start", "prompt": "summarize"}
-	writeSettings(t, dir, map[string]any{"hooks": map[string]any{event: []any{map[string]any{"hooks": []any{
+	writeSettings(t, dir, map[string]any{"hooks": map[string]any{legacyEvent: []any{map[string]any{"hooks": []any{
 		prompt,
 		map[string]any{"type": "command", "command": "/old/path/hand"},
 	}}}}})
@@ -90,7 +90,7 @@ func TestRemovePreservesNonCommandHooksWithAHandCommandField(t *testing.T) {
 		t.Fatalf("Remove = %v, %v, want only the command hook removed", changed, err)
 	}
 	events := readSettings(t, dir)["hooks"].(map[string]any)
-	matchers, ok := events[event].([]any)
+	matchers, ok := events[legacyEvent].([]any)
 	if !ok || len(matchers) != 1 {
 		t.Fatalf("hooks = %+v, want the matcher containing the prompt hook preserved", events)
 	}
@@ -180,7 +180,7 @@ func TestRemoveDeletesOwnedOnlyMatcherAndPreservesUnrelatedMatchers(t *testing.T
 	writeSettings(t, dir, map[string]any{
 		"permissions": map[string]any{},
 		"hooks": map[string]any{
-			event: []any{
+			legacyEvent: []any{
 				map[string]any{"matcher": "owned", "hooks": []any{map[string]any{"type": "command", "command": "hand session start"}}},
 				empty,
 				custom,
@@ -195,12 +195,12 @@ func TestRemoveDeletesOwnedOnlyMatcherAndPreservesUnrelatedMatchers(t *testing.T
 	}
 	settings := readSettings(t, dir)
 	hooks := settings["hooks"].(map[string]any)
-	matchers := hooks[event].([]any)
+	matchers := hooks[legacyEvent].([]any)
 	if len(matchers) != 2 || matchers[0].(map[string]any)["matcher"] != "already-empty" || matchers[1].(map[string]any)["matcher"] != "custom" {
 		t.Fatalf("matchers = %+v, want the unrelated empty and custom matchers", matchers)
 	}
 	if _, ok := hooks["PreToolUse"]; !ok {
-		t.Fatalf("hooks = %+v, want unrelated empty event preserved", hooks)
+		t.Fatalf("hooks = %+v, want unrelated empty legacyEvent preserved", hooks)
 	}
 	if _, ok := settings["permissions"]; !ok {
 		t.Fatalf("settings = %+v, want unrelated empty permissions preserved", settings)
@@ -210,26 +210,26 @@ func TestRemoveDeletesOwnedOnlyMatcherAndPreservesUnrelatedMatchers(t *testing.T
 func TestRemoveDeletesSessionStartOnlyWhenNoMatchersRemain(t *testing.T) {
 	dir := mkHome(t)
 	writeSettings(t, dir, map[string]any{"hooks": map[string]any{
-		event:        []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "/old/path/hand --version"}}}},
+		legacyEvent:  []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "/old/path/hand --version"}}}},
 		"PreToolUse": []any{},
 	}})
 
 	changed, err := Remove(dir, "/current/path/hand")
 	if err != nil || !changed {
-		t.Fatalf("Remove = %v, %v, want the event removed", changed, err)
+		t.Fatalf("Remove = %v, %v, want the legacyEvent removed", changed, err)
 	}
 	hooks := readSettings(t, dir)["hooks"].(map[string]any)
-	if _, ok := hooks[event]; ok {
-		t.Fatalf("hooks = %+v, want empty %s removed", hooks, event)
+	if _, ok := hooks[legacyEvent]; ok {
+		t.Fatalf("hooks = %+v, want empty %s removed", hooks, legacyEvent)
 	}
 	if _, ok := hooks["PreToolUse"]; !ok {
-		t.Fatalf("hooks = %+v, want unrelated empty event preserved", hooks)
+		t.Fatalf("hooks = %+v, want unrelated empty legacyEvent preserved", hooks)
 	}
 }
 
 func TestRemoveRecognizesMovedHandAndCurrentExecutableNames(t *testing.T) {
 	dir := mkHome(t)
-	writeSettings(t, dir, map[string]any{"hooks": map[string]any{event: []any{map[string]any{"hooks": []any{
+	writeSettings(t, dir, map[string]any{"hooks": map[string]any{legacyEvent: []any{map[string]any{"hooks": []any{
 		map[string]any{"type": "command", "command": "  /old/path/hand status"},
 		map[string]any{"type": "command", "command": "/tmp/hand.test session start"},
 		map[string]any{"type": "command", "command": "/somewhere/hand.test session start"},
@@ -246,7 +246,7 @@ func TestRemoveRecognizesMovedHandAndCurrentExecutableNames(t *testing.T) {
 
 func TestRemoveRecognizesHandExeSuffix(t *testing.T) {
 	dir := mkHome(t)
-	writeSettings(t, dir, map[string]any{"hooks": map[string]any{event: []any{map[string]any{"hooks": []any{
+	writeSettings(t, dir, map[string]any{"hooks": map[string]any{legacyEvent: []any{map[string]any{"hooks": []any{
 		map[string]any{"type": "command", "command": "/old/path/hand.exe status"},
 		map[string]any{"type": "command", "command": "/usr/bin/custom"},
 	}}}}})
@@ -262,7 +262,7 @@ func TestRemoveRecognizesHandExeSuffix(t *testing.T) {
 
 func TestRemoveIsIdempotent(t *testing.T) {
 	dir := mkHome(t)
-	writeSettings(t, dir, map[string]any{"hooks": map[string]any{event: []any{map[string]any{"hooks": []any{
+	writeSettings(t, dir, map[string]any{"hooks": map[string]any{legacyEvent: []any{map[string]any{"hooks": []any{
 		map[string]any{"type": "command", "command": "/old/path/hand"},
 		map[string]any{"type": "command", "command": "/usr/bin/custom"},
 	}}}}})
@@ -322,7 +322,7 @@ func TestRemoveRefusesSettingsOfAnUnexpectedShape(t *testing.T) {
 	}{
 		{"settings is not an object", `null`},
 		{"hooks is not an object", `{"hooks": "SessionStart"}`},
-		{"the event is not an array", `{"hooks": {"SessionStart": {"command": "/usr/bin/tea"}}}`},
+		{"the legacyEvent is not an array", `{"hooks": {"SessionStart": {"command": "/usr/bin/tea"}}}`},
 		{"a matcher is not an object", `{"hooks": {"SessionStart": ["startup"]}}`},
 		{"matcher hooks is not an array", `{"hooks": {"SessionStart": [{"hooks": {"command": "hand"}}]}}`},
 		{"a nested hook is not an object", `{"hooks": {"SessionStart": [{"hooks": ["hand"]}]}}`},
