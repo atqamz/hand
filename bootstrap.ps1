@@ -249,14 +249,14 @@ function Get-DoctorList {
     return $items
 }
 
-# Get-InstalledHarness reads the harnesses[N]{name,installed} rows hand doctor already
+# Get-InstalledHarness reads the supervisor_harnesses[N]{name,installed} rows hand doctor already
 # computed, in the order hand reports them, so bootstrap never re-detects harnesses on its own.
 function Get-InstalledHarness {
     param([string]$Text)
     $names = @()
     $inBlock = $false
     foreach ($line in ($Text -split "`r?`n")) {
-        if ($line -like "harnesses[[]*") { $inBlock = $true; continue }
+        if ($line -like "supervisor_harnesses[[]*") { $inBlock = $true; continue }
         if ($inBlock -and $line -match '^  (\w+),(true|false)$') {
             if ($Matches[2] -eq 'true') { $names += $Matches[1] }
             continue
@@ -286,8 +286,8 @@ Write-BootstrapLog "  cd $Fleet"
 if ($harnesses.Count -eq 1) {
     Write-BootstrapLog "  $($harnesses[0])"
 } elseif ($harnesses.Count -gt 1) {
-    Write-BootstrapLog "  <choose one of the installed harnesses below>"
+    Write-BootstrapLog "  <choose one of the installed Supervisor Harnesses below>"
     foreach ($h in $harnesses) { Write-BootstrapLog "    $h" }
 } else {
-    Write-BootstrapLog "  <install and authenticate at least one supported coding-agent harness, then run hand doctor>"
+    Write-BootstrapLog "  <install and authenticate at least one supported Supervisor Harness, then run hand doctor>"
 }

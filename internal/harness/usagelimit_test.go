@@ -9,7 +9,7 @@ func TestSupportsUsageLimitOnlyWhereASignatureIsCatalogued(t *testing.T) {
 	if !SupportsUsageLimit(Claude) {
 		t.Fatal("SupportsUsageLimit(claude) = false, want true")
 	}
-	for _, name := range []string{Codex, Grok, Pi, OpenCode, "", "nonesuch"} {
+	for _, name := range []string{Codex, Grok, Pi, OpenCode, Antigravity, "", "nonesuch"} {
 		if SupportsUsageLimit(name) {
 			t.Errorf("SupportsUsageLimit(%q) = true, want false: no signature is catalogued for it", name)
 		}

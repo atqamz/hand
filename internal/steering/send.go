@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/state"
@@ -113,6 +114,11 @@ func Execute(req Request) (Result, error) {
 	}
 	if active.Lifecycle != state.AttemptRunning {
 		return Result{}, precondition(fmt.Errorf("task %q has no confirmed running attempt", req.TaskID))
+	}
+	if harness.IsOneShot(active.Harness) {
+		// A completed one-shot returns this exact pane to its shell. Reject before a send row or pane
+		// mutation so operator prose can never become shell input merely because the Attempt is active.
+		return Result{}, precondition(fmt.Errorf("harness %q uses one-shot worker execution and cannot accept hand send; wait for its report or start a new Attempt", active.Harness))
 	}
 	pending, found, err := pendingSend(req, active.ID)
 	if err != nil {

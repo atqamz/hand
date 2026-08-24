@@ -69,6 +69,14 @@ func confirmLaunch(client herdrClient, paneID, harnessName string, spec launch.L
 		sawAgent = sawAgent || pane.Agent != "" || processPresent
 		prompt, known := matchFirstRunPrompt(prompts.Known, text)
 		switch {
+		case harness.IsOneShot(harnessName) && processPresent:
+			// Seeing the intended executable is direct start evidence. Do not wait for a one-shot
+			// process to disappear: disappearance says nothing about whether its turn succeeded.
+			return nil
+		case harness.IsOneShot(harnessName) && harness.LaunchEvidenceInOutput(harnessName, text, spec.Cwd):
+			// A very short run can initialize and exit between polls. Its typed init event proves
+			// startup without treating a provider result/status as Hand task outcome.
+			return nil
 		case !processPresent:
 			quiet = 0
 			switch {

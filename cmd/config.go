@@ -55,7 +55,7 @@ var workerSettingFields = []axi.Column[workerSetting]{
 // claims to know which harness takes a model flag is one that can disagree with the launch command.
 var harnessFields = []axi.Column[string]{
 	{Name: "name", Value: func(name string) string { return name }},
-	{Name: "installed", Value: func(name string) string { return strconv.FormatBool(onPath(name)) }},
+	{Name: "installed", Value: func(name string) string { return strconv.FormatBool(onPath(harness.Executable(name))) }},
 	{Name: "model", Value: func(name string) string { return strconv.FormatBool(harness.SupportsModel(name)) }},
 	{Name: "effort", Value: func(name string) string { return strconv.FormatBool(harness.SupportsEffort(name)) }},
 }
@@ -586,7 +586,7 @@ func harnessCarries(key, harnessName string) bool {
 }
 
 func onPath(name string) bool {
-	_, err := exec.LookPath(name)
+	_, err := exec.LookPath(harness.Executable(name))
 	return err == nil
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/supervision"
 )
 
 func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
@@ -691,14 +692,14 @@ func TestDoctorToolsReportsFoundationalAndContextualRequirement(t *testing.T) {
 	}
 }
 
-func TestDoctorHarnessesReportsEverySupportedHarness(t *testing.T) {
+func TestDoctorHarnessesReportsEverySupervisorHarness(t *testing.T) {
 	faketool.NoTools(t)
 	bin := faketool.Bin(t)
 	faketool.Command{Name: harness.Codex}.Install(t, bin)
 
 	got := doctorHarnesses()
-	if len(got) != len(harness.Names()) {
-		t.Fatalf("doctorHarnesses() = %#v, want one entry per %v", got, harness.Names())
+	if len(got) != len(supervision.SupervisorHosts()) {
+		t.Fatalf("doctorHarnesses() = %#v, want one entry per %v", got, supervision.SupervisorHosts())
 	}
 	for _, h := range got {
 		want := h.Name == harness.Codex
@@ -770,7 +771,7 @@ func TestDoctorReportsReadyWhenEveryFoundationalToolAndOneHarnessArePresent(t *t
 		"  treehouse,true,true\n" +
 		"  herdr,true,true\n" +
 		"  gh,false,false\n" +
-		"harnesses[5]{name,installed}:\n" +
+		"supervisor_harnesses[5]{name,installed}:\n" +
 		"  claude,true\n" +
 		"  codex,false\n" +
 		"  grok,false\n" +
@@ -812,7 +813,7 @@ func TestDoctorReportsNotReadyWithBlockingAndNextWhenTreehouseAndEveryHarnessAre
 		"  - harness\n" +
 		"next[2]:\n" +
 		"  - install treehouse\n" +
-		"  - install and authenticate at least one supported coding-agent harness (see `harnesses` above), then run hand doctor\n"
+		"  - install and authenticate at least one supported Supervisor Harness (see `supervisor_harnesses` above), then run hand doctor\n"
 	if !strings.Contains(out.String(), want) {
 		t.Fatalf("stdout = %q, want it to contain %q", out.String(), want)
 	}
@@ -850,5 +851,24 @@ func TestDoctorGHNotRequiredForALocalOnlyProjectDoesNotBlockReadiness(t *testing
 	}
 	if !strings.Contains(out.String(), "ready: true\n") {
 		t.Fatalf("stdout = %q, want ready: true since gh is not required", out.String())
+	}
+}
+
+func TestDoctorDoesNotTreatWorkerOnlyAntigravityAsSupervisorReady(t *testing.T) {
+	faketool.NoTools(t)
+	bin := faketool.Bin(t)
+	faketool.Command{Name: harness.Executable(harness.Antigravity)}.Install(t, bin)
+
+	got := doctorHarnesses()
+	for _, item := range got {
+		if item.Name == harness.Antigravity {
+			t.Fatalf("doctor Supervisor readiness includes worker-only Antigravity: %#v", got)
+		}
+		if item.Installed {
+			t.Fatalf("doctor Supervisor readiness = %#v, want no installed Supervisor Harness", got)
+		}
+	}
+	if anyHarnessInstalled(got) {
+		t.Fatalf("worker-only agy satisfied Supervisor readiness: %#v", got)
 	}
 }

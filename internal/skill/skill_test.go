@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/supervision"
 )
 
 func makeHome(t *testing.T) string {
@@ -40,7 +40,7 @@ func TestRefreshSkipsSilentlyWhenNotAFleetHome(t *testing.T) {
 	}
 }
 
-func TestDestinationDirsCoverEverySupportedHarnessWithNoDuplicates(t *testing.T) {
+func TestDestinationDirsCoverEverySupervisorHarnessWithNoDuplicates(t *testing.T) {
 	home := t.TempDir()
 	dirs := DestinationDirs(home)
 	seen := make(map[string]bool)
@@ -50,14 +50,19 @@ func TestDestinationDirsCoverEverySupportedHarnessWithNoDuplicates(t *testing.T)
 		}
 		seen[d] = true
 	}
-	for _, h := range harness.Names() {
+	for _, h := range supervision.SupervisorHosts() {
 		rel, ok := harnessRel[h]
 		if !ok {
-			t.Fatalf("harness %q has no mapped skill destination", h)
+			t.Fatalf("Supervisor Harness %q has no mapped skill destination", h)
 		}
 		want := filepath.Join(home, rel, Name)
 		if !seen[want] {
-			t.Fatalf("got %v, want it to include %q for harness %q", dirs, want, h)
+			t.Fatalf("got %v, want it to include %q for Supervisor Harness %q", dirs, want, h)
+		}
+	}
+	for h := range harnessRel {
+		if !supervision.IsSupervisorHost(h) {
+			t.Fatalf("skill mapping %q is not a registered Supervisor Harness", h)
 		}
 	}
 }

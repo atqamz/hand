@@ -22,6 +22,7 @@ import (
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/workerobs"
 )
 
 const maxEventLogLines = 200
@@ -389,6 +390,16 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 			return
 		}
 		status := pane.AgentStatus
+		if probeErr == nil {
+			normalized, normalizeErr := workerobs.Normalize(attempt, pane, client)
+			if normalizeErr != nil {
+				// The pane itself answered, so this is liveness uncertainty rather than a pane outage.
+				_, _ = fmt.Fprintf(errOut, "watch: observe worker liveness for %s failed: %v\n", t.ID, normalizeErr)
+				status = herdr.StatusUnknown
+			} else {
+				pane, status = normalized, normalized.AgentStatus
+			}
+		}
 
 		// Tracking is keyed by task identity, not by ID: a reopen or a promote gives the same ID a new
 		// attempt, and a new attempt is a new execution identity. Same hazard as a surviving report
