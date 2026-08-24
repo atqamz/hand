@@ -11,6 +11,7 @@ import (
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/registry"
@@ -18,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/sessionhook"
 	"github.com/atqamz/hand/internal/skill"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -71,31 +73,34 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			home, err := resolveInitHome(cwd, args)
+			homePath, err := resolveInitHome(cwd, args)
 			if err != nil {
+				return err
+			}
+			if err := preflightInitTarget(homePath); err != nil {
 				return err
 			}
 
-			if err := initLayout(home); err != nil {
+			if err := initLayout(homePath); err != nil {
 				return err
 			}
-			if err := initMarker(home); err != nil {
+			if err := initMarker(homePath); err != nil {
 				return err
 			}
-			fleetID, err := state.FleetID(home)
+			fleetID, err := state.FleetID(homePath)
 			if err != nil {
 				return fmt.Errorf("read Fleet identity after initialization: %w", err)
 			}
-			registryOutcome, registryErr := registerFleet(home, fleetID)
-			migrated, err := migrateWorkerSettings(home)
+			registryOutcome, registryErr := registerFleet(homePath, fleetID)
+			migrated, err := migrateWorkerSettings(homePath)
 			if err != nil {
 				return err
 			}
-			refresh, err := agentsmd.Refresh(home)
+			refresh, err := agentsmd.Refresh(homePath)
 			if err != nil {
 				return err
 			}
-			skillResults, err := skill.Refresh(home)
+			skillResults, err := skill.Refresh(homePath)
 			if err != nil {
 				return err
 			}
@@ -103,13 +108,13 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve the hand executable: %w", err)
 			}
-			hookRemoved, err := sessionhook.Remove(home, exe)
+			hookRemoved, err := sessionhook.Remove(homePath, exe)
 			if err != nil {
 				return err
 			}
-			supervisionInstalls, supervisionConflicts := installSupervisorBridgesForInit(home, exe)
+			supervisionInstalls, supervisionConflicts := installSupervisorBridgesForInit(homePath, exe)
 
-			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), home); err != nil {
+			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), homePath); err != nil {
 				return err
 			}
 			runtimeStatus, err := doctorRuntimeStatus()
@@ -119,7 +124,7 @@ func newInitCmd() *cobra.Command {
 
 			var doc axi.Doc
 			doc.Field("result", "initialized")
-			doc.Field("home", home)
+			doc.Field("home", homePath)
 			doc.Field("fleet_id", fleetID)
 			doc.Field("registry", registryOutcome)
 			doc.Field("agents_md", writtenOrUnchanged(refresh.Changed))
@@ -134,7 +139,7 @@ func newInitCmd() *cobra.Command {
 			doc.Field("runtime_id", valueOrNone(runtimeStatus.RuntimeID))
 			doc.Field("runtime_reason", valueOrNone(runtimeStatus.Reason))
 			doc.List("migrated", migrated)
-			cfg, err := currentWorkerConfig(home)
+			cfg, err := currentWorkerConfig(homePath)
 			if err != nil {
 				return err
 			}
@@ -168,26 +173,75 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 			if registryErr != nil {
-				return fmt.Errorf("fleet initialized at %s with fleet_id %s, but registry discovery update failed: %w", home, fleetID, registryErr)
+				return fmt.Errorf("fleet initialized at %s with fleet_id %s, but registry discovery update failed: %w", homePath, fleetID, registryErr)
 			}
 			if len(supervisionConflicts) > 0 {
-				return &ExitError{Err: fmt.Errorf("initialized %s, but %d supervisor wake integration surface(s) are conflicted and were left untouched; unattended turn delivery stays degraded until they are resolved", home, len(supervisionConflicts)), Code: 3}
+				return &ExitError{Err: fmt.Errorf("initialized %s, but %d supervisor wake integration surface(s) are conflicted and were left untouched; unattended turn delivery stays degraded until they are resolved", homePath, len(supervisionConflicts)), Code: 3}
 			}
 			return nil
 		},
 	}
 }
 
-func registerFleet(home, fleetID string) (string, error) {
+func preflightInitTarget(target string) error {
+	info, err := os.Stat(target)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect init target %s: %w", target, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("init target %s exists and is not a directory", target)
+	}
+	known, err := home.IsHome(target)
+	if err != nil {
+		return fmt.Errorf("inspect init target %s: %w", target, err)
+	}
+	if known {
+		if err := state.ValidateInitTarget(target); err != nil {
+			return fmt.Errorf("init target %s is recognized but unsafe to reconcile: %w; refusing before mutation", target, err)
+		}
+		return nil
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return fmt.Errorf("inspect init target %s: %w", target, err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	runtimeRoot, err := handOwnedRuntimeRoot()
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() == ".secondhand" && runtimeRoot == filepath.Join(target, entry.Name()) {
+			continue
+		}
+		return fmt.Errorf("init target %s exists, is not empty, and is not a recognized Secondhand fleet; refusing to adopt it", target)
+	}
+	return nil
+}
+
+func handOwnedRuntimeRoot() (string, error) {
+	store, err := toolchain.DefaultStore()
+	if err != nil {
+		return "", fmt.Errorf("inspect private runtime store: %w", err)
+	}
+	return filepath.Clean(store.Root), nil
+}
+
+func registerFleet(homePath, fleetID string) (string, error) {
 	db, err := registry.Open()
 	if err != nil {
 		return "failed", err
 	}
 	defer func() { _ = db.Close() }()
-	if err := db.Register(home, fleetID, time.Now().UTC()); err != nil {
+	if err := db.Register(homePath, fleetID, time.Now().UTC()); err != nil {
 		return "failed", err
 	}
-	fleets, err := db.List(home)
+	fleets, err := db.List(homePath)
 	if err != nil {
 		return "failed", err
 	}
@@ -246,14 +300,14 @@ func removedOrUnchanged(changed bool) string {
 	return "unchanged"
 }
 
-func initLayout(home string) error {
-	if err := initDirs(home); err != nil {
+func initLayout(homePath string) error {
+	if err := initDirs(homePath); err != nil {
 		return err
 	}
-	if err := initSkeletonFiles(home); err != nil {
+	if err := initSkeletonFiles(homePath); err != nil {
 		return err
 	}
-	release, err := routing.Lock(home)
+	release, err := routing.Lock(homePath)
 	if err != nil {
 		return err
 	}
@@ -261,10 +315,10 @@ func initLayout(home string) error {
 	return nil
 }
 
-func initDirs(home string) error {
+func initDirs(homePath string) error {
 	dirs := []string{"state", "data", "projects", "config"}
 	for _, d := range dirs {
-		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(homePath, d), 0o755); err != nil {
 			return fmt.Errorf("create %s: %w", d, err)
 		}
 	}
@@ -273,7 +327,7 @@ func initDirs(home string) error {
 
 // Seeds every file it can and reports every one it could not, because the seeds are independent of each
 // other.
-func initSkeletonFiles(home string) error {
+func initSkeletonFiles(homePath string) error {
 	// A fixed order: stopping at the first failure named an arbitrary victim, so two runs against the same
 	// broken home disagreed about which file was at fault.
 	files := []struct {
@@ -289,7 +343,7 @@ func initSkeletonFiles(home string) error {
 	}
 	var errs []error
 	for _, f := range files {
-		path := filepath.Join(home, f.rel)
+		path := filepath.Join(homePath, f.rel)
 		if _, err := os.Stat(path); err == nil {
 			continue
 		} else if !os.IsNotExist(err) {
@@ -305,8 +359,8 @@ func initSkeletonFiles(home string) error {
 
 // Creates or upgrades machine state up front so init is the explicit boundary for schema,
 // legacy task, and legacy project migrations. The composed operation is idempotent.
-func initMarker(home string) error {
-	if err := project.Migrate(home); err != nil {
+func initMarker(homePath string) error {
+	if err := project.Migrate(homePath); err != nil {
 		return fmt.Errorf("create state/hand.db: %w", err)
 	}
 	return nil
@@ -319,31 +373,31 @@ func resolveInitHome(cwd string, args []string) (string, error) {
 	if len(args) == 0 {
 		return cwd, nil
 	}
-	home := args[0]
-	if strings.TrimSpace(home) == "" {
+	homePath := args[0]
+	if strings.TrimSpace(homePath) == "" {
 		return "", &ExitError{Err: fmt.Errorf("init target path cannot be empty"), Code: 2}
 	}
-	if !filepath.IsAbs(home) {
-		home = filepath.Join(cwd, home)
+	if !filepath.IsAbs(homePath) {
+		homePath = filepath.Join(cwd, homePath)
 	}
-	return filepath.Clean(home), nil
+	return filepath.Clean(homePath), nil
 }
 
 // Reports the one asymmetry in home handling: init creates the home its argument or working directory
 // names, while every other command resolves HAND_HOME first, so an operator who exported HAND_HOME and
 // initialized somewhere else would otherwise get a home nothing ever uses.
-func warnHandHomeMismatch(w io.Writer, home string) error {
+func warnHandHomeMismatch(w io.Writer, homePath string) error {
 	handHome := os.Getenv("HAND_HOME")
 	if handHome == "" {
 		return nil
 	}
 	display := handHome
 	if abs, err := filepath.Abs(handHome); err == nil {
-		if abs == home {
+		if abs == homePath {
 			return nil
 		}
 		display = abs
 	}
-	_, err := fmt.Fprintf(w, "warning: HAND_HOME is set to %s, so every other hand command will use that home, not %s\n", display, home)
+	_, err := fmt.Fprintf(w, "warning: HAND_HOME is set to %s, so every other hand command will use that home, not %s\n", display, homePath)
 	return err
 }

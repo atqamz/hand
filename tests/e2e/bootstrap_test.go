@@ -3,10 +3,17 @@
 package e2e
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -27,10 +34,27 @@ var bootstrapScript = func() string {
 // prove nothing beyond those two ever reaches the script.
 func runBootstrap(t *testing.T, home string, extraEnv []string, args ...string) invocation {
 	t.Helper()
-	seedPrivateRuntime(t, home)
-	cmd := exec.Command("sh", append([]string{bootstrapScript}, args...)...)
+	if _, err := os.Stat(filepath.Join(home, ".secondhand", "runtime", "current.json")); os.IsNotExist(err) {
+		seedPrivateRuntime(t, home)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", append([]string{"-s", "--"}, args...)...)
+	cmd.Dir = home
 	env := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb", "SECONDHAND_HOME=" + filepath.Join(home, ".secondhand")}, extraEnv...)
 	cmd.Env = env
+	fixtureArchive := filepath.Join(t.TempDir(), releaseAsset())
+	writeHandArchive(t, fixtureArchive)
+	pathEntries := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))
+	if len(pathEntries) == 0 || pathEntries[0] == "" {
+		t.Fatal("bootstrap test PATH has no writable fixture directory")
+	}
+	if _, err := os.Stat(filepath.Join(pathEntries[0], "curl")); os.IsNotExist(err) {
+		installReleaseCurl(t, pathEntries[0], fixtureArchive, filepath.Join(t.TempDir(), "curl.log"), false)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stdin = strings.NewReader(boundBootstrapWithDigest(t, bootstrapScript, sha256Path(t, fixtureArchive)))
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -47,6 +71,113 @@ func runBootstrap(t *testing.T, home string, extraEnv []string, args ...string) 
 	return invocation{code: code, stdout: stdout.String(), stderr: stderr.String()}
 }
 
+func boundBootstrapWithDigest(t *testing.T, path, digest string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.NewReplacer(
+		"@HAND_RELEASE_TAG@", "v1.2.3",
+		"@HAND_RELEASE_VERSION@", "1.2.3",
+		"@HAND_RELEASE_COMMIT@", "0123456789abcdef0123456789abcdef01234567",
+		"@HAND_RELEASE_RUNTIME_ID@", "rd2343fe130ff5ba2",
+		"@HAND_RELEASE_SHA256_LINUX_AMD64@", digest,
+		"@HAND_RELEASE_SHA256_LINUX_ARM64@", digest,
+		"@HAND_RELEASE_SHA256_DARWIN_AMD64@", digest,
+		"@HAND_RELEASE_SHA256_DARWIN_ARM64@", digest,
+		"@HAND_RELEASE_SHA256_WINDOWS_AMD64@", digest,
+	).Replace(string(data))
+}
+
+func releaseAsset() string {
+	goos := runtime.GOOS
+	if output, err := exec.Command("uname", "-s").Output(); err == nil {
+		switch strings.TrimSpace(string(output)) {
+		case "Darwin":
+			goos = "darwin"
+		case "Linux":
+			goos = "linux"
+		}
+	}
+	goarch := runtime.GOARCH
+	if output, err := exec.Command("uname", "-m").Output(); err == nil {
+		switch strings.TrimSpace(string(output)) {
+		case "x86_64", "amd64":
+			goarch = "amd64"
+		case "arm64", "aarch64":
+			goarch = "arm64"
+		}
+	}
+	return "hand-" + goos + "-" + goarch + ".tar.gz"
+}
+
+func writeHandArchive(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzipWriter := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gzipWriter)
+	data, err := os.ReadFile(handBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "hand", Mode: 0o755, Size: int64(len(data))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tarWriter.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func sha256Path(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func installReleaseCurl(t *testing.T, dir, archive, logPath string, interrupted bool) {
+	t.Helper()
+	archiveCopy := fmt.Sprintf("cp %s \"$out\"", shellSingleQuote(archive))
+	if interrupted {
+		archiveCopy = fmt.Sprintf("dd if=%s of=\"$out\" bs=1 count=8 2>/dev/null; exit 1", shellSingleQuote(archive))
+	}
+	wantURL := fmt.Sprintf("https://github.com/atqamz/hand/releases/download/v1.2.3/%s", releaseAsset())
+	body := fmt.Sprintf(`set -eu
+out=""
+url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift 2 ;;
+    *) url=$1; shift ;;
+  esac
+done
+printf '%%s\n' "$url" >> %s
+case "$url" in
+  %s)
+    %s
+    ;;
+  *) echo "unexpected release URL: $url" >&2; exit 1 ;;
+esac
+`, shellSingleQuote(logPath), shellSingleQuote(wantURL), archiveCopy)
+	writeFakeBin(t, dir, "curl", body)
+}
+
 // Puts a symlink to the already-built hand binary on dir, the way a real install.sh would leave
 // hand on PATH.
 func installFakeHand(t *testing.T, dir string) {
@@ -56,17 +187,17 @@ func installFakeHand(t *testing.T, dir string) {
 	}
 }
 
+func installIdentityHand(t *testing.T, dir, version, channel, commit, distribution string) {
+	t.Helper()
+	body := fmt.Sprintf("case \"$1\" in\n  build-info) printf 'version: %s\\nchannel: %s\\ncommit: %s\\ndistribution: %s\\n' ;;\n  *) exit 1 ;;\nesac\n", version, channel, commit, distribution)
+	writeFakeBin(t, dir, "hand", body)
+}
+
 // Drops a no-op executable on dir under name, standing in for an installed, authenticated
 // coding-agent harness: bootstrap only ever needs to see it on PATH.
 func installFakeHarness(t *testing.T, dir, name string) {
 	t.Helper()
 	writeFakeBin(t, dir, name, "exit 0\n")
-}
-
-// Drops a fake curl that always fails, proving bootstrap does not use curl for core runtime setup.
-func installFakeCurlFailing(t *testing.T, dir string) {
-	t.Helper()
-	writeFakeBin(t, dir, "curl", "exit 1\n")
 }
 
 func isFleetHome(fleet string) bool {
@@ -76,7 +207,6 @@ func isFleetHome(fleet string) bool {
 
 func TestBootstrapHappyPathReconcilesFleetAndPrintsTheInstalledHarness(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	faketool.Treehouse{}.Install(t, dir)
 	faketool.Herdr{}.Install(t, dir)
 	installFakeHarness(t, dir, "claude")
@@ -91,7 +221,7 @@ func TestBootstrapHappyPathReconcilesFleetAndPrintsTheInstalledHarness(t *testin
 	if !isFleetHome(fleet) {
 		t.Fatalf("%s was not initialized as a fleet home", fleet)
 	}
-	for _, want := range []string{"Secondhand is ready.", "cd " + fleet, "claude", "ready: true"} {
+	for _, want := range []string{"file: " + filepath.Join(fleet, "AGENTS.md"), "claude,true", "ready: true"} {
 		if !strings.Contains(got.stderr, want) {
 			t.Fatalf("stderr = %q, want it to contain %q", got.stderr, want)
 		}
@@ -100,7 +230,6 @@ func TestBootstrapHappyPathReconcilesFleetAndPrintsTheInstalledHarness(t *testin
 
 func TestBootstrapRefusesAForeignNonEmptyFleetTarget(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	faketool.Treehouse{}.Install(t, dir)
 	faketool.Herdr{}.Install(t, dir)
 
@@ -146,7 +275,6 @@ func TestBootstrapCheckModeNeverMutatesAnAbsentFleetTarget(t *testing.T) {
 
 func TestBootstrapUsesPrivateRuntimeWithoutCoreToolsOnPath(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	installFakeHarness(t, dir, "claude")
 
 	home := t.TempDir()
@@ -168,9 +296,7 @@ func TestBootstrapUsesPrivateRuntimeWithoutCoreToolsOnPath(t *testing.T) {
 
 func TestBootstrapDoesNotUseCurlForCoreRuntime(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	installFakeHarness(t, dir, "claude")
-	installFakeCurlFailing(t, dir)
 
 	home := t.TempDir()
 	fleet := filepath.Join(home, "secondhand-fleet")
@@ -192,9 +318,124 @@ func TestBootstrapDoesNotUseCurlForCoreRuntime(t *testing.T) {
 	}
 }
 
+func TestBootstrapRefusesNonDirectOrDowngradeHandOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		distribution string
+		version      string
+		want         string
+	}{
+		{name: "package", distribution: "brew", version: "1.0.0", want: "will not replace a brew build"},
+		{name: "source", distribution: "source", version: "1.0.0", want: "will not replace a source build"},
+		{name: "unknown", distribution: "mystery", version: "1.0.0", want: "ownership is unknown"},
+		{name: "downgrade", distribution: "github", version: "9.0.0", want: "refusing to downgrade"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := binDir(t)
+			installIdentityHand(t, dir, test.version, "stable", "0123456789abcdef0123456789abcdef01234567", test.distribution)
+			home := t.TempDir()
+			fleet := filepath.Join(home, "fleet")
+			got := runBootstrap(t, home, nil, "--fleet", fleet)
+			if got.code != 1 || !strings.Contains(got.stderr, test.want) {
+				t.Fatalf("exit = %d, stderr = %q, want %q", got.code, got.stderr, test.want)
+			}
+			if _, err := os.Stat(fleet); !os.IsNotExist(err) {
+				t.Fatalf("bootstrap created %s after refusing existing Hand ownership", fleet)
+			}
+		})
+	}
+}
+
+func TestBootstrapRefusesStaleDirectTargetWhenPATHOwnsAnotherHand(t *testing.T) {
+	dir := binDir(t)
+	installIdentityHand(t, dir, "1.0.0", "stable", "0123456789abcdef0123456789abcdef01234567", "brew")
+
+	home := t.TempDir()
+	installDir := filepath.Join(home, "direct install")
+	target := filepath.Join(installDir, "hand")
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("stale direct executable\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	beforeTarget, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathHand := filepath.Join(dir, "hand")
+	beforePath, err := os.ReadFile(pathHand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot := filepath.Join(home, ".secondhand")
+	seedPrivateRuntime(t, home)
+	runtimeBefore := snapshotTree(t, runtimeRoot)
+	fleet := filepath.Join(home, "fleet")
+
+	got := runBootstrap(t, home, []string{"HAND_INSTALL_DIR=" + installDir}, "--fleet", fleet)
+	if got.code != 1 || !strings.Contains(got.stderr, "different authorities") {
+		t.Fatalf("exit = %d, stderr = %q, want different-authority refusal", got.code, got.stderr)
+	}
+	afterTarget, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterPath, err := os.ReadFile(pathHand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterTarget) != string(beforeTarget) || string(afterPath) != string(beforePath) {
+		t.Fatal("different-authority refusal changed an executable")
+	}
+	if runtimeAfter := snapshotTree(t, runtimeRoot); !reflect.DeepEqual(runtimeAfter, runtimeBefore) {
+		t.Fatalf("different-authority refusal changed private runtime: before=%v after=%v", runtimeBefore, runtimeAfter)
+	}
+	if _, err := os.Stat(fleet); !os.IsNotExist(err) {
+		t.Fatalf("different-authority refusal changed Fleet target: %v", err)
+	}
+}
+
+func TestBootstrapRefusesParseableLegacyDirectTargetBeforeMutation(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, ".local", "bin", "hand")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "#!/bin/sh\ncase \"$1\" in\n  --version) printf 'hand 1.2.3\\n' ;;\n  *) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(target, []byte(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	beforeTarget, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPrivateRuntime(t, home)
+	runtimeRoot := filepath.Join(home, ".secondhand")
+	runtimeBefore := snapshotTree(t, runtimeRoot)
+	fleet := filepath.Join(home, "fleet")
+
+	got := runBootstrap(t, home, nil, "--fleet", fleet)
+	if got.code != 1 || !strings.Contains(got.stderr, "no verifiable build identity") {
+		t.Fatalf("exit = %d, stderr = %q, want legacy identity refusal", got.code, got.stderr)
+	}
+	afterTarget, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterTarget) != string(beforeTarget) {
+		t.Fatal("legacy executable changed after identity refusal")
+	}
+	if runtimeAfter := snapshotTree(t, runtimeRoot); !reflect.DeepEqual(runtimeAfter, runtimeBefore) {
+		t.Fatalf("legacy identity refusal changed private runtime: before=%v after=%v", runtimeBefore, runtimeAfter)
+	}
+	if _, err := os.Stat(fleet); !os.IsNotExist(err) {
+		t.Fatalf("legacy identity refusal changed Fleet target: %v", err)
+	}
+}
+
 func TestBootstrapNeverInstallsAHarnessOrNoMistakesAutomatically(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	faketool.Treehouse{}.Install(t, dir)
 	faketool.Herdr{}.Install(t, dir)
 	// No coding-agent harness and no no-mistakes on PATH at all.
@@ -221,7 +462,6 @@ func TestBootstrapNeverInstallsAHarnessOrNoMistakesAutomatically(t *testing.T) {
 
 func TestBootstrapAcceptsAFleetTargetPathContainingSpaces(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	faketool.Treehouse{}.Install(t, dir)
 	faketool.Herdr{}.Install(t, dir)
 	installFakeHarness(t, dir, "codex")
@@ -240,7 +480,6 @@ func TestBootstrapAcceptsAFleetTargetPathContainingSpaces(t *testing.T) {
 
 func TestBootstrapNeverForwardsAmbientSecretsIntoItsOutput(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	faketool.Treehouse{}.Install(t, dir)
 	faketool.Herdr{}.Install(t, dir)
 	installFakeHarness(t, dir, "claude")
@@ -260,7 +499,6 @@ func TestBootstrapNeverForwardsAmbientSecretsIntoItsOutput(t *testing.T) {
 
 func TestBootstrapReconcilesAnExistingFleetIdempotently(t *testing.T) {
 	dir := binDir(t)
-	installFakeHand(t, dir)
 	faketool.Treehouse{}.Install(t, dir)
 	faketool.Herdr{}.Install(t, dir)
 	installFakeHarness(t, dir, "claude")
@@ -280,7 +518,100 @@ func TestBootstrapReconcilesAnExistingFleetIdempotently(t *testing.T) {
 	if !strings.Contains(second.stderr, "agents_md: unchanged") {
 		t.Fatalf("second run stderr = %q, want hand init to report the already-canonical AGENTS.md unchanged", second.stderr)
 	}
-	if !strings.Contains(second.stderr, "Secondhand is ready.") {
+	if !strings.Contains(second.stderr, "ready: true") {
 		t.Fatalf("second run stderr = %q, want a ready fleet on a repeat run", second.stderr)
+	}
+}
+
+func TestBootstrapPipeModeBindsEveryDownloadToOneExactRelease(t *testing.T) {
+	dir := binDir(t)
+	installFakeHarness(t, dir, "claude")
+	archive := filepath.Join(t.TempDir(), releaseAsset())
+	writeHandArchive(t, archive)
+	logPath := filepath.Join(t.TempDir(), "curl.log")
+	installReleaseCurl(t, dir, archive, logPath, false)
+
+	home := filepath.Join(t.TempDir(), "unicode-home-é")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fleet := filepath.Join(home, "secondhand fleet 日本")
+	got := runBootstrap(t, home, nil, "--fleet", fleet)
+	if got.code != 0 {
+		t.Fatalf("exit = %d (stderr %q)", got.code, got.stderr)
+	}
+	if !isFleetHome(fleet) {
+		t.Fatalf("%s was not initialized", fleet)
+	}
+	urls, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURLs := "https://github.com/atqamz/hand/releases/download/v1.2.3/" + releaseAsset() + "\n"
+	if string(urls) != wantURLs {
+		t.Fatalf("curl URLs = %q, want %q", urls, wantURLs)
+	}
+}
+
+func TestBootstrapRejectsAnInterruptedOrMismatchedReleaseDownload(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		interrupted bool
+		corrupt     bool
+		want        string
+	}{
+		{name: "interrupted", interrupted: true, want: "download failed"},
+		{name: "digest mismatch", corrupt: true, want: "digest mismatch"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := binDir(t)
+			archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+			writeHandArchive(t, archive)
+			if test.corrupt {
+				file, err := os.OpenFile(archive, os.O_APPEND|os.O_WRONLY, 0o644)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := file.WriteString("corrupted"); err != nil {
+					t.Fatal(err)
+				}
+				if err := file.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			logPath := filepath.Join(t.TempDir(), "curl.log")
+			installReleaseCurl(t, dir, archive, logPath, test.interrupted)
+			home := t.TempDir()
+			got := runBootstrap(t, home, nil, "--fleet", filepath.Join(home, "fleet"))
+			if got.code == 0 || !strings.Contains(got.stderr, test.want) {
+				t.Fatalf("exit = %d, stderr = %q, want %q", got.code, got.stderr, test.want)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".local", "bin", "hand")); !os.IsNotExist(err) {
+				t.Fatalf("failed download left an installed hand at %s", filepath.Join(home, ".local", "bin", "hand"))
+			}
+		})
+	}
+}
+
+func TestBootstrapReportsAnInstallTargetFailureWithoutUsingSudo(t *testing.T) {
+	dir := binDir(t)
+	archive := filepath.Join(t.TempDir(), "hand-linux-amd64.tar.gz")
+	writeHandArchive(t, archive)
+	logPath := filepath.Join(t.TempDir(), "curl.log")
+	installReleaseCurl(t, dir, archive, logPath, false)
+	home := t.TempDir()
+	installTarget := filepath.Join(home, "not-a-directory")
+	if err := os.WriteFile(installTarget, []byte("occupied"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := runBootstrap(t, home, []string{"HAND_INSTALL_DIR=" + installTarget}, "--fleet", filepath.Join(home, "fleet"))
+	if got.code == 0 {
+		t.Fatalf("exit = 0, stderr = %q", got.stderr)
+	}
+	if !strings.Contains(got.stderr, "not a directory") {
+		t.Fatalf("stderr = %q, want the invalid install target reported", got.stderr)
+	}
+	if strings.Contains(got.stderr, "sudo mkdir") || strings.Contains(got.stderr, "sudo install") {
+		t.Fatalf("stderr = %q, must not recommend a sudo command", got.stderr)
 	}
 }
