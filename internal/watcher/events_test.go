@@ -506,21 +506,21 @@ func TestClassifyParkedBoundsDoneAndFailedInsteadOfExemptingThem(t *testing.T) {
 
 	withinBound := now.Add(-time.Hour)
 	doneTs := NewTaskState(herdr.StatusIdle, now)
-	if e := ClassifyParked(doneTs, "task-1", state.ReportDone, "done: shipped", withinBound, now, bounds); e != nil {
+	if e := ClassifyParked(doneTs, "task-1", state.ReportDone, "done: shipped", withinBound, now, bounds, nil, "", nil); e != nil {
 		t.Fatalf("got %+v, want no parked event while a done worker's silence is still under the done bound", e)
 	}
 	failedTs := NewTaskState(herdr.StatusIdle, now)
-	if e := ClassifyParked(failedTs, "task-1", state.ReportFailed, "failed: build broke", withinBound, now, bounds); e != nil {
+	if e := ClassifyParked(failedTs, "task-1", state.ReportFailed, "failed: build broke", withinBound, now, bounds, nil, "", nil); e != nil {
 		t.Fatalf("got %+v, want no parked event while a failed worker's silence is still under the done bound", e)
 	}
 
 	beyondBound := now.Add(-2 * time.Hour)
 	doneTs = NewTaskState(herdr.StatusIdle, now)
-	if e := ClassifyParked(doneTs, "task-1", state.ReportDone, "done: shipped", beyondBound, now, bounds); e == nil || e.Kind != KindParked {
+	if e := ClassifyParked(doneTs, "task-1", state.ReportDone, "done: shipped", beyondBound, now, bounds, nil, "", nil); e == nil || e.Kind != KindParked {
 		t.Fatalf("got %+v, want a parked event once a done worker's silence exceeds the done bound: it may still be attached to a pane and steerable", e)
 	}
 	failedTs = NewTaskState(herdr.StatusIdle, now)
-	if e := ClassifyParked(failedTs, "task-1", state.ReportFailed, "failed: build broke", beyondBound, now, bounds); e == nil || e.Kind != KindParked {
+	if e := ClassifyParked(failedTs, "task-1", state.ReportFailed, "failed: build broke", beyondBound, now, bounds, nil, "", nil); e == nil || e.Kind != KindParked {
 		t.Fatalf("got %+v, want a parked event once a failed worker's silence exceeds the done bound", e)
 	}
 }
@@ -531,7 +531,7 @@ func TestClassifyParkedExemptsDoneAndFailedWhenTheDoneBoundIsUnconfigured(t *tes
 	old := now.Add(-24 * time.Hour)
 
 	ts := NewTaskState(herdr.StatusIdle, now)
-	if e := ClassifyParked(ts, "task-1", state.ReportDone, "done: shipped", old, now, bounds); e != nil {
+	if e := ClassifyParked(ts, "task-1", state.ReportDone, "done: shipped", old, now, bounds, nil, "", nil); e != nil {
 		t.Fatalf("got %+v, want no parked event: a non-positive bound means unconfigured, not zero-tolerance", e)
 	}
 }
@@ -542,17 +542,17 @@ func TestClassifyParkedSelectsBoundByLastReport(t *testing.T) {
 
 	pausedTs := NewTaskState(herdr.StatusIdle, now)
 	silentFor30m := now.Add(-30 * time.Minute)
-	if e := ClassifyParked(pausedTs, "task-1", state.ReportPaused, "paused: waiting on review", silentFor30m, now, bounds); e != nil {
+	if e := ClassifyParked(pausedTs, "task-1", state.ReportPaused, "paused: waiting on review", silentFor30m, now, bounds, nil, "", nil); e != nil {
 		t.Fatalf("got %+v, want no parked event: 30m silence is still under the paused bound", e)
 	}
 
 	workingTs := NewTaskState(herdr.StatusIdle, now)
-	if e := ClassifyParked(workingTs, "task-1", state.ReportWorking, "working: on it", silentFor30m, now, bounds); e == nil || e.Kind != KindParked {
+	if e := ClassifyParked(workingTs, "task-1", state.ReportWorking, "working: on it", silentFor30m, now, bounds, nil, "", nil); e == nil || e.Kind != KindParked {
 		t.Fatalf("got %+v, want parked event: 30m silence exceeds the shorter default bound", e)
 	}
 
 	unreportedTs := NewTaskState(herdr.StatusIdle, now)
-	if e := ClassifyParked(unreportedTs, "task-1", "", "no report", silentFor30m, now, bounds); e == nil || e.Kind != KindParked {
+	if e := ClassifyParked(unreportedTs, "task-1", "", "no report", silentFor30m, now, bounds, nil, "", nil); e == nil || e.Kind != KindParked {
 		t.Fatalf("got %+v, want parked event: a task that never reported gets the short bound too", e)
 	}
 }
@@ -563,18 +563,18 @@ func TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth(t *testing.T) {
 	ts := NewTaskState(herdr.StatusIdle, now)
 	mtime := now.Add(-30 * time.Minute)
 
-	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now, bounds); e == nil || e.Kind != KindParked {
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now, bounds, nil, "", nil); e == nil || e.Kind != KindParked {
 		t.Fatalf("got %+v, want parked event on first crossing", e)
 	}
-	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now.Add(10*time.Minute), bounds); e != nil {
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now.Add(10*time.Minute), bounds, nil, "", nil); e != nil {
 		t.Fatalf("parked fired again for the same episode: %+v", e)
 	}
 
 	grown := now.Add(-time.Minute)
-	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(11*time.Minute), bounds); e != nil {
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(11*time.Minute), bounds, nil, "", nil); e != nil {
 		t.Fatalf("got %+v, want no parked event right after the report file grows", e)
 	}
-	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(45*time.Minute), bounds); e == nil || e.Kind != KindParked {
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", grown, now.Add(45*time.Minute), bounds, nil, "", nil); e == nil || e.Kind != KindParked {
 		t.Fatalf("got %+v, want a second parked event once the new episode crosses the bound", e)
 	}
 }
@@ -708,5 +708,25 @@ func writeScoutReport(t *testing.T, home, id string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# findings\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestClassifyParkedWithdrawsAndStaysAnnounceableWhileThePaneIsLive(t *testing.T) {
+	now := time.Now()
+	bounds := ParkedBounds{Paused: time.Hour, Other: 20 * time.Minute}
+	ts := NewTaskState(herdr.StatusWorking, now)
+	mtime := now.Add(-30 * time.Minute)
+
+	live := &fakePaneReader{reads: []string{"esc to interrupt (12s)", "esc to interrupt (15s)"}}
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now, bounds, live, "wA:pB", noSleep); e != nil {
+		t.Fatalf("got %+v, want no parked event while the pane is still printing", e)
+	}
+	if !ts.ParkedFiredFor.IsZero() {
+		t.Fatal("a withdrawn verdict consumed the episode's latch: the same silence outlasting the activity would then never be announced")
+	}
+
+	still := &fakePaneReader{reads: []string{"waiting for input", "waiting for input"}}
+	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now.Add(time.Minute), bounds, still, "wA:pB", noSleep); e == nil || e.Kind != KindParked {
+		t.Fatalf("got %+v, want a parked event once the pane goes quiet inside the same silence episode", e)
 	}
 }

@@ -489,7 +489,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		}
 		if mtime, err := ReportEvidenceTime(cfg.Home, t, attempt); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
-		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
+		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds, client, attempt.Herdr.PaneID, time.Sleep); e != nil {
 			emit(e)
 		}
 		if !cfg.ObserveOnly {

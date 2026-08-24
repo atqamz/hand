@@ -936,6 +936,62 @@ func TestStatusFleetFlagsParkedPaneAndCountsAttention(t *testing.T) {
 	}
 }
 
+// atqamz/hand#364: report age alone is not execution truth, so hand status asks the live pane before
+// it renders the flag. A pane whose output is still moving withdraws the verdict; an unreadable one
+// leaves the time bound's answer standing.
+func TestTaskParkedCrossChecksLivePaneActivity(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	task := state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}
+	if err := writeTaskAttempt(t, home, task, attempt); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, task.ID)
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
+	noSleep := func(time.Duration) {}
+
+	streaming := &stubPaneReader{reads: []string{"esc to interrupt (12s)", "esc to interrupt (15s)"}}
+	if taskParked(home, task, attempt, state.ReportWorking, bounds, streaming, noSleep) {
+		t.Fatal("a pane still printing was flagged parked, want the verdict withdrawn")
+	}
+
+	quiet := &stubPaneReader{reads: []string{"waiting for input", "waiting for input"}}
+	if !taskParked(home, task, attempt, state.ReportWorking, bounds, quiet, noSleep) {
+		t.Fatal("a pane that printed nothing across the check was not flagged parked, want the time bound's verdict held")
+	}
+
+	unreadable := &stubPaneReader{err: errors.New("pane_not_found")}
+	if !taskParked(home, task, attempt, state.ReportWorking, bounds, unreadable, noSleep) {
+		t.Fatal("an unreadable pane cleared the parked flag, want the time bound's verdict held")
+	}
+}
+
+type stubPaneReader struct {
+	reads []string
+	err   error
+	calls int
+}
+
+func (s *stubPaneReader) PaneRead(string, int) (string, error) {
+	s.calls++
+	if s.err != nil {
+		return "", s.err
+	}
+	if s.calls > len(s.reads) {
+		return "", nil
+	}
+	return s.reads[s.calls-1], nil
+}
+
 // atqamz/hand#268's "done when": a condition is added once, and both hand status and hand watch see
 // it without a second registration. watcher.GateKind is that one edit's home, so the fleet view's
 // flag and hand watch's known-kind vocabulary can never name a gate-run problem differently.

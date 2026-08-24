@@ -533,7 +533,8 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 	if attempt != nil {
 		e = *attempt
 	}
-	agentState, reachable := probePaneStatus(herdrClientForAttempt(attempt, client), attempt)
+	attemptClient := herdrClientForAttempt(attempt, client)
+	agentState, reachable := probePaneStatus(attemptClient, attempt)
 	data, readErr := state.ReadReportData(home, t.ID)
 	lines := state.ReportLinesInData(data)
 	reported, reportedOK := state.LastReportedState(lines)
@@ -564,7 +565,7 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 		unacked:            unacked,
 		unannounced:        unannounced,
 		unreachable:        active && !reachable,
-		parked:             active && taskParked(home, t, e, reportedState, bounds),
+		parked:             active && taskParked(home, t, e, reportedState, bounds, attemptClient, time.Sleep),
 		reported:           reportedFrom(last, len(lines) > 0, readErr),
 	}
 	if attempt != nil {
@@ -590,12 +591,13 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 // Reports whether an open task's active pane has gone silent past its last reported state's bound,
 // the status-side counterpart ClassifyParked never had (atqamz/hand#32, atqamz/hand#268's
 // disagreement 2). Degrades to false on any read fault, like lastReportAt's own stat failure.
-func taskParked(home string, t state.Task, attempt state.Attempt, reportedState string, bounds watcher.ParkedBounds) bool {
+func taskParked(home string, t state.Task, attempt state.Attempt, reportedState string, bounds watcher.ParkedBounds, client watcher.PaneReader, sleep func(time.Duration)) bool {
 	silentSince, err := watcher.ReportEvidenceTime(home, t, attempt)
 	if err != nil {
 		return false
 	}
-	return watcher.Parked(reportedState, silentSince, time.Now(), bounds)
+	naive := watcher.Parked(reportedState, silentSince, time.Now(), bounds)
+	return watcher.ConfirmParked(naive, client, attempt.Herdr.PaneID, watcher.ParkedActivityCheckWait, sleep)
 }
 
 // Reads config/parked-*-bound, shared by newWatchCmd, once per render rather than once per task, so a

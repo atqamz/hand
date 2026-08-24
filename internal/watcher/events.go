@@ -408,7 +408,7 @@ func Parked(lastReportState string, silentSince, now time.Time, bounds ParkedBou
 // mtime is deliberately never reset to "now" on resume: --until-event restarts on
 // every delivered event, and a busy fleet would otherwise erase the clock before
 // it ever completes once.
-func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds) *Event {
+func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds, client PaneReader, paneID string, sleep func(time.Duration)) *Event {
 	if _, exempt := parkedBound(lastState, bounds); exempt {
 		ts.ParkedFiredFor = time.Time{}
 		return nil
@@ -416,7 +416,9 @@ func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now ti
 	if mtime.Equal(ts.ParkedFiredFor) {
 		return nil
 	}
-	if !Parked(lastState, mtime, now, bounds) {
+	// Cross-checked before the latch, never after: a verdict withdrawn because the pane was live must
+	// leave this episode announceable, since the same silence can outlast the activity that cleared it.
+	if !ConfirmParked(Parked(lastState, mtime, now, bounds), client, paneID, ParkedActivityCheckWait, sleep) {
 		return nil
 	}
 	ts.ParkedFiredFor = mtime
