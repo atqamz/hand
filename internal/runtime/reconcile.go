@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/workerobs"
 	"github.com/atqamz/hand/internal/worktree"
 )
 
@@ -89,6 +90,7 @@ type herdrObservation struct {
 	State       herdrOwnershipState
 	Agent       string
 	AgentStatus herdr.Status
+	Pane        herdr.Pane
 }
 
 type reconciliationObservation struct {
@@ -1272,6 +1274,15 @@ func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attemp
 		if observation.Herdr.State == herdrOwnershipAbsent || observation.Herdr.State == herdrOwnershipMismatch {
 			return observation, nil
 		}
+		if observation.Herdr.State == herdrOwnershipExact &&
+			harness.IsOneShot(attempt.Harness) &&
+			attempt.LaunchConfirmedAt != "" {
+			pane, normalizeErr := workerobs.Normalize(attempt, observation.Herdr.Pane, r.herdrClient(attempt.Herdr.Session))
+			if normalizeErr != nil {
+				return observation, fmt.Errorf("observe one-shot worker liveness: %w", normalizeErr)
+			}
+			observation.Herdr.Agent, observation.Herdr.AgentStatus = pane.Agent, pane.AgentStatus
+		}
 	}
 	return observation, nil
 }
@@ -1431,6 +1442,17 @@ func decideProvisioning(attempt state.Attempt, observation reconciliationObserva
 		}
 		if observation.Herdr.State != herdrOwnershipExact {
 			return repairDecision(decision, repairCodeHerdrOwnershipIncomplete, "Herdr ownership for the recorded launch was not proven")
+		}
+		if harness.IsOneShot(attempt.Harness) {
+			if observation.Herdr.Agent != "" && observation.Herdr.Agent != attempt.Harness {
+				return repairDecision(decision, repairCodeLaunchAgentMismatch, "the recorded pane contains a different live harness")
+			}
+			if attempt.LaunchConfirmedAt != "" {
+				decision.Action = reconciliationActionMarkRunning
+				return decision
+			}
+			decision.Action = reconciliationActionConfirmLaunch
+			return decision
 		}
 		if observation.Herdr.Agent != attempt.Harness {
 			return repairDecision(decision, repairCodeLaunchAgentMismatch, "the expected persisted harness is not observed in the recorded pane")

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 )
 
@@ -144,6 +145,7 @@ func TestConfigApplicabilityFollowsTheHarnessContract(t *testing.T) {
 		{harness.Codex, stateNativeDefault, stateNativeDefault},
 		{harness.Grok, stateUnsupported, stateUnsupported},
 		{harness.Pi, stateUnsupported, stateUnsupported},
+		{harness.Antigravity, stateNativeDefault, stateNativeDefault},
 	} {
 		mustConfigSet(t, settingHarness, tc.harness)
 		if got := settingState(t, home, settingModel); got != tc.model {
@@ -545,7 +547,7 @@ func TestConfigSummaryReportsRoutingConfigurationAndProblems(t *testing.T) {
 	out := mustConfig(t)
 	for _, want := range []string{
 		"supervisor_harness: claude\n",
-		"harnesses[5]{name,installed,model,effort}:\n",
+		"harnesses[6]{name,installed,model,effort}:\n",
 		"config[3]{key,state,value}:\n",
 		"profiles[1]{name,harness,model,effort}:\n",
 		"routes[6]{kind,execution_class,profile,state}:\n",
@@ -562,5 +564,17 @@ func TestConfigSummaryReportsRoutingConfigurationAndProblems(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("config summary = %q, want %q", out, want)
 		}
+	}
+}
+
+func TestConfigHarnessTableUsesAntigravityExecutableMapping(t *testing.T) {
+	setupConfigHome(t)
+	faketool.NoTools(t)
+	bin := faketool.Bin(t)
+	faketool.Command{Name: harness.Executable(harness.Antigravity)}.Install(t, bin)
+
+	out := mustConfig(t)
+	if !strings.Contains(out, "  antigravity,true,true,true") {
+		t.Fatalf("config output = %q, want Antigravity installed via agy executable", out)
 	}
 }

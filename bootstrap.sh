@@ -265,11 +265,11 @@ doctor_list() {
   '
 }
 
-# installed_harnesses reads the harnesses[N]{name,installed} rows hand doctor already computed,
-# in the order hand reports them, so bootstrap never re-detects harnesses on its own.
+# installed_harnesses reads the supervisor_harnesses[N]{name,installed} rows hand doctor already
+# computed, in the order hand reports them, so bootstrap never re-detects harnesses on its own.
 installed_harnesses() {
   printf '%s\n' "$1" | awk '
-    /^harnesses\[/ { in_block=1; next }
+    /^supervisor_harnesses\[/ { in_block=1; next }
     in_block && /^  [a-z]/ {
       split($0, cols, ",")
       if (cols[2] == "true") print cols[1]
@@ -302,10 +302,10 @@ log "  cd $fleet"
 if [ "$count" -eq 1 ]; then
   log "  $harnesses"
 elif [ "$count" -gt 1 ]; then
-  log "  <choose one of the installed harnesses below>"
+  log "  <choose one of the installed Supervisor Harnesses below>"
   for h in $harnesses; do
     log "    $h"
   done
 else
-  log "  <install and authenticate at least one supported coding-agent harness, then run hand doctor>"
+  log "  <install and authenticate at least one supported Supervisor Harness, then run hand doctor>"
 fi

@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/watcher"
+	"github.com/atqamz/hand/internal/workerobs"
 	"github.com/spf13/cobra"
 )
 
@@ -108,15 +109,22 @@ func reportSummary(id string, lines []state.ReportLine, readErr error, unacked, 
 // Read-only status degrades to "unknown" when herdr or the pane cannot be queried. reachable is false
 // only for a claimed pane that failed to answer, never a task with no pane to probe. Unlike hand
 // watch's dwelled ClassifyUnreachable, one failed probe is enough - a live read has no blink to filter.
-func probePaneStatus(client *herdr.Client, paneID string) (agentState string, reachable bool) {
-	if paneID == "" {
+func probePaneStatus(client *herdr.Client, attempt *state.Attempt) (agentState string, reachable bool) {
+	if attempt == nil || attempt.Herdr.PaneID == "" {
 		return string(herdr.StatusUnknown), true
 	}
-	pane, err := client.PaneGet(paneID)
-	if err != nil || pane.AgentStatus == "" {
+	pane, err := client.PaneGet(attempt.Herdr.PaneID)
+	if err != nil {
 		return string(herdr.StatusUnknown), false
 	}
-	return string(pane.AgentStatus), true
+	normalized, normalizeErr := workerobs.Normalize(*attempt, pane, client)
+	if normalizeErr != nil {
+		return string(herdr.StatusUnknown), true
+	}
+	if normalized.AgentStatus == "" {
+		return string(herdr.StatusUnknown), false
+	}
+	return string(normalized.AgentStatus), true
 }
 
 // Mirrors one classified line from state.ReportLine for JSON output: malformed lines carry their raw text
@@ -525,7 +533,7 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 	if attempt != nil {
 		e = *attempt
 	}
-	agentState, reachable := probePaneStatus(herdrClientForAttempt(attempt, client), e.Herdr.PaneID)
+	agentState, reachable := probePaneStatus(herdrClientForAttempt(attempt, client), attempt)
 	data, readErr := state.ReadReportData(home, t.ID)
 	lines := state.ReportLinesInData(data)
 	reported, reportedOK := state.LastReportedState(lines)

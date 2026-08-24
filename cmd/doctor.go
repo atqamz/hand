@@ -15,6 +15,7 @@ import (
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
@@ -138,7 +139,7 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			doc.Field("herdr_version", valueOrNone(runtimeStatus.HerdrVersion))
 			doc.Field("runtime_reason", valueOrNone(runtimeStatus.Reason))
 			axi.Table(&doc, "tools", tools, toolReadinessFields)
-			axi.Table(&doc, "harnesses", harnesses, harnessReadinessFields)
+			axi.Table(&doc, "supervisor_harnesses", harnesses, harnessReadinessFields)
 			doc.Bool("ready", len(blocking) == 0)
 			doc.List("blocking", blocking)
 			doc.List("next", next)
@@ -326,13 +327,13 @@ func doctorBlockingForRuntime(failing int, runtimeReady bool, tools []toolReadin
 	return blocking
 }
 
-// Every supported coding-agent harness is reported, never a preferred one: bootstrap and doctor
-// both only ever detect, they do not choose.
+// Every registered Supervisor Harness is reported, never a preferred one: bootstrap and doctor
+// both only detect, they do not choose. Worker-only providers must not satisfy Supervisor readiness.
 func doctorHarnesses() []harnessReadiness {
-	names := harness.Names()
+	names := supervision.SupervisorHosts()
 	out := make([]harnessReadiness, 0, len(names))
 	for _, name := range names {
-		out = append(out, harnessReadiness{Name: name, Installed: onPath(name)})
+		out = append(out, harnessReadiness{Name: name, Installed: onPath(harness.Executable(name))})
 	}
 	return out
 }
@@ -374,7 +375,7 @@ func doctorNext(blocking []string) []string {
 		case "fleet-health":
 			next = append(next, "resolve every error finding reported above")
 		case "harness":
-			next = append(next, "install and authenticate at least one supported coding-agent harness (see `harnesses` above), then run hand doctor")
+			next = append(next, "install and authenticate at least one supported Supervisor Harness (see `supervisor_harnesses` above), then run hand doctor")
 		case "runtime":
 			next = append(next, "run `hand runtime ensure`")
 		default:

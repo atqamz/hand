@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/atqamz/hand/internal/brief"
@@ -38,11 +39,15 @@ type ExecutionSnapshot struct {
 }
 
 type Availability struct {
-	IsSupported    func(string) bool
-	OnPath         func(string) bool
-	SupportsModel  func(string) bool
-	SupportsEffort func(string) bool
-	CarriesPrompt  func(string) bool
+	IsSupported       func(string) bool
+	PlatformSupported func(string) bool
+	OnPath            func(string) bool
+	SupportsModel     func(string) bool
+	SupportsEffort    func(string) bool
+	CarriesPrompt     func(string) bool
+	ValidateRuntime   func(string) error
+	ValidateModel     func(string, string) error
+	ValidateEffort    func(string, string) error
 }
 
 type ResolvedRoute struct {
@@ -59,11 +64,15 @@ type ResolvedRoute struct {
 
 func DefaultAvailability() Availability {
 	return Availability{
-		IsSupported:    harness.IsSupported,
-		OnPath:         harnessOnPath,
-		SupportsModel:  harness.SupportsModel,
-		SupportsEffort: harness.SupportsEffort,
-		CarriesPrompt:  harness.CarriesPrompt,
+		IsSupported:       harness.IsSupported,
+		PlatformSupported: func(name string) bool { return harness.PlatformSupported(name, runtime.GOOS) },
+		OnPath:            harnessOnPath,
+		SupportsModel:     harness.SupportsModel,
+		SupportsEffort:    harness.SupportsEffort,
+		CarriesPrompt:     harness.CarriesPrompt,
+		ValidateRuntime:   harness.ValidateRuntime,
+		ValidateModel:     harness.ValidateModel,
+		ValidateEffort:    harness.ValidateEffort,
 	}
 }
 
@@ -158,6 +167,9 @@ func resolveProfiled(request Request, config Config, legacy LegacyDefaults, avai
 	if !available(availability.IsSupported, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("harness %q not recognized", result.Harness)
 	}
+	if availability.PlatformSupported != nil && !availability.PlatformSupported(result.Harness) {
+		return ResolvedRoute{}, fmt.Errorf("harness %q is unsupported on this platform", result.Harness)
+	}
 	if !available(availability.OnPath, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("harness %q is not installed on PATH", result.Harness)
 	}
@@ -168,6 +180,9 @@ func resolveProfiled(request Request, config Config, legacy LegacyDefaults, avai
 	}
 	if result.Effort != "" && !available(availability.SupportsEffort, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("harness %q takes no effort", result.Harness)
+	}
+	if err := validateCapabilities(result, availability); err != nil {
+		return ResolvedRoute{}, err
 	}
 	if result.ExecutionClass == brief.ExecutionClassMechanical && !available(availability.CarriesPrompt, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("mechanical execution requires a prompt-capable harness: harness %q cannot carry the required mechanical worker guidance", result.Harness)
@@ -187,8 +202,14 @@ func resolveLegacy(request Request, legacy LegacyDefaults, availability Availabi
 	if !available(availability.IsSupported, result.Harness) {
 		return ResolvedRoute{}, fmt.Errorf("harness %q not recognized", result.Harness)
 	}
+	if availability.PlatformSupported != nil && !availability.PlatformSupported(result.Harness) {
+		return ResolvedRoute{}, fmt.Errorf("harness %q is unsupported on this platform", result.Harness)
+	}
 	result.Model = firstNonEmpty(flagValue(request.Model, request.ModelFromFlag), request.Declaration.Model, legacy.Models[result.Harness])
 	result.Effort = firstNonEmpty(flagValue(request.Effort, request.EffortFromFlag), request.Declaration.Effort, legacy.Efforts[result.Harness])
+	if err := validateCapabilities(result, availability); err != nil {
+		return ResolvedRoute{}, err
+	}
 	result.Warnings = legacyWarnings(result, availability)
 	return result, nil
 }
@@ -292,8 +313,30 @@ func available(check func(string) bool, name string) bool {
 	return check != nil && check(name)
 }
 
+func validateCapabilities(result ResolvedRoute, availability Availability) error {
+	// A selected model runs the Antigravity capability probe through ValidateModel; without one,
+	// ValidateRuntime still qualifies the installed headless/model-discovery contract. Explicit
+	// auth/config errors fail closed, while successful preflight never promises later credential validity.
+	if result.Model == "" && availability.ValidateRuntime != nil {
+		if err := availability.ValidateRuntime(result.Harness); err != nil {
+			return err
+		}
+	}
+	if result.Model != "" && availability.ValidateModel != nil {
+		if err := availability.ValidateModel(result.Harness, result.Model); err != nil {
+			return err
+		}
+	}
+	if result.Effort != "" && availability.ValidateEffort != nil {
+		if err := availability.ValidateEffort(result.Harness, result.Effort); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func harnessOnPath(name string) bool {
-	_, err := exec.LookPath(name)
+	_, err := exec.LookPath(harness.Executable(name))
 	return err == nil
 }
 

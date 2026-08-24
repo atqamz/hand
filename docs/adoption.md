@@ -133,7 +133,7 @@ integrations[4]{id,executable,owner,state,path}:
   gitlab/glab,glab,GitLab,missing,none
   delivery/no-mistakes,no-mistakes,no-mistakes,missing,none
   delivery/witness,witness,Witness,missing,none
-harnesses[5]{name,installed}:
+supervisor_harnesses[5]{name,installed}:
   claude,true
   codex,false
   grok,false
@@ -148,7 +148,7 @@ next[1]:
 
 The private runtime is always required, and its three components are selected together by one runtime ID.
 Optional integrations are missing without blocking readiness until a registered workflow selects one.
-Harnesses are reported purely as installed or not - `hand` never picks one on the operator's behalf.
+Supervisor Supervisor Supervisor Supervisor Supervisor Supervisor Supervisor Harnesses are reported purely as installed or not - `hand` never picks one on the operator's behalf. Worker Harness routing is a separate configuration surface, so a worker-only provider such as Antigravity cannot make bootstrap claim Supervisor readiness. Worker Harness routing is a separate configuration surface, so a worker-only provider such as Antigravity cannot make bootstrap claim Supervisor readiness. Worker Harness routing is a separate configuration surface, so a worker-only provider such as Antigravity cannot make bootstrap claim Supervisor readiness. Worker Harness routing is a separate configuration surface, so a worker-only provider such as Antigravity cannot make bootstrap claim Supervisor readiness. Worker Harness routing is a separate configuration surface, so a worker-only provider such as Antigravity cannot make bootstrap claim Supervisor readiness. Worker Harness routing is a separate configuration surface, so a worker-only provider such as Antigravity cannot make bootstrap claim Supervisor readiness. Worker Harness routing is a separate configuration surface, so a worker-only provider such as Antigravity cannot make bootstrap claim Supervisor readiness.
 
 `hand fleet` is the discovery view for users with more than one Fleet home.
 It reads the user-local registry without selecting an active Fleet or changing any home.

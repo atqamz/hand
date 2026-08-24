@@ -149,10 +149,15 @@ The agent process Hand launches for execution, regardless of Task kind or model.
 `scout` and `ship` do not name Worker roles.
 Compatibility names such as `HAND_ROLE=worker` and `WorkerRole` remain unchanged.
 
-### Harness
+### Worker Harness
 
-The local agent executable or integration Hand launches, such as `codex`, `claude`, `opencode`, `grok`, or `pi`.
-Harness is not synonymous with model provider.
+The local agent executable or integration Hand launches for one Attempt, such as `codex`, `claude`, `opencode`, `grok`, `pi`, or Antigravity's `agy`.
+Worker Harness capability is independent from Supervisor Harness capability and is not synonymous with model provider.
+
+### Supervisor Harness
+
+The user-facing agent host capable of running Supervisor reasoning and, where qualified, Hand's wake/re-entry integration.
+Its registry is owned independently from Worker Harness support. A product may support Worker execution without being a Supervisor Harness, or vice versa; provider identity never implies role.
 
 ## Configuration and delivery
 

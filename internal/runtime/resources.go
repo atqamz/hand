@@ -229,7 +229,12 @@ func observeHerdrOwnership(client herdrClient, expected state.Herdr, taskID, pro
 	if pane.PaneID != expected.PaneID || pane.TabID != expected.TabID || pane.WorkspaceID != expected.WorkspaceID {
 		return herdrObservation{State: herdrOwnershipMismatch}, nil
 	}
-	return herdrObservation{State: herdrOwnershipExact, Agent: pane.Agent, AgentStatus: pane.AgentStatus}, nil
+
+	// Resource ownership ends here. Worker identity/liveness is normalized separately from the
+	// persisted Attempt; pane scrollback is never promoted into generic ownership evidence.
+	return herdrObservation{
+		State: herdrOwnershipExact, Agent: pane.Agent, AgentStatus: pane.AgentStatus, Pane: pane,
+	}, nil
 }
 
 func isHerdrNotFound(err error) bool {
