@@ -936,10 +936,8 @@ func TestStatusFleetFlagsParkedPaneAndCountsAttention(t *testing.T) {
 	}
 }
 
-// atqamz/hand#364: report age alone is not execution truth, so hand status asks the live pane before
-// it renders the flag. A pane whose output is still moving withdraws the verdict; an unreadable one
-// leaves the time bound's answer standing.
-func TestTaskParkedCrossChecksLivePaneActivity(t *testing.T) {
+// A one-shot render has no short, known interval baseline, so it defers pane corroboration to hand watch.
+func TestTaskParkedUsesNaiveOneShotFallback(t *testing.T) {
 	home := t.TempDir()
 	mkFleetDirs(t, home)
 	task := state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
@@ -957,8 +955,11 @@ func TestTaskParkedCrossChecksLivePaneActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
-	if taskParked(home, task, attempt, state.ReportWorking, bounds) {
-		t.Fatal("one-shot status failed to preserve the naive parked verdict")
+	if taskParked(home, task, attempt, state.ReportWorking, watcher.ParkedBounds{Other: 40 * time.Minute}) {
+		t.Fatal("one-shot status reported parked before the time bound was crossed")
+	}
+	if !taskParked(home, task, attempt, state.ReportWorking, bounds) {
+		t.Fatal("one-shot status did not preserve the naive parked verdict")
 	}
 }
 

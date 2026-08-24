@@ -1462,8 +1462,7 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 	}
 	client := herdr.NewClient()
 
-	// A restart's first tick only seeds tracking, so the earliest any classifier can
-	// fire is the second.
+	// A restart's first two ticks seed and corroborate tracking before a classifier can fire.
 	states := make(map[string]*TaskState)
 	var buf bytes.Buffer
 	tick(context.Background(), cfg, client, states, &buf, io.Discard)
@@ -1473,8 +1472,14 @@ func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t
 
 	buf.Reset()
 	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "parked task-1") {
+		t.Fatal("parked fired on the baseline tick, before a second pane sample existed")
+	}
+
+	buf.Reset()
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "parked task-1") {
-		t.Fatalf("output = %q, want parked task-1 on the first classifying tick after resume: the silence predates this process and must not need to reaccumulate from resume time", buf.String())
+		t.Fatalf("output = %q, want parked task-1 on the first corroborating tick after resume: the silence predates this process and must not need to reaccumulate from resume time", buf.String())
 	}
 }
 
@@ -1513,13 +1518,15 @@ func TestTickDoesNotRefireParkedForADoneTaskAcrossARestart(t *testing.T) {
 	states := make(map[string]*TaskState)
 	tick(context.Background(), cfg, client, states, &buf, io.Discard)
 	tick(context.Background(), cfg, client, states, &buf, io.Discard)
+	tick(context.Background(), cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "parked task-1") {
-		t.Fatalf("output = %q, want parked task-1 from the first run: the done-tier bound is already crossed", buf.String())
+		t.Fatalf("output = %q, want parked task-1 from the first corroborating run tick: the done-tier bound is already crossed", buf.String())
 	}
 
 	buf.Reset()
 	// The whole point of persisting the latch is this second run staying quiet.
 	restarted := make(map[string]*TaskState)
+	tick(context.Background(), cfg, client, restarted, &buf, io.Discard)
 	tick(context.Background(), cfg, client, restarted, &buf, io.Discard)
 	tick(context.Background(), cfg, client, restarted, &buf, io.Discard)
 	if strings.Contains(buf.String(), "parked task-1") {
@@ -1956,6 +1963,8 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		PersistedPaneID:            "scout-pane",
 		PersistedChangedAt:         time.Date(2002, 2, 2, 0, 0, 0, 0, time.UTC),
 		PersistedChangedFor:        "scout-status-for",
+		PaneSample:                 "stale-pane-sample",
+		PaneSampleObserved:         true,
 		LastReportState:            "scout-report-state",
 		LastReportNote:             "scout-report-note",
 		DoneVerified:               true,
