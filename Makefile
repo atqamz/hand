@@ -10,7 +10,7 @@ build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" .
 
 test:
-	go test -tags=test -race ./...
+	SECONDHAND_HOME=$$(mktemp -d) go test -tags=test -race ./...
 
 fmt:
 	gofmt -w .
