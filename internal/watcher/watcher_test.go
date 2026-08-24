@@ -681,7 +681,7 @@ func TestTickClassifiesGateProblem(t *testing.T) {
 
 	var buf bytes.Buffer
 	// The first tick only seeds tracking for a task not seen before, the same as every other
-	// classifier in this suite - see TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound.
+	// classifier in this suite - see TestTickFiresParkedOnTheFirstCorroboratingTickWhenTheSilenceAlreadyExceedsTheBound.
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
 	buf.Reset()
@@ -1434,7 +1434,7 @@ func TestTickAnnouncesADoneRewrittenToTheSameLengthAcrossARestart(t *testing.T) 
 	}
 }
 
-func TestTickFiresParkedOnFirstResumedTickWhenTheSilenceAlreadyExceedsTheBound(t *testing.T) {
+func TestTickFiresParkedOnTheFirstCorroboratingTickWhenTheSilenceAlreadyExceedsTheBound(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "idle")
 	writeFakeHerdr(t, statusFile)
