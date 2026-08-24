@@ -25,8 +25,11 @@ func ConfirmParked(naive bool, previous string, hasPrevious bool, client PaneRea
 	if err != nil {
 		return naive, "", false
 	}
-	if !naive || !hasPrevious {
-		return naive, current, true
+	if !hasPrevious {
+		return false, current, true
+	}
+	if !naive {
+		return false, current, true
 	}
 	return naive && current == previous, current, true
 }

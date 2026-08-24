@@ -3,7 +3,6 @@ package watcher
 import (
 	"errors"
 	"testing"
-	"time"
 )
 
 type fakePaneReader struct {
@@ -27,15 +26,6 @@ func (f *fakePaneReader) PaneRead(paneID string, lines int) (string, error) {
 		return "", nil
 	}
 	return f.reads[f.calls-1], nil
-}
-
-type refusingPaneReader struct{ t *testing.T }
-
-func noSleep(time.Duration) {}
-
-func (r refusingPaneReader) PaneRead(string, int) (string, error) {
-	r.t.Fatal("pane was read for a task the time bound never called parked")
-	return "", nil
 }
 
 func TestConfirmParkedHoldsTheVerdictWhenThePaneStaysStill(t *testing.T) {
@@ -71,9 +61,10 @@ func TestConfirmParkedKeepsTheNaiveVerdictWithNothingToRead(t *testing.T) {
 	}
 }
 
-func TestConfirmParkedNeverReadsAPaneItHasNothingToConfirm(t *testing.T) {
-	if got, _, _ := ConfirmParked(false, "", false, refusingPaneReader{t}, "wA:pB"); got {
-		t.Fatal("a task the time bound never called parked came back parked")
+func TestConfirmParkedMaintainsBaselineBeforeTheTimeBound(t *testing.T) {
+	client := &fakePaneReader{reads: []string{"working"}}
+	if got, sample, observed := ConfirmParked(false, "", false, client, "wA:pB"); got || sample != "working" || !observed {
+		t.Fatalf("got=%v sample=%q observed=%v, want false, working, true", got, sample, observed)
 	}
 }
 

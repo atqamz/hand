@@ -410,7 +410,7 @@ func Parked(lastReportState string, silentSince, now time.Time, bounds ParkedBou
 // mtime is deliberately never reset to "now" on resume: --until-event restarts on
 // every delivered event, and a busy fleet would otherwise erase the clock before
 // it ever completes once.
-func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds, client PaneReader, paneID string, _ ...func(time.Duration)) *Event {
+func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds, client PaneReader, paneID string) *Event {
 	if _, exempt := parkedBound(lastState, bounds); exempt {
 		ts.ParkedFiredFor = time.Time{}
 		return nil
@@ -419,6 +419,7 @@ func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now ti
 		return nil
 	}
 	naive := Parked(lastState, mtime, now, bounds)
+	// Read once each tick so the next tick has a bounded activity baseline without blocking the poll loop.
 	confirmed, sample, observed := ConfirmParked(naive, ts.PaneSample, ts.PaneSampleObserved, client, paneID)
 	if observed {
 		ts.PaneSample = sample

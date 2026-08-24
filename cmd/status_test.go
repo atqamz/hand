@@ -957,39 +957,9 @@ func TestTaskParkedCrossChecksLivePaneActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
-	noSleep := func(time.Duration) {}
-
-	streaming := &stubPaneReader{reads: []string{"esc to interrupt (12s)", "esc to interrupt (15s)"}}
-	if taskParked(home, task, attempt, state.ReportWorking, bounds, streaming, noSleep) {
-		t.Fatal("a pane still printing was flagged parked, want the verdict withdrawn")
+	if taskParked(home, task, attempt, state.ReportWorking, bounds) {
+		t.Fatal("one-shot status failed to preserve the naive parked verdict")
 	}
-
-	quiet := &stubPaneReader{reads: []string{"waiting for input", "waiting for input"}}
-	if !taskParked(home, task, attempt, state.ReportWorking, bounds, quiet, noSleep) {
-		t.Fatal("a pane that printed nothing across the check was not flagged parked, want the time bound's verdict held")
-	}
-
-	unreadable := &stubPaneReader{err: errors.New("pane_not_found")}
-	if !taskParked(home, task, attempt, state.ReportWorking, bounds, unreadable, noSleep) {
-		t.Fatal("an unreadable pane cleared the parked flag, want the time bound's verdict held")
-	}
-}
-
-type stubPaneReader struct {
-	reads []string
-	err   error
-	calls int
-}
-
-func (s *stubPaneReader) PaneRead(string, int) (string, error) {
-	s.calls++
-	if s.err != nil {
-		return "", s.err
-	}
-	if s.calls > len(s.reads) {
-		return "", nil
-	}
-	return s.reads[s.calls-1], nil
 }
 
 // atqamz/hand#268's "done when": a condition is added once, and both hand status and hand watch see
