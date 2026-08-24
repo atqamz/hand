@@ -160,6 +160,15 @@ func TestFirstRunInstalledCLIBootstrapsADetectedSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte(preamble), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "projects.md"), []byte("# Projects\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	initialized := runHandEnv(t, home, []string{"HAND_HARNESS=codex"}, "init")
 	if initialized.code != 0 {
@@ -262,6 +271,15 @@ func TestSourceCheckoutDogfoodBootstrap(t *testing.T) {
 	}
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"), tracked, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "projects.md"), []byte("# Projects\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

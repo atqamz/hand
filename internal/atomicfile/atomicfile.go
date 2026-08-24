@@ -46,7 +46,7 @@ func Write(path, tempPrefix string, data []byte, mode os.FileMode) error {
 	// exponential curve to a ~2s ceiling. Unix never hits this path.
 	var renameErr error
 	for attempt := range 8 {
-		renameErr = os.Rename(tmpName, path)
+		renameErr = replace(tmpName, path)
 		if renameErr == nil {
 			return nil
 		}
