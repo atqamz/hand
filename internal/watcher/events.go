@@ -380,7 +380,12 @@ type ParkedBounds struct {
 // done and failed get their own tier rather than the blanket exemption this used to be: the status
 // file being torn down is what actually severs a task from steering, not the worker's own last word,
 // so a done or failed worker still attached to a pane is silence like any other and is bounded too.
-func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
+func parkedBound(lastState, deliveredAt string, bounds ParkedBounds) (bound time.Duration, exempt bool) {
+	// Delivery is the supervisor's own verified last word on the task, stronger than any worker
+	// self-report, so silence after it is nobody's condition to act on - ClassifyStale's rule exactly.
+	if deliveredAt != "" {
+		return 0, true
+	}
 	switch lastState {
 	case state.ReportDone, state.ReportFailed:
 		bound = bounds.Done
@@ -399,8 +404,8 @@ func parkedBound(lastState string, bounds ParkedBounds) (bound time.Duration, ex
 // Parked is the level check behind ClassifyParked's latch, exported so cmd/statusview.go can ask the
 // same question for atqamz/hand#32's own case (atqamz/hand#268's disagreement 2). silentSince is the
 // evidence instant ReportEvidenceTime floors, the same one ClassifyParked calls mtime.
-func Parked(lastReportState string, silentSince, now time.Time, bounds ParkedBounds) bool {
-	bound, exempt := parkedBound(lastReportState, bounds)
+func Parked(lastReportState, deliveredAt string, silentSince, now time.Time, bounds ParkedBounds) bool {
+	bound, exempt := parkedBound(lastReportState, deliveredAt, bounds)
 	if exempt {
 		return false
 	}
@@ -410,15 +415,15 @@ func Parked(lastReportState string, silentSince, now time.Time, bounds ParkedBou
 // mtime is deliberately never reset to "now" on resume: --until-event restarts on
 // every delivered event, and a busy fleet would otherwise erase the clock before
 // it ever completes once.
-func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds, client PaneReader, paneID string) *Event {
-	if _, exempt := parkedBound(lastState, bounds); exempt {
+func ClassifyParked(ts *TaskState, id, lastState, lastLine, deliveredAt string, mtime, now time.Time, bounds ParkedBounds, client PaneReader, paneID string) *Event {
+	if _, exempt := parkedBound(lastState, deliveredAt, bounds); exempt {
 		ts.ParkedFiredFor = time.Time{}
 		return nil
 	}
 	if mtime.Equal(ts.ParkedFiredFor) {
 		return nil
 	}
-	naive := Parked(lastState, mtime, now, bounds)
+	naive := Parked(lastState, deliveredAt, mtime, now, bounds)
 	// Read once each tick so the next tick has a bounded activity baseline without blocking the poll loop.
 	confirmed, sample, observed := ConfirmParked(naive, ts.PaneSample, ts.PaneSampleObserved, client, paneID)
 	if observed {
@@ -450,7 +455,12 @@ func ClassifyPRMerged(ts *TaskState, id string, merged bool) *Event {
 // GateApplies is cmd/statusview.go's gateRunApplies, exported: the gate-run check has anything to say
 // about a task only when it is a done ship task carrying a recorded PR, and hand status and hand
 // watch must agree on that before either of them shells out to ask no-mistakes anything.
-func GateApplies(taskKind, pr string, reportedDone bool) bool {
+func GateApplies(taskKind, pr, deliveredAt string, reportedDone bool) bool {
+	// A delivered task has already had the supervisor's answer on what happens to its PR, so
+	// re-announcing an absent gate run on every tick asks a question nobody is waiting on.
+	if deliveredAt != "" {
+		return false
+	}
 	return taskKind == state.KindShip && pr != "" && reportedDone
 }
 

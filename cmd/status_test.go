@@ -963,6 +963,44 @@ func TestTaskParkedUsesNaiveOneShotFallback(t *testing.T) {
 	}
 }
 
+// atqamz/hand#365: hand deliver is the supervisor's own verified last word, so the same silence it
+// already handled must stop re-flagging, on both the parked and the gate-run predicate.
+func TestTaskParkedAndGateRunAppliesStopOnceTheTaskIsDelivered(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	pr := "https://github.com/atqamz/hand/pull/120"
+	task := state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip, PR: pr,
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}
+	if err := writeTaskAttempt(t, home, task, attempt); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, task.ID)
+	if err := os.WriteFile(reportPath, []byte("done: shipped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+	bounds := watcher.ParkedBounds{Done: 20 * time.Minute, Other: 20 * time.Minute}
+
+	if !taskParked(home, task, attempt, state.ReportDone, bounds) {
+		t.Fatal("an undelivered task past its bound was not flagged parked, want the existing done-bounded behavior intact")
+	}
+	if !gateRunApplies(task, true) {
+		t.Fatal("the gate check was skipped for an undelivered done ship task with a recorded PR")
+	}
+
+	task.DeliveredAt = "2026-08-17T00:00:00Z"
+	if taskParked(home, task, attempt, state.ReportDone, bounds) {
+		t.Fatal("a delivered task was still flagged parked, want the silence exempt")
+	}
+	if gateRunApplies(task, true) {
+		t.Fatal("the gate check still applied to a delivered task, want it silent")
+	}
+}
+
 // atqamz/hand#268's "done when": a condition is added once, and both hand status and hand watch see
 // it without a second registration. watcher.GateKind is that one edit's home, so the fleet view's
 // flag and hand watch's known-kind vocabulary can never name a gate-run problem differently.
