@@ -1,12 +1,5 @@
 package watcher
 
-import "time"
-
-// The pause between an activity check's two pane reads. Long enough for a genuinely active terminal's
-// streaming indicator to tick over, short enough not to meaningfully delay a report a supervisor is
-// waiting on.
-const ParkedActivityCheckWait = 3 * time.Second
-
 // How much of the pane tail the two reads compare. Everything a working harness redraws - its spinner,
 // its elapsed counter, the text streaming above them - sits at the bottom, so a longer tail would only
 // add settled scrollback that never differs.
@@ -18,32 +11,22 @@ type PaneReader interface {
 	PaneRead(paneID string, lines int) (string, error)
 }
 
-// sleep is injected rather than called directly so the comparison stays pure and fast to test.
-func paneOutputChanged(client PaneReader, paneID string, wait time.Duration, sleep func(time.Duration)) (bool, error) {
-	before, err := client.PaneRead(paneID, parkedActivityReadLines)
-	if err != nil {
-		return false, err
-	}
-	sleep(wait)
-	after, err := client.PaneRead(paneID, parkedActivityReadLines)
-	if err != nil {
-		return false, err
-	}
-	return before != after, nil
+func readPaneSample(client PaneReader, paneID string) (string, error) {
+	return client.PaneRead(paneID, parkedActivityReadLines)
 }
 
-// ConfirmParked cross-checks a time-bound parked verdict against live pane output, so a worker still
-// streaming tokens is not called parked merely for having written no recent report line
-// (atqamz/hand#364). Changed pane bytes are activity evidence only, never a report or an outcome.
-func ConfirmParked(naive bool, client PaneReader, paneID string, wait time.Duration, sleep func(time.Duration)) bool {
+func ConfirmParked(naive bool, previous string, hasPrevious bool, client PaneReader, paneID string) (bool, string, bool) {
 	// A check that cannot run must not suppress evidence that predates it, so every degraded path hands
 	// back the time-bound verdict untouched.
-	if !naive || client == nil || paneID == "" {
-		return naive
+	if client == nil || paneID == "" {
+		return naive, "", false
 	}
-	changed, err := paneOutputChanged(client, paneID, wait, sleep)
+	current, err := readPaneSample(client, paneID)
 	if err != nil {
-		return naive
+		return naive, "", false
 	}
-	return naive && !changed
+	if !naive || !hasPrevious {
+		return naive, current, true
+	}
+	return naive && current == previous, current, true
 }

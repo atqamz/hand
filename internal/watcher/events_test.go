@@ -717,7 +717,9 @@ func TestClassifyParkedWithdrawsAndStaysAnnounceableWhileThePaneIsLive(t *testin
 	ts := NewTaskState(herdr.StatusWorking, now)
 	mtime := now.Add(-30 * time.Minute)
 
-	live := &fakePaneReader{reads: []string{"esc to interrupt (12s)", "esc to interrupt (15s)"}}
+	ts.PaneSample = "esc to interrupt (12s)"
+	ts.PaneSampleObserved = true
+	live := &fakePaneReader{reads: []string{"esc to interrupt (15s)"}}
 	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now, bounds, live, "wA:pB", noSleep); e != nil {
 		t.Fatalf("got %+v, want no parked event while the pane is still printing", e)
 	}
@@ -725,7 +727,7 @@ func TestClassifyParkedWithdrawsAndStaysAnnounceableWhileThePaneIsLive(t *testin
 		t.Fatal("a withdrawn verdict consumed the episode's latch: the same silence outlasting the activity would then never be announced")
 	}
 
-	still := &fakePaneReader{reads: []string{"waiting for input", "waiting for input"}}
+	still := &fakePaneReader{reads: []string{"waiting for input"}}
 	if e := ClassifyParked(ts, "task-1", state.ReportWorking, "working: on it", mtime, now.Add(time.Minute), bounds, still, "wA:pB", noSleep); e == nil || e.Kind != KindParked {
 		t.Fatalf("got %+v, want a parked event once the pane goes quiet inside the same silence episode", e)
 	}
