@@ -97,6 +97,36 @@ func TestProvisionUsesFleetScopedTreehouseLeaseHolder(t *testing.T) {
 	}
 }
 
+func TestProvisionEnsuresFleetHerdrBeforeTreehouseAcquisition(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	fake := &provisionHerdr{}
+	r := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
+	var events []string
+	r.deps.ensureHerdr = func(_ context.Context, fleetID string) error {
+		events = append(events, "ensure:"+fleetID)
+		return nil
+	}
+	r.deps.worktree.get = func(path, _ string) (worktree.Lease, error) {
+		events = append(events, "treehouse")
+		return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
+	}
+
+	if _, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ensure:" + fleetID, "treehouse"}
+	if strings.Join(events, ",") != strings.Join(want, ",") {
+		t.Fatalf("provisioning events = %q, want %q", events, want)
+	}
+}
+
 func TestProvisionResumeRefusesChangedLeaseBeforeHerdrCreation(t *testing.T) {
 	home, attempt := provisioningFixture(t)
 	attempt.Worktree = "/tmp/hand-wt"

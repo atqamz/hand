@@ -111,7 +111,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 
 func isReadOnlyCommand(cmd *cobra.Command) bool {
 	switch cmd.CommandPath() {
-	case "hand", "hand doctor", "hand runtime status":
+	case "hand", "hand doctor", "hand runtime status", "hand fleet herdr status":
 		return true
 	default:
 		return false
