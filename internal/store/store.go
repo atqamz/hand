@@ -2580,6 +2580,50 @@ func (db *DB) SetProjectURL(name, url string) (bool, error) {
 	return affected > 0, nil
 }
 
+// SetProjectMode reports whether the named project's delivery mode was updated.
+func (db *DB) SetProjectMode(name, mode string) (bool, error) {
+	res, err := db.sql.Exec(`UPDATE project SET mode = ? WHERE name = ?`, mode, name)
+	if err != nil {
+		return false, fmt.Errorf("set mode for project %q: %w", name, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("set mode for project %q: %w", name, err)
+	}
+	return affected > 0, nil
+}
+
+// RenameProject updates the registry key and every task's project reference in one transaction.
+func (db *DB) RenameProject(oldName, newName string) (bool, error) {
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return false, fmt.Errorf("rename project %q: %w", oldName, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.Exec(`UPDATE project SET name = ? WHERE name = ?`, newName, oldName)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return false, fmt.Errorf("rename project %q to %q: %w", oldName, newName, ErrProjectExists)
+		}
+		return false, fmt.Errorf("rename project %q to %q: %w", oldName, newName, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("rename project %q: %w", oldName, err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	if _, err := tx.Exec(`UPDATE task SET project = ? WHERE project = ?`, newName, oldName); err != nil {
+		return false, fmt.Errorf("rename tasks for project %q: %w", oldName, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("rename project %q: %w", oldName, err)
+	}
+	return true, nil
+}
+
 // RemoveProject reports whether a row was actually removed, leaving the
 // not-registered wording to the caller that already owns it.
 func (db *DB) RemoveProject(name string) (bool, error) {

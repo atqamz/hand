@@ -173,6 +173,124 @@ func TestSetURLRollsBackWhenProjectionWriteFails(t *testing.T) {
 	}
 }
 
+func TestSetModePreservesProjectFieldsAndProjection(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n# profile=demo\n- demo: https://github.com/org/demo mode=direct-pr upstream=up/demo\n")
+
+	if err := SetMode(dir, "demo", ModeNoMistakes); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Project{Name: "demo", URL: "https://github.com/org/demo", Mode: ModeNoMistakes, Upstream: "up/demo"}
+	if len(projects) != 1 || projects[0] != want {
+		t.Fatalf("projects = %+v, want %+v", projects, want)
+	}
+	projection, err := os.ReadFile(RegistryPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(projection); !strings.Contains(got, "# profile=demo\n- demo: https://github.com/org/demo mode=no-mistakes upstream=up/demo") {
+		t.Fatalf("projection = %q, want mode update with comment preserved", got)
+	}
+}
+
+func TestSetModeRollsBackWhenProjectionWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
+	original := projectModeProjectionWriter
+	t.Cleanup(func() { projectModeProjectionWriter = original })
+	projectModeProjectionWriter = func(*store.DB, string) error { return errors.New("projection failed") }
+
+	err := SetMode(dir, "demo", ModeNoMistakes)
+	if err == nil || !strings.Contains(err.Error(), "projection failed") {
+		t.Fatalf("SetMode = %v, want projection failure", err)
+	}
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Mode != ModeDirectPR {
+		t.Fatalf("projects = %+v, want old mode after rollback", projects)
+	}
+}
+
+func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n# profile=first\n- first: https://github.com/org/first mode=direct-pr\n\n# profile=demo\n- demo: https://github.com/org/demo mode=no-mistakes upstream=up/demo\n")
+	db, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(store.Task{ID: "task-1", Project: "demo", Kind: store.KindShip}); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Rename(dir, "demo", "renamed"); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Project{
+		{Name: "first", URL: "https://github.com/org/first", Mode: ModeDirectPR},
+		{Name: "renamed", URL: "https://github.com/org/demo", Mode: ModeNoMistakes, Upstream: "up/demo"},
+	}
+	if len(projects) != len(want) {
+		t.Fatalf("projects = %+v, want %+v", projects, want)
+	}
+	for i := range want {
+		if projects[i] != want[i] {
+			t.Fatalf("project %d = %+v, want %+v", i, projects[i], want[i])
+		}
+	}
+	db, err = store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, found, err := db.ReadTask("task-1")
+	_ = db.Close()
+	if err != nil || !found || task.Project != "renamed" {
+		t.Fatalf("task = %+v, found=%v, err=%v, want renamed project", task, found, err)
+	}
+	projection, err := os.ReadFile(RegistryPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(projection); !strings.Contains(got, "# profile=demo\n- renamed: https://github.com/org/demo mode=no-mistakes upstream=up/demo") {
+		t.Fatalf("projection = %q, want renamed entry with comment preserved", got)
+	}
+}
+
+func TestRenameRollsBackWhenProjectionWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
+	original := projectRenameProjectionWriter
+	t.Cleanup(func() { projectRenameProjectionWriter = original })
+	projectRenameProjectionWriter = func(*store.DB, string) error { return errors.New("projection failed") }
+
+	err := Rename(dir, "demo", "renamed")
+	if err == nil || !strings.Contains(err.Error(), "projection failed") {
+		t.Fatalf("Rename = %v, want projection failure", err)
+	}
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "demo" {
+		t.Fatalf("projects = %+v, want old name after rollback", projects)
+	}
+}
+
 func TestSetURLReportsProjectionAndRollbackFailures(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/old mode=direct-pr\n")

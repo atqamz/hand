@@ -258,6 +258,62 @@ func SetUpstream(homeDir, name, upstream string) error {
 	return writeProjection(db, homeDir)
 }
 
+var projectModeUpdater = func(db *store.DB, name, mode string) (bool, error) {
+	return db.SetProjectMode(name, mode)
+}
+
+var projectModeProjectionWriter = writeProjection
+
+// SetMode changes only the registered project's delivery mode and projection.
+func SetMode(homeDir, name, mode string) error {
+	if !validMode(mode) {
+		return fmt.Errorf("invalid project mode %q", mode)
+	}
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	db, err := openRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	projects, err := db.ListProjects()
+	if err != nil {
+		return err
+	}
+	var oldMode string
+	found := false
+	for _, p := range projects {
+		if p.Name == name {
+			oldMode = p.Mode
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("project %q %w", name, ErrNotFound)
+	}
+
+	updated, err := projectModeUpdater(db, name, mode)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("project %q %w", name, ErrNotFound)
+	}
+	if err := projectModeProjectionWriter(db, homeDir); err != nil {
+		if _, rollbackErr := projectModeUpdater(db, name, oldMode); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore mode for project %q: %w", name, rollbackErr))
+		}
+		return err
+	}
+	return nil
+}
+
 var projectURLUpdater = func(db *store.DB, name, url string) (bool, error) {
 	return db.SetProjectURL(name, url)
 }
@@ -328,6 +384,45 @@ func SetURL(homeDir, name, url string) error {
 	if err := projectURLProjectionWriter(db, homeDir); err != nil {
 		if _, rollbackErr := projectURLUpdater(db, name, oldURL); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("restore URL for project %q: %w", name, rollbackErr))
+		}
+		return err
+	}
+	return nil
+}
+
+var projectRenameUpdater = func(db *store.DB, oldName, newName string) (bool, error) {
+	return db.RenameProject(oldName, newName)
+}
+
+var projectRenameProjectionWriter = writeProjection
+
+// Rename changes the registry key and task references while preserving the project's row position and fields.
+func Rename(homeDir, oldName, newName string) error {
+	if oldName == "" || newName == "" {
+		return fmt.Errorf("invalid project name")
+	}
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	db, err := openRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	updated, err := projectRenameUpdater(db, oldName, newName)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("project %q %w", oldName, ErrNotFound)
+	}
+	if err := projectRenameProjectionWriter(db, homeDir); err != nil {
+		if _, rollbackErr := projectRenameUpdater(db, newName, oldName); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
 		}
 		return err
 	}

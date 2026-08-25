@@ -33,6 +33,8 @@ func newProjectCmd() *cobra.Command {
 	cmd.AddCommand(newProjectSyncCmd())
 	cmd.AddCommand(newProjectUpstreamCmd())
 	cmd.AddCommand(newProjectSetURLCmd())
+	cmd.AddCommand(newProjectSetModeCmd())
+	cmd.AddCommand(newProjectRenameCmd())
 	return cmd
 }
 
@@ -93,6 +95,140 @@ func newProjectSetURLCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+func newProjectSetModeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "set-mode <name> <mode>",
+		Short: "Change a registered project's delivery mode",
+		Long:  "Change a registered project's delivery mode in place. The clone, tasks, and history remain unchanged, and the command does not require removing the project first.",
+		Args:  usageArgs(cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name, mode := args[0], args[1]
+			if err := validateProjectMode(mode); err != nil {
+				return err
+			}
+			fleetHome, err := home.Resolve()
+			if err != nil {
+				return asPrecondition(err)
+			}
+			release, err := state.Lock(fleetHome, "project:"+name)
+			if err != nil {
+				return fmt.Errorf("lock project %q: %w", name, err)
+			}
+			defer release()
+
+			p, exists, err := project.Find(fleetHome, name)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return asPrecondition(fmt.Errorf("project %q %w", name, project.ErrNotFound))
+			}
+			if err := project.SetMode(fleetHome, name, mode); err != nil {
+				return asPrecondition(err)
+			}
+
+			var doc axi.Doc
+			doc.Field("name", p.Name)
+			doc.Field("result", "mode-set")
+			doc.Field("old_mode", p.Mode)
+			doc.Field("mode", mode)
+			doc.Field("clone", filepath.Join(fleetHome, "projects", p.Name))
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	return cmd
+}
+
+var moveProjectClone = os.Rename
+var renameProjectRegistry = project.Rename
+
+type renameResult struct {
+	Project  project.Project
+	OldName  string
+	OldClone string
+	Clone    string
+}
+
+func newProjectRenameCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rename <old-name> <new-name>",
+		Short: "Rename a registered project",
+		Long:  "Rename a registered project in place. The managed clone moves with the registration, while tasks and history remain attached to the same project.",
+		Args:  usageArgs(cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			oldName, newName := args[0], args[1]
+			if err := validateProjectName(oldName); err != nil {
+				return err
+			}
+			if err := validateProjectName(newName); err != nil {
+				return err
+			}
+			if oldName == newName {
+				return &ExitError{Err: fmt.Errorf("old and new project names must differ"), Code: 2}
+			}
+			fleetHome, err := home.Resolve()
+			if err != nil {
+				return asPrecondition(err)
+			}
+			release, err := state.Lock(fleetHome, "project:"+oldName)
+			if err != nil {
+				return fmt.Errorf("lock project %q: %w", oldName, err)
+			}
+			defer release()
+
+			result, err := renameProject(fleetHome, oldName, newName)
+			if err != nil {
+				return asPrecondition(err)
+			}
+
+			var doc axi.Doc
+			doc.Field("name", result.Project.Name)
+			doc.Field("result", "renamed")
+			doc.Field("old_name", result.OldName)
+			doc.Field("old_clone", result.OldClone)
+			doc.Field("clone", result.Clone)
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	return cmd
+}
+
+func renameProject(homeDir, oldName, newName string) (renameResult, error) {
+	p, exists, err := project.Find(homeDir, oldName)
+	if err != nil {
+		return renameResult{}, err
+	}
+	if !exists {
+		return renameResult{}, fmt.Errorf("project %q %w", oldName, project.ErrNotFound)
+	}
+
+	oldClone := filepath.Join(homeDir, "projects", oldName)
+	newClone := filepath.Join(homeDir, "projects", newName)
+	if info, err := os.Stat(oldClone); err != nil {
+		return renameResult{}, fmt.Errorf("project %q clone %q: %w", oldName, oldClone, err)
+	} else if !info.IsDir() {
+		return renameResult{}, fmt.Errorf("project %q clone %q is not a directory", oldName, oldClone)
+	}
+	if _, err := os.Lstat(newClone); err == nil {
+		return renameResult{}, fmt.Errorf("project destination %q already exists", newClone)
+	} else if !os.IsNotExist(err) {
+		return renameResult{}, fmt.Errorf("check project destination %q: %w", newClone, err)
+	}
+
+	if err := moveProjectClone(oldClone, newClone); err != nil {
+		return renameResult{}, fmt.Errorf("move project clone: %w", err)
+	}
+	if err := renameProjectRegistry(homeDir, oldName, newName); err != nil {
+		if rollbackErr := moveProjectClone(newClone, oldClone); rollbackErr != nil {
+			return renameResult{}, errors.Join(err, fmt.Errorf("restore project clone: %w", rollbackErr))
+		}
+		return renameResult{}, err
+	}
+
+	p.Name = newName
+	return renameResult{Project: p, OldName: oldName, OldClone: oldClone, Clone: newClone}, nil
 }
 
 func repointProject(homeDir, name, url string) (repointResult, error) {
