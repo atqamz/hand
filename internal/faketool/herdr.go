@@ -111,6 +111,7 @@ type herdrTabRef struct {
 
 func (h Herdr) Install(t *testing.T, bin string) {
 	t.Helper()
+	t.Setenv("HAND_TEST_HERDR_PATH", filepath.Join(bin, executableName("herdr")))
 	state := stateDir(t, bin, "herdr")
 	workspaces := append(append([]HerdrWorkspace{}, h.Workspaces...), h.Creates...)
 	tabs := herdrTabs(workspaces, h.TabCreates)

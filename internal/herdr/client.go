@@ -65,6 +65,14 @@ func NewClientAt(path string, env []string) (*Client, error) {
 }
 
 func NewManagedClient() *Client {
+	if legacyHerdrFallback {
+		if path := os.Getenv("HAND_TEST_HERDR_PATH"); path != "" {
+			client, err := NewClientAt(path, os.Environ())
+			if err == nil {
+				return client
+			}
+		}
+	}
 	store, err := toolchain.DefaultStore()
 	if err != nil {
 		if legacyHerdrFallback {
@@ -171,6 +179,8 @@ type envelope struct {
 
 var ErrNotFound = errors.New("herdr resource not found")
 
+var ErrServerNotRunning = errors.New("herdr server is not running")
+
 type ExecError struct {
 	Started bool
 	Err     error
@@ -202,10 +212,31 @@ func (e *APIError) Error() string {
 
 func (e *APIError) Unwrap() error {
 	code := strings.ToLower(e.Code)
+	if code == "server_not_running" {
+		return ErrServerNotRunning
+	}
 	if code == "not_found" || strings.HasSuffix(code, "_not_found") {
 		return ErrNotFound
 	}
 	return nil
+}
+
+type ServerNotRunningError struct {
+	Session string
+	Cause   error
+}
+
+func (e *ServerNotRunningError) Error() string {
+	if e.Session == "" || e.Session == "default" {
+		return "Herdr server is not running"
+	}
+	return fmt.Sprintf("Fleet Herdr session %q is not running", e.Session)
+}
+
+func (e *ServerNotRunningError) Unwrap() error { return e.Cause }
+
+func IsServerNotRunning(err error) bool {
+	return errors.Is(err, ErrServerNotRunning)
 }
 
 func IsPreSideEffectRejection(err error) bool {
@@ -283,7 +314,7 @@ func (c *Client) callContext(ctx context.Context, args ...string) (json.RawMessa
 		return nil, err
 	}
 	if env.Error != nil {
-		return nil, newAPIError(args, env.Error)
+		return nil, c.normalizeAPIError(newAPIError(args, env.Error))
 	}
 	if runErr != nil {
 		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
@@ -309,7 +340,7 @@ func (c *Client) callVoid(args ...string) error {
 	if len(trimmed) == 0 {
 		if runErr != nil {
 			if env, err := parseEnvelope(args, []byte(stderr)); err == nil && env.Error != nil {
-				return newAPIError(args, env.Error)
+				return c.normalizeAPIError(newAPIError(args, env.Error))
 			}
 			return fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
 		}
@@ -321,12 +352,23 @@ func (c *Client) callVoid(args ...string) error {
 		return err
 	}
 	if env.Error != nil {
-		return newAPIError(args, env.Error)
+		return c.normalizeAPIError(newAPIError(args, env.Error))
 	}
 	if runErr != nil {
 		return fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)
 	}
 	return nil
+}
+
+func (c *Client) normalizeAPIError(err error) error {
+	if !IsServerNotRunning(err) {
+		return err
+	}
+	session := ""
+	if c != nil {
+		session = c.session
+	}
+	return &ServerNotRunningError{Session: session, Cause: err}
 }
 
 func newAPIError(args []string, body *errorBody) *APIError {
@@ -590,7 +632,7 @@ func (c *Client) PaneRead(paneID string, lines int) (string, error) {
 	// ahead of the exit status for callVoid's reason - that code cannot be trusted on its own.
 	var eb errorBody
 	if json.Unmarshal(stdout, &eb) == nil && eb.Code != "" && eb.Message != "" {
-		return "", fmt.Errorf("herdr %s: %s: %s", strings.Join(args, " "), eb.Code, eb.Message)
+		return "", c.normalizeAPIError(&APIError{Operation: strings.Join(args, " "), Code: eb.Code, Message: eb.Message})
 	}
 	if runErr != nil {
 		return "", fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), runErr, stderr)

@@ -114,6 +114,7 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			herdrSession := observeCurrentHerdrSession(cmd.Context(), fleetHome)
 			tools := doctorManagedTools(runtimeStatus, projects)
 			integrations, err := integration.DefaultStore().List()
 			if err != nil {
@@ -138,6 +139,7 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			doc.Field("treehouse_version", valueOrNone(runtimeStatus.TreehouseVersion))
 			doc.Field("herdr_version", valueOrNone(runtimeStatus.HerdrVersion))
 			doc.Field("runtime_reason", valueOrNone(runtimeStatus.Reason))
+			appendHerdrSession(&doc, herdrSession)
 			axi.Table(&doc, "tools", tools, toolReadinessFields)
 			axi.Table(&doc, "supervisor_harnesses", harnesses, harnessReadinessFields)
 			doc.Bool("ready", len(blocking) == 0)

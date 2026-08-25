@@ -188,10 +188,13 @@ type statusJSON struct {
 	Unannounced bool `json:"unannounced,omitempty"`
 	// The two conditions atqamz/hand#268 gave hand status a counterpart classifier for: a pane silent
 	// past its report state's bound, and one that claims a pane but never answered it.
-	Parked      bool          `json:"parked,omitempty"`
-	Unreachable bool          `json:"unreachable,omitempty"`
-	Attempts    []attemptJSON `json:"attempts,omitempty"`
-	LatestSend  *sendJSON     `json:"latest_send,omitempty"`
+	Parked             bool          `json:"parked,omitempty"`
+	Unreachable        bool          `json:"unreachable,omitempty"`
+	Attempts           []attemptJSON `json:"attempts,omitempty"`
+	LatestSend         *sendJSON     `json:"latest_send,omitempty"`
+	HerdrSessionName   string        `json:"herdr_session_name"`
+	HerdrSessionState  string        `json:"herdr_session_state"`
+	HerdrSessionReason string        `json:"herdr_session_reason"`
 }
 
 type sendJSON struct {
@@ -225,9 +228,10 @@ type attemptJSON struct {
 type fleetJSON struct {
 	// Always present, zero included, so an empty fleet is a positive statement ("no tasks") and not the
 	// same absence of output a broken command would also produce.
-	TaskCount int          `json:"task_count"`
-	Tasks     []statusJSON `json:"tasks"`
-	Holds     []holdJSON   `json:"holds"`
+	TaskCount    int                      `json:"task_count"`
+	Tasks        []statusJSON             `json:"tasks"`
+	Holds        []holdJSON               `json:"holds"`
+	HerdrSession herdr.SessionObservation `json:"herdr_session"`
 }
 
 // Mirrors state.Hold, plus Inconsistent, which is set instead of the row being dropped when a value
@@ -346,6 +350,7 @@ func gateRunObservation(home string, t state.Task, reportedDone bool, p project.
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
+	herdrSession := client.ObserveSession(cmd.Context())
 	views, holds, err := fleetViews(cmd.Context(), cmd.ErrOrStderr(), home, client, true)
 	if err != nil {
 		return err
@@ -362,12 +367,18 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(fleetJSON{TaskCount: len(rows), Tasks: rows, Holds: holdRows})
+		return enc.Encode(fleetJSON{TaskCount: len(rows), Tasks: rows, Holds: holdRows, HerdrSession: herdrSession})
 	}
 
 	var doc axi.Doc
 	appendFleet(&doc, views, holds, cols)
 	return doc.Render(cmd.OutOrStdout())
+}
+
+func appendHerdrSession(doc *axi.Doc, observation herdr.SessionObservation) {
+	doc.Field("herdr_session_name", orNone(observation.Name))
+	doc.Field("herdr_session_state", orNone(string(observation.State)))
+	doc.Field("herdr_session_reason", orNone(observation.Reason))
 }
 
 // Writes the fleet blocks onto doc rather than a writer, so the bare command can put its identity fields
@@ -669,6 +680,7 @@ func reportedFrom(last state.ReportLine, ok bool, readErr error) *reportedJSON {
 }
 
 func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id string, asJSON, full bool, cols []axi.Column[taskView]) error {
+	herdrSession := client.ObserveSession(cmd.Context())
 	history, err := state.ReadHistoryReadOnly(home, id)
 	if err != nil {
 		return asPrecondition(err)
@@ -722,6 +734,9 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 			history[i] = reportLineText(line)
 		}
 		out := v.json()
+		out.HerdrSessionName = herdrSession.Name
+		out.HerdrSessionState = string(herdrSession.State)
+		out.HerdrSessionReason = herdrSession.Reason
 		out.ReportHistory = history
 		if held {
 			j := holdToJSON(hold)
