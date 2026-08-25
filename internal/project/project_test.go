@@ -220,7 +220,7 @@ func TestSetModeRollsBackWhenProjectionWriteFails(t *testing.T) {
 
 func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	dir := t.TempDir()
-	writeRegistry(t, dir, "# Projects\n\n# profile=first\n- first: https://github.com/org/first mode=direct-pr\n\n# profile=demo\n- demo: https://github.com/org/demo mode=no-mistakes upstream=up/demo\n")
+	writeRegistry(t, dir, "# Projects\n\n# profile=demo\n- demo: https://github.com/org/demo mode=no-mistakes upstream=up/demo\n\n# profile=second\n- second: https://github.com/org/second mode=direct-pr\n")
 	db, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -242,8 +242,8 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Project{
-		{Name: "first", URL: "https://github.com/org/first", Mode: ModeDirectPR},
 		{Name: "renamed", URL: "https://github.com/org/demo", Mode: ModeNoMistakes, Upstream: "up/demo"},
+		{Name: "second", URL: "https://github.com/org/second", Mode: ModeDirectPR},
 	}
 	if len(projects) != len(want) {
 		t.Fatalf("projects = %+v, want %+v", projects, want)
@@ -266,8 +266,9 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(projection); !strings.Contains(got, "# profile=demo\n- renamed: https://github.com/org/demo mode=no-mistakes upstream=up/demo") {
-		t.Fatalf("projection = %q, want renamed entry with comment preserved", got)
+	wantProjection := "# Projects\n\n# profile=demo\n- renamed: https://github.com/org/demo mode=no-mistakes upstream=up/demo\n\n# profile=second\n- second: https://github.com/org/second mode=direct-pr\n"
+	if string(projection) != wantProjection {
+		t.Fatalf("projection = %q, want %q", projection, wantProjection)
 	}
 }
 
@@ -276,7 +277,7 @@ func TestRenameRollsBackWhenProjectionWriteFails(t *testing.T) {
 	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
 	original := projectRenameProjectionWriter
 	t.Cleanup(func() { projectRenameProjectionWriter = original })
-	projectRenameProjectionWriter = func(*store.DB, string) error { return errors.New("projection failed") }
+	projectRenameProjectionWriter = func(*store.DB, string, string, string) error { return errors.New("projection failed") }
 
 	err := Rename(dir, "demo", "renamed")
 	if err == nil || !strings.Contains(err.Error(), "projection failed") {

@@ -394,7 +394,9 @@ var projectRenameUpdater = func(db *store.DB, oldName, newName string) (bool, er
 	return db.RenameProject(oldName, newName)
 }
 
-var projectRenameProjectionWriter = writeProjection
+var projectRenameProjectionWriter = func(db *store.DB, homeDir, oldName, newName string) error {
+	return writeRenameProjection(db, homeDir, oldName, newName)
+}
 
 // Rename changes the registry key and task references while preserving the project's row position and fields.
 func Rename(homeDir, oldName, newName string) error {
@@ -420,7 +422,7 @@ func Rename(homeDir, oldName, newName string) error {
 	if !updated {
 		return fmt.Errorf("project %q %w", oldName, ErrNotFound)
 	}
-	if err := projectRenameProjectionWriter(db, homeDir); err != nil {
+	if err := projectRenameProjectionWriter(db, homeDir, oldName, newName); err != nil {
 		if _, rollbackErr := projectRenameUpdater(db, newName, oldName); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
 		}
@@ -612,6 +614,14 @@ func lockRegistry(homeDir string) (func(), error) {
 // interleaves hand-written `# profile=` comments with the entries they
 // describe, and moving entries would rebind a comment to the wrong repo.
 func writeProjection(db *store.DB, homeDir string) error {
+	return writeProjectionWithRenames(db, homeDir, "", "")
+}
+
+func writeRenameProjection(db *store.DB, homeDir, oldName, newName string) error {
+	return writeProjectionWithRenames(db, homeDir, oldName, newName)
+}
+
+func writeProjectionWithRenames(db *store.DB, homeDir, oldName, newName string) error {
 	projects, err := db.ListProjects()
 	if err != nil {
 		return err
@@ -634,11 +644,15 @@ func writeProjection(db *store.DB, homeDir string) error {
 			rendered = append(rendered, line)
 			continue
 		}
-		current, ok := registered[p.Name]
-		if !ok || placed[p.Name] {
+		lookupName := p.Name
+		if p.Name == oldName {
+			lookupName = newName
+		}
+		current, ok := registered[lookupName]
+		if !ok || placed[lookupName] {
 			continue
 		}
-		placed[p.Name] = true
+		placed[lookupName] = true
 		rendered = append(rendered, renderProjectLine(current))
 	}
 
