@@ -65,7 +65,7 @@ type EnsureResult struct {
 	Reason string
 }
 
-const boundedArmTimeout = 250 * time.Millisecond
+const boundedArmTimeout = time.Second
 const boundedArmPollInterval = 10 * time.Millisecond
 
 func Ensure(ctx context.Context, cfg Config, targets []TargetBinding) (EnsureResult, error) {

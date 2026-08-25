@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/integration"
@@ -258,6 +260,62 @@ func SetUpstream(homeDir, name, upstream string) error {
 	return writeProjection(db, homeDir)
 }
 
+var projectModeUpdater = func(db *store.DB, name, mode string) (bool, error) {
+	return db.SetProjectMode(name, mode)
+}
+
+var projectModeProjectionWriter = writeProjection
+
+// SetMode changes only the registered project's delivery mode and projection.
+func SetMode(homeDir, name, mode string) error {
+	if !validMode(mode) {
+		return fmt.Errorf("invalid project mode %q", mode)
+	}
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	db, err := openRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	projects, err := db.ListProjects()
+	if err != nil {
+		return err
+	}
+	var oldMode string
+	found := false
+	for _, p := range projects {
+		if p.Name == name {
+			oldMode = p.Mode
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("project %q %w", name, ErrNotFound)
+	}
+
+	updated, err := projectModeUpdater(db, name, mode)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("project %q %w", name, ErrNotFound)
+	}
+	if err := projectModeProjectionWriter(db, homeDir); err != nil {
+		if _, rollbackErr := projectModeUpdater(db, name, oldMode); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore mode for project %q: %w", name, rollbackErr))
+		}
+		return err
+	}
+	return nil
+}
+
 var projectURLUpdater = func(db *store.DB, name, url string) (bool, error) {
 	return db.SetProjectURL(name, url)
 }
@@ -332,6 +390,174 @@ func SetURL(homeDir, name, url string) error {
 		return err
 	}
 	return nil
+}
+
+var projectRenameUpdater = func(db *store.DB, oldName, newName string) (bool, error) {
+	return db.RenameProject(oldName, newName)
+}
+
+var projectRenameURLUpdater = func(db *store.DB, oldName, newName, newURL string) (bool, error) {
+	return db.RenameProjectWithURL(oldName, newName, newURL)
+}
+
+var projectRenameProjectionWriter = func(db *store.DB, homeDir, oldName, newName string) error {
+	return writeRenameProjection(db, homeDir, oldName, newName)
+}
+
+var projectRenameHistoryWriter = completion.RenameProject
+
+// Rename changes the registry key and task references while preserving the project's row position and fields.
+func Rename(homeDir, oldName, newName string) error {
+	if oldName == "" || newName == "" {
+		return fmt.Errorf("invalid project name")
+	}
+	unlock, err := lockRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	db, err := openRegistry(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	var oldURL, newURL string
+	registryPath := RegistryPath(homeDir)
+	oldProjection, projectionErr := os.ReadFile(registryPath)
+	if projectionErr != nil && !os.IsNotExist(projectionErr) {
+		return fmt.Errorf("read project registry: %w", projectionErr)
+	}
+	projectionExists := projectionErr == nil
+	var projectionMode os.FileMode
+	if projectionExists {
+		info, err := os.Stat(registryPath)
+		if err != nil {
+			return fmt.Errorf("stat project registry: %w", err)
+		}
+		projectionMode = info.Mode().Perm()
+	}
+	projects, err := db.ListProjects()
+	if err != nil {
+		return err
+	}
+	canonicalHome, err := filepath.EvalSymlinks(homeDir)
+	if err != nil {
+		canonicalHome, err = filepath.Abs(homeDir)
+		if err != nil {
+			return fmt.Errorf("resolve project home %q: %w", homeDir, err)
+		}
+	}
+	for _, p := range projects {
+		if p.Name != oldName || !IsFileLocator(p.URL) {
+			continue
+		}
+		path, err := FileLocatorPath(p.URL)
+		if err != nil {
+			return err
+		}
+		if !samePath(path, filepath.Join(canonicalHome, "projects", oldName)) {
+			continue
+		}
+		oldURL = p.URL
+		newURL, err = CanonicalFileLocator(filepath.Join(homeDir, "projects", newName))
+		if err != nil {
+			return err
+		}
+		break
+	}
+
+	var updated bool
+	if newURL != "" {
+		updated, err = projectRenameURLUpdater(db, oldName, newName, newURL)
+	} else {
+		updated, err = projectRenameUpdater(db, oldName, newName)
+	}
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("project %q %w", oldName, ErrNotFound)
+	}
+	if err := projectRenameHistoryWriter(homeDir, oldName, newName); err != nil {
+		var rollbackErr error
+		if newURL != "" {
+			_, rollbackErr = projectRenameURLUpdater(db, newName, oldName, oldURL)
+		} else {
+			_, rollbackErr = projectRenameUpdater(db, newName, oldName)
+		}
+		if rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
+		}
+		return err
+	}
+	if err := projectRenameProjectionWriter(db, homeDir, oldName, newName); err != nil {
+		var rollbackErrs []error
+		var rollbackErr error
+		if newURL != "" {
+			_, rollbackErr = projectRenameURLUpdater(db, newName, oldName, oldURL)
+		} else {
+			_, rollbackErr = projectRenameUpdater(db, newName, oldName)
+		}
+		if rollbackErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
+		}
+		if rollbackErr := projectRenameHistoryWriter(homeDir, newName, oldName); rollbackErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project history %q: %w", oldName, rollbackErr))
+		}
+		if rollbackErr := restoreProjection(registryPath, oldProjection, projectionExists, projectionMode); rollbackErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project registry: %w", rollbackErr))
+		}
+		if len(rollbackErrs) > 0 {
+			return errors.Join(append([]error{err}, rollbackErrs...)...)
+		}
+		return err
+	}
+	return nil
+}
+
+func restoreProjection(path string, content []byte, exists bool, mode os.FileMode) error {
+	if !exists {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if mode == 0 {
+		mode = 0o644
+	}
+	return atomicfile.Write(path, ".projects.md-rollback-", content, mode)
+}
+
+func samePath(left, right string) bool {
+	if left == "" || right == "" {
+		return left == right
+	}
+	canonicalPath := func(path string) (string, error) {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		abs = filepath.Clean(abs)
+		real, err := filepath.EvalSymlinks(abs)
+		if err == nil {
+			return filepath.Clean(real), nil
+		}
+		if os.IsNotExist(err) {
+			return abs, nil
+		}
+		return "", err
+	}
+	left, leftErr := canonicalPath(left)
+	right, rightErr := canonicalPath(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 // Find returns the project with the given name, or false if not registered.
@@ -517,6 +743,14 @@ func lockRegistry(homeDir string) (func(), error) {
 // interleaves hand-written `# profile=` comments with the entries they
 // describe, and moving entries would rebind a comment to the wrong repo.
 func writeProjection(db *store.DB, homeDir string) error {
+	return writeProjectionWithRenames(db, homeDir, "", "")
+}
+
+func writeRenameProjection(db *store.DB, homeDir, oldName, newName string) error {
+	return writeProjectionWithRenames(db, homeDir, oldName, newName)
+}
+
+func writeProjectionWithRenames(db *store.DB, homeDir, oldName, newName string) error {
 	projects, err := db.ListProjects()
 	if err != nil {
 		return err
@@ -539,11 +773,15 @@ func writeProjection(db *store.DB, homeDir string) error {
 			rendered = append(rendered, line)
 			continue
 		}
-		current, ok := registered[p.Name]
-		if !ok || placed[p.Name] {
+		lookupName := p.Name
+		if p.Name == oldName {
+			lookupName = newName
+		}
+		current, ok := registered[lookupName]
+		if !ok || placed[lookupName] {
 			continue
 		}
-		placed[p.Name] = true
+		placed[lookupName] = true
 		rendered = append(rendered, renderProjectLine(current))
 	}
 

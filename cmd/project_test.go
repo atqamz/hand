@@ -12,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/spf13/cobra"
 )
 
 func TestValidateProjectName(t *testing.T) {
@@ -324,6 +325,245 @@ func TestProjectSetURLUpdatesRegistryAndOriginPreservingTask(t *testing.T) {
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("output = %q, want %q", output.String(), want)
+		}
+	}
+}
+
+func setupRegisteredRenameProject(t *testing.T) (home, clonePath string) {
+	t.Helper()
+	home = t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	clonePath = filepath.Join(home, "projects", "old-name")
+	if err := os.MkdirAll(clonePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clonePath, "marker"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{
+		Name: "old-name", URL: "https://github.com/org/repo.git", Mode: project.ModeDirectPR, Upstream: "upstream/repo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return home, clonePath
+}
+
+func TestProjectSetModePreservesActiveTaskAndClone(t *testing.T) {
+	home, clonePath := setupRegisteredRenameProject(t)
+	wantTask := state.Task{ID: "task-mode", Project: "old-name", Kind: state.KindShip, Brief: "data/task-mode/brief.md", Lifecycle: state.TaskOpen}
+	if err := state.Write(home, wantTask); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectSetModeCmd()
+	var output strings.Builder
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"old-name", project.ModeNoMistakes})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProject := project.Project{Name: "old-name", URL: "https://github.com/org/repo.git", Mode: project.ModeNoMistakes, Upstream: "upstream/repo"}
+	if len(projects) != 1 || projects[0] != wantProject {
+		t.Fatalf("projects = %+v, want %+v", projects, wantProject)
+	}
+	if got, err := state.Read(home, wantTask.ID); err != nil || got != wantTask {
+		t.Fatalf("task = %+v, %v, want unchanged task %+v", got, err, wantTask)
+	}
+	if got, err := os.ReadFile(filepath.Join(clonePath, "marker")); err != nil || string(got) != "keep" {
+		t.Fatalf("clone marker = %q, %v, want unchanged clone", got, err)
+	}
+	for _, want := range []string{"result: mode-set", "old_mode: direct-pr", "mode: no-mistakes", "clone:"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output = %q, want %q", output.String(), want)
+		}
+	}
+}
+
+func TestProjectRenameUpdatesLocalFileLocator(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	oldPath := filepath.Join(home, "projects", "old-name")
+	if err := os.MkdirAll(oldPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldURL, err := project.CanonicalFileLocator(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "old-name", URL: oldURL, Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRenameCmd()
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	newURL, err := project.CanonicalFileLocator(filepath.Join(home, "projects", "new-name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].URL != newURL {
+		t.Fatalf("projects = %+v, want local locator %q", projects, newURL)
+	}
+}
+
+func TestProjectRenameMovesCloneAndPreservesTaskHistory(t *testing.T) {
+	home, oldPath := setupRegisteredRenameProject(t)
+	wantTask := state.Task{ID: "task-rename", Project: "old-name", Kind: state.KindShip, Brief: "data/task-rename/brief.md", Lifecycle: state.TaskTerminal}
+	if err := state.Write(home, wantTask); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRenameCmd()
+	var output strings.Builder
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	newPath := filepath.Join(home, "projects", "new-name")
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("old clone stat = %v, want old path absent", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(newPath, "marker")); err != nil || string(got) != "keep" {
+		t.Fatalf("new clone marker = %q, %v, want moved clone", got, err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProject := project.Project{Name: "new-name", URL: "https://github.com/org/repo.git", Mode: project.ModeDirectPR, Upstream: "upstream/repo"}
+	if len(projects) != 1 || projects[0] != wantProject {
+		t.Fatalf("projects = %+v, want %+v", projects, wantProject)
+	}
+	gotTask, err := state.Read(home, wantTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotTask.Project != "new-name" || gotTask.ID != wantTask.ID || gotTask.Brief != wantTask.Brief {
+		t.Fatalf("task = %+v, want same task with new project name", gotTask)
+	}
+	history, err := state.ReadHistory(home, wantTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Project != "new-name" {
+		t.Fatalf("history task = %+v, want renamed project", history.Task)
+	}
+	for _, want := range []string{"result: renamed", "old_name: old-name", "name: new-name", "old_clone:", "clone:"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output = %q, want %q", output.String(), want)
+		}
+	}
+}
+
+func TestProjectRenameRefusesActiveTasks(t *testing.T) {
+	home, oldPath := setupRegisteredRenameProject(t)
+	if err := state.Write(home, state.Task{ID: "task-rename-active", Project: "old-name", Kind: state.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRenameCmd()
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "active tasks") {
+		t.Fatalf("err = %v, want active tasks referencing it", err)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("old clone stat = %v, want clone unmoved", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "projects", "new-name")); !os.IsNotExist(err) {
+		t.Fatalf("new clone stat = %v, want destination absent", err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "old-name" {
+		t.Fatalf("projects = %+v, want old registration", projects)
+	}
+}
+
+func TestProjectRenameRollsBackCloneWhenRegistryUpdateFails(t *testing.T) {
+	home, oldPath := setupRegisteredRenameProject(t)
+	original := renameProjectRegistry
+	t.Cleanup(func() { renameProjectRegistry = original })
+	renameProjectRegistry = func(string, string, string) error { return errors.New("registry update failed") }
+
+	cmd := newProjectRenameCmd()
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "registry update failed") {
+		t.Fatalf("error = %v, want registry update failure", err)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("old clone stat = %v, want rollback to old path", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "projects", "new-name")); !os.IsNotExist(err) {
+		t.Fatalf("new clone stat = %v, want moved clone rolled back", err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "old-name" {
+		t.Fatalf("projects = %+v, want old registration after rollback", projects)
+	}
+}
+
+func TestProjectRenameRejectsRegisteredDestinationBeforeMovingClone(t *testing.T) {
+	home, oldPath := setupRegisteredRenameProject(t)
+	if err := project.Add(home, project.Project{Name: "new-name", URL: "https://github.com/org/new.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRenameCmd()
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `project "new-name" already registered`) {
+		t.Fatalf("error = %v, want registered destination refusal", err)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("old clone stat = %v, want clone unmoved", err)
+	}
+}
+
+func TestProjectSetModeAndRenameRejectUnregisteredProject(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	for name, cmd := range map[string]*cobra.Command{
+		"set-mode": newProjectSetModeCmd(),
+		"rename":   newProjectRenameCmd(),
+	} {
+		cmd.SetArgs(func() []string {
+			if name == "set-mode" {
+				return []string{"missing", project.ModeDirectPR}
+			}
+			return []string{"missing", "new-name"}
+		}())
+		err := cmd.Execute()
+		var exitErr *ExitError
+		if !errors.As(err, &exitErr) || exitErr.Code != 3 || !strings.Contains(err.Error(), `project "missing" not registered`) {
+			t.Fatalf("%s error = %v, want unregistered project code 3", name, err)
 		}
 	}
 }
