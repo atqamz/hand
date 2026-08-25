@@ -480,7 +480,8 @@ func Rename(homeDir, oldName, newName string) error {
 	if !updated {
 		return fmt.Errorf("project %q %w", oldName, ErrNotFound)
 	}
-	if err := projectRenameHistoryWriter(homeDir, oldName, newName); err != nil {
+	historyRestore, err := projectRenameHistoryWriter(homeDir, oldName, newName)
+	if err != nil {
 		var rollbackErr error
 		if newURL != "" {
 			_, rollbackErr = projectRenameURLUpdater(db, newName, oldName, oldURL)
@@ -503,7 +504,7 @@ func Rename(homeDir, oldName, newName string) error {
 		if rollbackErr != nil {
 			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
 		}
-		if rollbackErr := projectRenameHistoryWriter(homeDir, newName, oldName); rollbackErr != nil {
+		if rollbackErr := historyRestore.Restore(); rollbackErr != nil {
 			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project history %q: %w", oldName, rollbackErr))
 		}
 		if rollbackErr := restoreProjection(registryPath, oldProjection, projectionExists, projectionMode); rollbackErr != nil {

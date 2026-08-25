@@ -66,53 +66,99 @@ func Append(homeDir string, r Record) error {
 	return nil
 }
 
-func RenameProject(homeDir, oldName, newName string) error {
-	release, err := state.Lock(homeDir, "completions")
+// RenameRestore restores only the completion lines changed by RenameProject.
+type RenameRestore struct {
+	homeDir string
+	changes []renameChange
+}
+
+type renameChange struct {
+	line         int
+	originalLine string
+	renamedLine  string
+}
+
+// Restore reverts the exact lines changed by the rename, if they are still unchanged.
+func (r RenameRestore) Restore() error {
+	if len(r.changes) == 0 {
+		return nil
+	}
+	release, err := state.Lock(r.homeDir, "completions")
 	if err != nil {
 		return fmt.Errorf("lock completions store: %w", err)
+	}
+	defer release()
+
+	path := Path(r.homeDir)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read completions store for rollback: %w", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat completions store for rollback: %w", err)
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	for _, change := range r.changes {
+		if change.line >= len(lines) || lines[change.line] != change.renamedLine {
+			return fmt.Errorf("completion line %d changed during rollback", change.line)
+		}
+		lines[change.line] = change.originalLine
+	}
+	if err := atomicfile.Write(path, ".completions-rollback-", []byte(strings.Join(lines, "")), info.Mode().Perm()); err != nil {
+		return fmt.Errorf("write completions store for rollback: %w", err)
+	}
+	return nil
+}
+
+func RenameProject(homeDir, oldName, newName string) (RenameRestore, error) {
+	release, err := state.Lock(homeDir, "completions")
+	if err != nil {
+		return RenameRestore{}, fmt.Errorf("lock completions store: %w", err)
 	}
 	defer release()
 
 	path := Path(homeDir)
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil
+		return RenameRestore{}, nil
 	}
 	if err != nil {
-		return fmt.Errorf("read completions store: %w", err)
+		return RenameRestore{}, fmt.Errorf("read completions store: %w", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("stat completions store: %w", err)
+		return RenameRestore{}, fmt.Errorf("stat completions store: %w", err)
 	}
 
 	var rendered strings.Builder
-	changed := false
-	for _, line := range strings.SplitAfter(string(data), "\n") {
+	var changes []renameChange
+	for lineNumber, line := range strings.SplitAfter(string(data), "\n") {
 		body, newline := strings.CutSuffix(line, "\n")
 		var record Record
 		if err := json.Unmarshal([]byte(body), &record); err == nil && record.Project == oldName {
 			record.Project = newName
 			encoded, err := json.Marshal(record)
 			if err != nil {
-				return fmt.Errorf("encode completion record %q: %w", record.ID, err)
+				return RenameRestore{}, fmt.Errorf("encode completion record %q: %w", record.ID, err)
 			}
-			rendered.Write(encoded)
+			renameLine := string(encoded)
 			if newline {
-				rendered.WriteByte('\n')
+				renameLine += "\n"
 			}
-			changed = true
+			rendered.WriteString(renameLine)
+			changes = append(changes, renameChange{line: lineNumber, originalLine: line, renamedLine: renameLine})
 			continue
 		}
 		rendered.WriteString(line)
 	}
-	if !changed {
-		return nil
+	if len(changes) == 0 {
+		return RenameRestore{}, nil
 	}
 	if err := atomicfile.Write(path, ".completions-", []byte(rendered.String()), info.Mode().Perm()); err != nil {
-		return fmt.Errorf("write completions store: %w", err)
+		return RenameRestore{}, fmt.Errorf("write completions store: %w", err)
 	}
-	return nil
+	return RenameRestore{homeDir: homeDir, changes: changes}, nil
 }
 
 // List returns every record, oldest first, and nil if the store doesn't exist yet. A
