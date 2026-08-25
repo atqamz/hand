@@ -2,7 +2,7 @@
   "artifact": "hand.supervision.wake.v1.qualification-extract",
   "schema": "hand.supervision.wake.v1",
   "captured_at": "2026-08-25",
-  "source_ledger": "/home/atqa/github/atqamz/hand/state/runtime/supervision-wake.json",
+  "source_ledger": "fleet state/runtime/supervision-wake.json (capture source; extract is the durable review artifact)",
   "source_sha256": "3bedaff024e5f39597a70ff64e734225888e10bd8e737e7d4a6c4019a9be92bd",
   "episode_count": 221,
   "complete_triplet_count": 189,

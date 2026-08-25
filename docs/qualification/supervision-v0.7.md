@@ -31,7 +31,7 @@ The code matrix qualifies only this exact path:
 | --- | --- |
 | Host | Claude Code |
 | Runtime version | `2.1.238` |
-| API generation | runtime version plus positive `claude.async-rewake.v1` capability evidence; no separate host API generation claimed |
+| API generation | `claude.stop.async-rewake.v1` |
 | Platform | `linux/amd64` |
 | Integration | `claude.stop.async-rewake.v1` |
 | Addressability | `hook-session` |

@@ -91,6 +91,7 @@ func TestIntegrationStatusReportsQualificationDimensions(t *testing.T) {
 			Name:           harness.Claude,
 			Source:         "override",
 			RuntimeVersion: "2.1.238",
+			APIGeneration:  "claude.stop.async-rewake.v1",
 			Platform:       "linux/amd64",
 		},
 		Exe: exe,

@@ -113,6 +113,7 @@ func SupervisorQualificationMatrix() CapabilityMatrix {
 		{
 			Host:               harness.Claude,
 			RuntimeVersion:     "2.1.238",
+			APIGeneration:      ClaudeIntegrationVersion,
 			Platform:           "linux/amd64",
 			IntegrationVersion: ClaudeIntegrationVersion,
 			Addressability:     "hook-session",
