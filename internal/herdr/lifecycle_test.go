@@ -238,6 +238,7 @@ func TestDaemonEnvironmentStripsSemanticIdentityAndPreservesCredentials(t *testi
 		"HAND_BRIDGE_ID=bridge-1",
 		"HAND_ROUTING_MARKER=route-1",
 		"HAND_RUNTIME_ID=runtime-1",
+		"HAND_RUNTIME_MODE=managed",
 		"HAND_SUPERVISOR_ID=supervisor-1",
 		"CLAUDECODE=1",
 		"CLAUDE_CODE_CHILD_SESSION=child",
@@ -265,6 +266,9 @@ func TestDaemonEnvironmentStripsSemanticIdentityAndPreservesCredentials(t *testi
 	}
 	if got := values["HERDR_TEST_CREDENTIAL"]; got != "keep" {
 		t.Fatalf("credential = %q, want keep", got)
+	}
+	if got := values["HAND_RUNTIME_MODE"]; got != "managed" {
+		t.Fatalf("generic runtime variable = %q, want managed", got)
 	}
 	if got := values["PATH"]; got != "/usr/bin" {
 		t.Fatalf("PATH = %q, want /usr/bin", got)

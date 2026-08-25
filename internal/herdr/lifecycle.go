@@ -271,11 +271,11 @@ func daemonEnvironment(parent []string) []string {
 
 func daemonEnvironmentKey(key string) bool {
 	key = strings.ToUpper(key)
-	if strings.HasPrefix(key, "HAND_TASK_") || strings.HasPrefix(key, "HAND_ATTEMPT_") || strings.HasPrefix(key, "HAND_REPORT_") || strings.HasPrefix(key, "HAND_WORKSPACE_") || strings.HasPrefix(key, "HAND_TAB_") || strings.HasPrefix(key, "HAND_PANE_") || strings.HasPrefix(key, "HAND_BRIDGE_") || strings.HasPrefix(key, "HAND_ROUTING_") || strings.HasPrefix(key, "HAND_ROUTE_") || strings.HasPrefix(key, "HAND_RUNTIME_") || strings.HasPrefix(key, "HAND_SUPERVISOR_") || strings.HasPrefix(key, "HAND_WORKER_") || strings.HasPrefix(key, "NO_MISTAKES_") {
+	if strings.HasPrefix(key, "HAND_TASK_") || strings.HasPrefix(key, "HAND_ATTEMPT_") || strings.HasPrefix(key, "HAND_REPORT_") || strings.HasPrefix(key, "HAND_WORKSPACE_") || strings.HasPrefix(key, "HAND_TAB_") || strings.HasPrefix(key, "HAND_PANE_") || strings.HasPrefix(key, "HAND_BRIDGE_") || strings.HasPrefix(key, "HAND_ROUTING_") || strings.HasPrefix(key, "HAND_ROUTE_") || strings.HasPrefix(key, "HAND_SUPERVISOR_") || strings.HasPrefix(key, "HAND_WORKER_") || strings.HasPrefix(key, "NO_MISTAKES_") {
 		return true
 	}
 	switch key {
-	case "HAND_HOME", "HAND_ROLE", "HAND_HARNESS", "HAND_PROJECT_ID", "HAND_ROUTING_SOURCE", "HAND_PROFILE", "HAND_MODEL", "HAND_EFFORT",
+	case "HAND_HOME", "HAND_ROLE", "HAND_HARNESS", "HAND_PROJECT_ID", "HAND_RUNTIME_ID", "HAND_ROUTING_SOURCE",
 		"HERDR_ENV", "HERDR_SESSION", "HERDR_SOCKET", "HERDR_SOCKET_PATH", "HERDR_CLIENT_SOCKET", "HERDR_SOCKET_OVERRIDE", "HERDR_WORKSPACE", "HERDR_TAB", "HERDR_PANE", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID", "HERDR_PANE_ID",
 		"CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CODEX_THREAD_ID", "PI_CODING_AGENT", "PI_SESSION_ID", "GROK_AGENT", "GROK_SESSION_ID", "OPENCODE_SESSION_ID", "OPENAI_SESSION_ID":
 		return true
