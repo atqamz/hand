@@ -17,6 +17,7 @@ Each Fleet home stores one immutable opaque Fleet identity in `state/hand.db`.
 The identity is generated under the Fleet-local identity lock and is stable across restarts, moves, and registry loss.
 The user-local `~/.secondhand/registry.db` stores canonical observed locators and timestamps only.
 It is non-authoritative and has no Tasks, Attempts, Projects, configuration, reports, or runtime state.
+Registration validates the Fleet database identity before changing the registry and transactionally retires only provably superseded locators at the same canonical home; it never changes the Fleet database.
 
 Registration first validates the canonical Fleet identity at the supplied home.
 After that positive validation, a registration transaction retires locator claims for other identities at that exact canonical home, while retaining their locators at other homes.
@@ -26,6 +27,7 @@ Unknown or unreadable canonical identity and registry evidence fail closed witho
 `hand fleet` reads registry discovery without changing the current invocation context.
 There is no global active Fleet switch.
 Positive duplicate or identity-mismatch evidence fails closed before runtime or mutation side effects, while registry absence or degradation is reported as a warning because it cannot prove a duplicate.
+List classification is deterministic and marks only Fleets participating in an exact-home collision as ambiguous; unrelated unreadable or healthy locators retain their own states.
 
 New Herdr resources use the Fleet identity in a named session and workspace label.
 Legacy Attempts with empty or `default` sessions use the legacy session and require exact persisted workspace, tab, and pane identities for observation and cleanup.

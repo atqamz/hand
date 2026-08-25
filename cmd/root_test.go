@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/steering"
 	"github.com/atqamz/hand/internal/store"
 	"github.com/spf13/cobra"
+	_ "modernc.org/sqlite"
 )
 
 func devBuild(version string) selfupdate.BuildInfo {
@@ -218,18 +221,9 @@ func unrelatedAmbiguousHelpRegistry(t *testing.T, _, path string) {
 	secondHome := filepath.Join(t.TempDir(), "second")
 	firstID := createHelpFleet(t, firstHome)
 	secondID := createHelpFleet(t, secondHome)
-	registryDB, err := registry.OpenAt(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = registryDB.Close() }()
 	claimedHome := filepath.Join(t.TempDir(), "unrelated")
-	if err := registryDB.Register(claimedHome, firstID, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	if err := registryDB.Register(claimedHome, secondID, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
+	insertHelpRegistryClaim(t, path, claimedHome, firstID)
+	insertHelpRegistryClaim(t, path, claimedHome, secondID)
 }
 
 func selectedAmbiguousHelpRegistry(t *testing.T, home, path string) {
@@ -243,11 +237,39 @@ func selectedAmbiguousHelpRegistry(t *testing.T, home, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = registryDB.Close() }()
 	if err := registryDB.Register(home, currentID, time.Now().UTC()); err != nil {
+		_ = registryDB.Close()
 		t.Fatal(err)
 	}
-	if err := registryDB.Register(home, otherID, time.Now().UTC()); err != nil {
+	if err := registryDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	insertHelpRegistryClaim(t, path, home, otherID)
+}
+
+func insertHelpRegistryClaim(t *testing.T, path, home, fleetID string) {
+	t.Helper()
+	registryDB, err := registry.OpenAt(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: filepath.ToSlash(path)}).EscapedPath()+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=txlock=immediate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(`
+INSERT INTO fleet_registry (fleet_id, last_known_home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, fleetID, home, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+INSERT INTO fleet_locator (fleet_id, home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, fleetID, home, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
 }
