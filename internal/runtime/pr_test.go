@@ -55,6 +55,23 @@ func TestObservePRFindsAMergedPRByTheDurablyStoredBranchAfterDetachedHead(t *tes
 	}
 }
 
+func TestDetectPRUsesTheRecordedPRAfterDetachedHead(t *testing.T) {
+	worktreePath := detachedHeadWorktreeFixture(t, "topic")
+	pr := "https://github.com/atqamz/detach-fixture/pull/9"
+	active := state.Attempt{Worktree: worktreePath}
+
+	detected, observation, err := DetectPR(context.Background(), t.TempDir(), state.Task{ID: "task-1", PR: pr}, active, project.Project{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observation.Found() || observation.URL != pr {
+		t.Fatalf("observation = %+v, want recorded PR %s", observation, pr)
+	}
+	if detected.PR != pr {
+		t.Fatalf("detected task PR = %q, want %q", detected.PR, pr)
+	}
+}
+
 func TestObservePRReportsUnknownNotAbsentOnDetachedHeadWithNoBranchHistory(t *testing.T) {
 	home := t.TempDir()
 	worktreePath := detachedHeadWorktreeFixture(t, "topic")

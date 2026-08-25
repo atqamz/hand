@@ -12,7 +12,7 @@ import (
 )
 
 func DetectPR(ctx context.Context, homeDir string, task state.Task, active state.Attempt, projectInfo project.Project) (state.Task, ghutil.PRObservation, error) {
-	observation := observePR(ctx, homeDir, active, projectInfo)
+	observation := observePR(ctx, homeDir, task.PR, active, projectInfo)
 	if !observation.Found() {
 		return task, observation, nil
 	}
@@ -30,13 +30,19 @@ func DetectPR(ctx context.Context, homeDir string, task state.Task, active state
 // DetectPR: a rendering caller must never receive a task shaped as though the durable record already
 // carried a value only this observation found (ADR attention-is-one-derivation..., invariant 1).
 func DetectPRReadOnly(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {
-	return observePR(ctx, homeDir, active, projectInfo)
+	return observePR(ctx, homeDir, "", active, projectInfo)
 }
 
-// Live worktree state wins when it is determinable, since it is more current than what attempt
-// creation recorded; the durably stored branch is the fallback, since a detached or torn-down
-// worktree cannot answer at all - not evidence that no branch, and so no PR, ever existed.
-func observePR(ctx context.Context, homeDir string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {
+// A recorded PR is stronger than branch-based re-detection: it was already validated and survives
+// a detached or torn-down worktree. Read-only callers without the task record pass an empty PR.
+func observePR(ctx context.Context, homeDir, recordedPR string, active state.Attempt, projectInfo project.Project) ghutil.PRObservation {
+	if recordedPR != "" {
+		return ghutil.PRObservation{State: ghutil.ObservationFound, URL: recordedPR}
+	}
+
+	// Live worktree state wins when it is determinable, since it is more current than what attempt
+	// creation recorded; the durably stored branch is the fallback, since a detached or torn-down
+	// worktree cannot answer at all - not evidence that no branch, and so no PR, ever existed.
 	branch, liveErr := currentBranch(active.Worktree)
 	if liveErr != nil {
 		branch = active.Branch
