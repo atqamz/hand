@@ -7,6 +7,11 @@ investigation or report; use `ship` when the deliverable is a change that must b
 explicitly delivered. A worker is simply the agent process Hand launches to execute delegated
 work, whichever kind the Task is.
 
+A scout brief must instruct the worker to write its landed investigation to `data/<id>/report.md`.
+That file is a machine-enforced deliverable: teardown, promote, and the watcher use it as the
+scout's landed-work evidence. The `state/<id>.status` file is only the status report stream and
+does not replace `report.md`.
+
 ## Execution class: mechanical, standard, or deep
 
 The execution class means how much remaining judgment the executor has *after planning*, never
@@ -71,6 +76,8 @@ right: the project advanced past planned_against, so re-check every assumption t
 - Write the brief at `data/<id>/brief.md`, including the absolute path to `state/<id>.status`
   and the report vocabulary the worker should append to it (see
   `references/task-lifecycle.md`).
+- When dispatching a scout, make the brief require `data/<id>/report.md`; without it, teardown
+  refuses to release the scout worktree even when the status report says `done:`.
 - Dispatch with `hand spawn <id> <project> [--scout] [--profile <name>] [--harness ...]
   [--model ...] [--effort ...]`. Normally omit `--model`/`--effort`: use them only for a genuine
   task-specific need, never as routine routing - routine routing belongs in a configured Route.
