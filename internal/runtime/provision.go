@@ -105,15 +105,20 @@ func (r *Runtime) provision(ctx context.Context, req provisioningRequest) (strin
 }
 
 func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) (string, error) {
-	fleetID, err := state.FleetIDReadOnly(req.home)
-	if err != nil {
-		return "", fmt.Errorf("read Fleet identity for Herdr session: %w", err)
-	}
 	session := req.attempt.Herdr.Session
+	fleetID := ""
+	var err error
+	needsFleetIdentity := session == "" || req.attempt.Worktree == ""
+	if needsFleetIdentity {
+		fleetID, err = state.FleetIDReadOnly(req.home)
+		if err != nil {
+			return "", fmt.Errorf("read Fleet identity for Herdr session: %w", err)
+		}
+	}
 	if session == "" {
 		session = herdr.SessionName(fleetID)
 	}
-	if session == herdr.SessionName(fleetID) && r.deps.ensureHerdr != nil {
+	if fleetID != "" && session == herdr.SessionName(fleetID) && r.deps.ensureHerdr != nil {
 		if err := r.deps.ensureHerdr(ctx, fleetID); err != nil {
 			return "", fmt.Errorf("ensure Fleet Herdr session: %w", err)
 		}

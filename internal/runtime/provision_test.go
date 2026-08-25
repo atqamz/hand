@@ -127,6 +127,31 @@ func TestProvisionEnsuresFleetHerdrBeforeTreehouseAcquisition(t *testing.T) {
 	}
 }
 
+func TestProvisionPreservesLegacySessionWithoutFleetIdentity(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	if err := os.Remove(filepath.Join(home, "state", "hand.db")); err != nil {
+		t.Fatal(err)
+	}
+	attempt.Herdr.Session = "default"
+	attempt.Worktree = filepath.Join(home, "projects", "demo")
+	attempt.LeaseID = "lease-1"
+	phaseErr := errors.New("stop after legacy worktree observation")
+	r := testProvisionRuntime(&provisionHerdr{}, func(phase lifecyclePhase) error {
+		if phase == phaseWorktreeRecorded {
+			return phaseErr
+		}
+		return nil
+	})
+
+	_, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt, resumeExisting: true,
+	})
+	if !errors.Is(err, phaseErr) {
+		t.Fatalf("provision() = %v, want %v", err, phaseErr)
+	}
+}
+
 func TestProvisionResumeRefusesChangedLeaseBeforeHerdrCreation(t *testing.T) {
 	home, attempt := provisioningFixture(t)
 	attempt.Worktree = "/tmp/hand-wt"
