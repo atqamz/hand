@@ -533,7 +533,8 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 	if attempt != nil {
 		e = *attempt
 	}
-	agentState, reachable := probePaneStatus(herdrClientForAttempt(attempt, client), attempt)
+	attemptClient := herdrClientForAttempt(attempt, client)
+	agentState, reachable := probePaneStatus(attemptClient, attempt)
 	data, readErr := state.ReadReportData(home, t.ID)
 	lines := state.ReportLinesInData(data)
 	reported, reportedOK := state.LastReportedState(lines)
@@ -595,7 +596,9 @@ func taskParked(home string, t state.Task, attempt state.Attempt, reportedState 
 	if err != nil {
 		return false
 	}
-	return watcher.Parked(reportedState, silentSince, time.Now(), bounds)
+	// A one-shot render has no short, known interval baseline, so it defers corroboration to hand watch.
+	naive := watcher.Parked(reportedState, silentSince, time.Now(), bounds)
+	return naive
 }
 
 // Reads config/parked-*-bound, shared by newWatchCmd, once per render rather than once per task, so a

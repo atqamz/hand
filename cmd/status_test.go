@@ -936,6 +936,33 @@ func TestStatusFleetFlagsParkedPaneAndCountsAttention(t *testing.T) {
 	}
 }
 
+// A one-shot render has no short, known interval baseline, so it defers pane corroboration to hand watch.
+func TestTaskParkedUsesNaiveOneShotFallback(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	task := state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}
+	if err := writeTaskAttempt(t, home, task, attempt); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, task.ID)
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
+	if taskParked(home, task, attempt, state.ReportWorking, watcher.ParkedBounds{Other: 40 * time.Minute}) {
+		t.Fatal("one-shot status reported parked before the time bound was crossed")
+	}
+	if !taskParked(home, task, attempt, state.ReportWorking, bounds) {
+		t.Fatal("one-shot status did not preserve the naive parked verdict")
+	}
+}
+
 // atqamz/hand#268's "done when": a condition is added once, and both hand status and hand watch see
 // it without a second registration. watcher.GateKind is that one edit's home, so the fleet view's
 // flag and hand watch's known-kind vocabulary can never name a gate-run problem differently.

@@ -216,6 +216,8 @@ type TaskState struct {
 	// so its silence instant is frozen, every restart re-fires, and capped events.log evicts history.
 	ParkedFiredFor          time.Time
 	PersistedParkedFiredFor time.Time
+	PaneSample              string
+	PaneSampleObserved      bool
 	// Mirrors the task's durable usage-limit schedule: a non-zero retry instant is what makes the task
 	// limited, and the attempt count is what the backoff and the stuck bound are measured in. Persisted
 	// for ParkedFiredFor's reason, sharper - a re-derived schedule resumes against a still-limited account.
@@ -408,7 +410,7 @@ func Parked(lastReportState string, silentSince, now time.Time, bounds ParkedBou
 // mtime is deliberately never reset to "now" on resume: --until-event restarts on
 // every delivered event, and a busy fleet would otherwise erase the clock before
 // it ever completes once.
-func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds) *Event {
+func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now time.Time, bounds ParkedBounds, client PaneReader, paneID string) *Event {
 	if _, exempt := parkedBound(lastState, bounds); exempt {
 		ts.ParkedFiredFor = time.Time{}
 		return nil
@@ -416,7 +418,15 @@ func ClassifyParked(ts *TaskState, id, lastState, lastLine string, mtime, now ti
 	if mtime.Equal(ts.ParkedFiredFor) {
 		return nil
 	}
-	if !Parked(lastState, mtime, now, bounds) {
+	naive := Parked(lastState, mtime, now, bounds)
+	// Read once each tick so the next tick has a bounded activity baseline without blocking the poll loop.
+	confirmed, sample, observed := ConfirmParked(naive, ts.PaneSample, ts.PaneSampleObserved, client, paneID)
+	if observed {
+		ts.PaneSample = sample
+		ts.PaneSampleObserved = true
+	}
+	// Cross-checked before the latch: a live pane leaves this silence episode announceable.
+	if !confirmed {
 		return nil
 	}
 	ts.ParkedFiredFor = mtime

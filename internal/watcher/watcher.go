@@ -489,7 +489,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		}
 		if mtime, err := ReportEvidenceTime(cfg.Home, t, attempt); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
-		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds); e != nil {
+		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds, client, attempt.Herdr.PaneID); e != nil {
 			emit(e)
 		}
 		if !cfg.ObserveOnly {
@@ -687,6 +687,8 @@ func forgetPaneScopedCache(ts *TaskState, t state.Task, a state.Attempt, now tim
 	// probe of the new pane dwells under ClassifyUnreachable's threshold instead of firing `failed` on
 	// sight, which the old pane's true would do off a blink, on a probe describing the scout's pane.
 	ts.Probed = false
+	ts.PaneSample = ""
+	ts.PaneSampleObserved = false
 	// A latch claiming the old pane's outage has nothing to say about the new one. Left true it would
 	// sit inert until the next probe failure reset Probed anyway, but a fresh pane deserves a fresh
 	// episode on purpose, not by accident of that ordering.
