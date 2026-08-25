@@ -7,9 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	pathpkg "path"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -215,19 +213,4 @@ func executableName(name string) string {
 		return name + ".exe"
 	}
 	return name
-}
-
-func secondhandHome() (string, error) {
-	if configured := os.Getenv("SECONDHAND_HOME"); configured != "" {
-		path, err := filepath.Abs(configured)
-		if err != nil {
-			return "", fmt.Errorf("resolve SECONDHAND_HOME: %w", err)
-		}
-		return filepath.Clean(path), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user home for Secondhand runtime: %w", err)
-	}
-	return filepath.Join(home, ".secondhand"), nil
 }

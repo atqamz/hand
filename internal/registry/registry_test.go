@@ -2,13 +2,83 @@ package registry
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/secondhand"
 	"github.com/atqamz/hand/internal/store"
 )
+
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("", "hand-registry-test-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("SECONDHAND_HOME", filepath.Join(root, "Secondhand 測試")); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		_ = os.RemoveAll(root)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(root)
+	os.Exit(code)
+}
+
+func TestPathUsesConfiguredSecondhandHome(t *testing.T) {
+	configured := filepath.Join(t.TempDir(), "Secondhand 測試")
+	t.Setenv("SECONDHAND_HOME", configured)
+	operatorHome := filepath.Join(t.TempDir(), "operator")
+	t.Setenv("HOME", operatorHome)
+	t.Setenv("USERPROFILE", operatorHome)
+	t.Setenv("HAND_HOME", filepath.Join(t.TempDir(), "fleet"))
+
+	got, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := secondhand.Home()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.Join(want, "registry.db")
+	if got != want {
+		t.Fatalf("Path() = %q, want %q", got, want)
+	}
+}
+
+func TestOpenDoesNotTouchProductionRegistryWhenOverrideIsSet(t *testing.T) {
+	operatorHome := filepath.Join(t.TempDir(), "operator")
+	sentinelPath := filepath.Join(operatorHome, ".secondhand", "registry.db")
+	if err := os.MkdirAll(filepath.Dir(sentinelPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := []byte("operator registry sentinel")
+	if err := os.WriteFile(sentinelPath, sentinel, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", operatorHome)
+	t.Setenv("USERPROFILE", operatorHome)
+	t.Setenv("SECONDHAND_HOME", filepath.Join(t.TempDir(), "Secondhand 測試"))
+
+	db, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(sentinelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(sentinel) {
+		t.Fatalf("production registry changed from %q to %q", sentinel, got)
+	}
+}
 
 func TestRegisterAndListReadyFleet(t *testing.T) {
 	root := t.TempDir()

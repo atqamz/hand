@@ -37,6 +37,7 @@ func setTestUserHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("SECONDHAND_HOME", filepath.Join(home, "Secondhand 測試"))
 }
 
 func scopeHerdrForFleet(t *testing.T, home string, h faketool.Herdr) faketool.Herdr {
@@ -67,6 +68,7 @@ func TestMain(m *testing.M) {
 		{name: "HAND_ROLE", value: ""},
 		{name: "HAND_HOME", value: ""},
 		{name: "HAND_HARNESS", value: "unknown"},
+		{name: "SECONDHAND_HOME", value: filepath.Join(testUserHome, "Secondhand 測試")},
 	} {
 		if err := os.Setenv(tc.name, tc.value); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -110,5 +112,8 @@ func TestCommandPackageStartsWithNeutralEnvironment(t *testing.T) {
 				t.Fatalf("%s = %q, want %q", tc.name, got, tc.want)
 			}
 		})
+	}
+	if got := os.Getenv("SECONDHAND_HOME"); !strings.HasSuffix(got, filepath.Join("Secondhand 測試")) {
+		t.Fatalf("SECONDHAND_HOME = %q, want an isolated Unicode test root", got)
 	}
 }

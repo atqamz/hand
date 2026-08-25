@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/filelock"
+	"github.com/atqamz/hand/internal/secondhand"
 	"github.com/atqamz/hand/internal/store"
 	_ "modernc.org/sqlite"
 )
@@ -111,14 +112,11 @@ CREATE INDEX IF NOT EXISTS fleet_locator_by_id ON fleet_locator(fleet_id, home);
 `
 
 func Path() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := secondhand.Home()
 	if err != nil {
-		return "", fmt.Errorf("resolve user home: %w", err)
+		return "", err
 	}
-	if home == "" {
-		return "", errors.New("resolve user home: empty path")
-	}
-	return filepath.Join(home, ".secondhand", "registry.db"), nil
+	return filepath.Join(home, "registry.db"), nil
 }
 
 func Open() (*Registry, error) {

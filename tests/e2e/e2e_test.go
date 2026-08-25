@@ -29,6 +29,7 @@ import (
 
 var handBin string
 var goBin string
+var suiteSecondhandHome string
 
 // The tools hand shells out to that this suite never runs for real. None of them may resolve on the
 // hermetic PATH: a real one would silently answer in place of a test's fake, so the affected test would
@@ -90,6 +91,11 @@ func TestMain(m *testing.M) {
 	// working directory, so a developer who exported one would otherwise have the suite spawn, merge and tear
 	// down against their real fleet.
 	if err := os.Unsetenv("HAND_HOME"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	suiteSecondhandHome = filepath.Join(dir, "Secondhand 測試")
+	if err := os.Setenv("SECONDHAND_HOME", suiteSecondhandHome); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -177,6 +183,16 @@ func TestHandProcessEnvFiltersAmbientSemanticEnvironment(t *testing.T) {
 		if len(got) != 1 || got[0] != want {
 			t.Fatalf("handProcessEnv() %s entries = %q, want exactly %q", name, got, want)
 		}
+	}
+}
+
+func TestHandProcessUsesItsIsolatedSecondhandHome(t *testing.T) {
+	home := newHome(t)
+	if _, err := os.Stat(filepath.Join(home, ".secondhand", "registry.db")); err != nil {
+		t.Fatalf("child registry = %v, want a registry under the fleet-specific test root", err)
+	}
+	if _, err := os.Stat(filepath.Join(suiteSecondhandHome, "registry.db")); !os.IsNotExist(err) {
+		t.Fatalf("suite registry = %v, want no registry outside the child fixture root", err)
 	}
 }
 
