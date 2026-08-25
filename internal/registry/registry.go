@@ -202,6 +202,13 @@ func (r *Registry) Register(home, fleetID string, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("canonicalize Fleet home: %w", err)
 	}
+	canonicalID, err := store.FleetIDReadOnly(home)
+	if err != nil {
+		return fmt.Errorf("read canonical Fleet identity: %w", err)
+	}
+	if canonicalID != fleetID {
+		return fmt.Errorf("canonical Fleet identity is %s, not %s", canonicalID, fleetID)
+	}
 	stamp := now.UTC().Format(time.RFC3339Nano)
 	if stamp == "0001-01-01T00:00:00Z" {
 		stamp = time.Now().UTC().Format(time.RFC3339Nano)
@@ -212,6 +219,15 @@ func (r *Registry) Register(home, fleetID string, now time.Time) error {
 			return fmt.Errorf("begin registry registration: %w", err)
 		}
 		defer func() { _ = tx.Rollback() }()
+		stale, err := staleLocators(tx, home, fleetID)
+		if err != nil {
+			return err
+		}
+		for _, locator := range stale {
+			if _, err := tx.Exec(`DELETE FROM fleet_locator WHERE fleet_id = ? AND home = ?`, locator.FleetID, locator.Home); err != nil {
+				return fmt.Errorf("retire superseded Fleet locator: %w", err)
+			}
+		}
 		if _, err := tx.Exec(`
 INSERT INTO fleet_registry (fleet_id, last_known_home, first_seen_at, last_seen_at)
 VALUES (?, ?, ?, ?)
@@ -224,11 +240,66 @@ VALUES (?, ?, ?, ?)
 ON CONFLICT(fleet_id, home) DO UPDATE SET last_seen_at = excluded.last_seen_at`, fleetID, home, stamp, stamp); err != nil {
 			return fmt.Errorf("write Fleet locator: %w", err)
 		}
+		for _, fleetID := range staleIDs(stale) {
+			if _, err := tx.Exec(`
+DELETE FROM fleet_registry
+WHERE fleet_id = ?
+  AND NOT EXISTS (SELECT 1 FROM fleet_locator WHERE fleet_id = ?)`, fleetID, fleetID); err != nil {
+				return fmt.Errorf("remove orphaned Fleet registry row: %w", err)
+			}
+		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit Fleet registration: %w", err)
 		}
 		return nil
 	})
+}
+
+func staleLocators(tx *sql.Tx, selectedHome, fleetID string) ([]Locator, error) {
+	selectedKey, err := pathKey(selectedHome)
+	if err != nil {
+		return nil, fmt.Errorf("resolve selected Fleet home for registry repair: %w", err)
+	}
+	rows, err := tx.Query(`SELECT fleet_id, home, first_seen_at, last_seen_at FROM fleet_locator ORDER BY fleet_id, home`)
+	if err != nil {
+		return nil, fmt.Errorf("inspect Fleet locators for registry repair: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var stale []Locator
+	for rows.Next() {
+		var locator Locator
+		if err := rows.Scan(&locator.FleetID, &locator.Home, &locator.FirstSeenAt, &locator.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("read Fleet locator for registry repair: %w", err)
+		}
+		locatorKey, err := pathKey(locator.Home)
+		if err != nil {
+			return nil, fmt.Errorf("resolve registered Fleet home %q for registry repair: %w", locator.Home, err)
+		}
+		if locatorKey != selectedKey || locator.FleetID == fleetID {
+			continue
+		}
+		var present int
+		if err := tx.QueryRow(`SELECT 1 FROM fleet_registry WHERE fleet_id = ?`, locator.FleetID).Scan(&present); err != nil {
+			return nil, fmt.Errorf("validate superseded Fleet %s registry row: %w", locator.FleetID, err)
+		}
+		stale = append(stale, locator)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("inspect Fleet locators for registry repair: %w", err)
+	}
+	return stale, nil
+}
+
+func staleIDs(locators []Locator) []string {
+	ids := make([]string, 0, len(locators))
+	seen := make(map[string]bool, len(locators))
+	for _, locator := range locators {
+		if !seen[locator.FleetID] {
+			seen[locator.FleetID] = true
+			ids = append(ids, locator.FleetID)
+		}
+	}
+	return ids
 }
 
 func (r *Registry) Locators() ([]Locator, error) {
