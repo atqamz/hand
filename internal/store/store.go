@@ -133,8 +133,12 @@ const (
 )
 
 type Task struct {
-	ID               string        `json:"id"`
+	ID string `json:"id"`
+	// Project is the live display name resolved through ProjectID, falling back to the name the
+	// row was written with once no registered project carries that identity any more. ProjectID
+	// is the durable identity: renaming a project never rewrites it (atqamz/hand#388).
 	Project          string        `json:"project"`
+	ProjectID        string        `json:"project_id"`
 	Kind             string        `json:"kind"`
 	Brief            string        `json:"brief"`
 	Lifecycle        TaskLifecycle `json:"lifecycle"`
@@ -234,6 +238,10 @@ func SendRetrySafe(send SendAttempt) bool {
 // its own repo. A fork has two repos, the one URL names and the one its PRs live on, and only a
 // declared upstream tells that pair from an unauthorized one (atqamz/hand#78).
 type Project struct {
+	// ID is the surrogate identity a project keeps across every rename; Name is the live,
+	// operator-facing label and the projection key, unique among registered projects but
+	// reusable once a project is removed (atqamz/hand#388).
+	ID       string
 	Name     string
 	URL      string
 	Mode     string
@@ -275,6 +283,7 @@ const schema = `
 CREATE TABLE IF NOT EXISTS task (
 	id                TEXT PRIMARY KEY,
 	project           TEXT NOT NULL DEFAULT '',
+	project_id        TEXT NOT NULL DEFAULT '',
 	kind              TEXT NOT NULL DEFAULT '',
 	brief             TEXT NOT NULL DEFAULT '',
 	lifecycle         TEXT NOT NULL DEFAULT 'open' CHECK (lifecycle IN ('open', 'terminal')),
@@ -343,7 +352,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS attempt_one_active
 ON attempt(task_id)
 WHERE lifecycle IN ('provisioning', 'running');
 CREATE TABLE IF NOT EXISTS project (
-	name     TEXT PRIMARY KEY,
+	id       TEXT PRIMARY KEY,
+	name     TEXT NOT NULL UNIQUE,
 	url      TEXT NOT NULL,
 	mode     TEXT NOT NULL,
 	position INTEGER NOT NULL,
@@ -586,8 +596,8 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	if current == len(migrations) {
 		return db.ReadTaskHistory(id)
 	}
-	if current == acknowledgedMetadataVersion {
-		return db.ReadTaskHistory(id)
+	if current == fleetIdentityVersion || current == acknowledgedMetadataVersion {
+		return db.readTaskHistoryBeforeProjectIdentity(id)
 	}
 	if current == preAcknowledgementVersion || current == attemptBranchVersion {
 		return db.readTaskHistoryBeforeAcknowledgement(id)
@@ -646,18 +656,44 @@ func (db *DB) setMeta(key, value string) error {
 	return nil
 }
 
-var taskColumnNames = []string{
+// The layout every schema before projectIdentityVersion stored, and still the order the
+// read-only ladder's older scanners read: project_id is appended rather than slotted beside
+// project so the two suffix slices below keep naming the columns they always named.
+var taskColumnNamesBeforeProjectIdentity = []string{
 	"id", "project", "kind", "brief", "lifecycle", "active_attempt_id", "pr",
 	"merge_executed", "merge_executed_at", "merge_announced", "delivered_at", "delivered_reason",
 	"report_offset", "report_digest", "created_at", "repair_code", "repair_reason", "repair_attempt_id", "repair_observed_at",
 	"acknowledged_at", "acknowledged_reason", "acknowledged_offset", "acknowledged_digest",
 }
 
+var taskColumnNames = append(append([]string{}, taskColumnNamesBeforeProjectIdentity...), "project_id")
+
 var taskColumns = strings.Join(taskColumnNames, ", ")
 
-var taskColumnsBeforeRepair = strings.Join(taskColumnNames[:len(taskColumnNames)-8], ", ")
+var taskColumnsBeforeProjectIdentity = strings.Join(taskColumnNamesBeforeProjectIdentity, ", ")
 
-var taskColumnsBeforeAcknowledgement = strings.Join(taskColumnNames[:len(taskColumnNames)-4], ", ")
+var taskColumnsBeforeRepair = strings.Join(taskColumnNamesBeforeProjectIdentity[:len(taskColumnNamesBeforeProjectIdentity)-8], ", ")
+
+var taskColumnsBeforeAcknowledgement = strings.Join(taskColumnNamesBeforeProjectIdentity[:len(taskColumnNamesBeforeProjectIdentity)-4], ", ")
+
+// A task's project name is no longer stored live: rename updates the one project row and
+// nothing else, so every current-schema read resolves the label through the identity and
+// keeps the stored name only as the fallback for a project that is no longer registered.
+var taskSelectColumns = taskSelectList()
+
+const taskSelectFrom = ` FROM task LEFT JOIN project ON project.id = task.project_id`
+
+func taskSelectList() string {
+	columns := make([]string, 0, len(taskColumnNames))
+	for _, name := range taskColumnNames {
+		if name == "project" {
+			columns = append(columns, "COALESCE(project.name, task.project)")
+			continue
+		}
+		columns = append(columns, "task."+name)
+	}
+	return strings.Join(columns, ", ")
+}
 
 var attemptColumnNames = []string{
 	"id", "task_id", "ordinal", "lifecycle", "harness", "model", "effort",
@@ -687,7 +723,28 @@ func taskValues(t Task) []any {
 	return []any{t.ID, t.Project, t.Kind, t.Brief, t.Lifecycle, nullableAttemptID(t.ActiveAttemptID), t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
 		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt,
-		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest}
+		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest, t.ProjectID}
+}
+
+// A caller names the project it is dispatching into; the identity behind that name is looked up
+// once, at creation, and is what the row keeps from then on. An unregistered name resolves to no
+// identity rather than to whichever project later claims it.
+func resolveTaskProjectID(q interface {
+	QueryRow(string, ...any) *sql.Row
+}, t *Task) error {
+	if t.ProjectID != "" || t.Project == "" {
+		return nil
+	}
+	var id string
+	err := q.QueryRow(`SELECT id FROM project WHERE name = ?`, t.Project).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("resolve project %q for task %q: %w", t.Project, t.ID, err)
+	}
+	t.ProjectID = id
+	return nil
 }
 
 func nullableAttemptID(id int64) any {
@@ -698,6 +755,25 @@ func nullableAttemptID(id int64) any {
 }
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
+	var t Task
+	var activeID sql.NullInt64
+	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
+		&t.MergeExecuted, &t.MergeExecutedAt, &t.MergeAnnounced, &t.DeliveredAt, &t.DeliveredReason,
+		&t.ReportOffset, &t.ReportDigest, &t.CreatedAt, &t.RepairCode, &t.RepairReason, &t.RepairAttemptID, &t.RepairObservedAt,
+		&t.AcknowledgedAt, &t.AcknowledgedReason, &t.AcknowledgedOffset, &t.AcknowledgedDigest, &t.ProjectID)
+	if activeID.Valid {
+		t.ActiveAttemptID = activeID.Int64
+	}
+	if t.Lifecycle == "" {
+		t.Lifecycle = TaskOpen
+	}
+	return t, err
+}
+
+// Reads a task row from a database migrated no further than fleetIdentityVersion, which has no
+// project_id at all: its stored project name is still the live one, because rename rewrote every
+// task row back then.
+func scanTaskBeforeProjectIdentity(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var activeID sql.NullInt64
 	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
@@ -794,7 +870,7 @@ func scanAttemptBeforeSend(row interface{ Scan(...any) error }) (Attempt, error)
 }
 
 func (db *DB) ReadTask(id string) (Task, bool, error) {
-	row := db.sql.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
+	row := db.sql.QueryRow(`SELECT `+taskSelectColumns+taskSelectFrom+` WHERE task.id = ?`, id)
 	t, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, false, nil
@@ -808,6 +884,9 @@ func (db *DB) ReadTask(id string) (Task, bool, error) {
 func (db *DB) CreateTask(t Task) error {
 	if t.Lifecycle == "" {
 		t.Lifecycle = TaskOpen
+	}
+	if err := resolveTaskProjectID(db.sql, &t); err != nil {
+		return err
 	}
 	_, err := db.sql.Exec(`INSERT INTO task (`+taskColumns+`) VALUES (`+placeholders(len(taskColumnNames))+`)`, taskValues(t)...)
 	if err != nil {
@@ -832,7 +911,7 @@ func (db *DB) UpdateTask(t Task) error {
 }
 
 func (db *DB) ListTasks() ([]Task, error) {
-	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task ORDER BY id`)
+	rows, err := db.sql.Query(`SELECT ` + taskSelectColumns + taskSelectFrom + ` ORDER BY task.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -859,6 +938,35 @@ func (db *DB) ReadTaskHistory(id string) (TaskHistory, bool, error) {
 	task, found, err := db.ReadTask(id)
 	if err != nil || !found {
 		return TaskHistory{}, found, err
+	}
+	attempts, err := db.ListAttempts(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+func (db *DB) readTaskHistoryBeforeProjectIdentity(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskColumnsBeforeProjectIdentity+` FROM task WHERE id = ?`, id)
+	task, err := scanTaskBeforeProjectIdentity(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
 	}
 	attempts, err := db.ListAttempts(id)
 	if err != nil {
@@ -1074,7 +1182,7 @@ func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
 	if db.empty {
 		return nil, nil
 	}
-	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' ORDER BY id`)
+	rows, err := db.sql.Query(`SELECT ` + taskSelectColumns + taskSelectFrom + ` WHERE task.lifecycle = 'open' ORDER BY task.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list open tasks: %w", err)
 	}
@@ -1113,7 +1221,7 @@ func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
 	if db.empty {
 		return nil, nil
 	}
-	rows, err := db.sql.Query(`SELECT ` + taskColumns + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+	rows, err := db.sql.Query(`SELECT ` + taskSelectColumns + taskSelectFrom + ` WHERE task.lifecycle = 'open' OR task.repair_code <> '' OR EXISTS (
 		SELECT 1 FROM attempt
 		WHERE attempt.task_id = task.id
 		AND attempt.lifecycle NOT IN ('provisioning', 'running')
@@ -1122,7 +1230,7 @@ func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
 			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
 			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
 		)
-	) ORDER BY id`)
+	) ORDER BY task.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list reconciliation tasks: %w", err)
 	}
@@ -1169,13 +1277,63 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 	if current == holdInferredVersion {
 		return db.listReconciliationHistoriesBeforeAcknowledgementAndBranch()
 	}
-	if current == acknowledgedMetadataVersion {
-		return db.ListReconciliationHistories()
+	if current == fleetIdentityVersion || current == acknowledgedMetadataVersion {
+		return db.listReconciliationHistoriesBeforeProjectIdentity()
 	}
 	if current == repairMetadataVersion || current == sendSchemaVersion {
 		return db.listReconciliationHistoriesBeforeSend()
 	}
 	return db.ListReconciliationHistories()
+}
+
+// The reconciliation-listing counterpart to readTaskHistoryBeforeProjectIdentity, for a home whose
+// task table has no project_id to join the live project name through.
+func (db *DB) listReconciliationHistoriesBeforeProjectIdentity() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
+	rows, err := db.sql.Query(`SELECT ` + taskColumnsBeforeProjectIdentity + ` FROM task WHERE lifecycle = 'open' OR repair_code <> '' OR EXISTS (
+		SELECT 1 FROM attempt
+		WHERE attempt.task_id = task.id
+		AND attempt.lifecycle NOT IN ('provisioning', 'running')
+		AND (
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
+			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
+			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
+		)
+	) ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTaskBeforeProjectIdentity(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.ListAttempts(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("task %q active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
 }
 
 // The reconciliation-listing counterpart to readTaskHistoryBeforeAcknowledgementAndBranch: holdInferredVersion
@@ -1361,6 +1519,9 @@ func (db *DB) CreateTaskWithAttempt(t Task, a Attempt) (Attempt, error) {
 		return Attempt{}, fmt.Errorf("begin task creation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := resolveTaskProjectID(tx, &t); err != nil {
+		return Attempt{}, err
+	}
 	if _, err := tx.Exec(`INSERT INTO task (`+taskColumns+`) VALUES (`+placeholders(len(taskColumnNames))+`)`, taskValues(t)...); err != nil {
 		if isSQLiteBusy(err) {
 			return Attempt{}, contention("create task", t.ID, err)
@@ -2521,7 +2682,7 @@ func (db *DB) ListProjects() ([]Project, error) {
 	if db.empty {
 		return nil, nil
 	}
-	rows, err := db.sql.Query(`SELECT name, url, mode, upstream FROM project ORDER BY position, name`)
+	rows, err := db.sql.Query(`SELECT id, name, url, mode, upstream FROM project ORDER BY position, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -2530,7 +2691,7 @@ func (db *DB) ListProjects() ([]Project, error) {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.Name, &p.URL, &p.Mode, &p.Upstream); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.URL, &p.Mode, &p.Upstream); err != nil {
 			return nil, fmt.Errorf("list projects: %w", err)
 		}
 		projects = append(projects, p)
@@ -2541,9 +2702,19 @@ func (db *DB) ListProjects() ([]Project, error) {
 	return projects, nil
 }
 
+// A caller never supplies the identity: it is minted here so no command surface has to carry
+// a flag for it, and so a name reused after a removal can never inherit the removed project's
+// history (atqamz/hand#388).
 func (db *DB) AddProject(p Project) error {
-	_, err := db.sql.Exec(`INSERT INTO project (name, url, mode, position, upstream)
-		VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM project), ?)`, p.Name, p.URL, p.Mode, p.Upstream)
+	if p.ID == "" {
+		id, err := newProjectID()
+		if err != nil {
+			return fmt.Errorf("add project %q: %w", p.Name, err)
+		}
+		p.ID = id
+	}
+	_, err := db.sql.Exec(`INSERT INTO project (id, name, url, mode, position, upstream)
+		VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM project), ?)`, p.ID, p.Name, p.URL, p.Mode, p.Upstream)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("project %q %w", p.Name, ErrProjectExists)
@@ -2593,7 +2764,20 @@ func (db *DB) SetProjectMode(name, mode string) (bool, error) {
 	return affected > 0, nil
 }
 
-// RenameProject updates the registry key and every task's project reference in one transaction.
+// BackfillTaskProjectIdentity links identity-less task rows to the project now answering to the
+// name they carry. It belongs to the one-time data/projects.md import, whose home had no project
+// rows for the migration to resolve against; running it later is what atqamz/hand#388 forbids.
+func (db *DB) BackfillTaskProjectIdentity() error {
+	if _, err := db.sql.Exec(`UPDATE task SET project_id = COALESCE((SELECT id FROM project WHERE project.name = task.project), '')
+		WHERE project_id = ''`); err != nil {
+		return fmt.Errorf("backfill task project identity: %w", err)
+	}
+	return nil
+}
+
+// RenameProject relabels one durable project row. Task and completion history is deliberately
+// left alone: the identity a rename cannot change is what those records reference, so there is
+// nothing to search for by name and nothing to roll back (atqamz/hand#388, atqamz/hand#396).
 func (db *DB) RenameProject(oldName, newName string) (bool, error) {
 	return db.renameProject(oldName, newName, "", false)
 }
@@ -2610,14 +2794,22 @@ func (db *DB) renameProject(oldName, newName, newURL string, updateURL bool) (bo
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var id string
+	err = tx.QueryRow(`SELECT id FROM project WHERE name = ?`, oldName).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("rename project %q: %w", oldName, err)
+	}
 	query := `UPDATE project SET name = ?`
 	args := []any{newName}
 	if updateURL {
 		query += `, url = ?`
 		args = append(args, newURL)
 	}
-	query += ` WHERE name = ?`
-	args = append(args, oldName)
+	query += ` WHERE id = ?`
+	args = append(args, id)
 	result, err := tx.Exec(query, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -2632,9 +2824,6 @@ func (db *DB) renameProject(oldName, newName, newURL string, updateURL bool) (bo
 	if affected == 0 {
 		return false, nil
 	}
-	if _, err := tx.Exec(`UPDATE task SET project = ? WHERE project = ?`, newName, oldName); err != nil {
-		return false, fmt.Errorf("rename tasks for project %q: %w", oldName, err)
-	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("rename project %q: %w", oldName, err)
 	}
@@ -2644,7 +2833,17 @@ func (db *DB) renameProject(oldName, newName, newURL string, updateURL bool) (bo
 // RemoveProject reports whether a row was actually removed, leaving the
 // not-registered wording to the caller that already owns it.
 func (db *DB) RemoveProject(name string) (bool, error) {
-	res, err := db.sql.Exec(`DELETE FROM project WHERE name = ?`, name)
+	var id string
+	err := db.sql.QueryRow(`SELECT id FROM project WHERE name = ?`, name).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("remove project %q: %w", name, err)
+	}
+	// By identity, so a removal can never take a same-named row a concurrent writer
+	// registered in its place: the history that row owns is a different project's.
+	res, err := db.sql.Exec(`DELETE FROM project WHERE id = ?`, id)
 	if err != nil {
 		return false, fmt.Errorf("remove project %q: %w", name, err)
 	}

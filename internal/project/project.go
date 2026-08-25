@@ -135,6 +135,12 @@ func importLegacyRegistry(db *store.DB, homeDir string) error {
 			return err
 		}
 	}
+	// The schema migration had no project rows to resolve task names against on a home whose
+	// registry lived only in the file, so the tasks it left without an identity are linked here,
+	// once, while the names in the file are still the names those tasks were written with.
+	if err := db.BackfillTaskProjectIdentity(); err != nil {
+		return err
+	}
 	return db.MarkMigrated(legacyRegistryKey)
 }
 
