@@ -1,4 +1,4 @@
-# Completions use an uncapped append-only file
+# Completions use an uncapped JSONL file
 
 - Date: 2026-08-04
 - Status: accepted, superseded in part by [Tasks are durable and Attempts own execution](tasks-are-durable-and-attempts-own-execution.md)
@@ -11,7 +11,7 @@ Teardown removes live task state, but a completion must remain readable afterwar
 
 ## Decision
 
-Completions are appended to a dedicated JSONL file under their own lock before the task row is removed. The file is uncapped because it is the durable record of tasks no longer present.
+Completions are appended to a dedicated JSONL file under their own lock before the task row is removed. Project rename is the one controlled exception: it may atomically rewrite only records belonging to the renamed project, under the same lock, so rollback cannot overwrite unrelated records. The file is uncapped because it is the durable record of tasks no longer present.
 
 [`internal/completion`](../../internal/completion) owns the format and append operation. Its tests and teardown tests own failure ordering and duplicate tolerance.
 

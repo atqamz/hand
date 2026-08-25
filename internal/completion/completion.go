@@ -1,7 +1,8 @@
 // Package completion is the durable record of tasks hand teardown has finished
 // with: state/completions.jsonl, one JSON object per line, uncapped - see
-// atqamz/hand#61. Every line is readable on its own terms without
-// parsing markdown.
+// atqamz/hand#61. Normal records are appended; project rename may atomically
+// rewrite the matching records. Every line is readable on its own terms
+// without parsing markdown.
 package completion
 
 import (
