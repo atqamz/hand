@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -47,6 +48,7 @@ type dependencies struct {
 	now               func() time.Time
 	herdr             func() herdrClient
 	herdrFor          func(string) herdrClient
+	ensureHerdr       func(context.Context, string) error
 	worktree          worktreeDependencies
 	projectBaseCommit func(string) (string, error)
 	buildHarness      func(string, harness.Options) (launch.LaunchSpec, error)
@@ -70,6 +72,7 @@ func defaultDependencies() dependencies {
 	return dependencies{
 		now:               func() time.Time { return time.Now().UTC() },
 		herdr:             newHerdrClient,
+		ensureHerdr:       func(ctx context.Context, fleetID string) error { return herdr.NewFleetHerdr(fleetID).Ensure(ctx) },
 		worktree:          worktreeDependencies{get: worktree.Get, observeLease: worktree.ObserveLease, observeClean: worktree.ObserveCleanliness, observeCommits: worktree.ObserveCommitSafety, headCommit: worktree.HeadCommit, returnWorktree: worktree.Return, returnWithID: worktree.ReturnLease, checkCollision: worktree.CheckCollision},
 		projectBaseCommit: projectBaseCommit,
 		buildHarness:      harness.Build,
@@ -103,14 +106,26 @@ func (r *Runtime) provision(ctx context.Context, req provisioningRequest) (strin
 }
 
 func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) (string, error) {
-	_ = ctx
-	lease := worktree.Lease{Path: req.attempt.Worktree, ID: req.attempt.LeaseID}
+	session := req.attempt.Herdr.Session
+	fleetID := ""
 	var err error
-	if lease.Path == "" {
-		fleetID, err := state.FleetID(req.home)
-		if err != nil {
-			return "", fmt.Errorf("read Fleet identity for Treehouse lease holder: %w", err)
+	fleetID, err = state.FleetIDReadOnly(req.home)
+	if err != nil && (req.attempt.Worktree == "" || session == "" || !errors.Is(err, state.ErrFleetIdentityMissing)) {
+		return "", fmt.Errorf("read Fleet identity for Herdr session: %w", err)
+	}
+	if fleetID != "" && session != "" && session != herdr.SessionName(fleetID) {
+		return "", fmt.Errorf("herdr session %q does not match Fleet identity %q", session, fleetID)
+	}
+	if session == "" {
+		session = herdr.SessionName(fleetID)
+	}
+	if fleetID != "" && session == herdr.SessionName(fleetID) && r.deps.ensureHerdr != nil {
+		if err := r.deps.ensureHerdr(ctx, fleetID); err != nil {
+			return "", fmt.Errorf("ensure Fleet Herdr session: %w", err)
 		}
+	}
+	lease := worktree.Lease{Path: req.attempt.Worktree, ID: req.attempt.LeaseID}
+	if lease.Path == "" {
 		lease, err = r.deps.worktree.get(req.clonePath, "hand:"+fleetID+":"+req.attempt.TaskID)
 		if err != nil {
 			return "", fmt.Errorf("acquire treehouse worktree: %w", err)
@@ -176,14 +191,6 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return "", r.failProvision(req, lease, nil, false, err)
 	}
 
-	session := req.attempt.Herdr.Session
-	if session == "" {
-		fleetID, err := state.FleetID(req.home)
-		if err != nil {
-			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("read Fleet identity for Herdr session: %w", err))
-		}
-		session = herdr.SessionName(fleetID)
-	}
 	client := r.herdrClient(session)
 	workerSpec, err = composeWorkerSpec(workerSpec, req.home, herdrWorkerEnvironment(client))
 	if err != nil {

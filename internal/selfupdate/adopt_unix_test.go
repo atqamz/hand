@@ -12,6 +12,7 @@ import (
 )
 
 func TestAdoptPreservesDirectInstallWhenHardLinksAreUnavailable(t *testing.T) {
+	isolateHandPath(t)
 	want := BuildInfo{Version: "1.2.3", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}
 	source := writeIdentityExecutable(t, want, "new-source")
 	target := testHandPath(t.TempDir())

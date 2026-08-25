@@ -92,7 +92,7 @@ func TestMechanicalPlanRefusesWhenTreehouseAcquiresADifferentHead(t *testing.T) 
 	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") || !strings.Contains(log, "treehouse return") {
 		t.Fatalf("treehouse log = %q, want acquisition followed by safe return", log)
 	}
-	if log := readOptionalLog(t, herdrLog); log != "" {
+	if log := readOptionalLog(t, herdrLog); strings.Contains(log, " pane ") {
 		t.Fatalf("herdr log = %q, want no pane or launch activity", log)
 	}
 	if exists, err := state.Exists(home, "task-1"); err != nil || !exists {

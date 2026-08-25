@@ -38,10 +38,11 @@ func TestAdoptInstallsAnExactDirectBuildIntoAnEmptyTarget(t *testing.T) {
 }
 
 func TestAdoptReusesAnExactDirectBuild(t *testing.T) {
+	goPath := isolateHandPath(t)
 	want := BuildInfo{Version: "1.2.3", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}
-	source := writeIdentityExecutable(t, want, "new-source")
+	source := writeIdentityExecutable(t, want, "new-source", goPath)
 	target := testHandPath(t.TempDir())
-	writeIdentityExecutableAt(t, target, want, "existing-target")
+	writeIdentityExecutableAt(t, target, want, "existing-target", goPath)
 	before, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)
@@ -64,10 +65,11 @@ func TestAdoptReusesAnExactDirectBuild(t *testing.T) {
 }
 
 func TestAdoptRefusesPackageOwnedBuildBeforeMutation(t *testing.T) {
+	goPath := isolateHandPath(t)
 	want := BuildInfo{Version: "1.2.3", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}
-	source := writeIdentityExecutable(t, want, "source")
+	source := writeIdentityExecutable(t, want, "source", goPath)
 	target := testHandPath(t.TempDir())
-	writeIdentityExecutableAt(t, target, BuildInfo{Version: "1.0.0", Channel: ChannelStable, Commit: "package", Distribution: DistributionBrew}, "package")
+	writeIdentityExecutableAt(t, target, BuildInfo{Version: "1.0.0", Channel: ChannelStable, Commit: "package", Distribution: DistributionBrew}, "package", goPath)
 
 	_, err := Adopt(context.Background(), source, target, want)
 	if err == nil || !strings.Contains(err.Error(), "brew") {
@@ -106,10 +108,11 @@ func TestAdoptRefusesAStagedIdentityMismatchBeforeMutation(t *testing.T) {
 }
 
 func TestAdoptRefusesANewerDirectBuild(t *testing.T) {
+	goPath := isolateHandPath(t)
 	want := BuildInfo{Version: "1.2.3", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}
-	source := writeIdentityExecutable(t, want, "source")
+	source := writeIdentityExecutable(t, want, "source", goPath)
 	target := testHandPath(t.TempDir())
-	writeIdentityExecutableAt(t, target, BuildInfo{Version: "1.3.0", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}, "newer")
+	writeIdentityExecutableAt(t, target, BuildInfo{Version: "1.3.0", Channel: ChannelStable, Commit: stableTestCommit, Distribution: DistributionGitHub}, "newer", goPath)
 
 	_, err := Adopt(context.Background(), source, target, want)
 	if err == nil || !strings.Contains(err.Error(), "downgrade") {
@@ -176,6 +179,20 @@ func writeIdentityExecutable(t *testing.T, info BuildInfo, marker string, goPath
 	}
 	writeIdentityExecutableAt(t, path, info, marker, goPath...)
 	return path
+}
+
+func isolateHandPath(t *testing.T) string {
+	t.Helper()
+	goPath := ""
+	if runtime.GOOS == "windows" {
+		var err error
+		goPath, err = exec.LookPath("go")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", t.TempDir())
+	return goPath
 }
 
 func writeIdentityExecutableAt(t *testing.T, path string, info BuildInfo, marker string, goPath ...string) {

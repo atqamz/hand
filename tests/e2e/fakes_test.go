@@ -74,7 +74,7 @@ func writeFakeDispatch(t *testing.T, dir, name, logPath, selector, caseBody stri
 	if logPath != "" {
 		script = fmt.Sprintf("echo \"%s $@\" >> %s\n", name, shellSingleQuote(logPath))
 	}
-	script += "if [ \"$1\" = \"--session\" ]; then shift 2; fi\n"
+	script += "session_name=\"$2\"\nif [ \"$1\" = \"--session\" ]; then shift 2; fi\n"
 	script += fmt.Sprintf("case \"%s\" in\n%s\n  *) echo \"unexpected %s invocation: $@\" >&2; exit 1 ;;\nesac\n",
 		selector, caseBody, name)
 	writeFakeBin(t, dir, name, script)

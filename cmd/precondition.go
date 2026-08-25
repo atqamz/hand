@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/runtime"
@@ -12,6 +13,9 @@ import (
 // These package errors are precondition failures rather than general errors. The imported packages
 // cannot construct cmd.ExitError themselves, so they signal through sentinels.
 var preconditionSentinels = []error{
+	herdr.ErrSessionUnknown,
+	herdr.ErrSessionIncompatible,
+	herdr.ErrEnsureTimeout,
 	state.ErrTaskNotFound,
 	state.ErrTaskActive,
 	state.ErrLifecycleConflict,

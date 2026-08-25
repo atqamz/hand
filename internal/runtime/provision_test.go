@@ -97,6 +97,103 @@ func TestProvisionUsesFleetScopedTreehouseLeaseHolder(t *testing.T) {
 	}
 }
 
+func TestProvisionEnsuresFleetHerdrBeforeTreehouseAcquisition(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	fake := &provisionHerdr{}
+	r := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
+	var events []string
+	r.deps.ensureHerdr = func(_ context.Context, fleetID string) error {
+		events = append(events, "ensure:"+fleetID)
+		return nil
+	}
+	r.deps.worktree.get = func(path, _ string) (worktree.Lease, error) {
+		events = append(events, "treehouse")
+		return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
+	}
+
+	if _, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fleetID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ensure:" + fleetID, "treehouse"}
+	if strings.Join(events, ",") != strings.Join(want, ",") {
+		t.Fatalf("provisioning events = %q, want %q", events, want)
+	}
+}
+
+func TestProvisionRejectsMismatchedSessionForFreshWorktree(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	attempt.Herdr.Session = "hand-old"
+	fake := &provisionHerdr{}
+	r := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
+	acquired := false
+	r.deps.worktree.get = func(string, string) (worktree.Lease, error) {
+		acquired = true
+		return worktree.Lease{Path: filepath.Join(home, "projects", "demo", "leased"), ID: "lease-1"}, nil
+	}
+
+	_, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match Fleet identity") {
+		t.Fatalf("provision() = %v, want mismatched Fleet session error", err)
+	}
+	if acquired || fake.createdWorkspace {
+		t.Fatal("provision() acquired a worktree or created a Herdr workspace after session mismatch")
+	}
+}
+
+func TestProvisionRejectsMismatchedSessionForResumedWorktree(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	attempt.Herdr.Session = "hand-old"
+	attempt.Worktree = filepath.Join(home, "projects", "demo")
+	attempt.LeaseID = "lease-1"
+	fake := &provisionHerdr{}
+	r := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
+
+	_, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt, resumeExisting: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match Fleet identity") {
+		t.Fatalf("provision() = %v, want mismatched Fleet session error", err)
+	}
+	if fake.createdWorkspace {
+		t.Fatal("provision() created a Herdr workspace after session mismatch")
+	}
+}
+
+func TestProvisionPreservesLegacySessionWithoutFleetIdentity(t *testing.T) {
+	home := t.TempDir()
+	attempt := state.Attempt{
+		ID: 1, TaskID: "task-1", Lifecycle: state.AttemptProvisioning,
+		Worktree: filepath.Join(home, "projects", "demo"), LeaseID: "lease-1",
+		Herdr: state.Herdr{Session: "default"},
+	}
+	phaseErr := errors.New("stop after legacy worktree observation")
+	r := testProvisionRuntime(&provisionHerdr{}, func(phase lifecyclePhase) error {
+		if phase == phaseWorktreeRecorded {
+			return phaseErr
+		}
+		return nil
+	})
+
+	_, err := r.provisionLocked(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt, resumeExisting: true,
+	})
+	if !errors.Is(err, phaseErr) {
+		t.Fatalf("provision() = %v, want %v", err, phaseErr)
+	}
+}
+
 func TestProvisionResumeRefusesChangedLeaseBeforeHerdrCreation(t *testing.T) {
 	home, attempt := provisioningFixture(t)
 	attempt.Worktree = "/tmp/hand-wt"

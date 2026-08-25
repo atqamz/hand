@@ -102,6 +102,7 @@ type herdrSpec struct {
 	ReadLogEnv         bool
 	AllowUnknownPane   bool
 	MutateBeforeHang   bool
+	activeSession      string
 }
 
 type herdrTabRef struct {
@@ -147,11 +148,12 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 		return fail("prepare Herdr session state: %v", err)
 	}
 	spec.StateDir = stateDir
+	spec.activeSession = herdrSession(args)
 	logicalArgs := herdrLogicalArgs(args)
-	if len(logicalArgs) < 2 {
+	command, commandArgs := herdrCommand(logicalArgs)
+	if command == "" {
 		return fail("unexpected herdr invocation: %s", strings.Join(args, " "))
 	}
-	command := logicalArgs[0] + " " + logicalArgs[1]
 	for _, blocked := range spec.Hang {
 		if blocked == command {
 			if spec.MutateBeforeHang {
@@ -174,7 +176,7 @@ func runHerdrFromPayload(payload json.RawMessage, args []string) int {
 		return 1
 	}
 	for _, response := range spec.Responses {
-		if response.Command == command && (response.Args == nil || sameArgs(response.Args, logicalArgs[2:])) {
+		if response.Command == command && (response.Args == nil || sameArgs(response.Args, commandArgs)) {
 			if response.MutateBeforeResponse {
 				if exit := runHerdrState(spec, command, logicalArgs); exit != 0 {
 					return exit
@@ -247,6 +249,19 @@ func herdrLogicalArgs(args []string) []string {
 	return args
 }
 
+func herdrCommand(args []string) (string, []string) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	if args[0] == "server" {
+		return "server", args[1:]
+	}
+	if len(args) < 2 {
+		return "", nil
+	}
+	return args[0] + " " + args[1], args[2:]
+}
+
 func logHerdrInvocation(spec herdrSpec, args []string) error {
 	if spec.Log == "" || (len(spec.LogCommands) > 0 && !containsString(spec.LogCommands, commandName(args))) {
 		return nil
@@ -255,11 +270,8 @@ func logHerdrInvocation(spec herdrSpec, args []string) error {
 }
 
 func commandName(args []string) string {
-	args = herdrLogicalArgs(args)
-	if len(args) < 2 {
-		return strings.Join(args, " ")
-	}
-	return args[0] + " " + args[1]
+	command, _ := herdrCommand(herdrLogicalArgs(args))
+	return command
 }
 
 func containsString(values []string, want string) bool {
@@ -275,6 +287,14 @@ func runHerdrState(spec herdrSpec, command string, args []string) int {
 	workspaces := append(append([]HerdrWorkspace{}, spec.Workspaces...), spec.Creates...)
 	tabs := herdrTabs(workspaces, spec.TabCreates)
 	switch command {
+	case "server":
+		return 0
+	case "session list":
+		return herdrSessionList(spec, args)
+	case "session attach":
+		return 0
+	case "status server":
+		return herdrServerStatus(spec, args)
 	case "workspace list":
 		return herdrWorkspaceList(spec, workspaces)
 	case "workspace create":
@@ -300,6 +320,22 @@ func runHerdrState(spec herdrSpec, command string, args []string) int {
 	default:
 		return fail("unexpected herdr invocation: %s", strings.Join(args, " "))
 	}
+}
+
+func herdrSessionList(spec herdrSpec, args []string) int {
+	session := spec.activeSession
+	if session == "" {
+		_, _ = io.WriteString(os.Stdout, "{\"sessions\":[]}\n")
+		return 0
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "{\"sessions\":[{\"name\":%s,\"running\":true}]}\n", jsonQuote(session))
+	return 0
+}
+
+func herdrServerStatus(spec herdrSpec, args []string) int {
+	session := spec.activeSession
+	_, _ = fmt.Fprintf(os.Stdout, "{\"status\":\"running\",\"running\":true,\"compatible\":true,\"session\":%s}\n", jsonQuote(session))
+	return 0
 }
 
 func herdrWorkspaceList(spec herdrSpec, workspaces []HerdrWorkspace) int {

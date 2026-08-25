@@ -51,7 +51,9 @@ func TestPromoteScoutToShip(t *testing.T) {
   return) echo ok ;;`)
 	// The scout's old workspace holds a second tab, so releasing the scout is a
 	// tab close rather than closeTaskTab's sole-tab workspace-close shortcut.
-	writeFakeDispatch(t, dir, "herdr", invocationLog, "$1 $2", `  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
+	writeFakeDispatch(t, dir, "herdr", invocationLog, "$1 $2", `  "session list") printf '{"sessions":[{"name":"%s","running":true}]}\n' "$session_name" ;;
+  "status server") printf '{"status":"running","running":true,"compatible":true,"session":"%s"}\n' "$session_name" ;;
+  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"ws-new","label":"demo","tab_count":1},"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"1"},"root_pane":{"pane_id":"pane-new","tab_id":"tab-new","workspace_id":"ws-new","agent_status":"working"}}}' ;;
   "tab rename") echo '{"result":{"tab":{"tab_id":"tab-new","workspace_id":"ws-new","label":"task-1"}}}' ;;
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"pane-new","shell_pid":1,"foreground_processes":[{"pid":1,"name":"bash"},{"pid":2,"name":"claude","argv":["claude"]}]}}}' ;;

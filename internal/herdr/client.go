@@ -253,6 +253,7 @@ func (c *Client) run(args ...string) ([]byte, string, error) {
 func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string, error) {
 	executable := "herdr"
 	var env []string
+	wireArgs := args
 	if c != nil {
 		if c.initErr != nil {
 			return nil, "", c.initErr
@@ -261,11 +262,13 @@ func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string
 			executable = c.executable
 		}
 		env = c.env
+		wireArgs = c.wireArgs(args...)
 	}
-	cmd := exec.CommandContext(ctx, executable, c.wireArgs(args...)...)
-	if env != nil {
-		cmd.Env = append([]string(nil), env...)
+	cmd := exec.CommandContext(ctx, executable, wireArgs...)
+	if env == nil {
+		env = os.Environ()
 	}
+	cmd.Env = daemonEnvironment(env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -274,6 +277,77 @@ func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string
 		runErr = &ExecError{Started: cmd.ProcessState != nil, Err: runErr}
 	}
 	return bytes.TrimSpace(stdout.Bytes()), strings.TrimSpace(stderr.String()), runErr
+}
+
+func (c *Client) startServer(ctx context.Context) error {
+	if c == nil {
+		return errors.New("managed Herdr client is unavailable")
+	}
+	if c.initErr != nil {
+		return c.initErr
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	executable := c.executable
+	if executable == "" {
+		executable = "herdr"
+	}
+	if !filepath.IsAbs(executable) {
+		return fmt.Errorf("managed Herdr executable %q must be an absolute path", executable)
+	}
+	cmd := exec.Command(executable, c.wireArgs("server")...)
+	parentEnv := c.env
+	if parentEnv == nil {
+		parentEnv = os.Environ()
+	}
+	cmd.Env = daemonEnvironment(parentEnv)
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open detached Herdr stdio: %w", err)
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = devNull, devNull, devNull
+	detachCommand(cmd)
+	if err := cmd.Start(); err != nil {
+		_ = devNull.Close()
+		return &ExecError{Started: false, Err: err}
+	}
+	_ = devNull.Close()
+	_ = cmd.Process.Release()
+	return nil
+}
+
+func (c *Client) attach(ctx context.Context) error {
+	if c == nil {
+		return errors.New("managed Herdr client is unavailable")
+	}
+	if c.initErr != nil {
+		return c.initErr
+	}
+	if c.session == "" {
+		return errors.New("herdr session identity is unavailable")
+	}
+	executable := c.executable
+	if executable == "" {
+		executable = "herdr"
+	}
+	if !filepath.IsAbs(executable) {
+		return fmt.Errorf("managed Herdr executable %q must be an absolute path", executable)
+	}
+	cmd := exec.CommandContext(ctx, executable, "session", "attach", c.session)
+	if c.env != nil {
+		cmd.Env = daemonEnvironment(c.env)
+	} else {
+		cmd.Env = daemonEnvironment(os.Environ())
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("attach Herdr session %q: %w", c.session, err)
+	}
+	return nil
 }
 
 func (c *Client) wireArgs(args ...string) []string {
