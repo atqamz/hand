@@ -101,7 +101,71 @@ func openRegistry(homeDir string) (*store.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// After the registry import, never before it: the identities the completion records are
+	// resolved against are the ones that import creates on a home whose registry lived in the file.
+	if err := importCompletionIdentity(db, homeDir); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return db, nil
+}
+
+// state/completions.jsonl is a sibling of the database, so no schema migration can reach it. This
+// is its one-time format bump, marked done the same way the registry import is.
+const legacyCompletionIdentityKey = "completions.jsonl:project-identity"
+
+func importCompletionIdentity(db *store.DB, homeDir string) error {
+	done, err := db.Migrated(legacyCompletionIdentityKey)
+	if err != nil || done {
+		return err
+	}
+	unlock, err := store.Lock(homeDir, store.MigrationLock, false)
+	if err != nil {
+		return fmt.Errorf("lock migration: %w", err)
+	}
+	defer unlock()
+
+	if done, err := db.Migrated(legacyCompletionIdentityKey); err != nil || done {
+		return err
+	}
+	resolve, err := completionIdentityResolver(db)
+	if err != nil {
+		return err
+	}
+	if err := completion.MigrateProjectIdentity(homeDir, resolve); err != nil {
+		return err
+	}
+	return db.MarkMigrated(legacyCompletionIdentityKey)
+}
+
+// The task a record names is asked first: its row already holds the identity resolved when the
+// task was created. Only a record whose task is gone falls back to the live registry, and an
+// unregistered name resolves to nothing rather than to whoever holds it now (atqamz/hand#388).
+func completionIdentityResolver(db *store.DB) (completion.ProjectIdentityResolver, error) {
+	projects, err := db.ListProjects()
+	if err != nil {
+		return nil, err
+	}
+	identityByName := make(map[string]string, len(projects))
+	for _, p := range projects {
+		identityByName[p.Name] = p.ID
+	}
+	tasks, err := db.ListTasks()
+	if err != nil {
+		return nil, err
+	}
+	identityByTask := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		if t.ProjectID != "" {
+			identityByTask[t.ID] = t.ProjectID
+		}
+	}
+	return func(r completion.Record) string {
+		if id, ok := identityByTask[r.ID]; ok {
+			return id
+		}
+		return identityByName[r.Project]
+	}, nil
 }
 
 func importLegacyRegistry(db *store.DB, homeDir string) error {
@@ -410,9 +474,9 @@ var projectRenameProjectionWriter = func(db *store.DB, homeDir, oldName, newName
 	return writeRenameProjection(db, homeDir, oldName, newName)
 }
 
-var projectRenameHistoryWriter = completion.RenameProject
-
-// Rename changes the registry key and task references while preserving the project's row position and fields.
+// Rename relabels the project and its projection. Task rows and completion records reference the
+// identity the rename cannot change, so there is no history to rewrite here and none to put back
+// (atqamz/hand#388, atqamz/hand#396).
 func Rename(homeDir, oldName, newName string) error {
 	if oldName == "" || newName == "" {
 		return fmt.Errorf("invalid project name")
@@ -486,19 +550,6 @@ func Rename(homeDir, oldName, newName string) error {
 	if !updated {
 		return fmt.Errorf("project %q %w", oldName, ErrNotFound)
 	}
-	historyRestore, err := projectRenameHistoryWriter(homeDir, oldName, newName)
-	if err != nil {
-		var rollbackErr error
-		if newURL != "" {
-			_, rollbackErr = projectRenameURLUpdater(db, newName, oldName, oldURL)
-		} else {
-			_, rollbackErr = projectRenameUpdater(db, newName, oldName)
-		}
-		if rollbackErr != nil {
-			return errors.Join(err, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
-		}
-		return err
-	}
 	if err := projectRenameProjectionWriter(db, homeDir, oldName, newName); err != nil {
 		var rollbackErrs []error
 		var rollbackErr error
@@ -509,9 +560,6 @@ func Rename(homeDir, oldName, newName string) error {
 		}
 		if rollbackErr != nil {
 			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
-		}
-		if rollbackErr := historyRestore.Restore(); rollbackErr != nil {
-			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project history %q: %w", oldName, rollbackErr))
 		}
 		if rollbackErr := restoreProjection(registryPath, oldProjection, projectionExists, projectionMode); rollbackErr != nil {
 			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project registry: %w", rollbackErr))

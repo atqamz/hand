@@ -1,7 +1,8 @@
 // Package completion is the durable record of tasks hand teardown has finished
 // with: state/completions.jsonl, one JSON object per line, uncapped - see
-// atqamz/hand#61. Normal records are appended; project rename may atomically
-// rewrite the matching records. Every line is readable on its own terms
+// atqamz/hand#61. Records are appended and never mutated in the ordinary course;
+// the one exception is the one-time project-identity migration below, which
+// replaces the whole file or none of it. Every line is readable on its own terms
 // without parsing markdown.
 package completion
 
@@ -17,10 +18,24 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// Record is one task's teardown outcome.
+// RecordVersion 2 is the first shape that carries a project identity. A line without the field
+// reads as version 1, which named its project by a label that a later rename or a reuse of that
+// name could make mean something else (atqamz/hand#388).
+const RecordVersion = 2
+
+// ProjectIDUnknown is what a record carries when nothing it holds can name the project it came
+// from. It is deliberately visible rather than empty, so an ambiguous record stays ambiguous
+// instead of reading as one belonging to whatever project now holds the name it was written with.
+const ProjectIDUnknown = "unknown"
+
+// Record is one task's teardown outcome. Project is the label the project carried when the record
+// was written and is never rewritten afterwards; ProjectID is the identity a rename cannot change,
+// and is what a reader joins on.
 type Record struct {
+	Version          int    `json:"record_version,omitempty"`
 	ID               string `json:"id"`
 	Project          string `json:"project"`
+	ProjectID        string `json:"project_id,omitempty"`
 	Kind             string `json:"kind"`
 	Outcome          string `json:"outcome"`
 	Detail           string `json:"detail"`
@@ -43,6 +58,10 @@ func Append(homeDir string, r Record) error {
 	}
 	defer release()
 
+	r.Version = RecordVersion
+	if r.ProjectID == "" {
+		r.ProjectID = ProjectIDUnknown
+	}
 	data, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("encode completion record %q: %w", r.ID, err)
@@ -67,99 +86,67 @@ func Append(homeDir string, r Record) error {
 	return nil
 }
 
-// RenameRestore restores only the completion lines changed by RenameProject.
-type RenameRestore struct {
-	homeDir string
-	changes []renameChange
-}
+// ProjectIdentityResolver answers which project a legacy record belongs to. An empty answer means
+// the lineage is not knowable from what the record carries, and the migration writes
+// ProjectIDUnknown rather than attaching the record to whatever project now holds its name.
+type ProjectIdentityResolver func(Record) string
 
-type renameChange struct {
-	line         int
-	originalLine string
-	renamedLine  string
-}
-
-// Restore reverts the exact lines changed by the rename, if they are still unchanged.
-func (r RenameRestore) Restore() error {
-	if len(r.changes) == 0 {
-		return nil
-	}
-	release, err := state.Lock(r.homeDir, "completions")
-	if err != nil {
-		return fmt.Errorf("lock completions store: %w", err)
-	}
-	defer release()
-
-	path := Path(r.homeDir)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read completions store for rollback: %w", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat completions store for rollback: %w", err)
-	}
-	lines := strings.SplitAfter(string(data), "\n")
-	for _, change := range r.changes {
-		if change.line >= len(lines) || lines[change.line] != change.renamedLine {
-			return fmt.Errorf("completion line %d changed during rollback", change.line)
-		}
-		lines[change.line] = change.originalLine
-	}
-	if err := atomicfile.Write(path, ".completions-rollback-", []byte(strings.Join(lines, "")), info.Mode().Perm()); err != nil {
-		return fmt.Errorf("write completions store for rollback: %w", err)
-	}
-	return nil
-}
-
-func RenameProject(homeDir, oldName, newName string) (RenameRestore, error) {
+// MigrateProjectIdentity is the one-time format bump that gives each existing line the identity
+// field, in place of a schema migration this file cannot take part in. The whole file is replaced
+// through a temp file and a rename or nothing is written; a current line is passed through as is.
+func MigrateProjectIdentity(homeDir string, resolve ProjectIdentityResolver) error {
 	release, err := state.Lock(homeDir, "completions")
 	if err != nil {
-		return RenameRestore{}, fmt.Errorf("lock completions store: %w", err)
+		return fmt.Errorf("lock completions store: %w", err)
 	}
 	defer release()
 
 	path := Path(homeDir)
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return RenameRestore{}, nil
+		return nil
 	}
 	if err != nil {
-		return RenameRestore{}, fmt.Errorf("read completions store: %w", err)
+		return fmt.Errorf("read completions store: %w", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return RenameRestore{}, fmt.Errorf("stat completions store: %w", err)
+		return fmt.Errorf("stat completions store: %w", err)
 	}
 
 	var rendered strings.Builder
-	var changes []renameChange
-	for lineNumber, line := range strings.SplitAfter(string(data), "\n") {
+	migrated := 0
+	for _, line := range strings.SplitAfter(string(data), "\n") {
 		body, newline := strings.CutSuffix(line, "\n")
 		var record Record
-		if err := json.Unmarshal([]byte(body), &record); err == nil && record.Project == oldName {
-			record.Project = newName
-			encoded, err := json.Marshal(record)
-			if err != nil {
-				return RenameRestore{}, fmt.Errorf("encode completion record %q: %w", record.ID, err)
-			}
-			renameLine := string(encoded)
-			if newline {
-				renameLine += "\n"
-			}
-			rendered.WriteString(renameLine)
-			changes = append(changes, renameChange{line: lineNumber, originalLine: line, renamedLine: renameLine})
+		// A line that does not parse is another writer's partial append or damage: it is carried
+		// through verbatim for the same reason List skips it rather than dropping the file.
+		if err := json.Unmarshal([]byte(body), &record); err != nil || record.Version >= RecordVersion {
+			rendered.WriteString(line)
 			continue
 		}
-		rendered.WriteString(line)
+		record.Version = RecordVersion
+		record.ProjectID = resolve(record)
+		if record.ProjectID == "" {
+			record.ProjectID = ProjectIDUnknown
+		}
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			return fmt.Errorf("encode completion record %q: %w", record.ID, err)
+		}
+		rendered.Write(encoded)
+		if newline {
+			rendered.WriteString("\n")
+		}
+		migrated++
 	}
-	if len(changes) == 0 {
-		return RenameRestore{}, nil
+	if migrated == 0 {
+		return nil
 	}
-	if err := atomicfile.Write(path, ".completions-", []byte(rendered.String()), info.Mode().Perm()); err != nil {
-		return RenameRestore{}, fmt.Errorf("write completions store: %w", err)
+	if err := atomicfile.Write(path, ".completions-identity-", []byte(rendered.String()), info.Mode().Perm()); err != nil {
+		return fmt.Errorf("write completions store: %w", err)
 	}
-	return RenameRestore{homeDir: homeDir, changes: changes}, nil
+	return nil
 }
 
 // List returns every record, oldest first, and nil if the store doesn't exist yet. A

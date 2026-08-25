@@ -287,7 +287,7 @@ func teardownDecision(forced, launched bool, lifecycle state.AttemptLifecycle, d
 }
 
 func completionFor(t state.Task, disposition string, launched bool, lastReportState, lastReportNote string) completion.Record {
-	c := completion.Record{ID: t.ID, Project: t.Project, Kind: t.Kind}
+	c := completion.Record{ID: t.ID, Project: t.Project, ProjectID: t.ProjectID, Kind: t.Kind}
 	// The delivered case sits ahead of the merge cases below only while no merge is on the row: a
 	// delivery that then genuinely landed has the stronger fact to record, so an observed or executed
 	// merge outranks the mark.
