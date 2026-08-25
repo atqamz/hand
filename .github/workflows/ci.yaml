@@ -40,7 +40,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os:
+          [
+            ubuntu-latest,
+            ubuntu-24.04-arm,
+            macos-latest,
+            macos-15-intel,
+            windows-latest,
+          ]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -64,6 +71,18 @@ jobs:
       - name: End-to-end
         run: go test -tags=e2e,test -timeout=10m ./tests/e2e/...
 
+  e2e-linux-arm:
+    name: E2E (ubuntu-24.04-arm, bootstrap.sh)
+    runs-on: ubuntu-24.04-arm
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: End-to-end (bootstrap.sh)
+        run: go test -tags=e2e,test -timeout=10m -run "^TestBootstrap" ./tests/e2e/...
+
   e2e-windows:
     name: E2E (windows-latest, bootstrap.ps1)
     runs-on: windows-latest
@@ -79,6 +98,18 @@ jobs:
   e2e-macos:
     name: E2E (macos-latest, bootstrap.sh)
     runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: End-to-end (bootstrap.sh)
+        run: go test -tags=e2e,test -timeout=10m -run "^TestBootstrap" ./tests/e2e/...
+
+  e2e-macos-intel:
+    name: E2E (macos-15-intel, bootstrap.sh)
+    runs-on: macos-15-intel
     needs: test
     steps:
       - uses: actions/checkout@v7
