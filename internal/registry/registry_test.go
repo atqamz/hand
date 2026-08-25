@@ -507,6 +507,65 @@ func TestRegisterRefusesUnprovableCanonicalIdentityWithoutDeletingProjection(t *
 	}
 }
 
+func TestListScopesAmbiguousClaimsToParticipatingFleets(t *testing.T) {
+	root := t.TempDir()
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	ids := make(map[string]string)
+	for _, name := range []string{"healthy A", "healthy B", "ambiguous C", "other"} {
+		home := filepath.Join(root, name)
+		db, err := store.Open(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[name], err = db.FleetID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"healthy A", "healthy B"} {
+		if err := registryDB.Register(filepath.Join(root, name), ids[name], time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ambiguousHome := filepath.Join(root, "ambiguous C")
+	if err := registryDB.Register(ambiguousHome, ids["ambiguous C"], time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := registryDB.sql.Exec(`
+INSERT INTO fleet_registry (fleet_id, last_known_home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, ids["other"], ambiguousHome, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registryDB.sql.Exec(`
+INSERT INTO fleet_locator (fleet_id, home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, ids["other"], ambiguousHome, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+
+	fleets, err := registryDB.List("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := make(map[string]State, len(fleets))
+	for _, fleet := range fleets {
+		states[fleet.ID] = fleet.State
+	}
+	if states[ids["healthy A"]] != StateReady || states[ids["healthy B"]] != StateReady {
+		t.Fatalf("healthy Fleet states = %#v, want both ready", states)
+	}
+	if states[ids["ambiguous C"]] != StateAmbiguous || states[ids["other"]] != StateAmbiguous {
+		t.Fatalf("participating Fleet states = %#v, want both ambiguous", states)
+	}
+}
+
 func TestPreflightRefusesARegisteredDuplicateBeforeRuntime(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", root)

@@ -332,7 +332,10 @@ func (r *Registry) List(currentHome string) ([]Fleet, error) {
 	claims := make(map[string]map[string]bool)
 	for _, locator := range locators {
 		byID[locator.FleetID] = append(byID[locator.FleetID], locator)
-		key, _ := pathKey(locator.Home)
+		key, err := pathKey(locator.Home)
+		if err != nil {
+			continue
+		}
 		if claims[key] == nil {
 			claims[key] = make(map[string]bool)
 		}
@@ -371,38 +374,41 @@ type observation struct {
 	valid   bool
 	state   State
 	reason  string
+	homeKey string
+	homeErr error
 }
 
 func observe(locator Locator) observation {
+	homeKey, homeErr := pathKey(locator.Home)
 	info, err := os.Stat(locator.Home)
 	if os.IsNotExist(err) {
-		return observation{locator: locator, state: StateMissing}
+		return observation{locator: locator, state: StateMissing, homeKey: homeKey, homeErr: homeErr}
 	}
 	if err != nil {
-		return observation{locator: locator, state: StateUnreadable, reason: err.Error()}
+		return observation{locator: locator, state: StateUnreadable, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
 	}
 	if !info.IsDir() {
-		return observation{locator: locator, state: StateUnreadable, reason: "Fleet home is not a directory"}
+		return observation{locator: locator, state: StateUnreadable, reason: "Fleet home is not a directory", homeKey: homeKey, homeErr: homeErr}
 	}
 	if _, err := os.Stat(store.Path(locator.Home)); err != nil {
 		if os.IsNotExist(err) {
-			return observation{locator: locator, state: StateUnreadable, reason: "state/hand.db is missing"}
+			return observation{locator: locator, state: StateUnreadable, reason: "state/hand.db is missing", homeKey: homeKey, homeErr: homeErr}
 		}
-		return observation{locator: locator, state: StateUnreadable, reason: err.Error()}
+		return observation{locator: locator, state: StateUnreadable, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
 	}
 	db, err := store.OpenReadOnly(locator.Home)
 	if err != nil {
-		return observation{locator: locator, state: StateUnreadable, reason: err.Error()}
+		return observation{locator: locator, state: StateUnreadable, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
 	}
 	defer func() { _ = db.Close() }()
 	observedID, err := db.FleetID()
 	if err != nil {
-		return observation{locator: locator, state: StateIdentityMismatch, reason: err.Error()}
+		return observation{locator: locator, state: StateIdentityMismatch, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
 	}
 	if observedID != locator.FleetID {
-		return observation{locator: locator, state: StateIdentityMismatch, reason: fmt.Sprintf("authoritative identity is %s", observedID)}
+		return observation{locator: locator, state: StateIdentityMismatch, reason: fmt.Sprintf("authoritative identity is %s", observedID), homeKey: homeKey, homeErr: homeErr}
 	}
-	return observation{locator: locator, valid: true, state: StateReady}
+	return observation{locator: locator, valid: true, state: StateReady, homeKey: homeKey, homeErr: homeErr}
 }
 
 func classify(observations []observation, claims map[string]map[string]bool) (State, string) {
@@ -420,23 +426,33 @@ func classify(observations []observation, claims map[string]map[string]bool) (St
 		case observed.state == StateUnreadable:
 			unreadable = append(unreadable, observed.locator.Home+": "+observed.reason)
 		}
+		if observed.homeErr != nil {
+			unreadable = append(unreadable, observed.locator.Home+": cannot establish canonical home: "+observed.homeErr.Error())
+		}
 	}
 	if valid > 1 {
 		return StateDuplicate, "the same Fleet identity is valid at multiple homes"
 	}
-	for _, ids := range claims {
-		if len(ids) > 1 {
-			return StateAmbiguous, "one home is registered for multiple Fleet identities"
+	if len(unreadable) > 0 {
+		sort.Strings(unreadable)
+		return StateUnreadable, strings.Join(unreadable, "; ")
+	}
+	ambiguous := false
+	for _, observed := range observations {
+		if ids := claims[observed.homeKey]; len(ids) > 1 {
+			ambiguous = true
+			break
 		}
 	}
+	if ambiguous {
+		return StateAmbiguous, "one home is registered for multiple Fleet identities"
+	}
+	sort.Strings(mismatch)
 	if len(mismatch) > 0 {
 		return StateIdentityMismatch, strings.Join(mismatch, "; ")
 	}
 	if valid == 1 {
 		return StateReady, ""
-	}
-	if len(unreadable) > 0 {
-		return StateUnreadable, strings.Join(unreadable, "; ")
 	}
 	if missing == len(observations) {
 		return StateMissing, "all known Fleet homes are missing"
