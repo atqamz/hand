@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/toolchain"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -27,9 +28,21 @@ type workflowStepDef struct {
 	Run  string         `yaml:"run"`
 }
 
+type workflowTargetDef struct {
+	GOOS   string `yaml:"goos"`
+	GOARCH string `yaml:"goarch"`
+}
+
+type workflowJobStrategyDef struct {
+	Matrix struct {
+		Include []workflowTargetDef `yaml:"include"`
+	} `yaml:"matrix"`
+}
+
 type workflowJobDef struct {
-	Outputs map[string]string `yaml:"outputs"`
-	Steps   []workflowStepDef `yaml:"steps"`
+	Outputs  map[string]string      `yaml:"outputs"`
+	Steps    []workflowStepDef      `yaml:"steps"`
+	Strategy workflowJobStrategyDef `yaml:"strategy"`
 }
 
 func TestPrepareReleaseBindsEveryAssetToOneExactRelease(t *testing.T) {
@@ -309,6 +322,68 @@ func TestReleaseWorkflowPublishesOneDraftAssetSetFromExactCheckout(t *testing.T)
 	}
 	executeWorkflowGhStep(t, workflowStep(t, publish.Steps, "Verify complete draft before publication"), "view")
 	executeWorkflowGhStep(t, workflowStep(t, publish.Steps, "Publish complete release"), "edit")
+}
+
+func TestReleaseTargetsMatchRuntimeLockSupport(t *testing.T) {
+	workflow, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "release.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Jobs map[string]workflowJobDef `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(workflow, &document); err != nil {
+		t.Fatalf("parse release workflow: %v", err)
+	}
+
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatalf("load runtime lock: %v", err)
+	}
+	knownUnsupported := map[string]struct{}{
+		"linux/arm64":  {},
+		"darwin/amd64": {},
+		"darwin/arm64": {},
+	}
+	build, ok := document.Jobs["build"]
+	if !ok {
+		t.Fatal("release workflow has no build job")
+	}
+	seenUnsupported := make(map[string]struct{})
+	seenTargets := make(map[string]struct{}, len(build.Strategy.Matrix.Include))
+	if len(build.Strategy.Matrix.Include) == 0 {
+		t.Fatal("release workflow build matrix is empty")
+	}
+	for _, target := range build.Strategy.Matrix.Include {
+		if target.GOOS == "" || target.GOARCH == "" {
+			t.Fatalf("release matrix target has incomplete platform: %#v", target)
+		}
+		key := target.GOOS + "/" + target.GOARCH
+		if _, ok := seenTargets[key]; ok {
+			t.Fatalf("release matrix target %s is duplicated", key)
+		}
+		seenTargets[key] = struct{}{}
+		locked, ok := lock.Targets[key]
+		if !ok {
+			t.Fatalf("release target %s has no runtime lock entry", key)
+		}
+		if locked.Unsupported == "" {
+			continue
+		}
+		if _, ok := knownUnsupported[key]; !ok {
+			t.Fatalf("release target %s is newly unsupported: %s", key, locked.Unsupported)
+		}
+		seenUnsupported[key] = struct{}{}
+		t.Logf("release target %s is published but runtime-unsupported: %s", key, locked.Unsupported)
+	}
+	if len(seenUnsupported) != len(knownUnsupported) {
+		t.Fatalf("published unsupported targets = %v, want explicit set %v", seenUnsupported, knownUnsupported)
+	}
+	for key := range knownUnsupported {
+		if _, ok := seenUnsupported[key]; !ok {
+			t.Fatalf("known unsupported target %s is no longer published as unsupported", key)
+		}
+	}
 }
 
 func workflowStep(t *testing.T, steps []workflowStepDef, name string) workflowStepDef {
