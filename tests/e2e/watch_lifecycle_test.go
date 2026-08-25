@@ -131,6 +131,7 @@ func TestOrdinaryCommandsDoNotEvictTheWatcher(t *testing.T) {
 			if tc.name == "send" {
 				setPaneStatus(t, statusDir, "pane-1", "idle")
 				watcher.waitForStdout(t, "idle-unreported task-1", 5*time.Second)
+				waitForAttemptStatus(t, home, "task-1", "idle", 5*time.Second)
 			}
 
 			tc.command(t, home)
@@ -164,6 +165,20 @@ func TestOrdinaryCommandsDoNotEvictTheWatcher(t *testing.T) {
 		assertWatcherUnaffected(t, home, watcher, rec)
 		watcher.interrupt(t, 10*time.Second)
 	})
+}
+
+func waitForAttemptStatus(t *testing.T, home, taskID, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		_, attempt := readTaskAttempt(t, home, taskID)
+		if attempt.StatusChangedFor == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_, attempt := readTaskAttempt(t, home, taskID)
+	t.Fatalf("timed out waiting for task %s attempt status %q; got %q", taskID, want, attempt.StatusChangedFor)
 }
 
 func setupWatchFakeHome(t *testing.T, home string) string {
