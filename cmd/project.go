@@ -208,6 +208,11 @@ func renameProject(homeDir, oldName, newName string) (renameResult, error) {
 	} else if exists {
 		return renameResult{}, fmt.Errorf("project %q already registered", newName)
 	}
+	if active, err := hasActiveTasksForProject(homeDir, oldName); err != nil {
+		return renameResult{}, err
+	} else if active {
+		return renameResult{}, &ExitError{Err: fmt.Errorf("project %q has active tasks referencing it", oldName), Code: 3}
+	}
 
 	oldClone := filepath.Join(homeDir, "projects", oldName)
 	newClone := filepath.Join(homeDir, "projects", newName)

@@ -531,13 +531,29 @@ func restoreProjection(path string, content []byte, exists bool, mode os.FileMod
 }
 
 func samePath(left, right string) bool {
-	left, leftErr := filepath.Abs(left)
-	right, rightErr := filepath.Abs(right)
+	if left == "" || right == "" {
+		return left == right
+	}
+	canonicalPath := func(path string) (string, error) {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		abs = filepath.Clean(abs)
+		real, err := filepath.EvalSymlinks(abs)
+		if err == nil {
+			return filepath.Clean(real), nil
+		}
+		if os.IsNotExist(err) {
+			return abs, nil
+		}
+		return "", err
+	}
+	left, leftErr := canonicalPath(left)
+	right, rightErr := canonicalPath(right)
 	if leftErr != nil || rightErr != nil {
 		return false
 	}
-	left = filepath.Clean(left)
-	right = filepath.Clean(right)
 	if runtime.GOOS == "windows" {
 		return strings.EqualFold(left, right)
 	}

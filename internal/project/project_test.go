@@ -28,6 +28,21 @@ func TestDeriveName(t *testing.T) {
 	}
 }
 
+func TestSamePathResolvesSymlinks(t *testing.T) {
+	root := t.TempDir()
+	realPath := filepath.Join(root, "real")
+	aliasPath := filepath.Join(root, "alias")
+	if err := os.Mkdir(realPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realPath, aliasPath); err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(realPath, aliasPath) {
+		t.Fatalf("samePath(%q, %q) = false, want true", realPath, aliasPath)
+	}
+}
+
 func TestParseRepoRef(t *testing.T) {
 	cases := map[string]string{
 		"kunchenguid/no-mistakes":                        "kunchenguid/no-mistakes",

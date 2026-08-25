@@ -422,7 +422,7 @@ func TestProjectRenameUpdatesLocalFileLocator(t *testing.T) {
 
 func TestProjectRenameMovesCloneAndPreservesTaskHistory(t *testing.T) {
 	home, oldPath := setupRegisteredRenameProject(t)
-	wantTask := state.Task{ID: "task-rename", Project: "old-name", Kind: state.KindShip, Brief: "data/task-rename/brief.md"}
+	wantTask := state.Task{ID: "task-rename", Project: "old-name", Kind: state.KindShip, Brief: "data/task-rename/brief.md", Lifecycle: state.TaskTerminal}
 	if err := state.Write(home, wantTask); err != nil {
 		t.Fatal(err)
 	}
@@ -468,6 +468,37 @@ func TestProjectRenameMovesCloneAndPreservesTaskHistory(t *testing.T) {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("output = %q, want %q", output.String(), want)
 		}
+	}
+}
+
+func TestProjectRenameRefusesActiveTasks(t *testing.T) {
+	home, oldPath := setupRegisteredRenameProject(t)
+	if err := state.Write(home, state.Task{ID: "task-rename-active", Project: "old-name", Kind: state.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRenameCmd()
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), "active tasks") {
+		t.Fatalf("err = %v, want active tasks referencing it", err)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("old clone stat = %v, want clone unmoved", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "projects", "new-name")); !os.IsNotExist(err) {
+		t.Fatalf("new clone stat = %v, want destination absent", err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "old-name" {
+		t.Fatalf("projects = %+v, want old registration", projects)
 	}
 }
 
