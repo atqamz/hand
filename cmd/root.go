@@ -119,7 +119,15 @@ func isReadOnlyCommand(cmd *cobra.Command) bool {
 }
 
 func shouldGuardFleet(cmd *cobra.Command) bool {
-	return cmd.Name() != "init" && cmd.Name() != "fleet" && cmd.CommandPath() != "hand" && cmd.CommandPath() != "hand session start"
+	return !isHelpInvocation(cmd) && cmd.Name() != "init" && cmd.Name() != "fleet" && cmd.CommandPath() != "hand" && cmd.CommandPath() != "hand session start"
+}
+
+func isHelpInvocation(cmd *cobra.Command) bool {
+	if cmd.Name() == "help" && cmd.Parent() == cmd.Root() {
+		return true
+	}
+	help, err := cmd.Flags().GetBool("help")
+	return err == nil && help
 }
 
 // Makes every subcommand-only group below c reject an unknown subcommand with exit code 2.
