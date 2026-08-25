@@ -337,6 +337,15 @@ func TestSpawnLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T) 
 	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	// phaseAttemptCreated fires right after the provisioning Attempt's write commits, so waiting on
+	// it proves the write already landed instead of polling for it against a wall-clock budget.
+	attemptCreated := make(chan struct{})
+	r.deps.phase = func(phase lifecyclePhase) error {
+		if phase == phaseAttemptCreated {
+			close(attemptCreated)
+		}
+		return nil
+	}
 	releaseProject, err := state.Lock(home, "project:demo")
 	if err != nil {
 		t.Fatal(err)
@@ -353,20 +362,23 @@ func TestSpawnLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T) 
 		_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: "claude"})
 		spawnDone <- err
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		history, readErr := state.ReadHistory(home, "task-1")
-		if readErr == nil && history.ActiveAttempt != nil {
-			released = true
-			releaseProject()
-			if err := <-spawnDone; err != nil {
-				t.Fatalf("Spawn() = %v, want success after project lock release", err)
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-attemptCreated:
+	case <-time.After(15 * time.Second):
+		t.Fatal("legacy Spawn did not create its provisioning Attempt before waiting for project lock")
 	}
-	t.Fatal("legacy Spawn did not create its provisioning Attempt before waiting for project lock")
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil {
+		t.Fatalf("history after phaseAttemptCreated = %+v, want a provisioning Attempt already durable", history)
+	}
+	released = true
+	releaseProject()
+	if err := <-spawnDone; err != nil {
+		t.Fatalf("Spawn() = %v, want success after project lock release", err)
+	}
 }
 
 func TestReopenMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.T) {
@@ -416,6 +428,15 @@ func TestReopenLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T)
 	createTerminalExecutionTask(t, home)
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	// phaseAttemptCreated fires right after the reopened Attempt's write commits, so waiting on it
+	// proves the write already landed instead of polling for it against a wall-clock budget.
+	attemptCreated := make(chan struct{})
+	r.deps.phase = func(phase lifecyclePhase) error {
+		if phase == phaseAttemptCreated {
+			close(attemptCreated)
+		}
+		return nil
+	}
 	releaseProject, err := state.Lock(home, "project:demo")
 	if err != nil {
 		t.Fatal(err)
@@ -432,20 +453,23 @@ func TestReopenLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T)
 		_, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: "claude"})
 		reopenDone <- err
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		history, readErr := state.ReadHistory(home, "task-1")
-		if readErr == nil && len(history.Attempts) == 2 && history.ActiveAttempt != nil {
-			released = true
-			releaseProject()
-			if err := <-reopenDone; err != nil {
-				t.Fatalf("Reopen() = %v, want success after project lock release", err)
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-attemptCreated:
+	case <-time.After(15 * time.Second):
+		t.Fatal("legacy Reopen did not create its provisioning Attempt before waiting for project lock")
 	}
-	t.Fatal("legacy Reopen did not create its provisioning Attempt before waiting for project lock")
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Attempts) != 2 || history.ActiveAttempt == nil {
+		t.Fatalf("history after phaseAttemptCreated = %+v, want the reopened Attempt already durable", history)
+	}
+	released = true
+	releaseProject()
+	if err := <-reopenDone; err != nil {
+		t.Fatalf("Reopen() = %v, want success after project lock release", err)
+	}
 }
 
 func TestPromoteMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.T) {
@@ -608,6 +632,15 @@ func TestPromoteLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T
 	markExecutionAttemptRunning(t, home, attempt.ID)
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	// phaseAttemptCreated fires right after state.PromoteTask's write commits, so waiting on it
+	// proves the ship Attempt already landed instead of polling for it against a wall-clock budget.
+	attemptCreated := make(chan struct{})
+	r.deps.phase = func(phase lifecyclePhase) error {
+		if phase == phaseAttemptCreated {
+			close(attemptCreated)
+		}
+		return nil
+	}
 	releaseProject, err := state.Lock(home, "project:demo")
 	if err != nil {
 		t.Fatal(err)
@@ -624,20 +657,23 @@ func TestPromoteLegacyTierCreatesAttemptBeforeWaitingForProjectLock(t *testing.T
 		_, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: "claude"})
 		promoteDone <- err
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		history, readErr := state.ReadHistory(home, "task-1")
-		if readErr == nil && len(history.Attempts) == 2 && history.Task.Kind == state.KindShip {
-			released = true
-			releaseProject()
-			if err := <-promoteDone; err != nil {
-				t.Fatalf("Promote() = %v, want success after project lock release", err)
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-attemptCreated:
+	case <-time.After(15 * time.Second):
+		t.Fatal("legacy Promote did not create its ship Attempt before waiting for project lock")
 	}
-	t.Fatal("legacy Promote did not create its ship Attempt before waiting for project lock")
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Attempts) != 2 || history.Task.Kind != state.KindShip {
+		t.Fatalf("history after phaseAttemptCreated = %+v, want the ship Attempt already durable", history)
+	}
+	released = true
+	releaseProject()
+	if err := <-promoteDone; err != nil {
+		t.Fatalf("Promote() = %v, want success after project lock release", err)
+	}
 }
 
 func TestSpawnHoldsProjectLockFromMechanicalCheckThroughWorktree(t *testing.T) {

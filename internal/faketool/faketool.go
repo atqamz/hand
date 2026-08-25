@@ -44,13 +44,14 @@ func InitRepo(t *testing.T, path string) {
 	}
 }
 
-// Returns a directory prepended to PATH for the rest of the test, so fakes
-// installed there are found ahead of any real tool. Prepending rather than
-// replacing keeps it additive: several tools' fakes can share one directory.
+// Returns a directory prepended to PATH so fakes installed there are found ahead of any real
+// tool, and points SECONDHAND_HOME at a fresh empty directory so a managed toolchain resolved
+// from the operator's real ~/.secondhand cannot answer git/treehouse/herdr calls ahead of it.
 func Bin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SECONDHAND_HOME", t.TempDir())
 	return dir
 }
 
@@ -59,6 +60,7 @@ func Bin(t *testing.T) string {
 func NoTools(t *testing.T) {
 	t.Helper()
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("SECONDHAND_HOME", t.TempDir())
 }
 
 type commandConfig struct {

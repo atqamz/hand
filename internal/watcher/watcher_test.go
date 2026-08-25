@@ -1018,7 +1018,10 @@ func TestTickSurfacesAContendedAutoRecordInsteadOfWaiting(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	// This tick still forks a fake gh subprocess for ValidatePR before it ever reaches the
+	// non-blocking task lock, so the watchdog has to outlast fork/exec latency under a loaded box,
+	// not just the (already non-blocking) lock check the test is actually about.
+	case <-time.After(30 * time.Second):
 		unlock()
 		t.Fatal("tick blocked on a task lock held by another command")
 	}
@@ -2695,30 +2698,50 @@ func TestRunUntilEventKeepsWaitingWhenOnlyStaleWouldFireAtArm(t *testing.T) {
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
 
-	home := t.TempDir()
 	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, CreatedAt: dwelling},
-		state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
-			StatusChangedAt: dwelling, StatusChangedFor: "working"}); err != nil {
+	staleTask := state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip, CreatedAt: dwelling}
+	staleAttempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		StatusChangedAt: dwelling, StatusChangedFor: "working"}
+
+	// Drive the arm's own two ticks directly with an unbounded context: asserting on RunUntilEvent's
+	// return instead would race that recording against its --timeout clock, which a loaded box can
+	// win before the second tick's herdr round trip returns.
+	recordHome := t.TempDir()
+	if err := writeTaskAttempt(t, recordHome, staleTask, staleAttempt); err != nil {
 		t.Fatal(err)
 	}
+	armCfg := Config{Home: recordHome, StaleThreshold: 20 * time.Minute, catchUp: CatchUpFilter()}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	var caught, armErrOut bytes.Buffer
+	tick(context.Background(), armCfg, client, states, &caught, &armErrOut)
+	tick(context.Background(), armCfg, client, states, &caught, &armErrOut)
+	if caught.Len() != 0 {
+		t.Fatalf("arm out = %q, want nothing delivered: a stale-only condition must not wake the arm", caught.String())
+	}
+	logData, err := os.ReadFile(filepath.Join(recordHome, "state", "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "stale task-1") {
+		t.Fatalf("events.log = %q, want stale recorded: the arm withholds the wake, not the record", string(logData))
+	}
 
+	// RunUntilEvent's own ErrNoEvent contract, on a fresh home so the direct ticks above cannot leave
+	// it any durable state: whatever wall-clock margin the arm needed to record, the same condition
+	// must still not wake it.
+	waitHome := t.TempDir()
+	if err := writeTaskAttempt(t, waitHome, staleTask, staleAttempt); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
-	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: 20 * time.Minute, Timeout: 500 * time.Millisecond}
-	err := RunUntilEvent(context.Background(), cfg, &out, io.Discard)
-
+	waitCfg := Config{Home: waitHome, PollInterval: 10 * time.Millisecond, StaleThreshold: 20 * time.Minute, Timeout: 500 * time.Millisecond}
+	err = RunUntilEvent(context.Background(), waitCfg, &out, io.Discard)
 	if !errors.Is(err, ErrNoEvent) {
 		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent: a working worker whose status has not changed is not actionable", err)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("out = %q, want the watcher still waiting", out.String())
-	}
-	logData, err := os.ReadFile(filepath.Join(home, "state", "events.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(logData), "stale task-1") {
-		t.Fatalf("events.log = %q, want stale still recorded: the arm withholds the wake, not the record", string(logData))
 	}
 }
 
@@ -3320,9 +3343,18 @@ func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
 	writeFakeHerdr(t, statusFile)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
-	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour, Timeout: time.Second}
+	// No cfg.Timeout: ErrArmFailed is a logical result of the probe, not a wall-clock one, and
+	// racing it against a --timeout clock is what let a loaded box report ErrNoEvent instead.
+	cfg := Config{Home: home, PollInterval: 10 * time.Millisecond, StaleThreshold: time.Hour}
 
-	err := RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard)
+	done := make(chan error, 1)
+	go func() { done <- RunUntilEvent(context.Background(), cfg, &bytes.Buffer{}, io.Discard) }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunUntilEvent did not exit after an unprobeable worker")
+	}
 	if !errors.Is(err, ErrArmFailed) {
 		t.Fatalf("RunUntilEvent = %v, want ErrArmFailed: an unprobeable worker must not look armed", err)
 	}
