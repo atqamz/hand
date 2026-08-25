@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/atqamz/hand/internal/atomicfile"
@@ -427,6 +428,13 @@ func Rename(homeDir, oldName, newName string) error {
 	if err != nil {
 		return err
 	}
+	canonicalHome, err := filepath.EvalSymlinks(homeDir)
+	if err != nil {
+		canonicalHome, err = filepath.Abs(homeDir)
+		if err != nil {
+			return fmt.Errorf("resolve project home %q: %w", homeDir, err)
+		}
+	}
 	for _, p := range projects {
 		if p.Name != oldName || !IsFileLocator(p.URL) {
 			continue
@@ -435,7 +443,7 @@ func Rename(homeDir, oldName, newName string) error {
 		if err != nil {
 			return err
 		}
-		if filepath.Clean(path) != filepath.Clean(filepath.Join(homeDir, "projects", oldName)) {
+		if !samePath(path, filepath.Join(canonicalHome, "projects", oldName)) {
 			continue
 		}
 		oldURL = p.URL
@@ -490,6 +498,20 @@ func Rename(homeDir, oldName, newName string) error {
 		return err
 	}
 	return nil
+}
+
+func samePath(left, right string) bool {
+	left, leftErr := filepath.Abs(left)
+	right, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 // Find returns the project with the given name, or false if not registered.
