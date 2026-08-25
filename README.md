@@ -300,6 +300,18 @@ hand project set-url project-name https://github.com/you/renamed-project.git
 This keeps the project name and `projects/<name>` clone path stable, updates both the registry URL and clone `origin`, and preserves tasks and completion history.
 `hand project sync` can also repair a recognized GitHub rename when GitHub reports the canonical repository.
 
+Change a registered project's delivery mode in place without removing it or changing its clone, tasks, or completion history:
+
+```sh
+hand project set-mode project-name local-only
+```
+
+Rename a registered project and move its managed clone while preserving its registry position, project fields, tasks, and completion history:
+
+```sh
+hand project rename old-name new-name
+```
+
 ## Worker harnesses
 
 Secondhand can launch workers through:
@@ -532,6 +544,8 @@ You normally let the supervising agent drive the CLI. The main lifecycle is:
 | `hand project add <source>` | Clone a remote Git source or adopt a local Git source into the fleet. |
 | `hand project create <name>` | Create a new empty Git-backed local-only project with a real baseline commit. |
 | `hand project set-url <name> <repo-url>` | Recover a registered project after a repository rename or transfer while preserving its local identity and task history. |
+| `hand project set-mode <name> <mode>` | Change a registered project's delivery mode without changing its clone, tasks, or completion history. |
+| `hand project rename <old-name> <new-name>` | Rename a registered project, move its managed clone, and preserve its registry position, fields, tasks, and completion history. |
 | `hand project sync [name]` | Fast-forward remote-backed clones; report local-managed projects as skipped. |
 | `hand spawn` | Dispatch a worker into an isolated worktree. |
 | `hand reopen <id>` | Reopen a terminal Task by creating a new Attempt. |
