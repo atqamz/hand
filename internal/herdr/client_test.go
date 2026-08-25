@@ -570,12 +570,23 @@ func TestWaitComposerEmptyReturnsWhenIdle(t *testing.T) {
 	}
 }
 
+func TestWaitComposerEmptyAcceptsRenderedIdlePromptWhileAgentStatusIsWorking(t *testing.T) {
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"}, faketool.HerdrResponse{Command: "pane read", Stdout: "────────────────────────\n❯\n────────────────────────\n  Opus 5 | 3 shells\n"})
+	c := NewClient()
+	if err := c.WaitComposerEmpty("wA:pB", time.Second); err != nil {
+		t.Fatalf("got %v, want rendered idle prompt to override stale working status", err)
+	}
+}
+
 func TestWaitComposerEmptyTimesOutWhileWorking(t *testing.T) {
-	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"))
+	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"}, faketool.HerdrResponse{Command: "pane read", Stdout: "working...\nesc to interrupt (15s)\n  3 shells\n"})
 	c := NewClient()
 	err := c.WaitComposerEmpty("wA:pB", 10*time.Millisecond)
 	if !errors.Is(err, ErrComposerBusyTimeout) {
 		t.Fatalf("got err %v, want ErrComposerBusyTimeout", err)
+	}
+	if !strings.Contains(err.Error(), `agent_status="working"`) || !strings.Contains(err.Error(), "background_shells=3") {
+		t.Fatalf("got err %v, want status and shell diagnostics", err)
 	}
 }
 

@@ -135,6 +135,27 @@ func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 	}
 }
 
+func TestSendReachesRenderedIdlePromptDespiteWorkingAgentStatus(t *testing.T) {
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus:  "working",
+		PaneReadOut: "────────────────────────\n❯\n────────────────────────\n  Opus 5 | 3 shells\n",
+	})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "revoke merge authority", "--wait", "1s"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want idle-looking pane to accept the send", err)
+	}
+
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted {
+		t.Fatalf("sends=%+v err=%v, want one submitted durable send", sends, err)
+	}
+}
+
 func TestSendDoesNotSteerAnAttemptWhileTaskOwnershipIsChanging(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "sent.log")
 	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
@@ -328,7 +349,7 @@ func TestSendClassifiesStructuredPreTextRejectionAsNotSubmitted(t *testing.T) {
 func TestSendDoesNotCreateRecordWhenComposerStaysBusy(t *testing.T) {
 	// The composer never frees, so WaitComposerEmpty always exhausts --wait;
 	// a short --wait keeps the test itself fast.
-	home := setupSendHome(t, faketool.Herdr{PaneStatus: "working"})
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "working", PaneReadOut: "working...\nesc to interrupt (15s)\n  3 shells\n"})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -340,10 +361,31 @@ func TestSendDoesNotCreateRecordWhenComposerStaysBusy(t *testing.T) {
 	if !errors.As(err, &exitErr) || exitErr.Code != 6 {
 		t.Fatalf("got %v, want ExitError code 6", err)
 	}
+	if !strings.Contains(err.Error(), `agent_status="working"`) || !strings.Contains(err.Error(), "background_shells=3") {
+		t.Fatalf("got err %v, want status and shell diagnostics", err)
+	}
 
 	sends, err := state.ListSends(home, "task-1")
 	if err != nil || len(sends) != 0 {
 		t.Fatalf("sends=%+v err=%v, want no send before composer mutation", sends, err)
+	}
+}
+
+func TestSendForceBypassesBusyComposerAndKeepsDurableRecord(t *testing.T) {
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "working", PaneReadOut: "working...\nesc to interrupt (15s)\n  3 shells\n"})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "revoke merge authority", "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want --force to submit", err)
+	}
+
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted {
+		t.Fatalf("sends=%+v err=%v, want one submitted durable send", sends, err)
 	}
 }
 

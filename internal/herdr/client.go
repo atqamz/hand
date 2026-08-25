@@ -23,6 +23,28 @@ import (
 // transient and worth retrying, a pane that stopped answering will never answer a retry.
 var ErrComposerBusyTimeout = errors.New("composer still busy")
 
+// ComposerBusyError preserves the observed pane state when a composer never becomes ready.
+type ComposerBusyError struct {
+	Timeout          time.Duration
+	AgentStatus      Status
+	BackgroundShells int
+	ShellsKnown      bool
+}
+
+func (e *ComposerBusyError) Error() string {
+	return fmt.Sprintf("%s after %s (%s)", ErrComposerBusyTimeout, e.Timeout, e.Detail())
+}
+
+func (e *ComposerBusyError) Unwrap() error { return ErrComposerBusyTimeout }
+
+func (e *ComposerBusyError) Detail() string {
+	detail := fmt.Sprintf("agent_status=%q", e.AgentStatus)
+	if e.ShellsKnown {
+		detail += fmt.Sprintf(", background_shells=%d", e.BackgroundShells)
+	}
+	return detail
+}
+
 type Client struct {
 	session    string
 	executable string
@@ -576,22 +598,66 @@ func (c *Client) PaneRead(paneID string, lines int) (string, error) {
 	return string(stdout), nil
 }
 
-// WaitComposerEmpty polls the pane until the agent is no longer "working" or timeout elapses.
-// There is no herdr primitive for "not working", so this polls pane state directly
-// rather than depending on a single-target wait command.
+// WaitComposerEmpty polls pane state and its recent rendering until the agent is no longer "working",
+// the rendered composer is visibly empty, or timeout elapses. There is no herdr primitive for "not
+// working", so this combines the pane signals rather than depending on a single-target wait command.
 func (c *Client) WaitComposerEmpty(paneID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	var shellsKnown bool
+	var backgroundShells int
+	var lastStatus Status
 	for {
 		pane, err := c.PaneGet(paneID)
 		if err != nil {
 			return err
 		}
+		lastStatus = pane.AgentStatus
 		if pane.AgentStatus != StatusWorking {
 			return nil
 		}
+		if text, err := c.PaneRead(paneID, 20); err == nil {
+			if count, ok := renderedBackgroundShells(text); ok {
+				backgroundShells, shellsKnown = count, true
+			}
+			if renderedEmptyComposer(text) {
+				return nil
+			}
+		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%w after %s", ErrComposerBusyTimeout, timeout)
+			return &ComposerBusyError{Timeout: timeout, AgentStatus: lastStatus, BackgroundShells: backgroundShells, ShellsKnown: shellsKnown}
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+func renderedEmptyComposer(text string) bool {
+	lines := strings.Split(strings.ReplaceAll(text, "\r", ""), "\n")
+	start := len(lines) - 6
+	if start < 0 {
+		start = 0
+	}
+	for _, line := range lines[start:] {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(strings.ToLower(trimmed), "esc to interrupt") {
+			return false
+		}
+		if trimmed == "❯" || trimmed == ">" || trimmed == "›" || trimmed == "»" {
+			return true
+		}
+	}
+	return false
+}
+
+func renderedBackgroundShells(text string) (int, bool) {
+	fields := strings.Fields(text)
+	for i := 1; i < len(fields); i++ {
+		if fields[i] != "shells" && fields[i] != "shell" {
+			continue
+		}
+		count, err := strconv.Atoi(fields[i-1])
+		if err == nil && count >= 0 {
+			return count, true
+		}
+	}
+	return 0, false
 }
