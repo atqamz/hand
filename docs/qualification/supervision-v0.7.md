@@ -8,15 +8,23 @@ This record qualifies exact host/runtime/platform combinations, not provider bra
 
 ## Durable evidence
 
-Source: `/home/atqa/github/atqamz/hand/state/runtime/supervision-wake.json`.
+Durable evidence: `docs/qualification/supervision-wake-v1.extract.json`.
+
+Live ledger provenance: `/home/atqa/github/atqamz/hand/state/runtime/supervision-wake.json`.
 
 Schema: `hand.supervision.wake.v1`.
 
-At capture, the ledger contained 206 recorded episodes.
+At capture, the ledger contained 221 recorded episodes.
 
-At capture, 178 episodes contained the complete `delivery_requested`, `host_accepted`, and `oriented` triple.
+At capture, 189 episodes contained the complete `delivery_requested`, `host_accepted`, and `oriented` triple.
 
-The ledger is live and may contain additional episodes after this captured snapshot.
+The committed bounded extract in `docs/qualification/supervision-wake-v1.extract.json` preserves 16 complete episode records, their identifiers, all three receipt timestamps, the source schema, and the source SHA-256.
+
+The captured source SHA-256 is `3bedaff024e5f39597a70ff64e734225888e10bd8e737e7d4a6c4019a9be92bd`.
+
+The source ledger is live and may contain additional episodes after this captured snapshot.
+
+The external ledger path and hash are provenance only; review does not depend on that path because the bounded extract is committed in this repository.
 
 Those complete episodes span 2026-08-24 and 2026-08-25 and exceed the issue's 16-episode Claude bar.
 
@@ -37,7 +45,7 @@ The code matrix qualifies only this exact path:
 | Integration | `claude.stop.async-rewake.v1` |
 | Addressability | `hook-session` |
 | Positive capability | `claude.async-rewake.v1` |
-| Live evidence | 178 complete wake receipts in the fleet ledger |
+| Live evidence | 189 complete wake receipts in the fleet ledger; 16-record extract committed in `docs/qualification/supervision-wake-v1.extract.json` |
 
 `supported` is emitted only when the current detection matches every matrix dimension.
 

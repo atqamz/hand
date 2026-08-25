@@ -28,6 +28,35 @@ func TestEnrichDetectionCarriesExactRuntimeEvidence(t *testing.T) {
 	}
 }
 
+func TestEnrichDetectionDoesNotProbeWithoutExecutableIdentity(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, Executable(Claude))
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+		t.Setenv("PATHEXT", ".EXE")
+	}
+	if err := os.WriteFile(path, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	previous := runtimeVersionCommand
+	t.Cleanup(func() { runtimeVersionCommand = previous })
+	called := false
+	runtimeVersionCommand = func(string) (string, error) {
+		called = true
+		return "Claude Code 2.1.238\n", nil
+	}
+
+	got := enrichDetection(Detection{Name: Claude, Source: "process"})
+	if got.RuntimeVersion != "" {
+		t.Fatalf("runtime version = %q, want unavailable without executable identity", got.RuntimeVersion)
+	}
+	if called {
+		t.Fatal("runtime version probe ran without verified executable identity")
+	}
+}
+
 func TestDetectCarriesProcessExecutablePath(t *testing.T) {
 	got, err := detectCurrent("", []processInfo{{name: "claude", executable: "/opt/claude/bin/claude"}}, nil)
 	if err != nil {

@@ -77,9 +77,6 @@ func enrichDetection(detection Detection) Detection {
 	detection.Platform = runtime.GOOS + "/" + runtime.GOARCH
 	path := detection.ExecutablePath
 	if path == "" {
-		path, _ = exec.LookPath(Executable(detection.Name))
-	}
-	if path == "" {
 		return detection
 	}
 	output, err := runtimeVersionCommand(path)

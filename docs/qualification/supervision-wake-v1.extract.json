@@ -1,0 +1,113 @@
+{
+  "artifact": "hand.supervision.wake.v1.qualification-extract",
+  "schema": "hand.supervision.wake.v1",
+  "captured_at": "2026-08-25",
+  "source_ledger": "/home/atqa/github/atqamz/hand/state/runtime/supervision-wake.json",
+  "source_sha256": "3bedaff024e5f39597a70ff64e734225888e10bd8e737e7d4a6c4019a9be92bd",
+  "episode_count": 221,
+  "complete_triplet_count": 189,
+  "selection": {
+    "predicate": "delivery_requested and host_accepted and oriented are present",
+    "order": "delivery_requested",
+    "limit": 16,
+    "purpose": "bounded evidence for the issue's sixteen-episode live qualification bar"
+  },
+  "episodes": [
+    {
+      "key": "w_1805c0e67553bfc9a099fc3cff81d09eb02ecdcbfba74d239ae654c9da32d78a",
+      "delivery_requested": "2026-08-24T12:02:05.05891225+07:00",
+      "host_accepted": "2026-08-24T12:02:05.059442881+07:00",
+      "oriented": "2026-08-25T08:15:52.822364441+07:00"
+    },
+    {
+      "key": "w_8807b7713f325c8bf4e75e22c0d984447bd1ab1d1f0acb9aa6dc0df13330cd71",
+      "delivery_requested": "2026-08-24T12:02:05.05891225+07:00",
+      "host_accepted": "2026-08-24T12:02:05.059442881+07:00",
+      "oriented": "2026-08-24T14:35:05.193063334+07:00"
+    },
+    {
+      "key": "w_7b407a54f297de6a4c3c679fec5b8ebfdefc13be3cf24a55d1a837f118efa586",
+      "delivery_requested": "2026-08-24T12:04:47.823090714+07:00",
+      "host_accepted": "2026-08-24T12:04:47.823690933+07:00",
+      "oriented": "2026-08-24T14:35:05.193063334+07:00"
+    },
+    {
+      "key": "w_2176cb6f9191107dc4e77b10b6fdce52f08ea32c5c5a2feca67444d1541ca7dd",
+      "delivery_requested": "2026-08-24T14:34:59.560847694+07:00",
+      "host_accepted": "2026-08-24T14:34:59.561426379+07:00",
+      "oriented": "2026-08-24T14:35:05.193063334+07:00"
+    },
+    {
+      "key": "w_2901fa9b20174a40d281ba5335352e503c82943fc0c06b9fb756b95079865c8c",
+      "delivery_requested": "2026-08-24T14:34:59.560847694+07:00",
+      "host_accepted": "2026-08-24T14:34:59.561426379+07:00",
+      "oriented": "2026-08-24T19:02:06.032888121+07:00"
+    },
+    {
+      "key": "w_6971d1fd6a64cc8aa458af3743e011af45545bd01382236f44f140140e7b3578",
+      "delivery_requested": "2026-08-24T14:34:59.560847694+07:00",
+      "host_accepted": "2026-08-24T14:34:59.561426379+07:00",
+      "oriented": "2026-08-24T14:35:05.193063334+07:00"
+    },
+    {
+      "key": "w_9f8d598dc661e01ce5f2648b28a6e35df364b500c9b9e4e442d821e3a7934378",
+      "delivery_requested": "2026-08-24T14:34:59.560847694+07:00",
+      "host_accepted": "2026-08-24T14:34:59.561426379+07:00",
+      "oriented": "2026-08-25T08:19:55.179590016+07:00"
+    },
+    {
+      "key": "w_ac857ba85bb90289b7f02fde58af42c49546c0eeb262a2588f6890a0f01546d5",
+      "delivery_requested": "2026-08-24T14:34:59.560847694+07:00",
+      "host_accepted": "2026-08-24T14:34:59.561426379+07:00",
+      "oriented": "2026-08-24T14:51:55.978934222+07:00"
+    },
+    {
+      "key": "w_c567de2a8521991019c4dd4b52f82a0e42af4f9c9ec0d7477c2d6faa5600fa2c",
+      "delivery_requested": "2026-08-24T14:34:59.560847694+07:00",
+      "host_accepted": "2026-08-24T14:34:59.561426379+07:00",
+      "oriented": "2026-08-25T08:15:52.822364441+07:00"
+    },
+    {
+      "key": "w_4b5e4c2b4c5a5c82796ba077c1ac0f1c5e355563603f4aff1ae09d199881d423",
+      "delivery_requested": "2026-08-24T14:35:51.712592879+07:00",
+      "host_accepted": "2026-08-24T14:35:51.71392142+07:00",
+      "oriented": "2026-08-24T15:40:27.554693396+07:00"
+    },
+    {
+      "key": "w_4fe6e5ef8dd0d397f62811348ff9ce32bd352326805b6edfa2eb49cc96b3e323",
+      "delivery_requested": "2026-08-24T14:35:51.712592879+07:00",
+      "host_accepted": "2026-08-24T14:35:51.71392142+07:00",
+      "oriented": "2026-08-24T15:59:11.403464081+07:00"
+    },
+    {
+      "key": "w_515dd5c9e21886c3b853076856475cdef27861e8f8aff302772f7092d50777e0",
+      "delivery_requested": "2026-08-24T14:35:51.712592879+07:00",
+      "host_accepted": "2026-08-24T14:35:51.71392142+07:00",
+      "oriented": "2026-08-24T15:59:11.403464081+07:00"
+    },
+    {
+      "key": "w_fd31934c44fc77d0b181c50562f6f2cf8ed0065371ca097e1d7c83c3bc418a65",
+      "delivery_requested": "2026-08-24T14:35:51.712592879+07:00",
+      "host_accepted": "2026-08-24T14:35:51.71392142+07:00",
+      "oriented": "2026-08-24T15:40:27.554693396+07:00"
+    },
+    {
+      "key": "w_0137fedaec31a0095df4ed6f21e0aff597dad142dc528de52122118171d2d8fb",
+      "delivery_requested": "2026-08-24T14:50:57.293920946+07:00",
+      "host_accepted": "2026-08-24T14:50:57.294957779+07:00",
+      "oriented": "2026-08-24T14:51:02.378034846+07:00"
+    },
+    {
+      "key": "w_bd7c9916999214a8809d2380c1760dcf64711fcfd91910d83d645d4945cf7de8",
+      "delivery_requested": "2026-08-24T14:50:57.293920946+07:00",
+      "host_accepted": "2026-08-24T14:50:57.294957779+07:00",
+      "oriented": "2026-08-24T14:51:02.378034846+07:00"
+    },
+    {
+      "key": "w_881a3251f3555129d1abf074ccff9df33f2440f059068abb2db45a570ab3262a",
+      "delivery_requested": "2026-08-24T14:51:49.856564451+07:00",
+      "host_accepted": "2026-08-24T14:51:49.857212372+07:00",
+      "oriented": "2026-08-24T14:51:55.978934222+07:00"
+    }
+  ]
+}
