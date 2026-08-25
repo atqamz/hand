@@ -1,17 +1,21 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/steering"
+	"github.com/atqamz/hand/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -97,6 +101,178 @@ func TestGroupBareInvocationShowsHelpWithoutError(t *testing.T) {
 	if !strings.Contains(out.String(), "Usage:") {
 		t.Fatalf("out = %q, want usage text", out.String())
 	}
+}
+
+func TestHelpFormsIgnoreBrokenFleetRegistries(t *testing.T) {
+	fixtures := []struct {
+		name  string
+		setup func(t *testing.T, home, path string)
+	}{
+		{name: "missing", setup: removeHelpRegistry},
+		{name: "corrupt", setup: corruptHelpRegistry},
+		{name: "unrelated ambiguity", setup: unrelatedAmbiguousHelpRegistry},
+		{name: "selected Fleet ambiguity", setup: selectedAmbiguousHelpRegistry},
+	}
+	forms := []struct {
+		name string
+		args []string
+	}{
+		{name: "root long flag", args: []string{"--help"}},
+		{name: "root short flag", args: []string{"-h"}},
+		{name: "help command", args: []string{"help"}},
+		{name: "help command target", args: []string{"help", "project"}},
+		{name: "command long flag", args: []string{"project", "--help"}},
+		{name: "command short flag", args: []string{"project", "-h"}},
+	}
+
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			home := setupSessionHome(t)
+			t.Setenv("SECONDHAND_HOME", filepath.Join(t.TempDir(), "Secondhand help test"))
+			path, err := registry.Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture.setup(t, home, path)
+			before, beforeErr := os.ReadFile(path)
+
+			for _, form := range forms {
+				t.Run(form.name, func(t *testing.T) {
+					out, errOut, err := executeRootForTest(t, devBuild("test"), nil, form.args...)
+					if err != nil {
+						t.Fatalf("help returned %v, stdout=%q stderr=%q", err, out, errOut)
+					}
+					if !strings.Contains(out, "Usage:") {
+						t.Fatalf("stdout = %q, want Cobra usage output", out)
+					}
+					if errOut != "" {
+						t.Fatalf("stderr = %q, want no registry preflight output", errOut)
+					}
+				})
+			}
+
+			after, afterErr := os.ReadFile(path)
+			if !sameRegistrySnapshot(before, beforeErr, after, afterErr) {
+				t.Fatalf("registry changed during help: before=(%q, %v), after=(%q, %v)", before, beforeErr, after, afterErr)
+			}
+		})
+	}
+}
+
+func TestFleetCommandKeepsRegistryPreflight(t *testing.T) {
+	fixtures := []struct {
+		name        string
+		setup       func(t *testing.T, home, path string)
+		wantFailure bool
+	}{
+		{name: "missing", setup: removeHelpRegistry},
+		{name: "corrupt", setup: corruptHelpRegistry, wantFailure: true},
+		{name: "unrelated ambiguity", setup: unrelatedAmbiguousHelpRegistry},
+		{name: "selected Fleet ambiguity", setup: selectedAmbiguousHelpRegistry, wantFailure: true},
+	}
+
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			home := setupSessionHome(t)
+			t.Setenv("SECONDHAND_HOME", filepath.Join(t.TempDir(), "Secondhand command test"))
+			path, err := registry.Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture.setup(t, home, path)
+
+			_, _, err = executeRootForTest(t, devBuild("test"), nil, "config", "profile", "list")
+			if fixture.wantFailure {
+				if err == nil {
+					t.Fatal("got nil error, want the existing Fleet preflight refusal")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want existing preflight behavior for this fixture", err)
+			}
+		})
+	}
+}
+
+func removeHelpRegistry(t *testing.T, _, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
+func corruptHelpRegistry(t *testing.T, _, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func unrelatedAmbiguousHelpRegistry(t *testing.T, _, path string) {
+	t.Helper()
+	firstHome := filepath.Join(t.TempDir(), "first")
+	secondHome := filepath.Join(t.TempDir(), "second")
+	firstID := createHelpFleet(t, firstHome)
+	secondID := createHelpFleet(t, secondHome)
+	registryDB, err := registry.OpenAt(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	claimedHome := filepath.Join(t.TempDir(), "unrelated")
+	if err := registryDB.Register(claimedHome, firstID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(claimedHome, secondID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func selectedAmbiguousHelpRegistry(t *testing.T, home, path string) {
+	t.Helper()
+	currentID, err := state.FleetID(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID := createHelpFleet(t, filepath.Join(t.TempDir(), "other"))
+	registryDB, err := registry.OpenAt(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	if err := registryDB.Register(home, currentID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(home, otherID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createHelpFleet(t *testing.T, home string) string {
+	t.Helper()
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := db.FleetID()
+	if closeErr := db.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func sameRegistrySnapshot(before []byte, beforeErr error, after []byte, afterErr error) bool {
+	if os.IsNotExist(beforeErr) || os.IsNotExist(afterErr) {
+		return os.IsNotExist(beforeErr) && os.IsNotExist(afterErr)
+	}
+	return beforeErr == nil && afterErr == nil && bytes.Equal(before, after)
 }
 
 func TestRootRejectsBadArgCount(t *testing.T) {
