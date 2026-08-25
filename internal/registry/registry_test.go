@@ -566,6 +566,85 @@ VALUES (?, ?, ?, ?);`, ids["other"], ambiguousHome, stamp, stamp); err != nil {
 	}
 }
 
+func TestListAmbiguityPrecedesUnrelatedUnreadableObservation(t *testing.T) {
+	root := t.TempDir()
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+
+	collidedHome := filepath.Join(root, "collided")
+	first, err := store.Open(collidedHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := first.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(collidedHome, firstID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	unreadableHome := filepath.Join(root, "unreadable")
+	if err := os.MkdirAll(filepath.Dir(store.Path(unreadableHome)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(store.Path(collidedHome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path(unreadableHome), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(unreadableHome, firstID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(store.Path(unreadableHome)); err != nil {
+		t.Fatal(err)
+	}
+
+	secondHome := filepath.Join(root, "second")
+	second, err := store.Open(secondHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := second.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := registryDB.sql.Exec(`
+INSERT INTO fleet_registry (fleet_id, last_known_home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, secondID, collidedHome, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registryDB.sql.Exec(`
+INSERT INTO fleet_locator (fleet_id, home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, secondID, collidedHome, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+
+	fleets, err := registryDB.List("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := make(map[string]State, len(fleets))
+	for _, fleet := range fleets {
+		states[fleet.ID] = fleet.State
+	}
+	if states[firstID] != StateAmbiguous || states[secondID] != StateAmbiguous {
+		t.Fatalf("states = %#v, want both participating Fleets ambiguous", states)
+	}
+}
+
 func TestPreflightRefusesARegisteredDuplicateBeforeRuntime(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", root)

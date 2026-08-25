@@ -433,10 +433,6 @@ func classify(observations []observation, claims map[string]map[string]bool) (St
 	if valid > 1 {
 		return StateDuplicate, "the same Fleet identity is valid at multiple homes"
 	}
-	if len(unreadable) > 0 {
-		sort.Strings(unreadable)
-		return StateUnreadable, strings.Join(unreadable, "; ")
-	}
 	ambiguous := false
 	for _, observed := range observations {
 		if ids := claims[observed.homeKey]; len(ids) > 1 {
@@ -446,6 +442,10 @@ func classify(observations []observation, claims map[string]map[string]bool) (St
 	}
 	if ambiguous {
 		return StateAmbiguous, "one home is registered for multiple Fleet identities"
+	}
+	if len(unreadable) > 0 {
+		sort.Strings(unreadable)
+		return StateUnreadable, strings.Join(unreadable, "; ")
 	}
 	sort.Strings(mismatch)
 	if len(mismatch) > 0 {
