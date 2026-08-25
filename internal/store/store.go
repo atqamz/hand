@@ -2595,13 +2595,30 @@ func (db *DB) SetProjectMode(name, mode string) (bool, error) {
 
 // RenameProject updates the registry key and every task's project reference in one transaction.
 func (db *DB) RenameProject(oldName, newName string) (bool, error) {
+	return db.renameProject(oldName, newName, "", false)
+}
+
+// RenameProjectWithURL updates a local project's canonical locator along with its name.
+func (db *DB) RenameProjectWithURL(oldName, newName, newURL string) (bool, error) {
+	return db.renameProject(oldName, newName, newURL, true)
+}
+
+func (db *DB) renameProject(oldName, newName, newURL string, updateURL bool) (bool, error) {
 	tx, err := db.sql.Begin()
 	if err != nil {
 		return false, fmt.Errorf("rename project %q: %w", oldName, err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	result, err := tx.Exec(`UPDATE project SET name = ? WHERE name = ?`, newName, oldName)
+	query := `UPDATE project SET name = ?`
+	args := []any{newName}
+	if updateURL {
+		query += `, url = ?`
+		args = append(args, newURL)
+	}
+	query += ` WHERE name = ?`
+	args = append(args, oldName)
+	result, err := tx.Exec(query, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return false, fmt.Errorf("rename project %q to %q: %w", oldName, newName, ErrProjectExists)

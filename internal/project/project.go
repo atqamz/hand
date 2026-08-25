@@ -395,6 +395,10 @@ var projectRenameUpdater = func(db *store.DB, oldName, newName string) (bool, er
 	return db.RenameProject(oldName, newName)
 }
 
+var projectRenameURLUpdater = func(db *store.DB, oldName, newName, newURL string) (bool, error) {
+	return db.RenameProjectWithURL(oldName, newName, newURL)
+}
+
 var projectRenameProjectionWriter = func(db *store.DB, homeDir, oldName, newName string) error {
 	return writeRenameProjection(db, homeDir, oldName, newName)
 }
@@ -418,7 +422,36 @@ func Rename(homeDir, oldName, newName string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	updated, err := projectRenameUpdater(db, oldName, newName)
+	var oldURL, newURL string
+	projects, err := db.ListProjects()
+	if err != nil {
+		return err
+	}
+	for _, p := range projects {
+		if p.Name != oldName || !IsFileLocator(p.URL) {
+			continue
+		}
+		path, err := FileLocatorPath(p.URL)
+		if err != nil {
+			return err
+		}
+		if filepath.Clean(path) != filepath.Clean(filepath.Join(homeDir, "projects", oldName)) {
+			continue
+		}
+		oldURL = p.URL
+		newURL, err = CanonicalFileLocator(filepath.Join(homeDir, "projects", newName))
+		if err != nil {
+			return err
+		}
+		break
+	}
+
+	var updated bool
+	if newURL != "" {
+		updated, err = projectRenameURLUpdater(db, oldName, newName, newURL)
+	} else {
+		updated, err = projectRenameUpdater(db, oldName, newName)
+	}
 	if err != nil {
 		return err
 	}
@@ -426,14 +459,26 @@ func Rename(homeDir, oldName, newName string) error {
 		return fmt.Errorf("project %q %w", oldName, ErrNotFound)
 	}
 	if err := projectRenameHistoryWriter(homeDir, oldName, newName); err != nil {
-		if _, rollbackErr := projectRenameUpdater(db, newName, oldName); rollbackErr != nil {
+		var rollbackErr error
+		if newURL != "" {
+			_, rollbackErr = projectRenameURLUpdater(db, newName, oldName, oldURL)
+		} else {
+			_, rollbackErr = projectRenameUpdater(db, newName, oldName)
+		}
+		if rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
 		}
 		return err
 	}
 	if err := projectRenameProjectionWriter(db, homeDir, oldName, newName); err != nil {
 		var rollbackErrs []error
-		if _, rollbackErr := projectRenameUpdater(db, newName, oldName); rollbackErr != nil {
+		var rollbackErr error
+		if newURL != "" {
+			_, rollbackErr = projectRenameURLUpdater(db, newName, oldName, oldURL)
+		} else {
+			_, rollbackErr = projectRenameUpdater(db, newName, oldName)
+		}
+		if rollbackErr != nil {
 			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
 		}
 		if rollbackErr := projectRenameHistoryWriter(homeDir, newName, oldName); rollbackErr != nil {

@@ -351,7 +351,7 @@ func setupRegisteredRenameProject(t *testing.T) (home, clonePath string) {
 
 func TestProjectSetModePreservesActiveTaskAndClone(t *testing.T) {
 	home, clonePath := setupRegisteredRenameProject(t)
-	wantTask := state.Task{ID: "task-mode", Project: "old-name", Kind: state.KindShip, Brief: "data/task-mode/brief.md"}
+	wantTask := state.Task{ID: "task-mode", Project: "old-name", Kind: state.KindShip, Brief: "data/task-mode/brief.md", Lifecycle: state.TaskOpen}
 	if err := state.Write(home, wantTask); err != nil {
 		t.Fatal(err)
 	}
@@ -382,6 +382,41 @@ func TestProjectSetModePreservesActiveTaskAndClone(t *testing.T) {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("output = %q, want %q", output.String(), want)
 		}
+	}
+}
+
+func TestProjectRenameUpdatesLocalFileLocator(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	oldPath := filepath.Join(home, "projects", "old-name")
+	if err := os.MkdirAll(oldPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldURL, err := project.CanonicalFileLocator(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "old-name", URL: oldURL, Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRenameCmd()
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	newURL, err := project.CanonicalFileLocator(filepath.Join(home, "projects", "new-name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].URL != newURL {
+		t.Fatalf("projects = %+v, want local locator %q", projects, newURL)
 	}
 }
 
