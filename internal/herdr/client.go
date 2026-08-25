@@ -253,6 +253,7 @@ func (c *Client) run(args ...string) ([]byte, string, error) {
 func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string, error) {
 	executable := "herdr"
 	var env []string
+	wireArgs := args
 	if c != nil {
 		if c.initErr != nil {
 			return nil, "", c.initErr
@@ -261,11 +262,13 @@ func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string
 			executable = c.executable
 		}
 		env = c.env
+		wireArgs = c.wireArgs(args...)
 	}
-	cmd := exec.CommandContext(ctx, executable, c.wireArgs(args...)...)
-	if env != nil {
-		cmd.Env = append([]string(nil), env...)
+	cmd := exec.CommandContext(ctx, executable, wireArgs...)
+	if env == nil {
+		env = os.Environ()
 	}
+	cmd.Env = daemonEnvironment(env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

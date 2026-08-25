@@ -407,6 +407,59 @@ func TestFleetHerdrAttachUsesStructuredArgvAndScrubbedEnvironment(t *testing.T) 
 	}
 }
 
+func TestFleetHerdrObservationUsesScrubbedEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the shell fixture is POSIX-only")
+	}
+	root := t.TempDir()
+	observer := filepath.Join(root, "managed herdr observer")
+	envPath := filepath.Join(root, "env")
+	script := fmt.Sprintf("#!/bin/sh\nenv > %q\ncase \"$3\" in\nsession) printf '%%s\\n' '{\"sessions\":[{\"name\":\"hand-f_test\",\"running\":true}]}' ;;\nstatus) printf '%%s\\n' '{\"status\":\"running\",\"running\":true,\"compatible\":true,\"session\":\"hand-f_test\"}' ;;\nesac\n", envPath)
+	if err := os.WriteFile(observer, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClientAt(observer, []string{
+		"HAND_HOME=/stale/home",
+		"HAND_ROLE=worker",
+		"HAND_RUNTIME_ID=stale-runtime",
+		"HAND_RUNTIME_MODE=managed",
+		"HERDR_ENV=stale",
+		"HERDR_SESSION=wrong",
+		"HERDR_SOCKET_PATH=/stale/socket",
+		"HERDR_TEST_CREDENTIAL=keep",
+		"PATH=" + os.Getenv("PATH"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.session = "hand-f_test"
+
+	observation := client.ObserveSession(context.Background())
+	if observation.State != SessionRunningCompatible {
+		t.Fatalf("observation = %+v, want running-compatible", observation)
+	}
+
+	env, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := environmentMap(strings.Split(strings.TrimSpace(string(env)), "\n"))
+	for _, key := range []string{"HAND_HOME", "HAND_ROLE", "HAND_RUNTIME_ID", "HERDR_ENV", "HERDR_SESSION", "HERDR_SOCKET_PATH"} {
+		if _, found := values[key]; found {
+			t.Fatalf("observation environment retained %s: %q", key, env)
+		}
+	}
+	if got := values["HAND_RUNTIME_MODE"]; got != "managed" {
+		t.Fatalf("generic runtime variable = %q, want managed", got)
+	}
+	if got := values["HERDR_TEST_CREDENTIAL"]; got != "keep" {
+		t.Fatalf("observation credential = %q, want keep", got)
+	}
+	if got := values["PATH"]; got != os.Getenv("PATH") {
+		t.Fatalf("PATH = %q, want %q", got, os.Getenv("PATH"))
+	}
+}
+
 func waitForTestFile(t *testing.T, path string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
