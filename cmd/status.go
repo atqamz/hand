@@ -303,7 +303,7 @@ func holdDetail(h state.Hold) string {
 // ship task with a recorded PR does. Delegates to watcher.GateApplies, the one copy of this rule hand
 // status and hand watch now share, so a silent task never pays for or fails over the check.
 func gateRunApplies(t state.Task, reportedDone bool) bool {
-	return watcher.GateApplies(t.Kind, t.PR, reportedDone)
+	return watcher.GateApplies(t.Kind, t.PR, t.DeliveredAt, reportedDone)
 }
 
 // Bounds one no-mistakes process the gate-run check spawns, the same 5 seconds prdetect.go bounds
@@ -597,7 +597,7 @@ func taskParked(home string, t state.Task, attempt state.Attempt, reportedState 
 		return false
 	}
 	// A one-shot render has no short, known interval baseline, so it defers corroboration to hand watch.
-	naive := watcher.Parked(reportedState, silentSince, time.Now(), bounds)
+	naive := watcher.Parked(reportedState, t.DeliveredAt, silentSince, time.Now(), bounds)
 	return naive
 }
 

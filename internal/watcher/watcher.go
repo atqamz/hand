@@ -478,7 +478,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		}
 		// Only shells out to no-mistakes when the check applies and has not already fired: mirrors
 		// !ts.PRMerged above, so an absent gate run does not re-exec no-mistakes on every tick forever.
-		gateApplies := GateApplies(t.Kind, t.PR, ts.LastReportState == state.ReportDone)
+		gateApplies := GateApplies(t.Kind, t.PR, t.DeliveredAt, ts.LastReportState == state.ReportDone)
 		switch {
 		case !gateApplies:
 			ClassifyGateProblem(ts, t.ID, false, "")
@@ -489,7 +489,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		}
 		if mtime, err := ReportEvidenceTime(cfg.Home, t, attempt); err != nil {
 			_, _ = fmt.Fprintf(errOut, "watch: stat report %s failed: %v\n", t.ID, err)
-		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), mtime, now, cfg.ParkedBounds, client, attempt.Herdr.PaneID); e != nil {
+		} else if e := ClassifyParked(ts, t.ID, ts.LastReportState, lastReportLine(ts), t.DeliveredAt, mtime, now, cfg.ParkedBounds, client, attempt.Herdr.PaneID); e != nil {
 			emit(e)
 		}
 		if !cfg.ObserveOnly {

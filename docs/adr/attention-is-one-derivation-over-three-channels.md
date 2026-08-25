@@ -101,6 +101,7 @@ A consumer may rank, filter, or bound what the definition produces, and may not 
 Binds `hand status`, `hand watch`, `hand session`, and [`internal/notify`](../../internal/notify).
 There are three definitions today: `needsAttention` in [`cmd/statusview.go`](../../cmd/statusview.go), `classifyNextAction` in [`cmd/nextaction.go`](../../cmd/nextaction.go), and the `Kind` sets `internal/watcher`'s `NotifyFilter` and `CatchUpFilter` select over.
 They already disagree in three observable ways: the watcher has no gate-run kind while `needsAttention` counts `gate-absent` and `gate-unknown`; `KindParked` exists only in the watcher, so `hand status` still prints `state: idle` for exactly the pane atqamz/hand#32 describes; and `CatchUpFilter` drops `stale`, which `needsAttention` never had.
+Delivery is the supervisor's stronger, verified nothing-more-to-do signal: once `delivered_at` is set, the parked and gate-run predicates are both silent for that task.
 atqamz/hand#234's ranking in `classifyNextAction` is a consumer of the single definition and stays a ranking; atqamz/hand#218's supervisor skill is the other consumer.
 
 ### 6. Pane scraping is never primary truth
