@@ -98,6 +98,13 @@ func TestSessionStartEmitsCompleteBoundedDigest(t *testing.T) {
 		"home: " + axi.Value(home) + "\n",
 		"supervisor_harness: codex\n",
 		"supervisor_harness_source: override\n",
+		"host_runtime_version: ",
+		"host_api_generation: ",
+		"host_platform: ",
+		"host_capability: ",
+		"host_capability_qualification: available-unqualified\n",
+		"integration_mechanism_version: codex.stop.queue.v1\n",
+		"addressability_status: unavailable\n",
 		"runtime_identity_status: unidentified\n",
 		// Session start never installs; an un-integrated home reports the
 		// absence and degrades honestly instead of repairing silently.

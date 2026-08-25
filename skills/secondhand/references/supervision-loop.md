@@ -80,6 +80,14 @@ Run `hand doctor` and read its supervisor fields when unsure what your harness s
 watcher liveness, bridge attachment, wake acceptance, and orientation progress are separate
 answers, and only orientation progress demonstrates a reasoning turn actually happened.
 
+Support is an exact release-matrix result, not a host-name result.
+
+The matrix matches host runtime version or API generation, GOOS/GOARCH, required integration mechanism version, positive capability evidence, and addressability evidence.
+
+`hand session start`, `hand doctor`, and `hand orient` expose those dimensions separately as `host_runtime_version`, `host_api_generation`, `host_platform`, `host_capability`, `host_capability_qualification`, `integration_mechanism_version`, and `addressability_status`.
+
+Only an exact matrix match backed by live no-operator-input evidence reports `supported`; every other combination reports `available-unqualified`, `degraded`, or `unsupported` with a reason.
+
 After any automatic wake, run `hand orient` before acting - the wake that reached you is one
 fact, not the full current truth, and can be stale relative to everything else that has
 happened since.

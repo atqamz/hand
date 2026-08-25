@@ -2,8 +2,23 @@ package harness
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 )
+
+func TestEnrichDetectionCarriesExactRuntimeEvidence(t *testing.T) {
+	previous := runtimeVersionCommand
+	t.Cleanup(func() { runtimeVersionCommand = previous })
+	runtimeVersionCommand = func(string) (string, error) { return "Claude Code 2.1.238\n", nil }
+
+	got := enrichDetection(Detection{Name: Claude, Source: "process"})
+	if got.RuntimeVersion != "2.1.238" {
+		t.Fatalf("runtime version = %q, want 2.1.238", got.RuntimeVersion)
+	}
+	if got.Platform != runtime.GOOS+"/"+runtime.GOARCH {
+		t.Fatalf("platform = %q, want %s/%s", got.Platform, runtime.GOOS, runtime.GOARCH)
+	}
+}
 
 func TestDetectPrefersOverride(t *testing.T) {
 	got, err := detectCurrent(Claude, []processInfo{{name: ".codex-wrapped"}}, map[string]string{"CODEX_THREAD_ID": "thread"})

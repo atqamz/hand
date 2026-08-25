@@ -22,8 +22,21 @@ var processLookup = func(pid int) ([]byte, error) {
 }
 
 type Detection struct {
-	Name   string
-	Source string
+	Name           string
+	Source         string
+	RuntimeVersion string
+	APIGeneration  string
+	Platform       string
+	Capability     string
+}
+
+var runtimeVersionCommand = func(name string) (string, error) {
+	path, err := exec.LookPath(Executable(name))
+	if err != nil {
+		return "", err
+	}
+	output, err := exec.Command(path, "--version").Output()
+	return string(output), err
 }
 
 type processInfo struct {
@@ -43,7 +56,36 @@ func DetectCurrent() (Detection, error) {
 		"PI_CODING_AGENT": os.Getenv("PI_CODING_AGENT"),
 		"GROK_AGENT":      os.Getenv("GROK_AGENT"),
 	}
-	return detectCurrent(override, ancestors, env)
+	detection, err := detectCurrent(override, ancestors, env)
+	if err != nil {
+		return Detection{}, err
+	}
+	return enrichDetection(detection), nil
+}
+
+func enrichDetection(detection Detection) Detection {
+	if detection.Name == "" {
+		return detection
+	}
+	detection.Platform = runtime.GOOS + "/" + runtime.GOARCH
+	output, err := runtimeVersionCommand(detection.Name)
+	if err == nil {
+		detection.RuntimeVersion = parseRuntimeVersion(output)
+	}
+	return detection
+}
+
+func parseRuntimeVersion(output string) string {
+	for _, token := range strings.Fields(output) {
+		token = strings.Trim(token, "()[],;:")
+		if token == "" || token[0] < '0' || token[0] > '9' {
+			continue
+		}
+		if strings.Contains(token, ".") {
+			return token
+		}
+	}
+	return ""
 }
 
 func detectCurrent(override string, ancestors []processInfo, env map[string]string) (Detection, error) {

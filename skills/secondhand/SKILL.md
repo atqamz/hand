@@ -24,6 +24,8 @@ Harness, its addressable runtime identity, and the exact state of unattended wak
 `supported` means live-qualified, `available-unqualified` means every static precondition holds
 but live proof does not exist yet, `degraded` names what drifted, and `unsupported` means no
 path at all. Treat `available-unqualified` as working-but-unproven, never as supported.
+Support is an exact host/runtime/API-generation/platform/integration/addressability matrix result,
+never a host-name or product-brand flag.
 Every reasoning turn - including one an automatic wake re-enters - begins with `hand orient`,
 whose bounded orientation reports Fleet identity, exact monitor currentness, actionable
 provenance, and monitoring state.
