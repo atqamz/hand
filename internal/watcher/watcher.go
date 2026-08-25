@@ -187,7 +187,7 @@ func prepareClient(home string) (*herdr.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read Fleet identity: %w", err)
 	}
-	return herdr.NewSessionClient(herdr.SessionName(fleetID)), nil
+	return herdr.NewManagedSessionClient(herdr.SessionName(fleetID)), nil
 }
 
 // RunUntilEvent observes what is already actionable, then blocks until a tick produces events, writes

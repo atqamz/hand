@@ -203,6 +203,7 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	doc.Int("project_count", len(projects))
 	axi.Table(&doc, "projects", projects, sessionProjectFields)
 	doc.List("backlog", backlog.Items)
+	appendHerdrSession(&doc, client.ObserveSession(cmd.Context()))
 	appendFleetState(&doc, views, holds, cols)
 	appendSessionOrientation(&doc, oriented)
 	doc.Field("next_action_kind", next.Kind)

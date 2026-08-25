@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/atqamz/hand/internal/attention"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/registry"
@@ -27,6 +28,7 @@ type fleetSnapshot struct {
 	next             nextAction
 	monitorState     orientation.MonitorState
 	monitorReason    string
+	herdrSession     herdr.SessionObservation
 }
 
 // Performs the one read-only sweep of durable Fleet state the orientation
@@ -64,6 +66,7 @@ func loadFleetSnapshot(ctx context.Context, warnOut io.Writer, fleetHome string)
 	if err != nil {
 		return nil, err
 	}
+	snapshot.herdrSession = client.ObserveSession(ctx)
 	views, holds, err := fleetViews(ctx, warnOut, fleetHome, client, true)
 	if err != nil {
 		return nil, err
@@ -112,6 +115,12 @@ func (s *fleetSnapshot) evidence() orientation.Evidence {
 	}
 	if s.monitorReason != "" && s.monitorState != orientation.MonitorStateRearmed {
 		evidence.Errors = append(evidence.Errors, orientation.BoundedError{Kind: "monitor", Reason: s.monitorReason})
+	}
+	if s.herdrSession.State != herdr.SessionRunningCompatible {
+		evidence.Errors = append(evidence.Errors, orientation.BoundedError{
+			Kind:   "herdr-session",
+			Reason: string(s.herdrSession.State) + ": " + s.herdrSession.Reason,
+		})
 	}
 	return evidence
 }

@@ -44,6 +44,9 @@ func newOrientCmd() *cobra.Command {
 			result := orientation.Build(evidence)
 			var doc axi.Doc
 			appendSessionOrientation(&doc, result)
+			doc.Field("herdr_session_name", orNone(snapshot.herdrSession.Name))
+			doc.Field("herdr_session_state", orNone(string(snapshot.herdrSession.State)))
+			doc.Field("herdr_session_reason", orNone(snapshot.herdrSession.Reason))
 			doc.Field("next_action_kind", snapshot.next.Kind)
 			doc.Field("next_action_task", orNone(snapshot.next.Task))
 			doc.Field("next_action_command", orNone(snapshot.next.Command))

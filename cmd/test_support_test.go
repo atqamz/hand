@@ -68,6 +68,7 @@ func TestMain(m *testing.M) {
 		{name: "HAND_ROLE", value: ""},
 		{name: "HAND_HOME", value: ""},
 		{name: "HAND_HARNESS", value: "unknown"},
+		{name: "CODEX_THREAD_ID", value: ""},
 		{name: "SECONDHAND_HOME", value: filepath.Join(testUserHome, "Secondhand 測試")},
 	} {
 		if err := os.Setenv(tc.name, tc.value); err != nil {
