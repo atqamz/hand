@@ -424,6 +424,20 @@ func Rename(homeDir, oldName, newName string) error {
 	defer func() { _ = db.Close() }()
 
 	var oldURL, newURL string
+	registryPath := RegistryPath(homeDir)
+	oldProjection, projectionErr := os.ReadFile(registryPath)
+	if projectionErr != nil && !os.IsNotExist(projectionErr) {
+		return fmt.Errorf("read project registry: %w", projectionErr)
+	}
+	projectionExists := projectionErr == nil
+	var projectionMode os.FileMode
+	if projectionExists {
+		info, err := os.Stat(registryPath)
+		if err != nil {
+			return fmt.Errorf("stat project registry: %w", err)
+		}
+		projectionMode = info.Mode().Perm()
+	}
 	projects, err := db.ListProjects()
 	if err != nil {
 		return err
@@ -492,12 +506,28 @@ func Rename(homeDir, oldName, newName string) error {
 		if rollbackErr := projectRenameHistoryWriter(homeDir, newName, oldName); rollbackErr != nil {
 			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project history %q: %w", oldName, rollbackErr))
 		}
+		if rollbackErr := restoreProjection(registryPath, oldProjection, projectionExists, projectionMode); rollbackErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project registry: %w", rollbackErr))
+		}
 		if len(rollbackErrs) > 0 {
 			return errors.Join(append([]error{err}, rollbackErrs...)...)
 		}
 		return err
 	}
 	return nil
+}
+
+func restoreProjection(path string, content []byte, exists bool, mode os.FileMode) error {
+	if !exists {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if mode == 0 {
+		mode = 0o644
+	}
+	return atomicfile.Write(path, ".projects.md-rollback-", content, mode)
 }
 
 func samePath(left, right string) bool {

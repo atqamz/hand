@@ -300,6 +300,32 @@ func TestRenameRollsBackWhenProjectionWriteFails(t *testing.T) {
 	}
 }
 
+func TestRenameRestoresProjectionWhenWriteFailsAfterReplacement(t *testing.T) {
+	dir := t.TempDir()
+	original := "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n"
+	writeRegistry(t, dir, original)
+	oldWriter := projectRenameProjectionWriter
+	t.Cleanup(func() { projectRenameProjectionWriter = oldWriter })
+	projectRenameProjectionWriter = func(db *store.DB, homeDir, oldName, newName string) error {
+		if err := writeRenameProjection(db, homeDir, oldName, newName); err != nil {
+			return err
+		}
+		return errors.New("projection failed after replacement")
+	}
+
+	err := Rename(dir, "demo", "renamed")
+	if err == nil || !strings.Contains(err.Error(), "projection failed after replacement") {
+		t.Fatalf("Rename = %v, want projection failure", err)
+	}
+	got, err := os.ReadFile(RegistryPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Fatalf("projection = %q, want original projection %q", got, original)
+	}
+}
+
 func TestRenameRollsBackWhenHistoryWriteFails(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
