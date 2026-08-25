@@ -27,6 +27,11 @@ func testFleetHerdr(observe func(context.Context) SessionObservation, start func
 	}
 }
 
+func setFleetHerdrHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("SECONDHAND_HOME", t.TempDir())
+}
+
 func TestFleetHerdrEnsureReadyDoesNotStart(t *testing.T) {
 	var starts atomic.Int32
 	h := testFleetHerdr(func(context.Context) SessionObservation {
@@ -45,6 +50,7 @@ func TestFleetHerdrEnsureReadyDoesNotStart(t *testing.T) {
 }
 
 func TestFleetHerdrEnsureStartsOnlyAfterStoppedReobserve(t *testing.T) {
+	setFleetHerdrHome(t)
 	var observations atomic.Int32
 	var starts atomic.Int32
 	h := testFleetHerdr(func(context.Context) SessionObservation {
@@ -138,6 +144,7 @@ func TestFleetHerdrEnsureConvergesConcurrentCallers(t *testing.T) {
 }
 
 func TestFleetHerdrEnsureRetriesAfterDetachedStartReceiptLoss(t *testing.T) {
+	setFleetHerdrHome(t)
 	var running atomic.Bool
 	var starts atomic.Int32
 	receiptErr := errors.New("detached start receipt lost")
@@ -164,6 +171,7 @@ func TestFleetHerdrEnsureRetriesAfterDetachedStartReceiptLoss(t *testing.T) {
 }
 
 func TestFleetHerdrEnsureTimeoutDoesNotKillOrRestart(t *testing.T) {
+	setFleetHerdrHome(t)
 	var starts atomic.Int32
 	h := testFleetHerdr(func(context.Context) SessionObservation {
 		return SessionObservation{Name: "hand-f_test", State: SessionStopped}
@@ -183,6 +191,7 @@ func TestFleetHerdrEnsureTimeoutDoesNotKillOrRestart(t *testing.T) {
 }
 
 func TestFleetHerdrOpenEnsuresBeforeAttach(t *testing.T) {
+	setFleetHerdrHome(t)
 	var order []string
 	var mu sync.Mutex
 	appendOrder := func(value string) {

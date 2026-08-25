@@ -129,9 +129,6 @@ func TestProvisionEnsuresFleetHerdrBeforeTreehouseAcquisition(t *testing.T) {
 
 func TestProvisionPreservesLegacySessionWithoutFleetIdentity(t *testing.T) {
 	home, attempt := provisioningFixture(t)
-	if err := os.Remove(filepath.Join(home, "state", "hand.db")); err != nil {
-		t.Fatal(err)
-	}
 	attempt.Herdr.Session = "default"
 	attempt.Worktree = filepath.Join(home, "projects", "demo")
 	attempt.LeaseID = "lease-1"
