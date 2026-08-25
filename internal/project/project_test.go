@@ -298,6 +298,9 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 func TestRenameRollsBackWhenProjectionWriteFails(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
+	if err := completion.Append(dir, completion.Record{ID: "demo-task", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	original := projectRenameProjectionWriter
 	t.Cleanup(func() { projectRenameProjectionWriter = original })
 	projectRenameProjectionWriter = func(*store.DB, string, string, string) error { return errors.New("projection failed") }
@@ -313,12 +316,25 @@ func TestRenameRollsBackWhenProjectionWriteFails(t *testing.T) {
 	if len(projects) != 1 || projects[0].Name != "demo" {
 		t.Fatalf("projects = %+v, want old name after rollback", projects)
 	}
+	records, err := completion.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Project != "demo" {
+		t.Fatalf("completion records = %+v, want old name after rollback", records)
+	}
 }
 
 func TestRenameRestoresProjectionWhenWriteFailsAfterReplacement(t *testing.T) {
 	dir := t.TempDir()
 	original := "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n"
 	writeRegistry(t, dir, original)
+	if err := completion.Append(dir, completion.Record{ID: "demo-task", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := completion.Append(dir, completion.Record{ID: "unrelated", Project: "renamed"}); err != nil {
+		t.Fatal(err)
+	}
 	oldWriter := projectRenameProjectionWriter
 	t.Cleanup(func() { projectRenameProjectionWriter = oldWriter })
 	projectRenameProjectionWriter = func(db *store.DB, homeDir, oldName, newName string) error {
@@ -339,6 +355,55 @@ func TestRenameRestoresProjectionWhenWriteFailsAfterReplacement(t *testing.T) {
 	if string(got) != original {
 		t.Fatalf("projection = %q, want original projection %q", got, original)
 	}
+	records, err := completion.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRecords := []completion.Record{{ID: "demo-task", Project: "demo"}, {ID: "unrelated", Project: "renamed"}}
+	if len(records) != len(wantRecords) {
+		t.Fatalf("completion records = %+v, want %+v", records, wantRecords)
+	}
+	for i := range wantRecords {
+		if records[i] != wantRecords[i] {
+			t.Fatalf("completion record %d = %+v, want %+v", i, records[i], wantRecords[i])
+		}
+	}
+}
+
+func TestRenameRollbackOnlyRestoresRenamedCompletionRecords(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
+	if err := completion.Append(dir, completion.Record{ID: "renamed-project", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := completion.Append(dir, completion.Record{ID: "unrelated", Project: "renamed"}); err != nil {
+		t.Fatal(err)
+	}
+	original := projectRenameProjectionWriter
+	t.Cleanup(func() { projectRenameProjectionWriter = original })
+	projectRenameProjectionWriter = func(*store.DB, string, string, string) error {
+		return errors.New("projection failed")
+	}
+
+	if err := Rename(dir, "demo", "renamed"); err == nil || !strings.Contains(err.Error(), "projection failed") {
+		t.Fatalf("Rename = %v, want projection failure", err)
+	}
+	records, err := completion.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []completion.Record{
+		{ID: "renamed-project", Project: "demo"},
+		{ID: "unrelated", Project: "renamed"},
+	}
+	if len(records) != len(want) {
+		t.Fatalf("completion records = %+v, want %+v", records, want)
+	}
+	for i := range want {
+		if records[i] != want[i] {
+			t.Fatalf("completion record %d = %+v, want %+v", i, records[i], want[i])
+		}
+	}
 }
 
 func TestRenameRollsBackWhenHistoryWriteFails(t *testing.T) {
@@ -346,7 +411,9 @@ func TestRenameRollsBackWhenHistoryWriteFails(t *testing.T) {
 	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
 	original := projectRenameHistoryWriter
 	t.Cleanup(func() { projectRenameHistoryWriter = original })
-	projectRenameHistoryWriter = func(string, string, string) error { return errors.New("history failed") }
+	projectRenameHistoryWriter = func(string, string, string) (completion.RenameRestore, error) {
+		return completion.RenameRestore{}, errors.New("history failed")
+	}
 
 	err := Rename(dir, "demo", "renamed")
 	if err == nil || !strings.Contains(err.Error(), "history failed") {
