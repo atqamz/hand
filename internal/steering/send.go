@@ -31,6 +31,7 @@ type Request struct {
 	WaitComposer      func(paneID string, timeout time.Duration) error
 	TryLock           bool
 	TryTaskLock       bool
+	Force             bool
 	Expected          *state.Attempt
 	UsageLimitEpisode int64
 	Now               func() time.Time
@@ -139,10 +140,15 @@ func Execute(req Request) (Result, error) {
 	if err != nil {
 		return Result{}, paneError(active, "observe pane", err)
 	}
-	if pane.AgentStatus == herdr.StatusWorking {
+	if pane.AgentStatus == herdr.StatusWorking && !req.Force {
 		if err := req.WaitComposer(active.Herdr.PaneID, req.Wait); err != nil {
 			if errors.Is(err, herdr.ErrComposerBusyTimeout) {
-				return Result{}, &Error{Cause: fmt.Errorf("composer stayed busy for %s; no external message mutation occurred", req.Wait), AttemptID: active.ID, State: state.SendNotSubmitted, Reason: "composer-timeout", RetrySafe: true}
+				cause := fmt.Errorf("composer stayed busy for %s; no external message mutation occurred", req.Wait)
+				var busyErr *herdr.ComposerBusyError
+				if errors.As(err, &busyErr) {
+					cause = fmt.Errorf("%s (%s)", cause, busyErr.Detail())
+				}
+				return Result{}, &Error{Cause: cause, AttemptID: active.ID, State: state.SendNotSubmitted, Reason: "composer-timeout", RetrySafe: true}
 			}
 			return Result{}, paneError(active, "wait for composer", err)
 		}

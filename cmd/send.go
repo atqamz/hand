@@ -18,6 +18,7 @@ import (
 func newSendCmd() *cobra.Command {
 	var filePath string
 	var wait string
+	var force bool
 
 	cmd := &cobra.Command{
 		Use:   "send <id> [message]",
@@ -66,7 +67,7 @@ func newSendCmd() *cobra.Command {
 			client := herdrClientForAttempt(attempt, nil)
 			result, err := steering.Execute(steering.Request{
 				Home: fleetHome, TaskID: args[0], Message: message, Origin: steeringOperator,
-				Client: client, Wait: waitDuration, WaitComposer: client.WaitComposerEmpty, TryTaskLock: true,
+				Client: client, Wait: waitDuration, WaitComposer: client.WaitComposerEmpty, TryTaskLock: true, Force: force,
 			})
 			if err != nil {
 				return wrapSendError(err)
@@ -86,6 +87,7 @@ func newSendCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&filePath, "file", "", "read the message from this file instead of the positional argument")
 	cmd.Flags().StringVar(&wait, "wait", "", "how long to wait for a busy composer to free before giving up (default: config/send-wait, or 2m)")
+	cmd.Flags().BoolVar(&force, "force", false, "send without waiting for a busy composer; still records the send and verifies pane ownership")
 	return cmd
 }
 
