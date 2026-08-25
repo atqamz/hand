@@ -225,7 +225,14 @@ func TestListReportsAmbiguousHomeClaims(t *testing.T) {
 	if err := registryDB.Register(home, firstID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	if err := registryDB.Register(home, secondID, time.Now().UTC()); err != nil {
+	if _, err := registryDB.sql.Exec(`
+INSERT INTO fleet_registry (fleet_id, last_known_home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, secondID, home, time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registryDB.sql.Exec(`
+INSERT INTO fleet_locator (fleet_id, home, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?);`, secondID, home, time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -235,6 +242,268 @@ func TestListReportsAmbiguousHomeClaims(t *testing.T) {
 	}
 	if len(fleets) != 2 || fleets[0].State != StateAmbiguous || fleets[1].State != StateAmbiguous {
 		t.Fatalf("fleets = %+v, want both identities ambiguous", fleets)
+	}
+}
+
+func TestRegisterReconcilesSupersededSameHomeProjection(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "fleet registry 測試")
+	home := filepath.Join(root, "home with spaces")
+	first, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := first.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	registryDB, err := OpenAt(filepath.Join(root, "runtime", "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	if err := registryDB.Register(home, firstID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "state")); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := second.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if firstID == secondID {
+		t.Fatal("recreated Fleet identity unexpectedly stayed the same")
+	}
+
+	if err := registryDB.Register(home, secondID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	locators, err := registryDB.Locators()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locators) != 1 || locators[0].FleetID != secondID {
+		t.Fatalf("locators = %+v, want only recreated Fleet %s", locators, secondID)
+	}
+	var identities int
+	if err := registryDB.sql.QueryRow(`SELECT COUNT(*) FROM fleet_registry`).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if identities != 1 {
+		t.Fatalf("fleet identities = %d, want one non-orphaned identity", identities)
+	}
+	if got, err := store.FleetIDReadOnly(home); err != nil || got != secondID {
+		t.Fatalf("canonical Fleet identity = %q, %v, want %s unchanged", got, err, secondID)
+	}
+}
+
+func TestRegisterRollbackRestoresSupersededProjectionOnWriteFailure(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	first, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := first.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	if err := registryDB.Register(home, firstID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "state")); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := second.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registryDB.sql.Exec(fmt.Sprintf(`
+CREATE TRIGGER fail_register_locator
+BEFORE INSERT ON fleet_locator
+WHEN NEW.fleet_id = '%s'
+BEGIN
+	SELECT RAISE(ABORT, 'injected register failure');
+END;`, secondID)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := registryDB.Register(home, secondID, time.Now().UTC()); err == nil {
+		t.Fatal("Register succeeded across injected write failure")
+	}
+	locators, err := registryDB.Locators()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locators) != 1 || locators[0].FleetID != firstID {
+		t.Fatalf("locators after rollback = %+v, want original Fleet %s", locators, firstID)
+	}
+	var identities int
+	if err := registryDB.sql.QueryRow(`SELECT COUNT(*) FROM fleet_registry`).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if identities != 1 {
+		t.Fatalf("fleet identities after rollback = %d, want one", identities)
+	}
+}
+
+func TestRegisterRetainsSupersededIdentityUsedAtAnotherHome(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	otherHome := filepath.Join(root, "other")
+	first, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := first.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(store.Path(otherHome)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(store.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path(otherHome), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	for _, registeredHome := range []string{home, otherHome} {
+		if err := registryDB.Register(registeredHome, firstID, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(home, "state")); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := second.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(home, secondID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(home, secondID, time.Now().Add(time.Second).UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	locators, err := registryDB.Locators()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locators) != 2 {
+		t.Fatalf("locators = %+v, want retained old-home locator and current locator", locators)
+	}
+	var oldHome, currentHome bool
+	for _, locator := range locators {
+		switch {
+		case locator.FleetID == firstID && samePath(locator.Home, otherHome):
+			oldHome = true
+		case locator.FleetID == secondID && samePath(locator.Home, home):
+			currentHome = true
+		}
+	}
+	if !oldHome || !currentHome {
+		t.Fatalf("locators = %+v, want %s at %s and %s at %s", locators, firstID, otherHome, secondID, home)
+	}
+	var identities int
+	if err := registryDB.sql.QueryRow(`SELECT COUNT(*) FROM fleet_registry`).Scan(&identities); err != nil {
+		t.Fatal(err)
+	}
+	if identities != 2 {
+		t.Fatalf("fleet identities = %d, want retained old and current identities", identities)
+	}
+}
+
+func TestRegisterRefusesUnprovableCanonicalIdentityWithoutDeletingProjection(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	first, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := first.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	secondHome := filepath.Join(root, "second")
+	second, err := store.Open(secondHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := second.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+	if err := registryDB.Register(home, firstID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "state")); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(home, secondID, time.Now().UTC()); err == nil {
+		t.Fatal("Register succeeded without a canonical Fleet database")
+	}
+	locators, err := registryDB.Locators()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locators) != 1 || locators[0].FleetID != firstID {
+		t.Fatalf("locators after refused repair = %+v, want original Fleet %s", locators, firstID)
 	}
 }
 

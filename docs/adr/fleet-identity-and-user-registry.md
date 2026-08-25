@@ -18,6 +18,11 @@ The identity is generated under the Fleet-local identity lock and is stable acro
 The user-local `~/.secondhand/registry.db` stores canonical observed locators and timestamps only.
 It is non-authoritative and has no Tasks, Attempts, Projects, configuration, reports, or runtime state.
 
+Registration first validates the canonical Fleet identity at the supplied home.
+After that positive validation, a registration transaction retires locator claims for other identities at that exact canonical home, while retaining their locators at other homes.
+It removes a superseded identity row only when no locator still references it.
+Unknown or unreadable canonical identity and registry evidence fail closed without changing the projection.
+
 `hand fleet` reads registry discovery without changing the current invocation context.
 There is no global active Fleet switch.
 Positive duplicate or identity-mismatch evidence fails closed before runtime or mutation side effects, while registry absence or degradation is reported as a warning because it cannot prove a duplicate.
@@ -41,6 +46,7 @@ Copied homes intentionally share an identity, so they must not share an IPC rout
 
 Operators can discover multiple homes from outside any Fleet while each command remains explicitly bound to its resolved home.
 Copied databases are visible and safe to refuse, but resolving a duplicate remains an operator decision because automatic re-keying would be irreversible and could orphan external resources.
+Same-home identity replacement is the narrow exception: only a positively validated canonical database may retire the stale claim for that exact home, and the transaction is atomic, deterministic, and idempotent.
 Herdr supports concurrent Fleet sessions without requiring Hand to stop or delete a named session during normal teardown.
 
 Supervisor monitor targets and currentness tokens include the authoritative Fleet identity, while watcher ownership remains scoped by canonical home and watcher generation.
