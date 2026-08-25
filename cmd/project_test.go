@@ -498,6 +498,23 @@ func TestProjectRenameRollsBackCloneWhenRegistryUpdateFails(t *testing.T) {
 	}
 }
 
+func TestProjectRenameRejectsRegisteredDestinationBeforeMovingClone(t *testing.T) {
+	home, oldPath := setupRegisteredRenameProject(t)
+	if err := project.Add(home, project.Project{Name: "new-name", URL: "https://github.com/org/new.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newProjectRenameCmd()
+	cmd.SetArgs([]string{"old-name", "new-name"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `project "new-name" already registered`) {
+		t.Fatalf("error = %v, want registered destination refusal", err)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("old clone stat = %v, want clone unmoved", err)
+	}
+}
+
 func TestProjectSetModeAndRenameRejectUnregisteredProject(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

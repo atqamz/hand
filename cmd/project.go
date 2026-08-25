@@ -203,6 +203,11 @@ func renameProject(homeDir, oldName, newName string) (renameResult, error) {
 	if !exists {
 		return renameResult{}, fmt.Errorf("project %q %w", oldName, project.ErrNotFound)
 	}
+	if _, exists, err := project.Find(homeDir, newName); err != nil {
+		return renameResult{}, err
+	} else if exists {
+		return renameResult{}, fmt.Errorf("project %q already registered", newName)
+	}
 
 	oldClone := filepath.Join(homeDir, "projects", oldName)
 	newClone := filepath.Join(homeDir, "projects", newName)
