@@ -328,13 +328,13 @@ func herdrSessionList(spec herdrSpec, args []string) int {
 		_, _ = io.WriteString(os.Stdout, "{\"sessions\":[]}\n")
 		return 0
 	}
-	fmt.Fprintf(os.Stdout, "{\"sessions\":[{\"name\":%s,\"running\":true}]}\n", jsonQuote(session))
+	_, _ = fmt.Fprintf(os.Stdout, "{\"sessions\":[{\"name\":%s,\"running\":true}]}\n", jsonQuote(session))
 	return 0
 }
 
 func herdrServerStatus(spec herdrSpec, args []string) int {
 	session := spec.activeSession
-	fmt.Fprintf(os.Stdout, "{\"status\":\"running\",\"running\":true,\"compatible\":true,\"session\":%s}\n", jsonQuote(session))
+	_, _ = fmt.Fprintf(os.Stdout, "{\"status\":\"running\",\"running\":true,\"compatible\":true,\"session\":%s}\n", jsonQuote(session))
 	return 0
 }
 

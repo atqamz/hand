@@ -328,7 +328,7 @@ func (c *Client) attach(ctx context.Context) error {
 		return c.initErr
 	}
 	if c.session == "" {
-		return errors.New("Herdr session identity is unavailable")
+		return errors.New("herdr session identity is unavailable")
 	}
 	executable := c.executable
 	if executable == "" {

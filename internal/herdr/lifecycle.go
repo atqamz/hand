@@ -21,8 +21,8 @@ const (
 )
 
 var (
-	ErrSessionUnknown      = errors.New("Fleet Herdr session observation is unknown")
-	ErrSessionIncompatible = errors.New("Fleet Herdr session is incompatible")
+	ErrSessionUnknown      = errors.New("fleet Herdr session observation is unknown")
+	ErrSessionIncompatible = errors.New("fleet Herdr session is incompatible")
 	ErrEnsureTimeout       = errors.New("timed out waiting for Fleet Herdr session")
 )
 
