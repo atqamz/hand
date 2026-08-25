@@ -110,7 +110,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	fleetID := ""
 	var err error
 	fleetID, err = state.FleetIDReadOnly(req.home)
-	if err != nil && !(req.attempt.Worktree != "" && session != "" && errors.Is(err, state.ErrFleetIdentityMissing)) {
+	if err != nil && (req.attempt.Worktree == "" || session == "" || !errors.Is(err, state.ErrFleetIdentityMissing)) {
 		return "", fmt.Errorf("read Fleet identity for Herdr session: %w", err)
 	}
 	if fleetID != "" && session != "" && session != herdr.SessionName(fleetID) {
