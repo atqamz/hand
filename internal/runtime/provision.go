@@ -114,6 +114,9 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		if err != nil {
 			return "", fmt.Errorf("read Fleet identity for Herdr session: %w", err)
 		}
+		if req.attempt.Worktree == "" && session != "" && session != herdr.SessionName(fleetID) {
+			return "", fmt.Errorf("Herdr session %q does not match Fleet identity %q", session, fleetID)
+		}
 	}
 	if session == "" {
 		session = herdr.SessionName(fleetID)

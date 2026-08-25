@@ -127,6 +127,29 @@ func TestProvisionEnsuresFleetHerdrBeforeTreehouseAcquisition(t *testing.T) {
 	}
 }
 
+func TestProvisionRejectsMismatchedSessionForFreshWorktree(t *testing.T) {
+	home, attempt := provisioningFixture(t)
+	attempt.Herdr.Session = "hand-old"
+	fake := &provisionHerdr{}
+	r := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
+	acquired := false
+	r.deps.worktree.get = func(string, string) (worktree.Lease, error) {
+		acquired = true
+		return worktree.Lease{Path: filepath.Join(home, "projects", "demo", "leased"), ID: "lease-1"}, nil
+	}
+
+	_, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt,
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match Fleet identity") {
+		t.Fatalf("provision() = %v, want mismatched Fleet session error", err)
+	}
+	if acquired || fake.createdWorkspace {
+		t.Fatal("provision() acquired a worktree or created a Herdr workspace after session mismatch")
+	}
+}
+
 func TestProvisionPreservesLegacySessionWithoutFleetIdentity(t *testing.T) {
 	home, attempt := provisioningFixture(t)
 	attempt.Herdr.Session = "default"
