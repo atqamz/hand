@@ -171,6 +171,51 @@ func TestDoctorIncludesProjectListGateFinding(t *testing.T) {
 	}
 }
 
+func TestDoctorKeepsProjectReadinessSeparateFromGateRunEvidence(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	if err := project.Add(home, project.Project{Name: "local", URL: "https://example.com/local.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(t.TempDir(), "no-mistakes.log")
+	faketool.NoMistakes{
+		Status: "gate: ready",
+		Runs:   "no completed runs",
+		Log:    log,
+	}.Install(t, faketool.Bin(t))
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range findings {
+		if strings.Contains(finding.Text, "no-mistakes gate") {
+			t.Fatalf("findings = %#v, want no project setup finding for ready integration", findings)
+		}
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(calls), "no-mistakes status\n"; got != want {
+		t.Fatalf("no-mistakes calls = %q, want only the Project readiness check %q", got, want)
+	}
+}
+
 func hasDoctorFinding(findings []doctorFinding, want doctorFinding) bool {
 	for _, finding := range findings {
 		if finding.Severity == want.Severity && finding.Text == want.Text {

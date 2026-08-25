@@ -22,7 +22,9 @@ line, not just the exit code: a clean exit with warnings still means something i
   (`error`, refuse-to-overwrite) - each names its own remedy, and a collision is distinguished
   from ordinary drift because a collision needs a human to move something aside first.
 - Windows only: the `CLAUDE.md` pointer file's presence and exact content.
-- Each registered project's no-mistakes gate state (`gate-absent`, or another gate problem).
+- For each registered Project whose current v0.7 configuration selects no-mistakes, whether that
+  exact Project repository is ready for the integration, or is not initialized or unreachable.
+  This Project-readiness observation is separate from exact work/PR gate-run evidence.
 - Routing/configuration validity: missing Profiles or Routes, and whether the fleet is running
   on explicit configuration or falling back to legacy defaults.
 - The selected private Git, Treehouse, and Herdr runtime, including its target, runtime ID,
@@ -68,6 +70,16 @@ have it configured before work can proceed.
 right: reading whether a *specific registered project* declared `no-mistakes` mode, and only
 then treating its gate as required for that project.
 
+Project integration readiness is not exact work/PR gate-run evidence:
+
+- Project readiness is the existing Project-level `GateStatus` observation used by `project list`,
+  `doctor`, and dispatch/integration preflight.
+- Exact work/PR evidence is the shared `GateRunObservation` used by status/watch/orient. It keeps
+  the `found | absent | unknown` vocabulary for the exact PR recorded by completed `no-mistakes runs`.
+  `gate-absent` and `gate-unknown` belong to this work evidence, not to Project setup; `absent` is
+  distinct from `unknown`.
+- Doctor is read-only and does not inspect `no-mistakes runs` to decide Project integration readiness.
+
 Doctor never invents local installation state, account entitlement, provider billing state, or
 model availability. If a finding does not name one of those things explicitly, do not infer it.
 
@@ -76,8 +88,9 @@ model availability. If a finding does not name one of those things explicitly, d
 - A generated-surface drift finding always names its own remedy command. Run exactly that
   command; do not hand-edit the file it names, since it will be overwritten again on the next
   `hand init` regardless.
-- A project gate finding means that project's no-mistakes state, not the fleet's. Read
-  `references/task-lifecycle.md` before dispatching further into that project.
+- A Project-readiness finding means that exact registered Project's no-mistakes integration state,
+  not work/PR gate-run evidence and not the whole Fleet. Read `references/task-lifecycle.md` before
+  dispatching further into that project.
 - A routing finding means read `references/configuration.md` before dispatching a task whose
   Profile or Route is missing or invalid; do not guess a Profile to unblock a single dispatch.
 

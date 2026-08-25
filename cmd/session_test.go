@@ -22,6 +22,7 @@ import (
 	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
+	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
@@ -34,6 +35,7 @@ func setupSessionHome(t *testing.T) string {
 	}
 	t.Chdir(home)
 	t.Setenv("HAND_HARNESS", harness.Codex)
+	t.Setenv(supervision.CodexThreadEnv, "")
 	t.Setenv(harness.RoleEnv, "")
 	writeSessionContext(t, home, "## Hard constraints\nKeep the fleet observable.\n", "# Backlog\n\n## Queue\n")
 	return home
