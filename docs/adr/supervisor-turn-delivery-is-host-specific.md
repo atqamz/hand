@@ -51,5 +51,6 @@ Every harness carries an explicit qualified outcome - supported (live-proven onl
 (static preconditions hold, live proof pending), degraded, or unsupported, always with the exact reason -
 surfaced separately through `hand doctor`, `hand session start`, and `hand orient` diagnostics. A provider
 whose host lacks the required primitive is reported as not unattended-supervision capable instead of silently
-healthy. Live no-operator-input dogfood per claimed host remains the release gate for the 0.7 support matrix;
-until then every host reports available-unqualified at best.
+healthy. Live no-operator-input dogfood per claimed host remains the release gate for the 0.7 support matrix.
+The matrix may report supported only for the exact runtime, API generation, platform, integration, capability,
+and addressability tuple backed by that evidence; all other combinations remain explicitly unqualified.

@@ -186,8 +186,10 @@ func TestSecondaryRuntimeCannotStealAnAttachedBridge(t *testing.T) {
 // instruction-only bridges included, and non-supervisor harness names are
 // outside the registry even if they build workers.
 func TestCapabilityVocabularyStaysHonestBeforeLiveQualification(t *testing.T) {
-	if qualifiedHosts[harness.Grok] || qualifiedHosts[harness.Codex] {
-		t.Fatal("live qualification flags must start empty")
+	for _, rule := range SupervisorQualificationMatrix().Rules {
+		if rule.Host == "" || rule.RuntimeVersion == "" || rule.Platform == "" || rule.Evidence == "" {
+			t.Fatalf("qualification rule is not exact and evidence-backed: %+v", rule)
+		}
 	}
 	home := t.TempDir()
 	exe := "/opt/bin/hand"

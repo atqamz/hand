@@ -30,11 +30,6 @@ const (
 	CapabilityUnsupported = "unsupported"
 )
 
-// Hosts whose exact runtime path has passed live no-operator-input dogfood.
-// Deliberately empty until that evidence exists; qualification flips a host
-// from available-unqualified to supported, never source-code intent.
-var qualifiedHosts = map[string]bool{}
-
 // The Supervisor turn-delivery registry, distinct from harness's Worker
 // launch support: a name may build workers while having no wake bridge, and
 // only these five carry supervisor semantics.
@@ -69,6 +64,13 @@ type Status struct {
 	Harness       string
 	HarnessSource string
 
+	RuntimeVersion       string
+	RuntimeAPIGeneration string
+	RuntimePlatform      string
+	RuntimeCapability    string
+	Qualification        string
+	QualificationReason  string
+
 	// RuntimeIdentity says whether the exact live Supervisor runtime can be
 	// addressed where the host supports it (a Codex thread ID, for example).
 	RuntimeIdentity string
@@ -76,8 +78,12 @@ type Status struct {
 
 	// Integration is the bootstrap/install state of Hand-owned host glue:
 	// installed, unchanged, stale, absent, conflict, not-required.
-	Integration       string
-	IntegrationDetail string
+	Integration        string
+	IntegrationDetail  string
+	IntegrationVersion string
+
+	Addressability       string
+	AddressabilityReason string
 
 	// WakeDelivery is whether this host converts a wake into a reasoning
 	// opportunity unattended - and at which confidence: supported means
@@ -118,11 +124,16 @@ var hostMechanisms = map[string]string{
 
 // IntegrationStatus assembles the typed diagnostics for one fleet home: the
 // Codex capability probes installed queue behavior rather than product name,
-// file-backed hosts degrade on drift, nothing claims supported pre-proof.
+// file-backed hosts degrade on drift, and supported requires a matrix match.
 func IntegrationStatus(ctx context.Context, in StatusInput) (Status, error) {
 	status := Status{
-		Harness:       in.Detection.Name,
-		HarnessSource: in.Detection.Source,
+		Harness:              in.Detection.Name,
+		HarnessSource:        in.Detection.Source,
+		RuntimeVersion:       in.Detection.RuntimeVersion,
+		RuntimeAPIGeneration: in.Detection.APIGeneration,
+		RuntimePlatform:      in.Detection.Platform,
+		RuntimeCapability:    in.Detection.Capability,
+		IntegrationVersion:   requiredIntegrationVersion(in.Detection.Name),
 	}
 	if !IsSupervisorHost(in.Detection.Name) {
 		if in.Detection.Name == "" {
@@ -133,6 +144,8 @@ func IntegrationStatus(ctx context.Context, in StatusInput) (Status, error) {
 			status.WakeDeliveryReason = fmt.Sprintf("harness %q has worker support but no supervisor turn-delivery path", in.Detection.Name)
 		}
 		status.Integration = "absent"
+		status.Qualification = CapabilityUnsupported
+		status.QualificationReason = status.WakeDeliveryReason
 		status.finishIndependentFields(in)
 		return status, nil
 	}
@@ -160,8 +173,16 @@ func IntegrationStatus(ctx context.Context, in StatusInput) (Status, error) {
 			status.WakeDelivery = CapabilityDegraded
 			status.WakeDeliveryReason = "wake can be requested but no live thread is addressable from this runtime"
 		default:
+			status.RuntimeCapability = "codex.queue.v1"
 			status.WakeDelivery = CapabilityUnqualified
 			status.WakeDeliveryReason = hostMechanisms[harness.Codex] + "; requires features.hooks enabled and /hooks trust approval"
+		}
+		if threadID != "" {
+			status.Addressability = "exact-thread"
+			status.AddressabilityReason = "the current Codex thread is addressable"
+		} else {
+			status.Addressability = "unavailable"
+			status.AddressabilityReason = fmt.Sprintf("%s is not set", CodexThreadEnv)
 		}
 
 	case harness.Claude:
@@ -175,6 +196,14 @@ func IntegrationStatus(ctx context.Context, in StatusInput) (Status, error) {
 		}
 		status.Integration = result.State
 		status.IntegrationDetail = result.Detail
+		if result.State == "installed" || result.State == "unchanged" {
+			status.RuntimeCapability = "claude.async-rewake.v1"
+			status.Addressability = "hook-session"
+			status.AddressabilityReason = "the managed Stop hook addresses the current Claude session"
+		} else {
+			status.Addressability = "unavailable"
+			status.AddressabilityReason = fmt.Sprintf("the managed Claude Stop hook is %s", result.State)
+		}
 		setFileBackedDelivery(&status, result.State)
 
 	case harness.OpenCode, harness.Pi:
@@ -188,17 +217,51 @@ func IntegrationStatus(ctx context.Context, in StatusInput) (Status, error) {
 				status.IntegrationDetail = result.Detail
 			}
 		}
+		if status.Integration == "installed" || status.Integration == "unchanged" {
+			status.RuntimeCapability = requiredIntegrationVersion(in.Detection.Name)
+			status.Addressability = "session-scoped"
+			status.AddressabilityReason = "the host asset owns a session-scoped callback; live runtime identity is not observed by Hand"
+		} else {
+			status.Addressability = "unavailable"
+			status.AddressabilityReason = fmt.Sprintf("the %s host asset is %s", in.Detection.Name, status.Integration)
+		}
 		setFileBackedDelivery(&status, status.Integration)
 
 	case harness.Grok:
 		status.Integration = "not-required"
 		status.IntegrationDetail = "the Grok bridge is the host background-task lifecycle, established through generated Supervisor instructions"
+		status.RuntimeCapability = "grok.background-monitor.v1"
+		status.Addressability = "host-owned"
+		status.AddressabilityReason = "the host owns monitor completion delivery; no Hand session identifier is available"
 		status.WakeDelivery = CapabilityUnqualified
 		status.WakeDeliveryReason = hostMechanisms[harness.Grok] + "; instruction-established, live qualification pending"
 	}
 
+	if status.Addressability == "" {
+		status.Addressability = "unavailable"
+		status.AddressabilityReason = "no addressability evidence was found"
+	}
+	status.applyQualification()
 	status.finishIndependentFields(in)
 	return status, nil
+}
+
+func (s *Status) applyQualification() {
+	result := SupervisorQualificationMatrix().Evaluate(QualificationEvidence{
+		Host:               s.Harness,
+		RuntimeVersion:     s.RuntimeVersion,
+		APIGeneration:      s.RuntimeAPIGeneration,
+		Platform:           s.RuntimePlatform,
+		IntegrationVersion: s.IntegrationVersion,
+		Addressability:     s.Addressability,
+		Capability:         s.RuntimeCapability,
+	})
+	s.Qualification = result.State
+	s.QualificationReason = result.Reason
+	if s.WakeDelivery == CapabilityUnqualified && result.State == CapabilitySupported {
+		s.WakeDelivery = result.State
+		s.WakeDeliveryReason = result.Reason
+	}
 }
 
 // Fills the two mechanically independent liveness answers: bridge attachment

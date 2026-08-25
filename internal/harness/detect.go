@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const maxAncestorDepth = 8
@@ -22,13 +24,31 @@ var processLookup = func(pid int) ([]byte, error) {
 }
 
 type Detection struct {
-	Name   string
-	Source string
+	Name           string
+	Source         string
+	RuntimeVersion string
+	APIGeneration  string
+	Platform       string
+	Capability     string
+	ExecutablePath string
+}
+
+const runtimeVersionTimeout = 2 * time.Second
+
+var runtimeVersionCommand = func(path string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeVersionTimeout)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, path, "--version").Output()
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	return string(output), err
 }
 
 type processInfo struct {
-	name string
-	args string
+	name       string
+	args       string
+	executable string
 }
 
 func DetectCurrent() (Detection, error) {
@@ -43,7 +63,40 @@ func DetectCurrent() (Detection, error) {
 		"PI_CODING_AGENT": os.Getenv("PI_CODING_AGENT"),
 		"GROK_AGENT":      os.Getenv("GROK_AGENT"),
 	}
-	return detectCurrent(override, ancestors, env)
+	detection, err := detectCurrent(override, ancestors, env)
+	if err != nil {
+		return Detection{}, err
+	}
+	return enrichDetection(detection), nil
+}
+
+func enrichDetection(detection Detection) Detection {
+	if detection.Name == "" {
+		return detection
+	}
+	detection.Platform = runtime.GOOS + "/" + runtime.GOARCH
+	path := detection.ExecutablePath
+	if path == "" {
+		return detection
+	}
+	output, err := runtimeVersionCommand(path)
+	if err == nil {
+		detection.RuntimeVersion = parseRuntimeVersion(output)
+	}
+	return detection
+}
+
+func parseRuntimeVersion(output string) string {
+	for _, token := range strings.Fields(output) {
+		token = strings.Trim(token, "()[],;:")
+		if token == "" || token[0] < '0' || token[0] > '9' {
+			continue
+		}
+		if strings.Contains(token, ".") {
+			return token
+		}
+	}
+	return ""
 }
 
 func detectCurrent(override string, ancestors []processInfo, env map[string]string) (Detection, error) {
@@ -58,13 +111,30 @@ func detectCurrent(override string, ancestors []processInfo, env map[string]stri
 	}
 	for _, process := range ancestors {
 		if name := processHarness(process); name != "" {
-			return Detection{Name: name, Source: "process"}, nil
+			return Detection{Name: name, Source: "process", ExecutablePath: processExecutable(process, name)}, nil
 		}
 	}
 	if name := markerHarness(env); name != "" {
 		return Detection{Name: name, Source: "environment"}, nil
 	}
 	return Detection{Source: "unknown"}, nil
+}
+
+func processExecutable(process processInfo, name string) string {
+	if process.executable != "" && executableBase(process.executable) == name {
+		return process.executable
+	}
+	for _, argument := range strings.Fields(process.args) {
+		if executableBase(argument) == name && strings.ContainsAny(argument, `/\\`) {
+			return argument
+		}
+	}
+	return ""
+}
+
+func executableBase(path string) string {
+	path = strings.NewReplacer(`/`, string(os.PathSeparator), `\`, string(os.PathSeparator)).Replace(path)
+	return filepath.Base(path)
 }
 
 func currentProcessAncestry(pid, depth int) []processInfo {
@@ -86,16 +156,28 @@ func currentProcessAncestry(pid, depth int) []processInfo {
 			break
 		}
 		ancestors = append(ancestors, processInfo{
-			name: filepath.Base(fields[1]),
-			args: strings.Join(fields[2:], " "),
+			name:       filepath.Base(fields[1]),
+			args:       strings.Join(fields[2:], " "),
+			executable: processExecutablePath(pid),
 		})
 		pid = parent
 	}
 	return ancestors
 }
 
+func processExecutablePath(pid int) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	path, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
 func processHarness(process processInfo) string {
-	name := filepath.Base(process.name)
+	name := executableBase(process.name)
 	switch {
 	case name == Claude:
 		return Claude
@@ -109,7 +191,7 @@ func processHarness(process processInfo) string {
 		return Pi
 	case name == "node" || name == "python" || name == "python3":
 		for _, argument := range strings.Fields(process.args) {
-			if filepath.Base(argument) == OpenCode {
+			if executableBase(argument) == OpenCode {
 				return OpenCode
 			}
 		}

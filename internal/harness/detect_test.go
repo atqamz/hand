@@ -2,8 +2,89 @@ package harness
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 )
+
+func TestEnrichDetectionCarriesExactRuntimeEvidence(t *testing.T) {
+	previous := runtimeVersionCommand
+	t.Cleanup(func() { runtimeVersionCommand = previous })
+	runtimeVersionCommand = func(path string) (string, error) {
+		if path != "/detected/claude" {
+			t.Fatalf("probe path = %q, want /detected/claude", path)
+		}
+		return "Claude Code 2.1.238\n", nil
+	}
+
+	got := enrichDetection(Detection{Name: Claude, Source: "process", ExecutablePath: "/detected/claude"})
+	if got.RuntimeVersion != "2.1.238" {
+		t.Fatalf("runtime version = %q, want 2.1.238", got.RuntimeVersion)
+	}
+	if got.Platform != runtime.GOOS+"/"+runtime.GOARCH {
+		t.Fatalf("platform = %q, want %s/%s", got.Platform, runtime.GOOS, runtime.GOARCH)
+	}
+}
+
+func TestEnrichDetectionDoesNotProbeWithoutExecutableIdentity(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, Executable(Claude))
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+		t.Setenv("PATHEXT", ".EXE")
+	}
+	if err := os.WriteFile(path, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	previous := runtimeVersionCommand
+	t.Cleanup(func() { runtimeVersionCommand = previous })
+	called := false
+	runtimeVersionCommand = func(string) (string, error) {
+		called = true
+		return "Claude Code 2.1.238\n", nil
+	}
+
+	got := enrichDetection(Detection{Name: Claude, Source: "process"})
+	if got.RuntimeVersion != "" {
+		t.Fatalf("runtime version = %q, want unavailable without executable identity", got.RuntimeVersion)
+	}
+	if called {
+		t.Fatal("runtime version probe ran without verified executable identity")
+	}
+}
+
+func TestDetectCarriesProcessExecutablePath(t *testing.T) {
+	got, err := detectCurrent("", []processInfo{{name: "claude", executable: "/opt/claude/bin/claude"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ExecutablePath != "/opt/claude/bin/claude" {
+		t.Fatalf("executable path = %q, want /opt/claude/bin/claude", got.ExecutablePath)
+	}
+}
+
+func TestRuntimeVersionCommandTimesOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test requires a shell executable")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexec sleep 10\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, err := runtimeVersionCommand(path)
+	if err == nil {
+		t.Fatal("runtime version probe did not time out")
+	}
+	if elapsed := time.Since(started); elapsed > runtimeVersionTimeout+time.Second {
+		t.Fatalf("probe took %s, want no more than %s", elapsed, runtimeVersionTimeout+time.Second)
+	}
+}
 
 func TestDetectPrefersOverride(t *testing.T) {
 	got, err := detectCurrent(Claude, []processInfo{{name: ".codex-wrapped"}}, map[string]string{"CODEX_THREAD_ID": "thread"})
@@ -46,9 +127,10 @@ func TestDetectPrefersNearestMatchingProcess(t *testing.T) {
 
 func TestDetectMatchesHarnessProcesses(t *testing.T) {
 	tests := []struct {
-		name string
-		info processInfo
-		want string
+		name       string
+		info       processInfo
+		want       string
+		executable string
 	}{
 		{name: "claude", info: processInfo{name: "claude"}, want: Claude},
 		{name: "codex wrapper", info: processInfo{name: ".codex-wrapped"}, want: Codex},
@@ -56,9 +138,10 @@ func TestDetectMatchesHarnessProcesses(t *testing.T) {
 		{name: "grok", info: processInfo{name: "grok"}, want: Grok},
 		{name: "pi", info: processInfo{name: "pi"}, want: Pi},
 		{name: "pi signed", info: processInfo{name: "pi-signed"}, want: Pi},
-		{name: "node opencode", info: processInfo{name: "node", args: "node /path/to/opencode"}, want: OpenCode},
-		{name: "python opencode", info: processInfo{name: "python", args: "python /path/to/opencode"}, want: OpenCode},
-		{name: "python3 opencode", info: processInfo{name: "python3", args: "python3 /path/to/opencode"}, want: OpenCode},
+		{name: "node opencode", info: processInfo{name: "node", args: "node /path/to/opencode"}, want: OpenCode, executable: "/path/to/opencode"},
+		{name: "node opencode windows path", info: processInfo{name: "node", args: `node C:\path\to\opencode`}, want: OpenCode, executable: `C:\path\to\opencode`},
+		{name: "python opencode", info: processInfo{name: "python", args: "python /path/to/opencode"}, want: OpenCode, executable: "/path/to/opencode"},
+		{name: "python3 opencode", info: processInfo{name: "python3", args: "python3 /path/to/opencode"}, want: OpenCode, executable: "/path/to/opencode"},
 	}
 
 	for _, test := range tests {
@@ -67,7 +150,7 @@ func TestDetectMatchesHarnessProcesses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if want := (Detection{Name: test.want, Source: "process"}); got != want {
+			if want := (Detection{Name: test.want, Source: "process", ExecutablePath: test.executable}); got != want {
 				t.Fatalf("got %#v, want %#v", got, want)
 			}
 		})
