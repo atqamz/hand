@@ -110,6 +110,7 @@ func TestDetectMatchesHarnessProcesses(t *testing.T) {
 		{name: "pi", info: processInfo{name: "pi"}, want: Pi},
 		{name: "pi signed", info: processInfo{name: "pi-signed"}, want: Pi},
 		{name: "node opencode", info: processInfo{name: "node", args: "node /path/to/opencode"}, want: OpenCode, executable: "/path/to/opencode"},
+		{name: "node opencode windows path", info: processInfo{name: "node", args: `node C:\path\to\opencode`}, want: OpenCode, executable: `C:\path\to\opencode`},
 		{name: "python opencode", info: processInfo{name: "python", args: "python /path/to/opencode"}, want: OpenCode, executable: "/path/to/opencode"},
 		{name: "python3 opencode", info: processInfo{name: "python3", args: "python3 /path/to/opencode"}, want: OpenCode, executable: "/path/to/opencode"},
 	}

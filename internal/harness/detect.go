@@ -124,15 +124,20 @@ func detectCurrent(override string, ancestors []processInfo, env map[string]stri
 }
 
 func processExecutable(process processInfo, name string) string {
-	if process.executable != "" && filepath.Base(process.executable) == name {
+	if process.executable != "" && executableBase(process.executable) == name {
 		return process.executable
 	}
 	for _, argument := range strings.Fields(process.args) {
-		if filepath.Base(argument) == name && strings.Contains(argument, string(os.PathSeparator)) {
+		if executableBase(argument) == name && strings.ContainsAny(argument, `/\\`) {
 			return argument
 		}
 	}
 	return ""
+}
+
+func executableBase(path string) string {
+	path = strings.NewReplacer(`/`, string(os.PathSeparator), `\`, string(os.PathSeparator)).Replace(path)
+	return filepath.Base(path)
 }
 
 func currentProcessAncestry(pid, depth int) []processInfo {
@@ -175,7 +180,7 @@ func processExecutablePath(pid int) string {
 }
 
 func processHarness(process processInfo) string {
-	name := filepath.Base(process.name)
+	name := executableBase(process.name)
 	switch {
 	case name == Claude:
 		return Claude
@@ -189,7 +194,7 @@ func processHarness(process processInfo) string {
 		return Pi
 	case name == "node" || name == "python" || name == "python3":
 		for _, argument := range strings.Fields(process.args) {
-			if filepath.Base(argument) == OpenCode {
+			if executableBase(argument) == OpenCode {
 				return OpenCode
 			}
 		}
