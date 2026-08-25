@@ -150,11 +150,33 @@ func TestProvisionRejectsMismatchedSessionForFreshWorktree(t *testing.T) {
 	}
 }
 
-func TestProvisionPreservesLegacySessionWithoutFleetIdentity(t *testing.T) {
+func TestProvisionRejectsMismatchedSessionForResumedWorktree(t *testing.T) {
 	home, attempt := provisioningFixture(t)
-	attempt.Herdr.Session = "default"
+	attempt.Herdr.Session = "hand-old"
 	attempt.Worktree = filepath.Join(home, "projects", "demo")
 	attempt.LeaseID = "lease-1"
+	fake := &provisionHerdr{}
+	r := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
+
+	_, err := r.provision(context.Background(), provisioningRequest{
+		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
+		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt, resumeExisting: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match Fleet identity") {
+		t.Fatalf("provision() = %v, want mismatched Fleet session error", err)
+	}
+	if fake.createdWorkspace {
+		t.Fatal("provision() created a Herdr workspace after session mismatch")
+	}
+}
+
+func TestProvisionPreservesLegacySessionWithoutFleetIdentity(t *testing.T) {
+	home := t.TempDir()
+	attempt := state.Attempt{
+		ID: 1, TaskID: "task-1", Lifecycle: state.AttemptProvisioning,
+		Worktree: filepath.Join(home, "projects", "demo"), LeaseID: "lease-1",
+		Herdr: state.Herdr{Session: "default"},
+	}
 	phaseErr := errors.New("stop after legacy worktree observation")
 	r := testProvisionRuntime(&provisionHerdr{}, func(phase lifecyclePhase) error {
 		if phase == phaseWorktreeRecorded {
@@ -163,7 +185,7 @@ func TestProvisionPreservesLegacySessionWithoutFleetIdentity(t *testing.T) {
 		return nil
 	})
 
-	_, err := r.provision(context.Background(), provisioningRequest{
+	_, err := r.provisionLocked(context.Background(), provisioningRequest{
 		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
 		briefPath: filepath.Join(home, "data", "task-1", "brief.md"), attempt: attempt, resumeExisting: true,
 	})

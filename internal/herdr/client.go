@@ -315,11 +315,8 @@ func (c *Client) startServer(ctx context.Context) error {
 		_ = devNull.Close()
 		return &ExecError{Started: false, Err: err}
 	}
-	closeErr := devNull.Close()
-	releaseErr := cmd.Process.Release()
-	if closeErr != nil || releaseErr != nil {
-		return errors.Join(closeErr, releaseErr)
-	}
+	_ = devNull.Close()
+	_ = cmd.Process.Release()
 	return nil
 }
 

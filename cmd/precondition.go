@@ -15,6 +15,7 @@ import (
 var preconditionSentinels = []error{
 	herdr.ErrSessionUnknown,
 	herdr.ErrSessionIncompatible,
+	herdr.ErrEnsureTimeout,
 	state.ErrTaskNotFound,
 	state.ErrTaskActive,
 	state.ErrLifecycleConflict,

@@ -161,8 +161,7 @@ func (f *FleetHerdr) waitReady(ctx context.Context) error {
 		switch last.State {
 		case SessionRunningCompatible:
 			return nil
-		case SessionUnknown:
-			return sessionEnsureError(last, ErrSessionUnknown)
+		case SessionUnknown, SessionStopped:
 		case SessionIncompatible:
 			return sessionEnsureError(last, ErrSessionIncompatible)
 		}

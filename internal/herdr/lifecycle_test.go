@@ -74,6 +74,28 @@ func TestFleetHerdrEnsureStartsOnlyAfterStoppedReobserve(t *testing.T) {
 	}
 }
 
+func TestFleetHerdrEnsureRetriesTransientUnknownAfterStart(t *testing.T) {
+	setFleetHerdrHome(t)
+	var observations atomic.Int32
+	h := testFleetHerdr(func(context.Context) SessionObservation {
+		switch observations.Add(1) {
+		case 1, 2:
+			return SessionObservation{Name: "hand-f_test", State: SessionStopped}
+		case 3:
+			return SessionObservation{Name: "hand-f_test", State: SessionUnknown, Reason: "daemon socket not ready"}
+		default:
+			return SessionObservation{Name: "hand-f_test", State: SessionRunningCompatible}
+		}
+	}, func(context.Context) error { return nil }, nil)
+
+	if err := h.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure() = %v, want readiness after transient unknown observation", err)
+	}
+	if got := observations.Load(); got != 4 {
+		t.Fatalf("observations = %d, want initial, post-lock, transient unknown, and ready", got)
+	}
+}
+
 func TestFleetHerdrEnsureFailsClosedForUnknownAndIncompatible(t *testing.T) {
 	tests := []struct {
 		name  string

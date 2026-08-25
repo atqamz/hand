@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -108,15 +109,12 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	session := req.attempt.Herdr.Session
 	fleetID := ""
 	var err error
-	needsFleetIdentity := session == "" || req.attempt.Worktree == ""
-	if needsFleetIdentity {
-		fleetID, err = state.FleetIDReadOnly(req.home)
-		if err != nil {
-			return "", fmt.Errorf("read Fleet identity for Herdr session: %w", err)
-		}
-		if req.attempt.Worktree == "" && session != "" && session != herdr.SessionName(fleetID) {
-			return "", fmt.Errorf("herdr session %q does not match Fleet identity %q", session, fleetID)
-		}
+	fleetID, err = state.FleetIDReadOnly(req.home)
+	if err != nil && !(req.attempt.Worktree != "" && session != "" && errors.Is(err, state.ErrFleetIdentityMissing)) {
+		return "", fmt.Errorf("read Fleet identity for Herdr session: %w", err)
+	}
+	if fleetID != "" && session != "" && session != herdr.SessionName(fleetID) {
+		return "", fmt.Errorf("herdr session %q does not match Fleet identity %q", session, fleetID)
 	}
 	if session == "" {
 		session = herdr.SessionName(fleetID)
