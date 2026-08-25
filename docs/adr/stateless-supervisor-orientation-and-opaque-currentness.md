@@ -21,6 +21,10 @@ Callers may carry, compare, return, or reject them, but never parse or construct
 The bounded arm reports `rearmed` or `degraded`; only a lock-proven live watcher reports `already-armed`.
 The command never creates a supervisor-session row and never acknowledges or mutates work.
 
+### Amendment - 2026-08-25
+
+The implementation now separates runtime bootstrap from orientation. `hand session start` performs the one-time bootstrap, emits `next_command: hand orient`, and does not derive orientation or arm a watcher. `hand orient` exclusively reads and records the bounded orientation; live monitoring is established with `hand watch --until-event`.
+
 Watcher wakes carry Fleet identity, monitor kind, opaque target identity, opaque currentness, event kind, and a bounded reason.
 A wake is only a hint: a consumer must read fresh orientation and accept the wake only when Fleet, target, kind, and currentness match exactly.
 

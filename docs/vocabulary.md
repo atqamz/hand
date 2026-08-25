@@ -47,7 +47,7 @@ Registry absence or degradation does not replace the authoritative identity in a
 
 ### Supervisor orientation
 
-A bounded, stateless read model returned by `hand session start`.
+A bounded, stateless read model returned by `hand orient`.
 It contains Fleet identity, work and actionable summaries, exact monitor targets, monitor state, next actions, truncation, and uncertainty.
 It is not a durable supervisor session, Task-to-Plan record, FleetSnapshot, or Attention table.
 
