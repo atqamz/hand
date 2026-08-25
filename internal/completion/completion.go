@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -60,6 +62,55 @@ func Append(homeDir string, r Record) error {
 	// reached disk, and teardown terminalizes the task and its attempt on this returning nil.
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close completions store: %w", err)
+	}
+	return nil
+}
+
+func RenameProject(homeDir, oldName, newName string) error {
+	release, err := state.Lock(homeDir, "completions")
+	if err != nil {
+		return fmt.Errorf("lock completions store: %w", err)
+	}
+	defer release()
+
+	path := Path(homeDir)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read completions store: %w", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat completions store: %w", err)
+	}
+
+	var rendered strings.Builder
+	changed := false
+	for _, line := range strings.SplitAfter(string(data), "\n") {
+		body, newline := strings.CutSuffix(line, "\n")
+		var record Record
+		if err := json.Unmarshal([]byte(body), &record); err == nil && record.Project == oldName {
+			record.Project = newName
+			encoded, err := json.Marshal(record)
+			if err != nil {
+				return fmt.Errorf("encode completion record %q: %w", record.ID, err)
+			}
+			rendered.Write(encoded)
+			if newline {
+				rendered.WriteByte('\n')
+			}
+			changed = true
+			continue
+		}
+		rendered.WriteString(line)
+	}
+	if !changed {
+		return nil
+	}
+	if err := atomicfile.Write(path, ".completions-", []byte(rendered.String()), info.Mode().Perm()); err != nil {
+		return fmt.Errorf("write completions store: %w", err)
 	}
 	return nil
 }

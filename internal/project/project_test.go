@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/store"
 )
@@ -232,6 +233,9 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
+	if err := completion.Append(dir, completion.Record{ID: "task-1", Project: "demo", Kind: "ship", Outcome: "merged"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := Rename(dir, "demo", "renamed"); err != nil {
 		t.Fatal(err)
@@ -262,6 +266,10 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	if err != nil || !found || task.Project != "renamed" {
 		t.Fatalf("task = %+v, found=%v, err=%v, want renamed project", task, found, err)
 	}
+	records, err := completion.List(dir)
+	if err != nil || len(records) != 1 || records[0].Project != "renamed" {
+		t.Fatalf("completion records = %+v, err=%v, want renamed project", records, err)
+	}
 	projection, err := os.ReadFile(RegistryPath(dir))
 	if err != nil {
 		t.Fatal(err)
@@ -282,6 +290,26 @@ func TestRenameRollsBackWhenProjectionWriteFails(t *testing.T) {
 	err := Rename(dir, "demo", "renamed")
 	if err == nil || !strings.Contains(err.Error(), "projection failed") {
 		t.Fatalf("Rename = %v, want projection failure", err)
+	}
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "demo" {
+		t.Fatalf("projects = %+v, want old name after rollback", projects)
+	}
+}
+
+func TestRenameRollsBackWhenHistoryWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
+	original := projectRenameHistoryWriter
+	t.Cleanup(func() { projectRenameHistoryWriter = original })
+	projectRenameHistoryWriter = func(string, string, string) error { return errors.New("history failed") }
+
+	err := Rename(dir, "demo", "renamed")
+	if err == nil || !strings.Contains(err.Error(), "history failed") {
+		t.Fatalf("Rename = %v, want history failure", err)
 	}
 	projects, err := List(dir)
 	if err != nil {

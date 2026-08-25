@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/integration"
@@ -398,6 +399,8 @@ var projectRenameProjectionWriter = func(db *store.DB, homeDir, oldName, newName
 	return writeRenameProjection(db, homeDir, oldName, newName)
 }
 
+var projectRenameHistoryWriter = completion.RenameProject
+
 // Rename changes the registry key and task references while preserving the project's row position and fields.
 func Rename(homeDir, oldName, newName string) error {
 	if oldName == "" || newName == "" {
@@ -422,9 +425,22 @@ func Rename(homeDir, oldName, newName string) error {
 	if !updated {
 		return fmt.Errorf("project %q %w", oldName, ErrNotFound)
 	}
-	if err := projectRenameProjectionWriter(db, homeDir, oldName, newName); err != nil {
+	if err := projectRenameHistoryWriter(homeDir, oldName, newName); err != nil {
 		if _, rollbackErr := projectRenameUpdater(db, newName, oldName); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
+		}
+		return err
+	}
+	if err := projectRenameProjectionWriter(db, homeDir, oldName, newName); err != nil {
+		var rollbackErrs []error
+		if _, rollbackErr := projectRenameUpdater(db, newName, oldName); rollbackErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project %q: %w", oldName, rollbackErr))
+		}
+		if rollbackErr := projectRenameHistoryWriter(homeDir, newName, oldName); rollbackErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore project history %q: %w", oldName, rollbackErr))
+		}
+		if len(rollbackErrs) > 0 {
+			return errors.Join(append([]error{err}, rollbackErrs...)...)
 		}
 		return err
 	}
