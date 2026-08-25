@@ -20,6 +20,7 @@ import (
 
 	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/filelock"
+	"github.com/atqamz/hand/internal/secondhand"
 )
 
 const (
@@ -61,7 +62,7 @@ type Status struct {
 func NewStore(root string, lock Lock) (*Store, error) {
 	if root == "" {
 		var err error
-		root, err = secondhandHome()
+		root, err = secondhand.Home()
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +82,7 @@ func DefaultStore() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := secondhandHome()
+	root, err := secondhand.Home()
 	if err != nil {
 		return nil, err
 	}
