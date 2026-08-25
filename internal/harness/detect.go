@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const maxAncestorDepth = 8
@@ -28,20 +30,25 @@ type Detection struct {
 	APIGeneration  string
 	Platform       string
 	Capability     string
+	ExecutablePath string
 }
 
-var runtimeVersionCommand = func(name string) (string, error) {
-	path, err := exec.LookPath(Executable(name))
-	if err != nil {
-		return "", err
+const runtimeVersionTimeout = 2 * time.Second
+
+var runtimeVersionCommand = func(path string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeVersionTimeout)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, path, "--version").Output()
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
-	output, err := exec.Command(path, "--version").Output()
 	return string(output), err
 }
 
 type processInfo struct {
-	name string
-	args string
+	name       string
+	args       string
+	executable string
 }
 
 func DetectCurrent() (Detection, error) {
@@ -68,7 +75,14 @@ func enrichDetection(detection Detection) Detection {
 		return detection
 	}
 	detection.Platform = runtime.GOOS + "/" + runtime.GOARCH
-	output, err := runtimeVersionCommand(detection.Name)
+	path := detection.ExecutablePath
+	if path == "" {
+		path, _ = exec.LookPath(Executable(detection.Name))
+	}
+	if path == "" {
+		return detection
+	}
+	output, err := runtimeVersionCommand(path)
 	if err == nil {
 		detection.RuntimeVersion = parseRuntimeVersion(output)
 	}
@@ -100,13 +114,25 @@ func detectCurrent(override string, ancestors []processInfo, env map[string]stri
 	}
 	for _, process := range ancestors {
 		if name := processHarness(process); name != "" {
-			return Detection{Name: name, Source: "process"}, nil
+			return Detection{Name: name, Source: "process", ExecutablePath: processExecutable(process, name)}, nil
 		}
 	}
 	if name := markerHarness(env); name != "" {
 		return Detection{Name: name, Source: "environment"}, nil
 	}
 	return Detection{Source: "unknown"}, nil
+}
+
+func processExecutable(process processInfo, name string) string {
+	if process.executable != "" && filepath.Base(process.executable) == name {
+		return process.executable
+	}
+	for _, argument := range strings.Fields(process.args) {
+		if filepath.Base(argument) == name && strings.Contains(argument, string(os.PathSeparator)) {
+			return argument
+		}
+	}
+	return ""
 }
 
 func currentProcessAncestry(pid, depth int) []processInfo {
@@ -128,12 +154,24 @@ func currentProcessAncestry(pid, depth int) []processInfo {
 			break
 		}
 		ancestors = append(ancestors, processInfo{
-			name: filepath.Base(fields[1]),
-			args: strings.Join(fields[2:], " "),
+			name:       filepath.Base(fields[1]),
+			args:       strings.Join(fields[2:], " "),
+			executable: processExecutablePath(pid),
 		})
 		pid = parent
 	}
 	return ancestors
+}
+
+func processExecutablePath(pid int) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	path, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return ""
+	}
+	return path
 }
 
 func processHarness(process processInfo) string {
