@@ -578,17 +578,24 @@ func TestTeardownRetrySkipsReleasedWorktreeAfterLeaseReused(t *testing.T) {
 
 func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 	home, worktreePath, _ := leasedTeardownFixture(t)
+	clonePath := filepath.Join(home, "projects", "demo")
 	returns := 0
 	observed := 0
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(gotClonePath, path, leaseID string) worktree.LeaseObservation {
+		if gotClonePath != clonePath {
+			t.Fatalf("observeLease clone path = %q, want %q", gotClonePath, clonePath)
+		}
 		if path != worktreePath || leaseID != "lease-1" {
 			t.Fatalf("observeLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
 		}
 		observed++
 		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 	}
-	deps.worktree.returnWithID = func(_, path, leaseID string, force bool) error {
+	deps.worktree.returnWithID = func(gotClonePath, path, leaseID string, force bool) error {
+		if gotClonePath != clonePath {
+			t.Fatalf("returnWithID clone path = %q, want %q", gotClonePath, clonePath)
+		}
 		if path != worktreePath {
 			t.Fatalf("returnWithID path = %q, want %q", path, worktreePath)
 		}
@@ -630,9 +637,13 @@ func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 
 func TestTeardownUsesConditionalReturnForKnownLease(t *testing.T) {
 	home, worktreePath, attempt := leasedTeardownFixture(t)
+	clonePath := filepath.Join(home, "projects", "demo")
 	called := false
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(gotClonePath, path, leaseID string) worktree.LeaseObservation {
+		if gotClonePath != clonePath {
+			t.Fatalf("observeLease clone path = %q, want %q", gotClonePath, clonePath)
+		}
 		if path != worktreePath || leaseID != "lease-1" {
 			t.Fatalf("observeLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
 		}
@@ -642,7 +653,10 @@ func TestTeardownUsesConditionalReturnForKnownLease(t *testing.T) {
 		t.Fatal("teardown used path-only return for a known lease")
 		return nil
 	}
-	deps.worktree.returnWithID = func(_, path, leaseID string, force bool) error {
+	deps.worktree.returnWithID = func(gotClonePath, path, leaseID string, force bool) error {
+		if gotClonePath != clonePath {
+			t.Fatalf("returnWithID clone path = %q, want %q", gotClonePath, clonePath)
+		}
 		if path != worktreePath || leaseID != "lease-1" || force {
 			t.Fatalf("returnWithID(%q, %q, %t), want (%q, %q, false)", path, leaseID, force, worktreePath, "lease-1")
 		}
@@ -650,7 +664,7 @@ func TestTeardownUsesConditionalReturnForKnownLease(t *testing.T) {
 		return nil
 	}
 
-	if err := (&Runtime{deps: deps}).releaseWorktree(filepath.Join(home, "projects", "myproj"), home, "task-1", attempt, false); err != nil {
+	if err := (&Runtime{deps: deps}).releaseWorktree(clonePath, home, "task-1", attempt, false); err != nil {
 		t.Fatal(err)
 	}
 	if !called {
