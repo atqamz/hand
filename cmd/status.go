@@ -449,9 +449,17 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 	}
 
 	views := make([]taskView, 0, len(histories))
+	holdsByID := make(map[string]state.Hold, len(holds))
+	for _, hold := range holds {
+		holdsByID[hold.ID] = hold
+	}
 	for _, history := range histories {
 		t := history.Task
 		v, _ := buildTaskView(home, client, history, false, readOnly, bounds)
+		if hold, ok := holdsByID[t.ID]; ok {
+			v.held = true
+			v.hold = hold
+		}
 		p, registered := projectByName[t.Project]
 		v.gateObserved = gateRunObservation(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)

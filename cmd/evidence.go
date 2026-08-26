@@ -94,15 +94,7 @@ func (s *fleetSnapshot) evidence() orientation.Evidence {
 			evidence.Targets = append(evidence.Targets, targetEvidence)
 		}
 		evidence.Work = append(evidence.Work, orientation.WorkEvidence{ID: view.task.ID, Kind: "task", State: view.agentState, Reported: view.reportedState})
-		for _, subject := range attention.Derive(taskAttentionEvidence(view)) {
-			if !subject.Actionable {
-				continue
-			}
-			evidence.Actionable = append(evidence.Actionable, orientation.ActionableEvidence{
-				TargetID: view.task.ID, TargetKind: "task", Generation: targetEvidence.Generation,
-				Kind: subject.Kind, Reason: subject.Reason, Provenance: subject.Provenance,
-			})
-		}
+		appendTaskAttention(&evidence, view, targetEvidence)
 	}
 	if s.next.Kind != "" {
 		evidence.NextActions = append(evidence.NextActions, orientation.NextAction{Kind: s.next.Kind, Target: s.next.Task, Command: s.next.Command, Reason: s.next.Reason})
@@ -123,4 +115,22 @@ func (s *fleetSnapshot) evidence() orientation.Evidence {
 		})
 	}
 	return evidence
+}
+
+func appendTaskAttention(evidence *orientation.Evidence, view taskView, targetEvidence orientation.TargetEvidence) {
+	for _, subject := range attention.Derive(taskAttentionEvidence(view)) {
+		item := orientation.ActionableEvidence{
+			TargetID: view.task.ID, TargetKind: "task", Generation: targetEvidence.Generation,
+			Kind: subject.Kind, Reason: subject.Reason, Provenance: subject.Provenance,
+		}
+		if subject.Actionable {
+			evidence.Actionable = append(evidence.Actionable, item)
+		} else if view.held {
+			evidence.Deferred = append(evidence.Deferred, orientation.DeferredSubject{
+				TargetID: view.task.ID,
+				Kind:     subject.Kind, HoldKind: view.hold.Kind, BlockedOn: view.hold.BlockedOn,
+				Provenance: subject.Provenance,
+			})
+		}
+	}
 }

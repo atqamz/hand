@@ -115,13 +115,25 @@ func TestClassifyNextActionExactPrecedence(t *testing.T) {
 		},
 		{
 			"hold outranks needs-project",
-			configuredWorker, 0, backlogSummary{}, []taskView{{task: state.Task{ID: "held-task"}}}, []state.Hold{{ID: "held-task"}},
-			nextAction{Kind: nextActionHold, Task: "held-task", Command: "hand status held-task", Reason: statusReason("held-task", "resolve its active hold")},
+			configuredWorker, 0, backlogSummary{}, nil, []state.Hold{{ID: "orphan-hold"}},
+			nextAction{Kind: nextActionHold, Task: "orphan-hold", Command: "none", Reason: "Operator or supervisor judgment is needed to resolve its active hold"},
 		},
 		{
 			"hold without a task has no safe command",
 			configuredWorker, 0, backlogSummary{}, nil, []state.Hold{{ID: "orphan-hold"}},
 			nextAction{Kind: nextActionHold, Task: "orphan-hold", Command: "none", Reason: "Operator or supervisor judgment is needed to resolve its active hold"},
+		},
+		{
+			"operator hold suppresses underlying attention",
+			configuredWorker, 1, backlogSummary{}, []taskView{{task: state.Task{ID: "operator-held"}, held: true, agentState: "idle"}},
+			[]state.Hold{{ID: "operator-held", Kind: state.HoldKindOperator, Reason: "needs a call"}},
+			nextAction{Kind: nextActionMonitor, Command: "hand watch --until-event", Reason: "Run `hand watch --until-event` as a background task; re-arm it after an event or when intentionally resuming after interruption or takeover"},
+		},
+		{
+			"blocked hold suppresses underlying attention",
+			configuredWorker, 1, backlogSummary{}, []taskView{{task: state.Task{ID: "blocked-held"}, held: true, agentState: "idle"}},
+			[]state.Hold{{ID: "blocked-held", Kind: state.HoldKindBlocked, BlockedOn: "other-task", Reason: "waiting for other-task"}},
+			nextAction{Kind: nextActionMonitor, Command: "hand watch --until-event", Reason: "Run `hand watch --until-event` as a background task; re-arm it after an event or when intentionally resuming after interruption or takeover"},
 		},
 		{
 			"gate outranks queued work",
@@ -184,6 +196,20 @@ func TestClassifyNextActionIsOrderIndependent(t *testing.T) {
 	}
 	if forward.Task != "a-repair" {
 		t.Fatalf("task = %q, want the needs-repair candidate regardless of input order", forward.Task)
+	}
+}
+
+func TestClassifyNextActionClearingHoldRestoresUnderlyingAttention(t *testing.T) {
+	view := taskView{task: state.Task{ID: "task-1"}, held: true, agentState: "idle"}
+	deferred := classifyNextAction(configuredWorker, 1, backlogSummary{}, []taskView{view}, []state.Hold{{ID: "task-1", Kind: state.HoldKindOperator}})
+	if deferred.Kind != nextActionMonitor || deferred.Task != "" {
+		t.Fatalf("held action = %#v, want monitoring while deferred", deferred)
+	}
+
+	view.held = false
+	released := classifyNextAction(configuredWorker, 1, backlogSummary{}, []taskView{view}, nil)
+	if released.Kind != nextActionUnreported || released.Task != "task-1" {
+		t.Fatalf("cleared action = %#v, want the underlying task attention", released)
 	}
 }
 
