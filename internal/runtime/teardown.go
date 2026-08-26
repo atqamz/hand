@@ -41,15 +41,27 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 		}
 		return Result{}, err
 	}
+	terminalCleanup := false
+	var active state.Attempt
 	if history.ActiveAttempt == nil {
-		return Result{}, Precondition(fmt.Errorf("task %q has no active attempt", req.ID))
+		if history.Task.Lifecycle != state.TaskTerminal {
+			return Result{}, Precondition(fmt.Errorf("task %q has no active attempt", req.ID))
+		}
+		var found bool
+		active, found = terminalAttemptWithResources(history)
+		if !found {
+			return Result{}, Precondition(fmt.Errorf("task %q has no active attempt", req.ID))
+		}
+		terminalCleanup = true
+	} else {
+		active = *history.ActiveAttempt
 	}
 	task := history.Task
 	originalTask := task
-	active := *history.ActiveAttempt
 	warnings := []string{}
 	fail := func(err error) (Result, error) { return Result{}, WithWarnings(err, warnings) }
 	launched := active.Lifecycle != state.AttemptProvisioning || active.LaunchSubmittedAt != "" || active.LaunchConfirmedAt != ""
+	var recoveredCompletion *completion.Record
 	if active.TeardownCompletionState != "" {
 		record, found, err := completion.FindAttempt(req.Home, active.ID)
 		if err != nil {
@@ -61,9 +73,12 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 					return fail(fmt.Errorf("record recovered completion state: %w", err))
 				}
 			}
-			return r.finishTeardown(req, record, active, warnings)
+			if !terminalCleanup {
+				return r.finishTeardown(req, record, active, warnings)
+			}
+			recoveredCompletion = &record
 		}
-		if active.TeardownCompletionState == state.TeardownCompletionAppended {
+		if active.TeardownCompletionState == state.TeardownCompletionAppended && recoveredCompletion == nil {
 			return fail(fmt.Errorf("completion state for attempt %d has no exact completion record", active.ID))
 		}
 	}
@@ -92,6 +107,12 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 	} else if disposition == "" {
 		return fail(fmt.Errorf("attempt %d has teardown lifecycle without disposition", active.ID))
 	}
+	if terminalCleanup && active.Worktree != "" && !worktreeCleanupSettled(active.TeardownWorktreeState) {
+		safety := r.resolveWorktreeCommitSafety(ctx, task, active)
+		if safety.State != commitSafetyProvenDurable {
+			return fail(Precondition(fmt.Errorf("refusing to return terminal task %q worktree %s: commit safety is not proven: %s", req.ID, active.Worktree, safety.Reason)))
+		}
+	}
 	releaseProject, err := state.Lock(req.Home, "project:"+task.Project)
 	if err != nil {
 		return fail(fmt.Errorf("lock project %q: %w", task.Project, err))
@@ -110,6 +131,9 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 	returnForce := teardownReturnForce(req.Force, dirtWasSafe, disposition)
 	if err := r.releaseWorktree(req.Home, req.ID, active, returnForce); err != nil {
 		return fail(err)
+	}
+	if recoveredCompletion != nil {
+		return r.finishTeardown(req, *recoveredCompletion, active, warnings)
 	}
 
 	record := completionFor(task, disposition, launched, active.LastReportState, active.LastReportNote)
@@ -146,6 +170,22 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 	return r.finishTeardown(req, record, active, warnings)
 }
 
+func terminalAttemptWithResources(history state.TaskHistory) (state.Attempt, bool) {
+	for i := len(history.Attempts) - 1; i >= 0; i-- {
+		attempt := history.Attempts[i]
+		if attempt.Lifecycle == state.AttemptProvisioning || attempt.Lifecycle == state.AttemptRunning {
+			continue
+		}
+		if hasHerdrIdentity(attempt.Herdr) && !herdrCleanupSettled(attempt.TeardownHerdrState) {
+			return attempt, true
+		}
+		if attempt.Worktree != "" && !worktreeCleanupSettled(attempt.TeardownWorktreeState) {
+			return attempt, true
+		}
+	}
+	return state.Attempt{}, false
+}
+
 func teardownReturnForce(requestForce, dirtWasSafe bool, disposition string) bool {
 	return requestForce || dirtWasSafe || disposition == state.TeardownDispositionForced || disposition == state.TeardownDispositionCompletedSafeDirt
 }
@@ -158,8 +198,16 @@ func (r *Runtime) finishTeardown(req TeardownRequest, record completion.Record, 
 	if terminalAttempt == "" {
 		return Result{}, WithWarnings(fmt.Errorf("attempt %d has no durable teardown terminal lifecycle", active.ID), warnings)
 	}
-	if err := state.TerminalizeTaskAndAttempt(req.Home, req.ID, active.ID, active.Lifecycle, terminalAttempt); err != nil {
-		return Result{}, WithWarnings(fmt.Errorf("record task completion: %w", err), warnings)
+	currentHistory, err := state.ReadHistory(req.Home, req.ID)
+	if err != nil {
+		return Result{}, WithWarnings(fmt.Errorf("read task completion state: %w", err), warnings)
+	}
+	if currentHistory.Task.Lifecycle != state.TaskTerminal {
+		if err := state.TerminalizeTaskAndAttempt(req.Home, req.ID, active.ID, active.Lifecycle, terminalAttempt); err != nil {
+			return Result{}, WithWarnings(fmt.Errorf("record task completion: %w", err), warnings)
+		}
+	} else if active.Lifecycle != terminalAttempt {
+		return Result{}, WithWarnings(fmt.Errorf("terminal task %q attempt %d has lifecycle %q, want recorded teardown lifecycle %q", req.ID, active.ID, active.Lifecycle, terminalAttempt), warnings)
 	}
 	if err := state.ClearHoldIfKind(req.Home, req.ID, state.HoldKindLimit); err != nil {
 		warnings = append(warnings, fmt.Sprintf("warning: clear usage-limit hold failed: %v", err))

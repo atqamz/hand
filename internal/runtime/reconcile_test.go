@@ -11,6 +11,7 @@ import (
 
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/completion"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
@@ -730,29 +731,59 @@ func TestReconcileConvergesExitedWorkerWhoseMergedPRLanded(t *testing.T) {
 	}
 }
 
-func TestReconcileConvergesKilledWorkerToInterrupted(t *testing.T) {
+func TestReconcileDiscoversMergedPRForShipWithoutRecordedPR(t *testing.T) {
 	home := reconcileFixture(t)
-	attempt := convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
-	report, err := reconcileRuntime(&missingReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	clonePath := filepath.Join(home, "projects", "demo")
+	runRuntimeGit(t, clonePath, "init", "-q")
+	runRuntimeGit(t, clonePath, "remote", "add", "origin", "https://github.com/example/demo.git")
+	prURL := "https://github.com/example/demo/pull/7"
+	faketool.GH{PRs: []faketool.GHPR{{Number: 7, URL: prURL, Branch: "topic", State: "MERGED", Repo: "example/demo"}}}.Install(t, faketool.Bin(t))
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Branch: "topic",
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+		Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Results[0].Landing != string(landingUnlanded) {
-		t.Fatalf("landing = %q, want unlanded", report.Results[0].Landing)
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	report, err := reconcileRuntime(&missingReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
 	}
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.Task.Lifecycle != state.TaskTerminal || history.Attempts[0].Lifecycle != state.AttemptInterrupted {
-		t.Fatalf("history = %+v, want an interrupted Attempt on a terminal task", history)
+	if report.Results[0].Landing != string(landingLanded) || history.Task.PR != prURL || !history.Task.MergeAnnounced || history.Task.Lifecycle != state.TaskTerminal {
+		t.Fatalf("report=%+v task=%+v, want discovered merged PR and terminal task", report, history.Task)
 	}
-	if history.Attempts[0].TeardownDisposition != state.TeardownDispositionWorkerExitedUnlanded {
-		t.Fatalf("disposition = %q, want %q", history.Attempts[0].TeardownDisposition, state.TeardownDispositionWorkerExitedUnlanded)
+	if record, found, err := completion.FindAttempt(home, history.Attempts[0].ID); err != nil || !found || record.Outcome != "merged" {
+		t.Fatalf("completion=%+v found=%v err=%v, want merged completion", record, found, err)
 	}
-	record, found, err := completion.FindAttempt(home, attempt.ID)
-	if err != nil || !found || record.Outcome != "unlanded" {
-		t.Fatalf("record=%+v found=%v err=%v, want an unlanded completion record", record, found, err)
+}
+
+func TestReconcileKeepsKilledWorkerUnknownWithoutDiscoverablePR(t *testing.T) {
+	home := reconcileFixture(t)
+	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	report, err := reconcileRuntime(&missingReconcileHerdr{}, nil).Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Landing != string(landingUnknown) {
+		t.Fatalf("landing = %q, want unknown", report.Results[0].Landing)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskOpen || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("history = %+v, want an open task and running Attempt", history)
+	}
+	if history.Task.RepairCode != repairCodeRunningPaneMissing {
+		t.Fatalf("repair code = %q, want running pane repair", history.Task.RepairCode)
 	}
 }
 
