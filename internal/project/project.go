@@ -133,6 +133,9 @@ func importCompletionIdentity(db *store.DB, homeDir string) error {
 		return err
 	}
 	if err := completion.MigrateProjectIdentity(homeDir, resolve); err != nil {
+		if errors.Is(err, completion.ErrInvalidStorePath) {
+			return nil
+		}
 		return err
 	}
 	return db.MarkMigrated(legacyCompletionIdentityKey)

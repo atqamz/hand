@@ -723,6 +723,48 @@ func TestMigrateWithoutProjectsDefersTheOneTimeLegacyImport(t *testing.T) {
 	}
 }
 
+func TestMigrateRetriesCompletionIdentityAfterInvalidStorePath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(completion.Path(dir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(completion.Path(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(dir); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := db.Migrated(legacyCompletionIdentityKey)
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done {
+		t.Fatal("invalid completion store path consumed the migration")
+	}
+
+	if err := os.RemoveAll(completion.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(completion.Path(dir), []byte(`{"id":"legacy","project":"demo","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-01T00:00:00Z"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(dir); err != nil {
+		t.Fatal(err)
+	}
+	records, err := completion.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Version != completion.RecordVersion {
+		t.Fatalf("records after retry = %+v, want one migrated record", records)
+	}
+}
+
 func projectMigrationDone(t *testing.T, dir string) bool {
 	t.Helper()
 	db, err := store.Open(dir)

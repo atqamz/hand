@@ -9,6 +9,7 @@ package completion
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -91,6 +92,8 @@ func Append(homeDir string, r Record) error {
 // ProjectIDUnknown rather than attaching the record to whatever project now holds its name.
 type ProjectIdentityResolver func(Record) string
 
+var ErrInvalidStorePath = errors.New("completion store path is not a file")
+
 // MigrateProjectIdentity is the one-time format bump that gives each existing line the identity
 // field, in place of a schema migration this file cannot take part in. The whole file is replaced
 // through a temp file and a rename or nothing is written; a current line is passed through as is.
@@ -112,7 +115,7 @@ func MigrateProjectIdentity(homeDir string, resolve ProjectIdentityResolver) err
 	// Leave invalid non-file paths to the append operation, which reports the same storage
 	// boundary it reported before identity migration ran.
 	if info.IsDir() {
-		return nil
+		return ErrInvalidStorePath
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
