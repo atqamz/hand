@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
 )
 
@@ -133,7 +134,7 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 			t.Setenv("HAND_HARNESS", harness.Claude)
 			tt.setup(t, home)
 
-			findings, err := doctorFindings(home)
+			findings, err := doctorFindings(home, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,6 +145,85 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDoctorWarnsForOpenBriefWithoutReportPath(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	missingPath := filepath.Join(home, "data", "missing", "brief.md")
+	declaredPath := filepath.Join(home, "data", "declared", "brief.md")
+	suffixPath := filepath.Join(home, "data", "suffix", "brief.md")
+	directoryPath := filepath.Join(home, "data", "directory", "brief.md")
+	for _, path := range []string{missingPath, declaredPath, suffixPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(directoryPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(missingPath, []byte("do the work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	declaredReportPath := state.ReportPath(home, "declared")
+	if err := os.WriteFile(declaredPath, []byte("append reports to "+declaredReportPath+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	suffixReportPath := state.ReportPath(home, "suffix")
+	if err := os.WriteFile(suffixPath, []byte("append reports to "+suffixReportPath+".bak\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range []state.Task{
+		{ID: "missing", Brief: "data/missing/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "declared", Brief: "data/declared/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "suffix", Brief: "data/suffix/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "directory", Brief: "data/directory/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "unreadable", Brief: "data/unreadable\x00/brief.md", Lifecycle: state.TaskOpen},
+	} {
+		if err := state.CreateTask(home, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	histories, err := state.ListOpenHistoriesReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := doctorFindings(".", histories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: `task "missing" brief does not declare report path`}) {
+		t.Fatalf("findings = %#v, want missing report path warning", findings)
+	}
+	if hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: `task "declared" brief does not declare report path`}) {
+		t.Fatalf("findings = %#v, declared report path should not warn", findings)
+	}
+	for _, id := range []string{"suffix", "directory"} {
+		if !hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf(`task %q brief does not declare report path`, id)}) {
+			t.Fatalf("findings = %#v, want %s report path warning", findings, id)
+		}
+	}
+	if !hasDoctorFindingPrefix(findings, doctorWarning, `task "unreadable" brief could not be read: `) {
+		t.Fatalf("findings = %#v, want unreadable brief finding", findings)
+	}
+}
+
+func hasDoctorFindingPrefix(findings []doctorFinding, severity doctorSeverity, prefix string) bool {
+	for _, finding := range findings {
+		if finding.Severity == severity && strings.HasPrefix(finding.Text, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDoctorIncludesProjectListGateFinding(t *testing.T) {
@@ -162,7 +242,7 @@ func TestDoctorIncludesProjectListGateFinding(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +278,7 @@ func TestDoctorKeepsProjectReadinessSeparateFromGateRunEvidence(t *testing.T) {
 		Log:    log,
 	}.Install(t, faketool.Bin(t))
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +370,7 @@ func TestDoctorReportsConfiguredRoutingDecision(t *testing.T) {
 	}
 	t.Setenv("HAND_HARNESS", harness.Claude)
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +398,7 @@ func TestDoctorReportsUnresolvedConfiguredRoutingDecision(t *testing.T) {
 	}
 	t.Setenv("HAND_HARNESS", harness.Claude)
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +427,7 @@ func TestDoctorReportsMalformedRoutingBeforeEffectiveFallback(t *testing.T) {
 	}
 	mustConfigSet(t, settingHarness, harness.Claude)
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +667,7 @@ func TestDoctorFlagsEveryMissingBundledSkillDestination(t *testing.T) {
 	mustConfigSet(t, settingHarness, harness.Claude)
 	// No skill.Refresh: every destination is missing.
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +706,7 @@ func TestDoctorFlagsADriftedBundledSkillFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +731,7 @@ func TestDoctorFlagsAForeignFileAtASkillDestinationAsAConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -682,7 +762,7 @@ func TestDoctorWarnsOnEachMissingRequiredTool(t *testing.T) {
 	mustConfigSet(t, settingHarness, harness.Claude)
 	faketool.NoTools(t)
 
-	findings, err := doctorFindings(home)
+	findings, err := doctorFindings(home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

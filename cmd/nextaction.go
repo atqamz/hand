@@ -96,13 +96,7 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 		return nextAction{Kind: nextActionUnacknowledged, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "act on its unacknowledged worker event")}
 	}
-	if h, ok := firstHold(holds); ok {
-		for _, v := range views {
-			if v.task.ID == h.ID {
-				return nextAction{Kind: nextActionHold, Task: h.ID, Command: statusCommand(h.ID),
-					Reason: statusReason(h.ID, "resolve its active hold")}
-			}
-		}
+	if h, ok := firstOrphanHold(holds, views); ok {
 		return nextAction{Kind: nextActionHold, Task: h.ID, Command: "none",
 			Reason: "Operator or supervisor judgment is needed to resolve its active hold"}
 	}
@@ -159,12 +153,21 @@ func firstView(views []taskView, match func(taskView) bool) (taskView, bool) {
 	return taskView{}, false
 }
 
-func firstHold(holds []state.Hold) (state.Hold, bool) {
+func firstOrphanHold(holds []state.Hold, views []taskView) (state.Hold, bool) {
 	if len(holds) == 0 {
 		return state.Hold{}, false
+	}
+	known := make(map[string]bool, len(views))
+	for _, view := range views {
+		known[view.task.ID] = true
 	}
 	sorted := make([]state.Hold, len(holds))
 	copy(sorted, holds)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-	return sorted[0], true
+	for _, hold := range sorted {
+		if !known[hold.ID] {
+			return hold, true
+		}
+	}
+	return state.Hold{}, false
 }

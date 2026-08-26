@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
@@ -88,7 +90,11 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			findings, err := doctorFindings(fleetHome)
+			histories, err := state.ListOpenHistoriesReadOnly(fleetHome)
+			if err != nil {
+				return err
+			}
+			findings, err := doctorFindings(fleetHome, histories)
 			if err != nil {
 				return err
 			}
@@ -183,7 +189,7 @@ func legacyDoctorCompatibility() bool {
 	return legacyDoctorCompat
 }
 
-func doctorFindings(fleetHome string) ([]doctorFinding, error) {
+func doctorFindings(fleetHome string, histories []state.TaskHistory) ([]doctorFinding, error) {
 	findings := make([]doctorFinding, 0)
 
 	agentsViolations, err := agentsmd.Check(fleetHome)
@@ -214,6 +220,24 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 			if !onPath(tool) {
 				findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)})
 			}
+		}
+	}
+
+	for _, history := range histories {
+		task := history.Task
+		briefPath := filepath.Join(fleetHome, task.Brief)
+		reportPath, err := filepath.Abs(state.ReportPath(fleetHome, task.ID))
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q report path could not be resolved: %v", task.ID, err)})
+			continue
+		}
+		declares, err := briefDeclaresReportPath(briefPath, reportPath)
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q brief could not be read: %v", task.ID, err)})
+			continue
+		}
+		if !declares {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q brief does not declare report path", task.ID)})
 		}
 	}
 
@@ -260,6 +284,44 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 		}
 	}
 	return findings, nil
+}
+
+func briefDeclaresReportPath(briefPath, reportPath string) (bool, error) {
+	data, err := os.ReadFile(briefPath)
+	if err != nil {
+		info, statErr := os.Stat(briefPath)
+		if os.IsNotExist(err) || (statErr == nil && info.IsDir()) {
+			return false, nil
+		}
+		return false, err
+	}
+	text := string(data)
+	for start := 0; start < len(text); {
+		at := strings.Index(text[start:], reportPath)
+		if at < 0 {
+			return false, nil
+		}
+		end := start + at + len(reportPath)
+		if end == len(text) || !reportPathSuffix(text, end) {
+			return true, nil
+		}
+		start += at + 1
+	}
+	return false, nil
+}
+
+func reportPathSuffix(text string, end int) bool {
+	// A report path is declared only when it is not followed by a path/suffix character, or by a
+	// dot followed by one; punctuation, a bare dot, and a newline are valid boundaries.
+	next := text[end]
+	if next == '.' && end+1 < len(text) && isReportPathSuffixChar(text[end+1]) {
+		return true
+	}
+	return isReportPathSuffixChar(next)
+}
+
+func isReportPathSuffixChar(char byte) bool {
+	return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-' || char == '/' || char == '\\'
 }
 
 // A local-only fleet never needs gh, while a registered project delivering through direct-pr or

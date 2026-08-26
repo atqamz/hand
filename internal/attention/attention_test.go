@@ -56,6 +56,22 @@ func TestDeriveIsDeterministicAndSeparatesUnknownRuntimeFromReportClaim(t *testi
 	}
 }
 
+func TestDeriveRetainsHeldSubjectsAsNotActionable(t *testing.T) {
+	got := Derive(Evidence{ID: "task-1", Held: true, Unreported: true})
+	if len(got) != 1 {
+		t.Fatalf("subjects = %#v, want one held subject", got)
+	}
+	if got[0].Kind != KindUnreported || got[0].Reason != "worker stopped without a terminal report" {
+		t.Fatalf("subject = %#v, want the underlying unreported condition", got[0])
+	}
+	if got[0].Actionable {
+		t.Fatal("held subject is actionable")
+	}
+	if NeedsAttention(Evidence{ID: "task-1", Held: true, Unreported: true}) {
+		t.Fatal("held subject needs attention")
+	}
+}
+
 func TestUnreportedRuntimeMatchesWatcherCatchUpRule(t *testing.T) {
 	for _, test := range []struct {
 		runtime, reported string

@@ -1369,8 +1369,12 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 		if err != nil {
 			return fmt.Errorf("parse persisted brief for launch confirmation: %w", err)
 		}
+		reportPath, err := absoluteReportPath(home, task.ID)
+		if err != nil {
+			return fmt.Errorf("resolve persisted report path: %w", err)
+		}
 		spec, err := r.deps.buildHarness(attempt.Harness, harness.Options{
-			Worktree: attempt.Worktree, Brief: briefPath, Model: attempt.Model, Effort: attempt.Effort,
+			Worktree: attempt.Worktree, Brief: briefPath, ReportPath: reportPath, Model: attempt.Model, Effort: attempt.Effort,
 			ExecutionClass: brief.ExecutionClass(attempt.ExecutionClass), BriefHasFrontMatter: hasFrontMatter,
 		})
 		if err != nil {

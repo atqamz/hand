@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/agentsmd"
-	"github.com/atqamz/hand/internal/attention"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/home"
@@ -239,15 +238,7 @@ func buildSessionOrientation(ctx context.Context, fleetHome string, views []task
 				evidence.Targets = append(evidence.Targets, targetEvidence)
 			}
 			evidence.Work = append(evidence.Work, orientation.WorkEvidence{ID: view.task.ID, Kind: "task", State: view.agentState, Reported: view.reportedState})
-			for _, subject := range attention.Derive(taskAttentionEvidence(view)) {
-				if !subject.Actionable {
-					continue
-				}
-				evidence.Actionable = append(evidence.Actionable, orientation.ActionableEvidence{
-					TargetID: view.task.ID, TargetKind: "task", Generation: targetEvidence.Generation,
-					Kind: subject.Kind, Reason: subject.Reason, Provenance: subject.Provenance,
-				})
-			}
+			appendTaskAttention(&evidence, view, targetEvidence)
 		}
 		if next.Kind != "" {
 			evidence.NextActions = []orientation.NextAction{{Kind: next.Kind, Target: next.Task, Command: next.Command, Reason: next.Reason}}
@@ -339,6 +330,11 @@ func appendSessionOrientation(doc *axi.Doc, result orientation.SupervisorOrienta
 		actionRows = append(actionRows, []string{subject.Target.ID, subject.Kind, subject.Reason, subject.Provenance})
 	}
 	doc.Rows("orientation_actionable", []string{"target_id", "kind", "reason", "provenance"}, actionRows)
+	deferredRows := make([][]string, 0, len(result.Deferred))
+	for _, subject := range result.Deferred {
+		deferredRows = append(deferredRows, []string{subject.TargetID, subject.Kind, subject.HoldKind, subject.BlockedOn, subject.Provenance})
+	}
+	doc.Rows("orientation_deferred", []string{"target_id", "kind", "hold_kind", "blocked_on", "provenance"}, deferredRows)
 	nextRows := make([][]string, 0, len(result.NextActions))
 	for _, action := range result.NextActions {
 		nextRows = append(nextRows, []string{action.Kind, action.Target, action.Command, action.Reason})
