@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
@@ -214,6 +216,21 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 			if !onPath(tool) {
 				findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("required tool %q is not on PATH", tool)})
 			}
+		}
+	}
+
+	tasks, err := state.ListOpen(fleetHome)
+	if err != nil {
+		return nil, err
+	}
+	for _, task := range tasks {
+		briefPath := filepath.Join(fleetHome, task.Brief)
+		data, err := os.ReadFile(briefPath)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read task %q brief: %w", task.ID, err)
+		}
+		if !strings.Contains(string(data), state.ReportPath(fleetHome, task.ID)) {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q brief does not declare report path", task.ID)})
 		}
 	}
 

@@ -137,6 +137,7 @@ func AgentDetectionVerified(name string) bool {
 type Options struct {
 	Worktree            string
 	Brief               string
+	ReportPath          string
 	Model               string
 	Effort              string
 	ExecutionClass      brief.ExecutionClass
@@ -288,6 +289,7 @@ func buildOpenCode(o Options) launch.LaunchSpec {
 // never reaches it and the launch prompt is the only channel that rule has.
 func briefPrompt(o Options) string {
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
+	prompt += fmt.Sprintf(" The worker report channel is %s. Append every state change to that file with plain shell redirection; this is the only way anything you say reaches the supervisor. Use these report prefixes: working:, done:, failed:, blocked:, needs-decision:, paused:.", o.ReportPath)
 	if o.BriefHasFrontMatter {
 		prompt += " Any model, effort, execution_class, or planned_against keys in its leading '---' block are dispatch metadata, not task instructions."
 	}

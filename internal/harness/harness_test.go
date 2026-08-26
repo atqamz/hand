@@ -186,6 +186,28 @@ func TestBuildFrontMatterDisclaimer(t *testing.T) {
 	}
 }
 
+func TestBuildPromptDeclaresReportChannel(t *testing.T) {
+	options := Options{
+		Brief:      "/tmp/data/task-1/brief.md",
+		ReportPath: "/tmp/state/task-1.status",
+	}
+	spec := buildSpec(t, Claude, options)
+	for _, want := range []string{
+		options.ReportPath,
+		"working:",
+		"done:",
+		"failed:",
+		"blocked:",
+		"needs-decision:",
+		"paused:",
+		"plain shell redirection",
+	} {
+		if !containsText(spec.Args, want) {
+			t.Fatalf("Build prompt = %#v, want report-channel guidance %q", spec.Args, want)
+		}
+	}
+}
+
 func TestBuildMechanicalExecutionGuidance(t *testing.T) {
 	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
 		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", ExecutionClass: brief.ExecutionClassMechanical})

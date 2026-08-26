@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
 )
 
@@ -143,6 +144,52 @@ func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDoctorWarnsForOpenBriefWithoutReportPath(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	missingPath := filepath.Join(home, "data", "missing", "brief.md")
+	declaredPath := filepath.Join(home, "data", "declared", "brief.md")
+	for _, path := range []string{missingPath, declaredPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(missingPath, []byte("do the work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	declaredReportPath := state.ReportPath(home, "declared")
+	if err := os.WriteFile(declaredPath, []byte("append reports to "+declaredReportPath+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range []state.Task{
+		{ID: "missing", Brief: "data/missing/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "declared", Brief: "data/declared/brief.md", Lifecycle: state.TaskOpen},
+	} {
+		if err := state.CreateTask(home, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	findings, err := doctorFindings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: `task "missing" brief does not declare report path`}) {
+		t.Fatalf("findings = %#v, want missing report path warning", findings)
+	}
+	if hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: `task "declared" brief does not declare report path`}) {
+		t.Fatalf("findings = %#v, declared report path should not warn", findings)
 	}
 }
 

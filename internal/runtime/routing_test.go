@@ -495,7 +495,7 @@ func TestProvisionBuildsFromPersistedAttemptSnapshot(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if gotHarness != "codex" || gotOptions.Model != "snapshot-model" || gotOptions.Effort != "high" || gotOptions.ExecutionClass != "deep" {
+	if gotHarness != "codex" || gotOptions.Model != "snapshot-model" || gotOptions.Effort != "high" || gotOptions.ExecutionClass != "deep" || gotOptions.ReportPath != state.ReportPath(home, attempt.TaskID) {
 		t.Fatalf("harness build = %q %+v, want persisted attempt snapshot", gotHarness, gotOptions)
 	}
 }

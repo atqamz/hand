@@ -184,7 +184,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	}
 
 	workerSpec, err := r.deps.buildHarness(req.attempt.Harness, harness.Options{
-		Worktree: worktreePath, Brief: req.briefPath, Model: req.attempt.Model, Effort: req.attempt.Effort,
+		Worktree: worktreePath, Brief: req.briefPath, ReportPath: state.ReportPath(req.home, req.attempt.TaskID), Model: req.attempt.Model, Effort: req.attempt.Effort,
 		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter,
 	})
 	if err != nil {
