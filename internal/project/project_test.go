@@ -242,6 +242,11 @@ func TestSetModeRollsBackWhenProjectionWriteFails(t *testing.T) {
 func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	dir := t.TempDir()
 	writeRegistry(t, dir, "# Projects\n\n# profile=demo\n- demo: https://github.com/org/demo mode=no-mistakes upstream=up/demo\n\n# profile=second\n- second: https://github.com/org/second mode=direct-pr\n")
+	registered, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityBeforeRename := identityOf(t, registered[0])
 	db, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +258,7 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := completion.Append(dir, completion.Record{ID: "task-1", Project: "demo", Kind: "ship", Outcome: "merged"}); err != nil {
+	if err := completion.Append(dir, completion.Record{ID: "task-1", Project: "demo", ProjectID: identityBeforeRename, Kind: "ship", Outcome: "merged"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -272,6 +277,9 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	if len(projects) != len(want) {
 		t.Fatalf("projects = %+v, want %+v", projects, want)
 	}
+	if projects[0].ID != identityBeforeRename {
+		t.Fatalf("identity after rename = %q, want the unchanged %q", projects[0].ID, identityBeforeRename)
+	}
 	for i := range want {
 		want[i].ID = identityOf(t, projects[i])
 		if projects[i] != want[i] {
@@ -284,12 +292,14 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 	}
 	task, found, err := db.ReadTask("task-1")
 	_ = db.Close()
-	if err != nil || !found || task.Project != "renamed" {
-		t.Fatalf("task = %+v, found=%v, err=%v, want renamed project", task, found, err)
+	if err != nil || !found || task.Project != "renamed" || task.ProjectID != identityBeforeRename {
+		t.Fatalf("task = %+v, found=%v, err=%v, want renamed project on the unchanged identity", task, found, err)
 	}
+	// The audit record keeps the label it was written with and the identity the rename could not
+	// change: rename rewrites no history at all any more (atqamz/hand#388).
 	records, err := completion.List(dir)
-	if err != nil || len(records) != 1 || records[0].Project != "renamed" {
-		t.Fatalf("completion records = %+v, err=%v, want renamed project", records, err)
+	if err != nil || len(records) != 1 || records[0].Project != "demo" || records[0].ProjectID != identityBeforeRename {
+		t.Fatalf("completion records = %+v, err=%v, want the record left under the pre-rename label", records, err)
 	}
 	projection, err := os.ReadFile(RegistryPath(dir))
 	if err != nil {
@@ -327,7 +337,7 @@ func TestRenameRollsBackWhenProjectionWriteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(records) != 1 || records[0].Project != "demo" {
-		t.Fatalf("completion records = %+v, want old name after rollback", records)
+		t.Fatalf("completion records = %+v, want history untouched by the failed rename", records)
 	}
 }
 
@@ -365,7 +375,10 @@ func TestRenameRestoresProjectionWhenWriteFailsAfterReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantRecords := []completion.Record{{ID: "demo-task", Project: "demo"}, {ID: "unrelated", Project: "renamed"}}
+	wantRecords := []completion.Record{
+		{Version: completion.RecordVersion, ID: "demo-task", Project: "demo", ProjectID: completion.ProjectIDUnknown},
+		{Version: completion.RecordVersion, ID: "unrelated", Project: "renamed", ProjectID: completion.ProjectIDUnknown},
+	}
 	if len(records) != len(wantRecords) {
 		t.Fatalf("completion records = %+v, want %+v", records, wantRecords)
 	}
@@ -376,61 +389,47 @@ func TestRenameRestoresProjectionWhenWriteFailsAfterReplacement(t *testing.T) {
 	}
 }
 
-func TestRenameRollbackOnlyRestoresRenamedCompletionRecords(t *testing.T) {
-	dir := t.TempDir()
-	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
-	if err := completion.Append(dir, completion.Record{ID: "renamed-project", Project: "demo"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := completion.Append(dir, completion.Record{ID: "unrelated", Project: "renamed"}); err != nil {
-		t.Fatal(err)
-	}
-	original := projectRenameProjectionWriter
-	t.Cleanup(func() { projectRenameProjectionWriter = original })
-	projectRenameProjectionWriter = func(*store.DB, string, string, string) error {
-		return errors.New("projection failed")
-	}
+// atqamz/hand#396's rollback defect cannot recur, because a rename no longer writes the history it
+// used to have to restore: an unrelated record already carrying the destination name is untouched
+// whether the rename succeeds or fails.
+func TestRenameNeverRewritesCompletionHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		failsWriting bool
+	}{{name: "successful rename"}, {name: "failed rename", failsWriting: true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
+			if err := completion.Append(dir, completion.Record{ID: "renamed-project", Project: "demo"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := completion.Append(dir, completion.Record{ID: "unrelated", Project: "renamed"}); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(completion.Path(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.failsWriting {
+				original := projectRenameProjectionWriter
+				t.Cleanup(func() { projectRenameProjectionWriter = original })
+				projectRenameProjectionWriter = func(*store.DB, string, string, string) error {
+					return errors.New("projection failed")
+				}
+			}
 
-	if err := Rename(dir, "demo", "renamed"); err == nil || !strings.Contains(err.Error(), "projection failed") {
-		t.Fatalf("Rename = %v, want projection failure", err)
-	}
-	records, err := completion.List(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []completion.Record{
-		{ID: "renamed-project", Project: "demo"},
-		{ID: "unrelated", Project: "renamed"},
-	}
-	if len(records) != len(want) {
-		t.Fatalf("completion records = %+v, want %+v", records, want)
-	}
-	for i := range want {
-		if records[i] != want[i] {
-			t.Fatalf("completion record %d = %+v, want %+v", i, records[i], want[i])
-		}
-	}
-}
-
-func TestRenameRollsBackWhenHistoryWriteFails(t *testing.T) {
-	dir := t.TempDir()
-	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
-	original := projectRenameHistoryWriter
-	t.Cleanup(func() { projectRenameHistoryWriter = original })
-	projectRenameHistoryWriter = func(string, string, string) (completion.RenameRestore, error) {
-		return completion.RenameRestore{}, errors.New("history failed")
-	}
-
-	err := Rename(dir, "demo", "renamed")
-	if err == nil || !strings.Contains(err.Error(), "history failed") {
-		t.Fatalf("Rename = %v, want history failure", err)
-	}
-	projects, err := List(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 || projects[0].Name != "demo" {
-		t.Fatalf("projects = %+v, want old name after rollback", projects)
+			err = Rename(dir, "demo", "renamed")
+			if tc.failsWriting != (err != nil) {
+				t.Fatalf("Rename = %v, want failure=%v", err, tc.failsWriting)
+			}
+			after, err := os.ReadFile(completion.Path(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Fatalf("completions = %q, want the file byte-identical to %q", after, before)
+			}
+		})
 	}
 }
 
@@ -721,6 +720,48 @@ func TestMigrateWithoutProjectsDefersTheOneTimeLegacyImport(t *testing.T) {
 				t.Fatalf("projects after repeat migration = %+v, want the first import exactly once", projects)
 			}
 		})
+	}
+}
+
+func TestMigrateRetriesCompletionIdentityAfterInvalidStorePath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(completion.Path(dir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(completion.Path(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(dir); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := db.Migrated(legacyCompletionIdentityKey)
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done {
+		t.Fatal("invalid completion store path consumed the migration")
+	}
+
+	if err := os.RemoveAll(completion.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(completion.Path(dir), []byte(`{"id":"legacy","project":"demo","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-01T00:00:00Z"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(dir); err != nil {
+		t.Fatal(err)
+	}
+	records, err := completion.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Version != completion.RecordVersion {
+		t.Fatalf("records after retry = %+v, want one migrated record", records)
 	}
 }
 
@@ -1049,5 +1090,142 @@ func TestAddWaitsForTheRegistryLock(t *testing.T) {
 	projection, err := os.ReadFile(RegistryPath(dir))
 	if err != nil || !strings.Contains(string(projection), "- alpha: ") {
 		t.Fatalf("projection = %q, %v, want alpha listed", projection, err)
+	}
+}
+
+// The fleet home atqamz/hand#388 describes: a project removed and its name claimed by a different
+// project, alongside records whose project is gone for good. The one-time completion migration has
+// to keep those three populations apart rather than pooling them under the live name.
+func TestCompletionIdentityMigrationSeparatesReusedNamesFromUnknownLineage(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n")
+	db, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddProject(store.Project{Name: "alpha", URL: "https://github.com/org/alpha", Mode: ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddProject(store.Project{Name: "gamma", URL: "https://github.com/org/gamma", Mode: ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := db.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpha, retiredGamma := projects[0].ID, projects[1].ID
+	for _, task := range []store.Task{
+		{ID: "alpha-1", Project: "alpha", Kind: store.KindShip, Lifecycle: store.TaskTerminal},
+		{ID: "beta-1", Project: "beta", Kind: store.KindScout, Lifecycle: store.TaskTerminal},
+		{ID: "gamma-old", Project: "gamma", Kind: store.KindShip, Lifecycle: store.TaskTerminal},
+	} {
+		if err := db.CreateTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// gamma is retired and its name reissued to a different project, which is what makes the two
+	// gamma records indistinguishable by name alone.
+	if removed, err := db.RemoveProject("gamma"); err != nil || !removed {
+		t.Fatalf("RemoveProject = %v, %v", removed, err)
+	}
+	if err := db.CreateTask(store.Task{ID: "gamma-unknown", Project: "gamma", Kind: store.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddProject(store.Project{Name: "gamma", URL: "https://github.com/org/gamma-two", Mode: ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	liveGamma := identityOf(t, mustFindProject(t, db, "gamma"))
+	if liveGamma == retiredGamma {
+		t.Fatalf("reissued name kept identity %q", liveGamma)
+	}
+	if err := db.CreateTask(store.Task{ID: "gamma-new", Project: "gamma", Kind: store.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Written in the pre-identity shape, which is what an existing fleet home's file holds.
+	writeCompletions(t, dir,
+		`{"id":"alpha-1","project":"alpha","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-01T00:00:00Z"}`,
+		`{"id":"beta-1","project":"beta","kind":"scout","outcome":"done","detail":"","torndown_at":"2026-08-02T00:00:00Z"}`,
+		`{"id":"gamma-old","project":"gamma","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-03T00:00:00Z"}`,
+		`{"id":"gamma-new","project":"gamma","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-04T00:00:00Z"}`,
+		`{"id":"gamma-unknown","project":"gamma","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-04T12:00:00Z"}`,
+		`{"id":"vanished","project":"delta","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-05T00:00:00Z"}`,
+	)
+
+	if _, err := List(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := completion.List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"alpha-1": alpha,
+		// beta was removed and never reclaimed, so nothing in the file or the registry can name it.
+		"beta-1": completion.ProjectIDUnknown,
+		// The task rows keep the two gamma populations apart, which is the whole point of the
+		// surrogate identity: the retired project's record does not join the reissued name's history.
+		"gamma-old":     retiredGamma,
+		"gamma-new":     liveGamma,
+		"gamma-unknown": completion.ProjectIDUnknown,
+		// No task row survives, and "delta" names no registered project: not knowable, so not guessed.
+		"vanished": completion.ProjectIDUnknown,
+	}
+	if len(records) != len(want) {
+		t.Fatalf("records = %+v, want %d", records, len(want))
+	}
+	for _, r := range records {
+		if r.Version != completion.RecordVersion {
+			t.Fatalf("record %+v, want version %d", r, completion.RecordVersion)
+		}
+		if r.ProjectID != want[r.ID] {
+			t.Fatalf("record %q identity = %q, want %q", r.ID, r.ProjectID, want[r.ID])
+		}
+	}
+
+	// The migration is marked done, so a second open neither rewrites the file nor reattributes
+	// anything through the live registry a second time.
+	before, err := os.ReadFile(completion.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Rename(dir, "gamma", "gamma-renamed"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(completion.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("completions = %q after a later rename, want %q", after, before)
+	}
+}
+
+func mustFindProject(t *testing.T, db *store.DB, name string) Project {
+	t.Helper()
+	projects, err := db.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range projects {
+		if p.Name == name {
+			return p
+		}
+	}
+	t.Fatalf("project %q is not registered", name)
+	return Project{}
+}
+
+func writeCompletions(t *testing.T, dir string, lines ...string) {
+	t.Helper()
+	if err := os.MkdirAll(store.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(completion.Path(dir), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

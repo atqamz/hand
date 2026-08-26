@@ -723,6 +723,9 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
+	// Registered before the task, so the row resolves an identity and the record carries the same
+	// one: that link is what a later rename of myproj leaves untouched (atqamz/hand#388).
+	identity := registerStoreProject(t, home, "myproj")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
 		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
@@ -759,7 +762,8 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 		t.Fatalf("TornDownAt %v predates teardown start %v", torndownAt, before)
 	}
 	got.TornDownAt = ""
-	want := completion.Record{ID: "task-1", Project: "myproj", Kind: "ship", Outcome: "merged", Detail: "PR https://example.com/pr/1", AttemptID: active.ID, AttemptLifecycle: string(state.AttemptCompleted)}
+	want := completion.Record{Version: completion.RecordVersion, ID: "task-1", Project: "myproj", ProjectID: identity,
+		Kind: "ship", Outcome: "merged", Detail: "PR https://example.com/pr/1", AttemptID: active.ID, AttemptLifecycle: string(state.AttemptCompleted)}
 	if got != want {
 		t.Fatalf("record = %+v, want %+v", got, want)
 	}

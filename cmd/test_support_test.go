@@ -10,7 +10,37 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 )
+
+// Registers a project directly in the store and returns the identity minted for it, for a test
+// that needs a task to resolve one without also standing up a clone and a projection.
+func registerStoreProject(t *testing.T, home, name string) string {
+	t.Helper()
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err := db.AddProject(store.Project{Name: name, URL: "local", Mode: "local-only"}); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := db.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range projects {
+		if p.Name == name {
+			return p.ID
+		}
+	}
+	t.Fatalf("project %q is not registered after adding it", name)
+	return ""
+}
 
 func writeTaskAttempt(t *testing.T, home string, task state.Task, attempt state.Attempt) error {
 	t.Helper()

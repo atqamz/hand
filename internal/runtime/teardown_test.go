@@ -55,6 +55,39 @@ func TestTeardownFailureAfterWorktreeReturnPreservesOwnershipEvidence(t *testing
 	}
 }
 
+func TestTeardownMigratesLegacyCompletionsBeforeAppending(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("findings\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(completion.Path(home), []byte(`{"id":"legacy","project":"demo","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-01T00:00:00Z"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning, CreatedAt: "2026-08-14T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := New().Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].Version != completion.RecordVersion || records[0].ProjectID != completion.ProjectIDUnknown {
+		t.Fatalf("records = %+v, want the legacy line migrated before teardown appended", records)
+	}
+}
+
 func TestTeardownCompletionAppendFailureLeavesStateRetryable(t *testing.T) {
 	home, _ := teardownFixture(t, true)
 	appendErr := errors.New("completion store unavailable")

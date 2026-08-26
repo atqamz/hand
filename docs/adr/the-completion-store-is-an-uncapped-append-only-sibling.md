@@ -1,7 +1,7 @@
 # Completions use an uncapped JSONL file
 
 - Date: 2026-08-04
-- Status: accepted, superseded in part by [Tasks are durable and Attempts own execution](tasks-are-durable-and-attempts-own-execution.md)
+- Status: accepted, superseded in part by [Tasks are durable and Attempts own execution](tasks-are-durable-and-attempts-own-execution.md) and by [A project is identified by a surrogate id, not its name](a-project-is-identified-by-a-surrogate-id-not-its-name.md), which removes the project-rename exception below
 - Issues: atqamz/hand#78
 - PRs: none single
 
