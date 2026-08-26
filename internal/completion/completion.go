@@ -102,16 +102,21 @@ func MigrateProjectIdentity(homeDir string, resolve ProjectIdentityResolver) err
 	defer release()
 
 	path := Path(homeDir)
-	data, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("read completions store: %w", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
 		return fmt.Errorf("stat completions store: %w", err)
+	}
+	// Leave invalid non-file paths to the append operation, which reports the same storage
+	// boundary it reported before identity migration ran.
+	if info.IsDir() {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read completions store: %w", err)
 	}
 
 	var rendered strings.Builder
