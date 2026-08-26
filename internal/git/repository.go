@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/atqamz/hand/internal/toolchain"
@@ -40,6 +41,25 @@ func CommonDir(path string) (string, error) {
 		return "", fmt.Errorf("make Git common directory absolute: %w", err)
 	}
 	return filepath.Clean(common), nil
+}
+
+// SamePath reports whether two paths identify the same filesystem location.
+func SamePath(left, right string) bool {
+	canonical := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return filepath.Clean(path)
+		}
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = resolved
+		}
+		return filepath.Clean(abs)
+	}
+	left, right = canonical(left), canonical(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 func Run(dir string, args ...string) (string, error) {

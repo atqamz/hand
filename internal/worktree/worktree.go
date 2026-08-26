@@ -313,26 +313,12 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 			return Lease{}, fmt.Errorf("treehouse get returned an unreadable worktree: %w", err)
 		}
 		expected := filepath.Join(clonePath, ".git")
-		if !sameWorktreeRepository(expected, actual) {
+		if !gitrepo.SamePath(expected, actual) {
 			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
 			return Lease{}, fmt.Errorf("treehouse get returned worktree rooted in another Git repository: got %s, want %s", actual, expected)
 		}
 	}
 	return lease, nil
-}
-
-func sameWorktreeRepository(left, right string) bool {
-	canonical := func(path string) string {
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return filepath.Clean(path)
-		}
-		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-			abs = resolved
-		}
-		return filepath.Clean(abs)
-	}
-	return canonical(left) == canonical(right)
 }
 
 // Reads the full commit object ID currently checked out by a leased worktree.

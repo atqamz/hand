@@ -1198,6 +1198,9 @@ func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list open tasks: %w", err)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("list open tasks: %w", err)
+	}
 	for i := range histories {
 		attempts, err := db.ListAttempts(histories[i].Task.ID)
 		if err != nil {
@@ -1244,6 +1247,9 @@ func (db *DB) ListReconciliationHistories() ([]TaskHistory, error) {
 		histories = append(histories, TaskHistory{Task: task})
 	}
 	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list reconciliation tasks: %w", err)
+	}
+	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("list reconciliation tasks: %w", err)
 	}
 	for i := range histories {

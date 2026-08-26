@@ -37,7 +37,7 @@ func TestCommonDirReturnsTheMainRepositoryForAWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join(repo, ".git")
-	if got != want {
+	if !SamePath(got, want) {
 		t.Fatalf("CommonDir() = %q, want %q", got, want)
 	}
 }

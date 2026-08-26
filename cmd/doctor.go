@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -345,30 +344,12 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q worktree common directory cannot be inspected: %v", history.Task.ID, err)})
 			continue
 		}
-		if sameDoctorPath(expected, actual) {
+		if git.SamePath(expected, actual) {
 			continue
 		}
 		findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q worktree is rooted in another Git repository: got %s, want %s", history.Task.ID, actual, expected)})
 	}
 	return findings
-}
-
-func sameDoctorPath(left, right string) bool {
-	canonical := func(path string) string {
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return filepath.Clean(path)
-		}
-		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-			abs = resolved
-		}
-		return filepath.Clean(abs)
-	}
-	left, right = canonical(left), canonical(right)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
 }
 
 // A local-only fleet never needs gh, while a registered project delivering through direct-pr or

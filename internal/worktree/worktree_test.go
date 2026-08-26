@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -31,6 +32,15 @@ func testReturnLease(worktreePath, leaseID string, force bool) error {
 func writeFakeTreehouse(t *testing.T, response faketool.TreehouseResponse) {
 	t.Helper()
 	faketool.Treehouse{Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func writeCollisionTask(t *testing.T, home, id, path, leaseID string) {
@@ -121,7 +131,7 @@ func TestGetRejectsAWorktreeFromAnotherRegisteredClone(t *testing.T) {
 	faketool.InitRepo(t, clone)
 	faketool.InitRepo(t, foreign)
 	faketool.Treehouse{Responses: []faketool.TreehouseResponse{
-		{Command: "get", Stdout: `{"path":"` + foreign + `","lease_id":"lease-1"}`},
+		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": foreign, "lease_id": "lease-1"})},
 		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", foreign}},
 	}}.Install(t, faketool.Bin(t))
 	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "another Git repository") {
@@ -401,7 +411,7 @@ func TestObserveLeaseScopesStatusToTheFleetHome(t *testing.T) {
 	faketool.InitRepo(t, path)
 	writeFakeTreehouse(t, faketool.TreehouseResponse{
 		Command: "--root", Args: []string{clone, "status", "--json"},
-		Stdout: `[{"path":"` + path + `","status":"leased","lease_id":"lease-1"}]`,
+		Stdout: mustJSON(t, []map[string]string{{"path": path, "status": "leased", "lease_id": "lease-1"}}),
 	})
 	if got := ObserveLease(clone, path, "lease-1"); got.State != LeaseExact {
 		t.Fatalf("testObserveLease() = %+v, want the scoped pool lease", got)
