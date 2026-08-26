@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/attention"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/orientation"
@@ -658,6 +660,66 @@ func TestOrientRendersNextActionFromFleetState(t *testing.T) {
 	}
 	if after.Task.RepairCode != "E_ORPHAN" {
 		t.Fatalf("task mutated by orient: %#v", after.Task)
+	}
+}
+
+func TestOrientRendersHeldConditionAsDeferred(t *testing.T) {
+	home := setupSessionHome(t)
+	view := taskView{
+		task:       state.Task{ID: "held-task", Lifecycle: state.TaskOpen},
+		held:       true,
+		hold:       state.Hold{ID: "held-task", Kind: state.HoldKindOperator, Reason: "needs a call"},
+		agentState: "idle",
+	}
+	got, err := buildSessionOrientation(context.Background(), home, []taskView{view}, nextAction{Kind: nextActionMonitor}, orientation.MonitorStateRearmed, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Deferred) != 1 || got.Deferred[0].TargetID != "held-task" || got.Deferred[0].Kind != attention.KindUnreported {
+		t.Fatalf("deferred = %#v, want held unreported condition", got.Deferred)
+	}
+	if len(got.Actionable) != 0 {
+		t.Fatalf("actionable = %#v, want no held condition", got.Actionable)
+	}
+}
+
+func TestOrientLoadsTaskHoldAndKeepsItsConditionVisible(t *testing.T) {
+	home := setupSessionHome(t)
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddProject(store.Project{Name: "demo", URL: "local", Mode: "local-only"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(store.Task{ID: "held-task", Project: "demo", Kind: store.KindShip}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "held-task"), []byte("blocked: waiting for another task\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "held-task", Kind: state.HoldKindBlocked, BlockedOn: "other-task", Reason: "waiting for other-task"}); err != nil {
+		t.Fatal(err)
+	}
+
+	root := newRootCmd(devBuild("test"))
+	root.SetArgs([]string{"orient"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(new(bytes.Buffer))
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "orientation_deferred[1]{target_id,kind,reason,provenance}:") ||
+		!strings.Contains(got, "held-task,blocked,") || !strings.Contains(got, "deferred by blocked hold") {
+		t.Fatalf("out = %q, want the held blocked condition in orientation_deferred", got)
+	}
+	if strings.Contains(got, "next_action_task: held-task\n") || strings.Contains(got, "orientation_actionable[1]") {
+		t.Fatalf("out = %q, want held task excluded from actionable next work", got)
 	}
 }
 

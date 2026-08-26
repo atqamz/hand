@@ -150,6 +150,7 @@ func taskAttentionEvidence(v taskView) attention.Evidence {
 		Repair:           v.task.RepairCode != "",
 		ReportClaim:      v.reportedState != "",
 		ReportedState:    v.reportedState,
+		Held:             v.held,
 	}
 	if v.latestSend != nil {
 		evidence.SendPending = v.latestSend.State == state.SendPending
@@ -172,7 +173,7 @@ func runtimeUnknown(v taskView) bool {
 
 func hasAttentionKind(v taskView, kind string) bool {
 	for _, subject := range attention.Derive(taskAttentionEvidence(v)) {
-		if subject.Kind == kind {
+		if subject.Kind == kind && subject.Actionable {
 			return true
 		}
 	}

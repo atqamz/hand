@@ -46,6 +46,7 @@ type Evidence struct {
 	SendUncertain    bool
 	SendPending      bool
 	SendPartial      bool
+	Held             bool
 	ReportedState    string
 	ReportClaim      bool
 	GateProblem      string
@@ -61,6 +62,9 @@ type Subject struct {
 func Derive(e Evidence) []Subject {
 	var subjects []Subject
 	add := func(kind, reason, provenance string, actionable bool) {
+		if e.Held {
+			actionable = false
+		}
 		subjects = append(subjects, Subject{Kind: kind, Reason: reason, Provenance: provenance, Actionable: actionable})
 	}
 	if e.ReportUnreadable {

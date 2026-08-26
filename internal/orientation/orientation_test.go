@@ -148,6 +148,22 @@ func TestBuildNormalizesUnknownMonitorStateAndBoundsText(t *testing.T) {
 	}
 }
 
+func TestBuildPreservesDeferredSubjectsSeparatelyFromActionableSubjects(t *testing.T) {
+	got := Build(Evidence{
+		FleetID: "f_one",
+		Targets: []TargetEvidence{{ID: "task-1", Kind: "task", Generation: []string{"one"}}},
+		Deferred: []DeferredSubject{{
+			TargetID: "task-1", Kind: "unreported", Reason: "worker stopped; held by operator", Provenance: "runtime",
+		}},
+	})
+	if len(got.Deferred) != 1 || got.Deferred[0].Kind != "unreported" {
+		t.Fatalf("deferred = %#v, want the underlying held condition", got.Deferred)
+	}
+	if len(got.Actionable) != 0 {
+		t.Fatalf("actionable = %#v, want held condition excluded", got.Actionable)
+	}
+}
+
 func TestBuildDeduplicatesTargetsAndSortsAllBoundedCollections(t *testing.T) {
 	got := Build(Evidence{
 		FleetID: "f_one",
