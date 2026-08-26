@@ -66,7 +66,8 @@ type ActionableSubject struct {
 type DeferredSubject struct {
 	TargetID   string `json:"target_id"`
 	Kind       string `json:"kind"`
-	Reason     string `json:"reason"`
+	HoldKind   string `json:"hold_kind"`
+	BlockedOn  string `json:"blocked_on,omitempty"`
 	Provenance string `json:"provenance"`
 }
 
@@ -337,14 +338,20 @@ func sortedActionable(items []ActionableEvidence) []ActionableEvidence {
 
 func sortedDeferred(items []DeferredSubject) []DeferredSubject {
 	items = append([]DeferredSubject(nil), items...)
-	sort.Slice(items, func(i, j int) bool {
+	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].TargetID != items[j].TargetID {
 			return items[i].TargetID < items[j].TargetID
 		}
 		if items[i].Kind != items[j].Kind {
 			return items[i].Kind < items[j].Kind
 		}
-		return items[i].Reason < items[j].Reason
+		if items[i].HoldKind != items[j].HoldKind {
+			return items[i].HoldKind < items[j].HoldKind
+		}
+		if items[i].BlockedOn != items[j].BlockedOn {
+			return items[i].BlockedOn < items[j].BlockedOn
+		}
+		return items[i].Provenance < items[j].Provenance
 	})
 	return items
 }
@@ -405,6 +412,13 @@ func bound(result *SupervisorOrientation) {
 		result.Actionable[i].Kind, result.Truncated = boundedText(result.Actionable[i].Kind, result.Truncated)
 		result.Actionable[i].Reason, result.Truncated = boundedText(result.Actionable[i].Reason, result.Truncated)
 		result.Actionable[i].Provenance, result.Truncated = boundedText(result.Actionable[i].Provenance, result.Truncated)
+	}
+	for i := range result.Deferred {
+		result.Deferred[i].TargetID, result.Truncated = boundedText(result.Deferred[i].TargetID, result.Truncated)
+		result.Deferred[i].Kind, result.Truncated = boundedText(result.Deferred[i].Kind, result.Truncated)
+		result.Deferred[i].HoldKind, result.Truncated = boundedText(result.Deferred[i].HoldKind, result.Truncated)
+		result.Deferred[i].BlockedOn, result.Truncated = boundedText(result.Deferred[i].BlockedOn, result.Truncated)
+		result.Deferred[i].Provenance, result.Truncated = boundedText(result.Deferred[i].Provenance, result.Truncated)
 	}
 	for i := range result.NextActions {
 		result.NextActions[i].Kind, result.Truncated = boundedText(result.NextActions[i].Kind, result.Truncated)

@@ -714,8 +714,8 @@ func TestOrientLoadsTaskHoldAndKeepsItsConditionVisible(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "orientation_deferred[1]{target_id,kind,reason,provenance}:") ||
-		!strings.Contains(got, "held-task,blocked,") || !strings.Contains(got, "deferred by blocked hold") {
+	if !strings.Contains(got, "orientation_deferred[1]{target_id,kind,hold_kind,blocked_on,provenance}:") ||
+		!strings.Contains(got, "held-task,blocked,blocked,other-task,") {
 		t.Fatalf("out = %q, want the held blocked condition in orientation_deferred", got)
 	}
 	if strings.Contains(got, "next_action_task: held-task\n") || strings.Contains(got, "orientation_actionable[1]") {

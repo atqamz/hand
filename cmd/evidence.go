@@ -128,7 +128,7 @@ func appendTaskAttention(evidence *orientation.Evidence, view taskView, targetEv
 		} else if view.held {
 			evidence.Deferred = append(evidence.Deferred, orientation.DeferredSubject{
 				TargetID: view.task.ID,
-				Kind:     subject.Kind, Reason: fmt.Sprintf("%s; deferred by %s hold: %s", item.Reason, view.hold.Kind, holdDetail(view.hold)),
+				Kind:     subject.Kind, HoldKind: view.hold.Kind, BlockedOn: view.hold.BlockedOn,
 				Provenance: subject.Provenance,
 			})
 		}

@@ -332,9 +332,9 @@ func appendSessionOrientation(doc *axi.Doc, result orientation.SupervisorOrienta
 	doc.Rows("orientation_actionable", []string{"target_id", "kind", "reason", "provenance"}, actionRows)
 	deferredRows := make([][]string, 0, len(result.Deferred))
 	for _, subject := range result.Deferred {
-		deferredRows = append(deferredRows, []string{subject.TargetID, subject.Kind, subject.Reason, subject.Provenance})
+		deferredRows = append(deferredRows, []string{subject.TargetID, subject.Kind, subject.HoldKind, subject.BlockedOn, subject.Provenance})
 	}
-	doc.Rows("orientation_deferred", []string{"target_id", "kind", "reason", "provenance"}, deferredRows)
+	doc.Rows("orientation_deferred", []string{"target_id", "kind", "hold_kind", "blocked_on", "provenance"}, deferredRows)
 	nextRows := make([][]string, 0, len(result.NextActions))
 	for _, action := range result.NextActions {
 		nextRows = append(nextRows, []string{action.Kind, action.Target, action.Command, action.Reason})

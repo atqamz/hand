@@ -153,7 +153,7 @@ func TestBuildPreservesDeferredSubjectsSeparatelyFromActionableSubjects(t *testi
 		FleetID: "f_one",
 		Targets: []TargetEvidence{{ID: "task-1", Kind: "task", Generation: []string{"one"}}},
 		Deferred: []DeferredSubject{{
-			TargetID: "task-1", Kind: "unreported", Reason: "worker stopped; held by operator", Provenance: "runtime",
+			TargetID: "task-1", Kind: "unreported", HoldKind: "operator", Provenance: "runtime",
 		}},
 	})
 	if len(got.Deferred) != 1 || got.Deferred[0].Kind != "unreported" {
@@ -161,6 +161,34 @@ func TestBuildPreservesDeferredSubjectsSeparatelyFromActionableSubjects(t *testi
 	}
 	if len(got.Actionable) != 0 {
 		t.Fatalf("actionable = %#v, want held condition excluded", got.Actionable)
+	}
+}
+
+func TestBuildBoundsDeferredSubjectFieldsAndUsesStableTies(t *testing.T) {
+	long := strings.Repeat("x", maxOrientationText+1)
+	got := Build(Evidence{
+		FleetID: "f_one",
+		Deferred: []DeferredSubject{
+			{TargetID: "task-1", Kind: "unreported", HoldKind: "operator", BlockedOn: "", Provenance: "first"},
+			{TargetID: long, Kind: long, HoldKind: long, BlockedOn: long, Provenance: long},
+			{TargetID: "task-1", Kind: "unreported", HoldKind: "operator", BlockedOn: "", Provenance: "second"},
+		},
+	})
+	if !got.Truncated || len(got.Deferred) != 3 {
+		t.Fatalf("deferred = %#v, want bounded deferred rows", got.Deferred)
+	}
+	for _, subject := range got.Deferred {
+		for name, value := range map[string]string{
+			"target_id": subject.TargetID, "kind": subject.Kind, "hold_kind": subject.HoldKind,
+			"blocked_on": subject.BlockedOn, "provenance": subject.Provenance,
+		} {
+			if len([]rune(value)) > maxOrientationText {
+				t.Fatalf("deferred %s has %d runes, want at most %d", name, len([]rune(value)), maxOrientationText)
+			}
+		}
+	}
+	if got.Deferred[0].TargetID != "task-1" || got.Deferred[1].TargetID != "task-1" || got.Deferred[0].Provenance != "first" || got.Deferred[1].Provenance != "second" {
+		t.Fatalf("deferred order = %#v, want stable order for tied rows", got.Deferred)
 	}
 }
 
