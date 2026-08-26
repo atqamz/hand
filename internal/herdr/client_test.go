@@ -581,7 +581,7 @@ func TestWaitComposerEmptyAcceptsRenderedIdlePromptWhileAgentStatusIsWorking(t *
 func TestWaitComposerEmptyTimesOutWhileWorking(t *testing.T) {
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"}, faketool.HerdrResponse{Command: "pane read", Stdout: "working...\nesc to interrupt (15s)\n  3 shells\n"})
 	c := NewClient()
-	err := c.WaitComposerEmpty("wA:pB", 100*time.Millisecond)
+	err := c.WaitComposerEmpty("wA:pB", time.Second)
 	if !errors.Is(err, ErrComposerBusyTimeout) {
 		t.Fatalf("got err %v, want ErrComposerBusyTimeout", err)
 	}
