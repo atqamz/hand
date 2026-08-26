@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/atqamz/hand/internal/brief"
@@ -96,6 +97,10 @@ type provisioningRequest struct {
 	attempt             state.Attempt
 }
 
+func absoluteReportPath(home, id string) (string, error) {
+	return filepath.Abs(state.ReportPath(home, id))
+}
+
 func (r *Runtime) provision(ctx context.Context, req provisioningRequest) (string, error) {
 	releaseProject, err := state.Lock(req.home, "project:"+req.projectName)
 	if err != nil {
@@ -183,8 +188,12 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		}
 	}
 
+	reportPath, err := absoluteReportPath(req.home, req.attempt.TaskID)
+	if err != nil {
+		return "", r.failProvision(req, lease, nil, false, fmt.Errorf("resolve report path: %w", err))
+	}
 	workerSpec, err := r.deps.buildHarness(req.attempt.Harness, harness.Options{
-		Worktree: worktreePath, Brief: req.briefPath, Model: req.attempt.Model, Effort: req.attempt.Effort,
+		Worktree: worktreePath, Brief: req.briefPath, ReportPath: reportPath, Model: req.attempt.Model, Effort: req.attempt.Effort,
 		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter,
 	})
 	if err != nil {
