@@ -160,10 +160,15 @@ func TestDoctorWarnsForOpenBriefWithoutReportPath(t *testing.T) {
 	mustConfigSet(t, settingHarness, harness.Claude)
 	missingPath := filepath.Join(home, "data", "missing", "brief.md")
 	declaredPath := filepath.Join(home, "data", "declared", "brief.md")
-	for _, path := range []string{missingPath, declaredPath} {
+	suffixPath := filepath.Join(home, "data", "suffix", "brief.md")
+	directoryPath := filepath.Join(home, "data", "directory", "brief.md")
+	for _, path := range []string{missingPath, declaredPath, suffixPath} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.MkdirAll(directoryPath, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(missingPath, []byte("do the work\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -172,9 +177,15 @@ func TestDoctorWarnsForOpenBriefWithoutReportPath(t *testing.T) {
 	if err := os.WriteFile(declaredPath, []byte("append reports to "+declaredReportPath+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	suffixReportPath := state.ReportPath(home, "suffix")
+	if err := os.WriteFile(suffixPath, []byte("append reports to "+suffixReportPath+".bak\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	for _, task := range []state.Task{
 		{ID: "missing", Brief: "data/missing/brief.md", Lifecycle: state.TaskOpen},
 		{ID: "declared", Brief: "data/declared/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "suffix", Brief: "data/suffix/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "directory", Brief: "data/directory/brief.md", Lifecycle: state.TaskOpen},
 	} {
 		if err := state.CreateTask(home, task); err != nil {
 			t.Fatal(err)
@@ -190,6 +201,11 @@ func TestDoctorWarnsForOpenBriefWithoutReportPath(t *testing.T) {
 	}
 	if hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: `task "declared" brief does not declare report path`}) {
 		t.Fatalf("findings = %#v, declared report path should not warn", findings)
+	}
+	for _, id := range []string{"suffix", "directory"} {
+		if !hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf(`task %q brief does not declare report path`, id)}) {
+			t.Fatalf("findings = %#v, want %s report path warning", findings, id)
+		}
 	}
 }
 

@@ -225,11 +225,11 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 	}
 	for _, task := range tasks {
 		briefPath := filepath.Join(fleetHome, task.Brief)
-		data, err := os.ReadFile(briefPath)
-		if err != nil && !os.IsNotExist(err) {
+		declares, err := briefDeclaresReportPath(briefPath, state.ReportPath(fleetHome, task.ID))
+		if err != nil {
 			return nil, fmt.Errorf("read task %q brief: %w", task.ID, err)
 		}
-		if !strings.Contains(string(data), state.ReportPath(fleetHome, task.ID)) {
+		if !declares {
 			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q brief does not declare report path", task.ID)})
 		}
 	}
@@ -277,6 +277,42 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 		}
 	}
 	return findings, nil
+}
+
+func briefDeclaresReportPath(briefPath, reportPath string) (bool, error) {
+	data, err := os.ReadFile(briefPath)
+	if err != nil {
+		info, statErr := os.Stat(briefPath)
+		if os.IsNotExist(err) || (statErr == nil && info.IsDir()) {
+			return false, nil
+		}
+		return false, err
+	}
+	text := string(data)
+	for start := 0; start < len(text); {
+		at := strings.Index(text[start:], reportPath)
+		if at < 0 {
+			return false, nil
+		}
+		end := start + at + len(reportPath)
+		if end == len(text) || !reportPathSuffix(text, end) {
+			return true, nil
+		}
+		start += at + 1
+	}
+	return false, nil
+}
+
+func reportPathSuffix(text string, end int) bool {
+	next := text[end]
+	if next == '.' && end+1 < len(text) && isReportPathSuffixChar(text[end+1]) {
+		return true
+	}
+	return isReportPathSuffixChar(next)
+}
+
+func isReportPathSuffixChar(char byte) bool {
+	return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-' || char == '/' || char == '\\'
 }
 
 // A local-only fleet never needs gh, while a registered project delivering through direct-pr or
