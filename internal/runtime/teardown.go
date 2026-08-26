@@ -56,6 +56,9 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 	} else {
 		active = *history.ActiveAttempt
 	}
+	if terminalCleanup && active.TeardownTerminalAttempt != "" && active.Lifecycle != active.TeardownTerminalAttempt {
+		return Result{}, Precondition(fmt.Errorf("terminal task %q attempt %d has lifecycle %q, want recorded teardown lifecycle %q", req.ID, active.ID, active.Lifecycle, active.TeardownTerminalAttempt))
+	}
 	task := history.Task
 	originalTask := task
 	warnings := []string{}
@@ -173,7 +176,7 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 func terminalAttemptWithResources(history state.TaskHistory) (state.Attempt, bool) {
 	for i := len(history.Attempts) - 1; i >= 0; i-- {
 		attempt := history.Attempts[i]
-		if attempt.Lifecycle == state.AttemptProvisioning || attempt.Lifecycle == state.AttemptRunning {
+		if attempt.Lifecycle == state.AttemptRunning {
 			continue
 		}
 		if hasHerdrIdentity(attempt.Herdr) && !herdrCleanupSettled(attempt.TeardownHerdrState) {
@@ -207,7 +210,7 @@ func (r *Runtime) finishTeardown(req TeardownRequest, record completion.Record, 
 			return Result{}, WithWarnings(fmt.Errorf("record task completion: %w", err), warnings)
 		}
 	} else if active.Lifecycle != terminalAttempt {
-		return Result{}, WithWarnings(fmt.Errorf("terminal task %q attempt %d has lifecycle %q, want recorded teardown lifecycle %q", req.ID, active.ID, active.Lifecycle, terminalAttempt), warnings)
+		warnings = append(warnings, fmt.Sprintf("warning: terminal task %q attempt %d has lifecycle %q, want recorded teardown lifecycle %q", req.ID, active.ID, active.Lifecycle, terminalAttempt))
 	}
 	if err := state.ClearHoldIfKind(req.Home, req.ID, state.HoldKindLimit); err != nil {
 		warnings = append(warnings, fmt.Sprintf("warning: clear usage-limit hold failed: %v", err))

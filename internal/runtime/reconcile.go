@@ -513,11 +513,26 @@ func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Ta
 	}
 	if task.PR == "" {
 		projectInfo, found, err := project.FindReadOnly(home, task.Project)
-		if err != nil || !found {
-			return task, landingUnknown, nil
+		if err != nil {
+			return task, landingUnknown, fmt.Errorf("observe landing project %q: %w", task.Project, err)
+		}
+		if !found {
+			if task.Kind == "" {
+				return task, landingUnlanded, nil
+			}
+			return task, landingUnknown, fmt.Errorf("observe landing project %q: project is not registered", task.Project)
+		}
+		if projectInfo.Mode == project.ModeLocalOnly && (task.Kind == "" || (attempt.Worktree != "" && attempt.Branch == "")) {
+			return task, landingUnlanded, nil
 		}
 		detected, observation, err := DetectPR(ctx, home, task, attempt, projectInfo)
-		if err != nil || !observation.Found() {
+		if err != nil {
+			return task, landingUnknown, fmt.Errorf("record observed PR for task %q: %w", task.ID, err)
+		}
+		if observation.Absent() {
+			return task, landingUnlanded, nil
+		}
+		if observation.Unknown() {
 			return task, landingUnknown, nil
 		}
 		if observation.Merged && !task.MergeAnnounced {
