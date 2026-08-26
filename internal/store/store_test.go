@@ -197,6 +197,10 @@ func TestSetProjectURLPreservesProjectIdentityAndOrder(t *testing.T) {
 		t.Fatalf("ListProjects = %+v, want %d projects", got, len(want))
 	}
 	for i := range want {
+		if got[i].ID == "" {
+			t.Fatalf("project %d = %+v, want a minted identity", i, got[i])
+		}
+		want[i].ID = got[i].ID
 		if got[i] != want[i] {
 			t.Fatalf("project %d = %+v, want %+v", i, got[i], want[i])
 		}

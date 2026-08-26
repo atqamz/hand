@@ -303,8 +303,11 @@ func TestProjectSetURLUpdatesRegistryAndOriginPreservingTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projects) != 1 || projects[0] != (project.Project{
-		Name: "secondhand", URL: newURL, Mode: project.ModeNoMistakes, Upstream: "atqamz/hand",
+	if len(projects) != 1 || projects[0].ID == "" {
+		t.Fatalf("projects = %+v, want one project with an identity", projects)
+	}
+	if projects[0] != (project.Project{
+		ID: projects[0].ID, Name: "secondhand", URL: newURL, Mode: project.ModeNoMistakes, Upstream: "atqamz/hand",
 	}) {
 		t.Fatalf("projects = %+v, want repointed project with preserved fields", projects)
 	}
@@ -369,9 +372,14 @@ func TestProjectSetModePreservesActiveTaskAndClone(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantProject := project.Project{Name: "old-name", URL: "https://github.com/org/repo.git", Mode: project.ModeNoMistakes, Upstream: "upstream/repo"}
-	if len(projects) != 1 || projects[0] != wantProject {
+	if len(projects) != 1 || projects[0].ID == "" {
+		t.Fatalf("projects = %+v, want one project with an identity", projects)
+	}
+	wantProject.ID = projects[0].ID
+	if projects[0] != wantProject {
 		t.Fatalf("projects = %+v, want %+v", projects, wantProject)
 	}
+	wantTask.ProjectID = projects[0].ID
 	if got, err := state.Read(home, wantTask.ID); err != nil || got != wantTask {
 		t.Fatalf("task = %+v, %v, want unchanged task %+v", got, err, wantTask)
 	}
@@ -426,6 +434,14 @@ func TestProjectRenameMovesCloneAndPreservesTaskHistory(t *testing.T) {
 	if err := state.Write(home, wantTask); err != nil {
 		t.Fatal(err)
 	}
+	registered, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registered) != 1 || registered[0].ID == "" {
+		t.Fatalf("projects = %+v, want one project with an identity", registered)
+	}
+	identityBeforeRename := registered[0].ID
 
 	cmd := newProjectRenameCmd()
 	var output strings.Builder
@@ -446,7 +462,7 @@ func TestProjectRenameMovesCloneAndPreservesTaskHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProject := project.Project{Name: "new-name", URL: "https://github.com/org/repo.git", Mode: project.ModeDirectPR, Upstream: "upstream/repo"}
+	wantProject := project.Project{ID: identityBeforeRename, Name: "new-name", URL: "https://github.com/org/repo.git", Mode: project.ModeDirectPR, Upstream: "upstream/repo"}
 	if len(projects) != 1 || projects[0] != wantProject {
 		t.Fatalf("projects = %+v, want %+v", projects, wantProject)
 	}
@@ -456,6 +472,11 @@ func TestProjectRenameMovesCloneAndPreservesTaskHistory(t *testing.T) {
 	}
 	if gotTask.Project != "new-name" || gotTask.ID != wantTask.ID || gotTask.Brief != wantTask.Brief {
 		t.Fatalf("task = %+v, want same task with new project name", gotTask)
+	}
+	// The task never had its own copy of the name rewritten: it points at the identity the
+	// rename could not change, and the live label is resolved through that (atqamz/hand#388).
+	if gotTask.ProjectID != identityBeforeRename {
+		t.Fatalf("task project identity = %q, want the pre-rename identity %q", gotTask.ProjectID, identityBeforeRename)
 	}
 	history, err := state.ReadHistory(home, wantTask.ID)
 	if err != nil {

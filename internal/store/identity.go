@@ -75,6 +75,22 @@ func newFleetID() (string, error) {
 	return "f_" + hex.EncodeToString(raw[:]), nil
 }
 
+// A project keeps this id for as long as it is registered, across every rename. The shape
+// mirrors the fleet id so an operator reading either can tell at a glance what it names, and
+// so the migration's sqlite-side backfill can mint the same thing without Go.
+const (
+	projectIDPrefix = "p_"
+	projectIDBytes  = "16"
+)
+
+func newProjectID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate project identity: %w", err)
+	}
+	return projectIDPrefix + hex.EncodeToString(raw[:]), nil
+}
+
 func validateFleetID(id string) error {
 	if len(id) != 34 || id[:2] != "f_" {
 		return fmt.Errorf("%w: %q", ErrFleetIdentityInvalid, id)

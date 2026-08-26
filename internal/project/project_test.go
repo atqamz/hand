@@ -133,6 +133,7 @@ func TestSetURLPreservesProjectionAssociationAndProjectFields(t *testing.T) {
 		t.Fatalf("projects = %+v, want %d projects", projects, len(want))
 	}
 	for i := range want {
+		want[i].ID = identityOf(t, projects[i])
 		if projects[i] != want[i] {
 			t.Fatalf("project %d = %+v, want %+v", i, projects[i], want[i])
 		}
@@ -202,7 +203,11 @@ func TestSetModePreservesProjectFieldsAndProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Project{Name: "demo", URL: "https://github.com/org/demo", Mode: ModeNoMistakes, Upstream: "up/demo"}
-	if len(projects) != 1 || projects[0] != want {
+	if len(projects) != 1 {
+		t.Fatalf("projects = %+v, want one project", projects)
+	}
+	want.ID = identityOf(t, projects[0])
+	if projects[0] != want {
 		t.Fatalf("projects = %+v, want %+v", projects, want)
 	}
 	projection, err := os.ReadFile(RegistryPath(dir))
@@ -268,6 +273,7 @@ func TestRenamePreservesProjectOrderAndTaskReference(t *testing.T) {
 		t.Fatalf("projects = %+v, want %+v", projects, want)
 	}
 	for i := range want {
+		want[i].ID = identityOf(t, projects[i])
 		if projects[i] != want[i] {
 			t.Fatalf("project %d = %+v, want %+v", i, projects[i], want[i])
 		}
@@ -588,11 +594,72 @@ func TestListParsesRegistry(t *testing.T) {
 	if len(projects) != 2 {
 		t.Fatalf("got %d projects, want 2", len(projects))
 	}
-	if projects[0] != (Project{Name: "nsr", URL: "https://github.com/yes2games/nsr", Mode: "direct-pr"}) {
+	if projects[0] != (Project{ID: identityOf(t, projects[0]), Name: "nsr", URL: "https://github.com/yes2games/nsr", Mode: "direct-pr"}) {
 		t.Errorf("got %+v", projects[0])
 	}
-	if projects[1] != (Project{Name: "secondhand", URL: "local", Mode: "local-only"}) {
+	if projects[1] != (Project{ID: identityOf(t, projects[1]), Name: "secondhand", URL: "local", Mode: "local-only"}) {
 		t.Errorf("got %+v", projects[1])
+	}
+}
+
+// The surrogate identity is minted internally, so a test that compares whole rows asserts it
+// exists and then reuses it rather than pinning a value no caller chooses.
+func identityOf(t *testing.T, p Project) string {
+	t.Helper()
+	if p.ID == "" {
+		t.Fatalf("project %q has no identity", p.Name)
+	}
+	return p.ID
+}
+
+// A home whose registry lived only in data/projects.md has no project rows for the schema
+// migration to resolve task names against, so the one-time import is what links them - and it
+// links only the names that import actually registers.
+func TestLegacyRegistryImportLinksExistingTasksToTheImportedProjects(t *testing.T) {
+	dir := t.TempDir()
+	writeRegistry(t, dir, "# Projects\n\n- demo: https://github.com/org/demo mode=direct-pr\n")
+	db, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(store.Task{ID: "task-1", Project: "demo", Kind: store.KindShip}); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(store.Task{ID: "task-2", Project: "retired", Kind: store.KindShip}); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].ID == "" {
+		t.Fatalf("projects = %+v, want the imported project with an identity", projects)
+	}
+
+	db, err = store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	linked, _, err := db.ReadTask("task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linked.ProjectID != projects[0].ID {
+		t.Fatalf("task-1 identity = %q, want the imported %q", linked.ProjectID, projects[0].ID)
+	}
+	unlinked, _, err := db.ReadTask("task-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unlinked.ProjectID != "" || unlinked.Project != "retired" {
+		t.Fatalf("task-2 = %+v, want it left without an identity", unlinked)
 	}
 }
 

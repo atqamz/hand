@@ -153,6 +153,10 @@ var migrations = []string{
 		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 		fleet_id TEXT NOT NULL UNIQUE
 	);`,
+	// ensureProjectIdentity does the real work below, guarded by column existence like the
+	// placeholders above: the base schema already carries project.id and task.project_id, so a home
+	// built from it and stamped backward replays this step without a duplicate-column error.
+	`SELECT 1;`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -181,6 +185,10 @@ const preAcknowledgementVersion = attemptBranchVersion + 1
 const acknowledgedMetadataVersion = preAcknowledgementVersion + 1
 
 const fleetIdentityVersion = acknowledgedMetadataVersion + 1
+
+// The last version that identified a project by its mutable name: its task table has no
+// project_id, and its project table no surrogate id (atqamz/hand#388).
+const projectIdentityVersion = fleetIdentityVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -496,6 +504,11 @@ func (db *DB) applyMigration(version int) error {
 			return err
 		}
 	}
+	if version == projectIdentityVersion-1 {
+		if err := ensureProjectIdentity(tx); err != nil {
+			return err
+		}
+	}
 	if err := recordSchemaVersion(tx, version+1); err != nil {
 		return err
 	}
@@ -591,6 +604,48 @@ func ensureAcknowledgementColumns(tx *sql.Tx) error {
 		if _, err := tx.Exec(`ALTER TABLE task ADD COLUMN ` + column.name + ` ` + column.ddl); err != nil {
 			return fmt.Errorf("add %s: %w", column.name, err)
 		}
+	}
+	return nil
+}
+
+// Gives every registered project a durable surrogate id and every task a reference to it, inside
+// the transaction applyMigration already wraps this step in, so a home that fails partway keeps the
+// whole name-keyed layout. Rebuilt, not altered: sqlite cannot turn name into a plain unique label.
+func ensureProjectIdentity(tx *sql.Tx) error {
+	var taskColumn int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name = 'project_id'`).Scan(&taskColumn); err != nil {
+		return fmt.Errorf("inspect task project_id column: %w", err)
+	}
+	if taskColumn == 0 {
+		if _, err := tx.Exec(`ALTER TABLE task ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add task project_id column: %w", err)
+		}
+	}
+	var projectColumn int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('project') WHERE name = 'id'`).Scan(&projectColumn); err != nil {
+		return fmt.Errorf("inspect project id column: %w", err)
+	}
+	if projectColumn == 0 {
+		if _, err := tx.Exec(`CREATE TABLE project_identity (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			url TEXT NOT NULL,
+			mode TEXT NOT NULL,
+			position INTEGER NOT NULL,
+			upstream TEXT NOT NULL DEFAULT ''
+		);
+		INSERT INTO project_identity (id, name, url, mode, position, upstream)
+		SELECT '` + projectIDPrefix + `' || lower(hex(randomblob(` + projectIDBytes + `))), name, url, mode, position, upstream FROM project;
+		DROP TABLE project;
+		ALTER TABLE project_identity RENAME TO project;`); err != nil {
+			return fmt.Errorf("give projects a surrogate identity: %w", err)
+		}
+	}
+	// Only the rows that have no identity yet, so replaying this step never reattaches a task
+	// whose project was removed to whatever project now answers to that name.
+	if _, err := tx.Exec(`UPDATE task SET project_id = COALESCE((SELECT id FROM project WHERE project.name = task.project), '')
+		WHERE project_id = ''`); err != nil {
+		return fmt.Errorf("backfill task project identity: %w", err)
 	}
 	return nil
 }
