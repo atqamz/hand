@@ -90,7 +90,11 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			if err != nil {
 				return asPrecondition(err)
 			}
-			findings, err := doctorFindings(fleetHome)
+			histories, err := state.ListOpenHistoriesReadOnly(fleetHome)
+			if err != nil {
+				return err
+			}
+			findings, err := doctorFindings(fleetHome, histories)
 			if err != nil {
 				return err
 			}
@@ -185,7 +189,7 @@ func legacyDoctorCompatibility() bool {
 	return legacyDoctorCompat
 }
 
-func doctorFindings(fleetHome string) ([]doctorFinding, error) {
+func doctorFindings(fleetHome string, histories []state.TaskHistory) ([]doctorFinding, error) {
 	findings := make([]doctorFinding, 0)
 
 	agentsViolations, err := agentsmd.Check(fleetHome)
@@ -219,15 +223,18 @@ func doctorFindings(fleetHome string) ([]doctorFinding, error) {
 		}
 	}
 
-	tasks, err := state.ListOpen(fleetHome)
-	if err != nil {
-		return nil, err
-	}
-	for _, task := range tasks {
+	for _, history := range histories {
+		task := history.Task
 		briefPath := filepath.Join(fleetHome, task.Brief)
-		declares, err := briefDeclaresReportPath(briefPath, state.ReportPath(fleetHome, task.ID))
+		reportPath, err := filepath.Abs(state.ReportPath(fleetHome, task.ID))
 		if err != nil {
-			return nil, fmt.Errorf("read task %q brief: %w", task.ID, err)
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q report path could not be resolved: %v", task.ID, err)})
+			continue
+		}
+		declares, err := briefDeclaresReportPath(briefPath, reportPath)
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q brief could not be read: %v", task.ID, err)})
+			continue
 		}
 		if !declares {
 			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q brief does not declare report path", task.ID)})
@@ -304,6 +311,8 @@ func briefDeclaresReportPath(briefPath, reportPath string) (bool, error) {
 }
 
 func reportPathSuffix(text string, end int) bool {
+	// A report path is declared only when it is not followed by a path/suffix character, or by a
+	// dot followed by one; punctuation, a bare dot, and a newline are valid boundaries.
 	next := text[end]
 	if next == '.' && end+1 < len(text) && isReportPathSuffixChar(text[end+1]) {
 		return true

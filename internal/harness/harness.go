@@ -176,7 +176,7 @@ func SupportsEffort(name string) bool {
 
 // False means the builder hands the brief over as a file and has no prompt to append to, so
 // briefPrompt's operator-decision rule and front-matter disclaimer never reach the worker.
-// Carrying them properly needs flags verified against a real --help (atqamz/hand#36).
+// Carrying them properly needs flags verified against a real --help (atqamz/hand#418).
 func CarriesPrompt(name string) bool {
 	return promptCapable[name]
 }
@@ -307,7 +307,6 @@ func buildOpenCode(o Options) (launch.LaunchSpec, error) {
 // Shared so the wording cannot drift between harnesses. It ends with agentsmd.OperatorDecisionRule
 // because a worker runs in a worktree that is never under the fleet home, so the home's AGENTS.md
 // never reaches it and the launch prompt is the only channel that rule has.
-
 func briefPrompt(o Options) (string, error) {
 	if o.ReportPath == "" {
 		return "", fmt.Errorf("report path is required for a prompt-capable harness")
