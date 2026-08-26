@@ -470,7 +470,9 @@ func runTaskLockHoldForeverHelper(t *testing.T) {
 		t.Fatalf("holder Lock: %v", err)
 	}
 	fmt.Println("acquired")
-	select {}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func waitForHolderReady(t *testing.T, r io.Reader) bool {
