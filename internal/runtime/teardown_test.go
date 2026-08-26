@@ -231,11 +231,15 @@ func TestTeardownSecondInvocationRefusesWithoutRepeatingCompletion(t *testing.T)
 
 func TestTeardownReleasesResourcesRecordedOnTerminalTask(t *testing.T) {
 	home, worktreePath, _ := terminalResourceFixture(t)
+	clonePath := filepath.Join(home, "projects", "demo")
 	client := &teardownHerdr{}
 	returns := 0
 	deps := defaultDependencies()
 	deps.herdr = func() herdrClient { return client }
-	deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(gotClonePath, path, leaseID string) worktree.LeaseObservation {
+		if gotClonePath != clonePath {
+			t.Fatalf("observeLease clone path = %q, want %q", gotClonePath, clonePath)
+		}
 		if path != worktreePath || leaseID != "lease-1" {
 			t.Fatalf("observeLease(%q, %q), want (%q, lease-1)", path, leaseID, worktreePath)
 		}
@@ -244,7 +248,10 @@ func TestTeardownReleasesResourcesRecordedOnTerminalTask(t *testing.T) {
 	deps.worktree.observeCommits = func(string) worktree.CommitSafetyObservation {
 		return worktree.CommitSafetyObservation{State: worktree.CommitSafetyRemoteObserved}
 	}
-	deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+	deps.worktree.returnWithID = func(gotClonePath, path, leaseID string, force bool) error {
+		if gotClonePath != clonePath {
+			t.Fatalf("returnWithID clone path = %q, want %q", gotClonePath, clonePath)
+		}
 		if path != worktreePath || leaseID != "lease-1" || force {
 			t.Fatalf("returnWithID(%q, %q, %t), want the proven terminal lease returned", path, leaseID, force)
 		}
@@ -268,13 +275,13 @@ func TestTeardownRefusesTerminalTaskWhenCommitSafetyIsUnprovable(t *testing.T) {
 	home, worktreePath, _ := terminalResourceFixture(t)
 	returns := 0
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 	}
 	deps.worktree.observeCommits = func(string) worktree.CommitSafetyObservation {
 		return worktree.CommitSafetyObservation{State: worktree.CommitSafetyUnknown, Probe: worktree.CommitSafetyProbe{WorkingDir: worktreePath}}
 	}
-	deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+	deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
 
 	_, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
 	if err == nil || !strings.Contains(err.Error(), "commit safety") {
