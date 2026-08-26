@@ -581,7 +581,7 @@ func TestWaitComposerEmptyAcceptsRenderedIdlePromptWhileAgentStatusIsWorking(t *
 func TestWaitComposerEmptyTimesOutWhileWorking(t *testing.T) {
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"}, faketool.HerdrResponse{Command: "pane read", Stdout: "working...\nesc to interrupt (15s)\n  3 shells\n"})
 	c := NewClient()
-	err := c.WaitComposerEmpty("wA:pB", 10*time.Millisecond)
+	err := c.WaitComposerEmpty("wA:pB", 100*time.Millisecond)
 	if !errors.Is(err, ErrComposerBusyTimeout) {
 		t.Fatalf("got err %v, want ErrComposerBusyTimeout", err)
 	}
@@ -598,6 +598,20 @@ func TestWaitComposerEmptyPaneFailureIsNotABusyTimeout(t *testing.T) {
 	err := c.WaitComposerEmpty("wA:pB", time.Second)
 	if err == nil || errors.Is(err, ErrComposerBusyTimeout) {
 		t.Fatalf("got err %v, want a non-timeout pane failure", err)
+	}
+}
+
+func TestWaitComposerEmptyHonorsTimeoutWhenPaneGetHangs(t *testing.T) {
+	bin := faketool.Bin(t)
+	faketool.Herdr{Hang: []string{"pane get"}}.Install(t, bin)
+	c := NewClient()
+	started := time.Now()
+	err := c.WaitComposerEmpty("wA:pB", 25*time.Millisecond)
+	if !errors.Is(err, ErrComposerBusyTimeout) {
+		t.Fatalf("got err %v, want ErrComposerBusyTimeout", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("WaitComposerEmpty took %s after pane get hung", elapsed)
 	}
 }
 

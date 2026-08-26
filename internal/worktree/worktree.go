@@ -121,7 +121,7 @@ func ObserveLease(clonePath, worktreePath, expectedLeaseID string) LeaseObservat
 		return unknownLease(worktreePath, reason)
 	}
 	for _, entry := range entries {
-		if entry.Path != worktreePath {
+		if !gitrepo.SamePath(entry.Path, worktreePath) {
 			continue
 		}
 		if entry.Status != "leased" {
@@ -454,7 +454,7 @@ func CheckCollision(homeDir string, lease Lease, excludeID string) (string, erro
 		}
 		// Fallback whenever either side has no identity, which is any row written before the
 		// lease_id column existed.
-		if attempt.Worktree == lease.Path {
+		if gitrepo.SamePath(attempt.Worktree, lease.Path) {
 			return history.Task.ID, nil
 		}
 	}
