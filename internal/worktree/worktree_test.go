@@ -12,6 +12,22 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
+func testGet(clonePath, leaseHolder string) (Lease, error) {
+	return Get(clonePath, leaseHolder)
+}
+
+func testObserveLease(worktreePath, expectedLeaseID string) LeaseObservation {
+	return ObserveLease(filepath.Dir(worktreePath), worktreePath, expectedLeaseID)
+}
+
+func testReturn(worktreePath string, force bool) error {
+	return Return(filepath.Dir(worktreePath), worktreePath, force)
+}
+
+func testReturnLease(worktreePath, leaseID string, force bool) error {
+	return ReturnLease(filepath.Dir(worktreePath), worktreePath, leaseID, force)
+}
+
 func writeFakeTreehouse(t *testing.T, response faketool.TreehouseResponse) {
 	t.Helper()
 	faketool.Treehouse{Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
@@ -29,7 +45,7 @@ func writeCollisionTask(t *testing.T, home, id, path, leaseID string) {
 
 func TestGetParsesLeasePathAndIdentity(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8"}`})
-	got, err := Get(t.TempDir(), "hand:task-1")
+	got, err := testGet(t.TempDir(), "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +60,7 @@ func TestGetParsesLeasePathAndIdentity(t *testing.T) {
 // path for it.
 func TestGetAcceptsAPayloadWithoutALeaseIdentity(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1"}`})
-	got, err := Get(t.TempDir(), "hand:task-1")
+	got, err := testGet(t.TempDir(), "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,21 +94,51 @@ func TestGetPassesLeaseHolder(t *testing.T) {
 		Command: "get", Args: []string{"--lease", "--json", "--lease-holder", "hand:task-1"},
 		Stdout: `{"path":"/tmp/wt-1"}`,
 	})
-	if _, err := Get(t.TempDir(), "hand:task-1"); err != nil {
+	if _, err := testGet(t.TempDir(), "hand:task-1"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGetScopesPoolToTheFleetHome(t *testing.T) {
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	if err := os.MkdirAll(clone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeTreehouse(t, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{clone, "get", "--lease", "--json", "--lease-holder", "hand:task-1"},
+		Stdout: `{"path":"/tmp/wt-1"}`,
+	})
+	if _, err := Get(clone, "hand:task-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGetRejectsAWorktreeFromAnotherRegisteredClone(t *testing.T) {
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	foreign := filepath.Join(t.TempDir(), "demo")
+	faketool.InitRepo(t, clone)
+	faketool.InitRepo(t, foreign)
+	faketool.Treehouse{Responses: []faketool.TreehouseResponse{
+		{Command: "get", Stdout: `{"path":"` + foreign + `","lease_id":"lease-1"}`},
+		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", foreign}},
+	}}.Install(t, faketool.Bin(t))
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "another Git repository") {
+		t.Fatalf("Get() error = %v, want a registered-clone mismatch", err)
 	}
 }
 
 func TestGetFailsOnNonZeroExit(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stderr: "pool exhausted\n", Exit: 1})
-	if _, err := Get(t.TempDir(), ""); err == nil || !strings.Contains(err.Error(), "pool exhausted") {
+	if _, err := testGet(t.TempDir(), ""); err == nil || !strings.Contains(err.Error(), "pool exhausted") {
 		t.Fatalf("got err %v, want pool exhausted failure", err)
 	}
 }
 
 func TestGetFailsOnMissingPath(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{}`})
-	if _, err := Get(t.TempDir(), ""); err == nil {
+	if _, err := testGet(t.TempDir(), ""); err == nil {
 		t.Fatal("expected error for missing path in lease response")
 	}
 }
@@ -111,12 +157,12 @@ func TestObserveLeaseDistinguishesExactMissingReusedAndLegacyOwnership(t *testin
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-1"}}.Install(t, faketool.Bin(t))
-			got := ObserveLease(path, test.leaseID)
+			got := testObserveLease(path, test.leaseID)
 			if got.State != test.want {
-				t.Fatalf("ObserveLease() = %+v, want %s", got, test.want)
+				t.Fatalf("testObserveLease() = %+v, want %s", got, test.want)
 			}
 			if got.Probe != (LeaseProbe{}) {
-				t.Fatalf("ObserveLease() probe = %+v, want no probe on an observed pool", got.Probe)
+				t.Fatalf("testObserveLease() probe = %+v, want no probe on an observed pool", got.Probe)
 			}
 		})
 	}
@@ -126,17 +172,17 @@ func TestObserveLeaseReportsAbsentAfterReturn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wt-1")
 	faketool.InitRepo(t, path)
 	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-1"}}.Install(t, faketool.Bin(t))
-	if err := ReturnLease(path, "lease-1", true); err != nil {
+	if err := testReturnLease(path, "lease-1", true); err != nil {
 		t.Fatal(err)
 	}
-	if got := ObserveLease(path, "lease-1"); got.State != LeaseAbsent {
-		t.Fatalf("ObserveLease() = %+v, want absent", got)
+	if got := testObserveLease(path, "lease-1"); got.State != LeaseAbsent {
+		t.Fatalf("testObserveLease() = %+v, want absent", got)
 	}
 }
 
 func TestObserveLeaseReportsAbsentWhenTheRecordedPathIsGone(t *testing.T) {
-	if got := ObserveLease(filepath.Join(t.TempDir(), "gone"), "lease-1"); got.State != LeaseAbsent {
-		t.Fatalf("ObserveLease() = %+v, want absent", got)
+	if got := testObserveLease(filepath.Join(t.TempDir(), "gone"), "lease-1"); got.State != LeaseAbsent {
+		t.Fatalf("testObserveLease() = %+v, want absent", got)
 	}
 }
 
@@ -189,15 +235,15 @@ func TestObserveLeaseReportsUnknownForEveryUnobservablePool(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "wt-1")
 			faketool.InitRepo(t, path)
 			test.install(t, path)
-			got := ObserveLease(path, "lease-1")
+			got := testObserveLease(path, "lease-1")
 			if got.State != LeaseUnknown {
-				t.Fatalf("ObserveLease() = %+v, want %s", got, LeaseUnknown)
+				t.Fatalf("testObserveLease() = %+v, want %s", got, LeaseUnknown)
 			}
 			if got.Probe.Command != "treehouse status --json" || got.Probe.WorkingDir != path {
-				t.Fatalf("ObserveLease() probe = %+v, want the command and working directory that selected the pool", got.Probe)
+				t.Fatalf("testObserveLease() probe = %+v, want the command and working directory that selected the pool", got.Probe)
 			}
 			if !strings.Contains(got.Probe.Reason, test.wantReason) {
-				t.Fatalf("ObserveLease() probe reason = %q, want it to contain %q", got.Probe.Reason, test.wantReason)
+				t.Fatalf("testObserveLease() probe reason = %q, want it to contain %q", got.Probe.Reason, test.wantReason)
 			}
 		})
 	}
@@ -209,21 +255,21 @@ func TestUnknownAndMismatchAreDistinguishableWithoutReadingAMessage(t *testing.T
 	path := filepath.Join(t.TempDir(), "wt-1")
 	faketool.InitRepo(t, path)
 	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-2"}}.Install(t, faketool.Bin(t))
-	mismatch := ObserveLease(path, "lease-1")
+	mismatch := testObserveLease(path, "lease-1")
 	if mismatch.State != LeaseMismatch || mismatch.LeaseID != "lease-2" {
-		t.Fatalf("ObserveLease() = %+v, want a mismatch naming the observed lease", mismatch)
+		t.Fatalf("testObserveLease() = %+v, want a mismatch naming the observed lease", mismatch)
 	}
 
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "status", Stdout: "[]"})
-	unknown := ObserveLease(path, "lease-1")
+	unknown := testObserveLease(path, "lease-1")
 	if unknown.State != LeaseUnknown {
-		t.Fatalf("ObserveLease() = %+v, want %s", unknown, LeaseUnknown)
+		t.Fatalf("testObserveLease() = %+v, want %s", unknown, LeaseUnknown)
 	}
 	if unknown.State == mismatch.State {
 		t.Fatal("an unobservable pool is reported with the same state as a lease held by another owner")
 	}
 	if unknown.LeaseID != "" {
-		t.Fatalf("ObserveLease() = %+v, want no observed lease identity when nothing was observed", unknown)
+		t.Fatalf("testObserveLease() = %+v, want no observed lease identity when nothing was observed", unknown)
 	}
 
 	message := (&UnprovenLeaseError{WorktreePath: path, ExpectedLeaseID: "lease-1", Observation: unknown}).Error()
@@ -245,12 +291,12 @@ func TestObserveLeaseProvesOwnershipAfterATransientUnobservablePool(t *testing.T
 	path := filepath.Join(t.TempDir(), "wt-1")
 	faketool.InitRepo(t, path)
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "status", Stderr: "connection reset\n", Exit: 1})
-	if got := ObserveLease(path, "lease-1"); got.State != LeaseUnknown {
-		t.Fatalf("ObserveLease() = %+v, want %s", got, LeaseUnknown)
+	if got := testObserveLease(path, "lease-1"); got.State != LeaseUnknown {
+		t.Fatalf("testObserveLease() = %+v, want %s", got, LeaseUnknown)
 	}
 	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-1"}}.Install(t, faketool.Bin(t))
-	if got := ObserveLease(path, "lease-1"); got.State != LeaseExact {
-		t.Fatalf("ObserveLease() = %+v, want %s once the pool answers again", got, LeaseExact)
+	if got := testObserveLease(path, "lease-1"); got.State != LeaseExact {
+		t.Fatalf("testObserveLease() = %+v, want %s once the pool answers again", got, LeaseExact)
 	}
 }
 
@@ -275,12 +321,12 @@ func TestObserveLeaseRunsStatusFromTheWorktreeRepository(t *testing.T) {
 	faketool.InitRepo(t, worktreePath)
 	faketool.Treehouse{Slots: []string{worktreePath}}.Install(t, faketool.Bin(t))
 
-	lease, err := Get(worktreePath, "hand:task-1")
+	lease, err := testGet(worktreePath, "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ObserveLease(worktreePath, lease.ID); got.State != LeaseExact {
-		t.Fatalf("ObserveLease() = %+v, want the lease visible from the worktree repository", got)
+	if got := testObserveLease(worktreePath, lease.ID); got.State != LeaseExact {
+		t.Fatalf("testObserveLease() = %+v, want the lease visible from the worktree repository", got)
 	}
 }
 
@@ -288,11 +334,11 @@ func TestObserveLeaseRejectsARecycledOrMissingIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wt-1")
 	faketool.InitRepo(t, path)
 	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-2"}}.Install(t, faketool.Bin(t))
-	if got := ObserveLease(path, "lease-1"); got.State != LeaseMismatch {
-		t.Fatalf("ObserveLease() = %+v, want a recycled lease identity reported as %s", got, LeaseMismatch)
+	if got := testObserveLease(path, "lease-1"); got.State != LeaseMismatch {
+		t.Fatalf("testObserveLease() = %+v, want a recycled lease identity reported as %s", got, LeaseMismatch)
 	}
-	if got := ObserveLease(path, ""); got.State != LeaseUnprovable {
-		t.Fatalf("ObserveLease() = %+v, want an empty expected identity reported as %s", got, LeaseUnprovable)
+	if got := testObserveLease(path, ""); got.State != LeaseUnprovable {
+		t.Fatalf("testObserveLease() = %+v, want an empty expected identity reported as %s", got, LeaseUnprovable)
 	}
 }
 
@@ -300,15 +346,40 @@ func TestObserveLeaseRejectsAnAvailableStatus(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wt-1")
 	faketool.InitRepo(t, path)
 	faketool.Treehouse{Slots: []string{path}}.Install(t, faketool.Bin(t))
-	if got := ObserveLease(path, "lease-1"); got.State != LeaseAbsent {
-		t.Fatalf("ObserveLease() = %+v, want an available entry reported as %s", got, LeaseAbsent)
+	if got := testObserveLease(path, "lease-1"); got.State != LeaseAbsent {
+		t.Fatalf("testObserveLease() = %+v, want an available entry reported as %s", got, LeaseAbsent)
 	}
 }
 
 func TestReturnPassesForceFlag(t *testing.T) {
 	wt := t.TempDir()
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Args: []string{wt, "--force"}})
-	if err := Return(wt, true); err != nil {
+	if err := testReturn(wt, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReturnScopesPoolToTheFleetHome(t *testing.T) {
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	wt := filepath.Join(home, ".treehouse", "demo-123", "1", "demo")
+	writeFakeTreehouse(t, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{clone, "return", wt, "--force"},
+	})
+	if err := Return(clone, wt, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReturnUsesTheCurrentFleetHomeForAForeignRecordedPath(t *testing.T) {
+	currentHome := t.TempDir()
+	currentClone := filepath.Join(currentHome, "projects", "demo")
+	foreignHome := t.TempDir()
+	wt := filepath.Join(foreignHome, ".treehouse", "demo-123", "1", "demo")
+	writeFakeTreehouse(t, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{currentClone, "return", wt, "--force"},
+	})
+	if err := Return(currentClone, wt, true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -318,8 +389,22 @@ func TestReturnLeasePassesConditionalLeaseIdentity(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{
 		Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", wt},
 	})
-	if err := ReturnLease(wt, "lease-1", true); err != nil {
+	if err := testReturnLease(wt, "lease-1", true); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestObserveLeaseScopesStatusToTheFleetHome(t *testing.T) {
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	path := filepath.Join(home, ".treehouse", "demo-123", "1", "demo")
+	faketool.InitRepo(t, path)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{clone, "status", "--json"},
+		Stdout: `[{"path":"` + path + `","status":"leased","lease_id":"lease-1"}]`,
+	})
+	if got := ObserveLease(clone, path, "lease-1"); got.State != LeaseExact {
+		t.Fatalf("testObserveLease() = %+v, want the scoped pool lease", got)
 	}
 }
 
@@ -328,11 +413,11 @@ func TestReturnLeaseRejectsMismatchedIdentityAndKeepsLease(t *testing.T) {
 	faketool.InitRepo(t, path)
 	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-2"}}.Install(t, faketool.Bin(t))
 
-	if err := ReturnLease(path, "lease-1", true); err == nil {
-		t.Fatal("ReturnLease() succeeded for a mismatched lease identity")
+	if err := testReturnLease(path, "lease-1", true); err == nil {
+		t.Fatal("testReturnLease() succeeded for a mismatched lease identity")
 	}
-	if _, err := Get(path, "hand:still-held"); err == nil {
-		t.Fatal("mismatched ReturnLease() released the current lease")
+	if _, err := testGet(path, "hand:still-held"); err == nil {
+		t.Fatal("mismatched testReturnLease() released the current lease")
 	}
 }
 
@@ -341,32 +426,32 @@ func TestReturnLeaseProtectsAReusedPathFromAStaleLease(t *testing.T) {
 	faketool.InitRepo(t, path)
 	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-original"}}.Install(t, faketool.Bin(t))
 
-	if err := ReturnLease(path, "lease-original", true); err != nil {
+	if err := testReturnLease(path, "lease-original", true); err != nil {
 		t.Fatal(err)
 	}
-	l2, err := Get(path, "hand:l2")
+	l2, err := testGet(path, "hand:l2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ReturnLease(path, "lease-original", true); err == nil {
-		t.Fatal("stale ReturnLease() released the reused path")
+	if err := testReturnLease(path, "lease-original", true); err == nil {
+		t.Fatal("stale testReturnLease() released the reused path")
 	}
-	if _, err := Get(path, "hand:still-held"); err == nil {
-		t.Fatalf("stale ReturnLease() released current lease %q", l2.ID)
+	if _, err := testGet(path, "hand:still-held"); err == nil {
+		t.Fatalf("stale testReturnLease() released current lease %q", l2.ID)
 	}
 }
 
 func TestReturnLeaseFallsBackForAnEmptyLeaseIdentity(t *testing.T) {
 	wt := t.TempDir()
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Args: []string{wt, "--force"}})
-	if err := ReturnLease(wt, "", true); err != nil {
+	if err := testReturnLease(wt, "", true); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestReturnFailsOnNonZeroExit(t *testing.T) {
 	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "return", Stderr: "worktree busy\n", Exit: 1})
-	if err := Return(t.TempDir(), false); err == nil || !strings.Contains(err.Error(), "worktree busy") {
+	if err := testReturn(t.TempDir(), false); err == nil || !strings.Contains(err.Error(), "worktree busy") {
 		t.Fatalf("got err %v, want worktree busy failure", err)
 	}
 }
@@ -379,20 +464,20 @@ func TestReturnIsIdempotentOnAnAlreadyReturnedWorktree(t *testing.T) {
 	faketool.InitRepo(t, wt)
 	faketool.Treehouse{Held: []string{wt}}.Install(t, faketool.Bin(t))
 
-	if err := Return(wt, false); err != nil {
+	if err := testReturn(wt, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatalf("worktree path gone after return: %v", err)
 	}
-	if err := Return(wt, false); err != nil {
+	if err := testReturn(wt, false); err != nil {
 		t.Fatalf("got err %v, want a repeated return to succeed", err)
 	}
 }
 
 func TestReturnFailsOnAWorktreeNoPoolManages(t *testing.T) {
 	faketool.Treehouse{Slots: []string{t.TempDir()}}.Install(t, faketool.Bin(t))
-	err := Return(filepath.Join(t.TempDir(), "gone"), false)
+	err := testReturn(filepath.Join(t.TempDir(), "gone"), false)
 	if err == nil || !strings.Contains(err.Error(), "not managed by treehouse") {
 		t.Fatalf("got err %v, want an unmanaged worktree reported", err)
 	}
@@ -409,7 +494,7 @@ func TestReturnFailsWhenAnUnforcedDirtyReturnAborts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := Return(wt, false)
+	err := testReturn(wt, false)
 	if err == nil || !strings.Contains(err.Error(), "still leased") {
 		t.Fatalf("got err %v, want the aborted return reported as a failure", err)
 	}
@@ -419,7 +504,7 @@ func TestReturnFailsWhenAnUnforcedDirtyReturnAborts(t *testing.T) {
 	if out, gitErr := exec.Command("git", "-C", wt, "status", "--porcelain").Output(); gitErr != nil || len(out) == 0 {
 		t.Fatalf("worktree cleaned by an aborted return: %q %v", out, gitErr)
 	}
-	if err := Return(wt, true); err != nil {
+	if err := testReturn(wt, true); err != nil {
 		t.Fatalf("got err %v, want the forced retry to succeed", err)
 	}
 }

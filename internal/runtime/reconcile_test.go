@@ -257,7 +257,7 @@ func TestReconcileAttemptCreatedContinuesTheSameAttempt(t *testing.T) {
 	}
 	client := &healthyReconcileHerdr{}
 	gets := 0
-	r := reconcileRuntime(client, func(path, holder string) (worktree.Lease, error) {
+	r := reconcileRuntime(client, func(path, _ string) (worktree.Lease, error) {
 		gets++
 		return worktree.Lease{Path: filepath.Join(home, "leased"), ID: "lease-1"}, nil
 	})
@@ -465,7 +465,7 @@ func TestReconcileRunningWorktreeLeaseMismatchWinsOverHealthyPane(t *testing.T) 
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+	r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}
 	}
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
@@ -920,7 +920,7 @@ func TestReconcileConvergesLifecycleWhileWorktreeStillNeedsRepair(t *testing.T) 
 	}
 	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
 	r.deps.prMerged = observedMergedPR(true)
-	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+	r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
 	}
 	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
@@ -966,7 +966,7 @@ func TestReconcileConvergesLifecycleDespiteRecordedRepairMarker(t *testing.T) {
 	}
 	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
 	r.deps.prMerged = observedMergedPR(true)
-	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+	r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
 	}
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
@@ -1175,7 +1175,7 @@ func TestReconcileTerminalOwnedResourcesCleansEachResourceOnce(t *testing.T) {
 	client := &healthyReconcileHerdr{}
 	r := reconcileRuntime(client, nil)
 	returns := 0
-	r.deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+	r.deps.worktree.returnWithID = func(_, path, leaseID string, force bool) error {
 		returns++
 		if path != "/pool/1" || leaseID != "lease-1" || force {
 			t.Fatalf("returnWithID(%q, %q, %t), want exact clean lease", path, leaseID, force)
@@ -1218,7 +1218,7 @@ func TestReconcileTerminalDirtyWorktreeRefusesCleanup(t *testing.T) {
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
 	returns := 0
 	r.deps.worktree.observeClean = func(string) (worktree.Cleanliness, error) { return worktree.Dirty, nil }
-	r.deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+	r.deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1267,11 +1267,11 @@ func TestReconcileReusedTerminalLeaseDoesNotReturnNewOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+	r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}
 	}
 	returns := 0
-	r.deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+	r.deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1316,13 +1316,13 @@ func unobservableTeardownFixture(t *testing.T, latch string) (string, state.Atte
 func unobservableReconcileRuntime(t *testing.T, returns *int) *Runtime {
 	t.Helper()
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
-	r.deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	r.deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseUnknown, Probe: worktree.LeaseProbe{
 			Command: "treehouse status --json", WorkingDir: path, Reason: "treehouse reported no pool entries",
 		}}
 	}
-	r.deps.worktree.returnWithID = func(string, string, bool) error { *returns++; return nil }
-	r.deps.worktree.returnWorktree = func(string, bool) error { *returns++; return nil }
+	r.deps.worktree.returnWithID = func(string, string, string, bool) error { *returns++; return nil }
+	r.deps.worktree.returnWorktree = func(string, string, bool) error { *returns++; return nil }
 	return r
 }
 
@@ -1440,7 +1440,7 @@ func TestReconcileAbandonWorktreeRefusesProvableOwnership(t *testing.T) {
 			home, _ := unobservableTeardownFixture(t, state.TeardownResourceAmbiguous)
 			returns := 0
 			r := unobservableReconcileRuntime(t, &returns)
-			r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation { return test.observation }
+			r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation { return test.observation }
 			if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonWorktree: true}); err != nil {
 				t.Fatal(err)
 			}
@@ -1632,7 +1632,7 @@ func TestReconcileConvergesALatchedWorktreeOnceOwnershipIsProven(t *testing.T) {
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
-	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+	r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 	}
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
@@ -1673,7 +1673,7 @@ func TestReconcilePromotionCrashCleansScoutBeforeShipLaunch(t *testing.T) {
 	client := &healthyReconcileHerdr{}
 	r := reconcileRuntime(client, nil)
 	returns := 0
-	r.deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+	r.deps.worktree.returnWithID = func(_, path, leaseID string, force bool) error {
 		returns++
 		if path != "/scout" || leaseID != "scout-lease" || force {
 			t.Fatalf("scout return = %q %q %t", path, leaseID, force)
@@ -1933,7 +1933,7 @@ func TestReconcileLocalMergeDoesNotInspectReusedTreehousePath(t *testing.T) {
 	}
 	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
 	observed := 0
-	r.deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	r.deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
 		observed++
 		if path != "/pool/shared" || leaseID != "lease-a" {
 			t.Fatalf("observeLease(%q, %q), want Task 1 lease", path, leaseID)
@@ -2006,7 +2006,7 @@ func TestReconcileResumesPartialTeardownWithoutChangingDisposition(t *testing.T)
 	client := &healthyReconcileHerdr{}
 	r := reconcileRuntime(client, nil)
 	returns := 0
-	r.deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+	r.deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
 	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -2163,7 +2163,7 @@ func TestReconcileNormalizesPendingSendWithoutSteering(t *testing.T) {
 
 func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lease, error)) *Runtime {
 	if get == nil {
-		get = func(path, holder string) (worktree.Lease, error) {
+		get = func(path, _ string) (worktree.Lease, error) {
 			return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
 		}
 	}
@@ -2172,7 +2172,7 @@ func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lea
 		herdr: func() herdrClient { return client },
 		worktree: worktreeDependencies{
 			get: get,
-			observeLease: func(string, string) worktree.LeaseObservation {
+			observeLease: func(string, string, string) worktree.LeaseObservation {
 				return worktree.LeaseObservation{State: worktree.LeaseExact}
 			},
 			observeClean: func(path string) (worktree.Cleanliness, error) {
@@ -2185,8 +2185,8 @@ func reconcileRuntime(client herdrClient, get func(string, string) (worktree.Lea
 				}
 			},
 			checkCollision: func(string, worktree.Lease, string) (string, error) { return "", nil },
-			returnWorktree: func(string, bool) error { return nil },
-			returnWithID:   func(string, string, bool) error { return nil },
+			returnWorktree: func(string, string, bool) error { return nil },
+			returnWithID:   func(string, string, string, bool) error { return nil },
 		},
 		buildHarness:     func(string, harness.Options) (launchSpec, error) { return launchSpec{Executable: "launch"}, nil },
 		confirmLaunch:    func(herdrClient, string, string, launchSpec) error { return nil },

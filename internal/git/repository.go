@@ -22,6 +22,26 @@ func ResolveRoot(path string) (string, error) {
 	return filepath.Clean(root), nil
 }
 
+// CommonDir returns the repository's shared Git directory.
+func CommonDir(path string) (string, error) {
+	out, err := run(path, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", fmt.Errorf("resolve Git common directory: %w", err)
+	}
+	common := filepath.FromSlash(strings.TrimSpace(out))
+	if common == "" {
+		return "", fmt.Errorf("resolve Git common directory: empty path")
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(path, common)
+	}
+	common, err = filepath.Abs(common)
+	if err != nil {
+		return "", fmt.Errorf("make Git common directory absolute: %w", err)
+	}
+	return filepath.Clean(common), nil
+}
+
 func Run(dir string, args ...string) (string, error) {
 	return run(dir, args...)
 }

@@ -51,8 +51,8 @@ func unwindRuntime(t *testing.T, returns *int) *Runtime {
 	r.deps.herdr = func() herdrClient { return herdr.NewClient() }
 	r.deps.buildHarness = harness.Build
 	r.deps.confirmLaunch = confirmLaunch
-	r.deps.worktree.returnWorktree = func(string, bool) error { *returns++; return nil }
-	r.deps.worktree.returnWithID = func(string, string, bool) error { *returns++; return nil }
+	r.deps.worktree.returnWorktree = func(string, string, bool) error { *returns++; return nil }
+	r.deps.worktree.returnWithID = func(string, string, string, bool) error { *returns++; return nil }
 	return r
 }
 

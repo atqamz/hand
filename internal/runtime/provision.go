@@ -36,12 +36,12 @@ const (
 
 type worktreeDependencies struct {
 	get            func(string, string) (worktree.Lease, error)
-	observeLease   func(string, string) worktree.LeaseObservation
+	observeLease   func(string, string, string) worktree.LeaseObservation
 	observeClean   func(string) (worktree.Cleanliness, error)
 	observeCommits func(string) worktree.CommitSafetyObservation
 	headCommit     func(string) (string, error)
-	returnWorktree func(string, bool) error
-	returnWithID   func(string, string, bool) error
+	returnWorktree func(string, string, bool) error
+	returnWithID   func(string, string, string, bool) error
 	checkCollision func(string, worktree.Lease, string) (string, error)
 }
 
@@ -142,7 +142,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		// durably recorded, and PR detection falls back to a live re-derivation as before.
 		branch, _ := currentBranch(worktreePath)
 		if err := state.RecordAttemptWorktree(req.home, req.attempt.TaskID, req.attempt.ID, worktreePath, branch, lease.ID); err != nil {
-			return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnLease(lease, true))
+			return "", reportCleanup(fmt.Errorf("record worktree ownership: %w", err), r.deps.worktree.returnLease(req.clonePath, lease, true))
 		}
 	}
 	var releaseWorktree func()
@@ -181,7 +181,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 		return "", r.failProvision(req, lease, nil, false, err)
 	}
 	if req.resumeExisting {
-		observation := r.observeWorktreeLease(worktreePath, lease.ID)
+		observation := r.observeWorktreeLease(req.clonePath, worktreePath, lease.ID)
 		if observation.State != worktree.LeaseExact {
 			unproven := &worktree.UnprovenLeaseError{WorktreePath: worktreePath, ExpectedLeaseID: lease.ID, Observation: observation}
 			return "", r.failProvision(req, lease, nil, false, Precondition(fmt.Errorf("resumed worktree lease is %s: %w; refusing to launch", observation.State, unproven)))
@@ -280,15 +280,15 @@ func (r *Runtime) failProvision(req provisioningRequest, lease worktree.Lease, r
 		}
 	}
 	if lease.Path != "" && !req.resumeExisting {
-		if err := r.returnProvisioningWorktree(req.home, req.attempt.TaskID, req.attempt.ID, lease); err != nil {
+		if err := r.returnProvisioningWorktree(req.home, req.clonePath, req.attempt.TaskID, req.attempt.ID, lease); err != nil {
 			cleanup = append(cleanup, err)
 		}
 	}
 	return reportCleanup(cause, cleanup...)
 }
 
-func (r *Runtime) returnProvisioningWorktree(home, taskID string, attemptID int64, lease worktree.Lease) error {
-	if err := r.deps.worktree.returnLease(lease, true); err != nil {
+func (r *Runtime) returnProvisioningWorktree(home, clonePath, taskID string, attemptID int64, lease worktree.Lease) error {
+	if err := r.deps.worktree.returnLease(clonePath, lease, true); err != nil {
 		return err
 	}
 	if err := state.ClearAttemptWorktree(home, taskID, attemptID); err != nil {
@@ -297,12 +297,12 @@ func (r *Runtime) returnProvisioningWorktree(home, taskID string, attemptID int6
 	return nil
 }
 
-func (d worktreeDependencies) returnLease(lease worktree.Lease, force bool) error {
+func (d worktreeDependencies) returnLease(clonePath string, lease worktree.Lease, force bool) error {
 	if lease.ID != "" && d.returnWithID != nil {
-		return d.returnWithID(lease.Path, lease.ID, force)
+		return d.returnWithID(clonePath, lease.Path, lease.ID, force)
 	}
 	if d.returnWorktree != nil {
-		return d.returnWorktree(lease.Path, force)
+		return d.returnWorktree(clonePath, lease.Path, force)
 	}
-	return worktree.ReturnLease(lease.Path, lease.ID, force)
+	return worktree.ReturnLease(clonePath, lease.Path, lease.ID, force)
 }

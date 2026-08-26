@@ -117,7 +117,7 @@ func repairRuntime(client herdrClient) *Runtime {
 }
 
 func repairLeaseObservation(r *Runtime, lease worktree.LeaseObservation) {
-	r.deps.worktree.observeLease = func(string, string) worktree.LeaseObservation { return lease }
+	r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation { return lease }
 }
 
 func repairCommitSafety(r *Runtime, state worktree.CommitSafetyState, probe worktree.CommitSafetyProbe) {

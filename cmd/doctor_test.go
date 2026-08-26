@@ -226,6 +226,90 @@ func hasDoctorFindingPrefix(findings []doctorFinding, severity doctorSeverity, p
 	return false
 }
 
+func TestDoctorFindsWorktreeUsingAnotherFleetClone(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(home, "projects", "demo")
+	foreign := filepath.Join(t.TempDir(), "demo")
+	initGitRepo(t, clone)
+	initGitRepo(t, foreign)
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning, Worktree: foreign}); err != nil {
+		t.Fatal(err)
+	}
+	histories, err := state.ListOpenHistoriesReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := doctorFindings(home, histories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, finding := range findings {
+		if finding.Severity == doctorError && strings.Contains(finding.Text, `task "task-1" worktree is rooted in another Git repository`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("findings = %#v, want a cross-fleet worktree finding", findings)
+	}
+}
+
+func TestDoctorFindsWorktreeUsingTheFleetHomeCheckout(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(home, "projects", "demo")
+	operatorCheckout := filepath.Join(home, "operator-checkout")
+	initGitRepo(t, clone)
+	initGitRepo(t, operatorCheckout)
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning, Worktree: operatorCheckout}); err != nil {
+		t.Fatal(err)
+	}
+	histories, err := state.ListOpenHistoriesReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := doctorFindings(home, histories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range findings {
+		if finding.Severity == doctorError && strings.Contains(finding.Text, `task "task-1" worktree is rooted in another Git repository`) {
+			return
+		}
+	}
+	t.Fatalf("findings = %#v, want an operator-checkout worktree finding", findings)
+}
+
 func TestDoctorIncludesProjectListGateFinding(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

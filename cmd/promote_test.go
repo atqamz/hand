@@ -482,7 +482,7 @@ func TestPromoteReturnsScoutResourcesWhenTheShipLaunchFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(calls), "treehouse return "+oldWt) {
+	if !strings.Contains(string(calls), " return "+oldWt) {
 		t.Fatalf("calls = %q, want the scout worktree returned", calls)
 	}
 	if !strings.Contains(string(calls), "tab close wA:tOld") {

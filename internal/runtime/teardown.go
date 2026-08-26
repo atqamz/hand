@@ -132,7 +132,8 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 		return fail(err)
 	}
 	returnForce := teardownReturnForce(req.Force, dirtWasSafe, disposition)
-	if err := r.releaseWorktree(req.Home, req.ID, active, returnForce); err != nil {
+	clonePath := filepath.Join(req.Home, "projects", task.Project)
+	if err := r.releaseWorktree(clonePath, req.Home, req.ID, active, returnForce); err != nil {
 		return fail(err)
 	}
 	if recoveredCompletion != nil {
@@ -259,12 +260,12 @@ func (r *Runtime) releaseHerdr(home, taskID string, attempt state.Attempt, warni
 	return nil
 }
 
-func (r *Runtime) releaseWorktree(home, taskID string, attempt state.Attempt, force bool) error {
+func (r *Runtime) releaseWorktree(clonePath, home, taskID string, attempt state.Attempt, force bool) error {
 	if attempt.Worktree == "" {
 		return nil
 	}
 	proveOwnership := func(action string) error {
-		observation := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
+		observation := r.observeWorktreeLease(clonePath, attempt.Worktree, attempt.LeaseID)
 		if observation.State == worktree.LeaseExact {
 			return nil
 		}
@@ -304,7 +305,7 @@ func (r *Runtime) releaseWorktree(home, taskID string, attempt state.Attempt, fo
 	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
 		return fmt.Errorf("record worktree release phase: %w", err)
 	}
-	if err := r.deps.worktree.returnLease(worktree.Lease{Path: attempt.Worktree, ID: attempt.LeaseID}, force); err != nil {
+	if err := r.deps.worktree.returnLease(clonePath, worktree.Lease{Path: attempt.Worktree, ID: attempt.LeaseID}, force); err != nil {
 		if errors.Is(err, worktree.ErrReturnAborted) {
 			if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceRetryable); stateErr != nil {
 				return fmt.Errorf("record retryable worktree return: %w", stateErr)

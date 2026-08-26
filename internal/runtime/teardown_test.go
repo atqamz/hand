@@ -20,7 +20,7 @@ func TestTeardownFailureAfterWorktreeReturnPreservesOwnershipEvidence(t *testing
 	phaseErr := errors.New("stop after worktree return")
 	returned := false
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(path string, force bool) error {
+	deps.worktree.returnWorktree = func(_, path string, force bool) error {
 		if path != worktree || force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, false)", path, force, worktree)
 		}
@@ -92,7 +92,7 @@ func TestTeardownCompletionAppendFailureLeavesStateRetryable(t *testing.T) {
 	home, _ := teardownFixture(t, true)
 	appendErr := errors.New("completion store unavailable")
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(string, bool) error { return nil }
+	deps.worktree.returnWorktree = func(string, string, bool) error { return nil }
 	deps.appendCompletion = func(string, completion.Record) error { return appendErr }
 
 	_, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
@@ -117,7 +117,7 @@ func TestTeardownFailureAfterCompletionAppendLeavesBoundaryObservable(t *testing
 	home, _ := teardownFixture(t, true)
 	phaseErr := errors.New("stop after completion append")
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(string, bool) error { return nil }
+	deps.worktree.returnWorktree = func(string, string, bool) error { return nil }
 	deps.phase = func(phase lifecyclePhase) error {
 		if phase == phaseCompletionAppended {
 			return phaseErr
@@ -151,7 +151,7 @@ func TestTeardownRetryAfterCompletionAppendDoesNotRepeatCleanup(t *testing.T) {
 	phaseFailure := true
 	phaseErr := errors.New("stop after completion append")
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(path string, force bool) error {
+	deps.worktree.returnWorktree = func(_, path string, force bool) error {
 		if path != worktree || force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, false)", path, force, worktree)
 		}
@@ -470,7 +470,7 @@ func TestTeardownForcedRetryKeepsForcedWorktreeReturn(t *testing.T) {
 	phaseFailure := true
 	returned := 0
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(path string, force bool) error {
+	deps.worktree.returnWorktree = func(_, path string, force bool) error {
 		if path != worktree || !force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, true)", path, force, worktree)
 		}
@@ -537,7 +537,7 @@ func TestTeardownRetrySkipsReleasedWorktreeAfterLeaseReused(t *testing.T) {
 	reacquired := false
 	phaseFailure := true
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(path string, force bool) error {
+	deps.worktree.returnWorktree = func(_, path string, force bool) error {
 		if path != worktree || force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, false)", path, force, worktree)
 		}
@@ -581,14 +581,14 @@ func TestTeardownRetriesKnownAbortedReturnWithForce(t *testing.T) {
 	returns := 0
 	observed := 0
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
 		if path != worktreePath || leaseID != "lease-1" {
 			t.Fatalf("observeLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
 		}
 		observed++
 		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 	}
-	deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+	deps.worktree.returnWithID = func(_, path, leaseID string, force bool) error {
 		if path != worktreePath {
 			t.Fatalf("returnWithID path = %q, want %q", path, worktreePath)
 		}
@@ -632,17 +632,17 @@ func TestTeardownUsesConditionalReturnForKnownLease(t *testing.T) {
 	home, worktreePath, attempt := leasedTeardownFixture(t)
 	called := false
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
 		if path != worktreePath || leaseID != "lease-1" {
 			t.Fatalf("observeLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
 		}
 		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 	}
-	deps.worktree.returnWorktree = func(string, bool) error {
+	deps.worktree.returnWorktree = func(string, string, bool) error {
 		t.Fatal("teardown used path-only return for a known lease")
 		return nil
 	}
-	deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+	deps.worktree.returnWithID = func(_, path, leaseID string, force bool) error {
 		if path != worktreePath || leaseID != "lease-1" || force {
 			t.Fatalf("returnWithID(%q, %q, %t), want (%q, %q, false)", path, leaseID, force, worktreePath, "lease-1")
 		}
@@ -650,7 +650,7 @@ func TestTeardownUsesConditionalReturnForKnownLease(t *testing.T) {
 		return nil
 	}
 
-	if err := (&Runtime{deps: deps}).releaseWorktree(home, "task-1", attempt, false); err != nil {
+	if err := (&Runtime{deps: deps}).releaseWorktree(filepath.Join(home, "projects", "myproj"), home, "task-1", attempt, false); err != nil {
 		t.Fatal(err)
 	}
 	if !called {
@@ -663,14 +663,14 @@ func TestTeardownRefusesARecycledWorktreeLeaseOnFirstReturn(t *testing.T) {
 	observed := 0
 	returns := 0
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
 		if path != worktreePath || leaseID != "lease-1" {
 			t.Fatalf("observeLease(%q, %q), want (%q, %q)", path, leaseID, worktreePath, "lease-1")
 		}
 		observed++
 		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "lease-2"}
 	}
-	deps.worktree.returnWorktree = func(string, bool) error {
+	deps.worktree.returnWorktree = func(string, string, bool) error {
 		returns++
 		return nil
 	}
@@ -779,8 +779,8 @@ func TestTeardownDoesNotLatchOnAnUnobservablePool(t *testing.T) {
 	returns := 0
 	observation := unobservablePool(worktreePath)
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(string, string) worktree.LeaseObservation { return observation }
-	deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+	deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation { return observation }
+	deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
 	runtime := &Runtime{deps: deps}
 
 	_, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
@@ -829,8 +829,8 @@ func TestTeardownForceCannotDestroyAnUnobservableWorktree(t *testing.T) {
 	returns := 0
 	observation := worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(string, string) worktree.LeaseObservation { return observation }
-	deps.worktree.returnWithID = func(_, _ string, force bool) error {
+	deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation { return observation }
+	deps.worktree.returnWithID = func(_, _, _ string, force bool) error {
 		returns++
 		if !force {
 			return worktree.ErrReturnAborted
@@ -868,10 +868,10 @@ func TestTeardownConvergesALatchedWorktreeOnceOwnershipIsProven(t *testing.T) {
 	}
 	returns := 0
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
 		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 	}
-	deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+	deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
 
 	if _, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err != nil {
 		t.Fatalf("Teardown() on a latched attempt = %v, want release once ownership is proven", err)
@@ -897,8 +897,8 @@ func TestTeardownKeepsALatchedWorktreeWhenOwnershipStaysUnobservable(t *testing.
 	}
 	returns := 0
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(string, string) worktree.LeaseObservation { return unobservablePool(worktreePath) }
-	deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+	deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation { return unobservablePool(worktreePath) }
+	deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
 
 	_, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true})
 	if err == nil || !strings.Contains(err.Error(), "could not be observed") {
@@ -921,14 +921,14 @@ func TestTeardownRetryRefusesWorktreeWithoutLeaseIdentity(t *testing.T) {
 	returns := 0
 	observed := 0
 	deps := defaultDependencies()
-	deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
 		if path != worktreePath || leaseID != "" {
 			t.Fatalf("observeLease(%q, %q), want (%q, empty)", path, leaseID, worktreePath)
 		}
 		observed++
 		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
 	}
-	deps.worktree.returnWorktree = func(string, bool) error {
+	deps.worktree.returnWorktree = func(string, string, bool) error {
 		returns++
 		return worktree.ErrReturnAborted
 	}

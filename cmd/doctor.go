@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/integration"
@@ -250,6 +252,7 @@ func doctorFindings(fleetHome string, histories []state.TaskHistory) ([]doctorFi
 			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q no-mistakes gate is %s", p.Name, issue)})
 		}
 	}
+	findings = append(findings, doctorWorktreeFindings(fleetHome, histories)...)
 
 	detection, err := harness.DetectCurrent()
 	if err != nil {
@@ -322,6 +325,50 @@ func reportPathSuffix(text string, end int) bool {
 
 func isReportPathSuffixChar(char byte) bool {
 	return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-' || char == '/' || char == '\\'
+}
+
+func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []doctorFinding {
+	findings := make([]doctorFinding, 0)
+	for _, history := range histories {
+		attempt := history.ActiveAttempt
+		if attempt == nil || attempt.Worktree == "" {
+			continue
+		}
+		clone := filepath.Join(fleetHome, "projects", history.Task.Project)
+		expected := filepath.Join(clone, ".git")
+		if _, err := os.Stat(expected); err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q registered clone cannot be inspected: %v", history.Task.ID, err)})
+			continue
+		}
+		actual, err := git.CommonDir(attempt.Worktree)
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q worktree common directory cannot be inspected: %v", history.Task.ID, err)})
+			continue
+		}
+		if sameDoctorPath(expected, actual) {
+			continue
+		}
+		findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q worktree is rooted in another Git repository: got %s, want %s", history.Task.ID, actual, expected)})
+	}
+	return findings
+}
+
+func sameDoctorPath(left, right string) bool {
+	canonical := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return filepath.Clean(path)
+		}
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = resolved
+		}
+		return filepath.Clean(abs)
+	}
+	left, right = canonical(left), canonical(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 // A local-only fleet never needs gh, while a registered project delivering through direct-pr or

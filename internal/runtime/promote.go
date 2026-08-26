@@ -143,7 +143,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 		defer releaseProject()
 	}
 
-	cleanupWarnings, err := r.cleanupScout(req.Home, req.ID, scout)
+	cleanupWarnings, err := r.cleanupScout(req.Home, clonePath, req.ID, scout)
 	if err != nil {
 		return Result{}, WithWarnings(err, append(warnings, cleanupWarnings...))
 	}
@@ -167,7 +167,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	}, nil
 }
 
-func (r *Runtime) cleanupScout(homeDir, taskID string, scout state.Attempt) ([]string, error) {
+func (r *Runtime) cleanupScout(homeDir, clonePath, taskID string, scout state.Attempt) ([]string, error) {
 	client := r.herdrClient(scout.Herdr.Session)
 	var warnings []string
 	setState := func(resource, next string) error {
@@ -208,7 +208,7 @@ func (r *Runtime) cleanupScout(homeDir, taskID string, scout state.Attempt) ([]s
 		default:
 			if err := setState("worktree", state.TeardownResourceReleasing); err != nil {
 				warnings = append(warnings, fmt.Sprintf("warning: record scout worktree release phase failed: %v", err))
-			} else if err := r.deps.worktree.returnLease(worktree.Lease{Path: scout.Worktree, ID: scout.LeaseID}, true); err != nil {
+			} else if err := r.deps.worktree.returnLease(clonePath, worktree.Lease{Path: scout.Worktree, ID: scout.LeaseID}, true); err != nil {
 				_ = setState("worktree", state.TeardownResourceAmbiguous)
 				warnings = append(warnings, fmt.Sprintf("warning: return scout worktree failed: %v", err))
 			} else if err := setState("worktree", state.TeardownResourceReleased); err != nil {

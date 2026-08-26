@@ -262,7 +262,7 @@ func TestSpawnMechanicalPlanRetainsWorktreeEvidenceWhenLeaseChangesDuringCleanup
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 	r.deps.worktree.headCommit = func(string) (string, error) { return acquired, nil }
-	r.deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+	r.deps.worktree.returnWithID = func(_, path, leaseID string, force bool) error {
 		if path == "" || leaseID != "lease-1" || !force {
 			t.Fatalf("returnWithID(%q, %q, %t), want acquired lease-1 with force", path, leaseID, force)
 		}
@@ -796,7 +796,7 @@ func executionPlanRuntime(t *testing.T, calls *executionPlanCalls, base func(str
 		return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
 	}
 	r.deps.worktree.headCommit = func(string) (string, error) { return strings.Repeat("a", 40), nil }
-	r.deps.worktree.returnWorktree = func(string, bool) error {
+	r.deps.worktree.returnWorktree = func(string, string, bool) error {
 		calls.worktreeReturns++
 		return nil
 	}

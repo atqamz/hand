@@ -91,7 +91,7 @@ func observingCommitSafetyRuntime(t *testing.T, worktreePath string, observe fun
 		}
 		return observe(path)
 	}
-	r.deps.worktree.returnWithID = func(string, string, bool) error {
+	r.deps.worktree.returnWithID = func(string, string, string, bool) error {
 		counts.returns++
 		return nil
 	}
