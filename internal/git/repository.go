@@ -45,15 +45,26 @@ func CommonDir(path string) (string, error) {
 
 // SamePath reports whether two paths identify the same filesystem location.
 func SamePath(left, right string) bool {
-	canonical := func(path string) string {
+	absolute := func(path string) string {
 		abs, err := filepath.Abs(path)
 		if err != nil {
 			return filepath.Clean(path)
 		}
-		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-			abs = resolved
-		}
 		return filepath.Clean(abs)
+	}
+	left, right = absolute(left), absolute(right)
+	if runtime.GOOS == "windows" {
+		if strings.EqualFold(left, right) {
+			return true
+		}
+	} else if left == right {
+		return true
+	}
+	canonical := func(path string) string {
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			return filepath.Clean(resolved)
+		}
+		return path
 	}
 	left, right = canonical(left), canonical(right)
 	if runtime.GOOS == "windows" {
