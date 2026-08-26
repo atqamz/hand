@@ -25,6 +25,9 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := project.Migrate(req.Home); err != nil {
+		return Result{}, fmt.Errorf("migrate project and completion identity: %w", err)
+	}
 	release, err := state.Lock(req.Home, "task:"+req.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("lock task %q: %w", req.ID, err)

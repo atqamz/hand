@@ -185,6 +185,9 @@ const (
 const reconcileIterationLimit = 8
 
 func (r *Runtime) Reconcile(req ReconcileRequest) (ReconcileReport, error) {
+	if err := project.Migrate(req.Home); err != nil {
+		return ReconcileReport{}, fmt.Errorf("migrate project and completion identity: %w", err)
+	}
 	if err := fleetPreflightReadOnly(req.Home); err != nil {
 		return ReconcileReport{}, Precondition(err)
 	}

@@ -1086,6 +1086,9 @@ func TestCompletionIdentityMigrationSeparatesReusedNamesFromUnknownLineage(t *te
 	if removed, err := db.RemoveProject("gamma"); err != nil || !removed {
 		t.Fatalf("RemoveProject = %v, %v", removed, err)
 	}
+	if err := db.CreateTask(store.Task{ID: "gamma-unknown", Project: "gamma", Kind: store.KindShip}); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.AddProject(store.Project{Name: "gamma", URL: "https://github.com/org/gamma-two", Mode: ModeLocalOnly}); err != nil {
 		t.Fatal(err)
 	}
@@ -1106,6 +1109,7 @@ func TestCompletionIdentityMigrationSeparatesReusedNamesFromUnknownLineage(t *te
 		`{"id":"beta-1","project":"beta","kind":"scout","outcome":"done","detail":"","torndown_at":"2026-08-02T00:00:00Z"}`,
 		`{"id":"gamma-old","project":"gamma","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-03T00:00:00Z"}`,
 		`{"id":"gamma-new","project":"gamma","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-04T00:00:00Z"}`,
+		`{"id":"gamma-unknown","project":"gamma","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-04T12:00:00Z"}`,
 		`{"id":"vanished","project":"delta","kind":"ship","outcome":"merged","detail":"","torndown_at":"2026-08-05T00:00:00Z"}`,
 	)
 
@@ -1123,8 +1127,9 @@ func TestCompletionIdentityMigrationSeparatesReusedNamesFromUnknownLineage(t *te
 		"beta-1": completion.ProjectIDUnknown,
 		// The task rows keep the two gamma populations apart, which is the whole point of the
 		// surrogate identity: the retired project's record does not join the reissued name's history.
-		"gamma-old": retiredGamma,
-		"gamma-new": liveGamma,
+		"gamma-old":     retiredGamma,
+		"gamma-new":     liveGamma,
+		"gamma-unknown": completion.ProjectIDUnknown,
 		// No task row survives, and "delta" names no registered project: not knowable, so not guessed.
 		"vanished": completion.ProjectIDUnknown,
 	}

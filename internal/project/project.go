@@ -155,14 +155,20 @@ func completionIdentityResolver(db *store.DB) (completion.ProjectIdentityResolve
 		return nil, err
 	}
 	identityByTask := make(map[string]string, len(tasks))
+	unknownTask := make(map[string]struct{})
 	for _, t := range tasks {
 		if t.ProjectID != "" {
 			identityByTask[t.ID] = t.ProjectID
+		} else {
+			unknownTask[t.ID] = struct{}{}
 		}
 	}
 	return func(r completion.Record) string {
 		if id, ok := identityByTask[r.ID]; ok {
 			return id
+		}
+		if _, ok := unknownTask[r.ID]; ok {
+			return completion.ProjectIDUnknown
 		}
 		return identityByName[r.Project]
 	}, nil
