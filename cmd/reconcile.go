@@ -29,10 +29,13 @@ func newReconcileCmd() *cobra.Command {
 			"A running Attempt whose Herdr pane is still present is also read for `agent_status`: `working` or\n" +
 			"`blocked` are reported as such, and `idle-unreported` names a pane that stopped being busy with\n" +
 			"nothing on the report channel explaining it since launch. The fact is recorded in the Attempt's\n" +
-			"durable status columns, so it survives whether or not `hand watch` was ever running, and it changes\n" +
-			"no lifecycle by itself: an idle, still-present harness may yet resume. Where the harness carries a\n" +
-			"catalogued usage-limit signature, an idle-unreported Attempt is also checked for it, and a detected\n" +
-			"limit's stated reset time is preserved the same way `hand watch` would preserve it.\n\n" +
+			"durable status columns, so it survives whether or not `hand watch` was ever running. A pane observed\n" +
+			"as Herdr `done` with no report or only a `working:` report also gets terminal convergence after\n" +
+			"landing evidence is checked; a `paused:`, `blocked:`, `needs-decision:`, `done:`, or `failed:`\n" +
+			"report still explains the stop and leaves the lifecycle for the operator's normal next step.\n" +
+			"Where the harness carries a catalogued usage-limit signature, an idle-unreported Attempt is also\n" +
+			"checked for it; a detected limit's stated reset time is preserved the same way `hand watch` would\n" +
+			"preserve it.\n\n" +
 			"Automatic worktree return also requires proof that no commit exists only there: a commit reachable\n" +
 			"from a remote-tracking ref, or one GitHub records as the head of the task pull request, is held\n" +
 			"elsewhere too. Unpushed commits withhold the return, and so does a comparison that could not be\n" +
