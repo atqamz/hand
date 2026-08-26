@@ -229,6 +229,62 @@ func TestTeardownSecondInvocationRefusesWithoutRepeatingCompletion(t *testing.T)
 	}
 }
 
+func TestTeardownReleasesResourcesRecordedOnTerminalTask(t *testing.T) {
+	home, worktreePath, _ := terminalResourceFixture(t)
+	client := &teardownHerdr{}
+	returns := 0
+	deps := defaultDependencies()
+	deps.herdr = func() herdrClient { return client }
+	deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+		if path != worktreePath || leaseID != "lease-1" {
+			t.Fatalf("observeLease(%q, %q), want (%q, lease-1)", path, leaseID, worktreePath)
+		}
+		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: leaseID}
+	}
+	deps.worktree.observeCommits = func(string) worktree.CommitSafetyObservation {
+		return worktree.CommitSafetyObservation{State: worktree.CommitSafetyRemoteObserved}
+	}
+	deps.worktree.returnWithID = func(path, leaseID string, force bool) error {
+		if path != worktreePath || leaseID != "lease-1" || force {
+			t.Fatalf("returnWithID(%q, %q, %t), want the proven terminal lease returned", path, leaseID, force)
+		}
+		returns++
+		return nil
+	}
+
+	if _, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returns != 1 || client.closes != 1 || history.Task.Lifecycle != state.TaskTerminal || history.Attempts[0].TeardownWorktreeState != state.TeardownResourceReleased || history.Attempts[0].TeardownHerdrState != state.TeardownResourceReleased {
+		t.Fatalf("returns=%d closes=%d history=%+v, want terminal resources released", returns, client.closes, history)
+	}
+}
+
+func TestTeardownRefusesTerminalTaskWhenCommitSafetyIsUnprovable(t *testing.T) {
+	home, worktreePath, _ := terminalResourceFixture(t)
+	returns := 0
+	deps := defaultDependencies()
+	deps.worktree.observeLease = func(string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
+	}
+	deps.worktree.observeCommits = func(string) worktree.CommitSafetyObservation {
+		return worktree.CommitSafetyObservation{State: worktree.CommitSafetyUnknown, Probe: worktree.CommitSafetyProbe{WorkingDir: worktreePath}}
+	}
+	deps.worktree.returnWithID = func(string, string, bool) error { returns++; return nil }
+
+	_, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
+	if err == nil || !strings.Contains(err.Error(), "commit safety") {
+		t.Fatalf("Teardown() = %v, want commit-safety refusal", err)
+	}
+	if returns != 0 {
+		t.Fatalf("worktree returns = %d, want no return", returns)
+	}
+}
+
 func TestTeardownDoesNotUseAnOlderSameSecondCompletion(t *testing.T) {
 	home, _ := teardownFixture(t, false)
 	first, err := state.ActiveAttempt(home, "task-1")
@@ -661,6 +717,53 @@ func leasedTeardownFixture(t *testing.T) (string, string, state.Attempt) {
 		t.Fatal(err)
 	}
 	return home, worktreePath, *history.ActiveAttempt
+}
+
+func terminalResourceFixture(t *testing.T) (string, string, state.Attempt) {
+	t.Helper()
+	home, worktreePath := teardownFixture(t, true)
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := *history.ActiveAttempt
+	attempt.LeaseID = "lease-1"
+	attempt.Herdr = state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}
+	if err := state.UpdateAttempt(home, attempt); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownDecision(home, "task-1", attempt.ID, state.AttemptCompleted, state.TeardownDispositionCompleted); err != nil {
+		t.Fatal(err)
+	}
+	record := completion.Record{ID: "task-1", Project: "demo", Kind: state.KindScout, Outcome: "done", Detail: "already recorded", AttemptID: attempt.ID, AttemptLifecycle: string(state.AttemptCompleted)}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptRunning, state.TeardownCompletionPending); err != nil {
+		t.Fatal(err)
+	}
+	if err := completion.Append(home, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownCompletionState(home, "task-1", attempt.ID, state.AttemptRunning, state.TeardownCompletionAppended); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, state.AttemptRunning, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	return home, worktreePath, attempt
+}
+
+type teardownHerdr struct {
+	healthyReconcileHerdr
+	closes int
+}
+
+func (f *teardownHerdr) TabClose(string) error {
+	f.closes++
+	return nil
+}
+
+func (f *teardownHerdr) WorkspaceClose(string) error {
+	f.closes++
+	return nil
 }
 
 func unobservablePool(worktreePath string) worktree.LeaseObservation {

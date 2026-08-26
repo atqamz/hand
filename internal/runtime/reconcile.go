@@ -350,7 +350,12 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, attest rec
 			return result, err
 		}
 		if terminalConvergenceCandidate(attempt, observation) {
-			observation.Landing = r.observeLanding(ctx, home, history.Task, mergeObserved)
+			history.Task, observation.Landing, err = r.observeLanding(ctx, home, history.Task, attempt, mergeObserved)
+			if err != nil {
+				result.Outcome = reconcileOutcomeBlocked
+				result.Landing = string(observation.Landing)
+				return result, err
+			}
 			result.Landing = string(observation.Landing)
 		}
 		decision := decideReconciliation(history.Task, attempt, observation)
@@ -493,21 +498,53 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 	return merged, !merged, "local-git", nil
 }
 
-func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Task, mergeObserved bool) landingState {
+func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Task, attempt state.Attempt, mergeObserved bool) (state.Task, landingState, error) {
 	if mergeObserved || task.DeliveredAt != "" {
-		return landingLanded
+		return task, landingLanded, nil
 	}
 	if task.Kind == state.KindScout {
 		if _, err := os.Stat(filepath.Join(home, "data", task.ID, "report.md")); err != nil {
 			if os.IsNotExist(err) {
-				return landingUnlanded
+				return task, landingUnlanded, nil
 			}
-			return landingUnknown
+			return task, landingUnknown, nil
 		}
-		return landingLanded
+		return task, landingLanded, nil
 	}
 	if task.PR == "" {
-		return landingUnlanded
+		projectInfo, found, err := project.FindReadOnly(home, task.Project)
+		if err != nil {
+			return task, landingUnknown, fmt.Errorf("observe landing project %q: %w", task.Project, err)
+		}
+		if !found {
+			if task.Kind == "" {
+				return task, landingUnlanded, nil
+			}
+			return task, landingUnknown, fmt.Errorf("observe landing project %q: project is not registered", task.Project)
+		}
+		if projectInfo.Mode == project.ModeLocalOnly && (task.Kind == "" || (attempt.Worktree != "" && attempt.Branch == "")) {
+			return task, landingUnlanded, nil
+		}
+		detected, observation, err := DetectPR(ctx, home, task, attempt, projectInfo)
+		if err != nil {
+			return task, landingUnknown, fmt.Errorf("record observed PR for task %q: %w", task.ID, err)
+		}
+		if observation.Absent() {
+			return task, landingUnlanded, nil
+		}
+		if observation.Unknown() {
+			return task, landingUnknown, nil
+		}
+		if observation.Merged && !task.MergeAnnounced {
+			if err := state.SetTaskMergeAnnounced(home, task.ID); err != nil {
+				return task, landingUnknown, fmt.Errorf("record observed merged PR for task %q: %w", task.ID, err)
+			}
+			detected.MergeAnnounced = true
+		}
+		if observation.Merged {
+			return detected, landingLanded, nil
+		}
+		return detected, landingUnlanded, nil
 	}
 	prMerged := r.deps.prMerged
 	if prMerged == nil {
@@ -515,12 +552,12 @@ func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Ta
 	}
 	observation := prMerged(ctx, task.PR)
 	if !observation.Found() {
-		return landingUnknown
+		return task, landingUnknown, nil
 	}
 	if observation.Merged {
-		return landingLanded
+		return task, landingLanded, nil
 	}
-	return landingUnlanded
+	return task, landingUnlanded, nil
 }
 
 func terminalConvergenceCandidate(attempt state.Attempt, observation reconciliationObservation) bool {
