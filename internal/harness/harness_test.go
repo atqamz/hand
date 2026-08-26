@@ -13,6 +13,7 @@ import (
 
 func buildSpec(t *testing.T, name string, options Options) launch.LaunchSpec {
 	t.Helper()
+	options = withTestReportPath(options)
 	spec, err := Build(name, options)
 	if err != nil {
 		t.Fatal(err)
@@ -20,9 +21,32 @@ func buildSpec(t *testing.T, name string, options Options) launch.LaunchSpec {
 	return spec
 }
 
+func withTestReportPath(options Options) Options {
+	if options.ReportPath == "" {
+		options.ReportPath = "/tmp/state/task-1.status"
+	}
+	return options
+}
+
+func testBriefPrompt(t *testing.T, options Options) string {
+	t.Helper()
+	prompt, err := briefPrompt(withTestReportPath(options))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prompt
+}
+
 func TestBuildUnrecognizedHarness(t *testing.T) {
 	if _, err := Build("nonexistent", Options{}); err == nil {
 		t.Fatal("expected error for unrecognized harness")
+	}
+}
+
+func TestBuildRejectsMissingReportPath(t *testing.T) {
+	_, err := Build(Claude, Options{Brief: "/tmp/brief.md"})
+	if err == nil || !strings.Contains(err.Error(), "report path") {
+		t.Fatalf("Build() error = %v, want missing report path error", err)
 	}
 }
 
@@ -42,7 +66,7 @@ func TestBuildAntigravity(t *testing.T) {
 	spec := buildSpec(t, Antigravity, options)
 	want := launch.LaunchSpec{
 		Executable: "agy",
-		Args:       []string{"--dangerously-skip-permissions", "--output-format", "stream-json", "--print-timeout", antigravityPrintTimeout, "-p", briefPrompt(options)},
+		Args:       []string{"--dangerously-skip-permissions", "--output-format", "stream-json", "--print-timeout", antigravityPrintTimeout, "-p", testBriefPrompt(t, options)},
 		Cwd:        options.Worktree,
 	}
 	if !reflect.DeepEqual(spec, want) {
@@ -64,7 +88,7 @@ func TestBuildAntigravity(t *testing.T) {
 func TestBuildAntigravityWithModelAndEffort(t *testing.T) {
 	options := Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "gemini-3.5-flash-medium", Effort: "high"}
 	spec := buildSpec(t, Antigravity, options)
-	want := []string{"--dangerously-skip-permissions", "--output-format", "stream-json", "--print-timeout", antigravityPrintTimeout, "--model", options.Model, "--effort", options.Effort, "-p", briefPrompt(options)}
+	want := []string{"--dangerously-skip-permissions", "--output-format", "stream-json", "--print-timeout", antigravityPrintTimeout, "--model", options.Model, "--effort", options.Effort, "-p", testBriefPrompt(t, options)}
 	if !reflect.DeepEqual(spec.Args, want) {
 		t.Fatalf("args = %#v, want %#v", spec.Args, want)
 	}
@@ -96,7 +120,7 @@ func TestBuildCarriesStructuredCwdAndNoShellPrefixes(t *testing.T) {
 
 func TestBuildClaude(t *testing.T) {
 	spec := buildSpec(t, Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/data/fix-login/brief.md"})
-	wantPrompt := briefPrompt(Options{Brief: "/tmp/data/fix-login/brief.md"})
+	wantPrompt := testBriefPrompt(t, Options{Brief: "/tmp/data/fix-login/brief.md"})
 	want := launch.LaunchSpec{
 		Executable: Claude,
 		Args:       []string{"--dangerously-skip-permissions", wantPrompt},
@@ -127,7 +151,7 @@ func TestBuildClaudeNeverHeadless(t *testing.T) {
 
 func TestBuildCodex(t *testing.T) {
 	spec := buildSpec(t, Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-	want := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true", briefPrompt(Options{Brief: "/tmp/brief.md"})}
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true", testBriefPrompt(t, Options{Brief: "/tmp/brief.md"})}
 	if !reflect.DeepEqual(spec.Args, want) {
 		t.Fatalf("args = %#v, want %#v", spec.Args, want)
 	}
@@ -135,7 +159,7 @@ func TestBuildCodex(t *testing.T) {
 
 func TestBuildCodexWithModelAndEffort(t *testing.T) {
 	spec := buildSpec(t, Codex, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Model: "gpt-5.6-codex", Effort: "high"})
-	want := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true", "--model", "gpt-5.6-codex", "-c", `model_reasoning_effort="high"`, briefPrompt(Options{Brief: "/tmp/brief.md"})}
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true", "--model", "gpt-5.6-codex", "-c", `model_reasoning_effort="high"`, testBriefPrompt(t, Options{Brief: "/tmp/brief.md"})}
 	if !reflect.DeepEqual(spec.Args, want) {
 		t.Fatalf("args = %#v, want %#v", spec.Args, want)
 	}
@@ -168,7 +192,7 @@ func TestBuildOpenCode(t *testing.T) {
 	spec := buildSpec(t, OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
 	want := launch.LaunchSpec{
 		Executable: OpenCode,
-		Args:       []string{"--prompt", briefPrompt(Options{Brief: "/tmp/brief.md"})},
+		Args:       []string{"--prompt", testBriefPrompt(t, Options{Brief: "/tmp/brief.md"})},
 		Env:        map[string]string{"OPENCODE_CONFIG_CONTENT": `{"permission":{"*":"allow"}}`},
 		Cwd:        "/tmp/wt",
 	}

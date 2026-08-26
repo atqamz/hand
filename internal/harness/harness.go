@@ -188,28 +188,32 @@ func Build(name string, opts Options) (launch.LaunchSpec, error) {
 		return launch.LaunchSpec{}, err
 	}
 	var spec launch.LaunchSpec
+	var buildErr error
 	// Each builder below uses only flags verified against its documented CLI contract.
 	switch name {
 	case Claude:
-		spec = buildClaude(opts)
+		spec, buildErr = buildClaude(opts)
 	case Codex:
-		spec = buildCodex(opts)
+		spec, buildErr = buildCodex(opts)
 	case Grok:
 		spec = buildGrok(opts)
 	case Pi:
 		spec = buildPi(opts)
 	case OpenCode:
-		spec = buildOpenCode(opts)
+		spec, buildErr = buildOpenCode(opts)
 	case Antigravity:
-		spec = buildAntigravity(opts)
+		spec, buildErr = buildAntigravity(opts)
 	default:
 		return launch.LaunchSpec{}, fmt.Errorf("harness %q not recognized", name)
+	}
+	if buildErr != nil {
+		return launch.LaunchSpec{}, buildErr
 	}
 	spec.Cwd = opts.Worktree
 	return launch.NewSpec(spec)
 }
 
-func buildAntigravity(o Options) launch.LaunchSpec {
+func buildAntigravity(o Options) (launch.LaunchSpec, error) {
 	// stream-json gives launch confirmation typed init evidence without treating the provider's
 	// terminal result as Hand task outcome. One-shot workers must execute unattended: otherwise a
 	// permission request can soft-deny a required tool action while the headless process still exits.
@@ -224,14 +228,18 @@ func buildAntigravity(o Options) launch.LaunchSpec {
 	if o.Effort != "" {
 		args = append(args, "--effort", o.Effort)
 	}
-	args = append(args, "-p", briefPrompt(o))
-	return launch.LaunchSpec{Executable: Executable(Antigravity), Args: args}
+	prompt, err := briefPrompt(o)
+	if err != nil {
+		return launch.LaunchSpec{}, err
+	}
+	args = append(args, "-p", prompt)
+	return launch.LaunchSpec{Executable: Executable(Antigravity), Args: args}, nil
 }
 
 // Launches claude interactively - no --print - so the pane stays resident for hand send and hand
 // watch across a multi-turn no-mistakes pipeline. Verified via `claude --help`: --model, --effort
 // and --dangerously-skip-permissions all apply outside --print.
-func buildClaude(o Options) launch.LaunchSpec {
+func buildClaude(o Options) (launch.LaunchSpec, error) {
 	// --dangerously-skip-permissions, or an unattended worker stalls on a permission prompt.
 	// CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false suppresses the dim predicted-next-prompt ghost text,
 	// which a pane-watching supervisor would otherwise read as typed input under an idle worker.
@@ -242,14 +250,18 @@ func buildClaude(o Options) launch.LaunchSpec {
 	if o.Effort != "" {
 		args = append(args, "--effort", o.Effort)
 	}
-	args = append(args, briefPrompt(o))
-	return launch.LaunchSpec{Executable: Claude, Args: args, Env: map[string]string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false"}}
+	prompt, err := briefPrompt(o)
+	if err != nil {
+		return launch.LaunchSpec{}, err
+	}
+	args = append(args, prompt)
+	return launch.LaunchSpec{Executable: Claude, Args: args, Env: map[string]string{"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false"}}, nil
 }
 
 // Launches Codex CLI 0.146.0 interactively with its positional prompt. Its help and config schema
 // expose the flags below; paste-burst buffering otherwise absorbs hand send's immediate Enter, and
 // auto effort means inherit Codex's default rather than pass a literal value.
-func buildCodex(o Options) launch.LaunchSpec {
+func buildCodex(o Options) (launch.LaunchSpec, error) {
 	args := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "disable_paste_burst=true"}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
@@ -257,8 +269,12 @@ func buildCodex(o Options) launch.LaunchSpec {
 	if o.Effort != "" && o.Effort != "auto" {
 		args = append(args, "-c", fmt.Sprintf(`model_reasoning_effort="%s"`, o.Effort))
 	}
-	args = append(args, briefPrompt(o))
-	return launch.LaunchSpec{Executable: Codex, Args: args}
+	prompt, err := briefPrompt(o)
+	if err != nil {
+		return launch.LaunchSpec{}, err
+	}
+	args = append(args, prompt)
+	return launch.LaunchSpec{Executable: Codex, Args: args}, nil
 }
 
 func buildGrok(o Options) launch.LaunchSpec {
@@ -271,7 +287,7 @@ func buildPi(o Options) launch.LaunchSpec {
 
 // Uses the bare `opencode` command (verified via `opencode --help`), which opens an interactive TUI,
 // rather than `opencode run` - that one is explicitly headless and exits after a single reply.
-func buildOpenCode(o Options) launch.LaunchSpec {
+func buildOpenCode(o Options) (launch.LaunchSpec, error) {
 	// OPENCODE_CONFIG_CONTENT grants blanket tool permission so an unattended worker does not stall
 	// on a permission prompt.
 	args := []string{}
@@ -280,14 +296,22 @@ func buildOpenCode(o Options) launch.LaunchSpec {
 	}
 	// The bare command has no --file flag and no effort or variant flag, so the brief path rides in
 	// the --prompt text and Options.Effort is dropped here rather than passed.
-	args = append(args, "--prompt", briefPrompt(o))
-	return launch.LaunchSpec{Executable: OpenCode, Args: args, Env: map[string]string{"OPENCODE_CONFIG_CONTENT": `{"permission":{"*":"allow"}}`}}
+	prompt, err := briefPrompt(o)
+	if err != nil {
+		return launch.LaunchSpec{}, err
+	}
+	args = append(args, "--prompt", prompt)
+	return launch.LaunchSpec{Executable: OpenCode, Args: args, Env: map[string]string{"OPENCODE_CONFIG_CONTENT": `{"permission":{"*":"allow"}}`}}, nil
 }
 
 // Shared so the wording cannot drift between harnesses. It ends with agentsmd.OperatorDecisionRule
 // because a worker runs in a worktree that is never under the fleet home, so the home's AGENTS.md
 // never reaches it and the launch prompt is the only channel that rule has.
-func briefPrompt(o Options) string {
+
+func briefPrompt(o Options) (string, error) {
+	if o.ReportPath == "" {
+		return "", fmt.Errorf("report path is required for a prompt-capable harness")
+	}
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
 	prompt += fmt.Sprintf(" The worker report channel is %s. Append every state change to that file with plain shell redirection; this is the only way anything you say reaches the supervisor. Use these report prefixes: working:, done:, failed:, blocked:, needs-decision:, paused:.", o.ReportPath)
 	if o.BriefHasFrontMatter {
@@ -296,5 +320,5 @@ func briefPrompt(o Options) string {
 	if o.ExecutionClass == brief.ExecutionClassMechanical {
 		prompt += " Verify the named files/symbols and plan assumptions before editing. If materially stale or contradictory, stop and report blocked. Do not redesign the task yourself. Otherwise execute the ordered plan and verification steps."
 	}
-	return prompt + " " + agentsmd.OperatorDecisionRule
+	return prompt + " " + agentsmd.OperatorDecisionRule, nil
 }
