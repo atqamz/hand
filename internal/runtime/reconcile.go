@@ -97,6 +97,7 @@ type reconciliationObservation struct {
 	Treehouse        treehouseObservation
 	Worktree         worktreeObservation
 	Herdr            herdrObservation
+	ReportState      string
 	Landing          landingState
 	ObservationError bool
 }
@@ -523,8 +524,15 @@ func (r *Runtime) observeLanding(ctx context.Context, home string, task state.Ta
 }
 
 func terminalConvergenceCandidate(attempt state.Attempt, observation reconciliationObservation) bool {
-	return attempt.Lifecycle == state.AttemptRunning && attempt.TeardownTerminalAttempt == "" &&
-		attempt.Herdr.PaneID != "" && observation.Herdr.State == herdrOwnershipAbsent
+	if attempt.Lifecycle != state.AttemptRunning || attempt.TeardownTerminalAttempt != "" || attempt.Herdr.PaneID == "" {
+		return false
+	}
+	if observation.Herdr.State == herdrOwnershipAbsent {
+		return true
+	}
+	return observation.Herdr.State == herdrOwnershipExact &&
+		observation.Herdr.AgentStatus == herdr.StatusDone &&
+		(observation.ReportState == "" || observation.ReportState == state.ReportWorking)
 }
 
 func runningPaneMissingReason(landing landingState) string {
@@ -1243,8 +1251,15 @@ func terminalRepairEvidenceResolved(code string, attempt state.Attempt) bool {
 	}
 }
 
-func (r *Runtime) observeAttempt(_ string, task state.Task, attempt state.Attempt) (reconciliationObservation, error) {
+func (r *Runtime) observeAttempt(home string, task state.Task, attempt state.Attempt) (reconciliationObservation, error) {
 	observation := reconciliationObservation{}
+	reports, err := state.ReadReportLines(home, task.ID)
+	if err != nil {
+		return observation, fmt.Errorf("read worker report: %w", err)
+	}
+	if report, ok := state.LastReportedState(reports); ok {
+		observation.ReportState = report.State
+	}
 	skipHerdrObservation := attempt.Lifecycle == state.AttemptProvisioning && attempt.Herdr.WorkspaceID != "" && attempt.Herdr.TabID != "" && attempt.Herdr.PaneID != "" && attempt.LaunchSubmittedAt == ""
 	if attempt.Worktree != "" {
 		lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)

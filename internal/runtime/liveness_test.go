@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -69,6 +71,53 @@ func TestReconcileRecordsIdleUnreportedOnceLaunchHasSettled(t *testing.T) {
 	}
 	if got.Worktree != attempt.Worktree || got.LeaseID != attempt.LeaseID || got.Herdr != attempt.Herdr {
 		t.Fatalf("attempt resources = %+v, want them untouched by a liveness observation", got)
+	}
+}
+
+func TestReconcileConvergesDonePaneWithoutWorkerReport(t *testing.T) {
+	client := &livenessHerdr{status: herdr.StatusDone}
+	home, r, attempt := livenessFixture(t, "2026-08-14T23:59:00Z", client)
+
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatalf("Reconcile() = %v", err)
+	}
+	if report.Results[0].Landing != string(landingUnlanded) {
+		t.Fatalf("result = %+v, want unlanded landing evidence", report.Results[0])
+	}
+
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.ActiveAttempt != nil {
+		t.Fatalf("history = %+v, want terminal task with no active attempt", history)
+	}
+	if got := history.Attempts[0].Lifecycle; got != state.AttemptInterrupted {
+		t.Fatalf("attempt lifecycle = %q, want interrupted", got)
+	}
+	record, found, err := completion.FindAttempt(home, attempt.ID)
+	if err != nil || !found || record.AttemptLifecycle != string(state.AttemptInterrupted) {
+		t.Fatalf("completion = %+v found=%t err=%v, want interrupted completion evidence", record, found, err)
+	}
+}
+
+func TestReconcileKeepsDonePaneWithTerminalWorkerReport(t *testing.T) {
+	client := &livenessHerdr{status: herdr.StatusDone}
+	home, r, attempt := livenessFixture(t, "2026-08-14T23:59:00Z", client)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: checks green\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Reconcile() = %v", err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskOpen || history.ActiveAttempt == nil || history.ActiveAttempt.ID != attempt.ID || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("history = %+v, want running task preserved by terminal worker report", history)
 	}
 }
 
