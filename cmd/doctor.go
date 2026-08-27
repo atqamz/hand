@@ -20,6 +20,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/toolchain"
+	"github.com/atqamz/hand/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -348,6 +349,32 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 			continue
 		}
 		findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q worktree is rooted in another Git repository: got %s, want %s", history.Task.ID, actual, expected)})
+	}
+	projects, err := project.ListReadOnly(fleetHome)
+	if err != nil {
+		return append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("registered project pools cannot be inspected: %v", err)})
+	}
+	for _, p := range projects {
+		clone := filepath.Join(fleetHome, "projects", p.Name)
+		if _, err := os.Stat(filepath.Join(clone, ".git")); os.IsNotExist(err) {
+			continue
+		}
+		entries, err := worktree.PoolStatus(clone)
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q worktree pool cannot be inspected: %v", p.Name, err)})
+			continue
+		}
+		for _, entry := range entries {
+			soundness := worktree.CheckSoundness(clone, entry.Path)
+			if soundness.Sound {
+				continue
+			}
+			text := fmt.Sprintf("project %q pool slot %q is unsound: %s", p.Name, entry.Path, strings.Join(soundness.Failures, "; "))
+			if entry.Status == "leased" {
+				text += "; leased, not retired"
+			}
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: text})
+		}
 	}
 	return findings
 }

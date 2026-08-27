@@ -47,9 +47,12 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/myproj.git", Mode: project.ModeDirectPR}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "projects", "myproj"), 0o755); err != nil {
+	clone := filepath.Join(home, "projects", "myproj")
+	initGitRepo(t, clone)
+	if err := os.MkdirAll(filepath.Dir(newWorktree), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	runGitOutput(t, clone, "worktree", "add", "-q", "-b", "slot", newWorktree)
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}}); err != nil {
 		t.Fatal(err)

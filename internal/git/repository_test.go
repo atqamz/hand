@@ -42,6 +42,36 @@ func TestCommonDirReturnsTheMainRepositoryForAWorktree(t *testing.T) {
 	}
 }
 
+func TestReadGitDirFileResolvesRelativeGitdirTargets(t *testing.T) {
+	root := t.TempDir()
+	metadata := filepath.Join(root, ".git", "worktrees", "slot")
+	if err := os.MkdirAll(metadata, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(metadata, "gitdir")
+	if err := os.WriteFile(path, []byte("gitdir: ../../../slot\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadGitDirFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !SamePath(got, filepath.Join(root, "slot")) {
+		t.Fatalf("ReadGitDirFile() = %q, want %q", got, filepath.Join(root, "slot"))
+	}
+}
+
+func TestReadGitDirFileRejectsMissingGitdirPrefix(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gitdir")
+	if err := os.WriteFile(path, []byte("not a gitdir\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadGitDirFile(path); err == nil {
+		t.Fatal("ReadGitDirFile() accepted a file without a gitdir prefix")
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	if len(args) > 1 && args[0] == "init" {

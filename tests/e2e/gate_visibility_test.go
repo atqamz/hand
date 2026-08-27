@@ -91,6 +91,9 @@ func TestStatusFlagsAShippedPRThatNeverRanThroughTheGate(t *testing.T) {
 	if added.code != 0 {
 		t.Fatalf("project add: exit %d, stderr %q", added.code, added.stderr)
 	}
+	clonePath := filepath.Join(home, "projects", "demo")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "ship-login-fix", worktree)
+	writeFakeTreehouse(t, dir, worktree)
 	writeBrief(t, home, "ship-login-fix")
 
 	spawned := runHand(t, home, "spawn", "ship-login-fix", "demo")

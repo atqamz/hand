@@ -159,9 +159,10 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("# report\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "projects", "demo"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	clonePath := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clonePath)
+	newWorktree := filepath.Join(home, "wt-ship-new")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "ship", newWorktree)
 	writeTaskAttempt(t, home, state.Task{
 		ID: "task-1", Project: "demo", Kind: state.KindScout,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
@@ -173,7 +174,7 @@ func TestPromoteHonorsBriefDeclaredTier(t *testing.T) {
 	// one, and hands the scout's worktree back to the pool that leased it.
 	launchLog := filepath.Join(t.TempDir(), "launch.log")
 	dir := binDir(t)
-	writeFakeTreehouse(t, dir, filepath.Join(home, "wt-ship-new"), filepath.Join(home, "wt-scout-old"))
+	writeFakeTreehouse(t, dir, newWorktree, filepath.Join(home, "wt-scout-old"))
 	fleetID, err := state.FleetID(home)
 	if err != nil {
 		t.Fatal(err)

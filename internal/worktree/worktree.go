@@ -35,6 +35,19 @@ type Lease struct {
 	ID   string
 }
 
+type SlotSoundness struct {
+	Sound       bool
+	MetadataDir string
+	CommonDir   string
+	Failures    []string
+}
+
+type PoolEntry struct {
+	Path    string
+	Status  string
+	LeaseID string
+}
+
 type statusEntry struct {
 	Path    string `json:"path"`
 	Status  string `json:"status"`
@@ -288,13 +301,80 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 		args = append(args, "--lease-holder", leaseHolder)
 	}
 	args = withTreehouseRoot(clonePath, args...)
+	const maxUnsoundLeases = 128
+	seen := make(map[string]struct{})
+	var retired []string
+	for range maxUnsoundLeases {
+		lease, err := getLease(clonePath, args)
+		if err != nil {
+			if len(retired) > 0 {
+				return Lease{}, fmt.Errorf("%w; treehouse exhausted: %v", unsoundPoolError(clonePath, retired), err)
+			}
+			return Lease{}, err
+		}
+		pool, err := PoolStatus(clonePath)
+		if err != nil {
+			if !cloneOwnsWorktree(clonePath, lease.Path) {
+				return Lease{}, fmt.Errorf("inspect treehouse pool after acquisition: %w; refusing to return an unverified lease path %s", err, lease.Path)
+			}
+			if returnErr := ReturnLease(clonePath, lease.Path, lease.ID, true); returnErr != nil {
+				return Lease{}, fmt.Errorf("inspect treehouse pool after acquisition: %w; return lease: %v", err, returnErr)
+			}
+			return Lease{}, fmt.Errorf("inspect treehouse pool after acquisition: %w", err)
+		}
+		if !poolContains(pool, lease.Path) {
+			return Lease{}, fmt.Errorf("treehouse returned worktree outside its reported pool: %s", lease.Path)
+		}
+		soundness := CheckSoundness(clonePath, lease.Path)
+		if soundness.Sound {
+			return lease, nil
+		}
+		key, _ := filepath.Abs(lease.Path)
+		if _, ok := seen[key]; ok {
+			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
+			return Lease{}, unsoundPoolError(clonePath, append(retired, soundness.Failures...))
+		}
+		seen[key] = struct{}{}
+		if err := ReturnLease(clonePath, lease.Path, lease.ID, true); err != nil {
+			return Lease{}, fmt.Errorf("return unsound treehouse lease %s: %w", lease.Path, err)
+		}
+		foreign, err := retireSlot(clonePath, lease.Path, soundness)
+		if err != nil {
+			return Lease{}, err
+		}
+		retired = append(retired, fmt.Sprintf("%s: %s", lease.Path, strings.Join(soundness.Failures, ", ")))
+		if foreign != "" {
+			retired = append(retired, foreign)
+		}
+	}
+	return Lease{}, unsoundPoolError(clonePath, retired)
+}
+
+func poolContains(pool []PoolEntry, path string) bool {
+	for _, entry := range pool {
+		if gitrepo.SamePath(entry.Path, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneOwnsWorktree(clonePath, worktreePath string) bool {
+	info, err := os.Stat(filepath.Join(worktreePath, ".git"))
+	if err != nil || info.IsDir() {
+		return false
+	}
+	common, err := gitrepo.CommonDir(worktreePath)
+	return err == nil && gitrepo.SamePath(common, filepath.Join(clonePath, ".git"))
+}
+
+func getLease(clonePath string, args []string) (Lease, error) {
 	out, stderr, err := runCore("treehouse", clonePath, args...)
 	// Banners land on stderr ahead of the JSON, so the payload has to be read from stdout alone -
 	// CombinedOutput here corrupts every parse (atqamz/hand#21).
 	if err != nil {
 		return Lease{}, fmt.Errorf("treehouse get failed: %w: %s", err, strings.TrimSpace(string(stderr)))
 	}
-
 	var payload struct {
 		Path    string `json:"path"`
 		LeaseID string `json:"lease_id"`
@@ -305,20 +385,96 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	if payload.Path == "" {
 		return Lease{}, fmt.Errorf("treehouse get returned no worktree path")
 	}
-	lease := Lease{Path: payload.Path, ID: payload.LeaseID}
-	if _, err := os.Stat(lease.Path); err == nil {
-		actual, err := gitrepo.CommonDir(lease.Path)
-		if err != nil {
-			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
-			return Lease{}, fmt.Errorf("treehouse get returned an unreadable worktree: %w", err)
-		}
-		expected := filepath.Join(clonePath, ".git")
-		if !gitrepo.SamePath(expected, actual) {
-			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
-			return Lease{}, fmt.Errorf("treehouse get returned worktree rooted in another Git repository: got %s, want %s", actual, expected)
+	return Lease{Path: payload.Path, ID: payload.LeaseID}, nil
+}
+
+func unsoundPoolError(clonePath string, findings []string) error {
+	return fmt.Errorf("treehouse pool for %s has no sound free slot: %s", clonePath, strings.Join(findings, "; "))
+}
+
+func ReadMetadataDir(worktreePath string) (string, error) {
+	return gitrepo.ReadGitDirFile(filepath.Join(worktreePath, ".git"))
+}
+
+func CheckSoundness(clonePath, worktreePath string) SlotSoundness {
+	result := SlotSoundness{}
+	metadata, err := ReadMetadataDir(worktreePath)
+	if err != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf(".git does not resolve: %v", err))
+	} else {
+		result.MetadataDir = metadata
+		info, statErr := os.Stat(metadata)
+		if os.IsNotExist(statErr) {
+			result.Failures = append(result.Failures, "metadata directory does not exist")
+		} else if statErr != nil {
+			result.Failures = append(result.Failures, fmt.Sprintf("metadata directory cannot be inspected: %v", statErr))
+		} else if !info.IsDir() {
+			result.Failures = append(result.Failures, "metadata path is not a directory")
+		} else {
+			back, backErr := gitrepo.ReadWorktreeGitDir(filepath.Join(metadata, "gitdir"))
+			if backErr != nil {
+				result.Failures = append(result.Failures, fmt.Sprintf("metadata gitdir does not point back to this slot: %v", backErr))
+			} else if !gitrepo.SamePath(back, filepath.Join(worktreePath, ".git")) {
+				result.Failures = append(result.Failures, fmt.Sprintf("metadata gitdir does not point back to this slot: got %s", back))
+			}
 		}
 	}
-	return lease, nil
+	common, commonErr := gitrepo.CommonDir(worktreePath)
+	if commonErr != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf("common directory cannot be resolved: %v", commonErr))
+	} else {
+		result.CommonDir = common
+		expected := filepath.Join(clonePath, ".git")
+		if !gitrepo.SamePath(common, expected) {
+			result.Failures = append(result.Failures, fmt.Sprintf("common directory is %s, want %s", common, expected))
+		}
+	}
+	result.Sound = len(result.Failures) == 0
+	return result
+}
+
+func RemoveMetadata(clonePath, worktreePath string) error {
+	gitFile := filepath.Join(worktreePath, ".git")
+	info, err := os.Stat(gitFile)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && info.IsDir()) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect worktree Git file: %w", err)
+	}
+	metadata, err := ReadMetadataDir(worktreePath)
+	if err != nil {
+		return fmt.Errorf("read worktree Git file: %w", err)
+	}
+	expected := filepath.Join(clonePath, ".git", "worktrees")
+	rel, err := filepath.Rel(expected, metadata)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("refuse to remove worktree metadata outside the registered clone: %s", metadata)
+	}
+	if err := os.RemoveAll(metadata); err != nil {
+		return fmt.Errorf("remove worktree metadata %s: %w", metadata, err)
+	}
+	return nil
+}
+
+func retireSlot(clonePath, worktreePath string, soundness SlotSoundness) (string, error) {
+	if info, err := os.Stat(filepath.Join(worktreePath, ".git")); err == nil && info.IsDir() {
+		return "", fmt.Errorf("refuse to retire Git repository root %s", worktreePath)
+	}
+	if err := os.RemoveAll(worktreePath); err != nil {
+		return "", fmt.Errorf("retire unsound worktree %s: %w", worktreePath, err)
+	}
+	expected := filepath.Join(clonePath, ".git")
+	if soundness.CommonDir != "" && !gitrepo.SamePath(soundness.CommonDir, expected) {
+		return fmt.Sprintf("foreign Git registration for %s remains at %s; prune it by hand", worktreePath, soundness.CommonDir), nil
+	}
+	if soundness.CommonDir == "" {
+		return "", nil
+	}
+	if _, err := gitrepo.Run(clonePath, "worktree", "prune"); err != nil {
+		return "", fmt.Errorf("prune retired worktree metadata: %w", err)
+	}
+	return "", nil
 }
 
 // Reads the full commit object ID currently checked out by a leased worktree.
@@ -395,6 +551,18 @@ func treehouseStatus(clonePath, worktreePath string) ([]statusEntry, string) {
 		return nil, fmt.Sprintf("treehouse status output is not a JSON array: %v", err)
 	}
 	return entries, ""
+}
+
+func PoolStatus(clonePath string) ([]PoolEntry, error) {
+	entries, reason := treehouseStatus(clonePath, clonePath)
+	if reason != "" {
+		return nil, errors.New(reason)
+	}
+	pool := make([]PoolEntry, 0, len(entries))
+	for _, entry := range entries {
+		pool = append(pool, PoolEntry(entry))
+	}
+	return pool, nil
 }
 
 func withTreehouseRoot(clonePath string, args ...string) []string {

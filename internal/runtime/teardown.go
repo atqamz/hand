@@ -317,6 +317,12 @@ func (r *Runtime) releaseWorktree(clonePath, home, taskID string, attempt state.
 		}
 		return err
 	}
+	if err := worktree.RemoveMetadata(clonePath, attempt.Worktree); err != nil {
+		if stateErr := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceAmbiguous); stateErr != nil {
+			return fmt.Errorf("record failed worktree metadata removal: %w", stateErr)
+		}
+		return err
+	}
 	if err := state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleased); err != nil {
 		return fmt.Errorf("record worktree release evidence: %w", err)
 	}

@@ -41,9 +41,12 @@ func setupSpawnHome(t *testing.T, worktreePath string, herdr faketool.Herdr) str
 	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "brief.md"), []byte("do the thing"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "projects", "myproj"), 0o755); err != nil {
+	clone := filepath.Join(home, "projects", "myproj")
+	initGitRepo(t, clone)
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	runGitOutput(t, clone, "worktree", "add", "-q", "-b", "slot", worktreePath)
 
 	bin := faketool.Bin(t)
 	callLog := filepath.Join(t.TempDir(), "calls.log")

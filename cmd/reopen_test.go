@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"os/exec"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,12 +20,6 @@ func TestReopenCreatesANewAttemptWithoutResurrectingTheOldOne(t *testing.T) {
 	}
 	worktree := t.TempDir() + "/wt"
 	home := setupSpawnHome(t, worktree, herdr)
-	clone := filepath.Join(home, "projects", "myproj")
-	initGitRepo(t, clone)
-	command := exec.Command("git", "-C", clone, "worktree", "add", "--detach", worktree)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("git worktree add: %v: %s", err, output)
-	}
 
 	spawn := newSpawnCmd()
 	spawn.SetArgs([]string{"task-1", "myproj", "--harness", harness.Claude})
@@ -48,6 +42,12 @@ func TestReopenCreatesANewAttemptWithoutResurrectingTheOldOne(t *testing.T) {
 	if err := teardown.Execute(); err != nil {
 		t.Fatal(err)
 	}
+	nextWorktree := filepath.Join(home, "projects", "myproj", ".treehouse", "pool", "2", "myproj")
+	if err := os.MkdirAll(filepath.Dir(nextWorktree), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitOutput(t, filepath.Join(home, "projects", "myproj"), "worktree", "add", "-q", "-b", "slot-2", nextWorktree)
+	faketool.Treehouse{Slots: []string{worktree, nextWorktree}, Log: os.Getenv("TREEHOUSE_CALL_LOG")}.Install(t, faketool.Bin(t))
 
 	reopen := newReopenCmd()
 	var out strings.Builder

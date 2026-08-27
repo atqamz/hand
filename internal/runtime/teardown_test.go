@@ -55,6 +55,44 @@ func TestTeardownFailureAfterWorktreeReturnPreservesOwnershipEvidence(t *testing
 	}
 }
 
+func TestReleaseWorktreeRemovesLinkedWorktreeMetadata(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(home, "projects", "demo")
+	if err := os.MkdirAll(filepath.Dir(clone), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runRuntimeGit(t, home, "init", "-q", "-b", "main", clone)
+	runRuntimeGit(t, clone, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "initial")
+	worktreePath := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runRuntimeGit(t, clone, "worktree", "add", "-q", "-b", "slot", worktreePath)
+	metadata, err := worktree.ReadMetadataDir(worktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-1", Project: "demo", Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := state.CreateAttempt(home, state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptRunning, Worktree: worktreePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := created
+	deps := defaultDependencies()
+	deps.worktree.returnWorktree = func(string, string, bool) error { return nil }
+	if err := (&Runtime{deps: deps}).releaseWorktree(clone, home, "task-1", attempt, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(metadata); !os.IsNotExist(err) {
+		t.Fatalf("linked worktree metadata still exists: %v", err)
+	}
+}
+
 func TestTeardownMigratesLegacyCompletionsBeforeAppending(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {

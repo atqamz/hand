@@ -99,10 +99,12 @@ func TestReopenUsesCurrentRouteWithoutMutatingHistoricalAttempt(t *testing.T) {
 	plannedAgainst := strings.TrimSpace(runGitIn(t, clonePath, "rev-parse", "HEAD"))
 	worktree := filepath.Join(home, "wt-task-1")
 	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "task-1-branch", worktree)
+	nextWorktree := filepath.Join(home, "wt-task-2")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "task-2-branch", nextWorktree)
 
 	dir := binDir(t)
 	writeFakeBin(t, dir, "claude", "exit 0\n")
-	faketool.Treehouse{Slots: []string{worktree}}.Install(t, dir)
+	faketool.Treehouse{Slots: []string{worktree, nextWorktree}}.Install(t, dir)
 	faketool.Herdr{
 		Creates: []faketool.HerdrWorkspace{
 			{ID: "workspace-1", Label: "demo", Tabs: []faketool.HerdrTab{{ID: "tab-1", Label: "1", Pane: "pane-1"}}},

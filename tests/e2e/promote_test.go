@@ -3,12 +3,14 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -21,9 +23,7 @@ func TestPromoteScoutToShip(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 
 	clonePath := filepath.Join(home, "projects", "demo")
-	if err := os.MkdirAll(clonePath, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGitRepo(t, clonePath)
 
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
 		t.Fatal(err)
@@ -43,12 +43,10 @@ func TestPromoteScoutToShip(t *testing.T) {
 
 	dir := binDir(t)
 	newWorktree := filepath.Join(home, "wt-ship-new")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "ship", newWorktree)
 	invocationLog := filepath.Join(t.TempDir(), "invocations.log")
-	// Return (worktree.go) only checks CombinedOutput's error on success, never its content, so the "ok" line
-	// stands in harmlessly for real treehouse return's actual (silent) output; likewise "pane run" below is a
-	// void command whose real success is empty stdout (callVoid doc, client.go), and it checks only env.Error.
-	writeFakeDispatch(t, dir, "treehouse", invocationLog, "$1", `  get) printf '{"path":"%s","lease_id":"lease-new"}\n' `+shellSingleQuote(newWorktree)+` ;;
-  return) echo ok ;;`)
+	faketool.Treehouse{Slots: []string{newWorktree}, Held: []string{oldWorktree}, Log: invocationLog,
+		Responses: []faketool.TreehouseResponse{{Command: "get", Stdout: fmt.Sprintf("{\"path\":%q,\"lease_id\":\"lease-new\"}", newWorktree)}}}.Install(t, dir)
 	// The scout's old workspace holds a second tab, so releasing the scout is a
 	// tab close rather than closeTaskTab's sole-tab workspace-close shortcut.
 	writeFakeDispatch(t, dir, "herdr", invocationLog, "$1 $2", `  "session list") printf '{"sessions":[{"name":"%s","running":true}]}\n' "$session_name" ;;

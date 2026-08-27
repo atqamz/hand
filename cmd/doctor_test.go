@@ -19,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/skill"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
+	"github.com/atqamz/hand/internal/worktree"
 )
 
 func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
@@ -308,6 +309,51 @@ func TestDoctorFindsWorktreeUsingTheFleetHomeCheckout(t *testing.T) {
 		}
 	}
 	t.Fatalf("findings = %#v, want an operator-checkout worktree finding", findings)
+}
+
+func TestDoctorFindsEveryUnsoundPoolSlotIncludingLeasedSlots(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clone)
+	sound := filepath.Join(t.TempDir(), "sound")
+	runGitOutput(t, clone, "worktree", "add", "-q", "-b", "sound", sound)
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := os.MkdirAll(missing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(missing, ".git"), []byte("gitdir: "+filepath.Join(t.TempDir(), "gone")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	leased := filepath.Join(t.TempDir(), "leased")
+	if err := os.MkdirAll(leased, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(leased, ".git"), []byte("broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	faketool.Treehouse{Slots: []string{sound, missing, leased}, Held: []string{leased}}.Install(t, faketool.Bin(t))
+
+	findings := doctorWorktreeFindings(home, nil)
+	if !hasDoctorFindingPrefix(findings, doctorError, `project "demo" pool slot "`+missing+`" is unsound: `) ||
+		!hasDoctorFindingPrefix(findings, doctorError, `project "demo" pool slot "`+leased+`" is unsound: `) {
+		t.Fatalf("findings = %#v, want both unsound slots", findings)
+	}
+	for _, finding := range findings {
+		if strings.Contains(finding.Text, sound) {
+			t.Fatalf("findings = %#v, sound slot was reported", findings)
+		}
+	}
+	if _, err := os.Stat(leased); err != nil {
+		t.Fatalf("doctor retired leased unsound slot: %v", err)
+	}
+	if got := worktree.CheckSoundness(clone, sound); !got.Sound {
+		t.Fatalf("sound slot became unsound: %+v", got)
+	}
 }
 
 func TestDoctorIncludesProjectListGateFinding(t *testing.T) {

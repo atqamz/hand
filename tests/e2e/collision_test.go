@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,9 +20,9 @@ func setupCollisionHome(t *testing.T) (string, string) {
 	writeBrief(t, home, "task-2")
 
 	clonePath := filepath.Join(home, "projects", "demo")
-	if err := os.MkdirAll(clonePath, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGitRepo(t, clonePath)
+	sharedWorktree := filepath.Join(home, "wt-shared")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "shared", sharedWorktree)
 
 	dir := binDir(t)
 	writeFakeHerdrStatic(t, dir, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})

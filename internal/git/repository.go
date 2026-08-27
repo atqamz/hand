@@ -73,6 +73,51 @@ func SamePath(left, right string) bool {
 	return left == right
 }
 
+// ReadGitDirFile reads Git's gitdir pointer file and resolves relative targets from its directory.
+func ReadGitDirFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read Git directory pointer %q: %w", path, err)
+	}
+	const prefix = "gitdir:"
+	line := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(line, prefix) {
+		return "", fmt.Errorf("git directory pointer %q has no gitdir target", path)
+	}
+	target := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if target == "" {
+		return "", fmt.Errorf("git directory pointer %q has an empty gitdir target", path)
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("make Git directory pointer absolute: %w", err)
+	}
+	return filepath.Clean(abs), nil
+}
+
+// ReadWorktreeGitDir reads the raw gitdir pointer stored in linked-worktree metadata.
+func ReadWorktreeGitDir(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read linked worktree pointer %q: %w", path, err)
+	}
+	target := strings.TrimSpace(string(data))
+	if target == "" {
+		return "", fmt.Errorf("linked worktree pointer %q is empty", path)
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("make linked worktree pointer absolute: %w", err)
+	}
+	return filepath.Clean(abs), nil
+}
+
 func Run(dir string, args ...string) (string, error) {
 	return run(dir, args...)
 }

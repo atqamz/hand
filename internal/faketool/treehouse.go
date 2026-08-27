@@ -113,6 +113,9 @@ func runTreehouseFromPayload(payload json.RawMessage, args []string) int {
 
 func treehouseGet(spec treehouseSpec) int {
 	for _, slot := range spec.Slots {
+		if _, err := os.Stat(slot); os.IsNotExist(err) && retiredTreehouseSlot(spec.StateDir, slot) {
+			continue
+		}
 		marker := treehouseMarker(spec.StateDir, slot)
 		leased, err := treehouseLeased(marker)
 		if err != nil {
@@ -256,6 +259,11 @@ func treehouseReturn(spec treehouseSpec, args []string) int {
 	if err := atomicWrite(marker, ""); err != nil {
 		return fail("return treehouse slot: %v", err)
 	}
+	if info, err := os.Stat(filepath.Join(slot, ".git")); err == nil && !info.IsDir() {
+		if err := atomicWrite(retiredTreehouseSlotPath(spec.StateDir, slot), "retired\n"); err != nil {
+			return fail("record retired treehouse slot: %v", err)
+		}
+	}
 	_, _ = io.WriteString(os.Stderr, "Worktree returned to pool.\n")
 	return 0
 }
@@ -279,7 +287,8 @@ func treehouseInit() int {
 }
 
 func treehouseDirty(path string) (bool, error) {
-	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+	info, err := os.Stat(filepath.Join(path, ".git"))
+	if err != nil || !info.IsDir() {
 		return false, nil
 	}
 	out, err := exec.Command("git", "-C", path, "status", "--porcelain").Output()
@@ -301,6 +310,15 @@ func treehouseClean(path string) error {
 
 func treehouseMarker(state, slot string) string {
 	return filepath.Join(state, "slot-"+key(slot))
+}
+
+func retiredTreehouseSlotPath(state, slot string) string {
+	return filepath.Join(state, "retired-"+key(slot))
+}
+
+func retiredTreehouseSlot(state, slot string) bool {
+	_, err := os.Stat(retiredTreehouseSlotPath(state, slot))
+	return err == nil
 }
 
 func treehouseCounterPath(state string) string {

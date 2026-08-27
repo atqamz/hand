@@ -48,9 +48,11 @@ func TestReopenIsTheOnlyWayBackFromATerminalTask(t *testing.T) {
 	initGitRepo(t, clonePath)
 	worktree := filepath.Join(home, "wt-task-1")
 	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "task-1-branch", worktree)
+	nextWorktree := filepath.Join(home, "wt-task-2")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "task-2-branch", nextWorktree)
 
 	dir := binDir(t)
-	writeFakeTreehouse(t, dir, worktree)
+	faketool.Treehouse{Slots: []string{worktree, nextWorktree}}.Install(t, dir)
 	// Two workspaces, because teardown closes the first attempt's: the reopened attempt is dispatched into
 	// herdr as freshly as the spawn was, not reattached to the pane the torn-down attempt left behind.
 	faketool.Herdr{

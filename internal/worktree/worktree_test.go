@@ -14,7 +14,11 @@ import (
 )
 
 func testGet(clonePath, leaseHolder string) (Lease, error) {
-	return Get(clonePath, leaseHolder)
+	args := []string{"get", "--lease", "--json"}
+	if leaseHolder != "" {
+		args = append(args, "--lease-holder", leaseHolder)
+	}
+	return getLease(clonePath, withTreehouseRoot(clonePath, args...))
 }
 
 func testObserveLease(worktreePath, expectedLeaseID string) LeaseObservation {
@@ -31,7 +35,15 @@ func testReturnLease(worktreePath, leaseID string, force bool) error {
 
 func writeFakeTreehouse(t *testing.T, response faketool.TreehouseResponse) {
 	t.Helper()
-	faketool.Treehouse{Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
+	var payload struct {
+		Path string `json:"path"`
+	}
+	_ = json.Unmarshal([]byte(response.Stdout), &payload)
+	var slots []string
+	if payload.Path != "" {
+		slots = []string{payload.Path}
+	}
+	faketool.Treehouse{Slots: slots, Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
 }
 
 func mustJSON(t *testing.T, value any) string {
@@ -54,13 +66,17 @@ func writeCollisionTask(t *testing.T, home, id, path, leaseID string) {
 }
 
 func TestGetParsesLeasePathAndIdentity(t *testing.T) {
-	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8"}`})
-	got, err := testGet(t.TempDir(), "hand:task-1")
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: mustJSON(t, map[string]string{"path": path, "lease_id": "5fe5412a4aabdeb85a148d6d73eb42d8"})})
+	got, err := Get(clone, "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Lease{Path: "/tmp/wt-1", ID: "5fe5412a4aabdeb85a148d6d73eb42d8"}
-	if got != want {
+	want := Lease{Path: path, ID: "5fe5412a4aabdeb85a148d6d73eb42d8"}
+	if got != (Lease{Path: path, ID: "5fe5412a4aabdeb85a148d6d73eb42d8"}) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
@@ -69,14 +85,155 @@ func TestGetParsesLeasePathAndIdentity(t *testing.T) {
 // stay a usable lease rather than an error - CheckCollision falls back to the
 // path for it.
 func TestGetAcceptsAPayloadWithoutALeaseIdentity(t *testing.T) {
-	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1"}`})
-	got, err := testGet(t.TempDir(), "hand:task-1")
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: mustJSON(t, map[string]string{"path": path})})
+	got, err := Get(clone, "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != (Lease{Path: "/tmp/wt-1"}) {
+	if got != (Lease{Path: path}) {
 		t.Fatalf("got %+v, want path-only lease", got)
 	}
+}
+
+func TestCheckSoundnessAcceptsALinkedWorktreeOwnedByTheRegisteredClone(t *testing.T) {
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+
+	got := CheckSoundness(clone, path)
+	if !got.Sound {
+		t.Fatalf("CheckSoundness() = %+v, want sound", got)
+	}
+}
+
+func TestCheckSoundnessReportsAnAliasedMetadataDirectory(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	first := filepath.Join(t.TempDir(), "first")
+	second := filepath.Join(t.TempDir(), "second")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "first", first)
+	runGit(t, clone, "worktree", "add", "-q", "-b", "second", second)
+	metadata, err := ReadMetadataDir(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(second, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, ".git"), []byte("gitdir: "+metadata+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := CheckSoundness(clone, second)
+	if got.Sound || !containsFailure(got, "metadata gitdir does not point back to this slot") {
+		t.Fatalf("CheckSoundness() = %+v, want aliased metadata failure", got)
+	}
+}
+
+func TestCheckSoundnessReportsMissingMetadataAndForeignCommonDirectory(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	foreign := filepath.Join(t.TempDir(), "foreign")
+	faketool.InitRepo(t, clone)
+	faketool.InitRepo(t, foreign)
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := os.MkdirAll(missing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(missing, ".git"), []byte("gitdir: "+filepath.Join(t.TempDir(), "gone")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	foreignSlot := filepath.Join(t.TempDir(), "foreign-slot")
+	runGit(t, foreign, "worktree", "add", "-q", "-b", "foreign-slot", foreignSlot)
+
+	missingGot := CheckSoundness(clone, missing)
+	if missingGot.Sound || !containsFailure(missingGot, "metadata directory does not exist") {
+		t.Fatalf("missing metadata CheckSoundness() = %+v", missingGot)
+	}
+	foreignGot := CheckSoundness(clone, foreignSlot)
+	if foreignGot.Sound || !containsFailure(foreignGot, "common directory is") {
+		t.Fatalf("foreign common directory CheckSoundness() = %+v", foreignGot)
+	}
+}
+
+func TestRemoveMetadataRemovesTheLinkedWorktreeMetadataDirectory(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+	metadata, err := ReadMetadataDir(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveMetadata(clone, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(metadata); !os.IsNotExist(err) {
+		t.Fatalf("metadata directory still exists: %v", err)
+	}
+}
+
+func TestGetRetiresAnUnsoundLeaseAndAcquiresTheNextSoundSlot(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	bad := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bad, ".git"), []byte("broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sound := filepath.Join(clone, ".treehouse", "pool", "2", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "sound", sound)
+	faketool.Treehouse{Slots: []string{bad, sound}}.Install(t, faketool.Bin(t))
+
+	got, err := Get(clone, "hand:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != sound {
+		t.Fatalf("Get() path = %q, want sound slot %q", got.Path, sound)
+	}
+	if _, err := os.Stat(bad); !os.IsNotExist(err) {
+		t.Fatalf("unsound slot still exists: %v", err)
+	}
+}
+
+func TestGetFailsWithThePoolNamedWhenEverySlotIsUnsound(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	bad := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bad, ".git"), []byte("broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	faketool.Treehouse{Slots: []string{bad}}.Install(t, faketool.Bin(t))
+
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "treehouse pool for "+clone+" has no sound free slot") {
+		t.Fatalf("Get() error = %v, want a named exhausted pool", err)
+	}
+}
+
+func containsFailure(result SlotSoundness, want string) bool {
+	for _, failure := range result.Failures {
+		if strings.Contains(failure, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestHeadCommitReturnsTheWorktreeCommit(t *testing.T) {
@@ -100,11 +257,15 @@ func TestHeadCommitReturnsTheWorktreeCommit(t *testing.T) {
 }
 
 func TestGetPassesLeaseHolder(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
 	writeFakeTreehouse(t, faketool.TreehouseResponse{
 		Command: "get", Args: []string{"--lease", "--json", "--lease-holder", "hand:task-1"},
-		Stdout: `{"path":"/tmp/wt-1"}`,
+		Stdout: mustJSON(t, map[string]string{"path": path}),
 	})
-	if _, err := testGet(t.TempDir(), "hand:task-1"); err != nil {
+	if _, err := Get(clone, "hand:task-1"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -112,12 +273,12 @@ func TestGetPassesLeaseHolder(t *testing.T) {
 func TestGetScopesPoolToTheFleetHome(t *testing.T) {
 	home := t.TempDir()
 	clone := filepath.Join(home, "projects", "demo")
-	if err := os.MkdirAll(clone, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
 	writeFakeTreehouse(t, faketool.TreehouseResponse{
 		Command: "--root", Args: []string{clone, "get", "--lease", "--json", "--lease-holder", "hand:task-1"},
-		Stdout: `{"path":"/tmp/wt-1"}`,
+		Stdout: mustJSON(t, map[string]string{"path": path}),
 	})
 	if _, err := Get(clone, "hand:task-1"); err != nil {
 		t.Fatal(err)
@@ -130,12 +291,86 @@ func TestGetRejectsAWorktreeFromAnotherRegisteredClone(t *testing.T) {
 	foreign := filepath.Join(t.TempDir(), "demo")
 	faketool.InitRepo(t, clone)
 	faketool.InitRepo(t, foreign)
+	foreignSlot := filepath.Join(foreign, ".treehouse", "pool", "1", "demo")
+	runGit(t, foreign, "worktree", "add", "-q", "-b", "foreign-slot", foreignSlot)
 	faketool.Treehouse{Responses: []faketool.TreehouseResponse{
-		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": foreign, "lease_id": "lease-1"})},
-		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", foreign}},
+		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": foreignSlot, "lease_id": "lease-1"})},
+		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", foreignSlot}},
+	}, Slots: []string{foreignSlot}}.Install(t, faketool.Bin(t))
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "foreign Git registration") {
+		t.Fatalf("Get() error = %v, want a foreign registration report", err)
+	}
+	if _, err := os.Stat(foreignSlot); !os.IsNotExist(err) {
+		t.Fatalf("foreign slot was not retired: %v", err)
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Fatalf("foreign repository was removed: %v", err)
+	}
+}
+
+func TestGetRejectsAWorktreeOutsideTheReportedPool(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	allowed := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "allowed", allowed)
+	outside := filepath.Join(t.TempDir(), "outside")
+	faketool.InitRepo(t, outside)
+	faketool.Treehouse{Slots: []string{allowed}, Responses: []faketool.TreehouseResponse{
+		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": outside, "lease_id": "lease-1"})},
 	}}.Install(t, faketool.Bin(t))
-	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "another Git repository") {
-		t.Fatalf("Get() error = %v, want a registered-clone mismatch", err)
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "outside its reported pool") {
+		t.Fatalf("Get() error = %v, want an outside-pool refusal", err)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside path was mutated: %v", err)
+	}
+}
+
+func TestGetReturnsLeaseWhenPoolStatusFails(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{Log: log, Slots: []string{path}, Responses: []faketool.TreehouseResponse{
+		{Command: "status", Stderr: "status unavailable\n", Exit: 1},
+		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": path, "lease_id": "lease-1"})},
+		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", path}},
+	}}.Install(t, faketool.Bin(t))
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "status unavailable") {
+		t.Fatalf("Get() error = %v, want pool status failure", err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), " return --force --if-lease-id lease-1 "+path) {
+		t.Fatalf("treehouse invocations = %q, want the held lease returned", data)
+	}
+}
+
+func TestGetDoesNotReturnAnUnverifiedForeignLeaseWhenPoolStatusFails(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	foreign := filepath.Join(t.TempDir(), "foreign")
+	faketool.InitRepo(t, clone)
+	faketool.InitRepo(t, foreign)
+	path := filepath.Join(foreign, ".treehouse", "pool", "1", "demo")
+	runGit(t, foreign, "worktree", "add", "-q", "-b", "slot", path)
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{Log: log, Slots: []string{path}, Responses: []faketool.TreehouseResponse{
+		{Command: "status", Stderr: "status unavailable\n", Exit: 1},
+		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": path, "lease_id": "lease-1"})},
+		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", path}},
+	}}.Install(t, faketool.Bin(t))
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "refusing to return an unverified lease path") {
+		t.Fatalf("Get() error = %v, want an unverified foreign lease refusal", err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), " return ") {
+		t.Fatalf("treehouse invocations = %q, want no return against the foreign repository", data)
 	}
 }
 
@@ -327,11 +562,13 @@ func TestObserveCleanlinessIncludesUntrackedFiles(t *testing.T) {
 }
 
 func TestObserveLeaseRunsStatusFromTheWorktreeRepository(t *testing.T) {
-	worktreePath := filepath.Join(t.TempDir(), "worktree")
-	faketool.InitRepo(t, worktreePath)
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	worktreePath := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", worktreePath)
 	faketool.Treehouse{Slots: []string{worktreePath}}.Install(t, faketool.Bin(t))
 
-	lease, err := testGet(worktreePath, "hand:task-1")
+	lease, err := Get(clone, "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
