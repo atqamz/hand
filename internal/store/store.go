@@ -410,7 +410,7 @@ func open(path string) (*sql.DB, error) {
 	}
 	// The pragmas need a file: URI, and a URI means sqlite reads `%`, `#` and
 	// `?` in the fleet home's path as syntax rather than as filename.
-	uri := "file:" + (&url.URL{Path: path}).EscapedPath() + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
+	uri := "file:" + (&url.URL{Path: path}).EscapedPath() + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate" + sqliteTestPragmas
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
