@@ -83,12 +83,19 @@ func runTreehouseFromPayload(payload json.RawMessage, args []string) int {
 		return fail("unexpected treehouse invocation")
 	}
 	for _, response := range spec.Responses {
-		if response.Command != args[0] || (response.Args != nil && !sameArgs(response.Args, args[1:])) {
+		matchArgs := args
+		if response.Command != "--root" && len(args) >= 3 && args[0] == "--root" {
+			matchArgs = args[2:]
+		}
+		if response.Command != matchArgs[0] || (response.Args != nil && !sameArgs(response.Args, matchArgs[1:])) {
 			continue
 		}
 		_, _ = io.WriteString(os.Stdout, response.Stdout)
 		_, _ = io.WriteString(os.Stderr, response.Stderr)
 		return response.Exit
+	}
+	if len(args) >= 2 && args[0] == "--root" {
+		args = args[2:]
 	}
 	switch args[0] {
 	case "get":

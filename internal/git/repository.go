@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/atqamz/hand/internal/toolchain"
@@ -20,6 +21,56 @@ func ResolveRoot(path string) (string, error) {
 		return "", fmt.Errorf("make Git repository root absolute: %w", err)
 	}
 	return filepath.Clean(root), nil
+}
+
+// CommonDir returns the repository's shared Git directory.
+func CommonDir(path string) (string, error) {
+	out, err := run(path, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", fmt.Errorf("resolve Git common directory: %w", err)
+	}
+	common := filepath.FromSlash(strings.TrimSpace(out))
+	if common == "" {
+		return "", fmt.Errorf("resolve Git common directory: empty path")
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(path, common)
+	}
+	common, err = filepath.Abs(common)
+	if err != nil {
+		return "", fmt.Errorf("make Git common directory absolute: %w", err)
+	}
+	return filepath.Clean(common), nil
+}
+
+// SamePath reports whether two paths identify the same filesystem location.
+func SamePath(left, right string) bool {
+	absolute := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return filepath.Clean(path)
+		}
+		return filepath.Clean(abs)
+	}
+	left, right = absolute(left), absolute(right)
+	if runtime.GOOS == "windows" {
+		if strings.EqualFold(left, right) {
+			return true
+		}
+	} else if left == right {
+		return true
+	}
+	canonical := func(path string) string {
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			return filepath.Clean(resolved)
+		}
+		return path
+	}
+	left, right = canonical(left), canonical(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 func Run(dir string, args ...string) (string, error) {

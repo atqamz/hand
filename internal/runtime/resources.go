@@ -133,12 +133,12 @@ func closeTaskTab(client herdrClient, workspaceID, tabID string) error {
 	return client.TabClose(tabID)
 }
 
-func (r *Runtime) observeWorktreeLease(worktreePath, leaseID string) worktree.LeaseObservation {
+func (r *Runtime) observeWorktreeLease(clonePath, worktreePath, leaseID string) worktree.LeaseObservation {
 	observe := r.deps.worktree.observeLease
 	if observe == nil {
 		observe = worktree.ObserveLease
 	}
-	return observe(worktreePath, leaseID)
+	return observe(clonePath, worktreePath, leaseID)
 }
 
 func worktreeCleanupSettled(teardownWorktreeState string) bool {

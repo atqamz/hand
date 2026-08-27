@@ -25,6 +25,23 @@ func TestDefaultBranchUsesLocalMarkerWithoutOrigin(t *testing.T) {
 	}
 }
 
+func TestCommonDirReturnsTheMainRepositoryForAWorktree(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	runGit(t, repo, "init", "-q", "-b", "main")
+	runGit(t, repo, "-c", "user.name=git-test", "-c", "user.email=git-test@example.invalid", "commit", "-q", "--allow-empty", "-m", "baseline")
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feature", worktree)
+
+	got, err := CommonDir(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(repo, ".git")
+	if !SamePath(got, want) {
+		t.Fatalf("CommonDir() = %q, want %q", got, want)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	if len(args) > 1 && args[0] == "init" {

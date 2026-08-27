@@ -696,11 +696,15 @@ func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 // text, since a failure read as pane text would confirm a worker nobody observed. Re-answering a dialog
 // that lingers in scrollback is prevented in internal/runtime/launch.go, by answering each one once per launch.
 func (c *Client) PaneRead(paneID string, lines int) (string, error) {
+	return c.paneRead(context.Background(), paneID, lines)
+}
+
+func (c *Client) paneRead(ctx context.Context, paneID string, lines int) (string, error) {
 	// The one caller matches first-run dialogs on their lower half, so a viewport too short for the whole
 	// dialog clips exactly the text that has to match, and an unmatched dialog under a live agent reads as
 	// started. Hence recent, not visible's 23-row unattached viewport (internal/faketool/FIDELITY.md).
 	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
-	stdout, stderr, runErr := c.run(args...)
+	stdout, stderr, runErr := c.runContext(ctx, args...)
 	// Unlike every command above, herdr's contract for pane read is a third shape: raw text on
 	// success, on failure a bare {"code","message"} object, not the {"error":{...}} envelope. Read
 	// ahead of the exit status for callVoid's reason - that code cannot be trusted on its own.
@@ -719,19 +723,24 @@ func (c *Client) PaneRead(paneID string, lines int) (string, error) {
 // working", so this combines the pane signals rather than depending on a single-target wait command.
 func (c *Client) WaitComposerEmpty(paneID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
 	var shellsKnown bool
 	var backgroundShells int
 	var lastStatus Status
 	for {
-		pane, err := c.PaneGet(paneID)
+		pane, err := c.paneGet(ctx, paneID)
 		if err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return &ComposerBusyError{Timeout: timeout, AgentStatus: lastStatus, BackgroundShells: backgroundShells, ShellsKnown: shellsKnown}
+			}
 			return err
 		}
 		lastStatus = pane.AgentStatus
 		if pane.AgentStatus != StatusWorking {
 			return nil
 		}
-		if text, err := c.PaneRead(paneID, 20); err == nil {
+		if text, err := c.paneRead(ctx, paneID, 20); err == nil {
 			if count, ok := renderedBackgroundShells(text); ok {
 				backgroundShells, shellsKnown = count, true
 			}
@@ -739,10 +748,18 @@ func (c *Client) WaitComposerEmpty(paneID string, timeout time.Duration) error {
 				return nil
 			}
 		}
-		if time.Now().After(deadline) {
+		if time.Now().After(deadline) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return &ComposerBusyError{Timeout: timeout, AgentStatus: lastStatus, BackgroundShells: backgroundShells, ShellsKnown: shellsKnown}
 		}
-		time.Sleep(250 * time.Millisecond)
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return &ComposerBusyError{Timeout: timeout, AgentStatus: lastStatus, BackgroundShells: backgroundShells, ShellsKnown: shellsKnown}
+		case <-timer.C:
+		}
 	}
 }
 

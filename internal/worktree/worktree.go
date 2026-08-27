@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	gitrepo "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toolchain"
 )
@@ -104,7 +106,7 @@ const (
 // ObserveLease classifies recorded worktree ownership and never fails: every cause that stops the
 // pool from being observed is reported as LeaseUnknown carrying its probe, because an observation
 // that could not be made is not evidence that ownership changed.
-func ObserveLease(worktreePath, expectedLeaseID string) LeaseObservation {
+func ObserveLease(clonePath, worktreePath, expectedLeaseID string) LeaseObservation {
 	if worktreePath == "" {
 		return LeaseObservation{State: LeaseAbsent}
 	}
@@ -114,12 +116,12 @@ func ObserveLease(worktreePath, expectedLeaseID string) LeaseObservation {
 		}
 		return unknownLease(worktreePath, fmt.Sprintf("inspect worktree path: %v", err))
 	}
-	entries, reason := treehouseStatus(worktreePath)
+	entries, reason := treehouseStatus(clonePath, worktreePath)
 	if reason != "" {
 		return unknownLease(worktreePath, reason)
 	}
 	for _, entry := range entries {
-		if entry.Path != worktreePath {
+		if !gitrepo.SamePath(entry.Path, worktreePath) {
 			continue
 		}
 		if entry.Status != "leased" {
@@ -285,6 +287,7 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	if leaseHolder != "" {
 		args = append(args, "--lease-holder", leaseHolder)
 	}
+	args = withTreehouseRoot(clonePath, args...)
 	out, stderr, err := runCore("treehouse", clonePath, args...)
 	// Banners land on stderr ahead of the JSON, so the payload has to be read from stdout alone -
 	// CombinedOutput here corrupts every parse (atqamz/hand#21).
@@ -302,7 +305,20 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	if payload.Path == "" {
 		return Lease{}, fmt.Errorf("treehouse get returned no worktree path")
 	}
-	return Lease{Path: payload.Path, ID: payload.LeaseID}, nil
+	lease := Lease{Path: payload.Path, ID: payload.LeaseID}
+	if _, err := os.Stat(lease.Path); err == nil {
+		actual, err := gitrepo.CommonDir(lease.Path)
+		if err != nil {
+			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
+			return Lease{}, fmt.Errorf("treehouse get returned an unreadable worktree: %w", err)
+		}
+		expected := filepath.Join(clonePath, ".git")
+		if !gitrepo.SamePath(expected, actual) {
+			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
+			return Lease{}, fmt.Errorf("treehouse get returned worktree rooted in another Git repository: got %s, want %s", actual, expected)
+		}
+	}
+	return lease, nil
 }
 
 // Reads the full commit object ID currently checked out by a leased worktree.
@@ -319,7 +335,7 @@ func HeadCommit(worktreePath string) (string, error) {
 }
 
 // Return releases a worktree back to its treehouse pool without lease identity.
-func Return(worktreePath string, force bool) error {
+func Return(clonePath, worktreePath string, force bool) error {
 	if worktreePath == "" {
 		return nil
 	}
@@ -327,22 +343,24 @@ func Return(worktreePath string, force bool) error {
 	if force {
 		args = append(args, "--force")
 	}
+	args = withTreehouseRoot(clonePath, args...)
 	return returnTreehouse(worktreePath, args, force)
 }
 
 // ReturnLease releases a worktree only when treehouse still owns the expected lease.
-func ReturnLease(worktreePath, leaseID string, force bool) error {
+func ReturnLease(clonePath, worktreePath, leaseID string, force bool) error {
 	if worktreePath == "" {
 		return nil
 	}
 	if leaseID == "" {
-		return Return(worktreePath, force)
+		return Return(clonePath, worktreePath, force)
 	}
 	args := []string{"return"}
 	if force {
 		args = append(args, "--force")
 	}
 	args = append(args, "--if-lease-id", leaseID, worktreePath)
+	args = withTreehouseRoot(clonePath, args...)
 	return returnTreehouse(worktreePath, args, force)
 }
 
@@ -360,8 +378,8 @@ func returnTreehouse(worktreePath string, args []string, force bool) error {
 
 // Reports the pool entries, or the reason the pool could not be observed. A missing executable, a
 // non-zero exit and unparsable output are all unobservability, never absence and never a mismatch.
-func treehouseStatus(worktreePath string) ([]statusEntry, string) {
-	out, stderr, err := runCore("treehouse", worktreePath, "status", "--json")
+func treehouseStatus(clonePath, worktreePath string) ([]statusEntry, string) {
+	out, stderr, err := runCore("treehouse", worktreePath, withTreehouseRoot(clonePath, "status", "--json")...)
 	if err != nil {
 		if strings.Contains(err.Error(), "executable file not found") {
 			return nil, fmt.Sprintf("treehouse is not executable: %v", err)
@@ -377,6 +395,10 @@ func treehouseStatus(worktreePath string) ([]statusEntry, string) {
 		return nil, fmt.Sprintf("treehouse status output is not a JSON array: %v", err)
 	}
 	return entries, ""
+}
+
+func withTreehouseRoot(clonePath string, args ...string) []string {
+	return append([]string{"--root", clonePath}, args...)
 }
 
 func runCore(tool, dir string, args ...string) ([]byte, []byte, error) {
@@ -432,7 +454,7 @@ func CheckCollision(homeDir string, lease Lease, excludeID string) (string, erro
 		}
 		// Fallback whenever either side has no identity, which is any row written before the
 		// lease_id column existed.
-		if attempt.Worktree == lease.Path {
+		if gitrepo.SamePath(attempt.Worktree, lease.Path) {
 			return history.Task.ID, nil
 		}
 	}

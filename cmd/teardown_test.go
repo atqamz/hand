@@ -1555,8 +1555,11 @@ func readTreehouseReturnArgs(t *testing.T, worktree string) []string {
 	t.Helper()
 	var args []string
 	for _, line := range readInvocations(t, worktree) {
-		if fields := strings.Fields(line); len(fields) > 1 && fields[1] == "return" {
-			args = fields[1:]
+		fields := strings.Fields(line)
+		for i, field := range fields {
+			if field == "return" {
+				args = fields[i:]
+			}
 		}
 	}
 	if args == nil {

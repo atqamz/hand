@@ -26,7 +26,7 @@ func TestProvisionFailureAfterWorktreeRecordClearsOnlyReturnedEvidence(t *testin
 			get: func(string, string) (worktree.Lease, error) {
 				return worktree.Lease{Path: "/tmp/hand-wt", ID: "lease-1"}, nil
 			},
-			returnWorktree: func(string, bool) error {
+			returnWorktree: func(string, string, bool) error {
 				returned = true
 				return nil
 			},
@@ -200,7 +200,7 @@ func TestProvisionResumeRefusesChangedLeaseBeforeHerdrCreation(t *testing.T) {
 	attempt.LeaseID = "lease-old"
 	fake := &provisionHerdr{}
 	runtime := testProvisionRuntime(fake, func(lifecyclePhase) error { return nil })
-	runtime.deps.worktree.observeLease = func(path, leaseID string) worktree.LeaseObservation {
+	runtime.deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
 		if path != attempt.Worktree || leaseID != attempt.LeaseID {
 			t.Fatalf("observeLease(%q, %q), want persisted lease", path, leaseID)
 		}
@@ -228,7 +228,7 @@ func TestProvisionFailurePreservesWorktreeEvidenceWhenReturnFails(t *testing.T) 
 			get: func(string, string) (worktree.Lease, error) {
 				return worktree.Lease{Path: "/tmp/hand-wt", ID: "lease-1"}, nil
 			},
-			returnWorktree: func(string, bool) error { return returnErr },
+			returnWorktree: func(string, string, bool) error { return returnErr },
 			checkCollision: func(string, worktree.Lease, string) (string, error) { return "", nil },
 		},
 		phase: func(phase lifecyclePhase) error {
@@ -271,7 +271,7 @@ func TestProvisionFailureAfterHerdrRecordPreservesAttemptAttribution(t *testing.
 		}
 		return nil
 	})
-	runtime.deps.worktree.returnWorktree = func(string, bool) error { returned = true; return nil }
+	runtime.deps.worktree.returnWorktree = func(string, string, bool) error { returned = true; return nil }
 
 	_, err := runtime.provision(context.Background(), provisioningRequest{
 		home: home, projectName: "demo", clonePath: filepath.Join(home, "projects", "demo"),
@@ -495,10 +495,10 @@ func testProvisionRuntime(client herdrClient, phase func(lifecyclePhase) error) 
 			get: func(path, holder string) (worktree.Lease, error) {
 				return worktree.Lease{Path: filepath.Join(path, "leased"), ID: "lease-1"}, nil
 			},
-			observeLease: func(string, string) worktree.LeaseObservation {
+			observeLease: func(string, string, string) worktree.LeaseObservation {
 				return worktree.LeaseObservation{State: worktree.LeaseExact}
 			},
-			returnWorktree: func(string, bool) error { return nil },
+			returnWorktree: func(string, string, bool) error { return nil },
 			checkCollision: func(string, worktree.Lease, string) (string, error) { return "", nil },
 		},
 		buildHarness: func(_ string, opts harness.Options) (launchSpec, error) {

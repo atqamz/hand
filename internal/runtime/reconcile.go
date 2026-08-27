@@ -482,7 +482,7 @@ func (r *Runtime) observeMerge(ctx context.Context, home string, history state.T
 		return false, false, "local-git", fmt.Errorf("lock worktree %q for local merge observation: %w", attempt.Worktree, err)
 	}
 	defer releaseWorktree()
-	lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
+	lease := r.observeWorktreeLease(filepath.Join(home, "projects", task.Project), attempt.Worktree, attempt.LeaseID)
 	if lease.State != worktree.LeaseExact {
 		unproven := &worktree.UnprovenLeaseError{WorktreePath: attempt.Worktree, ExpectedLeaseID: attempt.LeaseID, Observation: lease}
 		return false, false, "local-git", fmt.Errorf("observe local merge for task %q Attempt %d: %w", task.ID, attempt.ID, unproven)
@@ -970,7 +970,7 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 	}
 
 	if attempt.Worktree != "" && !worktreeCleanupSettled(attempt.TeardownWorktreeState) {
-		lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
+		lease := r.observeWorktreeLease(filepath.Join(home, "projects", task.Project), attempt.Worktree, attempt.LeaseID)
 		switch lease.State {
 		case worktree.LeaseUnknown, worktree.LeaseUnprovable:
 			if attest.Worktree {
@@ -1028,10 +1028,11 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 				if r.deps.worktree.returnWorktree == nil {
 					return false, reconciliationDecision{}, fmt.Errorf("no worktree return operation configured")
 				}
-				if err := r.deps.worktree.returnWorktree(attempt.Worktree, false); err != nil {
+				clonePath := filepath.Join(home, "projects", task.Project)
+				if err := r.deps.worktree.returnWorktree(clonePath, attempt.Worktree, false); err != nil {
 					return false, reconciliationDecision{}, fmt.Errorf("return historical worktree: %w", err)
 				}
-			} else if err := returnLease(attempt.Worktree, attempt.LeaseID, false); err != nil {
+			} else if err := returnLease(filepath.Join(home, "projects", task.Project), attempt.Worktree, attempt.LeaseID, false); err != nil {
 				return false, reconciliationDecision{}, fmt.Errorf("return historical worktree lease: %w", err)
 			}
 			if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleased); err != nil {
@@ -1299,7 +1300,7 @@ func (r *Runtime) observeAttempt(home string, task state.Task, attempt state.Att
 	}
 	skipHerdrObservation := attempt.Lifecycle == state.AttemptProvisioning && attempt.Herdr.WorkspaceID != "" && attempt.Herdr.TabID != "" && attempt.Herdr.PaneID != "" && attempt.LaunchSubmittedAt == ""
 	if attempt.Worktree != "" {
-		lease := r.observeWorktreeLease(attempt.Worktree, attempt.LeaseID)
+		lease := r.observeWorktreeLease(filepath.Join(home, "projects", task.Project), attempt.Worktree, attempt.LeaseID)
 		observation.Treehouse.State = treehouseLeaseState(lease.State)
 		observation.Treehouse.Probe = lease.Probe
 		if lease.State == worktree.LeaseExact {

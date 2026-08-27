@@ -21,7 +21,7 @@ func TestCleanupScoutStopsAfterPaneReleasePhase(t *testing.T) {
 	returned := false
 	runtime := &Runtime{deps: dependencies{
 		herdr: func() herdrClient { return fake },
-		worktree: worktreeDependencies{returnWorktree: func(string, bool) error {
+		worktree: worktreeDependencies{returnWorktree: func(string, string, bool) error {
 			returned = true
 			return nil
 		}},
@@ -33,7 +33,7 @@ func TestCleanupScoutStopsAfterPaneReleasePhase(t *testing.T) {
 		},
 	}}
 
-	warnings, err := runtime.cleanupScout("/tmp/home", "task-1", scoutAttempt("/tmp/old", "old-workspace", "old-tab"))
+	warnings, err := runtime.cleanupScout("/tmp/home", "/tmp/home/projects/demo", "task-1", scoutAttempt("/tmp/old", "old-workspace", "old-tab"))
 	if !errors.Is(err, phaseErr) {
 		t.Fatalf("cleanupScout() = %v, want %v", err, phaseErr)
 	}
@@ -53,7 +53,7 @@ func TestCleanupScoutReportsPartialReleaseOutcomes(t *testing.T) {
 	returned := false
 	runtime := &Runtime{deps: dependencies{
 		herdr: func() herdrClient { return fake },
-		worktree: worktreeDependencies{returnWorktree: func(string, bool) error {
+		worktree: worktreeDependencies{returnWorktree: func(string, string, bool) error {
 			returned = true
 			return returnErr
 		}},
@@ -65,7 +65,7 @@ func TestCleanupScoutReportsPartialReleaseOutcomes(t *testing.T) {
 		},
 	}}
 
-	warnings, err := runtime.cleanupScout("/tmp/home", "task-1", scoutAttempt("/tmp/old", "old-workspace", "old-tab"))
+	warnings, err := runtime.cleanupScout("/tmp/home", "/tmp/home/projects/demo", "task-1", scoutAttempt("/tmp/old", "old-workspace", "old-tab"))
 	if !errors.Is(err, phaseErr) {
 		t.Fatalf("cleanupScout() = %v, want %v", err, phaseErr)
 	}
@@ -81,11 +81,11 @@ func TestCleanupScoutReportsPartialReleaseOutcomes(t *testing.T) {
 func TestCleanupScoutReportsIncompleteHerdrOwnership(t *testing.T) {
 	runtime := &Runtime{deps: dependencies{
 		herdr:    func() herdrClient { return &provisionHerdr{} },
-		worktree: worktreeDependencies{returnWorktree: func(string, bool) error { return nil }},
+		worktree: worktreeDependencies{returnWorktree: func(string, string, bool) error { return nil }},
 		phase:    func(lifecyclePhase) error { return nil },
 	}}
 
-	warnings, err := runtime.cleanupScout("/tmp/home", "task-1", state.Attempt{
+	warnings, err := runtime.cleanupScout("/tmp/home", "/tmp/home/projects/demo", "task-1", state.Attempt{
 		TaskID: "task-1", Lifecycle: state.AttemptCompleted,
 		Herdr: state.Herdr{PaneID: "pane-only"},
 	})
@@ -129,7 +129,7 @@ func TestPromotePersistsPartialOldScoutCleanupWithoutMovingOwnership(t *testing.
 	deps.worktree.get = func(string, string) (worktree.Lease, error) {
 		return worktree.Lease{Path: "/new/worktree", ID: "L2"}, nil
 	}
-	deps.worktree.returnWorktree = func(path string, force bool) error {
+	deps.worktree.returnWorktree = func(_, path string, force bool) error {
 		if path == oldPath && !force {
 			t.Fatalf("old scout return force = %t, want true", force)
 		}

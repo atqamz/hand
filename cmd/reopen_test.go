@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,7 +20,12 @@ func TestReopenCreatesANewAttemptWithoutResurrectingTheOldOne(t *testing.T) {
 	}
 	worktree := t.TempDir() + "/wt"
 	home := setupSpawnHome(t, worktree, herdr)
-	initGitRepo(t, worktree)
+	clone := filepath.Join(home, "projects", "myproj")
+	initGitRepo(t, clone)
+	command := exec.Command("git", "-C", clone, "worktree", "add", "--detach", worktree)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, output)
+	}
 
 	spawn := newSpawnCmd()
 	spawn.SetArgs([]string{"task-1", "myproj", "--harness", harness.Claude})

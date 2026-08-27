@@ -628,7 +628,7 @@ func treehouseInitIfNeeded(clonePath string) error {
 	if _, err := os.Stat(filepath.Join(clonePath, "treehouse.toml")); err == nil {
 		return excludeLocally(clonePath, "treehouse.toml")
 	}
-	out, err := runManagedCore(context.Background(), "treehouse", clonePath, "init")
+	out, err := runManagedCore(context.Background(), "treehouse", clonePath, "--root", clonePath, "init")
 	if err != nil {
 		return fmt.Errorf("treehouse init failed: %s", string(out))
 	}

@@ -25,7 +25,7 @@ func TestMechanicalPlanDispatchesAgainstTheRegisteredBase(t *testing.T) {
 	if task.Project != "demo" || attempt.Worktree != worktree {
 		t.Fatalf("spawned task = %+v, attempt = %+v, want project demo and worktree %s", task, attempt, worktree)
 	}
-	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") {
+	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, " get ") {
 		t.Fatalf("treehouse log = %q, want acquisition", log)
 	}
 	if log := readOptionalLog(t, herdrLog); !strings.Contains(log, " pane run") {
@@ -89,7 +89,7 @@ func TestMechanicalPlanRefusesWhenTreehouseAcquiresADifferentHead(t *testing.T) 
 			t.Fatalf("error = %q, want %q", message, want)
 		}
 	}
-	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") || !strings.Contains(log, "treehouse return") {
+	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, " get ") || !strings.Contains(log, " return ") {
 		t.Fatalf("treehouse log = %q, want acquisition followed by safe return", log)
 	}
 	if log := readOptionalLog(t, herdrLog); strings.Contains(log, " pane ") {
@@ -119,7 +119,7 @@ func TestStandardAndDeepPlansDoNotUseMechanicalStaleRefusal(t *testing.T) {
 			if attempt.Worktree != worktree {
 				t.Fatalf("attempt.Worktree = %q, want %q", attempt.Worktree, worktree)
 			}
-			if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") {
+			if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, " get ") {
 				t.Fatalf("treehouse log = %q, want acquisition", log)
 			}
 			if log := readOptionalLog(t, herdrLog); !strings.Contains(log, " pane run") {
@@ -141,7 +141,7 @@ func TestLegacyBriefStillDispatchesWithoutExecutionPlanPreflight(t *testing.T) {
 	if attempt.Worktree != worktree {
 		t.Fatalf("attempt.Worktree = %q, want %q", attempt.Worktree, worktree)
 	}
-	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, "treehouse get") {
+	if log := readOptionalLog(t, treehouseLog); !strings.Contains(log, " get ") {
 		t.Fatalf("treehouse log = %q, want acquisition", log)
 	}
 	if log := readOptionalLog(t, herdrLog); !strings.Contains(log, " pane run") {
