@@ -603,6 +603,11 @@ func canonicalPath(path string) string {
 	return filepath.Clean(abs)
 }
 
+// CanonicalPath exposes the path form used when comparing pool observations from different roots.
+func CanonicalPath(path string) string {
+	return canonicalPath(path)
+}
+
 func RemoveMetadata(clonePath, worktreePath string) error {
 	if pathWithin(canonicalPath(filepath.Join(clonePath, ".treehouse")), canonicalPath(worktreePath)) {
 		return nil
@@ -723,6 +728,12 @@ func treehouseStatus(clonePath, worktreePath string) ([]statusEntry, string) {
 		return nil, fmt.Sprintf("treehouse status output is not a JSON array: %v", err)
 	}
 	return entries, ""
+}
+
+// IsTreehouseUnavailable reports whether err reflects the treehouse binary itself being missing,
+// as opposed to an installed treehouse failing to report on a resolvable pool.
+func IsTreehouseUnavailable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "treehouse is not executable")
 }
 
 func PoolStatus(clonePath string) ([]PoolEntry, error) {

@@ -354,21 +354,31 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 	if err != nil {
 		return append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("registered project pools cannot be inspected: %v", err)})
 	}
+	seenProjects := make(map[string]struct{}, len(projects))
 	for _, p := range projects {
+		if _, seen := seenProjects[p.Name]; seen {
+			continue
+		}
+		seenProjects[p.Name] = struct{}{}
 		clone := filepath.Join(fleetHome, "projects", p.Name)
 		if _, err := os.Stat(filepath.Join(clone, ".git")); os.IsNotExist(err) {
 			continue
 		}
 		entries, err := worktree.PoolStatus(clone)
 		reported := make(map[string]struct{}, len(entries))
-		if err != nil {
+		switch {
+		case err != nil && worktree.IsTreehouseUnavailable(err):
+			// Already surfaced once as a top-level tool warning; a missing treehouse binary is not
+			// a per-project pool integrity finding, and reporting it as one for every registered
+			// project only duplicates that warning without giving the operator anything new to fix.
+		case err != nil:
 			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q worktree pool cannot be inspected: %v", p.Name, err)})
-		} else {
+		default:
 			for _, entry := range entries {
 				soundness := worktree.CheckSoundness(clone, entry.Path)
-				key, _ := filepath.Abs(entry.Path)
-				reported[filepath.Clean(key)] = struct{}{}
-				appendUnsoundPoolFinding(&findings, p.Name, entry.Path, soundness, entry.Status == "leased")
+				key := filepath.Clean(worktree.CanonicalPath(entry.Path))
+				reported[key] = struct{}{}
+				appendUnsoundPoolFinding(&findings, p.Name, worktree.CanonicalPath(entry.Path), soundness, entry.Status == "leased")
 			}
 		}
 		poolSlots, discoverErr := worktree.DiscoverPoolSlots(clone, worktree.PoolSearchRoots(fleetHome, clone)...)
@@ -376,8 +386,7 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q worktree pool directories cannot be inspected: %v", p.Name, discoverErr)})
 		} else {
 			for _, slot := range poolSlots {
-				key, _ := filepath.Abs(slot.Path)
-				if _, ok := reported[filepath.Clean(key)]; ok {
+				if _, ok := reported[filepath.Clean(worktree.CanonicalPath(slot.Path))]; ok {
 					continue
 				}
 				appendUnsoundPoolFinding(&findings, p.Name, slot.Path, slot.Soundness, false)
