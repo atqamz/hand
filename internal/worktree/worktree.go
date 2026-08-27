@@ -620,8 +620,7 @@ func RemoveMetadata(clonePath, worktreePath string) error {
 		return fmt.Errorf("read worktree Git file: %w", err)
 	}
 	expected := filepath.Join(clonePath, ".git", "worktrees")
-	rel, err := filepath.Rel(expected, metadata)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+	if !pathWithin(canonicalPath(expected), canonicalPath(metadata)) {
 		return nil
 	}
 	if err := os.RemoveAll(metadata); err != nil {
