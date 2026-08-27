@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	gitrepo "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/faketool"
+	gitrepo "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/state"
 )
 
