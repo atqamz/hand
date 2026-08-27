@@ -397,10 +397,7 @@ func cloneOwnsWorktree(clonePath, worktreePath string) bool {
 }
 
 func safeToRetireSlot(clonePath, worktreePath string, soundness SlotSoundness) bool {
-	if soundness.CommonDir != "" {
-		return gitrepo.SamePath(soundness.CommonDir, filepath.Join(clonePath, ".git"))
-	}
-	return pathWithin(canonicalPath(filepath.Join(clonePath, ".treehouse")), canonicalPath(worktreePath))
+	return soundness.CommonDir != "" && gitrepo.SamePath(soundness.CommonDir, filepath.Join(clonePath, ".git"))
 }
 
 func rejectAcquiredLease(clonePath string, lease Lease, reason error) error {
@@ -562,10 +559,7 @@ func DiscoverPoolSlots(clonePath string, searchRoots ...string) ([]PoolSlot, err
 }
 
 func resolvesIntoClone(expected string, soundness SlotSoundness) bool {
-	if soundness.CommonDir != "" && gitrepo.SamePath(soundness.CommonDir, expected) {
-		return true
-	}
-	return pathWithin(filepath.Join(expected, "worktrees"), soundness.MetadataDir)
+	return soundness.CommonDir != "" && gitrepo.SamePath(soundness.CommonDir, expected)
 }
 
 func pathWithin(root, path string) bool {

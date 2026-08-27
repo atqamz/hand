@@ -3,7 +3,6 @@ package worktree
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -208,6 +207,38 @@ func TestDiscoverPoolSlotsFindsCloneOwnedSlotWithExternalMetadata(t *testing.T) 
 	}
 }
 
+func TestDiscoverPoolSlotsExcludesForeignCommonDirectoryUnderCloneMetadata(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	foreign := filepath.Join(t.TempDir(), "foreign")
+	faketool.InitRepo(t, clone)
+	faketool.InitRepo(t, foreign)
+	metadata := filepath.Join(clone, ".git", "worktrees", "foreign")
+	if err := os.MkdirAll(metadata, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, ".git"), []byte("gitdir: "+metadata+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadata, "gitdir"), []byte(filepath.Join(path, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadata, "commondir"), []byte(filepath.Join(foreign, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := DiscoverPoolSlots(clone, filepath.Join(clone, ".treehouse"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("DiscoverPoolSlots() = %+v, want no foreign slot", got)
+	}
+}
+
 func TestCheckSoundnessReportsMissingMetadataAndForeignCommonDirectory(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	foreign := filepath.Join(t.TempDir(), "foreign")
@@ -285,13 +316,12 @@ func TestGetRetiresAnUnsoundLeaseAndAcquiresTheNextSoundSlot(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	faketool.InitRepo(t, clone)
 	bad := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
-	if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
+	runGit(t, clone, "worktree", "add", "-q", "-b", "bad", bad)
+	badMetadata, err := ReadMetadataDir(bad)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(bad, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bad, ".git"), []byte("broken\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(badMetadata, "gitdir"), []byte(filepath.Join(t.TempDir(), ".git")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sound := filepath.Join(clone, ".treehouse", "pool", "2", "demo")
@@ -420,31 +450,38 @@ func TestGetRejectsAWorktreeFromAnotherRegisteredClone(t *testing.T) {
 	}
 }
 
-func TestGetExaminesMoreThan128UnsoundSlots(t *testing.T) {
+func TestGetDoesNotMutateMalformedUnownedSlot(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	faketool.InitRepo(t, clone)
-	slots := make([]string, 0, 130)
-	for i := 0; i < 129; i++ {
-		path := filepath.Join(clone, ".treehouse", "pool", fmt.Sprintf("%03d", i), "demo")
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(path, ".git"), []byte("broken\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		slots = append(slots, path)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	sound := filepath.Join(clone, ".treehouse", "pool", "129", "demo")
-	runGit(t, clone, "worktree", "add", "-q", "-b", "sound", sound)
-	slots = append(slots, sound)
-	faketool.Treehouse{Slots: slots}.Install(t, faketool.Bin(t))
+	if err := os.WriteFile(filepath.Join(path, ".git"), []byte("not a git pointer\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(path, "important")
+	if err := os.WriteFile(marker, []byte("preserve\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{Log: log, Slots: []string{path}, Responses: []faketool.TreehouseResponse{
+		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": path, "lease_id": "lease-1"})},
+		{Command: "status", Stdout: mustJSON(t, []map[string]string{{"path": path, "status": "leased", "lease_id": "lease-1"}})},
+	}}.Install(t, faketool.Bin(t))
 
-	got, err := Get(clone, "hand:task-1")
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "refuse to mutate foreign unsound worktree") {
+		t.Fatalf("Get() error = %v, want ownership refusal", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("malformed unowned slot was mutated: %v", err)
+	}
+	data, err := os.ReadFile(log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Path != sound {
-		t.Fatalf("Get() path = %q, want sound slot %q", got.Path, sound)
+	if strings.Contains(string(data), " return ") {
+		t.Fatalf("treehouse invocations = %q, want no return", data)
 	}
 }
 
