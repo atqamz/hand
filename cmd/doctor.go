@@ -378,7 +378,7 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 				soundness := worktree.CheckSoundness(clone, entry.Path)
 				key := filepath.Clean(worktree.CanonicalPath(entry.Path))
 				reported[key] = struct{}{}
-				appendUnsoundPoolFinding(&findings, p.Name, worktree.CanonicalPath(entry.Path), soundness, entry.Status == "leased")
+				appendUnsoundPoolFinding(&findings, p.Name, entry.Path, soundness, entry.Status == "leased")
 			}
 		}
 		poolSlots, discoverErr := worktree.DiscoverPoolSlots(clone, worktree.PoolSearchRoots(fleetHome, clone)...)
@@ -394,9 +394,9 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 			for _, collision := range worktree.PoolSlotCollisions(poolSlots) {
 				claims := make([]string, 0, len(collision))
 				for _, slot := range collision {
-					claims = append(claims, fmt.Sprintf("pool %q slot %q", slot.PoolRoot, slot.Path))
+					claims = append(claims, fmt.Sprintf("pool \"%s\" slot \"%s\"", slot.PoolRoot, slot.Path))
 				}
-				findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q metadata target %q is claimed by %s", p.Name, collision[0].MetadataDir, strings.Join(claims, ", "))})
+				findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q metadata target \"%s\" is claimed by %s", p.Name, collision[0].MetadataDir, strings.Join(claims, ", "))})
 			}
 		}
 	}
@@ -407,7 +407,7 @@ func appendUnsoundPoolFinding(findings *[]doctorFinding, projectName, path strin
 	if soundness.Sound {
 		return
 	}
-	text := fmt.Sprintf("project %q pool slot %q is unsound: %s", projectName, path, strings.Join(soundness.Failures, "; "))
+	text := fmt.Sprintf("project %q pool slot \"%s\" is unsound: %s", projectName, path, strings.Join(soundness.Failures, "; "))
 	if leased {
 		text += "; leased, not retired"
 	}
