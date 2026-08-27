@@ -12,6 +12,7 @@ import (
 
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/state"
@@ -145,35 +146,35 @@ func TestProjectBaseCommitResolvesLocalDefaultBranchCommit(t *testing.T) {
 	}
 }
 
-func TestProjectBaseCommitDoesNotQueryRemoteToResolveBranch(t *testing.T) {
+func TestProjectBaseCommitRefreshesOriginDefaultBranchForConsecutiveChecks(t *testing.T) {
 	clonePath := filepath.Join(t.TempDir(), "clone")
 	initRuntimeGitRepo(t, clonePath)
-	runRuntimeGit(t, clonePath, "remote", "add", "origin", "ssh://example.invalid/review/repo.git")
-	realGit, err := exec.LookPath("git")
-	if err != nil {
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	if err := os.MkdirAll(remote, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(t.TempDir(), "remote-show-called")
-	fakeDir := t.TempDir()
-	fakeGit := filepath.Join(fakeDir, "git")
-	script := "#!/bin/sh\nif [ \"$1\" = remote ] && [ \"$2\" = show ] && [ \"$3\" = origin ]; then\n  echo queried > \"$HAND_GIT_QUERY_MARKER\"\n  exit 1\nfi\nexec \"$HAND_REAL_GIT\" \"$@\"\n"
-	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
+	runRuntimeGit(t, remote, "init", "--bare", "-q")
+	runRuntimeGit(t, clonePath, "remote", "add", "origin", remote)
+	initial := gitOutput(t, clonePath, "rev-parse", "refs/heads/main")
+	runRuntimeGit(t, clonePath, "push", "-q", "-u", "origin", "main")
+	runRuntimeGit(t, clonePath, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	if err := os.WriteFile(filepath.Join(clonePath, "remote.txt"), []byte("remote\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HAND_GIT_QUERY_MARKER", marker)
-	t.Setenv("HAND_REAL_GIT", realGit)
-	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	runRuntimeGit(t, clonePath, "add", "remote.txt")
+	runRuntimeGit(t, clonePath, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "remote advance")
+	remoteHead := gitOutput(t, clonePath, "rev-parse", "HEAD")
+	runRuntimeGit(t, clonePath, "push", "-q", "origin", "main")
+	runRuntimeGit(t, clonePath, "reset", "--hard", "-q", initial)
 
-	want := gitOutput(t, clonePath, "rev-parse", "refs/heads/main")
-	got, err := projectBaseCommit(clonePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Fatalf("projectBaseCommit() = %q, want %q", got, want)
-	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("remote show marker exists with err %v, want no remote query", err)
+	for i := 0; i < 2; i++ {
+		got, err := projectBaseCommit(clonePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != remoteHead {
+			t.Fatalf("projectBaseCommit() check %d = %q, want freshly fetched origin/main %q", i+1, got, remoteHead)
+		}
 	}
 }
 
@@ -252,6 +253,40 @@ func TestSpawnMechanicalPlanRejectsWorktreeHeadDriftBeforeHerdr(t *testing.T) {
 	}
 	if history.ActiveAttempt == nil || history.ActiveAttempt.Worktree != "" {
 		t.Fatalf("attempt after rejected worktree = %+v, want no worktree evidence", history.ActiveAttempt)
+	}
+}
+
+func TestReconcileRetriesMechanicalPlanWithFreshAcquiredHead(t *testing.T) {
+	planned := strings.Repeat("a", 40)
+	acquired := strings.Repeat("b", 40)
+	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
+	calls := &executionPlanCalls{}
+	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
+	reads := 0
+	calls.herdr.paneStatus = herdr.StatusWorking
+	r.deps.worktree.headCommit = func(string) (string, error) {
+		reads++
+		if reads == 1 {
+			return acquired, nil
+		}
+		return planned, nil
+	}
+	r.deps.worktree.observeClean = func(string) (worktree.Cleanliness, error) { return worktree.Clean, nil }
+	r.deps.worktree.observeCommits = func(string) worktree.CommitSafetyObservation {
+		return worktree.CommitSafetyObservation{State: worktree.CommitSafetyRemoteObserved}
+	}
+
+	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: "claude"})
+	assertPreconditionError(t, err)
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Reconcile() = %v, want a fresh acquired-head check to advance the same attempt", err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 || calls.baseLookups != 2 || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("base reads=%d head reads=%d history=%+v, want fresh base and acquired-head checks on retry", calls.baseLookups, reads, history)
 	}
 }
 
@@ -751,6 +786,7 @@ type executionPlanCalls struct {
 	herdrGets        int
 	harnessBuilds    int
 	projectLockProbe error
+	herdr            *provisionHerdr
 }
 
 func executionPlanHome(t *testing.T, briefText string) string {
@@ -782,6 +818,7 @@ func executionPlanHome(t *testing.T, briefText string) string {
 func executionPlanRuntime(t *testing.T, calls *executionPlanCalls, base func(string) (string, error)) *Runtime {
 	t.Helper()
 	fakeHerdr := &provisionHerdr{}
+	calls.herdr = fakeHerdr
 	r := testProvisionRuntime(fakeHerdr, func(lifecyclePhase) error { return nil })
 	r.deps.projectBaseCommit = func(path string) (string, error) {
 		calls.baseLookups++

@@ -431,8 +431,8 @@ type provisionHerdr struct {
 	submitted        launchSpec
 }
 
-func (f *provisionHerdr) FindWorkspaceByLabel(string) (herdr.Workspace, bool, error) {
-	return herdr.Workspace{WorkspaceID: "ws-1"}, true, nil
+func (f *provisionHerdr) FindWorkspaceByLabel(label string) (herdr.Workspace, bool, error) {
+	return herdr.Workspace{WorkspaceID: "ws-1", Label: label}, true, nil
 }
 
 func (f *provisionHerdr) WorkspaceList() ([]herdr.Workspace, error) { return nil, nil }
@@ -449,12 +449,12 @@ func (f *provisionHerdr) TabList(string) ([]herdr.Tab, error) {
 	if f.tabs != nil {
 		return f.tabs, nil
 	}
-	return []herdr.Tab{{TabID: "tab-1"}}, nil
+	return []herdr.Tab{{TabID: "tab-1", WorkspaceID: "ws-1", Label: "task-1"}}, nil
 }
 
-func (f *provisionHerdr) TabCreate(_ string, cwd string, env map[string]string, _ string) (herdr.Tab, herdr.Pane, error) {
+func (f *provisionHerdr) TabCreate(workspaceID string, cwd string, env map[string]string, label string) (herdr.Tab, herdr.Pane, error) {
 	f.tabCwd, f.tabEnv = cwd, env
-	return herdr.Tab{TabID: "tab-1"}, herdr.Pane{PaneID: "pane-1"}, nil
+	return herdr.Tab{TabID: "tab-1", WorkspaceID: workspaceID, Label: label}, herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: workspaceID}, nil
 }
 
 func (f *provisionHerdr) TabRename(string, string) error { return nil }
@@ -469,7 +469,7 @@ func (f *provisionHerdr) PaneGet(string) (herdr.Pane, error) {
 	if status == "" {
 		status = herdr.StatusDone
 	}
-	return herdr.Pane{PaneID: "pane-1", Agent: "claude", AgentStatus: status}, nil
+	return herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "ws-1", Agent: "claude", AgentStatus: status}, nil
 }
 
 func (f *provisionHerdr) PaneProcessInfo(string) (herdr.ProcessInfo, error) {

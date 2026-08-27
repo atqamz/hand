@@ -668,9 +668,20 @@ func projectBaseCommit(clonePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	commit, err := git.BranchCommit(clonePath, branch)
+	ref := "refs/heads/" + branch
+	if _, err := git.Run(clonePath, "remote", "get-url", "origin"); err == nil {
+		if _, err := git.Run(clonePath, "fetch", "--quiet", "origin", branch); err != nil {
+			return "", fmt.Errorf("refresh origin/%s for project base: %w", branch, err)
+		}
+		ref = "refs/remotes/origin/" + branch
+	}
+	commit, err := git.Run(clonePath, "rev-parse", "--verify", ref+"^{commit}")
 	if err != nil {
-		return "", fmt.Errorf("resolve local default branch commit refs/heads/%s: %w", branch, err)
+		return "", fmt.Errorf("resolve project base commit %s: %w", ref, err)
+	}
+	commit = strings.TrimSpace(commit)
+	if commit == "" {
+		return "", fmt.Errorf("resolve project base commit %s: empty Git object ID", ref)
 	}
 	return commit, nil
 }
