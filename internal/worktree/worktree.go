@@ -510,6 +510,10 @@ func DiscoverPoolSlots(clonePath string, searchRoots ...string) ([]PoolSlot, err
 						}
 						return nil, fmt.Errorf("inspect pool worktree %s: %w", worktreePath, err)
 					}
+					metadata, metadataErr := ReadMetadataDir(worktreePath)
+					if metadataErr == nil && !pathWithin(filepath.Join(expected, "worktrees"), metadata) {
+						continue
+					}
 					soundness := CheckSoundness(clonePath, worktreePath)
 					if !resolvesIntoClone(expected, soundness) {
 						continue
