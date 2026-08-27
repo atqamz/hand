@@ -10,7 +10,8 @@ build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" .
 
 test:
-	SECONDHAND_HOME=$$(mktemp -d) go test -tags=test -race ./...
+	# 30m covers the measured 4x Windows runner variance while keeping a real hang actionable.
+	SECONDHAND_HOME=$$(mktemp -d) go test -tags=test -race -timeout=30m ./...
 
 fmt:
 	gofmt -w .

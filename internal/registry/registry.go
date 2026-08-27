@@ -177,7 +177,7 @@ func OpenReadOnlyAt(path string) (*Registry, error) {
 }
 
 func open(path string, readOnly bool) (*sql.DB, error) {
-	query := "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
+	query := "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate" + sqliteTestPragmas
 	if readOnly {
 		query = "?mode=ro&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=query_only(1)"
 	}
