@@ -1360,7 +1360,7 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 		}
 		_, err = r.provision(ctx, provisioningRequest{
 			home: home, projectName: projectInfo.Name, clonePath: filepath.Join(home, "projects", projectInfo.Name),
-			briefPath: briefPath, briefHasFrontMatter: hasFrontMatter, attempt: attempt,
+			briefPath: briefPath, briefHasFrontMatter: hasFrontMatter, recheckMechanicalBase: true, attempt: attempt,
 			resumeExisting: attempt.Worktree != "",
 		})
 		return err

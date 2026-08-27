@@ -87,14 +87,15 @@ func defaultDependencies() dependencies {
 }
 
 type provisioningRequest struct {
-	home                string
-	projectName         string
-	clonePath           string
-	briefPath           string
-	briefHasFrontMatter bool
-	resumeExisting      bool
-	paneStartedAt       string
-	attempt             state.Attempt
+	home                  string
+	projectName           string
+	clonePath             string
+	briefPath             string
+	briefHasFrontMatter   bool
+	recheckMechanicalBase bool
+	resumeExisting        bool
+	paneStartedAt         string
+	attempt               state.Attempt
 }
 
 func absoluteReportPath(home, id string) (string, error) {
@@ -111,6 +112,14 @@ func (r *Runtime) provision(ctx context.Context, req provisioningRequest) (strin
 }
 
 func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) (string, error) {
+	if req.recheckMechanicalBase && brief.ExecutionClass(req.attempt.ExecutionClass) == brief.ExecutionClassMechanical {
+		if err := r.preflightBrief(brief.Declaration{
+			ExecutionClass: brief.ExecutionClassMechanical,
+			PlannedAgainst: req.attempt.PlannedAgainst,
+		}, req.clonePath); err != nil {
+			return "", err
+		}
+	}
 	session := req.attempt.Herdr.Session
 	fleetID := ""
 	var err error
