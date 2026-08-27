@@ -249,6 +249,37 @@ func TestRemoveMetadataRemovesTheLinkedWorktreeMetadataDirectory(t *testing.T) {
 	}
 }
 
+func TestRemoveMetadataKeepsExternalLinkedWorktreeMetadata(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+	metadata, err := ReadMetadataDir(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(t.TempDir(), "metadata")
+	if err := os.Rename(metadata, external); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, ".git"), []byte("gitdir: "+external+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "gitdir"), []byte(filepath.Join(path, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "commondir"), []byte(filepath.Join(clone, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveMetadata(clone, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(external); err != nil {
+		t.Fatalf("external metadata was removed: %v", err)
+	}
+}
+
 func TestGetRetiresAnUnsoundLeaseAndAcquiresTheNextSoundSlot(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	faketool.InitRepo(t, clone)

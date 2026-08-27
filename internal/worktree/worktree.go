@@ -625,7 +625,7 @@ func RemoveMetadata(clonePath, worktreePath string) error {
 	expected := filepath.Join(clonePath, ".git", "worktrees")
 	rel, err := filepath.Rel(expected, metadata)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("refuse to remove worktree metadata outside the registered clone: %s", metadata)
+		return nil
 	}
 	if err := os.RemoveAll(metadata); err != nil {
 		return fmt.Errorf("remove worktree metadata %s: %w", metadata, err)
