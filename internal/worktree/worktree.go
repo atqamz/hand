@@ -331,6 +331,12 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 			return Lease{}, fmt.Errorf("inspect treehouse pool after acquisition: %w", err)
 		}
 		if !poolContains(pool, lease.Path) {
+			if cloneOwnsWorktree(clonePath, lease.Path) {
+				if returnErr := ReturnLease(clonePath, lease.Path, lease.ID, true); returnErr != nil {
+					return Lease{}, fmt.Errorf("treehouse acquired worktree %s but status omitted it; lease release failed: %w", lease.Path, returnErr)
+				}
+				return Lease{}, fmt.Errorf("treehouse acquired worktree %s but status omitted it; lease released", lease.Path)
+			}
 			return Lease{}, fmt.Errorf("treehouse returned worktree outside its reported pool: %s", lease.Path)
 		}
 		soundness := CheckSoundness(clonePath, lease.Path)
@@ -509,10 +515,6 @@ func DiscoverPoolSlots(clonePath string, searchRoots ...string) ([]PoolSlot, err
 							continue
 						}
 						return nil, fmt.Errorf("inspect pool worktree %s: %w", worktreePath, err)
-					}
-					metadata, metadataErr := ReadMetadataDir(worktreePath)
-					if metadataErr == nil && !pathWithin(filepath.Join(expected, "worktrees"), metadata) {
-						continue
 					}
 					soundness := CheckSoundness(clonePath, worktreePath)
 					if !resolvesIntoClone(expected, soundness) {

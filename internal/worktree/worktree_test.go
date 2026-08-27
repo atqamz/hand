@@ -174,6 +174,39 @@ func TestDiscoverPoolSlotsFindsAliasesAcrossPoolRoots(t *testing.T) {
 	}
 }
 
+func TestDiscoverPoolSlotsFindsCloneOwnedSlotWithExternalMetadata(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	root := filepath.Join(t.TempDir(), ".treehouse")
+	path := filepath.Join(root, "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+	metadata, err := ReadMetadataDir(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(t.TempDir(), "metadata")
+	if err := os.Rename(metadata, external); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, ".git"), []byte("gitdir: "+external+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "gitdir"), []byte(filepath.Join(path, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "commondir"), []byte(filepath.Join(clone, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := DiscoverPoolSlots(clone, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !gitrepo.SamePath(got[0].Path, path) || !gitrepo.SamePath(got[0].MetadataDir, external) {
+		t.Fatalf("DiscoverPoolSlots() = %+v, want the clone-owned external-metadata slot", got)
+	}
+}
+
 func TestCheckSoundnessReportsMissingMetadataAndForeignCommonDirectory(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	foreign := filepath.Join(t.TempDir(), "foreign")
@@ -361,6 +394,29 @@ func TestGetRejectsAWorktreeOutsideTheReportedPool(t *testing.T) {
 	}
 	if _, err := os.Stat(outside); err != nil {
 		t.Fatalf("outside path was mutated: %v", err)
+	}
+}
+
+func TestGetReleasesACloneOwnedLeaseWhenStatusOmitsIt(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{Log: log, Slots: []string{path}, Responses: []faketool.TreehouseResponse{
+		{Command: "status", Stdout: "[]\n"},
+		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", path}},
+	}}.Install(t, faketool.Bin(t))
+
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "status omitted it; lease released") {
+		t.Fatalf("Get() error = %v, want acquisition and release report", err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), " get --lease --json --lease-holder hand:task-1") || !strings.Contains(string(data), " status --json") || !strings.Contains(string(data), " return --force --if-lease-id lease-1 "+path) {
+		t.Fatalf("treehouse invocations = %q, want acquisition, omitted status, and conditional release", data)
 	}
 }
 
