@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -46,6 +47,13 @@ type PoolEntry struct {
 	Path    string
 	Status  string
 	LeaseID string
+}
+
+type PoolSlot struct {
+	PoolRoot    string
+	Path        string
+	MetadataDir string
+	Soundness   SlotSoundness
 }
 
 type statusEntry struct {
@@ -431,6 +439,143 @@ func CheckSoundness(clonePath, worktreePath string) SlotSoundness {
 	}
 	result.Sound = len(result.Failures) == 0
 	return result
+}
+
+func PoolSearchRoots(fleetHome, clonePath string) []string {
+	roots := make([]string, 0, 3)
+	add := func(path string) {
+		for _, existing := range roots {
+			if gitrepo.SamePath(existing, path) {
+				return
+			}
+		}
+		roots = append(roots, filepath.Clean(path))
+	}
+	add(filepath.Join(clonePath, ".treehouse"))
+	add(filepath.Join(fleetHome, ".treehouse"))
+	if home, err := os.UserHomeDir(); err == nil {
+		add(filepath.Join(home, ".treehouse"))
+	}
+	return roots
+}
+
+func DiscoverPoolSlots(clonePath string, searchRoots ...string) ([]PoolSlot, error) {
+	expected := filepath.Join(clonePath, ".git")
+	slots := make([]PoolSlot, 0)
+	seenRoots := make(map[string]struct{}, len(searchRoots))
+	for _, searchRoot := range searchRoots {
+		root, err := filepath.Abs(searchRoot)
+		if err != nil {
+			return nil, fmt.Errorf("resolve pool search root %q: %w", searchRoot, err)
+		}
+		root = filepath.Clean(root)
+		key := canonicalPath(root)
+		if _, seen := seenRoots[key]; seen {
+			continue
+		}
+		seenRoots[key] = struct{}{}
+		poolDirs, err := os.ReadDir(root)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("inspect pool search root %s: %w", root, err)
+		}
+		for _, poolDir := range poolDirs {
+			if !poolDir.IsDir() {
+				continue
+			}
+			poolPath := filepath.Join(root, poolDir.Name())
+			slotDirs, err := os.ReadDir(poolPath)
+			if err != nil {
+				return nil, fmt.Errorf("inspect pool %s: %w", poolPath, err)
+			}
+			for _, slotDir := range slotDirs {
+				if !slotDir.IsDir() {
+					continue
+				}
+				slotPath := filepath.Join(poolPath, slotDir.Name())
+				worktrees, err := os.ReadDir(slotPath)
+				if err != nil {
+					return nil, fmt.Errorf("inspect pool slot directory %s: %w", slotPath, err)
+				}
+				for _, worktree := range worktrees {
+					if !worktree.IsDir() {
+						continue
+					}
+					worktreePath := filepath.Join(slotPath, worktree.Name())
+					if _, err := os.Stat(filepath.Join(worktreePath, ".git")); err != nil {
+						if os.IsNotExist(err) {
+							continue
+						}
+						return nil, fmt.Errorf("inspect pool worktree %s: %w", worktreePath, err)
+					}
+					soundness := CheckSoundness(clonePath, worktreePath)
+					if !resolvesIntoClone(expected, soundness) {
+						continue
+					}
+					slots = append(slots, PoolSlot{
+						PoolRoot: poolPath, Path: worktreePath, MetadataDir: soundness.MetadataDir, Soundness: soundness,
+					})
+				}
+			}
+		}
+	}
+	return slots, nil
+}
+
+func resolvesIntoClone(expected string, soundness SlotSoundness) bool {
+	if soundness.CommonDir != "" && gitrepo.SamePath(soundness.CommonDir, expected) {
+		return true
+	}
+	return pathWithin(filepath.Join(expected, "worktrees"), soundness.MetadataDir)
+}
+
+func pathWithin(root, path string) bool {
+	if path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+func PoolSlotCollisions(slots []PoolSlot) [][]PoolSlot {
+	groups := make(map[string][]PoolSlot)
+	for _, slot := range slots {
+		if slot.MetadataDir == "" {
+			continue
+		}
+		key := canonicalPath(slot.MetadataDir)
+		groups[key] = append(groups[key], slot)
+	}
+	collisions := make([][]PoolSlot, 0)
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+		sort.Slice(group, func(i, j int) bool {
+			if group[i].PoolRoot == group[j].PoolRoot {
+				return group[i].Path < group[j].Path
+			}
+			return group[i].PoolRoot < group[j].PoolRoot
+		})
+		collisions = append(collisions, group)
+	}
+	sort.Slice(collisions, func(i, j int) bool {
+		return collisions[i][0].MetadataDir < collisions[j][0].MetadataDir
+	})
+	return collisions
+}
+
+func canonicalPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(abs)
 }
 
 func RemoveMetadata(clonePath, worktreePath string) error {

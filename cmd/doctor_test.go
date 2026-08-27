@@ -227,6 +227,15 @@ func hasDoctorFindingPrefix(findings []doctorFinding, severity doctorSeverity, p
 	return false
 }
 
+func hasDoctorFindingContaining(findings []doctorFinding, severity doctorSeverity, text string) bool {
+	for _, finding := range findings {
+		if finding.Severity == severity && strings.Contains(finding.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDoctorFindsWorktreeUsingAnotherFleetClone(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -353,6 +362,40 @@ func TestDoctorFindsEveryUnsoundPoolSlotIncludingLeasedSlots(t *testing.T) {
 	}
 	if got := worktree.CheckSoundness(clone, sound); !got.Sound {
 		t.Fatalf("sound slot became unsound: %+v", got)
+	}
+}
+
+func TestDoctorReportsMetadataAliasAcrossPoolRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(home, "projects", "demo")
+	faketool.InitRepo(t, clone)
+	first := filepath.Join(clone, ".treehouse", "pool-a", "1", "demo")
+	second := filepath.Join(home, ".treehouse", "pool-b", "1", "demo")
+	runGitOutput(t, clone, "worktree", "add", "-q", "-b", "first", first)
+	runGitOutput(t, clone, "worktree", "add", "-q", "-b", "second", second)
+	metadata, err := worktree.ReadMetadataDir(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(second, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, ".git"), []byte("gitdir: "+metadata+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	faketool.Treehouse{Slots: []string{first}}.Install(t, faketool.Bin(t))
+
+	findings := doctorWorktreeFindings(home, nil)
+	for _, want := range []string{metadata, first, second} {
+		if !hasDoctorFindingContaining(findings, doctorError, want) {
+			t.Fatalf("findings = %#v, want collision to name %q", findings, want)
+		}
 	}
 }
 

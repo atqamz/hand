@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	gitrepo "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -133,6 +134,43 @@ func TestCheckSoundnessReportsAnAliasedMetadataDirectory(t *testing.T) {
 	got := CheckSoundness(clone, second)
 	if got.Sound || !containsFailure(got, "metadata gitdir does not point back to this slot") {
 		t.Fatalf("CheckSoundness() = %+v, want aliased metadata failure", got)
+	}
+}
+
+func TestDiscoverPoolSlotsFindsAliasesAcrossPoolRoots(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	first := filepath.Join(clone, ".treehouse", "pool-a", "1", "demo")
+	secondRoot := filepath.Join(t.TempDir(), ".treehouse")
+	second := filepath.Join(secondRoot, "pool-b", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "first", first)
+	runGit(t, clone, "worktree", "add", "-q", "-b", "second", second)
+	metadata, err := ReadMetadataDir(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(second, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, ".git"), []byte("gitdir: "+metadata+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := DiscoverPoolSlots(clone, filepath.Join(clone, ".treehouse"), secondRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("DiscoverPoolSlots() = %+v, want both pool slots", got)
+	}
+	collisions := PoolSlotCollisions(got)
+	if len(collisions) != 1 || len(collisions[0]) != 2 {
+		t.Fatalf("PoolSlotCollisions() = %+v, want one two-slot collision", collisions)
+	}
+	for _, slot := range got {
+		if !gitrepo.SamePath(slot.MetadataDir, metadata) {
+			t.Fatalf("slot %+v has metadata target %q, want %q", slot, slot.MetadataDir, metadata)
+		}
 	}
 }
 

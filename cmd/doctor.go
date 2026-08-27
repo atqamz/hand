@@ -360,23 +360,49 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 			continue
 		}
 		entries, err := worktree.PoolStatus(clone)
+		reported := make(map[string]struct{}, len(entries))
 		if err != nil {
 			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q worktree pool cannot be inspected: %v", p.Name, err)})
-			continue
+		} else {
+			for _, entry := range entries {
+				soundness := worktree.CheckSoundness(clone, entry.Path)
+				key, _ := filepath.Abs(entry.Path)
+				reported[filepath.Clean(key)] = struct{}{}
+				appendUnsoundPoolFinding(&findings, p.Name, entry.Path, soundness, entry.Status == "leased")
+			}
 		}
-		for _, entry := range entries {
-			soundness := worktree.CheckSoundness(clone, entry.Path)
-			if soundness.Sound {
-				continue
+		poolSlots, discoverErr := worktree.DiscoverPoolSlots(clone, worktree.PoolSearchRoots(fleetHome, clone)...)
+		if discoverErr != nil {
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q worktree pool directories cannot be inspected: %v", p.Name, discoverErr)})
+		} else {
+			for _, slot := range poolSlots {
+				key, _ := filepath.Abs(slot.Path)
+				if _, ok := reported[filepath.Clean(key)]; ok {
+					continue
+				}
+				appendUnsoundPoolFinding(&findings, p.Name, slot.Path, slot.Soundness, false)
 			}
-			text := fmt.Sprintf("project %q pool slot %q is unsound: %s", p.Name, entry.Path, strings.Join(soundness.Failures, "; "))
-			if entry.Status == "leased" {
-				text += "; leased, not retired"
+			for _, collision := range worktree.PoolSlotCollisions(poolSlots) {
+				claims := make([]string, 0, len(collision))
+				for _, slot := range collision {
+					claims = append(claims, fmt.Sprintf("pool %q slot %q", slot.PoolRoot, slot.Path))
+				}
+				findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q metadata target %q is claimed by %s", p.Name, collision[0].MetadataDir, strings.Join(claims, ", "))})
 			}
-			findings = append(findings, doctorFinding{Severity: doctorError, Text: text})
 		}
 	}
 	return findings
+}
+
+func appendUnsoundPoolFinding(findings *[]doctorFinding, projectName, path string, soundness worktree.SlotSoundness, leased bool) {
+	if soundness.Sound {
+		return
+	}
+	text := fmt.Sprintf("project %q pool slot %q is unsound: %s", projectName, path, strings.Join(soundness.Failures, "; "))
+	if leased {
+		text += "; leased, not retired"
+	}
+	*findings = append(*findings, doctorFinding{Severity: doctorError, Text: text})
 }
 
 // A local-only fleet never needs gh, while a registered project delivering through direct-pr or
