@@ -3,6 +3,7 @@ package worktree
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -395,18 +396,55 @@ func TestGetRejectsAWorktreeFromAnotherRegisteredClone(t *testing.T) {
 	faketool.InitRepo(t, foreign)
 	foreignSlot := filepath.Join(foreign, ".treehouse", "pool", "1", "demo")
 	runGit(t, foreign, "worktree", "add", "-q", "-b", "foreign-slot", foreignSlot)
-	faketool.Treehouse{Responses: []faketool.TreehouseResponse{
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{Log: log, Responses: []faketool.TreehouseResponse{
 		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": foreignSlot, "lease_id": "lease-1"})},
+		{Command: "status", Stdout: mustJSON(t, []map[string]string{{"path": foreignSlot, "status": "leased", "lease_id": "lease-1"}})},
 		{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", foreignSlot}},
 	}, Slots: []string{foreignSlot}}.Install(t, faketool.Bin(t))
-	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "foreign Git registration") {
-		t.Fatalf("Get() error = %v, want a foreign registration report", err)
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "refuse to mutate foreign unsound worktree") {
+		t.Fatalf("Get() error = %v, want a foreign mutation refusal", err)
 	}
-	if _, err := os.Stat(foreignSlot); !os.IsNotExist(err) {
-		t.Fatalf("foreign slot was not retired: %v", err)
+	if _, err := os.Stat(foreignSlot); err != nil {
+		t.Fatalf("foreign slot was mutated: %v", err)
 	}
 	if _, err := os.Stat(foreign); err != nil {
 		t.Fatalf("foreign repository was removed: %v", err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), " return ") {
+		t.Fatalf("treehouse invocations = %q, want no foreign mutation", data)
+	}
+}
+
+func TestGetExaminesMoreThan128UnsoundSlots(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	slots := make([]string, 0, 130)
+	for i := 0; i < 129; i++ {
+		path := filepath.Join(clone, ".treehouse", "pool", fmt.Sprintf("%03d", i), "demo")
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, ".git"), []byte("broken\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		slots = append(slots, path)
+	}
+	sound := filepath.Join(clone, ".treehouse", "pool", "129", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "sound", sound)
+	slots = append(slots, sound)
+	faketool.Treehouse{Slots: slots}.Install(t, faketool.Bin(t))
+
+	got, err := Get(clone, "hand:task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != sound {
+		t.Fatalf("Get() path = %q, want sound slot %q", got.Path, sound)
 	}
 }
 

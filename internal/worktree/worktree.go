@@ -309,10 +309,9 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 		args = append(args, "--lease-holder", leaseHolder)
 	}
 	args = withTreehouseRoot(clonePath, args...)
-	const maxUnsoundLeases = 128
 	seen := make(map[string]struct{})
 	var retired []string
-	for range maxUnsoundLeases {
+	for {
 		lease, err := getLease(clonePath, args)
 		if err != nil {
 			if len(retired) > 0 {
@@ -356,6 +355,9 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 			return Lease{}, unsoundPoolError(clonePath, append(retired, soundness.Failures...))
 		}
 		seen[key] = struct{}{}
+		if !safeToRetireSlot(clonePath, lease.Path, soundness) {
+			return Lease{}, fmt.Errorf("refuse to mutate foreign unsound worktree %s", lease.Path)
+		}
 		if err := ReturnLease(clonePath, lease.Path, lease.ID, true); err != nil {
 			return Lease{}, fmt.Errorf("return unsound treehouse lease %s: %w", lease.Path, err)
 		}
@@ -392,6 +394,13 @@ func cloneOwnsWorktree(clonePath, worktreePath string) bool {
 	}
 	common, err := gitrepo.CommonDir(worktreePath)
 	return err == nil && gitrepo.SamePath(common, filepath.Join(clonePath, ".git"))
+}
+
+func safeToRetireSlot(clonePath, worktreePath string, soundness SlotSoundness) bool {
+	if soundness.CommonDir != "" {
+		return gitrepo.SamePath(soundness.CommonDir, filepath.Join(clonePath, ".git"))
+	}
+	return pathWithin(canonicalPath(filepath.Join(clonePath, ".treehouse")), canonicalPath(worktreePath))
 }
 
 func rejectAcquiredLease(clonePath string, lease Lease, reason error) error {
