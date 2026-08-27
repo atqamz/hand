@@ -330,7 +330,8 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 			}
 			return Lease{}, fmt.Errorf("inspect treehouse pool after acquisition: %w", err)
 		}
-		if !poolContains(pool, lease.Path) {
+		entry, found := poolEntry(pool, lease.Path)
+		if !found {
 			if cloneOwnsWorktree(clonePath, lease.Path) {
 				if returnErr := ReturnLease(clonePath, lease.Path, lease.ID, true); returnErr != nil {
 					return Lease{}, fmt.Errorf("treehouse acquired worktree %s but status omitted it; lease release failed: %w", lease.Path, returnErr)
@@ -338,6 +339,12 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 				return Lease{}, fmt.Errorf("treehouse acquired worktree %s but status omitted it; lease released", lease.Path)
 			}
 			return Lease{}, fmt.Errorf("treehouse returned worktree outside its reported pool: %s", lease.Path)
+		}
+		if entry.Status != "leased" {
+			return Lease{}, rejectAcquiredLease(clonePath, lease, fmt.Errorf("treehouse reported acquired worktree %s as %s, not leased", lease.Path, entry.Status))
+		}
+		if lease.ID != "" && entry.LeaseID != lease.ID {
+			return Lease{}, rejectAcquiredLease(clonePath, lease, fmt.Errorf("treehouse reported acquired worktree %s with lease %s, want %s", lease.Path, entry.LeaseID, lease.ID))
 		}
 		soundness := CheckSoundness(clonePath, lease.Path)
 		if soundness.Sound {
@@ -365,12 +372,17 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 }
 
 func poolContains(pool []PoolEntry, path string) bool {
+	_, ok := poolEntry(pool, path)
+	return ok
+}
+
+func poolEntry(pool []PoolEntry, path string) (PoolEntry, bool) {
 	for _, entry := range pool {
 		if gitrepo.SamePath(entry.Path, path) {
-			return true
+			return entry, true
 		}
 	}
-	return false
+	return PoolEntry{}, false
 }
 
 func cloneOwnsWorktree(clonePath, worktreePath string) bool {
@@ -380,6 +392,16 @@ func cloneOwnsWorktree(clonePath, worktreePath string) bool {
 	}
 	common, err := gitrepo.CommonDir(worktreePath)
 	return err == nil && gitrepo.SamePath(common, filepath.Join(clonePath, ".git"))
+}
+
+func rejectAcquiredLease(clonePath string, lease Lease, reason error) error {
+	if !cloneOwnsWorktree(clonePath, lease.Path) {
+		return reason
+	}
+	if err := ReturnLease(clonePath, lease.Path, lease.ID, true); err != nil {
+		return fmt.Errorf("%v; lease release failed: %w", reason, err)
+	}
+	return fmt.Errorf("%v; lease released", reason)
 }
 
 func getLease(clonePath string, args []string) (Lease, error) {
@@ -585,6 +607,9 @@ func canonicalPath(path string) string {
 }
 
 func RemoveMetadata(clonePath, worktreePath string) error {
+	if pathWithin(canonicalPath(filepath.Join(clonePath, ".treehouse")), canonicalPath(worktreePath)) {
+		return nil
+	}
 	gitFile := filepath.Join(worktreePath, ".git")
 	info, err := os.Stat(gitFile)
 	if errors.Is(err, os.ErrNotExist) || (err == nil && info.IsDir()) {

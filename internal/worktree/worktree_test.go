@@ -420,6 +420,41 @@ func TestGetReleasesACloneOwnedLeaseWhenStatusOmitsIt(t *testing.T) {
 	}
 }
 
+func TestGetRejectsStatusThatDoesNotProveTheAcquiredLease(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status string
+		want   string
+	}{
+		{name: "available", status: "available", want: "not leased"},
+		{name: "different lease", status: "leased", want: "with lease lease-other"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clone := filepath.Join(t.TempDir(), "clone")
+			faketool.InitRepo(t, clone)
+			path := filepath.Join(clone, ".treehouse", "pool", "1", "demo")
+			runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
+			log := filepath.Join(t.TempDir(), "treehouse.log")
+			status := mustJSON(t, []map[string]string{{"path": path, "status": test.status, "lease_id": "lease-other"}})
+			faketool.Treehouse{Log: log, Slots: []string{path}, Responses: []faketool.TreehouseResponse{
+				{Command: "status", Stdout: status},
+				{Command: "return", Args: []string{"--force", "--if-lease-id", "lease-1", path}},
+			}}.Install(t, faketool.Bin(t))
+
+			if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Get() error = %v, want status ownership failure", err)
+			}
+			data, err := os.ReadFile(log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(data), " return --force --if-lease-id lease-1 "+path) {
+				t.Fatalf("treehouse invocations = %q, want conditional release", data)
+			}
+		})
+	}
+}
+
 func TestGetReturnsLeaseWhenPoolStatusFails(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	faketool.InitRepo(t, clone)

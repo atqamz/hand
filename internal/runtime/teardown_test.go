@@ -55,7 +55,7 @@ func TestTeardownFailureAfterWorktreeReturnPreservesOwnershipEvidence(t *testing
 	}
 }
 
-func TestReleaseWorktreeRemovesLinkedWorktreeMetadata(t *testing.T) {
+func TestReleaseWorktreeKeepsPooledWorktreeMetadata(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
 		t.Fatal(err)
@@ -88,8 +88,8 @@ func TestReleaseWorktreeRemovesLinkedWorktreeMetadata(t *testing.T) {
 	if err := (&Runtime{deps: deps}).releaseWorktree(clone, home, "task-1", attempt, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(metadata); !os.IsNotExist(err) {
-		t.Fatalf("linked worktree metadata still exists: %v", err)
+	if _, err := os.Stat(metadata); err != nil {
+		t.Fatalf("pooled worktree metadata was removed: %v", err)
 	}
 }
 
