@@ -370,12 +370,6 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 			retired = append(retired, foreign)
 		}
 	}
-	return Lease{}, unsoundPoolError(clonePath, retired)
-}
-
-func poolContains(pool []PoolEntry, path string) bool {
-	_, ok := poolEntry(pool, path)
-	return ok
 }
 
 func poolEntry(pool []PoolEntry, path string) (PoolEntry, bool) {

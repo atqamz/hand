@@ -37,14 +37,24 @@ func testReturnLease(worktreePath, leaseID string, force bool) error {
 func writeFakeTreehouse(t *testing.T, response faketool.TreehouseResponse) {
 	t.Helper()
 	var payload struct {
-		Path string `json:"path"`
+		Path    string `json:"path"`
+		LeaseID string `json:"lease_id"`
 	}
 	_ = json.Unmarshal([]byte(response.Stdout), &payload)
 	var slots []string
+	var held []string
+	leaseIDs := map[string]string{}
+	noLeaseIdentity := false
 	if payload.Path != "" {
 		slots = []string{payload.Path}
+		held = []string{payload.Path}
+		if payload.LeaseID != "" {
+			leaseIDs[payload.Path] = payload.LeaseID
+		} else {
+			noLeaseIdentity = true
+		}
 	}
-	faketool.Treehouse{Slots: slots, Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
+	faketool.Treehouse{Slots: slots, Held: held, LeaseIDs: leaseIDs, NoLeaseIdentity: noLeaseIdentity, Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
 }
 
 func mustJSON(t *testing.T, value any) string {
@@ -355,8 +365,8 @@ func TestGetFailsWithThePoolNamedWhenEverySlotIsUnsound(t *testing.T) {
 	}
 	faketool.Treehouse{Slots: []string{bad}}.Install(t, faketool.Bin(t))
 
-	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "treehouse pool for "+clone+" has no sound free slot") {
-		t.Fatalf("Get() error = %v, want a named exhausted pool", err)
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "refuse to mutate foreign unsound worktree") {
+		t.Fatalf("Get() error = %v, want an ownership refusal", err)
 	}
 }
 
