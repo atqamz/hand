@@ -4,6 +4,7 @@ package worktree
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	gitrepo "github.com/atqamz/hand/internal/git"
+	"github.com/atqamz/hand/internal/secondhand"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toolchain"
 )
@@ -287,7 +289,10 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 	if leaseHolder != "" {
 		args = append(args, "--lease-holder", leaseHolder)
 	}
-	args = withTreehouseRoot(clonePath, args...)
+	args, err := withTreehouseRoot(clonePath, "", args...)
+	if err != nil {
+		return Lease{}, err
+	}
 	out, stderr, err := runCore("treehouse", clonePath, args...)
 	// Banners land on stderr ahead of the JSON, so the payload has to be read from stdout alone -
 	// CombinedOutput here corrupts every parse (atqamz/hand#21).
@@ -343,7 +348,10 @@ func Return(clonePath, worktreePath string, force bool) error {
 	if force {
 		args = append(args, "--force")
 	}
-	args = withTreehouseRoot(clonePath, args...)
+	args, err := withTreehouseRoot(clonePath, worktreePath, args...)
+	if err != nil {
+		return err
+	}
 	return returnTreehouse(worktreePath, args, force)
 }
 
@@ -360,7 +368,10 @@ func ReturnLease(clonePath, worktreePath, leaseID string, force bool) error {
 		args = append(args, "--force")
 	}
 	args = append(args, "--if-lease-id", leaseID, worktreePath)
-	args = withTreehouseRoot(clonePath, args...)
+	args, err := withTreehouseRoot(clonePath, worktreePath, args...)
+	if err != nil {
+		return err
+	}
 	return returnTreehouse(worktreePath, args, force)
 }
 
@@ -379,7 +390,11 @@ func returnTreehouse(worktreePath string, args []string, force bool) error {
 // Reports the pool entries, or the reason the pool could not be observed. A missing executable, a
 // non-zero exit and unparsable output are all unobservability, never absence and never a mismatch.
 func treehouseStatus(clonePath, worktreePath string) ([]statusEntry, string) {
-	out, stderr, err := runCore("treehouse", worktreePath, withTreehouseRoot(clonePath, "status", "--json")...)
+	args, err := withTreehouseRoot(clonePath, worktreePath, "status", "--json")
+	if err != nil {
+		return nil, err.Error()
+	}
+	out, stderr, err := runCore("treehouse", worktreePath, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "executable file not found") {
 			return nil, fmt.Sprintf("treehouse is not executable: %v", err)
@@ -397,8 +412,38 @@ func treehouseStatus(clonePath, worktreePath string) ([]statusEntry, string) {
 	return entries, ""
 }
 
-func withTreehouseRoot(clonePath string, args ...string) []string {
-	return append([]string{"--root", clonePath}, args...)
+func withTreehouseRoot(clonePath, recordedWorktreePath string, args ...string) ([]string, error) {
+	root, err := poolRoot(clonePath, recordedWorktreePath)
+	if err != nil {
+		return nil, err
+	}
+	return append([]string{"--root", root}, args...), nil
+}
+
+// Where this clone's pool lives. Before atqamz/hand#427 it was the clone itself, which put every
+// worker worktree under the fleet home and fed the worker the supervisor's own CLAUDE.md. A digest
+// of the clone path keys it instead: one pool per fleet home and project, outside every home.
+func poolRoot(clonePath, recordedWorktreePath string) (string, error) {
+	if recordedWorktreePath != "" && withinPath(clonePath, recordedWorktreePath) {
+		return clonePath, nil
+	}
+	infra, err := secondhand.Home()
+	if err != nil {
+		return "", fmt.Errorf("resolve worktree pool root: %w", err)
+	}
+	digest := sha256.Sum256([]byte(filepath.Clean(clonePath)))
+	return filepath.Join(infra, "pools", fmt.Sprintf("%s-%x", filepath.Base(clonePath), digest[:6])), nil
+}
+
+// Reports whether path is root or sits inside it, comparing the recorded strings without resolving
+// symlinks: a worktree recorded under the clone was leased before atqamz/hand#427 and its pool is
+// still the clone, so it stays observable and returnable.
+func withinPath(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func runCore(tool, dir string, args ...string) ([]byte, []byte, error) {
