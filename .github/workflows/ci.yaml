@@ -127,6 +127,22 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v22
       - name: Build flake package
         run: nix build .#default --no-link --print-out-paths
+      - name: Diagnose stale vendorHash
+        if: failure()
+        # go.mod/go.sum changes invalidate vendorHash but nothing keeps them in sync;
+        # Dependabot doesn't know flake.nix exists. Recompute and name the fix instead
+        # of leaving the raw Nix hash-mismatch trace as the only signal.
+        run: |
+          if make vendorhash; then
+            if git diff --quiet flake.nix; then
+              echo "::notice::flake.nix's vendorHash already matches go.mod/go.sum; the failure above is unrelated to vendoring."
+            else
+              hash=$(grep -oP '(?<=vendorHash = ")[^"]+' flake.nix)
+              echo "::error file=flake.nix::vendorHash is stale for the current go.mod/go.sum. Run 'make vendorhash' locally and commit the result, or set vendorHash = \"$hash\" directly."
+            fi
+          else
+            echo "::warning::could not determine whether vendorHash is stale; see the 'Build flake package' failure above."
+          fi
       - name: Run built binary
         run: '"$(nix build .#default --no-link --print-out-paths)/bin/hand" --version'
 
