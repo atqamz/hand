@@ -31,7 +31,14 @@ func testReturnLease(worktreePath, leaseID string, force bool) error {
 
 func writeFakeTreehouse(t *testing.T, response faketool.TreehouseResponse) {
 	t.Helper()
-	faketool.Treehouse{Responses: []faketool.TreehouseResponse{response}}.Install(t, faketool.Bin(t))
+	writeFakeTreehouseAt(t, faketool.Bin(t), response)
+}
+
+// faketool.Bin repoints SECONDHAND_HOME, and poolRoot reads it, so a test asserting the resolved
+// --root has to take the bin directory first and compute the expected root after it.
+func writeFakeTreehouseAt(t *testing.T, bin string, response faketool.TreehouseResponse) {
+	t.Helper()
+	faketool.Treehouse{Responses: []faketool.TreehouseResponse{response}}.Install(t, bin)
 }
 
 func mustJSON(t *testing.T, value any) string {
@@ -109,18 +116,52 @@ func TestGetPassesLeaseHolder(t *testing.T) {
 	}
 }
 
-func TestGetScopesPoolToTheFleetHome(t *testing.T) {
+func TestGetAcquiresFromAPoolOutsideEveryFleetHome(t *testing.T) {
+	bin := faketool.Bin(t)
 	home := t.TempDir()
 	clone := filepath.Join(home, "projects", "demo")
 	if err := os.MkdirAll(clone, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFakeTreehouse(t, faketool.TreehouseResponse{
-		Command: "--root", Args: []string{clone, "get", "--lease", "--json", "--lease-holder", "hand:task-1"},
+	root, err := poolRoot(clone, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withinPath(home, root) {
+		t.Fatalf("pool root %s is inside fleet home %s, which is what atqamz/hand#427 fixes", root, home)
+	}
+	writeFakeTreehouseAt(t, bin, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{root, "get", "--lease", "--json", "--lease-holder", "hand:task-1"},
 		Stdout: `{"path":"/tmp/wt-1"}`,
 	})
 	if _, err := Get(clone, "hand:task-1"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPoolRootDiffersPerClone(t *testing.T) {
+	first, err := poolRoot(filepath.Join(t.TempDir(), "projects", "demo"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := poolRoot(filepath.Join(t.TempDir(), "projects", "demo"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("two clones share pool root %s, so one fleet's worktrees can alias another's", first)
+	}
+}
+
+func TestPoolRootKeepsALegacyWorktreeOnItsOwnClone(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "projects", "demo")
+	legacy := filepath.Join(clone, ".treehouse", "demo-123", "1", "demo")
+	got, err := poolRoot(clone, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != clone {
+		t.Fatalf("poolRoot() = %s, want the clone %s so a lease taken before atqamz/hand#427 stays returnable", got, clone)
 	}
 }
 
@@ -369,27 +410,53 @@ func TestReturnPassesForceFlag(t *testing.T) {
 	}
 }
 
-func TestReturnScopesPoolToTheFleetHome(t *testing.T) {
+func TestReturnUsesThePoolOutsideEveryFleetHome(t *testing.T) {
+	bin := faketool.Bin(t)
 	home := t.TempDir()
 	clone := filepath.Join(home, "projects", "demo")
 	wt := filepath.Join(home, ".treehouse", "demo-123", "1", "demo")
-	writeFakeTreehouse(t, faketool.TreehouseResponse{
-		Command: "--root", Args: []string{clone, "return", wt, "--force"},
+	root, err := poolRoot(clone, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withinPath(home, root) {
+		t.Fatalf("pool root %s is inside fleet home %s", root, home)
+	}
+	writeFakeTreehouseAt(t, bin, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{root, "return", wt, "--force"},
 	})
 	if err := Return(clone, wt, true); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestReturnUsesTheCurrentFleetHomeForAForeignRecordedPath(t *testing.T) {
-	currentHome := t.TempDir()
-	currentClone := filepath.Join(currentHome, "projects", "demo")
+func TestReturnNeverFollowsAForeignRecordedPathToItsOwnPool(t *testing.T) {
+	bin := faketool.Bin(t)
+	currentClone := filepath.Join(t.TempDir(), "projects", "demo")
 	foreignHome := t.TempDir()
 	wt := filepath.Join(foreignHome, ".treehouse", "demo-123", "1", "demo")
-	writeFakeTreehouse(t, faketool.TreehouseResponse{
-		Command: "--root", Args: []string{currentClone, "return", wt, "--force"},
+	root, err := poolRoot(currentClone, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withinPath(foreignHome, root) {
+		t.Fatalf("pool root %s follows the foreign recorded path into %s", root, foreignHome)
+	}
+	writeFakeTreehouseAt(t, bin, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{root, "return", wt, "--force"},
 	})
 	if err := Return(currentClone, wt, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReturnKeepsALegacyWorktreeOnItsOwnClone(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "projects", "demo")
+	wt := filepath.Join(clone, ".treehouse", "demo-123", "1", "demo")
+	writeFakeTreehouse(t, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{clone, "return", wt, "--force"},
+	})
+	if err := Return(clone, wt, true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -404,13 +471,18 @@ func TestReturnLeasePassesConditionalLeaseIdentity(t *testing.T) {
 	}
 }
 
-func TestObserveLeaseScopesStatusToTheFleetHome(t *testing.T) {
+func TestObserveLeaseStatusUsesThisClonesPool(t *testing.T) {
+	bin := faketool.Bin(t)
 	home := t.TempDir()
 	clone := filepath.Join(home, "projects", "demo")
 	path := filepath.Join(home, ".treehouse", "demo-123", "1", "demo")
 	faketool.InitRepo(t, path)
-	writeFakeTreehouse(t, faketool.TreehouseResponse{
-		Command: "--root", Args: []string{clone, "status", "--json"},
+	root, err := poolRoot(clone, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFakeTreehouseAt(t, bin, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{root, "status", "--json"},
 		Stdout: mustJSON(t, []map[string]string{{"path": path, "status": "leased", "lease_id": "lease-1"}}),
 	})
 	if got := ObserveLease(clone, path, "lease-1"); got.State != LeaseExact {

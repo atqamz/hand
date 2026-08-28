@@ -166,7 +166,8 @@ Source: [Lock pathnames are permanent rendezvous points](adr/lock-pathnames-are-
 
 Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is-not-a-mismatch.md),
 [Mechanical plans verify acquired HEAD](adr/mechanical-plans-verify-acquired-head.md),
-[The landed-work guard reads the work, not the record](adr/the-landed-work-guard-reads-the-work-not-the-record.md).
+[The landed-work guard reads the work, not the record](adr/the-landed-work-guard-reads-the-work-not-the-record.md),
+[The worktree pool lives outside every fleet home](adr/the-worktree-pool-lives-outside-every-fleet-home.md).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -178,6 +179,10 @@ Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is
 | INV-LEASE-6 | On mismatch or verification failure the lease is returned safely, and provisioning evidence is retained if cleanup fails. | model | unaudited |
 | INV-LEASE-7 | The project lock is held continuously across verification, worktree lock, and the provisioning boundary. | model | unaudited |
 | INV-LEASE-8 | Any unresolved read, parse, ref, or PR ambiguity in the landed-work guard refuses. Ambiguity never resolves to "landed". | property | unaudited |
+| INV-POOL-1 | A worktree pool never sits inside any fleet home, so no harness picks up the supervisor's context by directory ancestry. | property | `TestGetAcquiresFromAPoolOutsideEveryFleetHome`, `TestReturnUsesThePoolOutsideEveryFleetHome` |
+| INV-POOL-2 | Two clones never share a pool root, so one fleet's slots cannot alias another's. | property | `TestPoolRootDiffersPerClone` |
+| INV-POOL-3 | A worktree recorded under its clone keeps the clone as its pool root, so a lease taken before atqamz/hand#427 stays observable and returnable. | property | `TestPoolRootKeepsALegacyWorktreeOnItsOwnClone`, `TestReturnKeepsALegacyWorktreeOnItsOwnClone` |
+| INV-POOL-4 | Pool resolution never follows a foreign recorded worktree path to that path's own pool. | property | `TestReturnNeverFollowsAForeignRecordedPathToItsOwnPool` |
 
 ## Output rendering
 
