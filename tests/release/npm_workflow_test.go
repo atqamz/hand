@@ -10,9 +10,9 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func loadReleaseWorkflowJobs(t *testing.T) map[string]workflowJobDef {
+func loadWorkflowJobs(t *testing.T, filename string) map[string]workflowJobDef {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "release.yaml"))
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", filename))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,9 +20,14 @@ func loadReleaseWorkflowJobs(t *testing.T) map[string]workflowJobDef {
 		Jobs map[string]workflowJobDef `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal(data, &document); err != nil {
-		t.Fatalf("parse release workflow: %v", err)
+		t.Fatalf("parse %s: %v", filename, err)
 	}
 	return document.Jobs
+}
+
+func loadReleaseWorkflowJobs(t *testing.T) map[string]workflowJobDef {
+	t.Helper()
+	return loadWorkflowJobs(t, "release.yaml")
 }
 
 // The approval gate only holds if it is wired exactly right: a named GitHub environment
@@ -80,22 +85,46 @@ func TestNpmPublishJobPinsItsNodeAndNpmToolchain(t *testing.T) {
 	if !ok {
 		t.Fatal("release workflow has no npm-publish job")
 	}
-	found := false
-	for _, step := range job.Steps {
-		if strings.Contains(step.Uses, "actions/setup-node@") {
-			found = true
-			if step.With["node-version"] != "24" {
-				t.Fatalf("setup-node node-version = %#v, want \"24\"", step.With["node-version"])
-			}
-		}
-	}
-	if !found {
-		t.Fatal("npm-publish job has no actions/setup-node step")
+	if got, want := setupNodeVersion(t, job.Steps), "24"; got != want {
+		t.Fatalf("setup-node node-version = %q, want %q", got, want)
 	}
 	pin := workflowStep(t, job.Steps, "Pin npm")
 	if !strings.Contains(pin.Run, "npm install -g npm@12.0.2") {
 		t.Fatalf("Pin npm step run = %q, want an explicit npm@12.0.2 pin", pin.Run)
 	}
+}
+
+// CI runs the same npm-dependent tests the release job's own packaging relies on; a
+// toolchain drift between the two would let CI pass against a version release never sees.
+func TestCIAndReleaseWorkflowsPinTheSameNodeAndNpmToolchain(t *testing.T) {
+	releaseJob, ok := loadReleaseWorkflowJobs(t)["npm-publish"]
+	if !ok {
+		t.Fatal("release workflow has no npm-publish job")
+	}
+	ciJob, ok := loadWorkflowJobs(t, "ci.yaml")["test"]
+	if !ok {
+		t.Fatal("ci workflow has no test job")
+	}
+	if got, want := setupNodeVersion(t, releaseJob.Steps), setupNodeVersion(t, ciJob.Steps); got != want {
+		t.Fatalf("release npm-publish node-version = %q, ci test node-version = %q, want them equal", got, want)
+	}
+	releasePin := workflowStep(t, releaseJob.Steps, "Pin npm")
+	ciPin := workflowStep(t, ciJob.Steps, "Pin npm")
+	if releasePin.Run != ciPin.Run {
+		t.Fatalf("release Pin npm run = %q, ci Pin npm run = %q, want them equal", releasePin.Run, ciPin.Run)
+	}
+}
+
+func setupNodeVersion(t *testing.T, steps []workflowStepDef) string {
+	t.Helper()
+	for _, step := range steps {
+		if strings.Contains(step.Uses, "actions/setup-node@") {
+			v, _ := step.With["node-version"].(string)
+			return v
+		}
+	}
+	t.Fatal("no actions/setup-node step found")
+	return ""
 }
 
 func TestNpmPublishJobGeneratesFromTheExactReleaseCommit(t *testing.T) {
