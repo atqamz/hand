@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -694,5 +695,54 @@ func TestInitRefusesASubdirectoryOfHandSourceTree(t *testing.T) {
 	}
 	if after := snapshotInitTarget(t, target); !reflect.DeepEqual(after, before) {
 		t.Fatalf("source subdirectory changed: before=%v after=%v", before, after)
+	}
+}
+
+func TestInitRefusesATargetInsideHandsTreehousePool(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	runtimeRoot := filepath.Join(t.TempDir(), ".secondhand")
+	if err := os.MkdirAll(runtimeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SECONDHAND_HOME", runtimeRoot)
+	target := filepath.Join(runtimeRoot, "pools", "hand-abc123", ".treehouse", "slug", "1", "hand")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotInitTarget(t, target)
+
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{target})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 || !strings.Contains(err.Error(), "Treehouse worktree pool") {
+		t.Fatalf("init error = %v, want a code-3 Treehouse worktree pool refusal", err)
+	}
+	if after := snapshotInitTarget(t, target); !reflect.DeepEqual(after, before) {
+		t.Fatalf("pool slot changed: before=%v after=%v", before, after)
+	}
+}
+
+func TestInitRefusesATargetInsideAnotherFleetsProjectsTree(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	fleetHome := t.TempDir()
+	if _, err := store.Open(fleetHome); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(fleetHome, "projects", "someproj", "worktree")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotInitTarget(t, target)
+
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{target})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 || !strings.Contains(err.Error(), "managed project tree") {
+		t.Fatalf("init error = %v, want a code-3 managed project tree refusal", err)
+	}
+	if after := snapshotInitTarget(t, target); !reflect.DeepEqual(after, before) {
+		t.Fatalf("target inside projects/ changed: before=%v after=%v", before, after)
 	}
 }

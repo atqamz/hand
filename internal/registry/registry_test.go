@@ -690,3 +690,116 @@ func TestPreflightRefusesARegisteredDuplicateBeforeRuntime(t *testing.T) {
 		t.Fatalf("Preflight() = %v, want DuplicateError", err)
 	}
 }
+
+// Registers home as a fresh Fleet and returns its identity.
+func seedFleet(t *testing.T, registryDB *Registry, home string) string {
+	t.Helper()
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetID, err := db.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(home, fleetID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	return fleetID
+}
+
+func TestMissingFleetsNamesOnlyEntriesClassifiedMissing(t *testing.T) {
+	root := t.TempDir()
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+
+	readyHome := filepath.Join(root, "ready")
+	seedFleet(t, registryDB, readyHome)
+
+	unreadableHome := filepath.Join(root, "unreadable")
+	seedFleet(t, registryDB, unreadableHome)
+	if err := os.Remove(store.Path(unreadableHome)); err != nil {
+		t.Fatal(err)
+	}
+
+	missingHome := filepath.Join(root, "missing")
+	missingID := seedFleet(t, registryDB, missingHome)
+	if err := os.RemoveAll(missingHome); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := registryDB.MissingFleets(readyHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].ID != missingID || candidates[0].State != StateMissing {
+		t.Fatalf("MissingFleets() = %+v, want exactly the missing Fleet %s", candidates, missingID)
+	}
+}
+
+func TestPruneRemovesOnlyEntriesClassifiedMissingAndNeverTheCurrentHome(t *testing.T) {
+	root := t.TempDir()
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = registryDB.Close() }()
+
+	readyHome := filepath.Join(root, "ready")
+	readyID := seedFleet(t, registryDB, readyHome)
+
+	unreadableHome := filepath.Join(root, "unreadable")
+	unreadableID := seedFleet(t, registryDB, unreadableHome)
+	if err := os.Remove(store.Path(unreadableHome)); err != nil {
+		t.Fatal(err)
+	}
+
+	missingHome := filepath.Join(root, "missing")
+	missingID := seedFleet(t, registryDB, missingHome)
+	if err := os.RemoveAll(missingHome); err != nil {
+		t.Fatal(err)
+	}
+
+	// Prune runs from the ready Fleet's own home. classify() can never mark a Current locator
+	// missing, so this also covers "never remove the current home" as far as it is reachable.
+	removed, err := registryDB.Prune(readyHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0].ID != missingID {
+		t.Fatalf("Prune() = %+v, want exactly the missing Fleet %s removed", removed, missingID)
+	}
+
+	fleets, err := registryDB.List(readyHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining := make(map[string]State, len(fleets))
+	for _, fleet := range fleets {
+		remaining[fleet.ID] = fleet.State
+	}
+	if _, stillThere := remaining[missingID]; stillThere {
+		t.Fatalf("fleets after prune = %#v, want %s gone", remaining, missingID)
+	}
+	if remaining[readyID] != StateReady {
+		t.Fatalf("fleets after prune = %#v, want %s still ready", remaining, readyID)
+	}
+	if remaining[unreadableID] != StateUnreadable {
+		t.Fatalf("fleets after prune = %#v, want %s still unreadable", remaining, unreadableID)
+	}
+
+	// A second Prune, with nothing left to remove, is a true no-op.
+	second, err := registryDB.Prune(readyHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second Prune() = %+v, want nothing left to remove", second)
+	}
+}

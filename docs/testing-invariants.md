@@ -76,7 +76,9 @@ Source: [hand init is the canonical fleet reconciler](adr/hand-init-is-the-canon
 
 ## Registry and fleet identity
 
-Source: [Fleet identity and user registry](adr/fleet-identity-and-user-registry.md), `internal/registry`.
+Source: [Fleet identity and user registry](adr/fleet-identity-and-user-registry.md),
+[A test build cannot resolve the real Secondhand infrastructure root](adr/a-test-build-cannot-resolve-the-real-secondhand-root.md),
+`internal/registry`.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -84,9 +86,9 @@ Source: [Fleet identity and user registry](adr/fleet-identity-and-user-registry.
 | INV-REG-2 | A home's fleet identity is never reissued or rewritten by any registry operation. | property | unaudited |
 | INV-REG-3 | Entry classification is a function of (stored rows, observed filesystem), and reading it mutates nothing. | property | unaudited |
 | INV-REG-4 | Losing or deleting the registry changes no fleet identity; re-registering a home restores the identity its own `state/hand.db` carries. | property | unaudited |
-| INV-REG-5 | Pruning removes only entries already classified `missing`, and never the current home. | property | not yet implemented - atqamz/hand#413 |
-| INV-REG-6 | A full test run adds zero entries to the operator's real user registry. Reaching it from a test is impossible, not merely discouraged. | property | violated today - atqamz/hand#413 |
-| INV-REG-7 | A fleet home inside a Treehouse worktree, or inside another fleet's managed tree, is refused rather than registered. | property | violated today - atqamz/hand#413 |
+| INV-REG-5 | Pruning removes only entries already classified `missing`, and never the current home. | property | `TestMissingFleetsNamesOnlyEntriesClassifiedMissing`, `TestPruneRemovesOnlyEntriesClassifiedMissingAndNeverTheCurrentHome`, `TestFleetPruneApplyRemovesOnlyMissingEntries` |
+| INV-REG-6 | A full test run adds zero entries to the operator's real user registry. Reaching it from a test is impossible, not merely discouraged. | property | `TestHomeRefusesWithoutOverrideUnderTestBuild` |
+| INV-REG-7 | A fleet home inside a Treehouse worktree, or inside another fleet's managed tree, is refused rather than registered. | property | `TestInitRefusesATargetInsideHandsTreehousePool`, `TestInitRefusesATargetInsideAnotherFleetsProjectsTree` |
 
 ## Project identity and the completion store
 
