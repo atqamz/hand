@@ -751,3 +751,85 @@ func TestInitRefusesATargetInsideAnotherFleetsProjectsTree(t *testing.T) {
 		t.Fatalf("target inside projects/ changed: before=%v after=%v", before, after)
 	}
 }
+
+// atqamz/hand#460 must not block a worker building a scratch home: init's target is always its
+// explicit argument or cwd, never home.Resolve(), so an inherited HAND_HOME naming the live fleet
+// changes nothing about what init does. See docs/adr/two-fleet-homes-in-play-is-a-refusal.md.
+func TestInitBuildsAScratchHomeWhileHandHomeNamesTheLiveFleet(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	liveHome := t.TempDir()
+	seedCmd := newInitCmd()
+	seedCmd.SetArgs([]string{liveHome})
+	if err := seedCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	scratchHome := t.TempDir()
+	t.Chdir(scratchHome)
+	t.Setenv("HAND_HOME", liveHome)
+
+	root := newRootCmd(devBuild("test"))
+	root.SetArgs([]string{"init"})
+	var out, errOut strings.Builder
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatalf("got %v, want init to build the scratch home even though HAND_HOME names a different, live fleet", err)
+	}
+
+	ok, err := home.IsHome(scratchHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("scratch directory was not initialized")
+	}
+	if !strings.Contains(errOut.String(), "HAND_HOME is set to "+liveHome) {
+		t.Fatalf("stderr = %q, want the existing HAND_HOME-mismatch warning naming %s", errOut.String(), liveHome)
+	}
+}
+
+// The rarer shape: refreshing a scratch home already built, HAND_HOME still unset from it. Here
+// home.Resolve() genuinely hits the ambiguity refusal inside root's PersistentPreRunE, which must
+// still not stop init from reconciling the directory its own argument (or cwd) names.
+func TestInitRefreshesAnExistingScratchHomeWhileHandHomeNamesADifferentLiveFleet(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	liveHome := t.TempDir()
+	seedLive := newInitCmd()
+	seedLive.SetArgs([]string{liveHome})
+	if err := seedLive.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	scratchHome := t.TempDir()
+	seedScratch := newInitCmd()
+	seedScratch.SetArgs([]string{scratchHome})
+	if err := seedScratch.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Confirm the refresh actually exercises Resolve()'s ambiguous branch rather than passing
+	// vacuously because cwd resolved to no home at all.
+	t.Chdir(scratchHome)
+	t.Setenv("HAND_HOME", liveHome)
+	if _, err := home.Resolve(); !errors.Is(err, home.ErrAmbiguousHome) {
+		t.Fatalf("home.Resolve() = %v, want it to report the ambiguity this test means to exercise", err)
+	}
+
+	root := newRootCmd(devBuild("test"))
+	root.SetArgs([]string{"init"})
+	var out, errOut strings.Builder
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	if _, err := root.ExecuteC(); err != nil {
+		t.Fatalf("got %v, want the refresh to succeed against the scratch home despite the ambiguity home.Resolve() reports internally", err)
+	}
+
+	ok, err := home.IsHome(scratchHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("scratch home lost its markers across the refresh")
+	}
+}
