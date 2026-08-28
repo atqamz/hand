@@ -1,8 +1,11 @@
 package axi
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 func TestDocRendersFieldsRowsAndHelp(t *testing.T) {
@@ -109,6 +112,49 @@ func TestTruncateCountsRunes(t *testing.T) {
 	want := "éé... (truncated, 5 chars total - use hand status x --full to see complete text)"
 	if got != want {
 		t.Fatalf("Truncate() = %q, want %q", got, want)
+	}
+}
+
+// INV-PURE-2: Truncate never splits a UTF-8 rune, and budget bounds the
+// retained prefix, not the returned string - the recovery annotation is
+// appended past it on purpose. See TestTruncateMustBeAppliedToOriginalTextOnce.
+func TestTruncateKeepsAnUnsplitPrefixBoundedByBudget(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := rapid.String().Draw(t, "s")
+		budget := rapid.IntRange(0, 200).Draw(t, "budget")
+
+		got := Truncate(s, budget, "hand status x --full")
+		runes := []rune(s)
+
+		if len(runes) <= budget {
+			if got != s {
+				t.Fatalf("Truncate(%q, %d) = %q, want unchanged", s, budget, got)
+			}
+			return
+		}
+
+		want := string(runes[:budget])
+		if !strings.HasPrefix(got, want) {
+			t.Fatalf("Truncate(%q, %d) = %q, want it to start with the first %d runes %q unsplit",
+				s, budget, got, budget, want)
+		}
+	})
+}
+
+// Truncate's only caller (cmd/status.go:82) applies it to original text
+// exactly once - a second application corrupts the reported total, since
+// it counts the prior output's length instead of the original text's.
+func TestTruncateMustBeAppliedToOriginalTextOnce(t *testing.T) {
+	original := "A"
+	recovery := "hand status x --full"
+
+	once := Truncate(original, 0, recovery)
+	twice := Truncate(once, 0, recovery)
+
+	corrupted := fmt.Sprintf("... (truncated, %d chars total - use %s to see complete text)", len([]rune(once)), recovery)
+	if twice != corrupted {
+		t.Fatalf("Truncate(Truncate(%q, 0, r), 0, r) = %q, want %q naming the prior output's length, not the original %q's",
+			original, twice, corrupted, original)
 	}
 }
 

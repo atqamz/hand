@@ -7,6 +7,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.56.0
+	pgregory.net/rapid v1.3.0
 )
 
 require (
