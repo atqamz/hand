@@ -114,7 +114,7 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 		return &ExitError{Err: fmt.Errorf("state of PR %s could not be observed, so hand refuses to merge it: %s", t.PR, observation.Reason()), Code: 3}
 	}
 	if observation.Merged {
-		return &ExitError{Err: fmt.Errorf("PR %s is already merged", t.PR), Code: 3}
+		return convergeAlreadyMergedPR(cmd, home, t)
 	}
 
 	green, err := prChecksGreen(t.PR)
@@ -138,20 +138,8 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 	t.MergeExecuted = true
 	t.MergeExecutedAt = mergedAt
 
-	if proj, exists, err := project.Find(home, t.Project); err != nil {
+	if err := syncProjectAfterMerge(cmd, home, t); err != nil {
 		return err
-	} else if exists {
-		releaseProject, err := state.Lock(home, "project:"+proj.Name)
-		if err != nil {
-			return fmt.Errorf("lock project %q: %w", proj.Name, err)
-		}
-		_, syncErr := syncOneProject(home, proj)
-		releaseProject()
-		if syncErr != nil {
-			if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project sync failed: %v\n", syncErr); printErr != nil {
-				return printErr
-			}
-		}
 	}
 
 	var doc axi.Doc
@@ -162,6 +150,48 @@ func runPRMerge(cmd *cobra.Command, home string, t state.Task, method string) er
 	doc.Field("merged", t.MergeExecutedAt)
 	doc.Help("Run `hand teardown " + t.ID + "` to release this task's worktree and pane")
 	return doc.Render(cmd.OutOrStdout())
+}
+
+// Reached whether hand merged the PR itself or it merged out of band (a merge queue, release-please,
+// the web UI, or a stacked PR routed through pulls/N/merge-async). SetTaskMergeAnnounced, not
+// SetTaskMerge, keeps what hand observed distinguishable from what hand did.
+func convergeAlreadyMergedPR(cmd *cobra.Command, home string, t state.Task) error {
+	if err := state.SetTaskMergeAnnounced(home, t.ID); err != nil {
+		return fmt.Errorf("write task state: %w", err)
+	}
+
+	if err := syncProjectAfterMerge(cmd, home, t); err != nil {
+		return err
+	}
+
+	var doc axi.Doc
+	doc.Field("id", t.ID)
+	doc.Field("result", "converged")
+	doc.Field("pr", t.PR)
+	doc.Help("hand observed PR " + t.PR + " already merged on GitHub and recorded it; run `hand teardown " + t.ID + "` to release this task's worktree and pane")
+	return doc.Render(cmd.OutOrStdout())
+}
+
+func syncProjectAfterMerge(cmd *cobra.Command, home string, t state.Task) error {
+	proj, exists, err := project.Find(home, t.Project)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	releaseProject, err := state.Lock(home, "project:"+proj.Name)
+	if err != nil {
+		return fmt.Errorf("lock project %q: %w", proj.Name, err)
+	}
+	_, syncErr := syncOneProject(home, proj)
+	releaseProject()
+	if syncErr != nil {
+		if _, printErr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: project sync failed: %v\n", syncErr); printErr != nil {
+			return printErr
+		}
+	}
+	return nil
 }
 
 func runLocalMerge(cmd *cobra.Command, home string, t state.Task, active state.Attempt) error {

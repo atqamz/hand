@@ -349,7 +349,7 @@ func (r *Runtime) reconcileTask(ctx context.Context, home, id string, attest rec
 			result.Outcome = reconcileOutcomeBlocked
 			return result, err
 		}
-		if terminalConvergenceCandidate(attempt, observation) {
+		if shouldObserveLanding(history.Task, attempt, observation) {
 			history.Task, observation.Landing, err = r.observeLanding(ctx, home, history.Task, attempt, mergeObserved)
 			if err != nil {
 				result.Outcome = reconcileOutcomeBlocked
@@ -572,6 +572,15 @@ func terminalConvergenceCandidate(attempt state.Attempt, observation reconciliat
 		(observation.ReportState == "" || observation.ReportState == state.ReportWorking)
 }
 
+// A recorded PR is always worth asking GitHub about regardless of Herdr state (atqamz/hand#422 ask 2);
+// absent one, this falls back to terminalConvergenceCandidate's Herdr-based gate, #407's arm, undisturbed.
+func shouldObserveLanding(task state.Task, attempt state.Attempt, observation reconciliationObservation) bool {
+	if task.PR != "" && attempt.Lifecycle == state.AttemptRunning && attempt.TeardownTerminalAttempt == "" {
+		return true
+	}
+	return terminalConvergenceCandidate(attempt, observation)
+}
+
 func runningPaneMissingReason(landing landingState) string {
 	if landing == landingUnknown {
 		return "persisted running Attempt has no matching Herdr pane and its landing evidence is unknown"
@@ -579,7 +588,16 @@ func runningPaneMissingReason(landing landingState) string {
 	return "persisted running Attempt has no matching Herdr pane"
 }
 
-func decideTerminalConvergence(attempt state.Attempt, observation reconciliationObservation) (state.AttemptLifecycle, string, bool) {
+// A recorded PR GitHub reports merged completes the Attempt pane-alive or not: a live pane is not
+// evidence of anything (atqamz/hand#422 locked decision 3). Unlanded evidence stays gated behind
+// terminalConvergenceCandidate, so "not merged yet" never interrupts a worker still actively running.
+func decideTerminalConvergence(task state.Task, attempt state.Attempt, observation reconciliationObservation) (state.AttemptLifecycle, string, bool) {
+	if attempt.Lifecycle != state.AttemptRunning || attempt.TeardownTerminalAttempt != "" {
+		return "", "", false
+	}
+	if task.PR != "" && observation.Landing == landingLanded {
+		return state.AttemptCompleted, state.TeardownDispositionCompleted, true
+	}
 	if !terminalConvergenceCandidate(attempt, observation) {
 		return "", "", false
 	}
@@ -1425,7 +1443,7 @@ func shouldClearRepair(task state.Task, attempt state.Attempt, observation recon
 	return false
 }
 
-func decideReconciliation(_ state.Task, attempt state.Attempt, observation reconciliationObservation) reconciliationDecision {
+func decideReconciliation(task state.Task, attempt state.Attempt, observation reconciliationObservation) reconciliationDecision {
 	decision := reconciliationDecision{
 		Harness: attempt.Harness, Model: attempt.Model, Effort: attempt.Effort,
 		ExecutionClass: attempt.ExecutionClass, PlannedAgainst: attempt.PlannedAgainst,
@@ -1435,7 +1453,7 @@ func decideReconciliation(_ state.Task, attempt state.Attempt, observation recon
 		decision.Action = reconciliationActionBlocked
 		return decision
 	}
-	if terminal, disposition, converge := decideTerminalConvergence(attempt, observation); converge {
+	if terminal, disposition, converge := decideTerminalConvergence(task, attempt, observation); converge {
 		decision.Action = reconciliationActionConvergeTerminal
 		decision.TerminalAttempt, decision.Disposition = terminal, disposition
 		decision.Detail = fmt.Sprintf("attempt %d converged to %s on observed evidence", attempt.ID, terminal)
