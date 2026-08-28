@@ -149,7 +149,8 @@ Source: [Stateless supervisor orientation and opaque currentness](adr/stateless-
 Source: [One watcher per fleet home, guarded by an flock](adr/one-watcher-per-fleet-home-guarded-by-an-flock.md),
 [Watcher takeover is generation-attributed](adr/watcher-takeover-is-generation-attributed.md),
 [The until-event exit is the delivery](adr/the-until-event-exit-is-the-delivery.md),
-[Arming a watch observes before it waits](adr/arming-a-watch-observes-before-it-waits.md).
+[Arming a watch observes before it waits](adr/arming-a-watch-observes-before-it-waits.md),
+[A contended refusal names its recorded holder](adr/a-contended-refusal-names-its-recorded-holder.md).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -159,6 +160,8 @@ Source: [One watcher per fleet home, guarded by an flock](adr/one-watcher-per-fl
 | INV-WATCH-4 | Arming observes already-actionable state before waiting, so a condition that arrived while nothing watched still wakes it. | property | unaudited |
 | INV-WATCH-5 | Startup state is not an event: until-event mode takes a baseline and exits on the first *new* matching event. | property | unaudited |
 | INV-WATCH-6 | Delivery, an empty window, and an unprobeable task have distinct exit codes, and each is reachable. | property | unaudited |
+| INV-WATCH-7 | A contended refusal names the durably recorded holder - pid and generation - and never asserts an identity the owner record does not carry; an unreadable or absent record is reported as such, not guessed. | property | unit - `TestAcquireRefusesASecondWatcherAndNamesTheRecordedHolder`, `TestContendNamesABridgeHolderAndOffersNoTakeover`, `TestContendWithNoRecordSaysSoRatherThanGuessingAHolder`, `TestContendWithAMalformedRecordSaysSoRatherThanGuessingAHolder`; e2e - `TestWatchNamesALiveSupervisionBridgeHolderAndOffersNoTakeover` |
+| INV-WATCH-8 | `--takeover` is offered, and attempted, only against a holder recorded as able to honor it; a recorded bridge holder refuses immediately instead of waiting out the takeover grace. | property | unit - `TestContendNamesABridgeHolderAndOffersNoTakeover`, `TestTakeoverAgainstABridgeHolderFailsFastWithoutWaitingOutTheGrace` |
 
 ## Locks and schema
 

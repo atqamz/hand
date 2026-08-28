@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -85,6 +86,34 @@ func TestWatchStartsOverACrashedWatchersStaleFiles(t *testing.T) {
 	got := runHand(t, home, "watch", "--until-event", "--poll", "30ms", "--timeout", "100ms")
 	if got.code != 4 {
 		t.Fatalf("watch after a SIGKILLed watcher: exit %d, want 4 (no event) - leftover pid/routing files must not lock this home out of watching itself (stderr %q)", got.code, got.stderr)
+	}
+}
+
+// Live corroboration on atqamz/hand#410 (issuecomment-5450929728): the reported
+// holder was a real, alive `hand supervision claude-stop` process, never `hand
+// watch`. A real `hand supervision wait` process shares that in-process path.
+func TestWatchNamesALiveSupervisionBridgeHolderAndOffersNoTakeover(t *testing.T) {
+	home := seedOneTaskHome(t)
+
+	bridge := startHandBackground(t, home, "supervision", "wait", "--host", "claude", "--timeout", "5s")
+	rec := waitForCoherentOwner(t, home, bridge.cmd.Process.Pid)
+	if rec.Kind != "bridge" {
+		t.Fatalf("owner record kind = %q, want %q for a supervision-wait holder", rec.Kind, "bridge")
+	}
+
+	refused := runHand(t, home, "watch", "--until-event", "--poll", "30ms")
+	if refused.code != 3 {
+		t.Fatalf("watch against a live supervision-wait holder: exit %d, want 3 (stderr %q)", refused.code, refused.stderr)
+	}
+	wantPID := fmt.Sprintf("pid %d", bridge.cmd.Process.Pid)
+	if !strings.Contains(refused.stderr, wantPID) {
+		t.Fatalf("watch stderr %q, want it to name the live holder %s", refused.stderr, wantPID)
+	}
+	if strings.Contains(refused.stderr, "owning session") {
+		t.Fatalf("watch stderr %q, want no owning-session instruction against a bridge holder", refused.stderr)
+	}
+	if strings.Contains(refused.stderr, "for cooperative replacement") {
+		t.Fatalf("watch stderr %q, want --takeover never offered against a holder that cannot honor it", refused.stderr)
 	}
 }
 

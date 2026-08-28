@@ -463,6 +463,7 @@ type ownerPublication struct {
 	Version    int    `json:"version"`
 	Generation string `json:"generation"`
 	PID        int    `json:"pid"`
+	Kind       string `json:"kind,omitempty"`
 }
 
 func readOwnerPublication(t *testing.T, home string) (ownerPublication, error) {

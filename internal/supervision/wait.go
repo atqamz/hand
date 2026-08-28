@@ -16,8 +16,10 @@ import (
 )
 
 // Overridable seams onto the existing level-triggered watcher boundary.
+// acquireWatcherOwnership is the bridge acquisition path: it never listens
+// for a takeover request, and records itself as such (atqamz/hand#410).
 var (
-	acquireWatcherOwnership = watcher.AcquireContext
+	acquireWatcherOwnership = watcher.AcquireBridgeContext
 	runWatcherUntilEvent    = watcher.RunUntilEvent
 	watcherAttached         = watcher.IsAttached
 )
@@ -258,7 +260,7 @@ func pollUntilEligible(ctx context.Context, guard *bridgeGuard, w Waiter, cfg Wa
 // a fresh ownership proof at the boundary. All-deduped cycles back off one
 // poll interval instead of spinning; new episodes retry at once.
 func waitOwned(ctx context.Context, guard *bridgeGuard, w Waiter, cfg WaitConfig) (Wake, error) {
-	ownership, err := acquireWatcherOwnership(ctx, w.Home, false)
+	ownership, err := acquireWatcherOwnership(ctx, w.Home)
 	if err != nil {
 		return Wake{}, err
 	}
