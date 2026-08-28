@@ -21,7 +21,10 @@ func DetectPR(ctx context.Context, homeDir string, task state.Task, active state
 	if observation.Merged {
 		task.MergeAnnounced = true
 	}
-	updated, _, err := RecordPR(ctx, homeDir, task, observation.URL)
+	// Never crossRepo: re-detection follows the branch hand itself pushed, so anything it finds
+	// already belongs to the project's own repo or its declared upstream (atqamz/hand#423 is
+	// asserted only through hand pr's explicit opt-in, never discovered here).
+	updated, _, err := RecordPR(ctx, homeDir, task, observation.URL, false, "")
 	if err != nil {
 		return task, observation, err
 	}
@@ -90,9 +93,14 @@ func observeDetachedHeadAbsence(worktreePath string) (observation ghutil.PRObser
 	}}, true
 }
 
-func RecordPR(ctx context.Context, homeDir string, task state.Task, url string) (state.Task, bool, error) {
+// crossRepo is hand pr's --cross-repo opt-in (atqamz/hand#423). reason is required whenever
+// crossRepo is true - an unexplained cross-repo record could never be reconstructed later.
+func RecordPR(ctx context.Context, homeDir string, task state.Task, url string, crossRepo bool, reason string) (state.Task, bool, error) {
 	if !state.ValidatePRURL(url) {
 		return task, false, Usage(fmt.Errorf("invalid PR URL %q: must match https://github.com/<owner>/<repo>/pull/<number>", url))
+	}
+	if crossRepo && reason == "" {
+		return task, false, Usage(fmt.Errorf("--cross-repo requires --reason describing the deliberate delivery elsewhere"))
 	}
 	if task.PR != "" && task.PR != url {
 		return task, false, Precondition(fmt.Errorf("task %s already has a different PR recorded: %s", task.ID, task.PR))
@@ -112,10 +120,15 @@ func RecordPR(ctx context.Context, homeDir string, task state.Task, url string) 
 	}
 	ghCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := project.ValidatePR(ghCtx, homeDir, projectInfo, url); err != nil {
+	if err := project.ValidatePR(ghCtx, homeDir, projectInfo, url, crossRepo); err != nil {
 		return task, false, Precondition(err)
 	}
-	if err := state.SetTaskPR(homeDir, task.ID, url); err != nil {
+	if crossRepo {
+		if err := state.SetTaskPRCrossRepo(homeDir, task.ID, url, reason); err != nil {
+			return task, false, fmt.Errorf("write task state: %w", err)
+		}
+		task.PRCrossRepoReason = reason
+	} else if err := state.SetTaskPR(homeDir, task.ID, url); err != nil {
 		return task, false, fmt.Errorf("write task state: %w", err)
 	}
 	task.PR = url

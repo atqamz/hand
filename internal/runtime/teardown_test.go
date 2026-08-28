@@ -335,7 +335,7 @@ func TestTeardownCircleClosesOnceHandPRRecordsTheEvidenceItAsksFor(t *testing.T)
 	if task.Lifecycle != state.TaskTerminal {
 		t.Fatalf("task.Lifecycle = %q, want it already terminal - that is the deadlock's shape", task.Lifecycle)
 	}
-	if _, _, err := RecordPR(context.Background(), home, task, pr); err != nil {
+	if _, _, err := RecordPR(context.Background(), home, task, pr, false, ""); err != nil {
 		t.Fatalf("hand pr refused a terminal task: %v", err)
 	}
 

@@ -11,10 +11,10 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-// ValidatePR is the single gate every PR URL passes before it is recorded on a task, from
-// `hand pr` or from the watcher auto-recording one a worker embedded in a report line. A
-// recorded PR feeds `gh pr merge` directly, so a foreign repo must never reach task state.
-func ValidatePR(ctx context.Context, homeDir string, p Project, url string) error {
+// ValidatePR is the single gate every PR URL passes before it is recorded on a task. A recorded
+// PR feeds `gh pr merge` directly, so a foreign repo must never reach task state unless crossRepo
+// is true - hand pr's --cross-repo opt-in (atqamz/hand#423), asserted only by an operator.
+func ValidatePR(ctx context.Context, homeDir string, p Project, url string, crossRepo bool) error {
 	repoSlug, err := RepoSlug(homeDir, p)
 	if err != nil {
 		return err
@@ -24,17 +24,15 @@ func ValidatePR(ctx context.Context, homeDir string, p Project, url string) erro
 		return fmt.Errorf("invalid PR URL %q", url)
 	}
 	// urlSlug is never empty here, so an undeclared upstream cannot match it. EqualFold, not
-	// ==: a GitHub slug is unique only up to casing, so folding cannot admit a foreign repo,
-	// while == refuses a landed PR whose canonical casing differs from either declared one.
-	if !strings.EqualFold(urlSlug, repoSlug) && !strings.EqualFold(urlSlug, p.Upstream) {
-		// A fork contribution opens its PR on the declared upstream rather than on the repo hand
-		// pushes to, so p.Upstream passes too - but only because an operator declared it (hand
-		// project upstream), never because the URL's repo looks related to the project's own.
-		return fmt.Errorf("PR %s belongs to %s, not project %s's repo (%s)%s", url, urlSlug, p.Name, repoSlug, upstreamNote(p))
+	// ==: a GitHub slug is unique only up to casing, so folding cannot admit a foreign repo.
+	// crossRepo waives exactly this one check, never the observation below.
+	if !crossRepo && !strings.EqualFold(urlSlug, repoSlug) && !strings.EqualFold(urlSlug, p.Upstream) {
+		// p.Upstream passes too - but only because an operator declared it (hand project
+		// upstream), never because the URL's repo looks related to the project's own.
+		return fmt.Errorf("PR %s belongs to %s, not project %s's repo (%s)%s", url, urlSlug, p.Name, repoSlug, crossRepoNote(p))
 	}
-	// Absence refuses because the PR is not there; an observation that did not complete refuses
-	// too, but must never claim absence: an auth failure reporting "not found" would tell an
-	// operator to fix a URL that was right all along.
+	// An observation that did not complete refuses too, but must never claim absence: an auth
+	// failure reporting "not found" would tell an operator to fix a URL that was right all along.
 	observation := ghutil.ObserveMergeState(ctx, url)
 	if observation.Absent() {
 		return fmt.Errorf("PR %s not found in %s", url, urlSlug)
@@ -45,14 +43,14 @@ func ValidatePR(ctx context.Context, homeDir string, p Project, url string) erro
 	return nil
 }
 
-// Names the declared upstream in a refusal, and its absence in one for a project that has
-// none: an operator whose fork contribution was refused has to tell "the upstream I declared
-// is a different repo" from "this project declares no upstream at all", which is the remedy.
-func upstreamNote(p Project) string {
+// Names the real escapes for a repo mismatch: the declared upstream, when there is one, and
+// --cross-repo/--reason always. atqamz/hand#423: declaring an upstream used to be offered even
+// where doing so would write false topology, so it is named only when one is already declared.
+func crossRepoNote(p Project) string {
 	if p.Upstream == "" {
-		return " and no upstream is declared for it"
+		return "; pass --cross-repo with --reason on `hand pr` if this is a deliberate delivery elsewhere"
 	}
-	return fmt.Sprintf(" or its declared upstream (%s)", p.Upstream)
+	return fmt.Sprintf(" or its declared upstream (%s); pass --cross-repo with --reason on `hand pr` if this is a deliberate delivery elsewhere", p.Upstream)
 }
 
 // RepoSlug derives "owner/repo" from the project clone's own origin remote

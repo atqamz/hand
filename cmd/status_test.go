@@ -494,6 +494,75 @@ func TestStatusMergeStateCombinationsRenderDistinguishably(t *testing.T) {
 	}
 }
 
+// atqamz/hand#423, decision 4: a PR recorded through --cross-repo has to read as cross-repo
+// wherever hand status renders it, on both the single-task detail and the fleet view's flags cell,
+// and in --json. A same-repo PR must never carry the marker.
+func TestStatusRendersCrossRepoPRDistinctlyEverywhere(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	reason := "component moved to yes2games/butler before the worker started"
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z",
+		PR:        "https://github.com/yes2games/butler/pull/92", PRCrossRepoReason: reason,
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-2", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z",
+		PR:        "https://github.com/owner/myproj/pull/7",
+	}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pC"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := newStatusCmd()
+	var detailOut bytes.Buffer
+	detail.SetOut(&detailOut)
+	detail.SetArgs([]string{"task-1"})
+	if err := detail.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := detailOut.String()
+	if pr := detailField(t, got, "pr"); !strings.Contains(pr, "https://github.com/yes2games/butler/pull/92") || !strings.Contains(pr, reason) {
+		t.Fatalf("pr = %q, want the URL and the cross-repo reason both rendered", pr)
+	}
+	if flags := strings.Fields(detailField(t, got, "flags")); !slices.Contains(flags, "cross-repo") {
+		t.Fatalf("flags = %v, want cross-repo", flags)
+	}
+
+	fleet := newStatusCmd()
+	var fleetOut bytes.Buffer
+	fleet.SetOut(&fleetOut)
+	fleet.SetArgs(nil)
+	if err := fleet.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	fleetText := fleetOut.String()
+	if flags := fleetFlags(t, fleetText, "task-1"); !slices.Contains(flags, "cross-repo") {
+		t.Fatalf("fleet flags for task-1 = %v, want cross-repo", flags)
+	}
+	if flags := fleetFlags(t, fleetText, "task-2"); slices.Contains(flags, "cross-repo") {
+		t.Fatalf("fleet flags for task-2 = %v, want no cross-repo marker on a same-repo PR", flags)
+	}
+
+	jsonCmd := newStatusCmd()
+	var jsonOut bytes.Buffer
+	jsonCmd.SetOut(&jsonOut)
+	jsonCmd.SetArgs([]string{"task-1", "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var doc statusJSON
+	if err := json.Unmarshal(jsonOut.Bytes(), &doc); err != nil {
+		t.Fatalf("unmarshal --json output: %v", err)
+	}
+	if doc.PRCrossRepoReason != reason {
+		t.Fatalf("PRCrossRepoReason = %q, want %q", doc.PRCrossRepoReason, reason)
+	}
+}
+
 // hand status's half of atqamz/hand#69: a task whose PR a no-mistakes gate opened directly
 // (bypassing hand pr) still shows the PR, once status looks it up by branch.
 func TestStatusSingleTaskDetectsGateOpenedPR(t *testing.T) {

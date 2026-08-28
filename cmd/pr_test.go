@@ -446,6 +446,173 @@ func TestPRNotFoundOnUpstreamNamesTheUpstreamRepo(t *testing.T) {
 	}
 }
 
+// atqamz/hand#423: the refusal for a sibling repo has to point at the real escape (--cross-repo),
+// not at declaring an upstream - that would put false fork topology in the registry to record one
+// task's PR.
+func TestPRRefusesSiblingRepoWithoutCrossRepoFlagAndNamesTheRealEscape(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/yes2games/yes2infra.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/yes2games/yes2infra.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "https://github.com/yes2games/butler/pull/92"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+	if strings.Contains(err.Error(), "no upstream is declared") {
+		t.Fatalf("got %v, want the refusal to no longer offer declaring an upstream as the escape", err)
+	}
+	if !strings.Contains(err.Error(), "--cross-repo") || !strings.Contains(err.Error(), "--reason") {
+		t.Fatalf("got %v, want the refusal to name --cross-repo and --reason as the real escape", err)
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "" {
+		t.Fatalf("task.PR = %q, want nothing recorded without the opt-in", task.PR)
+	}
+}
+
+func TestPRCrossRepoWithoutReasonRefused(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/yes2games/yes2infra.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/yes2games/yes2infra.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "--cross-repo", "https://github.com/yes2games/butler/pull/92"})
+	err := cmd.Execute()
+	assertExitCode2(t, err)
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "" {
+		t.Fatalf("task.PR = %q, want nothing recorded without a reason", task.PR)
+	}
+}
+
+// --reason answers a question --cross-repo never asked, so it is refused rather than silently
+// ignored: a same-repo record carrying a reason nobody asked for would be confusing to read back.
+func TestPRReasonWithoutCrossRepoRefused(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/owner/secondhand.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "--reason", "moved upstream", "https://github.com/owner/secondhand/pull/1"})
+	err := cmd.Execute()
+	assertExitCode2(t, err)
+}
+
+// The case that motivated atqamz/hand#423: the component moved to a sibling repository between
+// brief and delivery, and the worker followed the code there.
+func TestPRRecordsSiblingRepoWithCrossRepoFlagAndReason(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/yes2games/yes2infra.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/yes2games/yes2infra.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	crossRepoPR := "https://github.com/yes2games/butler/pull/92"
+	installFakeGhPRs(t, crossRepoPR)
+
+	cmd := newPRCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	reason := "component moved to yes2games/butler before the worker started; see ADR-0015"
+	cmd.SetArgs([]string{"task-1", "--cross-repo", "--reason", reason, crossRepoPR})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("recording a deliberate cross-repo PR: %v", err)
+	}
+	if !strings.Contains(out.String(), "result: recorded\n") || !strings.Contains(out.String(), "cross_repo_reason: "+reason+"\n") {
+		t.Fatalf("out = %q, want the recorded confirmation to carry the reason", out.String())
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != crossRepoPR {
+		t.Fatalf("task.PR = %q, want %q", task.PR, crossRepoPR)
+	}
+	if task.PRCrossRepoReason != reason {
+		t.Fatalf("task.PRCrossRepoReason = %q, want %q", task.PRCrossRepoReason, reason)
+	}
+}
+
+// --cross-repo waives exactly the repo-match check, nothing else: a PR that does not exist on
+// GitHub is still refused.
+func TestPRCrossRepoStillRefusesAPRThatDoesNotExistOnGitHub(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/yes2games/yes2infra.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/yes2games/yes2infra.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeGhPRView(t, 1)
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "--cross-repo", "--reason", "moved", "https://github.com/yes2games/butler/pull/92"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != "" {
+		t.Fatalf("task.PR = %q, want nothing recorded for a PR gh cannot confirm exists", task.PR)
+	}
+}
+
+// Write-once holds regardless of the opt-in: a cross-repo record does not get a second chance to
+// point somewhere else, cross-repo or not.
+func TestPRCrossRepoWriteOnceRefusesASecondDifferentURL(t *testing.T) {
+	home, clonePath := setupPRHome(t)
+	addOriginRemote(t, clonePath, "https://github.com/yes2games/yes2infra.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/yes2games/yes2infra.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	first := "https://github.com/yes2games/butler/pull/92"
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "demo", PR: first, PRCrossRepoReason: "moved to butler"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPRCmd()
+	cmd.SetArgs([]string{"task-1", "--cross-repo", "--reason", "moved again", "https://github.com/yes2games/butler/pull/93"})
+	err := cmd.Execute()
+	assertExitCode3(t, err)
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != first {
+		t.Fatalf("task.PR = %q, want the original cross-repo PR left untouched", task.PR)
+	}
+}
+
 func TestPRRecordsSuccessfully(t *testing.T) {
 	home, clonePath := setupPRHome(t)
 	addOriginRemote(t, clonePath, "https://github.com/owner/secondhand.git")

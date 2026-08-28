@@ -141,25 +141,29 @@ type Task struct {
 	// Project is the live display name resolved through ProjectID, falling back to the name the
 	// row was written with once no registered project carries that identity any more. ProjectID
 	// is the durable identity: renaming a project never rewrites it (atqamz/hand#388).
-	Project          string        `json:"project"`
-	ProjectID        string        `json:"project_id"`
-	Kind             string        `json:"kind"`
-	Brief            string        `json:"brief"`
-	Lifecycle        TaskLifecycle `json:"lifecycle"`
-	ActiveAttemptID  int64         `json:"active_attempt_id"`
-	PR               string        `json:"pr"`
-	MergeExecuted    bool          `json:"merged"`
-	MergeExecutedAt  string        `json:"merged_at"`
-	ReportOffset     int64         `json:"report_offset"`
-	ReportDigest     string        `json:"report_digest"`
-	MergeAnnounced   bool          `json:"pr_merged_observed"`
-	DeliveredAt      string        `json:"delivered_at"`
-	DeliveredReason  string        `json:"delivered_reason"`
-	CreatedAt        string        `json:"created_at"`
-	RepairCode       string        `json:"repair_code"`
-	RepairReason     string        `json:"repair_reason"`
-	RepairAttemptID  int64         `json:"repair_attempt_id"`
-	RepairObservedAt string        `json:"repair_observed_at"`
+	Project         string        `json:"project"`
+	ProjectID       string        `json:"project_id"`
+	Kind            string        `json:"kind"`
+	Brief           string        `json:"brief"`
+	Lifecycle       TaskLifecycle `json:"lifecycle"`
+	ActiveAttemptID int64         `json:"active_attempt_id"`
+	PR              string        `json:"pr"`
+	// Set only through hand pr's --cross-repo opt-in (atqamz/hand#423): empty for every PR recorded
+	// against the project's own repo or its declared upstream, so its mere presence already marks
+	// the record as a deliberate delivery elsewhere, with no separate boolean to drift out of sync.
+	PRCrossRepoReason string `json:"pr_cross_repo_reason"`
+	MergeExecuted     bool   `json:"merged"`
+	MergeExecutedAt   string `json:"merged_at"`
+	ReportOffset      int64  `json:"report_offset"`
+	ReportDigest      string `json:"report_digest"`
+	MergeAnnounced    bool   `json:"pr_merged_observed"`
+	DeliveredAt       string `json:"delivered_at"`
+	DeliveredReason   string `json:"delivered_reason"`
+	CreatedAt         string `json:"created_at"`
+	RepairCode        string `json:"repair_code"`
+	RepairReason      string `json:"repair_reason"`
+	RepairAttemptID   int64  `json:"repair_attempt_id"`
+	RepairObservedAt  string `json:"repair_observed_at"`
 	// A supervisor's own act, distinct from report_offset/report_digest which record what a watcher has
 	// announced: atqamz/hand#267 keeps the two markers apart because they answer different questions.
 	AcknowledgedAt     string `json:"acknowledged_at"`
@@ -298,6 +302,7 @@ CREATE TABLE IF NOT EXISTS task (
 	lifecycle         TEXT NOT NULL DEFAULT 'open' CHECK (lifecycle IN ('open', 'terminal')),
 	active_attempt_id INTEGER REFERENCES attempt(id),
 	pr                TEXT NOT NULL DEFAULT '',
+	pr_cross_repo_reason TEXT NOT NULL DEFAULT '',
 	merge_executed    INTEGER NOT NULL DEFAULT 0,
 	merge_executed_at TEXT NOT NULL DEFAULT '',
 	merge_announced   INTEGER NOT NULL DEFAULT 0,
@@ -606,6 +611,9 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	if current == len(migrations) {
 		return db.ReadTaskHistory(id)
 	}
+	if current == briefDigestVersion {
+		return db.readTaskHistoryBeforeCrossRepoReason(id)
+	}
 	if current == projectIdentityVersion {
 		return db.readTaskHistoryBeforeBriefDigest(id)
 	}
@@ -679,7 +687,12 @@ var taskColumnNamesBeforeProjectIdentity = []string{
 	"acknowledged_at", "acknowledged_reason", "acknowledged_offset", "acknowledged_digest",
 }
 
-var taskColumnNames = append(append([]string{}, taskColumnNamesBeforeProjectIdentity...), "project_id")
+// The layout every schema before crossRepoPRVersion stored: pr_cross_repo_reason is appended after
+// project_id, the tail every migration since projectIdentityVersion has grown from, rather than
+// slotted beside pr.
+var taskColumnNamesBeforeCrossRepoReason = append(append([]string{}, taskColumnNamesBeforeProjectIdentity...), "project_id")
+
+var taskColumnNames = append(append([]string{}, taskColumnNamesBeforeCrossRepoReason...), "pr_cross_repo_reason")
 
 var taskColumns = strings.Join(taskColumnNames, ", ")
 
@@ -692,13 +705,18 @@ var taskColumnsBeforeAcknowledgement = strings.Join(taskColumnNamesBeforeProject
 // A task's project name is no longer stored live: rename updates the one project row and
 // nothing else, so every current-schema read resolves the label through the identity and
 // keeps the stored name only as the fallback for a project that is no longer registered.
-var taskSelectColumns = taskSelectList()
+var taskSelectColumns = taskSelectList(taskColumnNames)
+
+// What a database at projectIdentityVersion or briefDigestVersion carries: the project-identity
+// join already applies, but pr_cross_repo_reason does not exist yet on the task table
+// (crossRepoPRVersion added it, atqamz/hand#423).
+var taskSelectColumnsBeforeCrossRepoReason = taskSelectList(taskColumnNamesBeforeCrossRepoReason)
 
 const taskSelectFrom = ` FROM task LEFT JOIN project ON project.id = task.project_id`
 
-func taskSelectList() string {
-	columns := make([]string, 0, len(taskColumnNames))
-	for _, name := range taskColumnNames {
+func taskSelectList(names []string) string {
+	columns := make([]string, 0, len(names))
+	for _, name := range names {
 		if name == "project" {
 			columns = append(columns, "COALESCE(project.name, task.project)")
 			continue
@@ -740,7 +758,7 @@ func taskValues(t Task) []any {
 	return []any{t.ID, t.Project, t.Kind, t.Brief, t.Lifecycle, nullableAttemptID(t.ActiveAttemptID), t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
 		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt,
-		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest, t.ProjectID}
+		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest, t.ProjectID, t.PRCrossRepoReason}
 }
 
 // A caller names the project it is dispatching into; the identity behind that name is looked up
@@ -772,6 +790,24 @@ func nullableAttemptID(id int64) any {
 }
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
+	var t Task
+	var activeID sql.NullInt64
+	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
+		&t.MergeExecuted, &t.MergeExecutedAt, &t.MergeAnnounced, &t.DeliveredAt, &t.DeliveredReason,
+		&t.ReportOffset, &t.ReportDigest, &t.CreatedAt, &t.RepairCode, &t.RepairReason, &t.RepairAttemptID, &t.RepairObservedAt,
+		&t.AcknowledgedAt, &t.AcknowledgedReason, &t.AcknowledgedOffset, &t.AcknowledgedDigest, &t.ProjectID, &t.PRCrossRepoReason)
+	if activeID.Valid {
+		t.ActiveAttemptID = activeID.Int64
+	}
+	if t.Lifecycle == "" {
+		t.Lifecycle = TaskOpen
+	}
+	return t, err
+}
+
+// Reads a task row from a database migrated no further than projectIdentityVersion or
+// briefDigestVersion, one version behind pr_cross_repo_reason (crossRepoPRVersion, atqamz/hand#423).
+func scanTaskBeforeCrossRepoReason(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var activeID sql.NullInt64
 	err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Brief, &t.Lifecycle, &activeID, &t.PR,
@@ -931,11 +967,11 @@ func (db *DB) UpdateTask(t Task) error {
 	_, err := db.sql.Exec(`UPDATE task SET project = ?, kind = ?, brief = ?,
 		pr = ?, merge_executed = ?, merge_executed_at = ?, merge_announced = ?, delivered_at = ?, delivered_reason = ?,
 		report_offset = ?, report_digest = ?, created_at = ?, repair_code = ?, repair_reason = ?, repair_attempt_id = ?, repair_observed_at = ?,
-		acknowledged_at = ?, acknowledged_reason = ?, acknowledged_offset = ?, acknowledged_digest = ? WHERE id = ?`,
+		acknowledged_at = ?, acknowledged_reason = ?, acknowledged_offset = ?, acknowledged_digest = ?, pr_cross_repo_reason = ? WHERE id = ?`,
 		t.Project, t.Kind, t.Brief, t.PR,
 		t.MergeExecuted, t.MergeExecutedAt, t.MergeAnnounced, t.DeliveredAt, t.DeliveredReason,
 		t.ReportOffset, t.ReportDigest, t.CreatedAt, t.RepairCode, t.RepairReason, t.RepairAttemptID, t.RepairObservedAt,
-		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest, t.ID)
+		t.AcknowledgedAt, t.AcknowledgedReason, t.AcknowledgedOffset, t.AcknowledgedDigest, t.PRCrossRepoReason, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task %q: %w", t.ID, err)
 	}
@@ -1017,14 +1053,14 @@ func (db *DB) readTaskHistoryBeforeProjectIdentity(id string) (TaskHistory, bool
 	return history, true, nil
 }
 
-// A database at projectIdentityVersion has every task column current, since briefDigestVersion
-// touches only the attempt table, so only the attempt side falls back to the pre-digest reader.
+// A database at projectIdentityVersion has neither the attempt table's brief_digest nor the task
+// table's pr_cross_repo_reason yet, so both sides fall back to their pre-current readers.
 func (db *DB) readTaskHistoryBeforeBriefDigest(id string) (TaskHistory, bool, error) {
 	if db.empty {
 		return TaskHistory{}, false, nil
 	}
-	row := db.sql.QueryRow(`SELECT `+taskSelectColumns+taskSelectFrom+` WHERE task.id = ?`, id)
-	task, err := scanTask(row)
+	row := db.sql.QueryRow(`SELECT `+taskSelectColumnsBeforeCrossRepoReason+taskSelectFrom+` WHERE task.id = ?`, id)
+	task, err := scanTaskBeforeCrossRepoReason(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskHistory{}, false, nil
 	}
@@ -1032,6 +1068,38 @@ func (db *DB) readTaskHistoryBeforeBriefDigest(id string) (TaskHistory, bool, er
 		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
 	}
 	attempts, err := db.listAttemptsBeforeBriefDigest(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+// A database at briefDigestVersion has the attempt table's brief_digest already but not yet the
+// task table's pr_cross_repo_reason (crossRepoPRVersion, atqamz/hand#423), so only the task side
+// falls back to the pre-cross-repo reader.
+func (db *DB) readTaskHistoryBeforeCrossRepoReason(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskSelectColumnsBeforeCrossRepoReason+taskSelectFrom+` WHERE task.id = ?`, id)
+	task, err := scanTaskBeforeCrossRepoReason(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
+	}
+	attempts, err := db.ListAttempts(id)
 	if err != nil {
 		return TaskHistory{}, false, err
 	}
@@ -1375,6 +1443,9 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 	if current == projectIdentityVersion {
 		return db.listReconciliationHistoriesBeforeBriefDigest()
 	}
+	if current == briefDigestVersion {
+		return db.listReconciliationHistoriesBeforeCrossRepoReason()
+	}
 	return db.ListReconciliationHistories()
 }
 
@@ -1429,12 +1500,13 @@ func (db *DB) listReconciliationHistoriesBeforeProjectIdentity() ([]TaskHistory,
 }
 
 // The reconciliation-listing counterpart to readTaskHistoryBeforeBriefDigest: projectIdentityVersion
-// predates attempt.brief_digest, so its attempt side stays on the pre-digest reader.
+// predates both attempt.brief_digest and task.pr_cross_repo_reason, so both sides stay on their
+// pre-current readers.
 func (db *DB) listReconciliationHistoriesBeforeBriefDigest() ([]TaskHistory, error) {
 	if db.empty {
 		return nil, nil
 	}
-	rows, err := db.sql.Query(`SELECT ` + taskSelectColumns + taskSelectFrom + ` WHERE task.lifecycle = 'open' OR task.repair_code <> '' OR EXISTS (
+	rows, err := db.sql.Query(`SELECT ` + taskSelectColumnsBeforeCrossRepoReason + taskSelectFrom + ` WHERE task.lifecycle = 'open' OR task.repair_code <> '' OR EXISTS (
 		SELECT 1 FROM attempt
 		WHERE attempt.task_id = task.id
 		AND attempt.lifecycle NOT IN ('provisioning', 'running')
@@ -1450,7 +1522,7 @@ func (db *DB) listReconciliationHistoriesBeforeBriefDigest() ([]TaskHistory, err
 	defer func() { _ = rows.Close() }()
 	var histories []TaskHistory
 	for rows.Next() {
-		task, err := scanTask(rows)
+		task, err := scanTaskBeforeCrossRepoReason(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
 		}
@@ -1461,6 +1533,57 @@ func (db *DB) listReconciliationHistoriesBeforeBriefDigest() ([]TaskHistory, err
 	}
 	for i := range histories {
 		attempts, err := db.listAttemptsBeforeBriefDigest(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("task %q active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
+}
+
+// The reconciliation-listing counterpart to readTaskHistoryBeforeCrossRepoReason: briefDigestVersion
+// has attempt.brief_digest already but not yet task.pr_cross_repo_reason (crossRepoPRVersion,
+// atqamz/hand#423), so only the task side falls back to the pre-cross-repo reader.
+func (db *DB) listReconciliationHistoriesBeforeCrossRepoReason() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
+	rows, err := db.sql.Query(`SELECT ` + taskSelectColumnsBeforeCrossRepoReason + taskSelectFrom + ` WHERE task.lifecycle = 'open' OR task.repair_code <> '' OR EXISTS (
+		SELECT 1 FROM attempt
+		WHERE attempt.task_id = task.id
+		AND attempt.lifecycle NOT IN ('provisioning', 'running')
+		AND (
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
+			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
+			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
+		)
+	) ORDER BY task.id`)
+	if err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTaskBeforeCrossRepoReason(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.ListAttempts(histories[i].Task.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -2492,6 +2615,14 @@ func (db *DB) TerminalizeTaskAndAttempt(taskID string, attemptID int64, attemptF
 func (db *DB) SetTaskPR(id, pr string) error {
 	result, err := db.sql.Exec(`UPDATE task SET pr = ? WHERE id = ?`, pr, id)
 	return updateTaskFact(result, err, "set PR", id)
+}
+
+// SetTaskPRCrossRepo is SetTaskPR's counterpart for hand pr's --cross-repo opt-in (atqamz/hand#423):
+// it carries the required reason alongside the URL in the same write, so a cross-repo record can
+// never land with the URL set and the reason still empty.
+func (db *DB) SetTaskPRCrossRepo(id, pr, reason string) error {
+	result, err := db.sql.Exec(`UPDATE task SET pr = ?, pr_cross_repo_reason = ? WHERE id = ?`, pr, reason, id)
+	return updateTaskFact(result, err, "set cross-repo PR", id)
 }
 
 func (db *DB) SetTaskKind(id, kind string) error {

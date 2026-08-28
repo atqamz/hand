@@ -48,8 +48,9 @@ func TestForkContributionDeliveredNotLanded(t *testing.T) {
 
 	// The two refusals below are the point: hand pr rejects a repo nobody declared, and teardown rejects the
 	// still-open PR until the delivery is recorded. Reverting either half of the change turns one into a pass.
+	// atqamz/hand#423: the refusal offers --cross-repo now, not "declare an upstream" as the escape.
 	undeclared := runHand(t, home, "pr", "task-1", upstreamPR)
-	assertInvocation(t, undeclared, 3, "no upstream is declared for it")
+	assertInvocation(t, undeclared, 3, "--cross-repo")
 
 	declared := runHand(t, home, "project", "upstream", "no-mistakes", "kunchenguid/no-mistakes")
 	if declared.code != 0 {

@@ -161,6 +161,10 @@ var migrations = []string{
 	// already carries the column, so a plain ALTER TABLE would fail wherever a test or a home
 	// builds its fixture from the current schema before stamping an older version onto it.
 	`SELECT 1;`,
+	// ensureTaskPRCrossRepoReasonColumn does the real work below, for the same reason: the base
+	// schema already carries the column, so a plain ALTER TABLE would fail wherever a test or a
+	// home builds its fixture from the current schema before stamping an older version onto it.
+	`SELECT 1;`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -197,6 +201,11 @@ const projectIdentityVersion = fleetIdentityVersion + 1
 // The version whose migration adds attempt.brief_digest, recorded at attempt launch so promote can
 // tell a rewritten ship brief from the scout brief attempt 1 ran against (atqamz/hand#448).
 const briefDigestVersion = projectIdentityVersion + 1
+
+// The version whose migration adds task.pr_cross_repo_reason, carrying the required reason behind
+// hand pr's --cross-repo opt-in (atqamz/hand#423): recording a PR in a repository other than the
+// project's own or its declared upstream.
+const crossRepoPRVersion = briefDigestVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -522,6 +531,11 @@ func (db *DB) applyMigration(version int) error {
 			return err
 		}
 	}
+	if version == crossRepoPRVersion-1 {
+		if err := ensureTaskPRCrossRepoReasonColumn(tx); err != nil {
+			return err
+		}
+	}
 	if err := recordSchemaVersion(tx, version+1); err != nil {
 		return err
 	}
@@ -597,6 +611,20 @@ func ensureAttemptBriefDigestColumn(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`ALTER TABLE attempt ADD COLUMN brief_digest TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("add attempt brief_digest column: %w", err)
+	}
+	return nil
+}
+
+func ensureTaskPRCrossRepoReasonColumn(tx *sql.Tx) error {
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task') WHERE name = 'pr_cross_repo_reason'`).Scan(&count); err != nil {
+		return fmt.Errorf("inspect task pr_cross_repo_reason column: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`ALTER TABLE task ADD COLUMN pr_cross_repo_reason TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add task pr_cross_repo_reason column: %w", err)
 	}
 	return nil
 }

@@ -116,6 +116,12 @@ func taskFlags(v taskView) []string {
 	case v.task.MergeAnnounced:
 		flags = append(flags, "merged-external")
 	}
+	// A PR recorded through hand pr's --cross-repo opt-in has to read as cross-repo everywhere
+	// hand status renders it (atqamz/hand#423) - a record that looks identical to a normal one
+	// defeats the point of requiring the opt-in.
+	if v.task.PR != "" && v.task.PRCrossRepoReason != "" {
+		flags = append(flags, "cross-repo")
+	}
 	if kind, ok := watcher.GateKind(v.gateObserved); ok {
 		flags = append(flags, kind)
 	}
@@ -234,6 +240,9 @@ var taskFields = []axi.Column[taskView]{
 	}},
 	{Name: "pr", Value: func(v taskView) string {
 		if v.task.PR != "" {
+			if v.task.PRCrossRepoReason != "" {
+				return fmt.Sprintf("%s (cross-repo: %s)", v.task.PR, v.task.PRCrossRepoReason)
+			}
 			return v.task.PR
 		}
 		switch v.prObserved {
