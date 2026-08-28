@@ -555,7 +555,7 @@ func TestPromoteRefusesWhenBriefIsUnchangedSinceScoutLaunch(t *testing.T) {
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Fatalf("got %v, want ExitError code 3", err)
 	}
-	if !strings.Contains(err.Error(), "data/task-1/brief.md") || !strings.Contains(err.Error(), "rewrite it as a ship brief") {
+	if !strings.Contains(err.Error(), filepath.Join("data", "task-1", "brief.md")) || !strings.Contains(err.Error(), "rewrite it as a ship brief") {
 		t.Fatalf("error = %q, want it to name the brief path and the rewrite treatment", err.Error())
 	}
 
@@ -669,7 +669,7 @@ func TestPromoteRefusesWhenOnlyHandsOwnAppendixWasAddedSinceScoutLaunch(t *testi
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Fatalf("got %v, want ExitError code 3: hand's own appendix must not read as a supervisor revision", err)
 	}
-	if !strings.Contains(err.Error(), "data/task-1/brief.md") || !strings.Contains(err.Error(), "rewrite it as a ship brief") {
+	if !strings.Contains(err.Error(), filepath.Join("data", "task-1", "brief.md")) || !strings.Contains(err.Error(), "rewrite it as a ship brief") {
 		t.Fatalf("error = %q, want it to name the brief path and the rewrite treatment", err.Error())
 	}
 }
