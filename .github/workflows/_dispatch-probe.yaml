@@ -1,0 +1,8 @@
+name: dispatch probe (throwaway, will be deleted)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "probing whether a workflow_dispatch run surfaces as a PR check"
