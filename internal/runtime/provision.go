@@ -13,6 +13,7 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
 )
@@ -159,7 +160,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	if brief.ExecutionClass(req.attempt.ExecutionClass) == brief.ExecutionClassMechanical {
 		releaseWorktree, err = state.Lock(req.home, "worktree:"+worktreePath)
 		if err != nil {
-			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("lock worktree %q: %w", worktreePath, err))
+			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("lock worktree %s: %w", pathdisplay.Context(worktreePath), err))
 		}
 		defer releaseWorktree()
 		actual, err := r.deps.worktree.headCommit(worktreePath)
@@ -177,7 +178,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	if releaseWorktree == nil {
 		releaseWorktree, err = state.Lock(req.home, "worktree:"+worktreePath)
 		if err != nil {
-			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("lock worktree %q: %w", worktreePath, err))
+			return "", r.failProvision(req, lease, nil, false, fmt.Errorf("lock worktree %s: %w", pathdisplay.Context(worktreePath), err))
 		}
 		defer releaseWorktree()
 	}

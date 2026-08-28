@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toolchain"
 )
@@ -651,7 +652,7 @@ func TestExitCodeTwoOnUsageError(t *testing.T) {
 		{"unknown flag", []string{"spawn", "--bogus", "task-1", "demo"}, "unknown flag: --bogus"},
 		{"conflicting merge methods", []string{"merge", "task-1", "--squash", "--rebase"}, "only one of --squash, --merge, --rebase"},
 		{"merge method with local", []string{"merge", "task-1", "--local", "--squash"}, "cannot be combined with --local"},
-		{"missing local project source", []string{"project", "add", "not-a-url"}, `local project source "not-a-url"`},
+		{"missing local project source", []string{"project", "add", "not-a-url"}, "local project source `not-a-url`"},
 		{"invalid project mode", []string{"project", "add", "https://example.com/demo.git", "--mode", "bogus"}, "invalid project mode"},
 		{"invalid poll interval", []string{"watch", "--poll", "nonsense"}, "invalid poll interval"},
 	}
@@ -805,7 +806,7 @@ func TestExitCodeThreeWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	notAHome := t.TempDir()
 
 	got := runHandEnv(t, home, []string{"HAND_HOME=" + notAHome}, "status")
-	assertInvocation(t, got, 3, fmt.Sprintf("HAND_HOME %q is not a secondhand home", notAHome))
+	assertInvocation(t, got, 3, fmt.Sprintf("HAND_HOME %s is not a secondhand home", pathdisplay.Context(notAHome)))
 }
 
 func TestExitCodeOneOnGeneralError(t *testing.T) {

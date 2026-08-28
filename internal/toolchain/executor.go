@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/atqamz/hand/internal/pathdisplay"
 )
 
 type ProcessSpec struct {
@@ -174,14 +176,14 @@ func requireExecutable(path string) error {
 		return err
 	}
 	if runtime.GOOS == "windows" && !strings.ContainsAny(filepath.Base(path), ".") {
-		return fmt.Errorf("managed Windows executable %q must include its suffix", path)
+		return fmt.Errorf("managed Windows executable %s must include its suffix", pathdisplay.Context(path))
 	}
 	return nil
 }
 
 func requireAbsolute(path string) error {
 	if path == "" || !filepath.IsAbs(path) {
-		return fmt.Errorf("managed core executable %q must be an absolute path", path)
+		return fmt.Errorf("managed core executable %s must be an absolute path", pathdisplay.Context(path))
 	}
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -327,7 +328,7 @@ func launchStatement(o Options) (string, error) {
 	if o.ReportPath == "" {
 		return "", fmt.Errorf("report path is required for a prompt-capable harness")
 	}
-	statement := fmt.Sprintf("The worker report channel is %s. Append every state change to that file with plain shell redirection; this is the only way anything you say reaches the supervisor. Use these report prefixes: working:, done:, failed:, blocked:, needs-decision:, paused:.", o.ReportPath)
+	statement := fmt.Sprintf("The worker report channel is %s. Append every state change to that file with plain shell redirection; this is the only way anything you say reaches the supervisor. Use these report prefixes: working:, done:, failed:, blocked:, needs-decision:, paused:.", shellquote.Quote(o.ReportPath))
 	switch o.Kind {
 	case state.KindShip:
 		statement += " You are authorized to commit, push your branch, and open the pull request; merging and closing the issue are the supervisor's action only."

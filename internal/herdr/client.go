@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/toolchain"
 )
 
@@ -59,7 +60,7 @@ func NewClient() *Client {
 
 func NewClientAt(path string, env []string) (*Client, error) {
 	if !filepath.IsAbs(path) {
-		return nil, fmt.Errorf("managed Herdr executable %q must be an absolute path", path)
+		return nil, fmt.Errorf("managed Herdr executable %s must be an absolute path", pathdisplay.Context(path))
 	}
 	return &Client{executable: path, env: append([]string(nil), env...)}, nil
 }
@@ -297,7 +298,7 @@ func (c *Client) startServer(ctx context.Context) error {
 		executable = "herdr"
 	}
 	if !filepath.IsAbs(executable) {
-		return fmt.Errorf("managed Herdr executable %q must be an absolute path", executable)
+		return fmt.Errorf("managed Herdr executable %s must be an absolute path", pathdisplay.Context(executable))
 	}
 	cmd := exec.Command(executable, c.wireArgs("server")...)
 	parentEnv := c.env
@@ -335,7 +336,7 @@ func (c *Client) attach(ctx context.Context) error {
 		executable = "herdr"
 	}
 	if !filepath.IsAbs(executable) {
-		return fmt.Errorf("managed Herdr executable %q must be an absolute path", executable)
+		return fmt.Errorf("managed Herdr executable %s must be an absolute path", pathdisplay.Context(executable))
 	}
 	cmd := exec.CommandContext(ctx, executable, "session", "attach", c.session)
 	if c.env != nil {

@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+
+	"github.com/atqamz/hand/internal/pathdisplay"
 )
 
 //go:embed runtime.lock.json
@@ -142,14 +144,14 @@ func validateExpectedFiles(files []ExpectedFile) error {
 		}
 		clean := pathpkg.Clean(strings.ReplaceAll(file.Path, "\\", "/"))
 		if clean == "." {
-			return fmt.Errorf("expected file path %q is invalid", file.Path)
+			return fmt.Errorf("expected file path %s is invalid", pathdisplay.Context(file.Path))
 		}
 		if _, ok := seen[clean]; ok {
-			return fmt.Errorf("expected file %q is duplicated", file.Path)
+			return fmt.Errorf("expected file %s is duplicated", pathdisplay.Context(file.Path))
 		}
 		seen[clean] = struct{}{}
 		if !file.Regular && !file.Executable {
-			return fmt.Errorf("expected file %q must declare regular or executable", file.Path)
+			return fmt.Errorf("expected file %s must declare regular or executable", pathdisplay.Context(file.Path))
 		}
 	}
 	return nil
@@ -158,11 +160,11 @@ func validateExpectedFiles(files []ExpectedFile) error {
 func validateRelativePath(path, label string) error {
 	portable := strings.ReplaceAll(path, "\\", "/")
 	if path == "" || isPortableAbsolutePath(portable) || strings.ContainsRune(path, 0) {
-		return fmt.Errorf("%s %q is invalid", label, path)
+		return fmt.Errorf("%s %s is invalid", label, pathdisplay.Context(path))
 	}
 	clean := pathpkg.Clean(portable)
 	if clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("%s %q escapes component", label, path)
+		return fmt.Errorf("%s %s escapes component", label, pathdisplay.Context(path))
 	}
 	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/filelock"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/secondhand"
 	"github.com/atqamz/hand/internal/store"
 	_ "modernc.org/sqlite"
@@ -273,7 +274,7 @@ func staleLocators(tx *sql.Tx, selectedHome, fleetID string) ([]Locator, error) 
 		}
 		locatorKey, err := pathKey(locator.Home)
 		if err != nil {
-			return nil, fmt.Errorf("resolve registered Fleet home %q for registry repair: %w", locator.Home, err)
+			return nil, fmt.Errorf("resolve registered Fleet home %s for registry repair: %w", pathdisplay.Context(locator.Home), err)
 		}
 		if locatorKey != selectedKey || locator.FleetID == fleetID {
 			continue

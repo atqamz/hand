@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/secondhand"
 )
 
@@ -109,10 +110,10 @@ func Resolve() (string, error) {
 	}
 	ok, err := IsHome(handHome)
 	if err != nil {
-		return "", fmt.Errorf("check HAND_HOME %q: %w", handHome, err)
+		return "", fmt.Errorf("check HAND_HOME %s: %w", pathdisplay.Context(handHome), err)
 	}
 	if !ok {
-		return "", fmt.Errorf("HAND_HOME %q %w", handHome, ErrHandHomeInvalid)
+		return "", fmt.Errorf("HAND_HOME %s %w", pathdisplay.Context(handHome), ErrHandHomeInvalid)
 	}
 
 	cwd, err := os.Getwd()
@@ -128,8 +129,8 @@ func Resolve() (string, error) {
 	}
 	if cwdHome != "" && cwdHome != handHome {
 		return "", fmt.Errorf(
-			"%w: HAND_HOME is %q, the working directory is inside %q; unset HAND_HOME to act on the working directory's home, or run from outside %q to act on HAND_HOME's",
-			ErrAmbiguousHome, handHome, cwdHome, cwdHome)
+			"%w: HAND_HOME is %s, the working directory is inside %s; unset HAND_HOME to act on the working directory's home, or run from outside %s to act on HAND_HOME's",
+			ErrAmbiguousHome, pathdisplay.Context(handHome), pathdisplay.Context(cwdHome), pathdisplay.Context(cwdHome))
 	}
 	return handHome, nil
 }

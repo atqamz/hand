@@ -10,6 +10,7 @@ import (
 
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/home"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/steering"
 	"github.com/spf13/cobra"
@@ -40,7 +41,7 @@ func newSendCmd() *cobra.Command {
 			if filePath != "" {
 				data, err := os.ReadFile(filePath)
 				if err != nil {
-					return fmt.Errorf("read --file %q: %w", filePath, err)
+					return fmt.Errorf("read --file %s: %w", pathdisplay.Context(filePath), err)
 				}
 				message = strings.TrimRight(string(data), "\n")
 			} else {

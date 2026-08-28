@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/atqamz/hand/internal/pathdisplay"
 )
 
 func IsFileLocator(value string) bool {
@@ -21,7 +23,7 @@ func CanonicalFileLocator(path string) (string, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return "", fmt.Errorf("resolve path %q: %w", path, err)
+		return "", fmt.Errorf("resolve path %s: %w", pathdisplay.Context(path), err)
 	}
 	resolved, err = filepath.Abs(resolved)
 	if err != nil {
@@ -62,7 +64,7 @@ func FileLocatorPath(locator string) (string, error) {
 func IsManagedPath(homeDir, path string) (bool, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return false, fmt.Errorf("resolve managed-path candidate %q: %w", path, err)
+		return false, fmt.Errorf("resolve managed-path candidate %s: %w", pathdisplay.Context(path), err)
 	}
 	resolved, err = filepath.Abs(resolved)
 	if err != nil {

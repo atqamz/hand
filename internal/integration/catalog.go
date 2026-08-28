@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/pathdisplay"
 )
 
 type Capability struct {
@@ -212,7 +213,7 @@ func (s *Store) Install(id, source string) (string, error) {
 		return "", fmt.Errorf("inspect optional capability source: %w", err)
 	}
 	if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode()&0111 == 0) {
-		return "", fmt.Errorf("optional capability source %q is not an executable regular file", source)
+		return "", fmt.Errorf("optional capability source %s is not an executable regular file", pathdisplay.Context(source))
 	}
 
 	input, err := os.Open(source)
