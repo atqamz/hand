@@ -826,6 +826,52 @@ func TestProjectAddRemovesIncompleteCloneOnGitFailure(t *testing.T) {
 	}
 }
 
+// The clone-path half of hand#440: git's own "'remote-https' is not a git command" plumbing
+// error - the exact text a bundle with no remote helper produces, verbatim from the reported
+// failure - must be replaced with the named runtime defect and the ssh treatment.
+func TestDiagnoseCloneFailureNamesMissingHelperInsteadOfPassingGitTextThrough(t *testing.T) {
+	raw := []byte("Cloning into 'repo'...\n" +
+		"warning: templates not found in /dist/git-2.51.0/share/git-core/templates\n" +
+		"git: 'remote-https' is not a git command. See 'git --help'.\n" +
+		"fatal: remote helper 'https' aborted session\n")
+	err := diagnoseCloneFailure("https://example.com/org/repo.git", raw)
+	if err == nil {
+		t.Fatal("diagnoseCloneFailure returned nil for a real git failure")
+	}
+	if strings.Contains(err.Error(), "is not a git command") || strings.Contains(err.Error(), "aborted session") {
+		t.Fatalf("diagnoseCloneFailure = %q, want the named runtime defect rather than git's raw text", err.Error())
+	}
+	for _, want := range []string{"git-remote-https", "ssh remote form", "git@host:owner/repo.git"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("diagnoseCloneFailure = %q, want it to mention %q", err.Error(), want)
+		}
+	}
+}
+
+// A scheme is read from git's own error text, not assumed to be https, so the same fix covers
+// any external helper a future bundle gap might drop - e.g. http, not only the reported scheme.
+func TestDiagnoseCloneFailureReadsTheSchemeFromGitsOwnText(t *testing.T) {
+	raw := []byte("git: 'remote-http' is not a git command. See 'git --help'.\n")
+	err := diagnoseCloneFailure("http://example.com/org/repo.git", raw)
+	if err == nil || !strings.Contains(err.Error(), "git-remote-http)") {
+		t.Fatalf("diagnoseCloneFailure = %v, want it to name git-remote-http", err)
+	}
+}
+
+// An unrelated git failure - one a real git config rewrite (insteadOf, an e2e fixture's local
+// remote) or any other cause could produce - must pass through unchanged: the diagnosis is keyed
+// on git's actual observed failure text, never guessed from the URL's scheme.
+func TestDiagnoseCloneFailureLeavesUnrelatedGitErrorsUnchanged(t *testing.T) {
+	raw := []byte("fatal: repository 'https://example.com/org/repo.git' not found\n")
+	err := diagnoseCloneFailure("https://example.com/org/repo.git", raw)
+	if err == nil || !strings.Contains(err.Error(), "repository 'https://example.com/org/repo.git' not found") {
+		t.Fatalf("diagnoseCloneFailure = %v, want git's original text preserved", err)
+	}
+	if strings.Contains(err.Error(), "git-remote-https") {
+		t.Fatalf("diagnoseCloneFailure = %v, want no false-positive transport diagnosis", err)
+	}
+}
+
 func TestProjectAddRefusesExistingCloneDestination(t *testing.T) {
 	home := t.TempDir()
 	dest := filepath.Join(home, "projects", "repo")

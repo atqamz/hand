@@ -56,7 +56,10 @@ type Status struct {
 	TreehouseVersion string
 	HerdrPath        string
 	HerdrVersion     string
-	Reason           string
+	// GitHTTPSReady is observed independently of Ready: whether the installed Git carries a
+	// git-remote-https helper, not whether the bundle as a whole is intact (hand#440).
+	GitHTTPSReady bool
+	Reason        string
 }
 
 func NewStore(root string, lock Lock) (*Store, error) {
@@ -125,6 +128,7 @@ func (s *Store) Status(goos, goarch string) (Status, error) {
 		TreehouseVersion: runtime.TreehouseVersion,
 		HerdrPath:        runtime.HerdrPath,
 		HerdrVersion:     runtime.HerdrVersion,
+		GitHTTPSReady:    runtime.SupportsGitTransport("https"),
 	}, nil
 }
 

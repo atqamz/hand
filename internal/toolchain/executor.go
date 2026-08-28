@@ -137,6 +137,24 @@ func (r Runtime) Process(path string, args ...string) (ProcessSpec, error) {
 	return NewProcessSpec(path, args, env)
 }
 
+// SupportsGitTransport reports whether the runtime's Git carries the external remote helper a
+// URL scheme needs, observed as git-remote-<scheme> next to the managed git binary rather than
+// assumed from the runtime id or version (hand#440); ssh, git, and file need no helper.
+func (r Runtime) SupportsGitTransport(scheme string) bool {
+	if r.GitBin == "" {
+		return false
+	}
+	path := filepath.Join(r.GitBin, executableName("git-remote-"+scheme))
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	if info.Mode()&0o111 == 0 && !strings.HasSuffix(strings.ToLower(path), ".exe") {
+		return false
+	}
+	return true
+}
+
 func requireExecutable(path string) error {
 	if err := requireAbsolute(path); err != nil {
 		return err

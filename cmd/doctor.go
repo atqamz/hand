@@ -121,6 +121,7 @@ func newDoctorCmd(info selfupdate.BuildInfo) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			findings = append(findings, runtimeHTTPSFindings(runtimeStatus)...)
 			herdrSession := observeCurrentHerdrSession(cmd.Context(), fleetHome)
 			tools := doctorManagedTools(runtimeStatus, projects)
 			integrations, err := integration.DefaultStore().List()
@@ -182,12 +183,23 @@ func doctorRuntimeStatus() (toolchain.Status, error) {
 	if legacyDoctorCompatibility() && !status.Ready && onPath("git") && onPath("treehouse") && onPath("herdr") {
 		status.Ready = true
 		status.Reason = "test-only legacy tool fixture"
+		status.GitHTTPSReady = true
 	}
 	return status, nil
 }
 
 func legacyDoctorCompatibility() bool {
 	return legacyDoctorCompat
+}
+
+// A missing https helper is a warning, not blocking: the bundle is otherwise intact and ssh
+// keeps working, so a fleet home that only clones over ssh must not read as unready with no
+// treatment (hand#440). A runtime that fails Ready already has its own "runtime" blocking entry.
+func runtimeHTTPSFindings(status toolchain.Status) []doctorFinding {
+	if !status.Ready || status.GitHTTPSReady {
+		return nil
+	}
+	return []doctorFinding{{Severity: doctorWarning, Text: "runtime git cannot clone https:// remotes: " + gitHTTPSTreatment("https")}}
 }
 
 func doctorFindings(fleetHome string, histories []state.TaskHistory) ([]doctorFinding, error) {
