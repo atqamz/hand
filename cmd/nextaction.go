@@ -20,6 +20,7 @@ const (
 	nextActionNeedsRepair      = "needs-repair"
 	nextActionSendUncertain    = "send-uncertain"
 	nextActionSendPartial      = "send-partial"
+	nextActionSendNotSubmitted = "send-not-submitted"
 	nextActionReportUnreadable = "report-unreadable"
 	nextActionUnreported       = "unreported"
 	nextActionRuntimeUnknown   = "runtime-unknown"
@@ -55,6 +56,10 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindSendPartial) }); ok {
 		return nextAction{Kind: nextActionSendPartial, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "confirm whether its send needs to be retried")}
+	}
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindSendNotSubmitted) }); ok {
+		return nextAction{Kind: nextActionSendNotSubmitted, Task: v.task.ID, Command: statusCommand(v.task.ID),
+			Reason: statusReason(v.task.ID, "resend the message that was not submitted")}
 	}
 	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindReportDecision) }); ok {
 		return nextAction{Kind: state.ReportNeedsDecision, Task: v.task.ID, Command: statusCommand(v.task.ID),

@@ -2008,17 +2008,21 @@ func TestStatusFlagsPartialSendAfterFreshRead(t *testing.T) {
 	active := state.Attempt{ID: 2, TaskID: "task-1", Lifecycle: state.AttemptRunning}
 	base := state.TaskHistory{Task: state.Task{ID: "task-1"}, ActiveAttempt: &active}
 	tests := []struct {
-		name          string
-		send          state.SendAttempt
-		wantFlag      string
-		wantAttention bool
-		wantRetrySafe bool
+		name              string
+		send              state.SendAttempt
+		wantFlag          string
+		wantAttention     bool // needsAttention(view): the task-level attention derivation
+		wantSendAttention bool // latestSendJSON(...).NeedsAttention: the unchanged internal/store predicate
+		wantRetrySafe     bool
 	}{
-		{name: "partial composer", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonEnterRejectedAfterTextStaged}, wantFlag: "send-partial", wantAttention: true},
-		{name: "retry-safe rejection", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonTextRejectedBeforeAcceptance}, wantAttention: false, wantRetrySafe: true},
-		{name: "pending", send: state.SendAttempt{State: state.SendPending}, wantFlag: "send-pending", wantAttention: true},
-		{name: "uncertain", send: state.SendAttempt{State: state.SendUncertain}, wantFlag: "send-uncertain", wantAttention: true},
-		{name: "submitted", send: state.SendAttempt{State: state.SendSubmitted}, wantAttention: false},
+		{name: "partial composer", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonEnterRejectedAfterTextStaged}, wantFlag: "send-partial", wantAttention: true, wantSendAttention: true},
+		// Retry-safe before-acceptance rejections now raise send-not-submitted at the task level
+		// (atqamz/hand#419) even though internal/store.SendNeedsAttention, a narrower per-send
+		// predicate this brief does not touch, still reports false for this reason code.
+		{name: "retry-safe rejection", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonTextRejectedBeforeAcceptance}, wantFlag: "send-not-submitted", wantAttention: true, wantSendAttention: false, wantRetrySafe: true},
+		{name: "pending", send: state.SendAttempt{State: state.SendPending}, wantFlag: "send-pending", wantAttention: true, wantSendAttention: true},
+		{name: "uncertain", send: state.SendAttempt{State: state.SendUncertain}, wantFlag: "send-uncertain", wantAttention: true, wantSendAttention: true},
+		{name: "submitted", send: state.SendAttempt{State: state.SendSubmitted}, wantAttention: false, wantSendAttention: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -2036,8 +2040,8 @@ func TestStatusFlagsPartialSendAfterFreshRead(t *testing.T) {
 				t.Fatalf("needsAttention = %t, want %t", got, test.wantAttention)
 			}
 			got := latestSendJSON(view.latestSend)
-			if got == nil || got.NeedsAttention != test.wantAttention || got.RetrySafe != test.wantRetrySafe {
-				t.Fatalf("latest send JSON = %+v, want attention=%t retry_safe=%t", got, test.wantAttention, test.wantRetrySafe)
+			if got == nil || got.NeedsAttention != test.wantSendAttention || got.RetrySafe != test.wantRetrySafe {
+				t.Fatalf("latest send JSON = %+v, want attention=%t retry_safe=%t", got, test.wantSendAttention, test.wantRetrySafe)
 			}
 		})
 	}
