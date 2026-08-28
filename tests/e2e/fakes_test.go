@@ -166,7 +166,7 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
     ;;
   "pane read")
     echo "herdr pane read $3" >> %s
-    cat %s/"$3".text 2>/dev/null || true
+    cat %s/"$3".text 2>/dev/null
     ;;
   "pane send-text") echo "herdr pane send-text $3 $4" >> %s ;;
   "pane send-keys") echo "herdr pane send-keys $3 $4" >> %s ;;`,
@@ -192,8 +192,7 @@ func writeFakeHerdrSend(t *testing.T, dir, statusDir, logPath string) {
     printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent":"claude","agent_status":"%%s"}}}\n' "$3" "$status"
     ;;
   "pane send-text") echo "sender=$PPID pane send-text $4" >> %s ;;
-  "pane send-keys") echo "sender=$PPID pane send-keys $4" >> %s ;;
-  "pane read") ;;`,
+  "pane send-keys") echo "sender=$PPID pane send-keys $4" >> %s ;;`,
 		shellSingleQuote(statusDir), quotedLog, quotedLog, quotedLog)
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }

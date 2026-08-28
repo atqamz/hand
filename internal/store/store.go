@@ -104,10 +104,10 @@ const (
 const (
 	SendReasonTextRejectedBeforeAcceptance = "text-rejected-before-acceptance"
 	SendReasonEnterRejectedAfterTextStaged = "enter-rejected-after-text-staged"
-	// SendReasonComposerRetainsMessage marks a send where Text and the submit key both returned success,
-	// but the composer still visibly held a recognizable fragment of the message after confirmation and
-	// one bounded retry (atqamz/hand#420, atqamz/hand#426): text landed, submission did not.
-	SendReasonComposerRetainsMessage = "composer-retains-message-after-retry"
+	// Marks a codex Tab/queue send where Text and Tab both returned success, but the composer still
+	// visibly held a recognizable fragment of the message (atqamz/hand#426): text landed, the queue
+	// did not. Enter never produces this reason - it has no confirmation signal yet (atqamz/hand#420).
+	SendReasonComposerRetainsMessage = "composer-retains-message"
 )
 
 type SendOrigin string

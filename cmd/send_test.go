@@ -356,11 +356,10 @@ func TestSendClassifiesStructuredPreTextRejectionAsNotSubmitted(t *testing.T) {
 	}
 }
 
-// From the scout's live reproduction of atqamz/hand#420, wired through the full CLI: a composer that
-// still shows the sent message after the bounded retry must reach the operator as a typed not-submitted
-// failure, never as a silent "result: sent".
-func TestSendReportsNotSubmittedWhenComposerStillHoldsTheMessageAfterRetry(t *testing.T) {
-	useFastSendConfirmPolling(t)
+// atqamz/hand#420: Enter has no working confirmation signal (a live-verified limitation - see
+// internal/steering's TestExecuteSubmitsOnEnterWithoutReadingTheComposerBack), so an Enter send stays
+// claim-based end to end through the full CLI: it reports sent even with unrelated text still on screen.
+func TestSendReportsSentOnEnterRegardlessOfComposerContent(t *testing.T) {
 	home := setupSendHome(t, faketool.Herdr{
 		PaneStatus:           "idle",
 		PaneReadUnwrappedOut: "› stop and wait for review",
@@ -371,15 +370,13 @@ func TestSendReportsNotSubmittedWhenComposerStillHoldsTheMessageAfterRetry(t *te
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
-	err := cmd.Execute()
-	var exitErr *ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 6 {
-		t.Fatalf("got %v, want ExitError code 6", err)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want Enter's claim-based sent result", err)
 	}
 
 	sends, err := state.ListSends(home, "task-1")
-	if err != nil || len(sends) != 1 || sends[0].State != state.SendNotSubmitted || sends[0].ReasonCode != state.SendReasonComposerRetainsMessage {
-		t.Fatalf("sends=%+v err=%v, want one not-submitted send with the retains-message reason", sends, err)
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted || sends[0].ReasonCode != "text-and-enter-accepted" {
+		t.Fatalf("sends=%+v err=%v, want one submitted send with the plain accepted reason", sends, err)
 	}
 }
 

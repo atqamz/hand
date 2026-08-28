@@ -197,55 +197,19 @@ func composerConfirms(client Client, paneID, sent, key string) (bool, error) {
 	}
 }
 
-func submittedReason(key string, retried bool) string {
-	reason := "text-and-enter-confirmed"
-	if key == "Tab" {
-		reason = "text-and-tab-queued"
+// Only the Tab path gets a composer-content confirmation: codexQueuedMarker gives composerRetains a
+// real truncation point there. Enter has none - an accepted message stays visible as a live-verified
+// ">" history line, so the same check would misreport ordinary sends as not-submitted (atqamz/hand#420).
+func submissionOutcome(client Client, paneID, message, key string) (state.SendState, string, bool, bool) {
+	if key != "Tab" {
+		return state.SendSubmitted, "text-and-enter-accepted", true, false
 	}
-	if retried {
-		reason += "-after-retry"
-	}
-	return reason
-}
-
-// Turns a PaneSendText/PaneSendKeys failure into the same NotSubmitted/Uncertain split the first
-// attempt has always used, so a bounded retry that hits a structured rejection is reported exactly as
-// informatively as an original attempt would have been.
-func classifySubmitError(err error, notSubmittedReason string, ambiguousReason string, partial bool) (state.SendState, string, bool) {
-	if herdr.IsPreSideEffectRejection(err) || herdr.IsProcessNotStarted(err) {
-		return state.SendNotSubmitted, rejectionReason(err, notSubmittedReason), partial
-	}
-	return state.SendUncertain, ambiguousReason, false
-}
-
-// Runs once Text and the submit key both return success: reads the composer back and, if the message
-// is still recognizably there, resends once before giving up - verification before retry, since an
-// identical resend was observed recovering a send the first attempt silently lost.
-func confirmSubmission(req Request, current state.Attempt, message, key string) (state.SendState, string, bool, bool) {
-	confirmed, err := composerConfirms(req.Client, current.Herdr.PaneID, message, key)
+	confirmed, err := composerConfirms(client, paneID, message, key)
 	if err != nil {
 		return state.SendUncertain, "composer-confirmation-read-failed", false, false
 	}
 	if confirmed {
-		return state.SendSubmitted, submittedReason(key, false), true, false
-	}
-
-	retryKey := chooseSubmitKey(req.Client, current.Herdr.PaneID, current.Harness)
-	if err := req.Client.PaneSendText(current.Herdr.PaneID, message); err != nil {
-		next, reason, partial := classifySubmitError(err, state.SendReasonTextRejectedBeforeAcceptance, "retry-text-outcome-ambiguous", false)
-		return next, reason, false, partial
-	}
-	if err := req.Client.PaneSendKeys(current.Herdr.PaneID, retryKey); err != nil {
-		next, reason, partial := classifySubmitError(err, state.SendReasonEnterRejectedAfterTextStaged, "retry-enter-outcome-ambiguous", true)
-		return next, reason, false, partial
-	}
-
-	confirmed, err = composerConfirms(req.Client, current.Herdr.PaneID, message, retryKey)
-	if err != nil {
-		return state.SendUncertain, "composer-confirmation-read-failed-after-retry", false, false
-	}
-	if confirmed {
-		return state.SendSubmitted, submittedReason(retryKey, true), true, false
+		return state.SendSubmitted, "text-and-tab-queued", true, false
 	}
 	return state.SendNotSubmitted, state.SendReasonComposerRetainsMessage, false, true
 }
@@ -381,7 +345,7 @@ func Execute(req Request) (Result, error) {
 		return Result{}, pendingError(send, req.Faults.AfterEnter, "enter-succeeded-before-finalization")
 	}
 
-	next, reason, submitted, partial := confirmSubmission(req, current, req.Message, key)
+	next, reason, submitted, partial := submissionOutcome(req.Client, current.Herdr.PaneID, req.Message, key)
 
 	if req.Faults.BeforePersist != nil {
 		return Result{}, &Error{Cause: fmt.Errorf("terminal submission returned success, but durable send finalization failed: %w", req.Faults.BeforePersist), Send: &send, AttemptID: current.ID, State: state.SendPending, Reason: "durable-finalization-unresolved", FinalizationFault: true}

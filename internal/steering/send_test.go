@@ -21,7 +21,10 @@ type testPane struct {
 	// Unset answers "" every time, which contains no send's message and so confirms on the first read.
 	readResponses []string
 	readErr       error
-	readCalls     int
+	// Makes readErr bite only from this call number onward (1-indexed); zero means every call fails,
+	// matching the original behavior for a test that never sets it.
+	readErrFrom int
+	readCalls   int
 }
 
 func (p *testPane) PaneGet(string) (herdr.Pane, error) { return p.pane, nil }
@@ -38,7 +41,7 @@ func (p *testPane) PaneSendKeys(_ string, keys ...string) error {
 
 func (p *testPane) PaneReadUnwrapped(string, int) (string, error) {
 	p.readCalls++
-	if p.readErr != nil {
+	if p.readErr != nil && (p.readErrFrom == 0 || p.readCalls >= p.readErrFrom) {
 		return "", p.readErr
 	}
 	if len(p.readResponses) == 0 {
@@ -269,106 +272,61 @@ func useFastSendConfirmPolling(t *testing.T) {
 	t.Cleanup(restore)
 }
 
-// From the scout's live reproduction of atqamz/hand#420: a corrupted composer keeps rendering a
-// recognizable fragment of the sent message - here on every read, including after the one bounded
-// retry - so the send must land where SendNeedsAttention can see it, never on SendSubmitted.
-func TestExecuteDoesNotConfirmSubmittedWhileComposerStillHoldsTheMessage(t *testing.T) {
-	restore := ConfigureSendConfirmPollingForTest(time.Millisecond, 0, 400)
-	t.Cleanup(restore)
-	home, _ := newSteeringHome(t)
-	pane := &testPane{
-		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
-		readResponses: []string{"the composer still shows: hello, please review this carefully"},
-	}
-	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello, please review this carefully", Origin: state.SendOriginOperator, Client: pane})
-	var sendErr *Error
-	if err == nil || !errors.As(err, &sendErr) {
-		t.Fatalf("err=%v, want a steering.Error", err)
-	}
-	if sendErr.State != state.SendNotSubmitted || sendErr.Reason != state.SendReasonComposerRetainsMessage || sendErr.RetrySafe || !sendErr.PartialComposer {
-		t.Fatalf("err=%+v, want confirmed-not-submitted after retry, not retry-safe, partial", sendErr)
-	}
-	if len(pane.textCalls) != 2 || len(pane.keyCalls) != 2 {
-		t.Fatalf("calls=%v/%v, want one original attempt and one bounded retry", pane.textCalls, pane.keyCalls)
-	}
-	if got, found, readErr := state.LatestSend(home, "task-1", 1); readErr != nil || !found || got.State != state.SendNotSubmitted || got.ReasonCode != state.SendReasonComposerRetainsMessage {
-		t.Fatalf("latest send = %+v found=%v err=%v", got, found, readErr)
-	}
-}
-
-// The operator's own recovery on atqamz/hand#420 and the scout's live reproduction both found an
-// immediate identical retry sometimes succeeds where the first attempt silently lost bytes - decision 4
-// asks for exactly that bounded retry, on top of verification.
-func TestExecuteRetriesOnceAndConfirmsWhenComposerClearsAfterResend(t *testing.T) {
-	// A zero timeout makes composerConfirms's own bounded poll exhaust after exactly one read every
-	// time, so the sequence below is deterministic: confirm-fails, resend, confirm-succeeds - never a
-	// race against how many reads a longer poll window happens to fit in before the composer clears.
-	restore := ConfigureSendConfirmPollingForTest(time.Millisecond, 0, 400)
-	t.Cleanup(restore)
+// Live testing against a real codex worker found Enter has no working confirmation signal: an accepted
+// message stays visible as a ">" history line, so a content check there would misreport ordinary sends
+// as not-submitted (atqamz/hand#420). Enter stays claim-based and never reads the pane back to check.
+func TestExecuteSubmitsOnEnterWithoutReadingTheComposerBack(t *testing.T) {
 	home, attempt := newSteeringHome(t)
 	pane := &testPane{
 		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
-		readResponses: []string{"hello still sitting in the composer", ""},
+		readResponses: []string{"hello still sitting in the composer, unmoved"},
 	}
 	result, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Send.State != state.SendSubmitted || result.Send.AttemptID != attempt.ID {
-		t.Fatalf("result = %+v, want submitted after the retry confirmed", result.Send)
+		t.Fatalf("result = %+v, want submitted: Enter is claim-based", result.Send)
 	}
-	if got, found, readErr := state.LatestSend(home, "task-1", attempt.ID); readErr != nil || !found || got.ReasonCode != "text-and-enter-confirmed-after-retry" {
-		t.Fatalf("latest send = %+v found=%v err=%v, want the after-retry reason", got, found, readErr)
+	if got, found, readErr := state.LatestSend(home, "task-1", attempt.ID); readErr != nil || !found || got.ReasonCode != "text-and-enter-accepted" {
+		t.Fatalf("latest send = %+v found=%v err=%v, want the plain accepted reason", got, found, readErr)
 	}
-	if len(pane.textCalls) != 2 || pane.textCalls[0] != "hello" || pane.textCalls[1] != "hello" {
-		t.Fatalf("text calls = %v, want the identical message resent once", pane.textCalls)
-	}
-	if len(pane.keyCalls) != 2 {
-		t.Fatalf("key calls = %v, want Enter resent once", pane.keyCalls)
+	if pane.readCalls != 0 {
+		t.Fatalf("readCalls = %d, want zero: Enter never reads the pane back", pane.readCalls)
 	}
 }
 
-// A worker that consumes the message and finishes before hand's first read is not a failure - the
-// composer clearing on its own, within the bounded poll, must confirm without ever resending.
-func TestExecuteConfirmsAfterABoundedPollWithoutRetrying(t *testing.T) {
+// A read failure while confirming a codex Tab/queue send is genuine uncertainty, distinguishable from a
+// composer positively observed still holding the message (SendUncertain vs SendNotSubmitted). The first
+// read (choosing Tab) succeeds; only the confirmation read after it fails.
+func TestExecuteMarksCodexTabConfirmationReadFailureUncertain(t *testing.T) {
 	useFastSendConfirmPolling(t)
 	home, _ := newSteeringHome(t)
-	pane := &testPane{
-		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
-		readResponses: []string{"hello still there", "hello still there", ""},
-	}
-	result, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
+	db, err := store.Open(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Send.State != state.SendSubmitted {
-		t.Fatalf("result = %+v, want submitted", result.Send)
+	if err := db.CreateTask(state.Task{ID: "task-codex", Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
 	}
-	if got, found, readErr := state.LatestSend(home, "task-1", result.Send.AttemptID); readErr != nil || !found || got.ReasonCode != "text-and-enter-confirmed" {
-		t.Fatalf("latest send = %+v found=%v err=%v, want the plain confirmed reason with no retry", got, found, readErr)
+	if _, err := db.CreateAttempt(state.Attempt{TaskID: "task-codex", Lifecycle: state.AttemptRunning, Harness: "codex",
+		Herdr: state.Herdr{Session: "session-1", WorkspaceID: "workspace-1", TabID: "tab-1", PaneID: "pane-1"}}); err != nil {
+		t.Fatal(err)
 	}
-	if len(pane.textCalls) != 1 || len(pane.keyCalls) != 1 {
-		t.Fatalf("calls=%v/%v, want no retry: the bounded poll alone confirmed it", pane.textCalls, pane.keyCalls)
-	}
-}
-
-// A read failure during confirmation is genuine uncertainty, not evidence either way - it must not be
-// silently read as submitted, and it is distinguishable from a composer positively observed still
-// holding the message (state.SendUncertain vs state.SendNotSubmitted).
-func TestExecuteMarksConfirmationReadFailureUncertain(t *testing.T) {
-	useFastSendConfirmPolling(t)
-	home, _ := newSteeringHome(t)
+	_ = db.Close()
 	pane := &testPane{
-		pane:    herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
-		readErr: errors.New("herdr pane read: transport lost"),
+		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusWorking},
+		readResponses: []string{"tab to queue message                97% context left"},
+		readErr:       errors.New("herdr pane read: transport lost"),
+		readErrFrom:   2,
 	}
-	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
+	_, err = Execute(Request{Home: home, TaskID: "task-codex", Message: "please pause and wait for review", Origin: state.SendOriginOperator, Client: pane, Force: true})
 	var sendErr *Error
 	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendUncertain || sendErr.Reason != "composer-confirmation-read-failed" {
 		t.Fatalf("err=%v, want uncertain confirmation-read-failed", err)
 	}
-	if len(pane.textCalls) != 1 || len(pane.keyCalls) != 1 {
-		t.Fatalf("calls=%v/%v, want no retry after an unreadable pane", pane.textCalls, pane.keyCalls)
+	if len(pane.keyCalls) != 1 || len(pane.keyCalls[0]) != 1 || pane.keyCalls[0][0] != "Tab" {
+		t.Fatalf("key calls = %v, want a single Tab chosen from the successful first read", pane.keyCalls)
 	}
 }
 
