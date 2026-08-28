@@ -726,11 +726,12 @@ func TestInitRefusesATargetInsideHandsTreehousePool(t *testing.T) {
 func TestInitRefusesATargetInsideAnotherFleetsProjectsTree(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	fleetHome := t.TempDir()
-	db, err := store.Open(fleetHome)
-	if err != nil {
+	// refuseManagedTreeHome only checks home.IsHome's marker files, never opens a database, so the
+	// fixture matches: no sqlite handle survives the test to block Windows' TempDir cleanup.
+	if err := os.MkdirAll(filepath.Join(fleetHome, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Close(); err != nil {
+	if err := os.WriteFile(filepath.Join(fleetHome, "state", "hand.db"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(fleetHome, "projects", "someproj", "worktree")
@@ -741,7 +742,7 @@ func TestInitRefusesATargetInsideAnotherFleetsProjectsTree(t *testing.T) {
 
 	cmd := newInitCmd()
 	cmd.SetArgs([]string{target})
-	err = cmd.Execute()
+	err := cmd.Execute()
 	var exitErr *ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 || !strings.Contains(err.Error(), "managed project tree") {
 		t.Fatalf("init error = %v, want a code-3 managed project tree refusal", err)
