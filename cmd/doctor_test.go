@@ -659,6 +659,61 @@ func TestDoctorReportsViolationsAndExitsNonZero(t *testing.T) {
 	}
 }
 
+// INV-OUT-4's stdout half: `hand doctor` renders its full report to stdout
+// and still returns an error on a violation, and renderError's separate
+// document (simulated here against its own buffer) never touches it.
+func TestDoctorViolationsKeepStdoutReportAndRenderASeparateErrorDocument(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "AGENTS.md")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("\nFixed on 2026-07-29.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newDoctorCmd(stableBuild("v0.1.0"))
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	runErr := cmd.Execute()
+	if runErr == nil {
+		t.Fatal("got nil error, want a non-nil error for a perishable-content hit")
+	}
+	report := out.String()
+	if !strings.Contains(report, "violations: 1\n") {
+		t.Fatalf("stdout = %q, want the doctor report with a violation counted", report)
+	}
+
+	var errDoc strings.Builder
+	if renderErr := renderError(&errDoc, runErr, 1, "hand doctor"); renderErr != nil {
+		t.Fatal(renderErr)
+	}
+	if out.String() != report {
+		t.Fatalf("stdout changed after rendering the error document: got %q, want unchanged %q", out.String(), report)
+	}
+	for _, want := range []string{"error: ", "kind: general\n", "exit: 1\n"} {
+		if !strings.Contains(errDoc.String(), want) {
+			t.Fatalf("error document = %q, want %q", errDoc.String(), want)
+		}
+	}
+	if strings.Contains(errDoc.String(), "violations:") {
+		t.Fatalf("error document = %q, want the doctor report's fields to stay out of the error document", errDoc.String())
+	}
+}
+
 func TestDoctorTreatsMissingManagedMarkersAsViolation(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)

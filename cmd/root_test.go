@@ -22,6 +22,7 @@ import (
 	"github.com/atqamz/hand/internal/store"
 	"github.com/spf13/cobra"
 	_ "modernc.org/sqlite"
+	"pgregory.net/rapid"
 )
 
 func devBuild(version string) selfupdate.BuildInfo {
@@ -481,6 +482,73 @@ func TestErrorDocumentNamesTheKindBehindEveryExitCode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Both *testing.T and *rapid.T satisfy this, so a helper works the same
+// inside a rapid.Check property as in a plain test.
+type fataler interface {
+	Fatalf(format string, args ...any)
+}
+
+// An unquoted value can never itself start with a literal `"`, since Value
+// quotes anything that contains one.
+func decodeErrorFieldValue(t fataler, line string) string {
+	raw := strings.TrimPrefix(line, "error: ")
+	if !strings.HasPrefix(raw, `"`) {
+		return raw
+	}
+	v, err := strconv.Unquote(raw)
+	if err != nil {
+		t.Fatalf("unquote %q: %v", raw, err)
+	}
+	return v
+}
+
+func countLinesWithPrefix(doc, prefix string) int {
+	n := 0
+	for _, line := range strings.Split(doc, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// INV-OUT-4's document shape, for any error text and exit code, including
+// one outside the nine the application defines. Doctor_test.go's
+// TestDoctorViolationsKeepStdoutReportAndRenderASeparateErrorDocument covers the stdout half.
+func TestRenderErrorAlwaysWritesExactlyOneDocumentWithErrorKindAndExit(t *testing.T) {
+	tricky := rapid.RuneFrom([]rune{',', ':', '"', '\n', '\r', '\t', ' ', '\\', 'é', '日'})
+	boring := rapid.RuneFrom([]rune("abcXYZ019"))
+	body := rapid.StringOfN(rapid.OneOf(boring, tricky), 1, 40, -1)
+
+	rapid.Check(t, func(t *rapid.T) {
+		msg := body.Draw(t, "msg")
+		code := rapid.IntRange(-5, 15).Draw(t, "code")
+
+		var out strings.Builder
+		if err := renderError(&out, errors.New(msg), code, "hand spawn"); err != nil {
+			t.Fatal(err)
+		}
+		doc := out.String()
+
+		for _, prefix := range []string{"error: ", "kind: ", "exit: "} {
+			if n := countLinesWithPrefix(doc, prefix); n != 1 {
+				t.Fatalf("error document = %q, %d lines start with %q, want exactly 1", doc, n, prefix)
+			}
+		}
+
+		lines := strings.SplitN(doc, "\n", 4)
+		if gotMsg := decodeErrorFieldValue(t, lines[0]); gotMsg != msg {
+			t.Fatalf("error document = %q, error field decoded to %q, want the original %q", doc, gotMsg, msg)
+		}
+		if wantKind := "kind: " + errorKind(code); lines[1] != wantKind {
+			t.Fatalf("error document = %q, kind line = %q, want %q", doc, lines[1], wantKind)
+		}
+		if wantExit := "exit: " + strconv.Itoa(code); lines[2] != wantExit {
+			t.Fatalf("error document = %q, exit line = %q, want %q", doc, lines[2], wantExit)
+		}
+	})
 }
 
 // atqamz/hand#460: the refusal's help line names both ways forward rather than the generic
