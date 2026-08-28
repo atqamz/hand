@@ -38,6 +38,13 @@ existed, which is a worse failure than the one being fixed.
 A digest proves the supervisor touched the brief deliberately. It cannot judge whether the new
 brief is a *good* ship brief, and does not try to - that limit is deliberate, not an oversight.
 
+The digest excludes hand's own appendix to a grok or pi brief (atqamz/hand#418): that append
+happens at provision time, after the launching attempt's own digest is already recorded, so a
+later comparison that hashed the whole file would read hand's edit as a supervisor revision and
+never refuse for exactly the harnesses the append targets. `internal/brief.Digest` strips
+everything from that appendix's marker onward before hashing, so only supervisor-authored bytes
+are compared on either side.
+
 ## Rejected alternatives
 
 **Promote without launching.** Splits one command into two for every promotion, including the ones
