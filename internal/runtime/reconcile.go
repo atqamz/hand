@@ -1361,7 +1361,7 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 		_, err = r.provision(ctx, provisioningRequest{
 			home: home, projectName: projectInfo.Name, clonePath: filepath.Join(home, "projects", projectInfo.Name),
 			briefPath: briefPath, briefHasFrontMatter: hasFrontMatter, recheckMechanicalBase: true, attempt: attempt,
-			resumeExisting: attempt.Worktree != "",
+			resumeExisting: attempt.Worktree != "", taskKind: task.Kind,
 		})
 		return err
 	case reconciliationActionConfirmLaunch:
@@ -1376,7 +1376,7 @@ func (r *Runtime) applyReconciliationAction(ctx context.Context, home string, ta
 		}
 		spec, err := r.deps.buildHarness(attempt.Harness, harness.Options{
 			Worktree: attempt.Worktree, Brief: briefPath, ReportPath: reportPath, Model: attempt.Model, Effort: attempt.Effort,
-			ExecutionClass: brief.ExecutionClass(attempt.ExecutionClass), BriefHasFrontMatter: hasFrontMatter,
+			ExecutionClass: brief.ExecutionClass(attempt.ExecutionClass), BriefHasFrontMatter: hasFrontMatter, Kind: task.Kind,
 		})
 		if err != nil {
 			return fmt.Errorf("build persisted launch evidence: %w", err)

@@ -120,7 +120,7 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 
 	provisionRequest := provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		briefHasFrontMatter: route.BriefHasFrontMatter, paneStartedAt: createdAt, attempt: attempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, paneStartedAt: createdAt, attempt: attempt, taskKind: task.Kind,
 	}
 	var worktreePath string
 	if releaseProject != nil {

@@ -208,6 +208,16 @@ Source: [Every diagnosis names a reachable treatment](adr/every-diagnosis-names-
 | INV-DIAG-2 | A persisted repair reason carries its treatment text with the task id substituted, so a refusal and the way out cannot drift apart. | property | unaudited |
 | INV-DIAG-3 | Every treatment falls in exactly one of the three classes. | property | unaudited |
 
+## Launch-level delivery authorization
+
+Source: `internal/harness/harness.go` (`briefPrompt`), `cmd/doctor.go`.
+
+| id | invariant | layer | coverage |
+|---|---|---|---|
+| INV-AUTH-1 | A ship task's launch prompt always states the worker is authorized to commit, push its branch, and open the pull request, regardless of what the brief itself says. | unit | `TestBuildShipCarriesDeliveryAuthorization` |
+| INV-AUTH-2 | A scout task's launch prompt always states its deliverable is a report and that it must not commit, push, or open a pull request, and never carries the ship grant. | unit | `TestBuildScoutCarriesNoDeliveryGrant` |
+| INV-AUTH-3 | `hand doctor` names every open ship task that reported done with no pull request recorded, and the finding names the command that shows the way out. | unit | `TestDoctorWarnsForOpenShipTaskReportedDoneWithNoPR` |
+
 ## Pure helpers
 
 Source: `internal/shellquote`, `internal/age`, `cmd/statusview.go`.

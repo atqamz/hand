@@ -9,6 +9,7 @@ import (
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func buildSpec(t *testing.T, name string, options Options) launch.LaunchSpec {
@@ -266,6 +267,39 @@ func TestBuildOpenCodeNeverHeadless(t *testing.T) {
 	}
 	if spec.Env["OPENCODE_CONFIG_CONTENT"] == "" {
 		t.Fatalf("env = %#v, want OPENCODE_CONFIG_CONTENT", spec.Env)
+	}
+}
+
+func TestBuildShipCarriesDeliveryAuthorization(t *testing.T) {
+	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Kind: state.KindShip})
+		for _, want := range []string{"authorized to commit, push your branch, and open the pull request", "merging and closing the issue are the supervisor's action only"} {
+			if !containsText(spec.Args, want) {
+				t.Fatalf("Build(%q) args = %#v, want ship delivery authorization %q", name, spec.Args, want)
+			}
+		}
+		if containsText(spec.Args, "must not commit, push, or open a pull request") {
+			t.Fatalf("Build(%q) args = %#v, ship must not carry the scout refusal", name, spec.Args)
+		}
+	}
+}
+
+func TestBuildScoutCarriesNoDeliveryGrant(t *testing.T) {
+	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
+		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md", Kind: state.KindScout})
+		if !containsText(spec.Args, "must not commit, push, or open a pull request") {
+			t.Fatalf("Build(%q) args = %#v, want scout refusal", name, spec.Args)
+		}
+		if containsText(spec.Args, "authorized to commit, push your branch") {
+			t.Fatalf("Build(%q) args = %#v, scout must not carry the ship grant", name, spec.Args)
+		}
+	}
+}
+
+func TestBuildWithoutKindCarriesNoAuthorizationStatement(t *testing.T) {
+	spec := buildSpec(t, Claude, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
+	if containsText(spec.Args, "authorized to commit, push your branch") || containsText(spec.Args, "must not commit, push, or open a pull request") {
+		t.Fatalf("Build args = %#v, want no authorization statement without a kind", spec.Args)
 	}
 }
 

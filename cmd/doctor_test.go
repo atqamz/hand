@@ -217,6 +217,59 @@ func TestDoctorWarnsForOpenBriefWithoutReportPath(t *testing.T) {
 	}
 }
 
+func TestDoctorWarnsForOpenShipTaskReportedDoneWithNoPR(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if _, err := agentsmd.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := skill.Refresh(home); err != nil {
+		t.Fatal(err)
+	}
+	mustConfigSet(t, settingHarness, harness.Claude)
+
+	for _, task := range []state.Task{
+		{ID: "stuck", Project: "demo", Kind: state.KindShip, Brief: "data/stuck/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "delivered", Project: "demo", Kind: state.KindShip, Brief: "data/delivered/brief.md", Lifecycle: state.TaskOpen, PR: "https://github.com/atqamz/hand/pull/1"},
+		{ID: "working", Project: "demo", Kind: state.KindShip, Brief: "data/working/brief.md", Lifecycle: state.TaskOpen},
+		{ID: "scouting", Project: "demo", Kind: state.KindScout, Brief: "data/scouting/brief.md", Lifecycle: state.TaskOpen},
+	} {
+		if err := state.CreateTask(home, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, report := range map[string]string{
+		"stuck":     "done: nothing left to do\n",
+		"delivered": "done: PR opened\n",
+		"working":   "working: still going\n",
+		"scouting":  "done: report written\n",
+	} {
+		if err := os.WriteFile(state.ReportPath(home, id), []byte(report), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	histories, err := state.ListOpenHistoriesReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := doctorFindings(".", histories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDoctorFinding(findings, doctorFinding{Severity: doctorWarning, Text: "task \"stuck\" is an open ship task that reported done with no pull request recorded; run `hand status stuck` to see what unblocks it"}) {
+		t.Fatalf("findings = %#v, want stuck ship task warning", findings)
+	}
+	for _, id := range []string{"delivered", "working", "scouting"} {
+		for _, finding := range findings {
+			if finding.Severity == doctorWarning && strings.Contains(finding.Text, fmt.Sprintf("task %q is an open ship task", id)) {
+				t.Fatalf("findings = %#v, task %q should not warn", findings, id)
+			}
+		}
+	}
+}
+
 func hasDoctorFindingPrefix(findings []doctorFinding, severity doctorSeverity, prefix string) bool {
 	for _, finding := range findings {
 		if finding.Severity == severity && strings.HasPrefix(finding.Text, prefix) {
