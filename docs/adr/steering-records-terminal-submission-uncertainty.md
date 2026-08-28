@@ -1,7 +1,7 @@
 # Steering records terminal submission uncertainty
 
 Date: 2026-08-15
-Status: superseded in part by [Codex's Tab queue is confirmed by composer content, Enter is not yet](codex-tab-queue-submission-is-confirmed-by-composer-content.md), which redefines what `submitted` certifies for a codex Tab/queue send only; the account of a plain Enter send below, and the `pending`/`uncertain` terminality and lock-ordering decisions, still stand
+Status: superseded in part by [Codex's Tab queue is confirmed by composer content, so is Enter](codex-tab-queue-submission-is-confirmed-by-composer-content.md), whose 2026-08-29 amendment redefines what `submitted` certifies for the plain Enter path too, not only the codex Tab/queue send its original decision covered; the `pending`/`uncertain` terminality and lock-ordering decisions below still stand
 Issues: atqamz/hand#197, atqamz/hand#176
 Pull requests: atqamz/hand#230
 

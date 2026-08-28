@@ -41,7 +41,11 @@ func TestSendHappyPathWhenIdle(t *testing.T) {
 	// "pane send-text"/"pane send-keys" are void commands: real success is empty stdout, not this envelope
 	// (callVoid's doc comment, client.go). callVoid only checks env.Error, which is nil here, so the extra
 	// body is harmless and this still exercises the real success path.
-	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
+	useFastSendConfirmPolling(t)
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", PaneReadUnwrappedSequence: []string{
+		"› hello worker",
+		"hello worker\n\n• Working (1s • esc to interrupt)",
+	}})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +86,12 @@ func TestSendReachesRunningAttemptCarryingNoLaunchEvidence(t *testing.T) {
 	// What a pre-split row and a legacy JSON import both look like: running, with no launch stamps to
 	// read. The attempt is genuinely alive, so refusing it would strand every fleet migrated into this
 	// schema (atqamz/hand#194).
+	useFastSendConfirmPolling(t)
 	logPath := filepath.Join(t.TempDir(), "sent.log")
-	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath, PaneReadUnwrappedSequence: []string{
+		"› hello worker",
+		"hello worker\n\n• Working (1s • esc to interrupt)",
+	}})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +141,11 @@ func TestSendFailsWhenPaneNotFound(t *testing.T) {
 func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 	// Same send-text/send-keys envelope simplification as
 	// TestSendHappyPathWhenIdle above.
-	home := setupSendHome(t, faketool.Herdr{PaneStatusSequence: []string{"working", "idle"}})
+	useFastSendConfirmPolling(t)
+	home := setupSendHome(t, faketool.Herdr{PaneStatusSequence: []string{"working", "idle"}, PaneReadUnwrappedSequence: []string{
+		"› hello",
+		"hello\n\n• Working (1s • esc to interrupt)",
+	}})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -146,9 +158,14 @@ func TestSendWaitsWhileBusyThenSends(t *testing.T) {
 }
 
 func TestSendReachesRenderedIdlePromptDespiteWorkingAgentStatus(t *testing.T) {
+	useFastSendConfirmPolling(t)
 	home := setupSendHome(t, faketool.Herdr{
 		PaneStatus:  "working",
 		PaneReadOut: "────────────────────────\n❯\n────────────────────────\n  Opus 5 | 3 shells\n",
+		PaneReadUnwrappedSequence: []string{
+			"› revoke merge authority",
+			"revoke merge authority\n\n• Working (1s • esc to interrupt)",
+		},
 	})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
@@ -190,8 +207,12 @@ func TestSendDoesNotSteerAnAttemptWhileTaskOwnershipIsChanging(t *testing.T) {
 }
 
 func TestSendReadsMessageFromFile(t *testing.T) {
+	useFastSendConfirmPolling(t)
 	logPath := filepath.Join(t.TempDir(), "sent.log")
-	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath})
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", TextLog: logPath, PaneReadUnwrappedSequence: []string{
+		"› line one\nline two",
+		"line one\nline two\n\n• Working (1s • esc to interrupt)",
+	}})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -356,10 +377,38 @@ func TestSendClassifiesStructuredPreTextRejectionAsNotSubmitted(t *testing.T) {
 	}
 }
 
-// atqamz/hand#420: Enter has no working confirmation signal (a live-verified limitation - see
-// internal/steering's TestExecuteSubmitsOnEnterWithoutReadingTheComposerBack), so an Enter send stays
-// claim-based end to end through the full CLI: it reports sent even with unrelated text still on screen.
-func TestSendReportsSentOnEnterRegardlessOfComposerContent(t *testing.T) {
+// atqamz/hand#420, wired through the full CLI: an accepted message stays visible forever as a history
+// line indistinguishable from one still unsent. Enter must still confirm here since new content
+// appeared and the tail is present - a pure absence check would misread this as stuck.
+func TestSendReportsSentOnEnterDespiteComposerStillShowingTheMessage(t *testing.T) {
+	useFastSendConfirmPolling(t)
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus: "idle",
+		PaneReadUnwrappedSequence: []string{
+			"› stop and wait for review",
+			"stop and wait for review\n\n• Working (1s • esc to interrupt)",
+		},
+	})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want Enter's confirmed result", err)
+	}
+
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted || sends[0].ReasonCode != "text-and-enter-confirmed" {
+		t.Fatalf("sends=%+v err=%v, want one submitted send with the confirmed reason", sends, err)
+	}
+}
+
+// The CLI-level analogue of the internal not-confirmed case: the composer never shows any reaction to
+// Enter at all, so hand must report not-submitted rather than a false submitted claim (atqamz/hand#420).
+func TestSendReportsNotSubmittedWhenComposerShowsNoReactionToEnter(t *testing.T) {
+	useFastSendConfirmPolling(t)
 	home := setupSendHome(t, faketool.Herdr{
 		PaneStatus:           "idle",
 		PaneReadUnwrappedOut: "› stop and wait for review",
@@ -370,13 +419,45 @@ func TestSendReportsSentOnEnterRegardlessOfComposerContent(t *testing.T) {
 
 	cmd := newSendCmd()
 	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("got %v, want Enter's claim-based sent result", err)
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 6 {
+		t.Fatalf("got %v, want ExitError code 6", err)
 	}
 
 	sends, err := state.ListSends(home, "task-1")
-	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted || sends[0].ReasonCode != "text-and-enter-accepted" {
-		t.Fatalf("sends=%+v err=%v, want one submitted send with the plain accepted reason", sends, err)
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendNotSubmitted || sends[0].ReasonCode != "enter-not-confirmed" {
+		t.Fatalf("sends=%+v err=%v, want one not-submitted send with the enter-not-confirmed reason", sends, err)
+	}
+}
+
+// The CLI-level analogue of the internal stalled-fragment case: the composer changed after Enter, so
+// something demonstrably happened, but never grew the sent message's own tail. That is positive evidence
+// unlike no reaction at all, so it lands on uncertain rather than not-submitted (atqamz/hand#459).
+func TestSendMarksEnterUncertainWhenComposerReactsWithoutTheTail(t *testing.T) {
+	useFastSendConfirmPolling(t)
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus: "idle",
+		PaneReadUnwrappedSequence: []string{
+			"› stop and wait for review",
+			"stop and wait for rev",
+		},
+	})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 7 {
+		t.Fatalf("got %v, want ExitError code 7", err)
+	}
+
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendUncertain || sends[0].ReasonCode != "enter-not-confirmed" {
+		t.Fatalf("sends=%+v err=%v, want one uncertain send with the enter-not-confirmed reason", sends, err)
 	}
 }
 
@@ -440,7 +521,15 @@ func TestSendDoesNotCreateRecordWhenComposerStaysBusy(t *testing.T) {
 }
 
 func TestSendForceBypassesBusyComposerAndKeepsDurableRecord(t *testing.T) {
-	home := setupSendHome(t, faketool.Herdr{PaneStatus: "working", PaneReadOut: "working...\nesc to interrupt (15s)\n  3 shells\n"})
+	useFastSendConfirmPolling(t)
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus:  "working",
+		PaneReadOut: "working...\nesc to interrupt (15s)\n  3 shells\n",
+		PaneReadUnwrappedSequence: []string{
+			"› revoke merge authority",
+			"revoke merge authority\n\n• Working (1s • esc to interrupt)",
+		},
+	})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +547,11 @@ func TestSendForceBypassesBusyComposerAndKeepsDurableRecord(t *testing.T) {
 }
 
 func TestSendKeepsLegacyTraceOutOfTheNewSendAuthority(t *testing.T) {
-	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle"})
+	useFastSendConfirmPolling(t)
+	home := setupSendHome(t, faketool.Herdr{PaneStatus: "idle", PaneReadUnwrappedSequence: []string{
+		"› hello",
+		"hello\n\n• Working (1s • esc to interrupt)",
+	}})
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}, SendUndeliveredMessage: "an earlier abandoned steer", SendUndeliveredAt: "2026-08-01T00:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}

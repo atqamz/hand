@@ -131,7 +131,7 @@ Source: [A project is identified by a surrogate id, not its name](adr/a-project-
 Source: [The report channel is the only outcome signal](adr/the-report-channel-is-the-only-outcome-signal.md),
 [Attention is one derivation over three channels](adr/attention-is-one-derivation-over-three-channels.md),
 [A file-only harness gets the launch statement appended to its brief](adr/a-file-only-harness-gets-the-launch-statement-appended-to-its-brief.md),
-[Codex's Tab queue is confirmed by composer content, Enter is not yet](adr/codex-tab-queue-submission-is-confirmed-by-composer-content.md).
+[Codex's Tab queue is confirmed by composer content, so is Enter](adr/codex-tab-queue-submission-is-confirmed-by-composer-content.md).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -145,9 +145,13 @@ Source: [The report channel is the only outcome signal](adr/the-report-channel-i
 | INV-REP-8 | Reconstructing already-persisted launch evidence (reconcile's confirm-launch arm) never mutates the brief file, even for a harness whose provisioning path appends to it. | unit | `TestReconcileConfirmLaunchDoesNotModifyBriefFile` |
 | INV-REP-9 | A codex Tab/queue send reaches `submitted` only once the pane's composer is observed to no longer hold a recognizable fragment of what was sent (excluding its own queued-message echo). Two successful external calls (Text, then Tab) are never sufficient on their own for this path. | unit | `TestExecuteDoesNotConfirmCodexTabWhenMessageStaysInTheLiveComposer` (the two calls succeed and the send still lands on `not-submitted`) |
 | INV-REP-10 | A codex Tab/queue send hand could not confirm is distinguishable by why: observed still holding the sent message (`not-submitted`) is a different fact from the confirmation read itself failing (`uncertain`). Neither is ever reported as `submitted`. | unit | `TestExecuteDoesNotConfirmCodexTabWhenMessageStaysInTheLiveComposer`, `TestExecuteMarksCodexTabConfirmationReadFailureUncertain` |
-| INV-REP-11 | Enter has no composer-content confirmation: once Text and Enter both return success, the send is `submitted` regardless of what the composer shows afterward, and the pane is never read back to check. This is a known limitation, not a design goal - atqamz/hand#420 tracks giving Enter a working signal. | unit | `TestExecuteSubmitsOnEnterWithoutReadingTheComposerBack`, `TestSendReportsSentOnEnterRegardlessOfComposerContent` |
+| INV-REP-11 | Enter reaches `submitted` only via positive evidence the harness reacted: the composer's content after the key must differ from its pre-key baseline *and* hold the sent message's own tail. The message's own text remaining visible is never sufficient by itself - an accepted message can stay visible as history indefinitely, so absence is not a signal (atqamz/hand#420, atqamz/hand#459). | unit | `TestExecuteConfirmsEnterDespiteAcceptedMessageRemainingVisibleAsHistory`, `TestSendReportsSentOnEnterDespiteComposerStillShowingTheMessage` |
 | INV-REP-12 | A codex Tab/queue composer that clears within the bounded confirmation poll - including a worker that consumes and finishes before hand's first read - confirms as `submitted`, with no resend on any path. | unit | `TestExecuteConfirmsCodexQueuedMessageDespiteItsOwnEchoAboveTheComposer` |
 | INV-REP-13 | The submit key is Tab instead of Enter only for a codex-harness pane currently showing codex's own queue-instead-of-submit text; no other harness's submit key is ever conditioned on pane content. | unit | `TestExecuteSendsTabInsteadOfEnterWhenCodexAdvertisesQueueing`, `TestExecuteConfirmsCodexQueuedMessageDespiteItsOwnEchoAboveTheComposer`, `TestExecuteDoesNotConfirmCodexTabWhenMessageStaysInTheLiveComposer` |
+| INV-REP-14 | An Enter send hand could not confirm is distinguishable by why, and the two are never the same `SendState`: a composer that never differed from its pre-key baseline (nothing happened) is `not-submitted`; a composer that changed but never grew the sent message's own tail (something happened, just not provably all of it) is `uncertain`, the same as a confirmation read failure. | unit | `TestExecuteDoesNotConfirmEnterWhenComposerShowsNoReaction`, `TestExecuteDoesNotConfirmEnterWhenOnlyAPartialFragmentArrived`, `TestSendReportsNotSubmittedWhenComposerShowsNoReactionToEnter`, `TestSendMarksEnterUncertainWhenComposerReactsWithoutTheTail` |
+| INV-REP-15 | A read failure choosing the submit key, or during the Enter confirmation poll itself, is reported as `uncertain` rather than confirmed blind against a baseline it never actually obtained. | unit | `TestExecuteMarksEnterPreKeyReadFailureUncertain`, `TestExecuteMarksEnterConfirmationReadFailureUncertain` |
+| INV-REP-16 | The operator-facing advice for a send outcome is chosen from send state before the partial-composer flag: an `uncertain` outcome always warns against blind retry, even when the composer also holds a recognizable fragment, because a fragment landing is evidence something happened, not proof nothing did - the two facts must never collapse into the resend-shaped advice meant for a plain `not-submitted`. | unit | `TestErrorDocumentPrefersUncertainAdviceOverPartialComposer` |
+| INV-REP-17 | Confirming a small, idle Enter send costs exactly the reads decision 4 budgeted for it: the pre-key baseline read `chooseSubmitKey` already took, plus one poll read that confirms on the first try - never an extra exec beyond that pair for the common case. | unit | `TestExecuteSubmitsAndFinalizesExactAttempt` |
 
 ## Orientation and currentness
 
@@ -332,8 +336,10 @@ here so nobody encodes one as a test.
 - **A green CI run means the change is safe.** It means the suite did not object. Whether the suite
   can object is what mutation testing measures, and atqamz/hand#442 exists because that is currently
   unmeasured.
-- **`hand send` confirming submission means every submit key confirms.** Only the codex Tab/queue
-  substitution does. Enter has no marker to distinguish an accepted message's own history from a
-  still-unsent composer, so it stays claim-based - two successful external calls are the whole signal -
-  until atqamz/hand#420 gives it a working one. See
-  [Codex's Tab queue is confirmed by composer content, Enter is not yet](adr/codex-tab-queue-submission-is-confirmed-by-composer-content.md).
+- **A `not-submitted` or `uncertain` verdict means the message never reached the pane.** It means hand
+  did not observe delivery within its bounded confirmation poll, not that delivery provably never
+  happened. A send hand gave up on can still complete afterward, invisibly, as a side effect of
+  unrelated later traffic to the same pane - live-reproduced three times against atqamz/hand#459 - which
+  is exactly why neither verdict is retried automatically, and why an operator reacting to either is
+  told to go read the pane rather than to resend. See
+  [Codex's Tab queue is confirmed by composer content, so is Enter](adr/codex-tab-queue-submission-is-confirmed-by-composer-content.md).

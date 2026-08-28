@@ -150,9 +150,9 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 	// result object on exit 0, real failure a non-zero exit plus a diagnostic on stderr (the same contract
 	// cmd/status_test.go's writeFakeHerdrPaneStatus documents), which the "unreachable" sentinel reproduces.
 	quotedStatusDir, quotedLog := shellSingleQuote(statusDir), shellSingleQuote(logPath)
-	// The reported agent comes from statusDir/<id>.agent, empty unless a test calls setPaneAgent, which keeps
-	// a scenario that never mentions an agent out of every harness-capability path. "pane read" answers with
-	// statusDir/<id>.text - bare stdout, not a result envelope (client.go's PaneRead) - and the steers void.
+	// The agent comes from statusDir/<id>.agent, set only via setPaneAgent. "pane read" answers with
+	// statusDir/<id>.text (bare stdout, not a result envelope - client.go's PaneRead); send-text overwrites
+	// it and send-keys Enter appends a marker, so a confirmation poll (atqamz/hand#459) sees a reaction.
 	body := fmt.Sprintf(`  "workspace list") echo '{"result":{"workspaces":[]}}' ;;
   "pane get")
     status=$(cat %s/"$3" 2>/dev/null || echo idle)
@@ -168,9 +168,15 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
     echo "herdr pane read $3" >> %s
     cat %s/"$3".text 2>/dev/null
     ;;
-  "pane send-text") echo "herdr pane send-text $3 $4" >> %s ;;
-  "pane send-keys") echo "herdr pane send-keys $3 $4" >> %s ;;`,
-		quotedStatusDir, quotedStatusDir, quotedLog, quotedLog, quotedStatusDir, quotedLog, quotedLog)
+  "pane send-text")
+    echo "herdr pane send-text $3 $4" >> %s
+    printf '%%s' "$4" > %s/"$3".text
+    ;;
+  "pane send-keys")
+    echo "herdr pane send-keys $3 $4" >> %s
+    if [ "$4" = "Enter" ]; then printf '\n\n[accepted]' >> %s/"$3".text; fi
+    ;;`,
+		quotedStatusDir, quotedStatusDir, quotedLog, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir)
 	// Each "pane get" is logged after the status read, never before: a test waiting on the Nth poll before
 	// publishing would otherwise still be racing that poll's read. The failing branch logs too, so waiting on
 	// the Nth probe works for a dark pane - one taken down and brought back mid-poll - as for a healthy one.
@@ -178,22 +184,29 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
 }
 
 // A herdr fake for the send scenario: "pane get" reports whatever status sits in statusDir/<pane-id>, so a
-// test can free a busy composer while `hand send` is waiting on it, and "pane send-text"/"pane send-keys"
-// answer with the empty stdout real herdr gives a void command (client.go's callVoid doc comment).
+// test can free a busy composer while `hand send` is waiting on it. send-text/send-keys drive a per-pane
+// composer file like writeFakeHerdrWatch's, giving the Enter confirmation poll a real reaction to observe.
 func writeFakeHerdrSend(t *testing.T, dir, statusDir, logPath string) {
 	t.Helper()
 	// Every invocation is logged with the pid of the hand process that made it, which is what lets a test tell
 	// two concurrent senders apart; each pane status read is logged after the read, for the same reason
 	// writeFakeHerdrWatch does it.
-	quotedLog := shellSingleQuote(logPath)
+	quotedStatusDir, quotedLog := shellSingleQuote(statusDir), shellSingleQuote(logPath)
 	body := fmt.Sprintf(`  "pane get")
     status=$(cat %s/"$3" 2>/dev/null || echo idle)
     echo "sender=$PPID pane get $3" >> %s
     printf '{"result":{"pane":{"pane_id":"%%s","tab_id":"t-1","workspace_id":"w-1","agent":"claude","agent_status":"%%s"}}}\n' "$3" "$status"
     ;;
-  "pane send-text") echo "sender=$PPID pane send-text $4" >> %s ;;
-  "pane send-keys") echo "sender=$PPID pane send-keys $4" >> %s ;;`,
-		shellSingleQuote(statusDir), quotedLog, quotedLog, quotedLog)
+  "pane read") cat %s/"$3".composer 2>/dev/null ;;
+  "pane send-text")
+    echo "sender=$PPID pane send-text $4" >> %s
+    printf '%%s' "$4" > %s/"$3".composer
+    ;;
+  "pane send-keys")
+    echo "sender=$PPID pane send-keys $4" >> %s
+    if [ "$4" = "Enter" ]; then printf '\n\n[accepted]' >> %s/"$3".composer; fi
+    ;;`,
+		quotedStatusDir, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir)
 	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", body)
 }
 

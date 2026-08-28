@@ -506,6 +506,30 @@ func TestErrorDocumentIncludesSendStateDetails(t *testing.T) {
 	}
 }
 
+// atqamz/hand#459's stalled-paste outcome is both uncertain and partial (PartialComposer): a fragment
+// landing is not proof nothing landed, so the not-submitted-shaped "do not resend the whole message"
+// advice would read as permission to resend a follow-up - the exact duplicate-turn risk this task found.
+func TestErrorDocumentPrefersUncertainAdviceOverPartialComposer(t *testing.T) {
+	var out strings.Builder
+	err := &steering.Error{
+		Cause:           errors.New("send 9 is uncertain: enter-not-confirmed"),
+		Send:            &state.SendAttempt{ID: 9},
+		AttemptID:       3,
+		State:           state.SendUncertain,
+		Reason:          "enter-not-confirmed",
+		PartialComposer: true,
+	}
+	if renderErr := renderError(&out, err, 7, "hand send"); renderErr != nil {
+		t.Fatal(renderErr)
+	}
+	if strings.Contains(out.String(), "do not blindly send the whole message again") {
+		t.Fatalf("error document = %q, want the uncertain warning, not the not-submitted/partial one", out.String())
+	}
+	if !strings.Contains(out.String(), "do not blindly retry because the message may already be in the pane") {
+		t.Fatalf("error document = %q, want the uncertain warning against resending", out.String())
+	}
+}
+
 func TestUsageErrorHelpNamesTheCommandThatRefused(t *testing.T) {
 	var out strings.Builder
 	if err := renderError(&out, errors.New("accepts 2 arg(s), received 1"), 2, "hand hold set"); err != nil {

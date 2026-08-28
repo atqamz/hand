@@ -106,8 +106,12 @@ const (
 	SendReasonEnterRejectedAfterTextStaged = "enter-rejected-after-text-staged"
 	// Marks a codex Tab/queue send where Text and Tab both returned success, but the composer still
 	// visibly held a recognizable fragment of the message (atqamz/hand#426): text landed, the queue
-	// did not. Enter never produces this reason - it has no confirmation signal yet (atqamz/hand#420).
+	// did not. Enter never produces this reason - it has its own, below (atqamz/hand#459).
 	SendReasonComposerRetainsMessage = "composer-retains-message"
+	// Marks an Enter send whose confirmation poll never saw the sent message's tail. Pairs with
+	// SendNotSubmitted when the composer never reacted at all, or SendUncertain when it did react but not
+	// completely - a stalled paste is evidence something landed, just not provably all of it.
+	SendReasonEnterNotConfirmed = "enter-not-confirmed"
 )
 
 type SendOrigin string
@@ -240,7 +244,8 @@ func SendNeedsAttention(send SendAttempt) bool {
 		return false
 	}
 	return strings.HasPrefix(send.ReasonCode, SendReasonEnterRejectedAfterTextStaged) ||
-		strings.HasPrefix(send.ReasonCode, SendReasonComposerRetainsMessage)
+		strings.HasPrefix(send.ReasonCode, SendReasonComposerRetainsMessage) ||
+		strings.HasPrefix(send.ReasonCode, SendReasonEnterNotConfirmed)
 }
 
 func SendRetrySafe(send SendAttempt) bool {
