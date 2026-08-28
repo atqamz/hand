@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,12 +15,14 @@ import (
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/toolchain"
+	"github.com/atqamz/hand/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -281,6 +284,7 @@ func doctorFindings(fleetHome string, histories []state.TaskHistory) ([]doctorFi
 		}
 	}
 	findings = append(findings, doctorWorktreeFindings(fleetHome, histories)...)
+	findings = append(findings, doctorLeaseHolderFindings(fleetHome, projects)...)
 
 	detection, err := harness.DetectCurrent()
 	if err != nil {
@@ -377,6 +381,78 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 			continue
 		}
 		findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q worktree is rooted in another Git repository: got %s, want %s", history.Task.ID, actual, expected)})
+	}
+	return findings
+}
+
+// A leased slot's holder classifies into exactly one of four cases - absent from the Fleet
+// registry, registered but not ready, unparseable, or registered and ready (atqamz/hand#432) -
+// and only the first three are reported. Nothing here reclaims a lease.
+func doctorLeaseHolderFindings(fleetHome string, projects []project.Project) []doctorFinding {
+	type leasedHolder struct {
+		path, fleetID, taskID string
+	}
+	findings := make([]doctorFinding, 0)
+	var toClassify []leasedHolder
+
+	for _, p := range projects {
+		clone := filepath.Join(fleetHome, "projects", p.Name)
+		if _, err := os.Stat(clone); err != nil {
+			continue
+		}
+		entries, err := worktree.PoolStatus(clone)
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("project %q worktree pool could not be read: %v", p.Name, err)})
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Status != "leased" || entry.LeaseHolder == "" {
+				continue
+			}
+			fleetID, taskID, ok := worktree.ParseLeaseHolder(entry.LeaseHolder)
+			if !ok {
+				findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("pool slot %s is leased to %q, which does not parse as a Hand lease holder (want hand:<fleet-id>:<task-id>); it is not reclaimed automatically, inspect it with `treehouse status` before touching the slot", entry.Path, entry.LeaseHolder)})
+				continue
+			}
+			toClassify = append(toClassify, leasedHolder{path: entry.Path, fleetID: fleetID, taskID: taskID})
+		}
+	}
+	// Nothing here needs the registry looked up at all, so a registry that cannot be consulted is
+	// not itself a finding: there is no holder waiting on the answer.
+	if len(toClassify) == 0 {
+		return findings
+	}
+
+	registryPath, err := registry.Path()
+	if err != nil {
+		return append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("Fleet registry could not be resolved: %v; pool lease holders were not checked", err)})
+	}
+	var fleets []registry.Fleet
+	registryDB, err := registry.OpenReadOnlyAt(registryPath)
+	switch {
+	case errors.Is(err, registry.ErrRegistryMissing):
+		return append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("Fleet registry %s does not exist; no pool lease holder could be checked against it, run `hand init` to re-register this fleet home", registryPath)})
+	case err != nil:
+		return append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("Fleet registry %s could not be read: %v; pool lease holders were not checked", registryPath, err)})
+	default:
+		defer func() { _ = registryDB.Close() }()
+		fleets, err = registryDB.List(fleetHome)
+		if err != nil {
+			return append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("Fleet registry %s could not be read: %v; pool lease holders were not checked", registryPath, err)})
+		}
+	}
+	states := make(map[string]registry.State, len(fleets))
+	for _, fleet := range fleets {
+		states[fleet.ID] = fleet.State
+	}
+
+	for _, holder := range toClassify {
+		switch state, known := states[holder.fleetID]; {
+		case !known:
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("pool slot %s is leased to task %q of Fleet %s, which is absent from the Fleet registry; the lease is not reclaimed automatically, run `hand fleet` and decide with the operator", holder.path, holder.taskID, holder.fleetID)})
+		case state != registry.StateReady:
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("pool slot %s is leased to task %q of Fleet %s, which is registered but not ready (%s); the lease is not reclaimed automatically, run `hand fleet` to see why", holder.path, holder.taskID, holder.fleetID, state)})
+		}
 	}
 	return findings
 }

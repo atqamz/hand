@@ -116,6 +116,64 @@ func TestGetPassesLeaseHolder(t *testing.T) {
 	}
 }
 
+func TestPoolStatusListsEverySlotFromThePoolOutsideEveryFleetHome(t *testing.T) {
+	bin := faketool.Bin(t)
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	if err := os.MkdirAll(clone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := poolRoot(clone, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withinPath(home, root) {
+		t.Fatalf("pool root %s is inside fleet home %s, which is what atqamz/hand#427 fixes", root, home)
+	}
+	writeFakeTreehouseAt(t, bin, faketool.TreehouseResponse{
+		Command: "--root", Args: []string{root, "status", "--json"},
+		Stdout: mustJSON(t, []map[string]string{
+			{"path": "/pool/4", "status": "available"},
+			{"path": "/pool/5", "status": "leased", "lease_id": "43247d2cb7424bac", "lease_holder": "hand:f_abc123:340-scout"},
+		}),
+	})
+	entries, err := PoolStatus(clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []PoolEntry{
+		{Path: "/pool/4", Status: "available"},
+		{Path: "/pool/5", Status: "leased", LeaseID: "43247d2cb7424bac", LeaseHolder: "hand:f_abc123:340-scout"},
+	}
+	if len(entries) != len(want) || entries[0] != want[0] || entries[1] != want[1] {
+		t.Fatalf("PoolStatus() = %#v, want %#v", entries, want)
+	}
+}
+
+func TestParseLeaseHolder(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		holder  string
+		fleetID string
+		taskID  string
+		ok      bool
+	}{
+		{name: "well formed", holder: "hand:f_167a403f6e12d103a5d310cc10fecedc:340-scout", fleetID: "f_167a403f6e12d103a5d310cc10fecedc", taskID: "340-scout", ok: true},
+		{name: "non-Hand lease", holder: "codex-196", ok: false},
+		{name: "empty", holder: "", ok: false},
+		{name: "missing task id", holder: "hand:f_abc:", ok: false},
+		{name: "missing fleet id", holder: "hand::340-scout", ok: false},
+		{name: "wrong prefix", holder: "other:f_abc:340-scout", ok: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fleetID, taskID, ok := ParseLeaseHolder(tc.holder)
+			if ok != tc.ok || (ok && (fleetID != tc.fleetID || taskID != tc.taskID)) {
+				t.Fatalf("ParseLeaseHolder(%q) = (%q, %q, %v), want (%q, %q, %v)", tc.holder, fleetID, taskID, ok, tc.fleetID, tc.taskID, tc.ok)
+			}
+		})
+	}
+}
+
 func TestGetAcquiresFromAPoolOutsideEveryFleetHome(t *testing.T) {
 	bin := faketool.Bin(t)
 	home := t.TempDir()

@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/skill"
@@ -1167,5 +1169,183 @@ func TestDoctorDoesNotTreatWorkerOnlyAntigravityAsSupervisorReady(t *testing.T) 
 	}
 	if anyHarnessInstalled(got) {
 		t.Fatalf("worker-only agy satisfied Supervisor readiness: %#v", got)
+	}
+}
+
+// Lays down a project clone whose Treehouse pool has one slot leased to holder. faketool.Bin
+// also isolates SECONDHAND_HOME, so the caller's own registry.Open calls land in a fresh registry.
+func leaseHolderFixture(t *testing.T, holder string) (home string, projects []project.Project) {
+	t.Helper()
+	home = t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clone)
+	bin := faketool.Bin(t)
+	slot := filepath.Join(home, "pool", "5")
+	faketool.Treehouse{
+		Held:         []string{slot},
+		LeaseHolders: map[string]string{slot: holder},
+	}.Install(t, bin)
+	return home, []project.Project{{Name: "demo"}}
+}
+
+func TestDoctorReportsLeaseHolderAbsentFromRegistry(t *testing.T) {
+	home, projects := leaseHolderFixture(t, "hand:f_167a403f6e12d103a5d310cc10fecedc:340-scout")
+	// The registry exists - atqamz/hand#432's measured case - but never heard of this id, which is
+	// a different condition from the registry itself being missing.
+	registryDB, err := registry.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := doctorLeaseHolderFindings(home, projects)
+	found := false
+	for _, finding := range findings {
+		if finding.Severity == doctorError && strings.Contains(finding.Text, `is absent from the Fleet registry`) &&
+			strings.Contains(finding.Text, "f_167a403f6e12d103a5d310cc10fecedc") && strings.Contains(finding.Text, `"340-scout"`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("findings = %#v, want an absent-Fleet finding naming the slot and the id", findings)
+	}
+}
+
+func TestDoctorReportsAMissingRegistryAsOneFindingRatherThanPerHolderAbsence(t *testing.T) {
+	home, projects := leaseHolderFixture(t, "hand:f_167a403f6e12d103a5d310cc10fecedc:340-scout")
+	registryPath, err := registry.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(registryPath); !os.IsNotExist(err) {
+		t.Fatalf("registry.db unexpectedly exists at %s before the check runs", registryPath)
+	}
+
+	findings := doctorLeaseHolderFindings(home, projects)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v, want exactly one finding for a missing registry, not one per leased slot", findings)
+	}
+	if !strings.Contains(findings[0].Text, registryPath) || !strings.Contains(findings[0].Text, "hand init") {
+		t.Fatalf("findings[0] = %#v, want it to name the registry path and a way to re-register it", findings[0])
+	}
+	if strings.Contains(findings[0].Text, "absent from the Fleet registry") {
+		t.Fatalf("findings[0] = %#v, a missing registry must not be reported as a per-holder absence", findings[0])
+	}
+}
+
+func TestDoctorReportsLeaseHolderRegisteredButNotReady(t *testing.T) {
+	notReadyHome := t.TempDir()
+	fleetID, err := state.FleetID(notReadyHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, projects := leaseHolderFixture(t, "hand:"+fleetID+":401-repair")
+	registryDB, err := registry.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(notReadyHome, fleetID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The home vanishes after registering, so classification observes it missing rather than
+	// ready - "registered but not ready" wants a different repair than "absent".
+	if err := os.RemoveAll(notReadyHome); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := doctorLeaseHolderFindings(home, projects)
+	found := false
+	for _, finding := range findings {
+		if finding.Severity == doctorWarning && strings.Contains(finding.Text, "registered but not ready") &&
+			strings.Contains(finding.Text, fleetID) && strings.Contains(finding.Text, `"401-repair"`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("findings = %#v, want a registered-but-not-ready finding naming the slot and the id", findings)
+	}
+}
+
+func TestDoctorReportsUnparseableLeaseHolder(t *testing.T) {
+	// A real non-Hand lease observed in atqamz/hand#412's repair table - not "hand:<fleet>:<task>"
+	// shaped, and must not collapse into "absent". No registry is set up at all: parsing a holder
+	// never needs one, so a missing registry must not surface here either.
+	home, projects := leaseHolderFixture(t, "codex-196")
+
+	findings := doctorLeaseHolderFindings(home, projects)
+	found := false
+	for _, finding := range findings {
+		if finding.Severity == doctorWarning && strings.Contains(finding.Text, "does not parse as a Hand lease holder") &&
+			strings.Contains(finding.Text, `"codex-196"`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("findings = %#v, want an unparseable-holder finding naming the raw holder string", findings)
+	}
+	for _, finding := range findings {
+		if strings.Contains(finding.Text, "absent from the Fleet registry") {
+			t.Fatalf("findings = %#v, an unparseable holder must not be reported as absent", findings)
+		}
+		if strings.Contains(finding.Text, "Fleet registry") && strings.Contains(finding.Text, "does not exist") {
+			t.Fatalf("findings = %#v, parsing a holder never needs the registry, so a missing registry must not surface here", findings)
+		}
+	}
+}
+
+func TestDoctorSaysNothingForLeaseHolderRegisteredAndReady(t *testing.T) {
+	readyHome := t.TempDir()
+	fleetID, err := state.FleetID(readyHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, projects := leaseHolderFixture(t, "hand:"+fleetID+":123-ready")
+	registryDB, err := registry.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Register(readyHome, fleetID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := registryDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := doctorLeaseHolderFindings(home, projects)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %#v, want silence for a lease held by a registered, ready Fleet", findings)
+	}
+}
+
+func TestDoctorReportsRegistryUnreadableRatherThanTreatingHoldersAsAbsent(t *testing.T) {
+	home, projects := leaseHolderFixture(t, "hand:f_167a403f6e12d103a5d310cc10fecedc:340-scout")
+	registryPath, err := registry.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(registryPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(registryPath, []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := doctorLeaseHolderFindings(home, projects)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v, want exactly one finding about the unreadable registry", findings)
+	}
+	if !strings.Contains(findings[0].Text, "Fleet registry") || !strings.Contains(findings[0].Text, "could not be read") {
+		t.Fatalf("findings[0] = %#v, want a diagnosis about the registry itself", findings[0])
+	}
+	if strings.Contains(findings[0].Text, "absent from the Fleet registry") {
+		t.Fatalf("findings[0] = %#v, an unreadable registry must not be reported as an absent holder", findings[0])
 	}
 }
