@@ -130,23 +130,6 @@ func TestReadTaskReportsAMissingTaskWithoutAnError(t *testing.T) {
 	}
 }
 
-func TestDeleteTask(t *testing.T) {
-	db, _ := openTemp(t)
-	if err := writeSample(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.DeleteTask("fix-login"); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.DeleteTask("fix-login"); !errors.Is(err, ErrTaskNotFound) {
-		t.Fatalf("second delete = %v, want ErrTaskNotFound", err)
-	}
-	exists, err := db.TaskExists("fix-login")
-	if err != nil || exists {
-		t.Fatalf("TaskExists = %v, %v", exists, err)
-	}
-}
-
 func TestProjectsKeepRegistrationOrder(t *testing.T) {
 	db, _ := openTemp(t)
 	for _, name := range []string{"nsr", "universe", "yes2infra"} {

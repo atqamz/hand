@@ -67,8 +67,8 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 }
 
 // The other branch, end to end: a real treehouse recycles a returned pool slot's path under a brand-new
-// lease identity, and a task row still naming that path - left behind by a teardown whose state.Delete
-// failed - must not abort the spawn that legitimately acquired it.
+// lease identity, and a stale task row still naming that path must not abort the spawn that
+// legitimately acquired it.
 func TestSpawnAllowsARecycledWorktreePathUnderAFreshLease(t *testing.T) {
 	home, dir := setupCollisionHome(t)
 	sharedWorktree := filepath.Join(home, "wt-shared")

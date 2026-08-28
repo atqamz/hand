@@ -1749,18 +1749,22 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 		t.Fatal("task.DoneVerified = false, want the scout's announcement persisted")
 	}
 
-	// hand promote: same rewrite internal/runtime/promote.go makes - kind and pane change,
-	// CreatedAt and the report channel do not - with the DoneVerified reset this
-	// test exists to cover.
-	task.Kind = state.KindShip
-	attempt.Herdr.PaneID = "p2"
-	attempt.DoneVerified = false
-	if err := state.Write(home, task); err != nil {
+	// hand promote's own rewrite: task kind flips to ship and a fresh attempt with its own pane
+	// takes over, DoneVerified starting false again - it never rewrites the scout attempt's row.
+	shipAttempt, err := state.PromoteTask(home, "task-1", attempt.ID, attempt.Lifecycle, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "p2"}, LaunchConfirmedAt: "2026-08-14T00:00:00Z",
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := state.UpdateAttempt(home, attempt); err != nil {
+	if err := state.TransitionAttempt(home, shipAttempt.ID, state.AttemptProvisioning, state.AttemptRunning); err != nil {
 		t.Fatal(err)
 	}
+
+	// One tick to let the watcher observe the ship's fresh pane before its report exists,
+	// exactly as it would after a real promote's brand-new pane comes up.
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 
 	// The ship's own report line lands on the same continuous report stream,
 	// before any merge evidence exists - the ordinary ordering ClassifyDeferredDone
@@ -1828,17 +1832,26 @@ func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) 
 	var buf bytes.Buffer
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 
-	promoted, attempt := readTaskAttempt(t, home, "task-1")
-	promoted.Kind = state.KindShip
-	attempt.Herdr.PaneID = "p2"
-	attempt.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
-	attempt.StatusChangedFor = ""
-	if err := state.Write(home, promoted); err != nil {
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	restamp := time.Now().UTC().Format(time.RFC3339)
+	// hand promote's own rewrite: a fresh attempt with its own pane takes over the task,
+	// carrying no observed status of its own yet - it never rewrites the scout attempt's row.
+	shipAttempt, err := state.PromoteTask(home, "task-1", attempt.ID, attempt.Lifecycle, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "p2"},
+		StatusChangedAt: restamp, LaunchConfirmedAt: restamp,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := state.UpdateAttempt(home, attempt); err != nil {
+	if err := state.TransitionAttempt(home, shipAttempt.ID, state.AttemptProvisioning, state.AttemptRunning); err != nil {
 		t.Fatal(err)
 	}
+
+	// One tick for the watcher to notice the new attempt identity and reseed its tracking - a
+	// promote gives the same task ID a new attempt, which this tick treats as a first sighting
+	// rather than a continuation of the scout's cached dwell.
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 
 	// Moves report_offset, which is what makes the next tick write task state at all.
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: starting the ship run\n"), 0o644); err != nil {
@@ -1859,12 +1872,12 @@ func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	restamped, err := time.Parse(time.RFC3339, attempt.StatusChangedAt)
+	restamped, err := time.Parse(time.RFC3339, restamp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stamped.Before(restamped) {
-		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", gotAttempt.StatusChangedAt, attempt.StatusChangedAt)
+		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", gotAttempt.StatusChangedAt, restamp)
 	}
 	if gotAttempt.StatusChangedFor != "working" {
 		t.Fatalf("status_changed_for = %q, want the status the ship's dwell was stamped for", gotAttempt.StatusChangedFor)
@@ -2299,7 +2312,11 @@ func TestTickForgetsTornDownTasks(t *testing.T) {
 		t.Fatalf("states = %+v, want task-1 tracked", states)
 	}
 
-	if err := state.Delete(home, "task-1"); err != nil {
+	attempt, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, attempt.Lifecycle, state.AttemptCompleted); err != nil {
 		t.Fatal(err)
 	}
 	tick(ctx, cfg, client, states, &buf, io.Discard)
@@ -3618,26 +3635,48 @@ func TestTickReseedsARespawnedTaskID(t *testing.T) {
 		t.Fatalf("output = %q, want the first run's verified done", buf.String())
 	}
 
-	if err := state.Delete(home, "task-1"); err != nil {
+	firstRun, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
 		t.Fatal(err)
 	}
-	// Same hazard as a surviving report channel, one layer in, so the scout's report.md goes with the
-	// state row.
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", firstRun.ID, firstRun.Lifecycle, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	// Same hazard as a surviving report channel, one layer in, so the scout's report.md and the
+	// volatile wake log both go with the torn-down run - a surviving log would replay as this
+	// run's, and a surviving deliverable would misreport what the second run actually produced.
 	if err := os.Remove(reportMD); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
-
-		CreatedAt: time.Now().UTC().Add(time.Minute).Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}},
-	); err != nil {
+	if err := os.Remove(state.ReportPath(home, "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskReportState(home, "task-1", 0, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ReopenTask(home, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "p1"},
+		LaunchConfirmedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	respawned, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TransitionAttempt(home, respawned.ID, state.AttemptProvisioning, state.AttemptRunning); err != nil {
 		t.Fatal(err)
 	}
 
+	// One tick for the watcher to notice the reopened task's new attempt identity and reseed
+	// its tracking, before either report exists for this run.
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, io.Discard)
+
 	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: round two\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !strings.Contains(buf.String(), "reported-done task-1: round two") {
 		t.Fatalf("output = %q, want the respawned task's own done report read from offset 0", buf.String())

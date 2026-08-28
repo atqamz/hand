@@ -58,44 +58,6 @@ func TestTaskAndAttemptHaveSeparateIdentityAndExecutionOwnership(t *testing.T) {
 	}
 }
 
-func TestAttemptUpdatesPreserveExecutionSnapshot(t *testing.T) {
-	db, _ := openTemp(t)
-	created, err := db.CreateTaskWithAttempt(Task{ID: "task-1", Lifecycle: TaskOpen}, Attempt{
-		TaskID: "task-1", Lifecycle: AttemptProvisioning, Harness: "claude", Model: "opus", Effort: "high",
-		ExecutionClass: "deep", PlannedAgainst: "plan-1", RequestedProfile: "brain", RoutingSource: "route",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.RecordAttemptWorktree("task-1", created.ID, "/tmp/wt", "", "lease-1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.RecordAttemptHerdr("task-1", created.ID, Herdr{PaneID: "pane-1"}, "2026-08-14T00:00:00Z"); err != nil {
-		t.Fatal(err)
-	}
-	updated, found, err := db.ReadAttempt(created.ID)
-	if err != nil || !found {
-		t.Fatalf("ReadAttempt = %+v, %v, %v", updated, found, err)
-	}
-	updated.Harness = "other"
-	updated.Model = "other-model"
-	updated.Effort = "other-effort"
-	updated.ExecutionClass = "mechanical"
-	updated.PlannedAgainst = "plan-2"
-	updated.RequestedProfile = "other-profile"
-	updated.RoutingSource = "explicit-profile"
-	if err := db.UpdateAttempt(updated); err != nil {
-		t.Fatal(err)
-	}
-	got, found, err := db.ReadAttempt(created.ID)
-	if err != nil || !found {
-		t.Fatalf("ReadAttempt = %+v, %v, %v", got, found, err)
-	}
-	if got.Harness != "claude" || got.Model != "opus" || got.Effort != "high" || got.ExecutionClass != "deep" || got.PlannedAgainst != "plan-1" || got.RequestedProfile != "brain" || got.RoutingSource != "route" {
-		t.Fatalf("execution snapshot changed after update: %+v", got)
-	}
-}
-
 func TestAttemptOrdinalIncrementsPerTaskAndHistoryIsRetained(t *testing.T) {
 	db, _ := openTemp(t)
 	if err := db.CreateTask(Task{ID: "task-1", Lifecycle: TaskOpen}); err != nil {

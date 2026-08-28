@@ -586,8 +586,11 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 	// The restart: the stamp the first run wrote moved into the past, which is the one thing that makes an
 	// attempt due without waiting out the ten-minute floor. It covers the durability too - a watcher that
 	// came up fresh still knows this worker is limited and when it may be poked.
-	limitedAttempt.UsageLimitRetryAt = time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
-	if err := state.UpdateAttempt(home, limitedAttempt); err != nil {
+	if err := state.UpdateAttemptObservation(home, "limited", limitedAttempt.ID, limitedAttempt.Lifecycle,
+		limitedAttempt.StatusChangedAt, limitedAttempt.StatusChangedFor, limitedAttempt.DoneVerified,
+		limitedAttempt.LastReportState, limitedAttempt.LastReportNote, limitedAttempt.ParkedFiredFor,
+		time.Now().UTC().Add(-time.Minute).Format(time.RFC3339), limitedAttempt.UsageLimitAttempts,
+		limitedAttempt.UsageLimitEpisode, limitedAttempt.UsageLimitStuckEpisode); err != nil {
 		t.Fatal(err)
 	}
 

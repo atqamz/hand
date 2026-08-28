@@ -2346,26 +2346,6 @@ func scanSend(row sendScanner) (SendAttempt, error) {
 	return send, err
 }
 
-func (db *DB) UpdateAttempt(a Attempt) error {
-	_, err := db.sql.Exec(`UPDATE attempt SET task_id = ?, ordinal = ?, lifecycle = ?,
-		worktree = ?, lease_id = ?, herdr_session = ?, herdr_workspace_id = ?, herdr_tab_id = ?, herdr_pane_id = ?,
-		created_at = ?, pane_started_at = ?, launch_submitted_at = ?, launch_confirmed_at = ?, status_changed_at = ?, status_changed_for = ?, done_verified = ?,
-		last_report_state = ?, last_report_note = ?, send_undelivered_message = ?, send_undelivered_at = ?,
-		parked_fired_for = ?, usage_limit_retry_at = ?, usage_limit_attempts = ?, teardown_terminal_attempt = ?, teardown_disposition = ?,
-		teardown_herdr_state = ?, teardown_worktree_state = ?, teardown_completion_state = ?, usage_limit_episode = ?, usage_limit_stuck_episode = ? WHERE id = ?`,
-		a.TaskID, a.Ordinal, a.Lifecycle, a.Worktree, a.LeaseID,
-		a.Herdr.Session, a.Herdr.WorkspaceID, a.Herdr.TabID, a.Herdr.PaneID, a.CreatedAt, a.PaneStartedAt,
-		a.LaunchSubmittedAt, a.LaunchConfirmedAt,
-		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
-		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts,
-		a.TeardownTerminalAttempt, a.TeardownDisposition, a.TeardownHerdrState, a.TeardownWorktreeState, a.TeardownCompletionState,
-		a.UsageLimitEpisode, a.UsageLimitStuckEpisode, a.ID)
-	if err != nil {
-		return fmt.Errorf("update attempt %d: %w", a.ID, err)
-	}
-	return nil
-}
-
 func (db *DB) TransitionAttempt(id int64, from, to AttemptLifecycle) error {
 	if !validAttemptTransition(from, to) {
 		return fmt.Errorf("%w: attempt %s -> %s", ErrInvalidTransition, from, to)
@@ -2944,21 +2924,6 @@ func (db *DB) TaskExists(id string) (bool, error) {
 		return false, fmt.Errorf("check task %q: %w", id, err)
 	}
 	return true, nil
-}
-
-func (db *DB) DeleteTask(id string) error {
-	res, err := db.sql.Exec(`DELETE FROM task WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete task %q: %w", id, err)
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete task %q: %w", id, err)
-	}
-	if affected == 0 {
-		return fmt.Errorf("task %q %w", id, ErrTaskNotFound)
-	}
-	return nil
 }
 
 func (db *DB) ListProjects() ([]Project, error) {

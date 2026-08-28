@@ -9,6 +9,16 @@ import (
 	"pgregory.net/rapid"
 )
 
+// Removes a task row by raw SQL: atqamz/hand#481 removed the unguarded DeleteTask, since deleting
+// task rows is not a production operation (docs/adr/tasks-are-durable-and-attempts-own-execution.md),
+// but this file's hold tests still pin the schema fact that a hold outlives its task row.
+func deleteTaskRow(t *testing.T, db *DB, id string) {
+	t.Helper()
+	if _, err := db.sql.Exec(`DELETE FROM task WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func sampleHold() Hold {
 	return Hold{
 		ID: "fix-login", Kind: HoldKindOperator, Reason: "race condition needs a call",
@@ -95,7 +105,7 @@ func TestReadHoldReadOnlySupportsSchemaBeforeInferred(t *testing.T) {
 
 // Pins the decision that makes a hold cover the motivating case: its own row keyed by an
 // arbitrary id, not a foreign key into task, so a hold set on a task torn down with its
-// question open still answers "what needs the operator" after DeleteTask.
+// question open still answers "what needs the operator" after its task row is gone.
 func TestHoldSurvivesWithNoTaskRowBehindIt(t *testing.T) {
 	db, _ := openTemp(t)
 	if err := db.CreateTask(Task{ID: "fix-login"}); err != nil {
@@ -104,9 +114,7 @@ func TestHoldSurvivesWithNoTaskRowBehindIt(t *testing.T) {
 	if err := db.SetHold(sampleHold()); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.DeleteTask("fix-login"); err != nil {
-		t.Fatal(err)
-	}
+	deleteTaskRow(t, db, "fix-login")
 
 	_, found, err := db.ReadHold("fix-login")
 	if err != nil || !found {
@@ -243,7 +251,7 @@ func TestHumanAuthoredHoldSurvivesAnyTaskLifecycleAroundIt(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		id := "task-" + rapid.StringMatching(`[a-z0-9]{1,16}`).Draw(t, "id")
 		_ = db.ClearHold(id)
-		_ = db.DeleteTask(id)
+		_, _ = db.sql.Exec(`DELETE FROM task WHERE id = ?`, id)
 
 		hold := Hold{
 			ID:        id,
@@ -276,7 +284,7 @@ func TestHumanAuthoredHoldSurvivesAnyTaskLifecycleAroundIt(t *testing.T) {
 			if err := db.SetHold(hold); err != nil {
 				t.Fatal(err)
 			}
-			if err := db.DeleteTask(id); err != nil {
+			if _, err := db.sql.Exec(`DELETE FROM task WHERE id = ?`, id); err != nil {
 				t.Fatal(err)
 			}
 		}

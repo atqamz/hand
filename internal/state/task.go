@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/atqamz/hand/internal/filelock"
@@ -11,8 +10,7 @@ import (
 )
 
 // ErrTaskNotFound is wrapped into errors returned by the task and history readers
-// and by Delete when no task row exists for the given ID, rendering as
-// `task "<id>" not found`.
+// when no task row exists for the given ID, rendering as `task "<id>" not found`.
 var ErrTaskNotFound = store.ErrTaskNotFound
 
 // ErrTaskActive is wrapped into errors returned by Claim when the task is
@@ -260,15 +258,6 @@ func CreateAttempt(homeDir string, a Attempt) (Attempt, error) {
 	}
 	defer func() { _ = db.Close() }()
 	return db.CreateAttempt(a)
-}
-
-func UpdateAttempt(homeDir string, a Attempt) error {
-	db, err := store.Open(homeDir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	return db.UpdateAttempt(a)
 }
 
 func TransitionAttempt(homeDir string, id int64, from, to AttemptLifecycle) error {
@@ -678,27 +667,4 @@ func ListOpenHistoriesReadOnly(homeDir string) ([]TaskHistory, error) {
 	}
 	defer func() { _ = db.Close() }()
 	return db.ListOpenTaskHistories()
-}
-
-// Delete removes a task's row along with its report channel at state/<id>.status, leaving
-// the durable deliverables in data/<id>/. That file is the volatile wake log: a respawn
-// under a used ID starts at report_offset 0, so a surviving log replays as new lines.
-func Delete(homeDir, id string) error {
-	if err := ValidateID(id); err != nil {
-		return err
-	}
-	// A replayed log re-raises resolved decisions, absorbs a genuine unexplained stop, and
-	// auto-records a PR URL out of an old done line onto a task nobody recorded it for.
-	if err := os.Remove(ReportPath(homeDir, id)); err != nil && !os.IsNotExist(err) {
-		// Failing here leaves nothing durable gone yet, so the whole command is retryable.
-		// Removing the row first would strand the caller with the state gone and no way to
-		// retry (see internal/runtime/teardown.go's guarded path).
-		return fmt.Errorf("remove report channel %q: %w", id, err)
-	}
-	db, err := store.Open(homeDir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	return db.DeleteTask(id)
 }
