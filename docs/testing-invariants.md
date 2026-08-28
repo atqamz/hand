@@ -210,13 +210,15 @@ Source: [Every diagnosis names a reachable treatment](adr/every-diagnosis-names-
 
 ## Launch-level delivery authorization
 
-Source: `internal/harness/harness.go` (`briefPrompt`), `cmd/doctor.go`.
+Source: `internal/harness/harness.go` (`briefPrompt`), `internal/runtime` (spawn, reopen, promote,
+reconcile), `cmd/doctor.go`.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
-| INV-AUTH-1 | A ship task's launch prompt always states the worker is authorized to commit, push its branch, and open the pull request, regardless of what the brief itself says. | unit | `TestBuildShipCarriesDeliveryAuthorization` |
-| INV-AUTH-2 | A scout task's launch prompt always states its deliverable is a report and that it must not commit, push, or open a pull request, and never carries the ship grant. | unit | `TestBuildScoutCarriesNoDeliveryGrant` |
-| INV-AUTH-3 | `hand doctor` names every open ship task that reported done with no pull request recorded, and the finding names the command that shows the way out. | unit | `TestDoctorWarnsForOpenShipTaskReportedDoneWithNoPR` |
+| INV-AUTH-1 | Given a kind, a ship task's rendered launch prompt always states the worker is authorized to commit, push its branch, and open the pull request, regardless of what the brief itself says. | unit | `TestBuildShipCarriesDeliveryAuthorization` |
+| INV-AUTH-2 | Given a kind, a scout task's rendered launch prompt always states its deliverable is a report and that it must not commit, push, or open a pull request, and never carries the ship grant. | unit | `TestBuildScoutCarriesNoDeliveryGrant` |
+| INV-AUTH-4 | Every launch path supplies the task's kind to `harness.Build`: spawn, reopen, promote (always ship), and reconcile's confirm-launch arm all carry it through, so INV-AUTH-1/2 hold for a real launch and not only for a prompt built by hand. | unit | `TestSpawnBuildsHarnessCarryingTaskKind`, `TestReopenBuildsHarnessCarryingTaskKind`, `TestPromoteBuildsHarnessCarryingShipKind`, `TestReconcileConfirmLaunchCarriesTaskKind` |
+| INV-AUTH-3 | `hand doctor` names every open ship task whose *last* reported state is `done` with no pull request recorded, and the finding names the command that shows the way out. This does not catch a ship worker that is functionally finished but still reporting `working:` - that case is not mechanically detectable from the report channel alone. | unit | `TestDoctorWarnsForOpenShipTaskReportedDoneWithNoPR` |
 
 ## Pure helpers
 

@@ -475,6 +475,77 @@ func TestPromoteResolvesShipRouteBeforeScoutMutation(t *testing.T) {
 	}
 }
 
+func TestSpawnBuildsHarnessCarryingTaskKind(t *testing.T) {
+	for _, kind := range []string{state.KindShip, state.KindScout} {
+		t.Run(kind, func(t *testing.T) {
+			home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+			r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+			var got harness.Options
+			r.deps.buildHarness = func(_ string, options harness.Options) (launchSpec, error) {
+				got = options
+				return launchSpec{Executable: "launch"}, nil
+			}
+
+			if _, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Kind: kind}); err != nil {
+				t.Fatal(err)
+			}
+			if got.Kind != kind {
+				t.Fatalf("Options.Kind = %q, want %q", got.Kind, kind)
+			}
+		})
+	}
+}
+
+func TestReopenBuildsHarnessCarryingTaskKind(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: deep\n---\nbrief\n")
+	createTerminalExecutionTask(t, home)
+	configureRoute(t, home, state.KindShip, routing.ExecutionClassDeep, routing.Profile{Name: "daily", Harness: "claude"})
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	var got harness.Options
+	r.deps.buildHarness = func(_ string, options harness.Options) (launchSpec, error) {
+		got = options
+		return launchSpec{Executable: "launch"}, nil
+	}
+
+	if _, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != state.KindShip {
+		t.Fatalf("Options.Kind = %q, want %q", got.Kind, state.KindShip)
+	}
+}
+
+func TestPromoteBuildsHarnessCarryingShipKind(t *testing.T) {
+	home := executionPlanHome(t, "---\nexecution_class: standard\n---\nbrief\n")
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scout, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Lifecycle: state.TaskOpen}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", Worktree: "/old/worktree",
+		Herdr: state.Herdr{WorkspaceID: "old-ws", TabID: "old-tab", PaneID: "old-pane"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markExecutionAttemptRunning(t, home, scout.ID)
+	configureRoute(t, home, state.KindScout, routing.ExecutionClassStandard, routing.Profile{Name: "investigate", Harness: "claude"})
+	configureRoute(t, home, state.KindShip, routing.ExecutionClassStandard, routing.Profile{Name: "deliver", Harness: "codex", Model: "ship-model"})
+	addHarnessToPath(t, "codex")
+	r := executionPlanRuntime(t, &executionPlanCalls{}, func(string) (string, error) { return strings.Repeat("a", 40), nil })
+	var got harness.Options
+	r.deps.buildHarness = func(_ string, options harness.Options) (launchSpec, error) {
+		got = options
+		return launchSpec{Executable: "launch"}, nil
+	}
+
+	if _, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != state.KindShip {
+		t.Fatalf("Options.Kind = %q, want %q", got.Kind, state.KindShip)
+	}
+}
+
 func TestProvisionBuildsFromPersistedAttemptSnapshot(t *testing.T) {
 	home, attempt := provisioningFixture(t)
 	attempt.Harness = "codex"
