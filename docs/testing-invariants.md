@@ -216,14 +216,21 @@ Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is
 ## Pull-request observation and terminal-task release
 
 Source: [Terminal release closes on evidence, not a new escape hatch](adr/terminal-release-closes-on-evidence-not-a-new-escape-hatch.md),
-[Every diagnosis names a reachable treatment](adr/every-diagnosis-names-a-reachable-treatment.md).
+[Every diagnosis names a reachable treatment](adr/every-diagnosis-names-a-reachable-treatment.md),
+[Cross-repo PR delivery is an explicit opt-in](adr/cross-repo-pr-delivery-is-an-explicit-opt-in.md).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
 | INV-PR-1 | A pull request is proven absent only when HEAD is detached, no branch is recorded (durably or live), and no commit is missing from a remote-tracking ref. Any one condition failing leaves the observation unknown. | property | `TestObservePRReportsAbsentWhenDetachedHeadHasNoBranchAndNoLocalOnlyCommits`, `TestObservePRStaysUnknownWhenABranchIsRecordedDespiteDetachedHeadWithNoLocalOnlyCommits`, `TestObservePRStaysUnknownWhenDetachedHeadCarriesALocalOnlyCommit`, `TestObservePRUnaffectedByTheAbsenceProofWhenHeadIsNotDetached` |
 | INV-PR-2 | Recording a pull request changes no task lifecycle column and gains a terminal task no liveness in attention, next-action ranking, or `hand status`. | property | `TestPRRecordsOnATerminalTaskWithoutReopening` |
-| INV-PR-3 | `hand pr` is write-once regardless of task lifecycle: a second, different URL is refused whether the task is open or terminal. | unit | `TestPRRecordsOnATerminalTaskWithoutReopening` |
+| INV-PR-3 | `hand pr` is write-once regardless of task lifecycle: a second, different URL is refused whether the task is open or terminal, and whether or not `--cross-repo` was used. | unit | `TestPRRecordsOnATerminalTaskWithoutReopening`, `TestPRCrossRepoWriteOnceRefusesASecondDifferentURL` |
 | INV-PR-4 | An attempt proven to have produced no committable work releases its worktree without a pull request, and the completion record never claims a merge for it, including across a retry. | unit | `TestTeardownReleasesADetachedWorktreeWithNoBranchAndNoLocalOnlyCommits`, `TestTeardownCircleClosesOnceHandPRRecordsTheEvidenceItAsksFor` |
+| INV-PR-5 | A PR whose repo is neither the project's own nor its declared upstream is refused unless `--cross-repo` is passed, regardless of whether the project declares an upstream at all. | unit | `TestPRRefusesWhenRepoMismatch`, `TestPRRefusesSiblingRepoWithoutCrossRepoFlagAndNamesTheRealEscape` |
+| INV-PR-6 | `--cross-repo` requires `--reason`, and `--reason` is refused without `--cross-repo`: neither is accepted alone. | unit | `TestPRCrossRepoWithoutReasonRefused`, `TestPRReasonWithoutCrossRepoRefused` |
+| INV-PR-7 | `--cross-repo` waives only the repo-match check: the PR still has to exist and be observable on GitHub before it is recorded. | unit | `TestPRCrossRepoStillRefusesAPRThatDoesNotExistOnGitHub` |
+| INV-PR-8 | A fork project's declared-upstream PR is recorded unaffected by the `--cross-repo` opt-in's existence: `hand project upstream` still means what it means, and fork PR resolution is untouched. | unit | `TestPRAcceptsTheDeclaredUpstreamAndStillRefusesAnyOtherRepo` |
+| INV-PR-9 | A PR recorded through `--cross-repo` is distinguishable from a same-repo PR on every surface `hand status` renders a PR through: the `pr` field, the `flags` cell, and `--json`. | unit | `TestStatusRendersCrossRepoPRDistinctlyEverywhere` |
+| INV-PR-10 | Neither `hand pr`'s own branch-based re-detection nor the watcher's auto-recording from a worker's report line ever records a PR cross-repo: the opt-in is asserted only through `hand pr`'s explicit flag. | unit | `TestDetectPRSearchesRenamedRepositoryAfterProjectSetURL` |
 
 ## Output rendering
 

@@ -322,6 +322,15 @@ func SetTaskPR(homeDir, id, pr string) error {
 	return db.SetTaskPR(id, pr)
 }
 
+func SetTaskPRCrossRepo(homeDir, id, pr, reason string) error {
+	db, err := store.Open(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.SetTaskPRCrossRepo(id, pr, reason)
+}
+
 func SetTaskKind(homeDir, id, kind string) error {
 	db, err := store.Open(homeDir)
 	if err != nil {

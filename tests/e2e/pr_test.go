@@ -70,3 +70,60 @@ func TestPRCommand(t *testing.T) {
 		t.Fatalf("task.PR = %q after refused overwrite, want the original %q untouched", task.PR, url)
 	}
 }
+
+// atqamz/hand#423: a PR delivered to a sibling repository is refused by default and recordable
+// only through the explicit --cross-repo opt-in, with a required --reason.
+func TestPRCommandCrossRepo(t *testing.T) {
+	remote := filepath.Join(t.TempDir(), "remote")
+	initGitRepo(t, remote)
+	redirectGitRemote(t, "https://github.com/yes2games/yes2infra.git", remote)
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+
+	home := newHome(t)
+	added := runHand(t, home, "project", "add", "https://github.com/yes2games/yes2infra.git", "--mode", "direct-pr")
+	if added.code != 0 {
+		t.Fatalf("project add: exit %d, stderr %q", added.code, added.stderr)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "yes2infra", Kind: state.KindShip, CreatedAt: now}, state.Attempt{Lifecycle: state.AttemptRunning})
+
+	siblingURL := "https://github.com/yes2games/butler/pull/92"
+	faketool.GH{PRs: []faketool.GHPR{{URL: siblingURL, State: "OPEN"}}}.Install(t, dir)
+
+	refused := runHand(t, home, "pr", "task-1", siblingURL)
+	assertInvocation(t, refused, 3, "--cross-repo")
+
+	missingReason := runHand(t, home, "pr", "task-1", "--cross-repo", siblingURL)
+	assertInvocation(t, missingReason, 2, "--reason")
+
+	reason := "component moved to yes2games/butler before the worker started"
+	recorded := runHand(t, home, "pr", "task-1", "--cross-repo", "--reason", reason, siblingURL)
+	if recorded.code != 0 {
+		t.Fatalf("cross-repo pr record: exit %d, stderr %q", recorded.code, recorded.stderr)
+	}
+	if !strings.Contains(recorded.stdout, "cross_repo_reason: "+reason+"\n") {
+		t.Fatalf("recorded stdout = %q, want the reason echoed back", recorded.stdout)
+	}
+
+	task, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PR != siblingURL {
+		t.Fatalf("task.PR = %q, want %q", task.PR, siblingURL)
+	}
+	if task.PRCrossRepoReason != reason {
+		t.Fatalf("task.PRCrossRepoReason = %q, want %q", task.PRCrossRepoReason, reason)
+	}
+
+	status := runHand(t, home, "status", "task-1")
+	if status.code != 0 {
+		t.Fatalf("status: exit %d, stderr %q", status.code, status.stderr)
+	}
+	if !strings.Contains(status.stdout, "cross-repo") {
+		t.Fatalf("status stdout = %q, want the cross-repo record visibly marked", status.stdout)
+	}
+}

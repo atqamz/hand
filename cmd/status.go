@@ -160,16 +160,20 @@ type statusJSON struct {
 	// Set only alongside PRObservation "found", carrying the URL GitHub answered with. Never mirrored
 	// into PR: that field is the durable record alone, so a found-but-unrecorded PR can never render
 	// as though hand merge's durable check would also see it (atqamz/hand#266).
-	PRObservedURL   string        `json:"pr_observed_url,omitempty"`
-	MergeExecuted   bool          `json:"merged"`
-	MergeAnnounced  bool          `json:"pr_merged_observed"`
-	DeliveredAt     string        `json:"delivered_at,omitempty"`
-	DeliveredReason string        `json:"delivered_reason,omitempty"`
-	CreatedAt       string        `json:"created_at"`
-	LastReportAt    string        `json:"last_report_at,omitempty"`
-	Reported        *reportedJSON `json:"reported,omitempty"`
-	ReportHistory   []string      `json:"report_history,omitempty"`
-	Held            *holdJSON     `json:"held,omitempty"`
+	PRObservedURL string `json:"pr_observed_url,omitempty"`
+	// Set only through hand pr's --cross-repo opt-in (atqamz/hand#423): its presence alone marks
+	// PR as a deliberate delivery to a repository other than the project's own or its declared
+	// upstream, so a consumer never has to infer that from the URL.
+	PRCrossRepoReason string        `json:"pr_cross_repo_reason,omitempty"`
+	MergeExecuted     bool          `json:"merged"`
+	MergeAnnounced    bool          `json:"pr_merged_observed"`
+	DeliveredAt       string        `json:"delivered_at,omitempty"`
+	DeliveredReason   string        `json:"delivered_reason,omitempty"`
+	CreatedAt         string        `json:"created_at"`
+	LastReportAt      string        `json:"last_report_at,omitempty"`
+	Reported          *reportedJSON `json:"reported,omitempty"`
+	ReportHistory     []string      `json:"report_history,omitempty"`
+	Held              *holdJSON     `json:"held,omitempty"`
 	// Omitted where a report file exists (found) or genuinely never has (absent), the same way
 	// PRObservation is: a consumer sees "unknown" only where an empty last_report_at is a failed
 	// stat rather than a task that has never reported.
@@ -725,7 +729,7 @@ func (v taskView) json() statusJSON {
 	}
 	return statusJSON{
 		ID: v.task.ID, Project: v.task.Project, Kind: v.task.Kind, ExecutionClass: e.ExecutionClass, Profile: e.RequestedProfile, PlannedAgainst: e.PlannedAgainst, RoutingSource: e.RoutingSource, TaskLifecycle: string(v.task.Lifecycle), AttemptOrdinal: e.Ordinal, AttemptLifecycle: string(e.Lifecycle), Harness: e.Harness, Model: e.Model, Effort: e.Effort,
-		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR, PRObservation: string(v.prObserved), PRObservedURL: v.prObservedURL,
+		AgentState: v.agentState, Worktree: e.Worktree, Herdr: e.Herdr, PR: v.task.PR, PRObservation: string(v.prObserved), PRObservedURL: v.prObservedURL, PRCrossRepoReason: v.task.PRCrossRepoReason,
 		MergeExecuted: v.task.MergeExecuted, MergeAnnounced: v.task.MergeAnnounced,
 		DeliveredAt: v.task.DeliveredAt, DeliveredReason: v.task.DeliveredReason,
 		CreatedAt: v.task.CreatedAt, LastReportAt: v.lastReportAt, LastReportObservation: lastReportObservationJSON(v.lastReportObserved),

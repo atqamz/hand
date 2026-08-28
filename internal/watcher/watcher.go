@@ -882,7 +882,9 @@ func autoRecordPR(ctx context.Context, home string, t state.Task, url string) er
 
 	ghCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := project.ValidatePR(ghCtx, home, proj, url); err != nil {
+	// Never crossRepo: a cross-repo delivery is asserted by an operator through hand pr's
+	// --cross-repo opt-in, never discovered from a worker's report line (atqamz/hand#423).
+	if err := project.ValidatePR(ghCtx, home, proj, url, false); err != nil {
 		return err
 	}
 	return recordAutoPR(home, t.ID, url)
