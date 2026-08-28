@@ -137,14 +137,17 @@ func TestMergeRefusesWhenNoPRRecorded(t *testing.T) {
 	}
 }
 
-// Covers the gap noted in atqamz/hand#69: a gate-opened PR can populate t.PR without hand having
-// merged it, so t.PR != "" no longer implies hand hasn't seen it land yet.
-func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
+// atqamz/hand#422: a gate-opened PR (atqamz/hand#69) can populate t.PR without hand having merged it,
+// and the merge can equally have happened out of band. "Already merged" cannot be un-merged, so hand
+// converges instead of refusing an unsatisfiable precondition.
+func TestMergeConvergesOnAlreadyMergedPR(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	g := mergeTestGH()
 	g.PRs[0].State = "MERGED"
+	log := filepath.Join(t.TempDir(), "gh.log")
+	g.Log = log
 	g.Install(t, faketool.Bin(t))
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
@@ -152,14 +155,16 @@ func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 	}
 
 	cmd := newMergeCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"task-1"})
-	err := cmd.Execute()
-	var exitErr *ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
-		t.Fatalf("got %v, want ExitError code 3", err)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "already merged") {
-		t.Fatalf("err = %v, want already merged", err)
+	for _, want := range []string{"id: task-1\n", "result: converged\n", "pr: \"" + mergeTestPR + "\"\n"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output = %q, want field %q", out.String(), want)
+		}
 	}
 
 	got, err := state.Read(home, "task-1")
@@ -167,7 +172,58 @@ func TestMergeRefusesAlreadyMergedPR(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.MergeExecuted {
-		t.Fatal("want task not marked merged by hand merge itself")
+		t.Fatal("want task not marked merged by hand merge itself: hand observed this merge, it did not perform it")
+	}
+	if !got.MergeAnnounced {
+		t.Fatal("want the observed merge recorded as announced")
+	}
+
+	invocations, err := os.ReadFile(log)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(invocations), "gh pr merge") {
+		t.Fatalf("gh pr merge ran for a PR already merged:\n%s", invocations)
+	}
+}
+
+// Converging is idempotent: a second hand merge on a task whose PR is still (and only ever) observed
+// merged converges again rather than refusing or re-merging.
+func TestMergeConvergesRepeatedlyOnAnAlreadyMergedPR(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	g := mergeTestGH()
+	g.PRs[0].State = "MERGED"
+	log := filepath.Join(t.TempDir(), "gh.log")
+	g.Log = log
+	g.Install(t, faketool.Bin(t))
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", PR: mergeTestPR}, state.Attempt{Lifecycle: state.AttemptRunning}); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		cmd := newMergeCmd()
+		cmd.SetArgs([]string{"task-1"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MergeExecuted || !got.MergeAnnounced {
+		t.Fatalf("task = %+v, want converged (announced, not executed) after repeated runs", got)
+	}
+	invocations, err := os.ReadFile(log)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(invocations), "gh pr merge") {
+		t.Fatalf("gh pr merge ran for a PR already merged:\n%s", invocations)
 	}
 }
 
@@ -325,9 +381,9 @@ func TestMergePRSucceedsWhenChecksGreen(t *testing.T) {
 }
 
 // hand merge writes the row only after gh has merged, so a fault between the two leaves the PR merged
-// and the row saying otherwise. The pre-check is then all that stops a rerun, because a repeated
-// `gh pr merge` is exit 0 with a warning (internal/faketool/FIDELITY.md) and nothing would notice.
-func TestMergeRefusesAPRAnEarlierRunAlreadyMerged(t *testing.T) {
+// and the row saying otherwise. The pre-check now converges rather than refusing, recovering the lost
+// write instead of re-running `gh pr merge`, which is exit 0 with a warning (internal/faketool/FIDELITY.md).
+func TestMergeConvergesOnAPRAnEarlierRunAlreadyMerged(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -358,13 +414,16 @@ func TestMergeRefusesAPRAnEarlierRunAlreadyMerged(t *testing.T) {
 
 	rerun := newMergeCmd()
 	rerun.SetArgs([]string{"task-1"})
-	err = rerun.Execute()
-	var exitErr *ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
-		t.Fatalf("got %v, want ExitError code 3", err)
+	if err := rerun.Execute(); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "already merged") {
-		t.Fatalf("err = %v, want already merged", err)
+
+	converged, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !converged.MergeAnnounced {
+		t.Fatal("want the rerun to converge on the observed merge rather than refuse")
 	}
 
 	invocations, err := os.ReadFile(log)

@@ -684,8 +684,10 @@ func convergenceTask(t *testing.T, home string, task state.Task) state.Attempt {
 
 func TestDecideTerminalConvergenceMatrix(t *testing.T) {
 	running := state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}}
+	withPR := state.Task{ID: "task-1", PR: "https://github.com/example/repo/pull/7"}
 	tests := []struct {
 		name            string
+		task            state.Task
 		attempt         state.Attempt
 		observation     reconciliationObservation
 		wantConverge    bool
@@ -719,7 +721,7 @@ func TestDecideTerminalConvergenceMatrix(t *testing.T) {
 			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}},
 		},
 		{
-			name:        "pane still present",
+			name:        "pane still present, no PR recorded",
 			attempt:     running,
 			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipExact, Agent: "claude"}, Landing: landingLanded},
 		},
@@ -733,10 +735,50 @@ func TestDecideTerminalConvergenceMatrix(t *testing.T) {
 			attempt:     state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: running.Herdr, TeardownTerminalAttempt: state.AttemptInterrupted},
 			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}, Landing: landingLanded},
 		},
+		{
+			// atqamz/hand#422 ask 2: a recorded PR GitHub reports merged completes the Attempt whether
+			// or not its pane is still alive, because a live pane is not evidence of anything.
+			name:            "recorded PR merged with pane still present",
+			task:            withPR,
+			attempt:         running,
+			observation:     reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipExact, Agent: "claude"}, Landing: landingLanded},
+			wantConverge:    true,
+			wantLifecycle:   state.AttemptCompleted,
+			wantDisposition: state.TeardownDispositionCompleted,
+		},
+		{
+			// The other half of locked decision 3: opening the gate does not make the pane evidence of
+			// anything, so unlanded evidence still may not interrupt a worker whose pane is alive.
+			name:        "recorded PR unmerged with pane still present stays unchanged",
+			task:        withPR,
+			attempt:     running,
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipExact, Agent: "claude"}, Landing: landingUnlanded},
+		},
+		{
+			name:        "recorded PR landing unknown with pane still present stays unchanged",
+			task:        withPR,
+			attempt:     running,
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipExact, Agent: "claude"}, Landing: landingUnknown},
+		},
+		{
+			name:            "recorded PR merged with pane gone",
+			task:            withPR,
+			attempt:         running,
+			observation:     reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipAbsent}, Landing: landingLanded},
+			wantConverge:    true,
+			wantLifecycle:   state.AttemptCompleted,
+			wantDisposition: state.TeardownDispositionCompleted,
+		},
+		{
+			name:        "recorded PR merged but teardown already decided",
+			task:        withPR,
+			attempt:     state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude", Herdr: running.Herdr, TeardownTerminalAttempt: state.AttemptInterrupted},
+			observation: reconciliationObservation{Herdr: herdrObservation{State: herdrOwnershipExact, Agent: "claude"}, Landing: landingLanded},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			lifecycle, disposition, converge := decideTerminalConvergence(tc.attempt, tc.observation)
+			lifecycle, disposition, converge := decideTerminalConvergence(tc.task, tc.attempt, tc.observation)
 			if converge != tc.wantConverge || lifecycle != tc.wantLifecycle || disposition != tc.wantDisposition {
 				t.Fatalf("converge=%v lifecycle=%q disposition=%q, want %v/%q/%q", converge, lifecycle, disposition, tc.wantConverge, tc.wantLifecycle, tc.wantDisposition)
 			}
@@ -846,7 +888,10 @@ func TestReconcileKeepsKilledWorkerUnknownWithoutDiscoverablePR(t *testing.T) {
 	}
 }
 
-func TestReconcileKeepsLiveWorkerThatReportedDone(t *testing.T) {
+// atqamz/hand#422 ask 2: a merged PR is landing evidence regardless of the worker's pane. Before the
+// fix this task stayed "healthy / keep" forever despite GitHub reporting it merged - the reproduction
+// on task 408-orient-respects-holds cited in the issue.
+func TestReconcileConvergesLiveWorkerWhoseMergedPRLanded(t *testing.T) {
 	home := reconcileFixture(t)
 	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
 	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
@@ -862,18 +907,81 @@ func TestReconcileKeepsLiveWorkerThatReportedDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if report.Results[0].Landing != string(landingLanded) {
+		t.Fatalf("landing = %q, want landed", report.Results[0].Landing)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.ActiveAttempt != nil {
+		t.Fatalf("history = %+v, want a terminal task with no active Attempt despite the live pane", history)
+	}
+	converged := history.Attempts[0]
+	if converged.Lifecycle != state.AttemptCompleted || converged.TeardownDisposition != state.TeardownDispositionCompleted {
+		t.Fatalf("attempt = %+v, want completed by convergence", converged)
+	}
+	if _, found, err := completion.FindAttempt(home, converged.ID); err != nil || !found {
+		t.Fatalf("found=%v err=%v, want a completion record despite the live pane", found, err)
+	}
+}
+
+// The other half of the fix: an unmerged PR must not become grounds to interrupt a worker whose pane
+// is still alive. Ask 2 opens the gate on observing landing, it does not turn "not merged yet" into
+// evidence the pane's aliveness cannot already answer.
+func TestReconcileKeepsLiveWorkerWithUnmergedRecordedPR(t *testing.T) {
+	home := reconcileFixture(t)
+	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.prMerged = observedMergedPR(false)
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Landing != string(landingUnlanded) {
+		t.Fatalf("landing = %q, want unlanded", report.Results[0].Landing)
+	}
 	if report.Results[0].Action != string(reconciliationActionKeep) {
-		t.Fatalf("action = %q, want keep while the worker process is alive", report.Results[0].Action)
+		t.Fatalf("action = %q, want keep: an open PR must not interrupt a worker whose pane is alive", report.Results[0].Action)
 	}
 	history, err := state.ReadHistory(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning || history.Task.Lifecycle != state.TaskOpen {
-		t.Fatalf("history = %+v, want the running Attempt untouched by worker prose", history)
+		t.Fatalf("history = %+v, want the running Attempt untouched while its PR is still open", history)
 	}
-	if _, found, err := completion.FindAttempt(home, history.ActiveAttempt.ID); err != nil || found {
-		t.Fatalf("found=%v err=%v, want no completion record from worker prose", found, err)
+}
+
+// A recorded PR GitHub cannot be asked about still refuses to converge, live pane or not: an
+// unreachable GitHub is unknown, never a positive answer either way.
+func TestReconcileKeepsLiveWorkerWhenPRStateUnobservable(t *testing.T) {
+	home := reconcileFixture(t)
+	convergenceTask(t, home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"})
+	if err := state.SetTaskPR(home, "task-1", "https://github.com/example/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	r.deps.prMerged = unobservedPR("GitHub unavailable")
+	report, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].Landing != string(landingUnknown) {
+		t.Fatalf("landing = %q, want unknown", report.Results[0].Landing)
+	}
+	if report.Results[0].Action != string(reconciliationActionKeep) {
+		t.Fatalf("action = %q, want keep while GitHub cannot be asked", report.Results[0].Action)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("history = %+v, want no terminal value invented from an unknown landing", history)
 	}
 }
 

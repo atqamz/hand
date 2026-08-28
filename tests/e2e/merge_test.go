@@ -14,8 +14,8 @@ import (
 )
 
 // Drives `hand merge` through a faked gh, no real remote: all-green checks merge cleanly, a failing
-// bucket is refused before gh pr merge is ever invoked, and a rerun of the merge that succeeded is
-// refused rather than merging a second time.
+// bucket is refused before gh pr merge is ever invoked, and a rerun of the merge that succeeded
+// converges on the observed merge rather than merging a second time (atqamz/hand#422).
 func TestMergePR(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "direct-pr")
@@ -47,15 +47,27 @@ func TestMergePR(t *testing.T) {
 	}
 
 	// The row is written only after gh has merged, so a fault between the two leaves the PR merged and the
-	// row saying otherwise. The pre-check is then all that stops a rerun, because a repeated `gh pr merge`
-	// is exit 0 with a warning (internal/faketool/FIDELITY.md) and nothing downstream would notice.
+	// row saying otherwise. The rerun recovers by converging on the observed merge, because a repeated
+	// `gh pr merge` is exit 0 with a warning (internal/faketool/FIDELITY.md) and nothing downstream would notice.
 	task1.MergeExecuted = false
 	task1.MergeExecutedAt = ""
 	if err := state.Write(home, task1); err != nil {
 		t.Fatal(err)
 	}
 	rerun := runHand(t, home, "merge", "task-1")
-	assertInvocation(t, rerun, 3, "already merged")
+	if rerun.code != 0 {
+		t.Fatalf("rerun merge task-1: exit %d, stderr %q", rerun.code, rerun.stderr)
+	}
+	if !strings.Contains(rerun.stdout, "result: converged") {
+		t.Fatalf("rerun stdout = %q, want the rerun to converge on the observed merge", rerun.stdout)
+	}
+	converged, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if converged.MergeExecuted || !converged.MergeAnnounced {
+		t.Fatalf("task-1 state = %+v, want MergeExecuted=false and MergeAnnounced=true: hand observed this merge, it did not perform it", converged)
+	}
 
 	refused := runHand(t, home, "merge", "task-2")
 	assertInvocation(t, refused, 3, "not green")

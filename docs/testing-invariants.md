@@ -50,7 +50,8 @@ Source: [Tasks are durable and Attempts own execution](adr/tasks-are-durable-and
 ## Reconciliation
 
 Source: [Deterministic reconciliation observes before mutating](adr/deterministic-reconciliation-observes-before-mutating.md),
-[Liveness is observed, not assumed from launch](adr/liveness-is-observed-not-assumed-from-launch.md).
+[Liveness is observed, not assumed from launch](adr/liveness-is-observed-not-assumed-from-launch.md),
+[Attention is one derivation over three channels](adr/attention-is-one-derivation-over-three-channels.md).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -61,6 +62,9 @@ Source: [Deterministic reconciliation observes before mutating](adr/deterministi
 | INV-REC-5 | Reconciliation applies at most one action per loop iteration, then re-observes. | model | unaudited |
 | INV-REC-6 | Automatic resource cleanup requires exact ownership proof, a clean worktree, and positive proof that returning the worktree discards no commit held nowhere else. All three, never two. | property | unaudited |
 | INV-REC-7 | Classifying an attempt idle-unreported changes no lifecycle, releases no lease, returns no worktree, and touches no Herdr resource. | property | unaudited |
+| INV-REC-9 | A task whose recorded PR GitHub reports merged reaches a merged lifecycle through `hand merge` or `hand reconcile`, regardless of whether its Herdr pane is present, absent, or alive, for any pane state. | property | `TestMergeConvergesOnAlreadyMergedPR`, `TestDecideTerminalConvergenceMatrix`, `TestReconcileConvergesLiveWorkerWhoseMergedPRLanded` |
+| INV-REC-10 | Landing is never inferred from pane state, presence or absence: a recorded PR observed *not* merged does not interrupt a running Attempt whose pane is still alive, for any such pane observation. | property | `TestDecideTerminalConvergenceMatrix`, `TestReconcileKeepsLiveWorkerWithUnmergedRecordedPR` |
+| INV-REC-11 | A merge hand performed and a merge hand only observed are recorded in distinguishable durable state (`MergeExecuted` versus `MergeAnnounced`), for either path. | unit | `TestMergeConvergesOnAlreadyMergedPR`, `TestMergePRSucceedsWhenChecksGreen` |
 | INV-REC-8 | The usage-limit probe fires at most once per stop. | model | unaudited |
 
 ## Init and generated surfaces
