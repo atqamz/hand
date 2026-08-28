@@ -219,7 +219,11 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 	}
 	cfg.FleetID = fleetID
 
-	if err := probeAllTasks(ctx, cfg.Home, client, cfg.Targets); err != nil {
+	armHistories, err := state.ListOpenHistories(cfg.Home)
+	if err != nil {
+		return fmt.Errorf("list tasks: %w", err)
+	}
+	if err := probeAllTasks(ctx, cfg.Home, client, cfg.Targets, armHistories); err != nil {
 		return err
 	}
 
@@ -288,12 +292,9 @@ func connect(ctx context.Context, client *herdr.Client) error {
 }
 
 // Confirms every running task's pane answers before RunUntilEvent arms; provisioning has no pane
-// contract yet and is intentionally left for a later tick after launch confirmation.
-func probeAllTasks(ctx context.Context, home string, client *herdr.Client, targets []TargetBinding) error {
-	histories, err := state.ListOpenHistories(home)
-	if err != nil {
-		return fmt.Errorf("list tasks: %w", err)
-	}
+// contract yet and is intentionally left for a later tick after launch confirmation. histories is a
+// snapshot the caller already read, so a teardown can commit against it before this reaches that task.
+func probeAllTasks(ctx context.Context, home string, client *herdr.Client, targets []TargetBinding, histories []state.TaskHistory) error {
 	done := make(chan error, 1)
 	go func() {
 		for _, history := range histories {
@@ -307,7 +308,21 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client, targe
 			if history.ActiveAttempt.Lifecycle == state.AttemptProvisioning {
 				continue
 			}
+			// releaseHerdr (internal/runtime/teardown.go) marks this "releasing" strictly before it
+			// closes the pane, so an attempt already carrying the mark needs no probe - mirrors the
+			// provisioning skip above: this pane contract no longer describes anything to watch.
+			if history.ActiveAttempt.TeardownHerdrState != "" {
+				continue
+			}
 			if _, err := client.PaneGetContext(ctx, history.ActiveAttempt.Herdr.PaneID); err != nil {
+				// pane_not_found is ambiguous from a stale snapshot: a teardown can commit its herdr
+				// mark, written strictly before the pane closes, in the gap between the snapshot read
+				// and this probe. A fresh read settles it either way.
+				if errors.Is(err, herdr.ErrNotFound) {
+					if needed, rerr := attemptStillNeedsArm(home, history.Task.ID, history.ActiveAttempt.ID); rerr == nil && !needed {
+						continue
+					}
+				}
 				done <- fmt.Errorf("%w: %s: %v", ErrArmFailed, history.Task.ID, err)
 				return
 			}
@@ -324,6 +339,26 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client, targe
 		}
 		return err
 	}
+}
+
+// Re-reads one task fresh to tell a real arm failure apart from a teardown that committed after
+// probeAllTasks's histories snapshot was taken. Only the same attempt, still open and still carrying
+// no teardown mark, still needs the failure reported; anything else is no longer this arm's to watch.
+func attemptStillNeedsArm(home, taskID string, probedAttemptID int64) (bool, error) {
+	history, err := state.ReadHistory(home, taskID)
+	if err != nil {
+		if errors.Is(err, state.ErrTaskNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if history.Task.Lifecycle != state.TaskOpen {
+		return false, nil
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.ID != probedAttemptID {
+		return false, nil
+	}
+	return history.ActiveAttempt.TeardownHerdrState == "", nil
 }
 
 func connectContextError(ctx context.Context) error {

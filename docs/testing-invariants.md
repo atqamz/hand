@@ -163,7 +163,8 @@ Source: [One watcher per fleet home, guarded by an flock](adr/one-watcher-per-fl
 [Watcher takeover is generation-attributed](adr/watcher-takeover-is-generation-attributed.md),
 [The until-event exit is the delivery](adr/the-until-event-exit-is-the-delivery.md),
 [Arming a watch observes before it waits](adr/arming-a-watch-observes-before-it-waits.md),
-[A contended refusal names its recorded holder](adr/a-contended-refusal-names-its-recorded-holder.md).
+[A contended refusal names its recorded holder](adr/a-contended-refusal-names-its-recorded-holder.md),
+`internal/watcher/watcher.go` (`probeAllTasks`, `attemptStillNeedsArm`; atqamz/hand#455).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -175,6 +176,8 @@ Source: [One watcher per fleet home, guarded by an flock](adr/one-watcher-per-fl
 | INV-WATCH-6 | Delivery, an empty window, and an unprobeable task have distinct exit codes, and each is reachable. | property | unaudited |
 | INV-WATCH-7 | A contended refusal names the durably recorded holder - pid and generation - and never asserts an identity the owner record does not carry; an unreadable or absent record is reported as such, not guessed. | property | unit - `TestAcquireRefusesASecondWatcherAndNamesTheRecordedHolder`, `TestContendNamesABridgeHolderAndOffersNoTakeover`, `TestContendWithNoRecordSaysSoRatherThanGuessingAHolder`, `TestContendWithAMalformedRecordSaysSoRatherThanGuessingAHolder`; e2e - `TestWatchNamesALiveSupervisionBridgeHolderAndOffersNoTakeover` |
 | INV-WATCH-8 | `--takeover` is offered, and attempted, only against a holder recorded as able to honor it; a recorded bridge holder refuses immediately instead of waiting out the takeover grace. | property | unit - `TestContendNamesABridgeHolderAndOffersNoTakeover`, `TestTakeoverAgainstABridgeHolderFailsFastWithoutWaitingOutTheGrace` |
+| INV-WATCH-9 | Tearing a task down never fails an arm: an attempt already marked mid-teardown at the histories snapshot is skipped without a probe, and a teardown that commits after the snapshot but before that task's probe is caught by a fresh re-read on a not-found pane. | property | unit - `TestProbeAllTasksSkipsATornDownAttemptWithoutProbingItsPane`, `TestProbeAllTasksClosesTheRaceWhenATeardownCommitsAfterTheHistoriesSnapshot` |
+| INV-WATCH-10 | A pane missing for an open task not being torn down still fails the arm and still names that task, even through the same not-found path INV-WATCH-9 forgives. | property | unit - `TestProbeAllTasksFailsWhenAnOpenTasksPaneIsGoneWithoutATeardown` |
 
 ## Locks and schema
 
@@ -256,6 +259,7 @@ Source: [Every diagnosis names a reachable treatment](adr/every-diagnosis-names-
 | INV-DIAG-1 | Every reachable stuck state has an entry naming the supported commands that leave it, or is explicitly marked undiagnosed. | property | unaudited |
 | INV-DIAG-2 | A persisted repair reason carries its treatment text with the task id substituted, so a refusal and the way out cannot drift apart. | property | unaudited |
 | INV-DIAG-3 | Every treatment falls in exactly one of the three classes. | property | unaudited |
+| INV-DIAG-4 | The Claude wake-bridge refusal on an arm failure names a treatment that can actually observe the condition (`hand status`, which checks pane reachability), never one that cannot (`hand doctor`, which does not). | property | unaudited |
 
 ## Launch-level delivery authorization
 

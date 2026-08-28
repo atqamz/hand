@@ -201,7 +201,9 @@ func newClaudeStopCmd() *cobra.Command {
 				if markErr := ledger.MarkBridgeError(harness.Claude, waitErr.Error()); markErr != nil {
 					return markErr
 				}
-				return &ExitError{Err: fmt.Errorf("hand supervisor wake bridge failed monitoring: %v; run `hand doctor` in the fleet home", waitErr), Code: 2}
+				// `hand doctor` never inspects pane reachability, so it cannot see this condition -
+				// `hand status` is what actually observes an unreachable pane (atqamz/hand#455).
+				return &ExitError{Err: fmt.Errorf("hand supervisor wake bridge failed monitoring: %v; run `hand status` in the fleet home to see which task's pane is unreachable", waitErr), Code: 2}
 			default:
 				return waitErr
 			}
