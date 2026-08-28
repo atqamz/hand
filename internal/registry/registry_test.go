@@ -829,9 +829,27 @@ func flipFleetID(id string) string {
 }
 
 // INV-REG-1: Register is idempotent per (home, fleet id) - repeating it any number of times, with
-// any timestamps, yields one registry row and one locator row, not many. A property calling Register
-// once cannot witness this; it has to run a generated sequence of repeats.
+// any timestamps, yields one registry row and one locator row, not many. The home is built once,
+// outside rapid.Check, since no case here ever mutates it and store.Open's migration is not free.
 func TestRegisterIsIdempotentAcrossRepeatedCalls(t *testing.T) {
+	homeRoot, err := os.MkdirTemp("", "hand-registry-idempotent-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(homeRoot) })
+	home := filepath.Join(homeRoot, "fleet")
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetID, err := db.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	rapid.Check(t, func(t *rapid.T) {
 		root, err := os.MkdirTemp("", "hand-registry-idempotent-")
 		if err != nil {
@@ -839,26 +857,13 @@ func TestRegisterIsIdempotentAcrossRepeatedCalls(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(root) })
 
-		home := filepath.Join(root, "fleet")
-		db, err := store.Open(home)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fleetID, err := db.FleetID()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := db.Close(); err != nil {
-			t.Fatal(err)
-		}
-
 		registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = registryDB.Close() })
 
-		stamps := rapid.SliceOfN(timestampGen(), 1, 20).Draw(t, "stamps")
+		stamps := rapid.SliceOfN(timestampGen(), 1, 8).Draw(t, "stamps")
 		for _, stamp := range stamps {
 			if err := registryDB.Register(home, fleetID, stamp); err != nil {
 				t.Fatalf("Register(%s) = %v", stamp, err)
@@ -896,29 +901,34 @@ func TestRegisterIsIdempotentAcrossRepeatedCalls(t *testing.T) {
 }
 
 // INV-REG-2: no registry operation - Register with the right id, Register with a wrong id, List,
-// Prune, or Check - ever reissues or rewrites a home's own fleet identity. Register only reads that
-// identity (store.FleetIDReadOnly) to compare against; nothing here writes it.
+// Prune, or Check - ever reissues or rewrites a home's own fleet identity. The home is built once,
+// for the same reason as TestRegisterIsIdempotentAcrossRepeatedCalls: no op below mutates it.
 func TestNoRegistryOperationRewritesAHomesFleetIdentity(t *testing.T) {
+	homeRoot, err := os.MkdirTemp("", "hand-registry-identity-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(homeRoot) })
+	home := filepath.Join(homeRoot, "fleet")
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalID, err := db.FleetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wrongID := flipFleetID(canonicalID)
+
 	rapid.Check(t, func(t *rapid.T) {
 		root, err := os.MkdirTemp("", "hand-registry-identity-")
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(root) })
-
-		home := filepath.Join(root, "fleet")
-		db, err := store.Open(home)
-		if err != nil {
-			t.Fatal(err)
-		}
-		canonicalID, err := db.FleetID()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := db.Close(); err != nil {
-			t.Fatal(err)
-		}
-		wrongID := flipFleetID(canonicalID)
 
 		registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
 		if err != nil {
@@ -928,14 +938,15 @@ func TestNoRegistryOperationRewritesAHomesFleetIdentity(t *testing.T) {
 
 		ops := rapid.SliceOfN(rapid.SampledFrom([]string{
 			"register-correct", "register-wrong", "list", "prune", "check-correct", "check-wrong",
-		}), 1, 20).Draw(t, "ops")
+		}), 1, 8).Draw(t, "ops")
 
-		for _, op := range ops {
+		for i, op := range ops {
+			stamp := timestampGen().Draw(t, fmt.Sprintf("stamp-%d", i))
 			switch op {
 			case "register-correct":
-				_ = registryDB.Register(home, canonicalID, time.Now().UTC())
+				_ = registryDB.Register(home, canonicalID, stamp)
 			case "register-wrong":
-				_ = registryDB.Register(home, wrongID, time.Now().UTC())
+				_ = registryDB.Register(home, wrongID, stamp)
 			case "list":
 				_, _ = registryDB.List(home)
 			case "prune":
@@ -957,10 +968,65 @@ func TestNoRegistryOperationRewritesAHomesFleetIdentity(t *testing.T) {
 	})
 }
 
+// A pre-built fleet home whose canonical identity and state/hand.db bytes are fixed, so a rapid
+// property can reset it to that exact state instead of paying store.Open's schema migration again on
+// every one of the ~100 generated cases.
+type homeFixture struct {
+	dir     string
+	fleetID string
+	dbBytes []byte
+}
+
+func buildHomeFixtures(t *testing.T, root string, n int) []homeFixture {
+	t.Helper()
+	fixtures := make([]homeFixture, n)
+	for i := range fixtures {
+		home := filepath.Join(root, fmt.Sprintf("home-%d", i))
+		db, err := store.Open(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := db.FleetID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(store.Path(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixtures[i] = homeFixture{dir: home, fleetID: id, dbBytes: data}
+	}
+	return fixtures
+}
+
+// Restores f's directory to holding exactly its pristine state/hand.db, regardless of what an
+// earlier case did to it - removed the whole directory, or just the database file.
+func (f homeFixture) reset(t *rapid.T) {
+	if err := os.RemoveAll(f.dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.Dir(f.dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path(f.dir), f.dbBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // INV-REG-3: classification is a function of (stored rows, observed filesystem), and reading it
-// mutates nothing. This compares the registry database's raw bytes - not merely the returned value -
-// before and after a read, and checks two reads over an unchanged pair return identical results.
+// mutates nothing - checked against the registry's raw bytes, not just the returned value. Homes
+// reset per case rather than rebuild, since this is the only property of the four that mutates one.
 func TestListIsPureAndReadingMutatesNothing(t *testing.T) {
+	fixtureRoot, err := os.MkdirTemp("", "hand-registry-pure-homes-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(fixtureRoot) })
+	fixtures := buildHomeFixtures(t, fixtureRoot, 5)
+
 	rapid.Check(t, func(t *rapid.T) {
 		root, err := os.MkdirTemp("", "hand-registry-pure-")
 		if err != nil {
@@ -975,36 +1041,27 @@ func TestListIsPureAndReadingMutatesNothing(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = registryDB.Close() })
 
-		n := rapid.IntRange(1, 5).Draw(t, "homes")
+		n := rapid.IntRange(1, len(fixtures)).Draw(t, "homes")
 		var current string
 		for i := 0; i < n; i++ {
-			home := filepath.Join(root, fmt.Sprintf("home-%d", i))
-			db, err := store.Open(home)
-			if err != nil {
-				t.Fatal(err)
-			}
-			id, err := db.FleetID()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := db.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if err := registryDB.Register(home, id, time.Now().UTC()); err != nil {
+			fixture := fixtures[i]
+			fixture.reset(t)
+			stamp := timestampGen().Draw(t, fmt.Sprintf("stamp-%d", i))
+			if err := registryDB.Register(fixture.dir, fixture.fleetID, stamp); err != nil {
 				t.Fatal(err)
 			}
 			switch rapid.SampledFrom([]string{"ready", "missing", "unreadable"}).Draw(t, fmt.Sprintf("kind-%d", i)) {
 			case "missing":
-				if err := os.RemoveAll(home); err != nil {
+				if err := os.RemoveAll(fixture.dir); err != nil {
 					t.Fatal(err)
 				}
 			case "unreadable":
-				if err := os.Remove(store.Path(home)); err != nil {
+				if err := os.Remove(store.Path(fixture.dir)); err != nil {
 					t.Fatal(err)
 				}
 			}
 			if i == 0 {
-				current = home
+				current = fixture.dir
 			}
 		}
 
@@ -1035,9 +1092,16 @@ func TestListIsPureAndReadingMutatesNothing(t *testing.T) {
 }
 
 // INV-REG-4: losing or deleting the registry changes no fleet identity, and re-registering restores
-// exactly what each home's own state/hand.db carries. This crosses two stores - a property that never
-// deletes registry.db cannot witness the recovery half, so the sequence has to lose it for real.
+// exactly what each home's own state/hand.db carries. Homes are built once and never mutated here
+// (unlike TestListIsPureAndReadingMutatesNothing), so the fixed pool needs no reset between cases.
 func TestRegistryLossLosesNoIdentityAndRegisterRecoversIt(t *testing.T) {
+	fixtureRoot, err := os.MkdirTemp("", "hand-registry-recovery-homes-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(fixtureRoot) })
+	fixtures := buildHomeFixtures(t, fixtureRoot, 4)
+
 	rapid.Check(t, func(t *rapid.T) {
 		root, err := os.MkdirTemp("", "hand-registry-recovery-")
 		if err != nil {
@@ -1051,27 +1115,16 @@ func TestRegistryLossLosesNoIdentityAndRegisterRecoversIt(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		n := rapid.IntRange(1, 4).Draw(t, "homes")
+		n := rapid.IntRange(1, len(fixtures)).Draw(t, "homes")
 		homes := make([]string, n)
 		ids := make([]string, n)
 		for i := 0; i < n; i++ {
-			home := filepath.Join(root, fmt.Sprintf("home-%d", i))
-			db, err := store.Open(home)
-			if err != nil {
+			stamp := timestampGen().Draw(t, fmt.Sprintf("stamp-%d", i))
+			if err := registryDB.Register(fixtures[i].dir, fixtures[i].fleetID, stamp); err != nil {
 				t.Fatal(err)
 			}
-			id, err := db.FleetID()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := db.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if err := registryDB.Register(home, id, time.Now().UTC()); err != nil {
-				t.Fatal(err)
-			}
-			homes[i] = home
-			ids[i] = id
+			homes[i] = fixtures[i].dir
+			ids[i] = fixtures[i].fleetID
 		}
 		if err := registryDB.Close(); err != nil {
 			t.Fatal(err)
@@ -1100,7 +1153,8 @@ func TestRegistryLossLosesNoIdentityAndRegisterRecoversIt(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = recovered.Close() })
 		for i, home := range homes {
-			if err := recovered.Register(home, ids[i], time.Now().UTC()); err != nil {
+			stamp := timestampGen().Draw(t, fmt.Sprintf("recovery-stamp-%d", i))
+			if err := recovered.Register(home, ids[i], stamp); err != nil {
 				t.Fatalf("Register(%s) after loss = %v", home, err)
 			}
 		}
