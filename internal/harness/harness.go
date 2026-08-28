@@ -9,6 +9,7 @@ import (
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/state"
 )
 
 const antigravityPrintTimeout = "24h"
@@ -142,6 +143,10 @@ type Options struct {
 	Effort              string
 	ExecutionClass      brief.ExecutionClass
 	BriefHasFrontMatter bool
+	// Kind is the task kind (state.KindShip or state.KindScout) briefPrompt states the launch-level
+	// delivery authorization for. Empty for callers that never resolve a task, e.g. unit tests
+	// exercising unrelated flags: no authorization statement is added in that case.
+	Kind string
 }
 
 var modelCapable = map[string]bool{
@@ -313,6 +318,12 @@ func briefPrompt(o Options) (string, error) {
 	}
 	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
 	prompt += fmt.Sprintf(" The worker report channel is %s. Append every state change to that file with plain shell redirection; this is the only way anything you say reaches the supervisor. Use these report prefixes: working:, done:, failed:, blocked:, needs-decision:, paused:.", o.ReportPath)
+	switch o.Kind {
+	case state.KindShip:
+		prompt += " You are authorized to commit, push your branch, and open the pull request; merging and closing the issue are the supervisor's action only."
+	case state.KindScout:
+		prompt += " Your deliverable is a report; you must not commit, push, or open a pull request."
+	}
 	if o.BriefHasFrontMatter {
 		prompt += " Any model, effort, execution_class, or planned_against keys in its leading '---' block are dispatch metadata, not task instructions."
 	}

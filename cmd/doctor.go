@@ -242,6 +242,23 @@ func doctorFindings(fleetHome string, histories []state.TaskHistory) ([]doctorFi
 		}
 	}
 
+	for _, history := range histories {
+		task := history.Task
+		if task.Kind != state.KindShip || task.PR != "" {
+			continue
+		}
+		lines, err := state.ReadReportLines(fleetHome, task.ID)
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q report could not be read: %v", task.ID, err)})
+			continue
+		}
+		last, ok := state.LastReportedState(lines)
+		if !ok || last.State != state.ReportDone {
+			continue
+		}
+		findings = append(findings, doctorFinding{Severity: doctorWarning, Text: fmt.Sprintf("task %q is an open ship task that reported done with no pull request recorded; run `hand status %s` to see what unblocks it", task.ID, task.ID)})
+	}
+
 	projects, err := project.ListReadOnly(fleetHome)
 	if err != nil {
 		return nil, err

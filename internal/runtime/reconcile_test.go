@@ -422,6 +422,27 @@ func TestReconcileSubmittedLaunchConfirmsExistingPaneWithoutRelaunch(t *testing.
 	}
 }
 
+func TestReconcileConfirmLaunchCarriesTaskKind(t *testing.T) {
+	home := reconcileFixture(t)
+	if _, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude", LaunchSubmittedAt: "2026-08-15T00:00:00Z", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	var got harness.Options
+	r.deps.buildHarness = func(_ string, options harness.Options) (launchSpec, error) {
+		got = options
+		return launchSpec{Executable: "launch"}, nil
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != state.KindScout {
+		t.Fatalf("Options.Kind = %q, want %q", got.Kind, state.KindScout)
+	}
+}
+
 func TestReconcileRunningMissingPaneConvergesWithoutReplacement(t *testing.T) {
 	home := reconcileFixture(t)
 	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{

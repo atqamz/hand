@@ -96,6 +96,7 @@ type provisioningRequest struct {
 	resumeExisting        bool
 	paneStartedAt         string
 	attempt               state.Attempt
+	taskKind              string
 }
 
 func absoluteReportPath(home, id string) (string, error) {
@@ -203,7 +204,7 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	}
 	workerSpec, err := r.deps.buildHarness(req.attempt.Harness, harness.Options{
 		Worktree: worktreePath, Brief: req.briefPath, ReportPath: reportPath, Model: req.attempt.Model, Effort: req.attempt.Effort,
-		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter,
+		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter, Kind: req.taskKind,
 	})
 	if err != nil {
 		return "", r.failProvision(req, lease, nil, false, err)

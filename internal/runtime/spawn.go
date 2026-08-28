@@ -97,7 +97,7 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 
 	provisionRequest := provisioningRequest{
 		home: req.Home, projectName: projectInfo.Name, clonePath: clonePath, briefPath: briefPath,
-		briefHasFrontMatter: route.BriefHasFrontMatter, paneStartedAt: createdAt, attempt: attempt,
+		briefHasFrontMatter: route.BriefHasFrontMatter, paneStartedAt: createdAt, attempt: attempt, taskKind: kind,
 	}
 	var worktreePath string
 	if releaseProject != nil {
