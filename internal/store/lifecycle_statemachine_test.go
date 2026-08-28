@@ -8,7 +8,7 @@ import (
 	"pgregory.net/rapid"
 )
 
-// Checks INV-TASK-1,2,3,4,6,7,8 (model layer) and INV-TASK-5 (property, the teardown
+// Checks INV-TASK-1,2,3,4,6,7,8,12 (model layer) and INV-TASK-5 (property, the teardown
 // transition's natural companion), from "Task and Attempt lifecycle" in
 // docs/testing-invariants.md, over generated operation sequences via rapid.StateMachine.
 func TestTaskAttemptLifecycleStateMachine(t *testing.T) {
@@ -289,7 +289,7 @@ func (m *lifecycleModel) Merge(t *rapid.T) {
 
 // Legal iff the task is open, Kind scout, the given attempt is active, and scoutFrom matches
 // its real lifecycle (sometimes drawn as a lie, to probe the ownership-conflict guard).
-// Requiring running rather than provisioning is this file's one inference beyond the ADR text.
+// Requiring running rather than provisioning is INV-TASK-12.
 func (m *lifecycleModel) Promote(t *rapid.T) {
 	id := m.pickID(t, "promote-id")
 	task := m.tasks[id]
