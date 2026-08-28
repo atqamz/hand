@@ -319,13 +319,14 @@ Source: `internal/toolchain` (`Runtime.SupportsGitTransport`, `Store.Status`, `S
 
 ## Pure helpers
 
-Source: `internal/shellquote`, `internal/age`, `cmd/statusview.go`.
+Source: `internal/shellquote`, `internal/pathdisplay`, `internal/age`, `cmd/statusview.go`.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
 | INV-PURE-1 | For any string, a real shell parses `shellquote.Quote(s)` back to exactly `s`, including spaces, quotes, newlines, and non-ASCII. | property | `TestQuoteRoundTripsPOSIXShellArguments` lands unit cases; property - `TestQuoteRoundTripsAnyStringThroughARealShell` |
 | INV-PURE-2 | `axi.Truncate` never splits a UTF-8 rune: a string within budget returns unchanged, and a string over budget keeps exactly its first `budget` runes as a stable, unsplit prefix - budget bounds the retained prefix, not the returned string, since the recovery annotation is deliberately appended past it - a note that could itself be truncated away would be useless. `Truncate` is meant to be applied to original text exactly once: its only caller, `cmd/status.go:82`, always passes un-truncated text, and re-truncating `Truncate`'s own output corrupts the annotation's reported total rather than merely repeating it - a precondition the next caller needs to see stated, not rediscover. | property | unit - `TestTruncateLeavesShortTextAlone`, `TestTruncateCarriesSizeAndRecoveryHint`, `TestTruncateCountsRunes`, `TestTruncateMustBeAppliedToOriginalTextOnce`; property - `TestTruncateKeepsAnUnsplitPrefixBoundedByBudget` |
 | INV-PURE-3 | Age rendering is monotonic in its input: a larger duration never renders as a smaller age. | property | unit - `TestFormatDuration`, `TestFormatAge`; property - `TestFormatDurationIsMonotonic` |
+| INV-PURE-4 | A path hand itself resolved and names to the operator only as context (never as something typed or run) renders via `pathdisplay.Context`, which delimits with backticks and never escapes the path's own bytes, so it never doubles a separator the way `%q` does on Windows. This does not apply to `%q` on untrusted or adversarial input (e.g. an archive member name), where showing an escaped byte such as a literal backslash is the message's own point, not a rendering defect. | unit | `TestContextDelimitsWithoutEscapingSeparators` |
 
 ## What is deliberately not an invariant
 

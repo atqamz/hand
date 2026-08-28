@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/selfupdate"
 )
 
@@ -285,9 +286,9 @@ func TestUpdateWarnsWhenHandHomeIsNotAFleetHome(t *testing.T) {
 	if !strings.Contains(got, "fleet_reconcile: failed\n") {
 		t.Fatalf("got %q, want fleet_reconcile=failed", got)
 	}
-	quotedHome := fmt.Sprintf("%q", notAHome)
-	if !strings.Contains(errOut.String(), "warning: resolve fleet home for reconciliation:") || !strings.Contains(errOut.String(), quotedHome) {
-		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), quotedHome)
+	renderedHome := pathdisplay.Context(notAHome)
+	if !strings.Contains(errOut.String(), "warning: resolve fleet home for reconciliation:") || !strings.Contains(errOut.String(), renderedHome) {
+		t.Fatalf("got stderr %q, want a warning naming %q", errOut.String(), renderedHome)
 	}
 }
 

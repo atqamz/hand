@@ -11,6 +11,7 @@ import (
 
 	"github.com/atqamz/hand/internal/completion"
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/store"
 )
 
@@ -1034,7 +1035,15 @@ func TestGateStatusMissingClonePath(t *testing.T) {
 
 func TestGateInitCommand(t *testing.T) {
 	got := GateInitCommand("/home/atqa/secondhand/projects/secondhand")
-	want := "cd /home/atqa/secondhand/projects/secondhand && no-mistakes init"
+	want := "cd " + shellquote.Quote("/home/atqa/secondhand/projects/secondhand") + " && no-mistakes init"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestGateInitCommandQuotesACloneWithASpace(t *testing.T) {
+	got := GateInitCommand("/home/atqa/secondhand/projects/my app")
+	want := "cd " + shellquote.Quote("/home/atqa/secondhand/projects/my app") + " && no-mistakes init"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

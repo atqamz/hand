@@ -2,13 +2,12 @@ package home
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/secondhand"
 )
 
@@ -263,12 +262,12 @@ func TestResolveRefusesWhenHandHomeAndCwdNameDifferentHomes(t *testing.T) {
 	if !errors.Is(err, ErrAmbiguousHome) {
 		t.Fatalf("got %v, want it to wrap ErrAmbiguousHome", err)
 	}
-	// %q is this package's existing convention for rendering a path in an error (ErrHandHomeInvalid
-	// does the same), so the assertion compares against that same rendering rather than the raw path.
-	if !strings.Contains(err.Error(), fmt.Sprintf("%q", envHome)) {
+	// pathdisplay.Context is this package's convention for naming a path as context in an
+	// error, so the assertion compares against that same rendering rather than the raw path.
+	if !strings.Contains(err.Error(), pathdisplay.Context(envHome)) {
 		t.Fatalf("got %q, want it to name HAND_HOME's value %q", err.Error(), envHome)
 	}
-	if !strings.Contains(err.Error(), fmt.Sprintf("%q", cwdHome)) {
+	if !strings.Contains(err.Error(), pathdisplay.Context(cwdHome)) {
 		t.Fatalf("got %q, want it to name the working directory's home %q", err.Error(), cwdHome)
 	}
 }
@@ -380,7 +379,7 @@ func TestResolveFailsLoudlyWhenHandHomeIsNotAHome(t *testing.T) {
 	if errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want it not to wrap ErrNotFound", err)
 	}
-	if !strings.Contains(err.Error(), axi.Value(notAHome)) {
+	if !strings.Contains(err.Error(), pathdisplay.Context(notAHome)) {
 		t.Fatalf("got %q, want it to name HAND_HOME's value %q", err.Error(), notAHome)
 	}
 	if strings.Contains(err.Error(), ErrNotFound.Error()) {

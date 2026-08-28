@@ -18,6 +18,8 @@ import (
 	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/integration"
+	"github.com/atqamz/hand/internal/pathdisplay"
+	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/store"
 )
 
@@ -525,7 +527,7 @@ func Rename(homeDir, oldName, newName string) error {
 	if err != nil {
 		canonicalHome, err = filepath.Abs(homeDir)
 		if err != nil {
-			return fmt.Errorf("resolve project home %q: %w", homeDir, err)
+			return fmt.Errorf("resolve project home %s: %w", pathdisplay.Context(homeDir), err)
 		}
 	}
 	for _, p := range projects {
@@ -697,7 +699,7 @@ const notGitRepoMarker = "not in a git repository"
 // GateInitCommand is the exact remedy for GateNotInitialized. no-mistakes init is idempotent and
 // repairs a stale working_path in place, so callers should print this verbatim rather than describe it.
 func GateInitCommand(clonePath string) string {
-	return fmt.Sprintf("cd %s && no-mistakes init", clonePath)
+	return fmt.Sprintf("cd %s && no-mistakes init", shellquote.Quote(clonePath))
 }
 
 // GateStatus asks the no-mistakes binary whether clonePath's gate is initialized, rather than

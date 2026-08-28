@@ -15,6 +15,7 @@ import (
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/workerobs"
@@ -616,8 +617,8 @@ func (r *Runtime) convergeTerminalLifecycle(home string, task state.Task, attemp
 
 func (r *Runtime) unwindFailedProvisioning(home string, task state.Task, attempt state.Attempt, decision reconciliationDecision) error {
 	if !unwindableProvisioning(attempt) {
-		return Precondition(fmt.Errorf("refusing to unwind attempt %d: it records lifecycle %q, worktree %q, lease %s, Herdr identity (%s) and teardown lifecycle %q, so this is not a launch that left nothing behind",
-			attempt.ID, attempt.Lifecycle, attempt.Worktree, leaseOrNone(attempt.LeaseID),
+		return Precondition(fmt.Errorf("refusing to unwind attempt %d: it records lifecycle %q, worktree %s, lease %s, Herdr identity (%s) and teardown lifecycle %q, so this is not a launch that left nothing behind",
+			attempt.ID, attempt.Lifecycle, pathdisplay.Context(attempt.Worktree), leaseOrNone(attempt.LeaseID),
 			herdrIdentityText(attempt.Herdr), attempt.TeardownTerminalAttempt))
 	}
 	return r.terminalizeWithoutRelease(home, task, attempt, decision, "unwound")

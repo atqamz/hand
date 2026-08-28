@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/integration"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/spf13/cobra"
@@ -218,14 +219,14 @@ func renameProject(homeDir, oldName, newName string) (renameResult, error) {
 	oldClone := filepath.Join(homeDir, "projects", oldName)
 	newClone := filepath.Join(homeDir, "projects", newName)
 	if info, err := os.Stat(oldClone); err != nil {
-		return renameResult{}, fmt.Errorf("project %q clone %q: %w", oldName, oldClone, err)
+		return renameResult{}, fmt.Errorf("project %q clone %s: %w", oldName, pathdisplay.Context(oldClone), err)
 	} else if !info.IsDir() {
-		return renameResult{}, fmt.Errorf("project %q clone %q is not a directory", oldName, oldClone)
+		return renameResult{}, fmt.Errorf("project %q clone %s is not a directory", oldName, pathdisplay.Context(oldClone))
 	}
 	if _, err := os.Lstat(newClone); err == nil {
-		return renameResult{}, fmt.Errorf("project destination %q already exists", newClone)
+		return renameResult{}, fmt.Errorf("project destination %s already exists", pathdisplay.Context(newClone))
 	} else if !os.IsNotExist(err) {
-		return renameResult{}, fmt.Errorf("check project destination %q: %w", newClone, err)
+		return renameResult{}, fmt.Errorf("check project destination %s: %w", pathdisplay.Context(newClone), err)
 	}
 
 	if err := moveProjectClone(oldClone, newClone); err != nil {
@@ -259,9 +260,9 @@ func repointProject(homeDir, name, url string) (repointResult, error) {
 
 	clonePath := filepath.Join(homeDir, "projects", p.Name)
 	if info, err := os.Stat(clonePath); err != nil {
-		return repointResult{}, fmt.Errorf("project %q clone %q: %w", p.Name, clonePath, err)
+		return repointResult{}, fmt.Errorf("project %q clone %s: %w", p.Name, pathdisplay.Context(clonePath), err)
 	} else if !info.IsDir() {
-		return repointResult{}, fmt.Errorf("project %q clone %q is not a directory", p.Name, clonePath)
+		return repointResult{}, fmt.Errorf("project %q clone %s is not a directory", p.Name, pathdisplay.Context(clonePath))
 	}
 	oldOrigin, err := storedOriginURL(clonePath)
 	if err != nil {
@@ -411,7 +412,7 @@ func newProjectAddCmd() *cobra.Command {
 					return err
 				}
 				if managed {
-					return &ExitError{Err: fmt.Errorf("local project source %q is already a managed Hand project", source.input), Code: 3}
+					return &ExitError{Err: fmt.Errorf("local project source %s is already a managed Hand project", pathdisplay.Context(source.input)), Code: 3}
 				}
 			}
 
@@ -556,7 +557,7 @@ func reserveCloneDestination(path string) error {
 	}
 	if err := os.Mkdir(path, 0o755); err != nil {
 		if os.IsExist(err) {
-			return &ExitError{Err: fmt.Errorf("project destination %q already exists", path), Code: 3}
+			return &ExitError{Err: fmt.Errorf("project destination %s already exists", pathdisplay.Context(path)), Code: 3}
 		}
 		return fmt.Errorf("reserve project destination: %w", err)
 	}

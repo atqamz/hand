@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/atqamz/hand/internal/pathdisplay"
 )
 
 var readExecutableBuildInfo = ReadExecutableBuildInfo
@@ -19,7 +21,7 @@ var verifyExecutableBuildInfo = verifyExecutableBuildInfoDefault
 // identity before a caller gives it ownership of an install path.
 func ReadExecutableBuildInfo(ctx context.Context, path string) (BuildInfo, error) {
 	if !filepath.IsAbs(path) {
-		return BuildInfo{}, fmt.Errorf("executable path must be absolute: %q", path)
+		return BuildInfo{}, fmt.Errorf("executable path must be absolute: %s", pathdisplay.Context(path))
 	}
 	out, err := exec.CommandContext(ctx, path, "build-info").CombinedOutput()
 	if err != nil {

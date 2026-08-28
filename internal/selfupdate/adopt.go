@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/atqamz/hand/internal/pathdisplay"
 )
 
 type AdoptionResult struct {
@@ -86,7 +88,7 @@ func Adopt(ctx context.Context, source, target string, want BuildInfo) (Adoption
 
 func absolutePath(path string) (string, error) {
 	if path == "" || !filepath.IsAbs(path) {
-		return "", fmt.Errorf("path must be absolute: %q", path)
+		return "", fmt.Errorf("path must be absolute: %s", pathdisplay.Context(path))
 	}
 	return filepath.Clean(path), nil
 }

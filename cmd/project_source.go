@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/git"
+	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/project"
 )
 
@@ -64,46 +65,46 @@ func resolveLocalProjectSource(source projectSource) (projectSource, error) {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return projectSource{}, fmt.Errorf("local project source %q: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("local project source %s: %w", pathdisplay.Context(source.input), err)
 	}
 	if !info.IsDir() {
-		return projectSource{}, fmt.Errorf("local project source %q is not a directory", source.input)
+		return projectSource{}, fmt.Errorf("local project source %s is not a directory", pathdisplay.Context(source.input))
 	}
 	root, err := git.ResolveRoot(path)
 	if err != nil {
-		return projectSource{}, fmt.Errorf("local project source %q is not a Git worktree: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("local project source %s is not a Git worktree: %w", pathdisplay.Context(source.input), err)
 	}
 	bare, err := git.IsBare(root)
 	if err != nil {
-		return projectSource{}, fmt.Errorf("inspect local project source %q: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("inspect local project source %s: %w", pathdisplay.Context(source.input), err)
 	}
 	if bare {
-		return projectSource{}, fmt.Errorf("local project source %q is a bare Git repository; Hand requires a non-bare worktree", source.input)
+		return projectSource{}, fmt.Errorf("local project source %s is a bare Git repository; Hand requires a non-bare worktree", pathdisplay.Context(source.input))
 	}
 	if _, err := git.HeadCommit(root); err != nil {
-		return projectSource{}, fmt.Errorf("local project source %q has no committed HEAD; commit a baseline or use `hand project create <name>`: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("local project source %s has no committed HEAD; commit a baseline or use `hand project create <name>`: %w", pathdisplay.Context(source.input), err)
 	}
 	if _, err := git.CurrentBranch(root); err != nil {
-		return projectSource{}, fmt.Errorf("local project source %q must have a checked-out branch: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("local project source %s must have a checked-out branch: %w", pathdisplay.Context(source.input), err)
 	}
 	defaultBranch, err := git.LocalDefaultBranch(root)
 	if err != nil {
-		return projectSource{}, fmt.Errorf("local project source %q has no stable default branch: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("local project source %s has no stable default branch: %w", pathdisplay.Context(source.input), err)
 	}
 	baseline, err := git.BranchCommit(root, defaultBranch)
 	if err != nil {
-		return projectSource{}, fmt.Errorf("local project source %q default branch %q is not committed: %w", source.input, defaultBranch, err)
+		return projectSource{}, fmt.Errorf("local project source %s default branch %q is not committed: %w", pathdisplay.Context(source.input), defaultBranch, err)
 	}
 	dirty, err := git.HasUncommittedChanges(root)
 	if err != nil {
-		return projectSource{}, fmt.Errorf("inspect local project source %q: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("inspect local project source %s: %w", pathdisplay.Context(source.input), err)
 	}
 	if dirty {
 		return projectSource{}, fmt.Errorf("local Git source has uncommitted or untracked changes; Hand adopts committed repository state only; commit, stash, or remove the changes before adding this Project")
 	}
 	locator, err := project.CanonicalFileLocator(root)
 	if err != nil {
-		return projectSource{}, fmt.Errorf("canonicalize local project source %q: %w", source.input, err)
+		return projectSource{}, fmt.Errorf("canonicalize local project source %s: %w", pathdisplay.Context(source.input), err)
 	}
 	source.root = root
 	source.locator = locator
@@ -139,14 +140,14 @@ func prepareAdoptedClone(source projectSource, dest string) error {
 		return err
 	}
 	if bare {
-		return fmt.Errorf("adopted project clone %q is bare", dest)
+		return fmt.Errorf("adopted project clone %s is bare", pathdisplay.Context(dest))
 	}
 	hasAlternates, err := git.HasAlternates(dest)
 	if err != nil {
 		return err
 	}
 	if hasAlternates {
-		return fmt.Errorf("adopted project clone %q uses a shared Git object store", dest)
+		return fmt.Errorf("adopted project clone %s uses a shared Git object store", pathdisplay.Context(dest))
 	}
 	if err := git.RemoveOrigin(dest); err != nil {
 		return err
