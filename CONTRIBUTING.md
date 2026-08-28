@@ -49,7 +49,7 @@ An installed edge release is the preferred path for dogfooding the newest CI-ver
 1. Open an issue describing the intent, design, or proposal, and get agreement there before writing code. This applies to any contribution, no matter the size. See "Reporting issues" below for what to include.
 2. Fork and branch from main.
 3. Make changes.
-4. make lint && make test
+4. make lint && make test. A bare `go test ./...` is not the suite: the `test` build tag is what installs the external-tool fakes, and without it the cmd suite refuses with one line naming the tag rather than failing dozens of tests on absent tools.
 5. make e2e if you changed CLI behavior (end-to-end suite, excluded from make test).
 6. make contract if you changed how hand calls herdr, treehouse or gh. It checks hermetic shared-tool fixtures against the records in internal/faketool/FIDELITY.md, so CI runs it on every change. Run make contract-live separately to smoke-test reversible calls against installed tools and the live GitHub API.
 7. nix build .#default if you changed Go dependencies (CI builds the flake, and a stale vendorHash in flake.nix fails it).
