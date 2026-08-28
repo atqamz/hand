@@ -22,10 +22,11 @@ import (
 const releaseCommit = "0123456789abcdef0123456789abcdef01234567"
 
 type workflowStepDef struct {
-	Name string         `yaml:"name"`
-	Uses string         `yaml:"uses"`
-	With map[string]any `yaml:"with"`
-	Run  string         `yaml:"run"`
+	Name string            `yaml:"name"`
+	Uses string            `yaml:"uses"`
+	With map[string]any    `yaml:"with"`
+	Env  map[string]string `yaml:"env"`
+	Run  string            `yaml:"run"`
 }
 
 type workflowTargetDef struct {
@@ -40,9 +41,47 @@ type workflowJobStrategyDef struct {
 }
 
 type workflowJobDef struct {
-	Outputs  map[string]string      `yaml:"outputs"`
-	Steps    []workflowStepDef      `yaml:"steps"`
-	Strategy workflowJobStrategyDef `yaml:"strategy"`
+	Needs       any                    `yaml:"needs"`
+	If          string                 `yaml:"if"`
+	Environment any                    `yaml:"environment"`
+	Permissions map[string]string      `yaml:"permissions"`
+	Outputs     map[string]string      `yaml:"outputs"`
+	Steps       []workflowStepDef      `yaml:"steps"`
+	Strategy    workflowJobStrategyDef `yaml:"strategy"`
+}
+
+// YAML's needs: is a bare string for one dependency or a list for several; normalizing
+// both shapes here means callers can assert membership without caring which form a job used.
+func workflowJobNeeds(t *testing.T, needs any) []string {
+	t.Helper()
+	switch v := needs.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		out := make([]string, len(v))
+		for i, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				t.Fatalf("needs entry %#v is not a string", item)
+			}
+			out[i] = s
+		}
+		return out
+	case nil:
+		return nil
+	default:
+		t.Fatalf("needs = %#v, want a string or list of strings", needs)
+		return nil
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPrepareReleaseBindsEveryAssetToOneExactRelease(t *testing.T) {
