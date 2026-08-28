@@ -71,6 +71,20 @@ func quotedTokenEnd(s string) int {
 	return len(s)
 }
 
+// Finds name's rows header line and returns the lines after it, for both
+// parseRowsBlock and rowsSchemaFields to read independently.
+func findRowsHeader(tb fataler, doc, name string) (header string, body []string) {
+	lines := strings.Split(doc, "\n")
+	prefix := name + "["
+	for i, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			return line, lines[i+1:]
+		}
+	}
+	tb.Fatalf("no rows block %q in document %q", name, doc)
+	return "", nil
+}
+
 func rowsHeaderCount(tb fataler, header string) int {
 	open := strings.IndexByte(header, '[')
 	close := strings.IndexByte(header, ']')
@@ -84,31 +98,38 @@ func rowsHeaderCount(tb fataler, header string) int {
 	return n
 }
 
+// Reads the schema names between { and } in name's header.
+func rowsSchemaFields(tb fataler, doc, name string) []string {
+	header, _ := findRowsHeader(tb, doc, name)
+	open := strings.IndexByte(header, '{')
+	close := strings.IndexByte(header, '}')
+	if open < 0 || close < open {
+		tb.Fatalf("malformed rows header %q", header)
+	}
+	inner := header[open+1 : close]
+	if inner == "" {
+		return nil
+	}
+	return strings.Split(inner, ",")
+}
+
 // Stops only at the next line not indented by two spaces, independent of
 // the header's own declared count, so a caller can compare the two
 // (INV-OUT-1) instead of trusting the header.
 func parseRowsBlock(tb fataler, doc, name string) (declared int, rows [][]string) {
-	lines := strings.Split(doc, "\n")
-	header := name + "["
-	for i, line := range lines {
-		if !strings.HasPrefix(line, header) {
-			continue
+	header, body := findRowsHeader(tb, doc, name)
+	declared = rowsHeaderCount(tb, header)
+	for _, line := range body {
+		cell, ok := strings.CutPrefix(line, "  ")
+		if !ok {
+			break
 		}
-		declared = rowsHeaderCount(tb, line)
-		for _, body := range lines[i+1:] {
-			cell, ok := strings.CutPrefix(body, "  ")
-			if !ok {
-				break
-			}
-			cells := splitTOONCells(cell)
-			decoded := make([]string, len(cells))
-			for c, raw := range cells {
-				decoded[c] = decodeTOONValue(tb, raw)
-			}
-			rows = append(rows, decoded)
+		cells := splitTOONCells(cell)
+		decoded := make([]string, len(cells))
+		for c, raw := range cells {
+			decoded[c] = decodeTOONValue(tb, raw)
 		}
-		return declared, rows
+		rows = append(rows, decoded)
 	}
-	tb.Fatalf("no rows block %q in document %q", name, doc)
-	return 0, nil
+	return declared, rows
 }

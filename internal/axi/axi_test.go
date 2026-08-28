@@ -247,6 +247,60 @@ func TestRowsHeaderCountAgreesWithRenderedRowCount(t *testing.T) {
 	})
 }
 
+// Checks the parser against literals two other tests already assert byte
+// for byte, not documents Render produced - a self round trip would still
+// close over a parser lenient in the same place a renderer bug hid.
+func TestParserDecodesHandWrittenLiteralDocuments(t *testing.T) {
+	doc := "count: 2\n" +
+		"tasks[2]{id,state}:\n" +
+		"  fix-login,busy\n" +
+		"  ship-docs,idle\n" +
+		"help[1]:\n" +
+		"  - Run `hand status <id>` for detail\n"
+
+	if got := parseFieldValue(t, doc, "count"); got != "2" {
+		t.Fatalf("count field = %q, want %q", got, "2")
+	}
+	_, rows := parseRowsBlock(t, doc, "tasks")
+	want := [][]string{{"fix-login", "busy"}, {"ship-docs", "idle"}}
+	if len(rows) != len(want) {
+		t.Fatalf("parsed %d rows, want %d", len(rows), len(want))
+	}
+	for i := range want {
+		for j := range want[i] {
+			if rows[i][j] != want[i][j] {
+				t.Fatalf("row %d cell %d = %q, want %q", i, j, rows[i][j], want[i][j])
+			}
+		}
+	}
+
+	// Each field's value here is TestValueQuotesOnlyWhatWouldBeAmbiguous's
+	// own literal "want" column for that case, typed again rather than
+	// derived from calling Value.
+	quoted := "a: \"a,b\"\n" +
+		"b: \"say \\\"hi\\\"\"\n" +
+		"c: \"two\\nlines\"\n" +
+		"d: \" padded \"\n"
+	for key, want := range map[string]string{
+		"a": "a,b",
+		"b": `say "hi"`,
+		"c": "two\nlines",
+		"d": " padded ",
+	} {
+		if got := parseFieldValue(t, quoted, key); got != want {
+			t.Fatalf("field %q = %q, want %q", key, got, want)
+		}
+	}
+
+	// A quoted cell may itself carry a literal comma - hand-typed to check
+	// splitTOONCells' quote-boundary handling, not Render's.
+	commaInQuotedCell := "items[1]{a,b}:\n  \"x,y\",z\n"
+	_, commaRows := parseRowsBlock(t, commaInQuotedCell, "items")
+	if len(commaRows) != 1 || commaRows[0][0] != "x,y" || commaRows[0][1] != "z" {
+		t.Fatalf("parsed row = %v, want [[x,y z]]", commaRows)
+	}
+}
+
 // INV-OUT-2: rendering a Field is total over arbitrary values, including
 // quotes, newlines, commas, and non-ASCII - the document that results always
 // parses back to the same value.
@@ -298,9 +352,18 @@ func TestEmptyRowsRenderCountZeroWithSchemaHeader(t *testing.T) {
 
 		var d Doc
 		d.Rows(name, fields, nil)
-		want := fmt.Sprintf("%s[0]{%s}:\n", name, strings.Join(fields, ","))
-		if got := d.String(); got != want {
-			t.Fatalf("Render() = %q, want %q", got, want)
+		doc := d.String()
+
+		declared, rows := parseRowsBlock(t, doc, name)
+		if declared != 0 {
+			t.Fatalf("Render() = %q, header declares %d rows, want 0", doc, declared)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("Render() = %q, %d rows rendered after an empty result, want 0", doc, len(rows))
+		}
+		gotFields := rowsSchemaFields(t, doc, name)
+		if strings.Join(gotFields, ",") != strings.Join(fields, ",") {
+			t.Fatalf("Render() = %q, schema fields = %v, want %v", doc, gotFields, fields)
 		}
 	})
 }
