@@ -726,7 +726,11 @@ func TestInitRefusesATargetInsideHandsTreehousePool(t *testing.T) {
 func TestInitRefusesATargetInsideAnotherFleetsProjectsTree(t *testing.T) {
 	t.Setenv("HAND_HOME", "")
 	fleetHome := t.TempDir()
-	if _, err := store.Open(fleetHome); err != nil {
+	db, err := store.Open(fleetHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(fleetHome, "projects", "someproj", "worktree")
@@ -737,7 +741,7 @@ func TestInitRefusesATargetInsideAnotherFleetsProjectsTree(t *testing.T) {
 
 	cmd := newInitCmd()
 	cmd.SetArgs([]string{target})
-	err := cmd.Execute()
+	err = cmd.Execute()
 	var exitErr *ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 || !strings.Contains(err.Error(), "managed project tree") {
 		t.Fatalf("init error = %v, want a code-3 managed project tree refusal", err)
