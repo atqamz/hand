@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/axi"
-	"github.com/atqamz/hand/internal/worktree"
+	"github.com/atqamz/hand/internal/secondhand"
 )
 
 // Builds a home carrying the marker IsHome checks, state/hand.db.
@@ -295,7 +295,8 @@ func TestResolveStaysSilentWhenHandHomeAndCwdNameTheSameHome(t *testing.T) {
 // is not, and never can be, a fleet home of its own (INV-POOL-1, INV-REG-7). Must resolve to
 // HAND_HOME silently, via the pools-root shortcut rather than a walk up cwd's ancestors.
 func TestResolveUsesTheWorktreePoolShortcutWhenHandHomeIsSet(t *testing.T) {
-	pools, err := worktree.PoolsRoot()
+	t.Setenv("SECONDHAND_HOME", t.TempDir())
+	pools, err := secondhand.PoolsRoot()
 	if err != nil {
 		t.Fatal(err)
 	}

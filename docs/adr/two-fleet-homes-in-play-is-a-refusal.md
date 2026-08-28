@@ -52,7 +52,7 @@ worktree pool slot, never a fleet home: [The worktree pool lives outside every f
 home](the-worktree-pool-lives-outside-every-fleet-home.md) keeps a pool disjoint from every home in
 one direction, and `refuseManagedTreeHome` (atqamz/hand#413) keeps a fleet home from ever being
 created inside a pool in the other. Together they let `Resolve()` rule out "cwd is a different home"
-with a single path comparison against `worktree.PoolsRoot()` - no stat call - before it ever reaches
+with a single path comparison against `secondhand.PoolsRoot()` - no stat call - before it ever reaches
 for the ancestor walk. A cwd already inside `HAND_HOME` is ruled out the same cheap way. Only a
 working directory outside both pays for the walk, and it pays exactly the walk `Resolve()` always
 performed when `HAND_HOME` was unset; nothing about the "every managed worker" shape got slower.

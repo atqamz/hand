@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/atqamz/hand/internal/worktree"
+	"github.com/atqamz/hand/internal/secondhand"
 )
 
 // ErrNotFound is wrapped into the error Resolve returns when the working
@@ -160,7 +160,7 @@ func cannotBeADifferentHome(cwd, handHome string) bool {
 	if withinTree(handHome, cwd) {
 		return true
 	}
-	pools, err := worktree.PoolsRoot()
+	pools, err := secondhand.PoolsRoot()
 	if err != nil {
 		return false
 	}

@@ -33,3 +33,14 @@ func Home() (string, error) {
 	}
 	return filepath.Clean(path), nil
 }
+
+// PoolsRoot is the directory every clone's Treehouse worktree pool lives under. It depends on
+// nothing but Home, so a caller that only needs to test path membership - internal/home's ambiguity
+// check, cmd/init.go's managed-tree refusal - does not have to import internal/worktree to get it.
+func PoolsRoot() (string, error) {
+	infra, err := Home()
+	if err != nil {
+		return "", fmt.Errorf("resolve worktree pool root: %w", err)
+	}
+	return filepath.Join(infra, "pools"), nil
+}
