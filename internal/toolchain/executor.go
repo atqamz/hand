@@ -141,6 +141,16 @@ func (r Runtime) Process(path string, args ...string) (ProcessSpec, error) {
 	return NewProcessSpec(path, args, env)
 }
 
+// GitArgsWithTemplate points a managed git invocation at an existing, empty template directory
+// (hand#464), the one answer every dispatch site shares for what a managed git run carries. A
+// blank templateDir means hand could not create one, so args pass through unchanged.
+func GitArgsWithTemplate(templateDir string, args []string) []string {
+	if templateDir == "" {
+		return args
+	}
+	return append([]string{"-c", "init.templateDir=" + templateDir}, args...)
+}
+
 // SupportsGitTransport reports whether the runtime's Git carries the external remote helper a
 // URL scheme needs, observed as git-remote-<scheme> next to the managed git binary rather than
 // assumed from the runtime id or version (hand#440); ssh, git, and file need no helper.

@@ -9,15 +9,6 @@ import (
 	"github.com/atqamz/hand/internal/toolchain"
 )
 
-// Pointing Git at a real, empty template directory silences its "templates not found" warning
-// honestly (hand#464); a blank templateDir means hand could not create one, so args pass through.
-func gitArgsWithTemplate(templateDir string, args []string) []string {
-	if templateDir == "" {
-		return args
-	}
-	return append([]string{"-c", "init.templateDir=" + templateDir}, args...)
-}
-
 func managedCommandFailure(output []byte, err error) string {
 	message := strings.TrimSpace(string(output))
 	if message != "" {
@@ -39,7 +30,7 @@ func runManagedCore(ctx context.Context, name, dir string, args ...string) ([]by
 	switch name {
 	case "git":
 		path = managed.GitPath
-		args = gitArgsWithTemplate(managed.GitTemplateDir, args)
+		args = toolchain.GitArgsWithTemplate(managed.GitTemplateDir, args)
 	case "treehouse":
 		path = managed.TreehousePath
 	default:
