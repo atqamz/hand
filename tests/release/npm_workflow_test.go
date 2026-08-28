@@ -4,11 +4,45 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
 )
+
+var npmPinPattern = regexp.MustCompile(`npm@([0-9]+\.[0-9]+\.[0-9]+)`)
+
+// Reads the exact version release.yaml's npm-publish job pins, so a test exercising real
+// npm can check it is running against the same version CI does.
+func pinnedNpmVersion(t *testing.T) string {
+	t.Helper()
+	job, ok := loadReleaseWorkflowJobs(t)["npm-publish"]
+	if !ok {
+		t.Fatal("release workflow has no npm-publish job")
+	}
+	pin := workflowStep(t, job.Steps, "Pin npm")
+	m := npmPinPattern.FindStringSubmatch(pin.Run)
+	if m == nil {
+		t.Fatalf("Pin npm step run = %q, want an npm@X.Y.Z version to extract", pin.Run)
+	}
+	return m[1]
+}
+
+// npm's --json output shapes have changed between versions with no notice (npm pack
+// --json moved from an array to an object keyed by package name); a mismatch here must
+// fail loudly rather than silently trust the wrong shape's assumptions.
+func requirePinnedNpmVersion(t *testing.T) {
+	t.Helper()
+	want := pinnedNpmVersion(t)
+	out, err := exec.Command("npm", "--version").Output()
+	if err != nil {
+		t.Fatalf("npm --version: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Fatalf("npm on PATH is %s, release.yaml pins %s - install the pinned version before trusting this run's npm --json shape assumptions", got, want)
+	}
+}
 
 func loadWorkflowJobs(t *testing.T, filename string) map[string]workflowJobDef {
 	t.Helper()
@@ -171,6 +205,7 @@ func TestNpmPublishStepNeverHardcodesATargetList(t *testing.T) {
 // platforms publish before meta in exactly the order generate.sh derives.
 func TestNpmPublishStepOrdersPlatformsBeforeMeta(t *testing.T) {
 	requireTools(t, "jq", "git", "npm")
+	requirePinnedNpmVersion(t)
 	fixture := copyNpmPackagingFixture(t)
 	const version = "0.0.0-workfloworder"
 	generateReal(t, fixture, version)

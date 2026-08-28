@@ -3,6 +3,7 @@ package release
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,6 +94,38 @@ func TestNpmGenerateTargetsReactToLockChanges(t *testing.T) {
 				t.Fatalf("generate.sh --print-targets = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// A checkout or a tool in the chain can hand generate.sh CRLF-terminated lines (observed
+// on a Windows runner); wrapping the real jq to emit them proves the fix tolerates that
+// unconditionally, rather than asserting the unprovable exact source of the CR.
+func TestNpmGenerateToleratesCRLFTerminatedToolOutput(t *testing.T) {
+	requireTools(t, "jq")
+	realJQ, err := exec.LookPath("jq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeBin := t.TempDir()
+	crlfJQ := "#!/bin/sh\n'" + realJQ + "' \"$@\" | awk '{printf \"%s\\r\\n\", $0}'\n"
+	if err := os.WriteFile(filepath.Join(fakeBin, "jq"), []byte(crlfJQ), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	lockPath := filepath.Join(t.TempDir(), "runtime.lock.json")
+	lock := `{"targets":{"linux/amd64":{"components":{}},"windows/amd64":{"components":{}}}}`
+	if err := os.WriteFile(lockPath, []byte(lock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	script := filepath.Join(repoRoot(t), "packaging", "npm", "generate.sh")
+	got := runGenerateJSONTargets(t, script, []string{
+		"HAND_NPM_RUNTIME_LOCK=" + lockPath,
+		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+	want := []string{"linux-x64", "win32-x64"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("generate.sh --print-targets under a CRLF-emitting jq = %v, want %v", got, want)
 	}
 }
 
@@ -302,22 +335,48 @@ func installFakeGo(t *testing.T, bin, logPath string) {
 	}
 }
 
-// Lists tracked files by name only (git ls-files), so the caller copies each one's
-// current working-tree bytes - including an uncommitted edit - rather than git's own
-// committed blob.
+// Lists tracked files by name (git ls-files), copying working-tree bytes rather than
+// git's committed blob. Falls back to a plain walk when root has no .git at all, as a Nix
+// build sandbox's copied source tree does.
 func trackedFiles(t *testing.T, root string) []string {
 	t.Helper()
 	cmd := exec.Command("git", "ls-files", "-z")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("git ls-files: %v", err)
+		return walkFiles(t, root)
 	}
 	var files []string
 	for _, rel := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
 		if rel != "" {
 			files = append(files, rel)
 		}
+	}
+	return files
+}
+
+func walkFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
 	}
 	return files
 }

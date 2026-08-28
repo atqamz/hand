@@ -98,7 +98,17 @@ if [[ ! -f "$RUNTIME_LOCK" ]]; then
   exit 1
 fi
 
-mapfile -t stable_targets < <(jq -r '
+# A plain while-read loop rather than mapfile/readarray, which macOS's bash 3.2 does not
+# have. Each line is also stripped of a trailing CR: a checkout or tool in the chain can
+# hand back CRLF line endings (observed on Windows runners), and an un-stripped CR here
+# would silently ride along into every GOOS/GOARCH derived from it below.
+stable_targets=()
+while IFS= read -r line; do
+  line="${line%$'\r'}"
+  if [[ -n "$line" ]]; then
+    stable_targets+=("$line")
+  fi
+done < <(jq -r '
   .targets
   | to_entries
   | map(select((.value.unsupported // "") == ""))
@@ -111,9 +121,11 @@ if [[ ${#stable_targets[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Parallel indexed arrays rather than associative arrays (declare -A), another bash-4-only
+# feature macOS's bash 3.2 lacks: goos_list/goarch_list line up with npm_keys by position.
 declare -a npm_keys=()
-declare -A goos_of=()
-declare -A goarch_of=()
+declare -a goos_list=()
+declare -a goarch_list=()
 for target in "${stable_targets[@]}"; do
   goos="${target%%/*}"
   goarch="${target#*/}"
@@ -121,8 +133,8 @@ for target in "${stable_targets[@]}"; do
   npmcpu="$(npm_cpu "$goarch")"
   npmkey="${npmos}-${npmcpu}"
   npm_keys+=("$npmkey")
-  goos_of["$npmkey"]="$goos"
-  goarch_of["$npmkey"]="$goarch"
+  goos_list+=("$goos")
+  goarch_list+=("$goarch")
 done
 
 if [[ "$print_targets" -eq 1 ]]; then
@@ -145,9 +157,10 @@ fi
 npm_keys_json="$(printf '%s\n' "${npm_keys[@]}" | jq -R . | jq -sc .)"
 LDFLAGS="-s -w -X main.version=$version -X main.channel=stable -X main.commit=$commit -X main.distribution=npm"
 
-for npmkey in "${npm_keys[@]}"; do
-  goos="${goos_of[$npmkey]}"
-  goarch="${goarch_of[$npmkey]}"
+for ((i = 0; i < ${#npm_keys[@]}; i++)); do
+  npmkey="${npm_keys[$i]}"
+  goos="${goos_list[$i]}"
+  goarch="${goarch_list[$i]}"
   binname="hand"
   if [[ "$goos" == windows ]]; then
     binname="hand.exe"

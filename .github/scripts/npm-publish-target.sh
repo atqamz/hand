@@ -23,7 +23,7 @@ integrity=$4
 repo_url=$5
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-outcome="$("$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url")"
+outcome="$(bash "$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url")"
 
 case "$outcome" in
   verified-published)
@@ -68,7 +68,7 @@ case "$outcome" in
     ;;
 esac
 
-verify="$("$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url")"
+verify="$(bash "$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url")"
 if [[ "$verify" != "verified-published" ]]; then
   echo "npm-publish-target: ${pkg}@${version} did not verify as published immediately after npm publish succeeded: $verify" >&2
   exit 1

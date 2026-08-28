@@ -16,6 +16,7 @@ import (
 // outside bin/) test artifact.
 func TestNpmPackContainsExactlyTheExpectedFiles(t *testing.T) {
 	requireTools(t, "jq", "git", "npm")
+	requirePinnedNpmVersion(t)
 	fixture := copyNpmPackagingFixture(t)
 	generateReal(t, fixture, "0.0.0-packproof")
 
@@ -44,6 +45,7 @@ func TestNpmPackContainsExactlyTheExpectedFiles(t *testing.T) {
 // host natively is; skips elsewhere, like the workflow's own per-target native checks.
 func TestNpmInstallFromLocalTarballsRunsTheMatchingNativeBinary(t *testing.T) {
 	requireTools(t, "jq", "git", "npm", "node")
+	requirePinnedNpmVersion(t)
 	npmKey, ok := map[string]string{"linux/amd64": "linux-x64", "windows/amd64": "win32-x64"}[runtime.GOOS+"/"+runtime.GOARCH]
 	if !ok {
 		t.Skipf("no runtime-qualified npm target matches this host (%s/%s)", runtime.GOOS, runtime.GOARCH)
@@ -137,19 +139,13 @@ func npmPackFiles(t *testing.T, dir string) []string {
 	if err != nil {
 		t.Fatalf("npm pack --json in %s: %v: %s", dir, err, out)
 	}
-	var packed []struct {
+	entry := decodeSoleNpmPackEntry[struct {
 		Files []struct {
 			Path string `json:"path"`
 		} `json:"files"`
-	}
-	if err := json.Unmarshal(out, &packed); err != nil {
-		t.Fatalf("decode npm pack --json output %q: %v", out, err)
-	}
-	if len(packed) != 1 {
-		t.Fatalf("npm pack --json produced %d entries, want exactly 1", len(packed))
-	}
-	files := make([]string, len(packed[0].Files))
-	for i, f := range packed[0].Files {
+	}](t, out)
+	files := make([]string, len(entry.Files))
+	for i, f := range entry.Files {
 		files[i] = f.Path
 	}
 	return files
@@ -164,14 +160,26 @@ func npmPackTarball(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("npm pack --json in %s: %v: %s", dir, err, out)
 	}
-	var packed []struct {
+	entry := decodeSoleNpmPackEntry[struct {
 		Filename string `json:"filename"`
-	}
+	}](t, out)
+	return filepath.Join(dest, entry.Filename)
+}
+
+// npm pack --json is an object keyed by package name, not an array (verified against the
+// exact npm version tests/release pins itself to via requirePinnedNpmVersion) - this
+// decodes the one entry every single-directory npm pack call produces.
+func decodeSoleNpmPackEntry[T any](t *testing.T, out []byte) T {
+	t.Helper()
+	var packed map[string]T
 	if err := json.Unmarshal(out, &packed); err != nil {
 		t.Fatalf("decode npm pack --json output %q: %v", out, err)
 	}
 	if len(packed) != 1 {
 		t.Fatalf("npm pack --json produced %d entries, want exactly 1", len(packed))
 	}
-	return filepath.Join(dest, packed[0].Filename)
+	for _, entry := range packed {
+		return entry
+	}
+	panic("unreachable")
 }
