@@ -116,10 +116,10 @@ Source: [Fleet identity and user registry](adr/fleet-identity-and-user-registry.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
-| INV-REG-1 | `Register` is idempotent per (home, fleet id): repeating it yields one row, not many. | property | unaudited |
-| INV-REG-2 | A home's fleet identity is never reissued or rewritten by any registry operation. | property | unaudited |
-| INV-REG-3 | Entry classification is a function of (stored rows, observed filesystem), and reading it mutates nothing. | property | unaudited |
-| INV-REG-4 | Losing or deleting the registry changes no fleet identity; re-registering a home restores the identity its own `state/hand.db` carries. | property | unaudited |
+| INV-REG-1 | `Register` is idempotent per (home, fleet id): repeating it yields one row, not many. | property | `TestRegisterIsIdempotentAcrossRepeatedCalls` |
+| INV-REG-2 | A home's fleet identity is never reissued or rewritten by any registry operation. | property | `TestNoRegistryOperationRewritesAHomesFleetIdentity` |
+| INV-REG-3 | Entry classification is a function of (stored rows, observed filesystem), and reading it mutates nothing. | property | `TestListIsPureAndReadingMutatesNothing` |
+| INV-REG-4 | Losing or deleting the registry changes no fleet identity; re-registering a home restores the identity its own `state/hand.db` carries. | property | `TestRegistryLossLosesNoIdentityAndRegisterRecoversIt` |
 | INV-REG-5 | Pruning removes only entries already classified `missing`, and never the current home. | property | `TestMissingFleetsNamesOnlyEntriesClassifiedMissing`, `TestPruneRemovesOnlyEntriesClassifiedMissingAndNeverTheCurrentHome`, `TestFleetPruneApplyRemovesOnlyMissingEntries` |
 | INV-REG-6 | A full test run adds zero entries to the operator's real user registry. Reaching it from a test is impossible, not merely discouraged. | property | `TestHomeRefusesWithoutOverrideUnderTestBuild` |
 | INV-REG-7 | A fleet home inside a Treehouse worktree, or inside another fleet's managed tree, is refused rather than registered. | property | `TestInitRefusesATargetInsideHandsTreehousePool`, `TestInitRefusesATargetInsideAnotherFleetsProjectsTree` |
