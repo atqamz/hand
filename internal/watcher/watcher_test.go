@@ -3366,6 +3366,182 @@ func TestRunUntilEventFailsToArmWhenATaskCannotBeProbed(t *testing.T) {
 	}
 }
 
+// atqamz/hand#455: a task the supervisor tore down deliberately must never fail an arm, whether the
+// teardown mark is already on the histories snapshot armProbe reads (this test) or commits after it
+// (TestProbeAllTasksClosesTheRaceWhenATeardownCommitsAfterTheHistoriesSnapshot, below).
+func TestProbeAllTasksSkipsATornDownAttemptWithoutProbingItsPane(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{{ID: "wA:t1", Label: "task-1", Pane: "p1"}}}},
+		PaneStatus: "working",
+		Log:        callLog, LogCommands: []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}}); err != nil {
+		t.Fatal(err)
+	}
+	// task-2's pane ("p-gone") is deliberately never registered with the fake: if probeAllTasks ever
+	// called PaneGetContext for it, the call log below would catch it.
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-2", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p-gone"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, attempt2 := readTaskAttempt(t, home, "task-2")
+	if err := state.SetAttemptTeardownResourceState(home, "task-2", attempt2.ID, state.AttemptRunning, "herdr", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+
+	histories, err := state.ListOpenHistories(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := probeAllTasks(context.Background(), home, herdr.NewClient(), nil, histories); err != nil {
+		t.Fatalf("probeAllTasks = %v, want nil: a torn-down attempt must not fail the arm", err)
+	}
+	data, _ := os.ReadFile(callLog)
+	if strings.Contains(string(data), "p-gone") {
+		t.Fatalf("pane-get calls = %q, want the torn-down attempt's pane never probed", data)
+	}
+	if !strings.Contains(string(data), "p1") {
+		t.Fatalf("pane-get calls = %q, want the remaining open task still probed", data)
+	}
+}
+
+// The failure mode reported in atqamz/hand#455: teardown's herdr-release mark commits after the
+// histories snapshot was taken but before this task's probe runs. The snapshot has to be taken while
+// task-2 was still genuinely open and unmarked - a pre-torn-down fixture would not exercise this.
+func TestProbeAllTasksClosesTheRaceWhenATeardownCommitsAfterTheHistoriesSnapshot(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{
+			ID: "wA", Label: "watch", Tabs: []faketool.HerdrTab{
+				{ID: "wA:t1", Label: "task-1", Pane: "p1"},
+				{ID: "wA:t2", Label: "task-2", Pane: "p-gone"},
+			},
+		}},
+		PaneStatus: "working",
+		// Only p-gone's probe answers not-found - real herdr's shape for a closed pane, per
+		// internal/runtime/resources.go's isHerdrNotFound: a JSON error envelope on stdout, exit 0.
+		Responses: []faketool.HerdrResponse{{
+			Command: "pane get", Args: []string{"p-gone"},
+			Stdout: `{"id":"cli:pane:get","error":{"code":"pane_not_found","message":"pane p-gone not found"}}`,
+		}},
+		Log: callLog, LogCommands: []string{"pane get"},
+	}.Install(t, faketool.Bin(t))
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-2", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p-gone"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The stale snapshot: both tasks genuinely open, task-2's attempt genuinely running and carrying
+	// no teardown mark yet.
+	histories, err := state.ListOpenHistories(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The race: a concurrent `hand teardown task-2` commits its herdr-release mark after the snapshot
+	// above was taken, using the same primitive teardown.go itself calls.
+	_, attempt2 := readTaskAttempt(t, home, "task-2")
+	if err := state.SetAttemptTeardownResourceState(home, "task-2", attempt2.ID, state.AttemptRunning, "herdr", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := probeAllTasks(context.Background(), home, herdr.NewClient(), nil, histories); err != nil {
+		t.Fatalf("probeAllTasks = %v, want nil: a teardown that commits after the histories snapshot must not fail the arm", err)
+	}
+	data, _ := os.ReadFile(callLog)
+	if !strings.Contains(string(data), "p1") {
+		t.Fatalf("pane-get calls = %q, want the remaining open task still watched", data)
+	}
+}
+
+// A pane missing for an open task that is not being torn down is still a real arm failure, even
+// through the same not-found path the race above must forgive: attemptStillNeedsArm's re-read has to
+// tell the two apart rather than forgiving every not-found probe.
+func TestProbeAllTasksFailsWhenAnOpenTasksPaneIsGoneWithoutATeardown(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, paneGoneStatus)
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}}); err != nil {
+		t.Fatal(err)
+	}
+	histories, err := state.ListOpenHistories(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = probeAllTasks(context.Background(), home, herdr.NewClient(), nil, histories)
+	if !errors.Is(err, ErrArmFailed) {
+		t.Fatalf("probeAllTasks = %v, want ErrArmFailed: no teardown explains this task's missing pane", err)
+	}
+	if !strings.Contains(err.Error(), "task-1") {
+		t.Fatalf("err = %q, want it to name task-1", err.Error())
+	}
+}
+
+// Unchanged branches: a live pane arms normally, and a provisioning attempt is still skipped without
+// ever being probed.
+func TestProbeAllTasksArmsForAnOpenTaskWithALivePane(t *testing.T) {
+	writeFakeHerdrForPanes(t, "p1")
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}}); err != nil {
+		t.Fatal(err)
+	}
+	histories, err := state.ListOpenHistories(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := probeAllTasks(context.Background(), home, herdr.NewClient(), nil, histories); err != nil {
+		t.Fatalf("probeAllTasks = %v, want nil for a live pane", err)
+	}
+}
+
+func TestProbeAllTasksSkipsAProvisioningAttemptWithoutProbingItsPane(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "pane-get-calls")
+	t.Setenv("HERDR_CALL_LOG", callLog)
+	faketool.Herdr{Log: callLog, LogCommands: []string{"pane get"}}.Install(t, faketool.Bin(t))
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptProvisioning}); err != nil {
+		t.Fatal(err)
+	}
+	histories, err := state.ListOpenHistories(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := probeAllTasks(context.Background(), home, herdr.NewClient(), nil, histories); err != nil {
+		t.Fatalf("probeAllTasks = %v, want nil: a provisioning attempt has no pane contract yet", err)
+	}
+	if data, readErr := os.ReadFile(callLog); readErr == nil && len(data) != 0 {
+		t.Fatalf("pane-get calls = %q, want none for a provisioning attempt", data)
+	}
+}
+
 // Holds resume to what the live path already does: a free-text line appended after a real report
 // explains nothing, so it must not erase the report it follows. Reading it back as "never reported"
 // turns the next quiet pane into idle-unreported, replacing the explanation with a bare stop.
