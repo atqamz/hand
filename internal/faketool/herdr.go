@@ -59,55 +59,60 @@ type Herdr struct {
 	// needs the post-send confirmation read to see different text than PaneReadOut/Frames answer the
 	// default `recent` source with. Empty falls back to the same PaneReadOut/Frames logic as `recent`.
 	PaneReadUnwrappedOut string
-	PaneStatusFile       string
-	Frames               []HerdrFrame
-	Responses            []HerdrResponse
-	Hang                 []string
-	Unreachable          bool
-	KeyLog               string
-	TextLog              string
-	Log                  string
-	LogCommands          []string
-	PaneAgentEnv         bool
-	PaneReadFileEnv      bool
-	KeyLogEnv            bool
-	TextLogEnv           bool
-	ReadLogEnv           bool
-	AllowUnknownPane     bool
-	MutateBeforeHang     bool
+	// PaneReadUnwrappedSequence answers successive `pane read --source recent-unwrapped` calls in order,
+	// holding the last entry once exhausted - like PaneStatusSequence, but keyed to its own counter since
+	// one send does one PaneGet but several PaneReadUnwrapped calls. Wins over PaneReadUnwrappedOut.
+	PaneReadUnwrappedSequence []string
+	PaneStatusFile            string
+	Frames                    []HerdrFrame
+	Responses                 []HerdrResponse
+	Hang                      []string
+	Unreachable               bool
+	KeyLog                    string
+	TextLog                   string
+	Log                       string
+	LogCommands               []string
+	PaneAgentEnv              bool
+	PaneReadFileEnv           bool
+	KeyLogEnv                 bool
+	TextLogEnv                bool
+	ReadLogEnv                bool
+	AllowUnknownPane          bool
+	MutateBeforeHang          bool
 }
 
 const herdrDefaultPaneRead = "Welcome to Claude Code\n> \n  ? for shortcuts\n"
 
 type herdrSpec struct {
-	Workspaces           []HerdrWorkspace
-	Creates              []HerdrWorkspace
-	TabCreates           []HerdrTab
-	PaneAgent            string
-	ProcessAgent         string
-	ProcessAgents        []string
-	PaneStatus           string
-	PaneStatusSequence   []string
-	PaneReadOut          string
-	PaneReadUnwrappedOut string
-	PaneStatusFile       string
-	Frames               []HerdrFrame
-	Responses            []HerdrResponse
-	Hang                 []string
-	Unreachable          bool
-	KeyLog               string
-	TextLog              string
-	StateDir             string
-	Log                  string
-	LogCommands          []string
-	PaneAgentEnv         bool
-	PaneReadFileEnv      bool
-	KeyLogEnv            bool
-	TextLogEnv           bool
-	ReadLogEnv           bool
-	AllowUnknownPane     bool
-	MutateBeforeHang     bool
-	activeSession        string
+	Workspaces                []HerdrWorkspace
+	Creates                   []HerdrWorkspace
+	TabCreates                []HerdrTab
+	PaneAgent                 string
+	ProcessAgent              string
+	ProcessAgents             []string
+	PaneStatus                string
+	PaneStatusSequence        []string
+	PaneReadOut               string
+	PaneReadUnwrappedOut      string
+	PaneReadUnwrappedSequence []string
+	PaneStatusFile            string
+	Frames                    []HerdrFrame
+	Responses                 []HerdrResponse
+	Hang                      []string
+	Unreachable               bool
+	KeyLog                    string
+	TextLog                   string
+	StateDir                  string
+	Log                       string
+	LogCommands               []string
+	PaneAgentEnv              bool
+	PaneReadFileEnv           bool
+	KeyLogEnv                 bool
+	TextLogEnv                bool
+	ReadLogEnv                bool
+	AllowUnknownPane          bool
+	MutateBeforeHang          bool
+	activeSession             string
 }
 
 type herdrTabRef struct {
@@ -133,9 +138,10 @@ func (h Herdr) Install(t *testing.T, bin string) {
 	installConfig(t, bin, "herdr", "herdr", herdrSpec{
 		Workspaces: h.Workspaces, Creates: h.Creates, TabCreates: h.TabCreates,
 		PaneAgent: h.PaneAgent, ProcessAgent: h.ProcessAgent, ProcessAgents: h.ProcessAgents, PaneStatus: h.PaneStatus, PaneReadOut: h.PaneReadOut,
-		PaneReadUnwrappedOut: h.PaneReadUnwrappedOut,
-		PaneStatusSequence:   h.PaneStatusSequence,
-		PaneStatusFile:       h.PaneStatusFile, Frames: h.Frames, Responses: h.Responses,
+		PaneReadUnwrappedOut:      h.PaneReadUnwrappedOut,
+		PaneReadUnwrappedSequence: h.PaneReadUnwrappedSequence,
+		PaneStatusSequence:        h.PaneStatusSequence,
+		PaneStatusFile:            h.PaneStatusFile, Frames: h.Frames, Responses: h.Responses,
 		Hang: h.Hang, Unreachable: h.Unreachable, KeyLog: h.KeyLog, TextLog: h.TextLog,
 		StateDir: state, Log: h.Log, LogCommands: h.LogCommands,
 		PaneAgentEnv: h.PaneAgentEnv, PaneReadFileEnv: h.PaneReadFileEnv,
@@ -586,8 +592,14 @@ func herdrPaneRead(spec herdrSpec, tabs []herdrTabRef, args []string) int {
 		return herdrError("pane_not_found", "pane "+args[2]+" not found", "cli:pane:read")
 	}
 	read := spec.PaneReadOut
-	if flagValue(args, "--source") == "recent-unwrapped" && spec.PaneReadUnwrappedOut != "" {
-		read = spec.PaneReadUnwrappedOut
+	if flagValue(args, "--source") == "recent-unwrapped" {
+		switch {
+		case len(spec.PaneReadUnwrappedSequence) > 0:
+			index := herdrUnwrappedReadAdvance(spec.StateDir, len(spec.PaneReadUnwrappedSequence))
+			read = spec.PaneReadUnwrappedSequence[index]
+		case spec.PaneReadUnwrappedOut != "":
+			read = spec.PaneReadUnwrappedOut
+		}
 	}
 	if spec.ReadLogEnv {
 		if path := os.Getenv("PANE_LOG"); path != "" {
@@ -784,6 +796,14 @@ func herdrProcessFrameAdvance(state string, count int) int {
 func herdrStatusAdvance(state string, count int) int {
 	current := herdrCounter(state, "statuses")
 	if err := atomicWrite(herdrCounterPath(state, "statuses"), strconv.Itoa(current+1)+"\n"); err != nil {
+		return min(current, count-1)
+	}
+	return min(current, count-1)
+}
+
+func herdrUnwrappedReadAdvance(state string, count int) int {
+	current := herdrCounter(state, "unwrapped-reads")
+	if err := atomicWrite(herdrCounterPath(state, "unwrapped-reads"), strconv.Itoa(current+1)+"\n"); err != nil {
 		return min(current, count-1)
 	}
 	return min(current, count-1)

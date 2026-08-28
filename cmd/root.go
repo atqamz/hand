@@ -250,12 +250,15 @@ func renderError(w io.Writer, err error, code int, path string) error {
 			doc.Field("reason", reason)
 		}
 		switch {
+		// Checked before partial: uncertain must win regardless of it, since atqamz/hand#459's stalled-paste
+		// case is both - a composer holding a fragment is not proof nothing landed, so the operator must be
+		// told to go read the pane rather than to just avoid resending the whole message.
+		case sendState == "uncertain" || sendState == "pending":
+			help = []string{"Terminal submission is uncertain; do not blindly retry because the message may already be in the pane"}
 		case partial:
 			help = []string{"The message was not submitted, but text may remain in the composer; do not blindly send the whole message again"}
 		case retrySafe:
 			help = []string{"No terminal submission occurred; retry is safe when the underlying precondition is ready"}
-		case sendState == "uncertain" || sendState == "pending":
-			help = []string{"Terminal submission is uncertain; do not blindly retry because the message may already be in the pane"}
 		}
 	}
 	doc.Help(help...)

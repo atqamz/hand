@@ -115,21 +115,18 @@ const codexQueueDiscriminator = "tab to queue message"
 // composerRetains would misread a successful queue as the composer still stuck holding the message.
 const codexQueuedMarker = "Queued follow-up inputs"
 
-// Picks Enter, or Tab for a codex pane currently showing its own queue discriminator - conditioned on
-// harness identity, never applied to another harness. A read failure falls back to Enter rather than
-// turning an unrelated read problem into a submit failure.
-func chooseSubmitKey(client Client, paneID, harnessName string) string {
-	if harnessName != harness.Codex {
-		return "Enter"
-	}
+// Picks Enter, or Tab for a codex pane showing its own queue discriminator. The read is unconditional
+// now: its text doubles as submissionOutcome's pre-key baseline for the Enter path (atqamz/hand#459). A
+// read failure still falls back to Enter but is reported so submissionOutcome lands on Uncertain.
+func chooseSubmitKey(client Client, paneID, harnessName string) (key, preKeyText string, err error) {
 	text, err := client.PaneReadUnwrapped(paneID, sendConfirmPolling.ReadLines)
 	if err != nil {
-		return "Enter"
+		return "Enter", "", err
 	}
-	if strings.Contains(strings.ToLower(text), codexQueueDiscriminator) {
-		return "Tab"
+	if harnessName == harness.Codex && strings.Contains(strings.ToLower(text), codexQueueDiscriminator) {
+		return "Tab", text, nil
 	}
-	return "Enter"
+	return "Enter", text, nil
 }
 
 // The fixed-size fragment composerRetains looks for. A live reproduction of atqamz/hand#420 found a
@@ -178,40 +175,94 @@ func composerRetains(text, sent, key string) bool {
 	return false
 }
 
-// Polls the pane until it no longer holds a recognizable fragment of sent, or the bounded timeout
-// elapses.
-func composerConfirms(client Client, paneID, sent, key string) (bool, error) {
+// Polls the pane, at the shared cadence, until observe reports a positive read or the bounded timeout
+// elapses, returning the last text read alongside whether it confirmed. Shared by the Tab and Enter
+// paths, which differ only in what one read must show.
+func pollUntilObserved(client Client, paneID string, observe func(text string) bool) (bool, string, error) {
 	deadline := time.Now().Add(sendConfirmPolling.Timeout)
+	var lastText string
 	for {
 		text, err := client.PaneReadUnwrapped(paneID, sendConfirmPolling.ReadLines)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
-		if !composerRetains(text, sent, key) {
-			return true, nil
+		lastText = text
+		if observe(text) {
+			return true, lastText, nil
 		}
 		if time.Now().After(deadline) {
-			return false, nil
+			return false, lastText, nil
 		}
 		time.Sleep(sendConfirmPolling.Interval)
 	}
 }
 
-// Only the Tab path gets a composer-content confirmation: codexQueuedMarker gives composerRetains a
-// real truncation point there. Enter has none - an accepted message stays visible as a live-verified
-// ">" history line, so the same check would misreport ordinary sends as not-submitted (atqamz/hand#420).
-func submissionOutcome(client Client, paneID, message, key string) (state.SendState, string, bool, bool) {
-	if key != "Tab" {
-		return state.SendSubmitted, "text-and-enter-accepted", true, false
+// Polls the pane until it no longer holds a recognizable fragment of sent, or the bounded timeout
+// elapses.
+func composerConfirms(client Client, paneID, sent, key string) (bool, error) {
+	confirmed, _, err := pollUntilObserved(client, paneID, func(text string) bool {
+		return !composerRetains(text, sent, key)
+	})
+	return confirmed, err
+}
+
+// Reports whether text holds the tail of sent specifically, not just any surviving fragment. A large
+// PaneSendText can stall for seconds with only an early chunk in the composer (atqamz/hand#459); the
+// tail is the one fragment that can only be present once everything before it arrived too.
+func composerHasTail(text, sent string) bool {
+	haystack := stripWhitespace(text)
+	needle := stripWhitespace(sent)
+	if needle == "" {
+		return false
 	}
-	confirmed, err := composerConfirms(client, paneID, message, key)
+	runes := []rune(needle)
+	if len(runes) > confirmChunkSize {
+		runes = runes[len(runes)-confirmChunkSize:]
+	}
+	return strings.Contains(haystack, string(runes))
+}
+
+// Confirms Enter by positive evidence the harness reacted, not by its own text going absent: an accepted
+// message stays visible forever as history, so an absence check races that redraw (atqamz/hand#420,
+// atqamz/hand#459). reacted distinguishes a pure no-op (nothing happened) from a stalled paste (something did).
+func enterConfirms(client Client, paneID, sent, preKeyText string) (confirmed, reacted bool, err error) {
+	confirmed, lastText, err := pollUntilObserved(client, paneID, func(text string) bool {
+		return text != preKeyText && composerHasTail(text, sent)
+	})
+	if err != nil {
+		return false, false, err
+	}
+	return confirmed, lastText != preKeyText, nil
+}
+
+// Tab gets a composer-content confirmation because codexQueuedMarker gives composerRetains a real
+// truncation point. Enter instead requires the pre-key baseline and a positive tail match (enterConfirms)
+// - preKeyErr non-nil means that baseline read failed, so the send is honestly uncertain, not confirmed.
+func submissionOutcome(client Client, paneID, message, key, preKeyText string, preKeyErr error) (state.SendState, string, bool, bool) {
+	if key == "Tab" {
+		confirmed, err := composerConfirms(client, paneID, message, key)
+		if err != nil {
+			return state.SendUncertain, "composer-confirmation-read-failed", false, false
+		}
+		if confirmed {
+			return state.SendSubmitted, "text-and-tab-queued", true, false
+		}
+		return state.SendNotSubmitted, state.SendReasonComposerRetainsMessage, false, true
+	}
+	if preKeyErr != nil {
+		return state.SendUncertain, "composer-confirmation-read-failed", false, false
+	}
+	confirmed, reacted, err := enterConfirms(client, paneID, message, preKeyText)
 	if err != nil {
 		return state.SendUncertain, "composer-confirmation-read-failed", false, false
 	}
 	if confirmed {
-		return state.SendSubmitted, "text-and-tab-queued", true, false
+		return state.SendSubmitted, "text-and-enter-confirmed", true, false
 	}
-	return state.SendNotSubmitted, state.SendReasonComposerRetainsMessage, false, true
+	if reacted {
+		return state.SendUncertain, state.SendReasonEnterNotConfirmed, false, true
+	}
+	return state.SendNotSubmitted, state.SendReasonEnterNotConfirmed, false, true
 }
 
 func Execute(req Request) (Result, error) {
@@ -334,7 +385,7 @@ func Execute(req Request) (Result, error) {
 	if req.Faults.BeforeEnter != nil {
 		return Result{}, pendingError(send, req.Faults.BeforeEnter, "before-enter")
 	}
-	key := chooseSubmitKey(req.Client, current.Herdr.PaneID, current.Harness)
+	key, preKeyText, keyReadErr := chooseSubmitKey(req.Client, current.Herdr.PaneID, current.Harness)
 	if err := req.Client.PaneSendKeys(current.Herdr.PaneID, key); err != nil {
 		if herdr.IsPreSideEffectRejection(err) || herdr.IsProcessNotStarted(err) {
 			return finalize(req, send, state.SendNotSubmitted, rejectionReason(err, state.SendReasonEnterRejectedAfterTextStaged), false, true)
@@ -345,7 +396,7 @@ func Execute(req Request) (Result, error) {
 		return Result{}, pendingError(send, req.Faults.AfterEnter, "enter-succeeded-before-finalization")
 	}
 
-	next, reason, submitted, partial := submissionOutcome(req.Client, current.Herdr.PaneID, req.Message, key)
+	next, reason, submitted, partial := submissionOutcome(req.Client, current.Herdr.PaneID, req.Message, key, preKeyText, keyReadErr)
 
 	if req.Faults.BeforePersist != nil {
 		return Result{}, &Error{Cause: fmt.Errorf("terminal submission returned success, but durable send finalization failed: %w", req.Faults.BeforePersist), Send: &send, AttemptID: current.ID, State: state.SendPending, Reason: "durable-finalization-unresolved", FinalizationFault: true}

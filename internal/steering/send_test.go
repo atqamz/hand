@@ -75,7 +75,10 @@ func newSteeringHome(t *testing.T) (string, state.Attempt) {
 
 func TestExecuteSubmitsAndFinalizesExactAttempt(t *testing.T) {
 	home, attempt := newSteeringHome(t)
-	pane := &testPane{pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle}}
+	pane := &testPane{
+		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{"› hello", "hello\n\n• new agent activity"},
+	}
 	result, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane,
 		Now: func() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) }})
 	if err != nil {
@@ -86,6 +89,11 @@ func TestExecuteSubmitsAndFinalizesExactAttempt(t *testing.T) {
 	}
 	if len(pane.textCalls) != 1 || pane.textCalls[0] != "hello" || len(pane.keyCalls) != 1 || len(pane.keyCalls[0]) != 1 || pane.keyCalls[0][0] != "Enter" {
 		t.Fatalf("external calls = text %v keys %v", pane.textCalls, pane.keyCalls)
+	}
+	// One read to choose the key (reused as the pre-key baseline) and one to confirm: decision 4's "one
+	// more exec" cost for an idle composer that confirms on the first read.
+	if pane.readCalls != 2 {
+		t.Fatalf("readCalls = %d, want exactly 2", pane.readCalls)
 	}
 }
 
@@ -173,7 +181,10 @@ func TestExecuteDoesNotUseHistoricalPendingForCurrentAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	pane := &testPane{pane: herdr.Pane{PaneID: second.Herdr.PaneID, TabID: second.Herdr.TabID, WorkspaceID: second.Herdr.WorkspaceID, AgentStatus: herdr.StatusIdle}}
+	pane := &testPane{
+		pane:          herdr.Pane{PaneID: second.Herdr.PaneID, TabID: second.Herdr.TabID, WorkspaceID: second.Herdr.WorkspaceID, AgentStatus: herdr.StatusIdle},
+		readResponses: []string{"› new", "new\n\n• new agent activity"},
+	}
 	if _, err := Execute(Request{Home: home, TaskID: "task-1", Message: "new", Origin: state.SendOriginOperator, Client: pane}); err != nil {
 		t.Fatal(err)
 	}
@@ -272,27 +283,136 @@ func useFastSendConfirmPolling(t *testing.T) {
 	t.Cleanup(restore)
 }
 
-// Live testing against a real codex worker found Enter has no working confirmation signal: an accepted
-// message stays visible as a ">" history line, so a content check there would misreport ordinary sends
-// as not-submitted (atqamz/hand#420). Enter stays claim-based and never reads the pane back to check.
-func TestExecuteSubmitsOnEnterWithoutReadingTheComposerBack(t *testing.T) {
+// Positive evidence, not absence: an accepted message stays visible forever as a history line
+// indistinguishable from one still unsent, so an absence check races that redraw (atqamz/hand#420,
+// atqamz/hand#459). Here new content also appeared and the tail is present, so Enter still confirms.
+func TestExecuteConfirmsEnterDespiteAcceptedMessageRemainingVisibleAsHistory(t *testing.T) {
 	home, attempt := newSteeringHome(t)
 	pane := &testPane{
-		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
-		readResponses: []string{"hello still sitting in the composer, unmoved"},
+		pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{
+			"› hello",
+			"› hello\n\n› \n\n• Working (1s • esc to interrupt)",
+		},
 	}
 	result, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Send.State != state.SendSubmitted || result.Send.AttemptID != attempt.ID {
-		t.Fatalf("result = %+v, want submitted: Enter is claim-based", result.Send)
+		t.Fatalf("result = %+v, want submitted despite the message remaining visible", result.Send)
 	}
-	if got, found, readErr := state.LatestSend(home, "task-1", attempt.ID); readErr != nil || !found || got.ReasonCode != "text-and-enter-accepted" {
-		t.Fatalf("latest send = %+v found=%v err=%v, want the plain accepted reason", got, found, readErr)
+	if got, found, readErr := state.LatestSend(home, "task-1", attempt.ID); readErr != nil || !found || got.ReasonCode != "text-and-enter-confirmed" {
+		t.Fatalf("latest send = %+v found=%v err=%v, want the confirmed reason", got, found, readErr)
 	}
-	if pane.readCalls != 0 {
-		t.Fatalf("readCalls = %d, want zero: Enter never reads the pane back", pane.readCalls)
+}
+
+// atqamz/hand#426's shape generalized to Enter: the composer shows byte-identical content before and
+// after the key, meaning Enter produced no observed reaction at all. Confirming here would be exactly
+// the false "submitted" claim atqamz/hand#420 is about.
+func TestExecuteDoesNotConfirmEnterWhenComposerShowsNoReaction(t *testing.T) {
+	restore := ConfigureSendConfirmPollingForTest(time.Millisecond, 0, 400)
+	t.Cleanup(restore)
+	home, _ := newSteeringHome(t)
+	pane := &testPane{
+		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{"› hello"},
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendNotSubmitted || sendErr.Reason != state.SendReasonEnterNotConfirmed {
+		t.Fatalf("err=%v, want not-submitted enter-not-confirmed", err)
+	}
+}
+
+// atqamz/hand#459's live-measured stall: a large PaneSendText can leave only an early fragment in the
+// composer for many seconds, drifting further on Enter without ever completing. This lands on Uncertain,
+// not not-submitted: the drift is positive evidence something landed, just never provably all of it.
+func TestExecuteDoesNotConfirmEnterWhenOnlyAPartialFragmentArrived(t *testing.T) {
+	restore := ConfigureSendConfirmPollingForTest(time.Millisecond, 5*time.Millisecond, 400)
+	t.Cleanup(restore)
+	home, _ := newSteeringHome(t)
+	const sent = "please read the whole review before replying, thanks very much for the help"
+	pane := &testPane{
+		pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{
+			"› please read the whole review before",
+			"please read the whole review before\nreplying, thanks",
+			"please read the whole review before\nreplying, thanks very",
+		},
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: sent, Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendUncertain || sendErr.Reason != state.SendReasonEnterNotConfirmed {
+		t.Fatalf("err=%v, want uncertain enter-not-confirmed: something landed, just never the tail", err)
+	}
+}
+
+// A read failure choosing the key leaves no baseline to compare against - confirming blind would be
+// worse than admitting uncertainty, so this never reaches enterConfirms at all.
+func TestExecuteMarksEnterPreKeyReadFailureUncertain(t *testing.T) {
+	home, _ := newSteeringHome(t)
+	pane := &testPane{
+		pane:    herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readErr: errors.New("herdr pane read: transport lost"),
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendUncertain || sendErr.Reason != "composer-confirmation-read-failed" {
+		t.Fatalf("err=%v, want uncertain composer-confirmation-read-failed", err)
+	}
+	if len(pane.keyCalls) != 1 || pane.keyCalls[0][0] != "Enter" {
+		t.Fatalf("key calls = %v, want Enter still chosen despite the read failure", pane.keyCalls)
+	}
+}
+
+// A read failure during the confirmation poll itself (as opposed to choosing the key) is the same
+// honest uncertainty, reached through enterConfirms this time.
+func TestExecuteMarksEnterConfirmationReadFailureUncertain(t *testing.T) {
+	useFastSendConfirmPolling(t)
+	home, _ := newSteeringHome(t)
+	pane := &testPane{
+		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{"› hello"},
+		readErr:       errors.New("herdr pane read: transport lost"),
+		readErrFrom:   2,
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendUncertain || sendErr.Reason != "composer-confirmation-read-failed" {
+		t.Fatalf("err=%v, want uncertain composer-confirmation-read-failed", err)
+	}
+}
+
+func TestComposerHasTail(t *testing.T) {
+	const sent = "Please stop and wait for review before merging this pull request, thanks in advance."
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "short message must match in full, not just a fragment", text: "› Please stop and wait", want: false},
+		{name: "full message present", text: "› " + sent, want: true},
+		{name: "empty pane", text: "", want: false},
+		{
+			// The live-measured atqamz/hand#459 stall: an early fragment survives but the tail never
+			// arrived. An any-chunk search would wrongly confirm this; the tail check must not.
+			name: "early fragment survives, tail never arrived",
+			text: "› Please stop and wait for review before merging this",
+			want: false,
+		},
+		{
+			name: "a terminal-wrapped line break lands inside the tail",
+			text: "› Please stop and wait for review\nbefore merging this pull request, thanks in\nadvance.",
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := composerHasTail(tt.text, sent); got != tt.want {
+				t.Fatalf("composerHasTail() = %t, want %t", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -494,6 +614,7 @@ func TestComposerRetains(t *testing.T) {
 }
 
 func TestExecuteReportsDurableFinalizationFailureWithoutRepeatingExternalCalls(t *testing.T) {
+	useFastSendConfirmPolling(t)
 	home, _ := newSteeringHome(t)
 	pane := &testPane{pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle}}
 	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: "hello", Origin: state.SendOriginOperator, Client: pane,
