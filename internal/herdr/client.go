@@ -696,14 +696,21 @@ func (c *Client) PaneSendKeys(paneID string, keys ...string) error {
 // text, since a failure read as pane text would confirm a worker nobody observed. Re-answering a dialog
 // that lingers in scrollback is prevented in internal/runtime/launch.go, by answering each one once per launch.
 func (c *Client) PaneRead(paneID string, lines int) (string, error) {
-	return c.paneRead(context.Background(), paneID, lines)
-}
-
-func (c *Client) paneRead(ctx context.Context, paneID string, lines int) (string, error) {
 	// The one caller matches first-run dialogs on their lower half, so a viewport too short for the whole
 	// dialog clips exactly the text that has to match, and an unmatched dialog under a live agent reads as
 	// started. Hence recent, not visible's 23-row unattached viewport (internal/faketool/FIDELITY.md).
-	args := []string{"pane", "read", paneID, "--source", "recent", "--lines", strconv.Itoa(lines)}
+	return c.paneRead(context.Background(), paneID, "recent", lines)
+}
+
+// PaneReadUnwrapped returns the pane's recent scrollback with herdr's own line-wrap reversed, so a long
+// logical line the terminal broke across several rows reads back as one contiguous line, not split at a
+// wrap point a raw terminal width happened to insert (internal/faketool/FIDELITY.md).
+func (c *Client) PaneReadUnwrapped(paneID string, lines int) (string, error) {
+	return c.paneRead(context.Background(), paneID, "recent-unwrapped", lines)
+}
+
+func (c *Client) paneRead(ctx context.Context, paneID, source string, lines int) (string, error) {
+	args := []string{"pane", "read", paneID, "--source", source, "--lines", strconv.Itoa(lines)}
 	stdout, stderr, runErr := c.runContext(ctx, args...)
 	// Unlike every command above, herdr's contract for pane read is a third shape: raw text on
 	// success, on failure a bare {"code","message"} object, not the {"error":{...}} envelope. Read
@@ -740,7 +747,7 @@ func (c *Client) WaitComposerEmpty(paneID string, timeout time.Duration) error {
 		if pane.AgentStatus != StatusWorking {
 			return nil
 		}
-		if text, err := c.paneRead(ctx, paneID, 20); err == nil {
+		if text, err := c.paneRead(ctx, paneID, "recent", 20); err == nil {
 			if count, ok := renderedBackgroundShells(text); ok {
 				backgroundShells, shellsKnown = count, true
 			}

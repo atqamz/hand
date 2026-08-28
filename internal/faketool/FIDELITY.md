@@ -253,6 +253,19 @@ So a single read proves nothing about a pane, which is why `confirmLaunch` polls
 
 Text `pane run` typed into the pane appears in a later read, so a read reflects what herdr sent as well as what the command produced.
 
+### `herdr pane read <id> --source recent-unwrapped --lines <n>`
+
+Exit 0 with bare text, the same envelope-free shape as `recent`.
+
+`recent-unwrapped` reverses the pty's own soft line-wrapping: where the terminal's column width forced one logical line to occupy several screen rows with no real newline between them, this source rejoins those rows into the single line they came from.
+Captured against a real busy codex pane, a 1177-character shell command line that `recent` reported as 13 separate ~92-column rows came back from `recent-unwrapped` as that same one line, unbroken.
+
+It does **not** reverse an application's own internal word-wrapping.
+Text codex renders inside its own composer or transcript box, wrapped to fit that box's width with codex's own real newlines, came back identically from both sources in the same capture - herdr has nothing to reverse there, because those line breaks are genuine content, not wrap continuation.
+So a sent message can still read back split across several lines even from `recent-unwrapped`, which is why `steering.composerRetains` (`internal/steering/send.go`) matches on whitespace-stripped chunks rather than assuming confirmation needs one contiguous line.
+
+Otherwise it shares `recent`'s emptiness-before-paint and settling behaviour above; `composerConfirms` polls it for the same reason `confirmLaunch` polls `recent`.
+
 ## gh
 
 Driven by `internal/ghutil`, and through it by teardown's landed-work check and the gate's PR detection.

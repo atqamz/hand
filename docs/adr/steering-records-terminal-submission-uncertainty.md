@@ -1,7 +1,7 @@
 # Steering records terminal submission uncertainty
 
 Date: 2026-08-15
-Status: accepted
+Status: superseded in part by [Submission is observed, not assumed from Text and Enter succeeding](submission-is-observed-not-assumed-from-text-and-enter-succeeding.md), which redefines what `submitted` certifies; the `pending`/`uncertain` terminality and lock-ordering decisions below still stand
 Issues: atqamz/hand#197, atqamz/hand#176
 Pull requests: atqamz/hand#230
 

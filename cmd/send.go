@@ -80,7 +80,11 @@ func newSendCmd() *cobra.Command {
 			doc.Field("attempt", strconv.FormatInt(result.Send.AttemptID, 10))
 			doc.Field("send_state", string(result.Send.State))
 			doc.Int("chars", len([]rune(message)))
-			doc.Help("The terminal pane accepted the message and Enter; run `hand status " + args[0] + "` to read what the worker does with it")
+			submitKey := "Enter"
+			if strings.Contains(result.Send.ReasonCode, "tab-queued") {
+				submitKey = "Tab"
+			}
+			doc.Help("The terminal pane accepted the message and " + submitKey + "; run `hand status " + args[0] + "` to read what the worker does with it")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}

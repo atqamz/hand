@@ -64,6 +64,7 @@ const (
 
 	SendReasonTextRejectedBeforeAcceptance = store.SendReasonTextRejectedBeforeAcceptance
 	SendReasonEnterRejectedAfterTextStaged = store.SendReasonEnterRejectedAfterTextStaged
+	SendReasonComposerRetainsMessage       = store.SendReasonComposerRetainsMessage
 )
 
 func SendNeedsAttention(send SendAttempt) bool { return store.SendNeedsAttention(send) }

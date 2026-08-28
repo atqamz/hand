@@ -6,10 +6,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/steering"
 )
+
+// Keeps a cmd-level test that exercises the composer-confirmation poll from sleeping through its real
+// settle window, matching how internal/steering's own tests shrink it.
+func useFastSendConfirmPolling(t *testing.T) {
+	t.Helper()
+	restore := steering.ConfigureSendConfirmPollingForTest(time.Millisecond, 0, 400)
+	t.Cleanup(restore)
+}
 
 func setupSendHome(t *testing.T, h faketool.Herdr) string {
 	t.Helper()
@@ -343,6 +353,67 @@ func TestSendClassifiesStructuredPreTextRejectionAsNotSubmitted(t *testing.T) {
 	sends, err := state.ListSends(home, "task-1")
 	if err != nil || len(sends) != 1 || sends[0].State != state.SendNotSubmitted || sends[0].ReasonCode != "text-rejected-before-acceptance:pane_send_failed" {
 		t.Fatalf("sends=%+v err=%v, want typed not-submitted send", sends, err)
+	}
+}
+
+// From the scout's live reproduction of atqamz/hand#420, wired through the full CLI: a composer that
+// still shows the sent message after the bounded retry must reach the operator as a typed not-submitted
+// failure, never as a silent "result: sent".
+func TestSendReportsNotSubmittedWhenComposerStillHoldsTheMessageAfterRetry(t *testing.T) {
+	useFastSendConfirmPolling(t)
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus:           "idle",
+		PaneReadUnwrappedOut: "› stop and wait for review",
+	})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "stop and wait for review"})
+	err := cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 6 {
+		t.Fatalf("got %v, want ExitError code 6", err)
+	}
+
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendNotSubmitted || sends[0].ReasonCode != state.SendReasonComposerRetainsMessage {
+		t.Fatalf("sends=%+v err=%v, want one not-submitted send with the retains-message reason", sends, err)
+	}
+}
+
+// atqamz/hand#426, wired through the full CLI: a codex attempt whose composer advertises "tab to queue
+// message" must send Tab, never a hardcoded Enter, and still land on an ordinary submitted result.
+func TestSendChoosesTabOverEnterForCodexHarnessAndReportsQueuedSubmission(t *testing.T) {
+	useFastSendConfirmPolling(t)
+	keyLog := filepath.Join(t.TempDir(), "keys.log")
+	home := setupSendHome(t, faketool.Herdr{
+		PaneStatus:           "working",
+		PaneReadUnwrappedOut: "tab to queue message                97% context left",
+		KeyLog:               keyLog,
+	})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1"}, state.Attempt{Lifecycle: state.AttemptRunning, Harness: "codex", Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSendCmd()
+	cmd.SetArgs([]string{"task-1", "please pause and wait for review", "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("got %v, want the codex Tab path to submit", err)
+	}
+
+	got, err := os.ReadFile(keyLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimRight(string(got), "\n") != "Tab" {
+		t.Fatalf("keys sent = %q, want a single Tab, never a hardcoded Enter", got)
+	}
+
+	sends, err := state.ListSends(home, "task-1")
+	if err != nil || len(sends) != 1 || sends[0].State != state.SendSubmitted || sends[0].ReasonCode != "text-and-tab-queued" {
+		t.Fatalf("sends=%+v err=%v, want one submitted send with the tab-queued reason", sends, err)
 	}
 }
 

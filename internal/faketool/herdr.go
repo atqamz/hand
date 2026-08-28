@@ -55,54 +55,59 @@ type Herdr struct {
 	PaneStatus         string
 	PaneStatusSequence []string
 	PaneReadOut        string
-	PaneStatusFile     string
-	Frames             []HerdrFrame
-	Responses          []HerdrResponse
-	Hang               []string
-	Unreachable        bool
-	KeyLog             string
-	TextLog            string
-	Log                string
-	LogCommands        []string
-	PaneAgentEnv       bool
-	PaneReadFileEnv    bool
-	KeyLogEnv          bool
-	TextLogEnv         bool
-	ReadLogEnv         bool
-	AllowUnknownPane   bool
-	MutateBeforeHang   bool
+	// PaneReadUnwrappedOut answers `pane read --source recent-unwrapped` specifically, for a test that
+	// needs the post-send confirmation read to see different text than PaneReadOut/Frames answer the
+	// default `recent` source with. Empty falls back to the same PaneReadOut/Frames logic as `recent`.
+	PaneReadUnwrappedOut string
+	PaneStatusFile       string
+	Frames               []HerdrFrame
+	Responses            []HerdrResponse
+	Hang                 []string
+	Unreachable          bool
+	KeyLog               string
+	TextLog              string
+	Log                  string
+	LogCommands          []string
+	PaneAgentEnv         bool
+	PaneReadFileEnv      bool
+	KeyLogEnv            bool
+	TextLogEnv           bool
+	ReadLogEnv           bool
+	AllowUnknownPane     bool
+	MutateBeforeHang     bool
 }
 
 const herdrDefaultPaneRead = "Welcome to Claude Code\n> \n  ? for shortcuts\n"
 
 type herdrSpec struct {
-	Workspaces         []HerdrWorkspace
-	Creates            []HerdrWorkspace
-	TabCreates         []HerdrTab
-	PaneAgent          string
-	ProcessAgent       string
-	ProcessAgents      []string
-	PaneStatus         string
-	PaneStatusSequence []string
-	PaneReadOut        string
-	PaneStatusFile     string
-	Frames             []HerdrFrame
-	Responses          []HerdrResponse
-	Hang               []string
-	Unreachable        bool
-	KeyLog             string
-	TextLog            string
-	StateDir           string
-	Log                string
-	LogCommands        []string
-	PaneAgentEnv       bool
-	PaneReadFileEnv    bool
-	KeyLogEnv          bool
-	TextLogEnv         bool
-	ReadLogEnv         bool
-	AllowUnknownPane   bool
-	MutateBeforeHang   bool
-	activeSession      string
+	Workspaces           []HerdrWorkspace
+	Creates              []HerdrWorkspace
+	TabCreates           []HerdrTab
+	PaneAgent            string
+	ProcessAgent         string
+	ProcessAgents        []string
+	PaneStatus           string
+	PaneStatusSequence   []string
+	PaneReadOut          string
+	PaneReadUnwrappedOut string
+	PaneStatusFile       string
+	Frames               []HerdrFrame
+	Responses            []HerdrResponse
+	Hang                 []string
+	Unreachable          bool
+	KeyLog               string
+	TextLog              string
+	StateDir             string
+	Log                  string
+	LogCommands          []string
+	PaneAgentEnv         bool
+	PaneReadFileEnv      bool
+	KeyLogEnv            bool
+	TextLogEnv           bool
+	ReadLogEnv           bool
+	AllowUnknownPane     bool
+	MutateBeforeHang     bool
+	activeSession        string
 }
 
 type herdrTabRef struct {
@@ -128,8 +133,9 @@ func (h Herdr) Install(t *testing.T, bin string) {
 	installConfig(t, bin, "herdr", "herdr", herdrSpec{
 		Workspaces: h.Workspaces, Creates: h.Creates, TabCreates: h.TabCreates,
 		PaneAgent: h.PaneAgent, ProcessAgent: h.ProcessAgent, ProcessAgents: h.ProcessAgents, PaneStatus: h.PaneStatus, PaneReadOut: h.PaneReadOut,
-		PaneStatusSequence: h.PaneStatusSequence,
-		PaneStatusFile:     h.PaneStatusFile, Frames: h.Frames, Responses: h.Responses,
+		PaneReadUnwrappedOut: h.PaneReadUnwrappedOut,
+		PaneStatusSequence:   h.PaneStatusSequence,
+		PaneStatusFile:       h.PaneStatusFile, Frames: h.Frames, Responses: h.Responses,
 		Hang: h.Hang, Unreachable: h.Unreachable, KeyLog: h.KeyLog, TextLog: h.TextLog,
 		StateDir: state, Log: h.Log, LogCommands: h.LogCommands,
 		PaneAgentEnv: h.PaneAgentEnv, PaneReadFileEnv: h.PaneReadFileEnv,
@@ -580,6 +586,9 @@ func herdrPaneRead(spec herdrSpec, tabs []herdrTabRef, args []string) int {
 		return herdrError("pane_not_found", "pane "+args[2]+" not found", "cli:pane:read")
 	}
 	read := spec.PaneReadOut
+	if flagValue(args, "--source") == "recent-unwrapped" && spec.PaneReadUnwrappedOut != "" {
+		read = spec.PaneReadUnwrappedOut
+	}
 	if spec.ReadLogEnv {
 		if path := os.Getenv("PANE_LOG"); path != "" {
 			if err := appendLine(path, "read"); err != nil {

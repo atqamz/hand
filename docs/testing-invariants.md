@@ -130,7 +130,8 @@ Source: [A project is identified by a surrogate id, not its name](adr/a-project-
 
 Source: [The report channel is the only outcome signal](adr/the-report-channel-is-the-only-outcome-signal.md),
 [Attention is one derivation over three channels](adr/attention-is-one-derivation-over-three-channels.md),
-[A file-only harness gets the launch statement appended to its brief](adr/a-file-only-harness-gets-the-launch-statement-appended-to-its-brief.md).
+[A file-only harness gets the launch statement appended to its brief](adr/a-file-only-harness-gets-the-launch-statement-appended-to-its-brief.md),
+[Submission is observed, not assumed from Text and Enter succeeding](adr/submission-is-observed-not-assumed-from-text-and-enter-succeeding.md).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -142,6 +143,11 @@ Source: [The report channel is the only outcome signal](adr/the-report-channel-i
 | INV-REP-6 | A send state that records a delivery failure - pending, uncertain, partial, or not-submitted - reaches at least one supervisor-visible attention subject, and no two of them collapse to the same kind. A submitted send raises none. | unit | `TestClassifyNextActionExactPrecedence/send-not-submitted_outranks_queued_work`, `TestClassifyNextActionExactPrecedence/send-partial_outranks_send-not-submitted`, `TestDeriveRaisesSendNotSubmittedDistinctFromSendUncertain`, and `TestStatusFlagsPartialSendAfterFreshRead/submitted` cover it |
 | INV-REP-7 | Every harness hand dispatches to receives the report path and the operator-decision rule in identical wording, whether as a CLI prompt argument or appended to its brief file; a harness wired into neither channel is not launched silently. | unit | `TestCarriesPrompt`, `TestAppendPromptToBriefGrokAndPi`, `TestAppendPromptToBriefIsIdempotent` |
 | INV-REP-8 | Reconstructing already-persisted launch evidence (reconcile's confirm-launch arm) never mutates the brief file, even for a harness whose provisioning path appends to it. | unit | `TestReconcileConfirmLaunchDoesNotModifyBriefFile` |
+| INV-REP-9 | A send reaches `submitted` only once the pane's composer is observed to no longer hold a recognizable fragment of what was sent. Two successful external calls (Text, then the submit key) are never sufficient on their own. | unit | `TestExecuteDoesNotConfirmSubmittedWhileComposerStillHoldsTheMessage` (the two calls succeed and the send still lands on `not-submitted`) |
+| INV-REP-10 | A send hand could not confirm is distinguishable by why: observed still holding the sent message (`not-submitted`, partial) is a different fact from the confirmation read itself failing (`uncertain`). Neither is ever reported as `submitted`. | unit | `TestExecuteDoesNotConfirmSubmittedWhileComposerStillHoldsTheMessage`, `TestExecuteMarksConfirmationReadFailureUncertain` |
+| INV-REP-11 | A send is resent at most once, and only after its own confirmation has already failed; retry never substitutes for verification, and the retry's outcome is itself confirmed before the send is finalized. | unit | `TestExecuteRetriesOnceAndConfirmsWhenComposerClearsAfterResend`, `TestExecuteDoesNotConfirmSubmittedWhileComposerStillHoldsTheMessage` (exactly one resend, never more) |
+| INV-REP-12 | A composer that clears within the bounded confirmation poll - including a worker that consumes and finishes before hand's first read - confirms as `submitted` without a resend. | unit | `TestExecuteConfirmsAfterABoundedPollWithoutRetrying` |
+| INV-REP-13 | The submit key is Tab instead of Enter only for a codex-harness pane currently showing codex's own queue-instead-of-submit text; no other harness's submit key is ever conditioned on pane content. | unit | `TestExecuteSendsTabInsteadOfEnterWhenCodexAdvertisesQueueing`, `TestExecuteConfirmsCodexQueuedMessageDespiteItsOwnEchoAboveTheComposer`, `TestExecuteDoesNotConfirmCodexTabWhenMessageStaysInTheLiveComposer` |
 
 ## Orientation and currentness
 
