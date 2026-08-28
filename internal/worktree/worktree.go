@@ -420,6 +420,17 @@ func withTreehouseRoot(clonePath, recordedWorktreePath string, args ...string) (
 	return append([]string{"--root", root}, args...), nil
 }
 
+// PoolsRoot is the directory every clone's worktree pool lives under - the one path that identifies
+// any slot Hand's own pools could ever create. Exported for cmd/init.go's managed-tree refusal
+// (atqamz/hand#413): no Fleet home may be registered inside it.
+func PoolsRoot() (string, error) {
+	infra, err := secondhand.Home()
+	if err != nil {
+		return "", fmt.Errorf("resolve worktree pool root: %w", err)
+	}
+	return filepath.Join(infra, "pools"), nil
+}
+
 // Where this clone's pool lives. Before atqamz/hand#427 it was the clone itself, which put every
 // worker worktree under the fleet home and fed the worker the supervisor's own CLAUDE.md. A digest
 // of the clone path keys it instead: one pool per fleet home and project, outside every home.
@@ -427,12 +438,12 @@ func poolRoot(clonePath, recordedWorktreePath string) (string, error) {
 	if recordedWorktreePath != "" && withinPath(clonePath, recordedWorktreePath) {
 		return clonePath, nil
 	}
-	infra, err := secondhand.Home()
+	root, err := PoolsRoot()
 	if err != nil {
-		return "", fmt.Errorf("resolve worktree pool root: %w", err)
+		return "", err
 	}
 	digest := sha256.Sum256([]byte(filepath.Clean(clonePath)))
-	return filepath.Join(infra, "pools", fmt.Sprintf("%s-%x", filepath.Base(clonePath), digest[:6])), nil
+	return filepath.Join(root, fmt.Sprintf("%s-%x", filepath.Base(clonePath), digest[:6])), nil
 }
 
 // Reports whether path is root or sits inside it, comparing the recorded strings without resolving

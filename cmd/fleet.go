@@ -61,6 +61,73 @@ func newFleetCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newFleetHerdrCmd())
+	cmd.AddCommand(newFleetPruneCmd())
+	return cmd
+}
+
+// Opt-in only, and only ever by classification: bare `hand fleet prune` reports the Fleets it would
+// drop and drops nothing; --apply removes exactly those. Never a side effect of any other command,
+// and never anything short of the current classification (see registry.MissingFleets).
+func newFleetPruneCmd() *cobra.Command {
+	var apply bool
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Report or remove registered Fleets classified missing",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			registryPath, err := registry.Path()
+			if err != nil {
+				return err
+			}
+			currentHome, _ := home.Resolve()
+
+			var fleets []registry.Fleet
+			if apply {
+				registryDB, err := registry.OpenAt(registryPath)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = registryDB.Close() }()
+				fleets, err = registryDB.Prune(currentHome)
+				if err != nil {
+					return err
+				}
+			} else {
+				registryDB, err := registry.OpenReadOnlyAt(registryPath)
+				switch {
+				case errors.Is(err, registry.ErrRegistryMissing):
+				case err != nil:
+					return err
+				default:
+					defer func() { _ = registryDB.Close() }()
+					fleets, err = registryDB.MissingFleets(currentHome)
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			doc := axi.Doc{}
+			doc.Field("registry", registryPath)
+			doc.Bool("applied", apply)
+			label := "candidates"
+			if apply {
+				label = "removed"
+			}
+			rows := make([][]string, 0, len(fleets))
+			for _, fleet := range fleets {
+				rows = append(rows, []string{fleet.ID, fleet.Home, string(fleet.State), strings.Join(fleet.Locations, "\n")})
+			}
+			doc.Rows(label, []string{"id", "home", "state", "locations"}, rows)
+			if apply {
+				doc.Help("Run `hand fleet` to confirm the registry now holds only what these Fleets left behind")
+			} else {
+				doc.Help("Run `hand fleet prune --apply` to remove exactly these Fleets; nothing was changed")
+			}
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().BoolVar(&apply, "apply", false, "remove the reported Fleets instead of only reporting them")
 	return cmd
 }
 

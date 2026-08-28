@@ -471,6 +471,61 @@ func lastKnownHome(db *sql.DB, id string, locations []string) string {
 	return ""
 }
 
+// MissingFleets reports every registered Fleet identity classified missing, excluding the current
+// home even if classification could somehow call it missing. Not unreadable, not ambiguous, not a
+// duplicate: only StateMissing qualifies, per docs/adr/every-diagnosis-names-a-reachable-treatment.md.
+func (r *Registry) MissingFleets(currentHome string) ([]Fleet, error) {
+	fleets, err := r.List(currentHome)
+	if err != nil {
+		return nil, err
+	}
+	var missing []Fleet
+	for _, fleet := range fleets {
+		if fleet.State == StateMissing && !fleet.Current {
+			missing = append(missing, fleet)
+		}
+	}
+	return missing, nil
+}
+
+// Prune removes every Fleet MissingFleets would name for the same currentHome: its full registry row
+// and every locator. It re-classifies under the write lock rather than trusting a caller-supplied
+// list, so nothing but what this call itself still finds missing at delete time is ever removed.
+func (r *Registry) Prune(currentHome string) ([]Fleet, error) {
+	var removed []Fleet
+	err := r.withWriteLock(func() error {
+		candidates, err := r.MissingFleets(currentHome)
+		if err != nil {
+			return err
+		}
+		if len(candidates) == 0 {
+			return nil
+		}
+		tx, err := r.sql.Begin()
+		if err != nil {
+			return fmt.Errorf("begin registry prune: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		for _, fleet := range candidates {
+			if _, err := tx.Exec(`DELETE FROM fleet_locator WHERE fleet_id = ?`, fleet.ID); err != nil {
+				return fmt.Errorf("prune Fleet locators for %s: %w", fleet.ID, err)
+			}
+			if _, err := tx.Exec(`DELETE FROM fleet_registry WHERE fleet_id = ?`, fleet.ID); err != nil {
+				return fmt.Errorf("prune Fleet registry row for %s: %w", fleet.ID, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit registry prune: %w", err)
+		}
+		removed = candidates
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
 type DuplicateError struct {
 	FleetID string
 	Current string

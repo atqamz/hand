@@ -20,6 +20,7 @@ import (
 	"github.com/atqamz/hand/internal/skill"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toolchain"
+	"github.com/atqamz/hand/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -195,6 +196,9 @@ func newInitCmd() *cobra.Command {
 // Also reports whether target is Hand's own source tree, which init adopts and every later
 // command reports as such whether or not this call was the one that adopted it.
 func preflightInitTarget(target string) (bool, error) {
+	if err := refuseManagedTreeHome(target); err != nil {
+		return false, err
+	}
 	info, err := os.Stat(target)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -260,6 +264,56 @@ func isHandSourceTree(target string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// Refuses to let target become a Fleet home inside territory Hand already manages: a Treehouse
+// worktree pool slot, or another Fleet's project clone under projects/ (atqamz/hand#413). Checked
+// against the filesystem, not the registry, so a stale or absent entry cannot look safe.
+func refuseManagedTreeHome(target string) error {
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve init target %s: %w", target, err)
+	}
+	abs = filepath.Clean(abs)
+
+	pools, err := worktree.PoolsRoot()
+	if err != nil {
+		return err
+	}
+	if withinTree(pools, abs) {
+		return &ExitError{Code: 3, Err: fmt.Errorf(
+			"init target %s is inside Hand's own Treehouse worktree pool at %s; a pool slot is leased and returned, never a Fleet home - choose a target outside it",
+			abs, pools)}
+	}
+
+	for dir := abs; ; {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		if filepath.Base(dir) == "projects" {
+			ok, err := home.IsHome(parent)
+			if err != nil {
+				return fmt.Errorf("inspect %s: %w", parent, err)
+			}
+			if ok {
+				return &ExitError{Code: 3, Err: fmt.Errorf(
+					"init target %s is inside the managed project tree of Fleet home %s; a worker gets its own worktree there instead - choose a target outside projects/",
+					abs, parent)}
+			}
+		}
+		dir = parent
+	}
+}
+
+// Reports whether path is root or sits inside it, comparing cleaned absolute strings without
+// resolving symlinks - the same rule internal/worktree's own pool-membership check uses.
+func withinTree(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
 }
 
 func handOwnedRuntimeRoot() (string, error) {
