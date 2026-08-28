@@ -2,6 +2,7 @@ package steering
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -281,6 +282,8 @@ func useFastSendConfirmPolling(t *testing.T) {
 	t.Helper()
 	restore := ConfigureSendConfirmPollingForTest(time.Millisecond, 50*time.Millisecond, 400)
 	t.Cleanup(restore)
+	restoreSettle := ConfigureInterChunkSettleForTest(time.Millisecond)
+	t.Cleanup(restoreSettle)
 }
 
 // Positive evidence, not absence: an accepted message stays visible forever as a history line
@@ -610,6 +613,183 @@ func TestComposerRetains(t *testing.T) {
 				t.Fatalf("composerRetains() = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestChunkMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		size    int
+		want    []string
+	}{
+		{name: "fits in one chunk, returned unchanged", message: "abc", size: 5, want: []string{"abc"}},
+		{name: "exact multiple of size", message: "abcdefghij", size: 5, want: []string{"abcde", "fghij"}},
+		{name: "remainder trails as a short final chunk", message: "abcdefghi", size: 4, want: []string{"abcd", "efgh", "i"}},
+		{
+			// Ranging over a string yields each rune's start offset, so a cut can only ever land there -
+			// this multi-byte content would corrupt under a naive byte-offset slice.
+			name:    "cuts only at rune boundaries, never inside a multi-byte rune",
+			message: "ab日本語cd", size: 4,
+			want: []string{"ab日", "本語", "cd"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := chunkMessage(tt.message, tt.size)
+			if len(got) != len(tt.want) {
+				t.Fatalf("chunkMessage() = %q, want %q", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("chunkMessage() = %q, want %q", got, tt.want)
+				}
+			}
+			if joined := strings.Join(got, ""); joined != tt.message {
+				t.Fatalf("chunks rejoin to %q, want original %q", joined, tt.message)
+			}
+		})
+	}
+}
+
+// The exact shape flagged in review: a chunk boundary landing mid-blank-line (routine in this fleet's
+// Markdown) strips to an empty needle on its own, which composerHasTail always reports absent.
+// chunkConfirms takes the cumulative text so far, so the tail reaches back into real content instead.
+func TestChunkConfirmsReachesPastAWhitespaceOnlyChunkIntoEarlierContent(t *testing.T) {
+	if composerHasTail("› first paragraph here", "\n\n") {
+		t.Fatal("composerHasTail on a whitespace-only chunk in isolation should never confirm")
+	}
+	restore := ConfigureSendConfirmPollingForTest(time.Millisecond, 5*time.Millisecond, 400)
+	t.Cleanup(restore)
+	pane := &testPane{readResponses: []string{"› first paragraph here"}}
+	confirmed, err := chunkConfirms(pane, "pane-1", "first paragraph here\n\n")
+	if err != nil || !confirmed {
+		t.Fatalf("chunkConfirms(cumulative) = %t, %v, want confirmed via the earlier real content", confirmed, err)
+	}
+}
+
+// End-to-end version of the same fix: chunkMessage("AAAAAA\n\nBBBBBB", 2) really does produce a
+// whitespace-only chunk ("\n\n") sandwiched between real content, and the full send still reaches and
+// presses the submit key exactly once.
+func TestExecuteSendsAWhitespaceOnlyChunkWithoutStallingConfirmation(t *testing.T) {
+	restoreSize := ConfigureSendChunkSizeForTest(2)
+	t.Cleanup(restoreSize)
+	useFastSendConfirmPolling(t)
+	home, attempt := newSteeringHome(t)
+	const message = "AAAAAA\n\nBBBBBB"
+	pane := &testPane{
+		pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{
+			"› AA", "› AAAA", "› AAAAAA", "› AAAAAA", "› AAAAAABB", "› AAAAAABBBB", "› AAAAAABBBBBB",
+			"› AAAAAABBBBBB",
+			"AAAAAABBBBBB\n\n• new agent activity",
+		},
+	}
+	result, err := Execute(Request{Home: home, TaskID: "task-1", Message: message, Origin: state.SendOriginOperator, Client: pane})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Send.State != state.SendSubmitted || result.Send.AttemptID != attempt.ID {
+		t.Fatalf("result = %+v, want submitted despite a whitespace-only chunk mid-send", result.Send)
+	}
+	wantChunks := []string{"AA", "AA", "AA", "\n\n", "BB", "BB", "BB"}
+	if len(pane.textCalls) != len(wantChunks) {
+		t.Fatalf("text calls = %q, want %q", pane.textCalls, wantChunks)
+	}
+	for i := range wantChunks {
+		if pane.textCalls[i] != wantChunks[i] {
+			t.Fatalf("text calls = %q, want %q", pane.textCalls, wantChunks)
+		}
+	}
+	if len(pane.keyCalls) != 1 || pane.keyCalls[0][0] != "Enter" {
+		t.Fatalf("key calls = %v, want a single Enter only after every chunk confirmed", pane.keyCalls)
+	}
+}
+
+func TestExecuteSendsChunkedTextConfirmingEachChunkBeforeTheSubmitKey(t *testing.T) {
+	restoreSize := ConfigureSendChunkSizeForTest(5)
+	t.Cleanup(restoreSize)
+	useFastSendConfirmPolling(t)
+	home, attempt := newSteeringHome(t)
+	const message = "abcdefghij" // chunkMessage(_, 5) -> "abcde", "fghij"
+	pane := &testPane{
+		pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{
+			"› abcde",                            // confirms chunk 1
+			"› abcdefghij",                       // confirms chunk 2 (the whole message, now fully present)
+			"› abcdefghij",                       // chooseSubmitKey's pre-key baseline
+			"abcdefghij\n\n• new agent activity", // enterConfirms: reacted and holds the tail
+		},
+	}
+	result, err := Execute(Request{Home: home, TaskID: "task-1", Message: message, Origin: state.SendOriginOperator, Client: pane})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Send.State != state.SendSubmitted || result.Send.AttemptID != attempt.ID {
+		t.Fatalf("result = %+v, want submitted", result.Send)
+	}
+	if len(pane.textCalls) != 2 || pane.textCalls[0] != "abcde" || pane.textCalls[1] != "fghij" {
+		t.Fatalf("text calls = %q, want the two chunks in order", pane.textCalls)
+	}
+	if len(pane.keyCalls) != 1 || pane.keyCalls[0][0] != "Enter" {
+		t.Fatalf("key calls = %v, want a single Enter chosen only after both chunks confirmed", pane.keyCalls)
+	}
+	if pane.readCalls != 4 {
+		t.Fatalf("readCalls = %d, want exactly 4: one confirm per chunk, one pre-key baseline, one post-key confirm", pane.readCalls)
+	}
+}
+
+// The hard constraint this issue is built around: a chunk that never confirms must not leave a half
+// message that a later key press turns into a genuine partial submission. sendMessage must return before
+// Execute ever reaches chooseSubmitKey or PaneSendKeys.
+func TestExecuteFailsWithoutPressingSubmitKeyWhenAChunkNeverConfirms(t *testing.T) {
+	restoreSize := ConfigureSendChunkSizeForTest(5)
+	t.Cleanup(restoreSize)
+	restorePoll := ConfigureSendConfirmPollingForTest(time.Millisecond, 5*time.Millisecond, 400)
+	t.Cleanup(restorePoll)
+	restoreSettle := ConfigureInterChunkSettleForTest(time.Millisecond)
+	t.Cleanup(restoreSettle)
+	home, _ := newSteeringHome(t)
+	const message = "abcdefghij" // chunkMessage(_, 5) -> "abcde", "fghij"
+	pane := &testPane{
+		pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		// Confirms chunk 1, then never advances - chunk 2's tail ("fghij") never appears.
+		readResponses: []string{"› abcde"},
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: message, Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendNotSubmitted || sendErr.Reason != state.SendReasonTextChunkNotConfirmed || !sendErr.PartialComposer {
+		t.Fatalf("err=%v, want not-submitted text-chunk-not-confirmed partial", err)
+	}
+	if len(pane.textCalls) != 2 || pane.textCalls[0] != "abcde" || pane.textCalls[1] != "fghij" {
+		t.Fatalf("text calls = %q, want both chunks written even though the second never confirmed", pane.textCalls)
+	}
+	if len(pane.keyCalls) != 0 {
+		t.Fatalf("key calls = %v, want the submit key never chosen or sent", pane.keyCalls)
+	}
+}
+
+// A read failure mid-chunk-confirmation is the same honest uncertainty the Enter and Tab paths already
+// give a read failure - not a claim about what the composer holds either way.
+func TestExecuteMarksChunkConfirmationReadFailureUncertain(t *testing.T) {
+	restoreSize := ConfigureSendChunkSizeForTest(5)
+	t.Cleanup(restoreSize)
+	useFastSendConfirmPolling(t)
+	home, _ := newSteeringHome(t)
+	const message = "abcdefghij" // chunkMessage(_, 5) -> "abcde", "fghij"
+	pane := &testPane{
+		pane:          herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusIdle},
+		readResponses: []string{"› abcde"},
+		readErr:       errors.New("herdr pane read: transport lost"),
+		readErrFrom:   2, // chunk 1's confirmation read succeeds; chunk 2's fails
+	}
+	_, err := Execute(Request{Home: home, TaskID: "task-1", Message: message, Origin: state.SendOriginOperator, Client: pane})
+	var sendErr *Error
+	if err == nil || !errors.As(err, &sendErr) || sendErr.State != state.SendUncertain || sendErr.Reason != "composer-confirmation-read-failed" {
+		t.Fatalf("err=%v, want uncertain composer-confirmation-read-failed", err)
+	}
+	if len(pane.textCalls) != 2 || len(pane.keyCalls) != 0 {
+		t.Fatalf("calls=%v/%v, want both chunks written and no submit key", pane.textCalls, pane.keyCalls)
 	}
 }
 

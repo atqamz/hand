@@ -66,6 +66,7 @@ const (
 	SendReasonEnterRejectedAfterTextStaged = store.SendReasonEnterRejectedAfterTextStaged
 	SendReasonComposerRetainsMessage       = store.SendReasonComposerRetainsMessage
 	SendReasonEnterNotConfirmed            = store.SendReasonEnterNotConfirmed
+	SendReasonTextChunkNotConfirmed        = store.SendReasonTextChunkNotConfirmed
 )
 
 func SendNeedsAttention(send SendAttempt) bool { return store.SendNeedsAttention(send) }
