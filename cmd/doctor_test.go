@@ -19,7 +19,42 @@ import (
 	"github.com/atqamz/hand/internal/skill"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
+	"github.com/atqamz/hand/internal/toolchain"
 )
+
+// The doctor half of hand#440: a bundle that is otherwise intact but cannot clone https:// is
+// reported with the ssh treatment, and never joins blocking or flips runtime_ready, so an
+// ssh-only fleet home never reads as unready over a gap it has no way to close itself.
+func TestRuntimeHTTPSFindingsNamesTheSSHTreatmentWithoutJoiningBlocking(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		status       toolchain.Status
+		wantFindings int
+	}{
+		{name: "ready and https-ready reports nothing", status: toolchain.Status{Ready: true, GitHTTPSReady: true}, wantFindings: 0},
+		{name: "ready but https-unready warns with the treatment", status: toolchain.Status{Ready: true, GitHTTPSReady: false}, wantFindings: 1},
+		{name: "not ready at all adds nothing on top of the runtime blocking entry", status: toolchain.Status{Ready: false, GitHTTPSReady: false}, wantFindings: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runtimeHTTPSFindings(tc.status)
+			if len(findings) != tc.wantFindings {
+				t.Fatalf("runtimeHTTPSFindings(%+v) = %+v, want %d finding(s)", tc.status, findings, tc.wantFindings)
+			}
+			if tc.wantFindings == 0 {
+				return
+			}
+			finding := findings[0]
+			if finding.Severity != doctorWarning {
+				t.Fatalf("finding severity = %q, want %q so it never blocks fleet-wide readiness", finding.Severity, doctorWarning)
+			}
+			for _, want := range []string{"git-remote-https", "ssh remote form", "git@host:owner/repo.git"} {
+				if !strings.Contains(finding.Text, want) {
+					t.Fatalf("finding text = %q, want it to mention %q", finding.Text, want)
+				}
+			}
+		})
+	}
+}
 
 func TestDoctorFindingsCoverFleetHealth(t *testing.T) {
 	tests := []struct {

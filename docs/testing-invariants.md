@@ -245,6 +245,17 @@ reconcile), `cmd/doctor.go`.
 | INV-AUTH-4 | Every launch path supplies the task's kind to `harness.Build`: spawn, reopen, promote (always ship), and reconcile's confirm-launch arm all carry it through, so INV-AUTH-1/2 hold for a real launch and not only for a prompt built by hand. | unit | `TestSpawnBuildsHarnessCarryingTaskKind`, `TestReopenBuildsHarnessCarryingTaskKind`, `TestPromoteBuildsHarnessCarryingShipKind`, `TestReconcileConfirmLaunchCarriesTaskKind` |
 | INV-AUTH-3 | `hand doctor` names every open ship task whose *last* reported state is `done` with no pull request recorded, and the finding names the command that shows the way out. This does not catch a ship worker that is functionally finished but still reporting `working:` - that case is not mechanically detectable from the report channel alone. | unit | `TestDoctorWarnsForOpenShipTaskReportedDoneWithNoPR` |
 
+## Runtime transport readiness
+
+Source: `internal/toolchain` (`Runtime.SupportsGitTransport`, `Store.Status`), `cmd/doctor.go`,
+`cmd/runtime.go`, `cmd/project.go` (`gitClone`, `diagnoseCloneFailure`).
+
+| id | invariant | layer | coverage |
+|---|---|---|---|
+| INV-RTGIT-1 | A runtime's `git_https_ready` reflects whether `git-remote-https` is present next to the installed git binary, observed from the bundle on disk rather than assumed from the runtime id or version - for a fake bundle with and without the helper. | unit | `TestStatusObservesInstalledRemoteHelperRatherThanRuntimeID` |
+| INV-RTGIT-2 | A bundle missing the https helper is reported as a warning naming the ssh treatment, and never joins `hand doctor`'s blocking list or flips `runtime_ready` - only a runtime that fails its own integrity checks does that. | unit | `TestRuntimeHTTPSFindingsNamesTheSSHTreatmentWithoutJoiningBlocking` |
+| INV-RTGIT-3 | `hand project add` replaces git's own "remote-\<scheme\>' is not a git command" text with the named runtime defect and the ssh treatment; any other git failure, including one a source rewritten by git config resolves without an external helper, passes through unchanged. | unit | `TestDiagnoseCloneFailureNamesMissingHelperInsteadOfPassingGitTextThrough`, `TestDiagnoseCloneFailureReadsTheSchemeFromGitsOwnText`, `TestDiagnoseCloneFailureLeavesUnrelatedGitErrorsUnchanged` |
+
 ## Pure helpers
 
 Source: `internal/shellquote`, `internal/age`, `cmd/statusview.go`.

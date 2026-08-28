@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -607,10 +608,24 @@ func validateProjectMode(mode string) error {
 	}
 }
 
+// Git's own plumbing error for a missing remote-<scheme> helper: unambiguous, since git emits
+// this exact text only when the helper binary cannot be found at all (hand#440).
+var gitRemoteHelperMissing = regexp.MustCompile(`git: 'remote-([A-Za-z0-9+.-]+)' is not a git command\.`)
+
+// Matched against the clone attempt's actual output rather than guessed from the URL, so a
+// URL git config rewrites (insteadOf, an e2e fixture's local remote) is judged by what git
+// really tried, not by a scheme guessed from the input.
+func diagnoseCloneFailure(url string, out []byte) error {
+	if m := gitRemoteHelperMissing.FindSubmatch(out); m != nil {
+		return fmt.Errorf("cannot clone %s: %s", url, gitHTTPSTreatment(string(m[1])))
+	}
+	return fmt.Errorf("git clone failed: %s", string(out))
+}
+
 func gitClone(url, dest string) error {
 	out, err := runManagedCore(context.Background(), "git", "", "clone", url, dest)
 	if err != nil {
-		return fmt.Errorf("git clone failed: %s", string(out))
+		return diagnoseCloneFailure(url, out)
 	}
 	return nil
 }

@@ -182,14 +182,22 @@ func TestStatusRejectsBundleWithoutImmutableArtifacts(t *testing.T) {
 
 func tarGzipFixture(t *testing.T, name string, data []byte) string {
 	t.Helper()
+	path := tarGzipFixtureFiles(t, map[string][]byte{name: data})
+	return path
+}
+
+func tarGzipFixtureFiles(t *testing.T, files map[string][]byte) string {
+	t.Helper()
 	var archive bytes.Buffer
 	gzipWriter := gzip.NewWriter(&archive)
 	tarWriter := tar.NewWriter(gzipWriter)
-	if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o700, Size: int64(len(data))}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tarWriter.Write(data); err != nil {
-		t.Fatal(err)
+	for name, data := range files {
+		if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o700, Size: int64(len(data))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write(data); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tarWriter.Close(); err != nil {
 		t.Fatal(err)
@@ -202,4 +210,84 @@ func tarGzipFixture(t *testing.T, name string, data []byte) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// The fake-bundle case hand#440 asks for: a Git payload missing git-remote-https must read as
+// https-unready by what is actually on disk, and installing the helper must flip it back -
+// detection by observation, not by pinning which runtime ids are broken.
+func TestStatusObservesInstalledRemoteHelperRatherThanRuntimeID(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		withHelper bool
+	}{
+		{name: "helper missing from the bundle reads https-unready", withHelper: false},
+		{name: "helper present in the bundle reads https-ready", withHelper: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gitFiles := map[string][]byte{executableName("git"): []byte("fixture-git")}
+			expectedFiles := []ExpectedFile{{Path: executableName("git"), Executable: true, Regular: true}}
+			if tc.withHelper {
+				gitFiles[executableName("git-remote-https")] = []byte("fixture-git-remote-https")
+				expectedFiles = append(expectedFiles, ExpectedFile{Path: executableName("git-remote-https"), Executable: true, Regular: true})
+			}
+			gitArchive, err := os.ReadFile(tarGzipFixtureFiles(t, gitFiles))
+			if err != nil {
+				t.Fatal(err)
+			}
+			gitDigest := sha256.Sum256(gitArchive)
+
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				if r.URL.Path == "/git.tar.gz" {
+					_, _ = w.Write(gitArchive)
+					return
+				}
+				_, _ = w.Write([]byte("fixture-" + filepath.Base(r.URL.Path)))
+			}))
+			defer server.Close()
+
+			components := map[string]Component{
+				"git": {
+					Name: "git", Version: "test", Revision: "test", URL: server.URL + "/git.tar.gz",
+					SHA256: hex.EncodeToString(gitDigest[:]), Format: "tar.gz", Root: ".", Files: expectedFiles,
+				},
+			}
+			for _, name := range []string{"treehouse", "herdr"} {
+				data := []byte("fixture-" + name)
+				digest := sha256.Sum256(data)
+				components[name] = Component{
+					Name: name, Version: "test", Revision: "test", URL: server.URL + "/" + name,
+					SHA256: hex.EncodeToString(digest[:]), Format: "binary", Root: ".",
+					Files: []ExpectedFile{{Path: executableName(name), Executable: true, Regular: true}},
+				}
+			}
+			lock := Lock{Schema: 1, GeneratedBy: "store-test", Targets: map[string]Target{
+				runtime.GOOS + "/" + runtime.GOARCH: {Components: components},
+			}}
+			lock.RuntimeID, err = lock.DeterministicID()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			store, err := NewStore(t.TempDir(), lock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store.HTTPClient = server.Client()
+			if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+				t.Fatal(err)
+			}
+
+			status, err := store.Status("", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !status.Ready {
+				t.Fatalf("status = %+v, want the otherwise-intact bundle to still read Ready", status)
+			}
+			if status.GitHTTPSReady != tc.withHelper {
+				t.Fatalf("status.GitHTTPSReady = %v, want %v", status.GitHTTPSReady, tc.withHelper)
+			}
+		})
+	}
 }
