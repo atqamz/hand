@@ -6,6 +6,9 @@ updates:
       interval: weekly
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      go-modules:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
