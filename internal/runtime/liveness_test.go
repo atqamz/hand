@@ -348,12 +348,12 @@ func TestReconcileDoesNotReprobeAnAlreadyScheduledUsageLimit(t *testing.T) {
 	}
 }
 
-// A harness with no catalogued usage-limit signature - every harness but claude today - gets no pane
-// read and no attempted detection; only status_changed_for durably changes.
+// A harness with no catalogued usage-limit signature - every harness but claude and codex today -
+// gets no pane read and no attempted detection; only status_changed_for durably changes.
 func TestReconcileSkipsUsageLimitDetectionForAnUncataloguedHarness(t *testing.T) {
-	client := &livenessHerdr{agent: "codex", status: herdr.StatusIdle, paneText: claudeUsageLimitText(true)}
+	client := &livenessHerdr{agent: "grok", status: herdr.StatusIdle, paneText: claudeUsageLimitText(true)}
 	home, attempt := repairFixture(t, state.Task{}, state.Attempt{
-		Lifecycle: state.AttemptProvisioning, Harness: "codex", Worktree: "/pool/1", LeaseID: "lease-1",
+		Lifecycle: state.AttemptProvisioning, Harness: "grok", Worktree: "/pool/1", LeaseID: "lease-1",
 		Herdr:             state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
 		LaunchSubmittedAt: "2026-08-14T23:00:00Z", LaunchConfirmedAt: "2026-08-14T23:59:00Z",
 	})

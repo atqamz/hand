@@ -192,7 +192,7 @@ func TestTickReadsNoPaneForAHarnessWithoutTheCapability(t *testing.T) {
 	statusFile := filepath.Join(t.TempDir(), "status")
 	setStatus(t, statusFile, "working")
 	writeFakeHerdr(t, statusFile)
-	paneLog := paneScript(t, "codex", claudeLimitText)
+	paneLog := paneScript(t, "grok", claudeLimitText)
 
 	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
 	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
@@ -206,7 +206,7 @@ func TestTickReadsNoPaneForAHarnessWithoutTheCapability(t *testing.T) {
 	tick(ctx, cfg, client, states, &buf, &buf)
 
 	if calls := paneCalls(t, paneLog); calls != "" {
-		t.Fatalf("pane calls = %q, want none: codex declines the usage-limit capability", calls)
+		t.Fatalf("pane calls = %q, want none: grok declines the usage-limit capability", calls)
 	}
 }
 

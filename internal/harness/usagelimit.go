@@ -18,8 +18,8 @@ type usageLimit struct {
 }
 
 // The per-harness catalogue, and the reason adding a harness here is an implementation rather than one
-// more branch in the poll loop. Only claude has a signature; every other harness declines the
-// capability until someone catalogues its refusal against a real limited run, the bar firstRunPrompts holds.
+// more branch in the poll loop. An uncatalogued harness declines the capability until someone
+// catalogues its refusal against a real limited run, the bar firstRunPrompts holds.
 var usageLimits = map[string]usageLimit{
 	Claude: {
 		// Three wordings claude has shipped: the REPL's "limit will reset at 3pm (UTC)", the
@@ -27,6 +27,13 @@ var usageLimits = map[string]usageLimit{
 		// Anchored on *reached*, never "limit" alone, so an approaching-your-limit warning cannot read as a stop.
 		Match: regexp.MustCompile(`(?i)usage limit reached|\d+-hour limit reached|reached your (?:\w+ )*limit`),
 		Reset: parseClaudeReset,
+	},
+	// atqamz/hand#435: codex says *hit*, never *reached*, so claude's pattern cannot match it and is
+	// not loosened to match it either. Anchored on "hit" for the same reason claude is anchored on
+	// "reached": a bare "limit" would read an approaching-limit warning as a stop.
+	Codex: {
+		Match: regexp.MustCompile(`(?i)hit your (?:\w+ )*usage limit`),
+		Reset: parseCodexReset,
 	},
 }
 
@@ -119,6 +126,48 @@ func parseClaudeReset(text string, now time.Time) (time.Time, bool) {
 	reset := time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, loc)
 	// A limit's reset is always ahead of the message announcing it, so an hour already past today
 	// resolves to the next occurrence of that clock time.
+	if !reset.After(now) {
+		reset = reset.AddDate(0, 0, 1)
+	}
+	return reset, true
+}
+
+// codex's only observed reset wording, from a real limited run: "try again at 7:27 PM". A minute is
+// always present in the wording actually seen, so - unlike claude's clock form - it is required here
+// rather than defaulted; any other shape returns false rather than guessing at one.
+var codexResetClock = regexp.MustCompile(`(?i)try again at (\d{1,2}):(\d{2})\s*(am|pm)\b`)
+
+// codex's reset names a bare local clock time: no date, and no zone at all, unlike claude's optional
+// "(UTC)". The message cannot mean any zone but the one it was read in, so it is resolved directly
+// against now's own location rather than falling back to it after a failed parse.
+func parseCodexReset(text string, now time.Time) (time.Time, bool) {
+	m := codexResetClock.FindStringSubmatch(text)
+	if m == nil {
+		return time.Time{}, false
+	}
+	hour, err := strconv.Atoi(m[1])
+	if err != nil || hour < 1 || hour > 12 {
+		return time.Time{}, false
+	}
+	minute, err := strconv.Atoi(m[2])
+	if err != nil || minute > 59 {
+		return time.Time{}, false
+	}
+	switch strings.ToLower(m[3]) {
+	case "pm":
+		if hour < 12 {
+			hour += 12
+		}
+	case "am":
+		if hour == 12 {
+			hour = 0
+		}
+	}
+
+	loc := now.Location()
+	local := now.In(loc)
+	reset := time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, loc)
+	// Dateless, so a clock time already past today - or equal to now - names tomorrow's occurrence.
 	if !reset.After(now) {
 		reset = reset.AddDate(0, 0, 1)
 	}
