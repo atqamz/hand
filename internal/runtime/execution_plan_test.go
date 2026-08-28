@@ -210,22 +210,22 @@ func TestSpawnMechanicalPlanStopsBeforeAttemptAndExternalProvisioning(t *testing
 	}
 }
 
-func TestSpawnMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) {
+func TestSpawnMechanicalPlanAcceptsFileBasedHarness(t *testing.T) {
 	planned := strings.Repeat("a", 40)
 	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
 	addHarnessToPath(t, harness.Grok)
-	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Grok, HarnessFromFlag: true})
-	assertPreconditionError(t, err)
-	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
-		t.Fatalf("error = %q, want capability guidance", err)
+	result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Grok, HarnessFromFlag: true})
+	if err != nil {
+		t.Fatalf("Spawn() = %v, want mechanical dispatch to grok to succeed via the brief-append channel (atqamz/hand#418)", err)
 	}
-	assertNoLaunchingAnywayWarning(t, err)
-	assertNoProvisioningSideEffects(t, home, calls)
-	if _, err := state.ReadHistory(home, "task-1"); !errors.Is(err, state.ErrTaskNotFound) {
-		t.Fatalf("history after refused Spawn = %v, want no Task/Attempt", err)
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none: grok now carries the mechanical guidance", result.Warnings)
+	}
+	if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
+		t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
 	}
 }
 
@@ -434,7 +434,7 @@ func TestReopenMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.T
 	}
 }
 
-func TestReopenMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) {
+func TestReopenMechanicalPlanAcceptsFileBasedHarness(t *testing.T) {
 	planned := strings.Repeat("a", 40)
 	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
 	createTerminalExecutionTask(t, home)
@@ -442,19 +442,15 @@ func TestReopenMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T)
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
 	addHarnessToPath(t, harness.Grok)
-	_, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: harness.Grok, HarnessFromFlag: true})
-	assertPreconditionError(t, err)
-	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
-		t.Fatalf("error = %q, want capability guidance", err)
-	}
-	assertNoLaunchingAnywayWarning(t, err)
-	assertNoProvisioningSideEffects(t, home, calls)
-	history, err := state.ReadHistory(home, "task-1")
+	result, err := r.Reopen(context.Background(), ReopenRequest{Home: home, ID: "task-1", Harness: harness.Grok, HarnessFromFlag: true})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Reopen() = %v, want mechanical dispatch to grok to succeed via the brief-append channel (atqamz/hand#418)", err)
 	}
-	if history.Task.Lifecycle != state.TaskTerminal || len(history.Attempts) != 1 {
-		t.Fatalf("history after refused Reopen = %+v, want unchanged terminal task and one attempt", history)
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none: grok now carries the mechanical guidance", result.Warnings)
+	}
+	if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
+		t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
 	}
 }
 
@@ -537,7 +533,7 @@ func TestPromoteMechanicalPlanStopsBeforeTaskMutationAndProvisioning(t *testing.
 	}
 }
 
-func TestPromoteMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T) {
+func TestPromoteMechanicalPlanAcceptsFileBasedHarness(t *testing.T) {
 	planned := strings.Repeat("a", 40)
 	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
 	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("report\n"), 0o644); err != nil {
@@ -555,25 +551,19 @@ func TestPromoteMechanicalPlanRejectsHarnessWithoutPromptCapability(t *testing.T
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
 	addHarnessToPath(t, harness.Grok)
-	_, err = r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: harness.Grok, HarnessFromFlag: true})
-	assertPreconditionError(t, err)
-	if !strings.Contains(err.Error(), "cannot carry the required mechanical worker guidance") {
-		t.Fatalf("error = %q, want capability guidance", err)
-	}
-	assertNoLaunchingAnywayWarning(t, err)
-	if calls.worktreeGets != 0 || calls.harnessBuilds != 0 || calls.herdrGets != 1 {
-		t.Fatalf("provisioning calls = %+v, want only the completed-scout Herdr probe", calls)
-	}
-	history, err := state.ReadHistory(home, "task-1")
+	result, err := r.Promote(context.Background(), PromoteRequest{Home: home, ID: "task-1", Harness: harness.Grok, HarnessFromFlag: true})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Promote() = %v, want mechanical dispatch to grok to succeed via the brief-append channel (atqamz/hand#418)", err)
 	}
-	if history.Task.Kind != state.KindScout || len(history.Attempts) != 1 || history.ActiveAttempt == nil {
-		t.Fatalf("history after refused Promote = %+v, want unchanged scout task and attempt", history)
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none: grok now carries the mechanical guidance", result.Warnings)
+	}
+	if calls.worktreeGets != 1 || calls.harnessBuilds != 1 {
+		t.Fatalf("provisioning calls = %+v, want the promoted ship attempt fully provisioned", calls)
 	}
 }
 
-func TestNonMechanicalPlansKeepLaunchingWithHarnessWithoutPromptCapability(t *testing.T) {
+func TestNonMechanicalPlansLaunchFileBasedHarnessWithoutWarning(t *testing.T) {
 	for _, class := range []string{"", "standard", "deep"} {
 		t.Run(map[string]string{"": "legacy", "standard": "standard", "deep": "deep"}[class], func(t *testing.T) {
 			for _, harnessName := range []string{harness.Grok, harness.Pi} {
@@ -589,13 +579,12 @@ func TestNonMechanicalPlansKeepLaunchingWithHarnessWithoutPromptCapability(t *te
 					addHarnessToPath(t, harnessName)
 					result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harnessName, HarnessFromFlag: true})
 					if err != nil {
-						t.Fatalf("Spawn() = %v, want compatibility launch", err)
+						t.Fatalf("Spawn() = %v, want launch to succeed", err)
 					}
-					if class == "" && (len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "launching anyway")) {
-						t.Fatalf("warnings = %v, want launching-anyway capability warning", result.Warnings)
-					}
-					if class != "" && len(result.Warnings) != 0 {
-						t.Fatalf("warnings = %v, want strict profiled dispatch without compatibility warning", result.Warnings)
+					// atqamz/hand#418: grok and pi now carry the report path and operator-decision
+					// rule via the brief-append channel, so no "cannot carry" warning fires here.
+					if len(result.Warnings) != 0 {
+						t.Fatalf("warnings = %v, want none", result.Warnings)
 					}
 					if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
 						t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
@@ -606,25 +595,22 @@ func TestNonMechanicalPlansKeepLaunchingWithHarnessWithoutPromptCapability(t *te
 	}
 }
 
-func TestSpawnMechanicalPlanRejectsPiWithoutPromptCapability(t *testing.T) {
+func TestSpawnMechanicalPlanAcceptsPi(t *testing.T) {
 	planned := strings.Repeat("a", 40)
 	home := executionPlanHome(t, "---\nexecution_class: mechanical\nplanned_against: "+planned+"\n---\nbrief\n")
 	calls := &executionPlanCalls{}
 	r := executionPlanRuntime(t, calls, func(string) (string, error) { return planned, nil })
 
 	addHarnessToPath(t, harness.Pi)
-	_, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Pi, HarnessFromFlag: true})
-	assertPreconditionError(t, err)
-	assertNoLaunchingAnywayWarning(t, err)
-	assertNoProvisioningSideEffects(t, home, calls)
-}
-
-func assertNoLaunchingAnywayWarning(t *testing.T, err error) {
-	t.Helper()
-	for _, warning := range Warnings(err) {
-		if strings.Contains(warning, "launching anyway") {
-			t.Fatalf("runtime warnings = %v, must not claim refused dispatch will launch", Warnings(err))
-		}
+	result, err := r.Spawn(context.Background(), SpawnRequest{Home: home, ID: "task-1", Project: "demo", Harness: harness.Pi, HarnessFromFlag: true})
+	if err != nil {
+		t.Fatalf("Spawn() = %v, want mechanical dispatch to pi to succeed via the brief-append channel (atqamz/hand#418)", err)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none: pi now carries the mechanical guidance", result.Warnings)
+	}
+	if calls.worktreeGets != 1 || calls.herdrGets != 1 || calls.harnessBuilds != 1 {
+		t.Fatalf("provisioning calls = %+v, want one complete provisioning path", calls)
 	}
 }
 

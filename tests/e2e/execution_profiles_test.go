@@ -135,17 +135,6 @@ func TestClassifiedRoutingRefusalsStopBeforeStateAndProvisioning(t *testing.T) {
 			want: "harness \"grok\" takes no model",
 		},
 		{
-			name:  "mechanical prompt incompatibility",
-			class: "mechanical",
-			configure: func(t *testing.T, home, bin string) {
-				t.Helper()
-				writeFakeBin(t, bin, "grok", "exit 0\n")
-				setExecutionProfile(t, home, "daily", "grok", "", "")
-				setExecutionRoute(t, home, "mechanical", "daily")
-			},
-			want: "cannot carry the required mechanical worker guidance",
-		},
-		{
 			name:  "stale mechanical plan",
 			class: "mechanical",
 			configure: func(t *testing.T, home, bin string) {

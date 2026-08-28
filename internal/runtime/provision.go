@@ -202,10 +202,16 @@ func (r *Runtime) provisionLocked(ctx context.Context, req provisioningRequest) 
 	if err != nil {
 		return "", r.failProvision(req, lease, nil, false, fmt.Errorf("resolve report path: %w", err))
 	}
-	workerSpec, err := r.deps.buildHarness(req.attempt.Harness, harness.Options{
+	harnessOptions := harness.Options{
 		Worktree: worktreePath, Brief: req.briefPath, ReportPath: reportPath, Model: req.attempt.Model, Effort: req.attempt.Effort,
 		ExecutionClass: brief.ExecutionClass(req.attempt.ExecutionClass), BriefHasFrontMatter: req.briefHasFrontMatter, Kind: req.taskKind,
-	})
+	}
+	// A no-op for a harness that carries the prompt as a CLI argument instead; only the
+	// provisioning path calls this, never buildHarness itself (atqamz/hand#418).
+	if err := harness.AppendPromptToBrief(req.attempt.Harness, harnessOptions); err != nil {
+		return "", r.failProvision(req, lease, nil, false, err)
+	}
+	workerSpec, err := r.deps.buildHarness(req.attempt.Harness, harnessOptions)
 	if err != nil {
 		return "", r.failProvision(req, lease, nil, false, err)
 	}

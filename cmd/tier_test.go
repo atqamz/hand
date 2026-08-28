@@ -144,9 +144,9 @@ func TestResolveTierWarnsWhenHarnessCannotApplyEffort(t *testing.T) {
 	}
 }
 
-// Both prompt-less builders are near-copies, so proving only one warns lets the other regress.
-// Exact-match rather than Contains because the single combined line is the point: the
-// alternative was three warnings per launch all naming the same harness.
+// Both file-based harnesses are near-copies, so proving only one warns lets the other regress.
+// Exact-match rather than Contains because the single line is the point. Neither now drops the
+// operator-decision rule or front-matter disclaimer (atqamz/hand#418), only model and effort.
 func TestResolveTierWarnsOnceForEverythingAHarnessCannotCarry(t *testing.T) {
 	for _, harnessName := range []string{harness.Grok, harness.Pi} {
 		t.Run(harnessName, func(t *testing.T) {
@@ -161,7 +161,7 @@ func TestResolveTierWarnsOnceForEverythingAHarnessCannotCarry(t *testing.T) {
 			if model != "brief-model" || effort != "brief-effort" {
 				t.Fatalf("got model=%q effort=%q, want both resolved even though %s cannot carry them", model, effort, harnessName)
 			}
-			want := "warning: harness " + strconv.Quote(harnessName) + ` cannot carry model "brief-model", effort "brief-effort", the operator-decision rule, the front-matter disclaimer; launching anyway` + "\n"
+			want := "warning: harness " + strconv.Quote(harnessName) + ` cannot carry model "brief-model", effort "brief-effort"; launching anyway` + "\n"
 			if stderr.String() != want {
 				t.Fatalf("stderr = %q, want exactly %q", stderr.String(), want)
 			}
@@ -169,9 +169,9 @@ func TestResolveTierWarnsOnceForEverythingAHarnessCannotCarry(t *testing.T) {
 	}
 }
 
-// A brief with no front matter has no disclaimer to drop, so the operator-decision rule is the
-// only thing left and the line must not claim otherwise.
-func TestResolveTierWarnsOnPromptDropWithNothingDeclared(t *testing.T) {
+// atqamz/hand#418: grok and pi now receive the operator-decision rule by appending it to the
+// brief file, so a launch with nothing else declared produces no capability warning at all.
+func TestResolveTierNoWarningWhenFileBasedHarnessCarriesPrompt(t *testing.T) {
 	for _, harnessName := range []string{harness.Grok, harness.Pi} {
 		t.Run(harnessName, func(t *testing.T) {
 			home := t.TempDir()
@@ -181,9 +181,8 @@ func TestResolveTierWarnsOnPromptDropWithNothingDeclared(t *testing.T) {
 			if _, _, _, err := resolveTier(cmd, home, briefAbs, harnessName, "", ""); err != nil {
 				t.Fatal(err)
 			}
-			want := "warning: harness " + strconv.Quote(harnessName) + " cannot carry the operator-decision rule; launching anyway\n"
-			if stderr.String() != want {
-				t.Fatalf("stderr = %q, want exactly %q", stderr.String(), want)
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q, want no warning", stderr.String())
 			}
 		})
 	}
@@ -210,7 +209,7 @@ func TestResolveTierNoWarningWhenNoModelResolved(t *testing.T) {
 	if _, _, _, err := resolveTier(cmd, home, briefAbs, harness.Grok, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	want := `warning: harness "grok" cannot carry effort "brief-effort", the operator-decision rule, the front-matter disclaimer; launching anyway` + "\n"
+	want := `warning: harness "grok" cannot carry effort "brief-effort"; launching anyway` + "\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr = %q, want exactly %q (no model named, none was resolved)", stderr.String(), want)
 	}

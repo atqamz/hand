@@ -443,6 +443,44 @@ func TestReconcileConfirmLaunchCarriesTaskKind(t *testing.T) {
 	}
 }
 
+// The confirm-launch arm only reconstructs already-persisted launch evidence; for a grok
+// attempt that must not repeat the provisioning-time brief append, since an observation must
+// never mutate what it observes (atqamz/hand#418, INV-REC-3).
+func TestReconcileConfirmLaunchDoesNotModifyBriefFile(t *testing.T) {
+	home := reconcileFixture(t)
+	briefPath := filepath.Join(home, "data", "task-1", "brief.md")
+	before, err := os.ReadFile(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: harness.Grok, LaunchSubmittedAt: "2026-08-15T00:00:00Z", Herdr: state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&grokReconcileHerdr{}, nil)
+	// The real builder, not the fixture's static fake: this is what would catch AppendPromptToBrief
+	// being called from inside Build again instead of only from the provisioning path.
+	r.deps.buildHarness = harness.Build
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning || history.ActiveAttempt.LaunchConfirmedAt == "" {
+		t.Fatalf("history=%+v, want the grok attempt confirmed running", history)
+	}
+	after, err := os.ReadFile(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("confirm-launch modified the brief file:\nbefore: %q\nafter:  %q", before, after)
+	}
+}
+
 func TestReconcileRunningMissingPaneConvergesWithoutReplacement(t *testing.T) {
 	home := reconcileFixture(t)
 	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Brief: "data/task-1/brief.md"}, state.Attempt{
@@ -2235,6 +2273,14 @@ type inventoryRaceReconcileHerdr struct {
 type releasedInventoryReconcileHerdr struct{ healthyReconcileHerdr }
 
 type releasedReopenInventoryReconcileHerdr struct{ healthyReconcileHerdr }
+
+// Reports the pane agent a grok attempt's confirm-launch arm expects, so reconcile reaches
+// reconciliationActionConfirmLaunch instead of diagnosing launch-agent-mismatch.
+type grokReconcileHerdr struct{ healthyReconcileHerdr }
+
+func (f *grokReconcileHerdr) PaneGet(string) (herdr.Pane, error) {
+	return herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "ws-1", Agent: "grok"}, nil
+}
 
 func (*inventoryReconcileHerdr) WorkspaceList() ([]herdr.Workspace, error) {
 	return []herdr.Workspace{{WorkspaceID: "ws-orphan", Label: "hand:demo"}}, nil
