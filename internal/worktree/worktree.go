@@ -185,8 +185,8 @@ type CommitSafetyObservation struct {
 
 // A remote-tracking ref exists only as this clone's record of a ref observed on a remote, so every
 // commit this count reaches is one a remote was seen holding: zero is positive proof the work
-// outlives the worktree, established without a network call.
-const localOnlyCommitCommand = "git rev-list --count HEAD --not --remotes"
+// outlives the worktree. Exported for internal/runtime/pr.go's pull-request absence proof (atqamz/hand#428).
+const LocalOnlyCommitCommand = "git rev-list --count HEAD --not --remotes"
 
 // ObserveCommitSafety reports whether returning a worktree could discard commits held nowhere else
 // and never fails: every cause that stops the comparison being made is CommitSafetyUnknown carrying
@@ -195,7 +195,7 @@ func ObserveCommitSafety(worktreePath string) CommitSafetyObservation {
 	if worktreePath == "" {
 		return unknownCommitSafety(CommitSafetyProbe{}, "no worktree path is recorded")
 	}
-	probe := CommitSafetyProbe{Command: localOnlyCommitCommand, WorkingDir: worktreePath}
+	probe := CommitSafetyProbe{Command: LocalOnlyCommitCommand, WorkingDir: worktreePath}
 	head, err := HeadCommit(worktreePath)
 	if err != nil {
 		return unknownCommitSafety(probe, err.Error())
@@ -206,7 +206,7 @@ func ObserveCommitSafety(worktreePath string) CommitSafetyObservation {
 		return unknownCommitSafety(probe, fmt.Sprintf("list remote-tracking refs: %v", err))
 	}
 	probe.RemoteRefs = len(remotes)
-	count, err := localOnlyCommitCount(worktreePath)
+	count, err := LocalOnlyCommitCount(worktreePath)
 	if err != nil {
 		return unknownCommitSafety(probe, err.Error())
 	}
@@ -225,13 +225,13 @@ func ObserveCommitSafety(worktreePath string) CommitSafetyObservation {
 
 func unknownCommitSafety(probe CommitSafetyProbe, reason string) CommitSafetyObservation {
 	if probe.Command == "" {
-		probe.Command = localOnlyCommitCommand
+		probe.Command = LocalOnlyCommitCommand
 	}
 	probe.Reason = reason
 	return CommitSafetyObservation{State: CommitSafetyUnknown, Probe: probe}
 }
 
-func localOnlyCommitCount(worktreePath string) (int, error) {
+func LocalOnlyCommitCount(worktreePath string) (int, error) {
 	out, err := gitOutput(worktreePath, "rev-list", "--count", "HEAD", "--not", "--remotes")
 	if err != nil {
 		return 0, fmt.Errorf("count commits held only in this worktree: %w", err)

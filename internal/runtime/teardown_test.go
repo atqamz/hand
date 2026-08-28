@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/completion"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/worktree"
@@ -289,6 +290,65 @@ func TestTeardownRefusesTerminalTaskWhenCommitSafetyIsUnprovable(t *testing.T) {
 	}
 	if returns != 0 {
 		t.Fatalf("worktree returns = %d, want no return", returns)
+	}
+}
+
+// atqamz/hand#428: a pool slot whose worker paused before ever creating a branch releases with no
+// flags at all. The completion record must say so honestly rather than falling through to
+// completionFor's "branch merged" default.
+func TestTeardownReleasesADetachedWorktreeWithNoBranchAndNoLocalOnlyCommits(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/owner/repo.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
+	}
+	faketool.InitRepo(t, filepath.Join(home, "projects", "demo"))
+	runRuntimeGit(t, filepath.Join(home, "projects", "demo"), "remote", "add", "origin", "https://github.com/owner/repo.git")
+	worktreePath := detachedHeadPushedFixture(t, 0)
+
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Worktree: worktreePath, LeaseID: "lease-1",
+		Herdr:             state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	client := &teardownHerdr{}
+	returns := 0
+	deps := defaultDependencies()
+	deps.herdr = func() herdrClient { return client }
+	deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
+	}
+	deps.worktree.returnWithID = func(string, string, string, bool) error { returns++; return nil }
+
+	if _, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatalf("Teardown() = %v, want a provably empty attempt released without --force", err)
+	}
+	if returns != 1 || client.closes != 1 {
+		t.Fatalf("returns=%d closes=%d, want both resources released", returns, client.closes)
+	}
+
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.PR != "" {
+		t.Fatalf("task.PR = %q, want none invented for an attempt that never created a branch", history.Task.PR)
+	}
+	records, err := completion.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Outcome != "unlanded" {
+		t.Fatalf("completion = %+v, want an honest unlanded outcome, not a fabricated merge", records)
 	}
 }
 

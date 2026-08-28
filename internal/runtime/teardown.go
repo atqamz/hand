@@ -95,12 +95,22 @@ func (r *Runtime) Teardown(ctx context.Context, req TeardownRequest) (Result, er
 		if active.Lifecycle == state.AttemptProvisioning && active.Worktree == "" {
 			return fail(Precondition(fmt.Errorf("task %q has launch evidence but no worktree to inspect; rerun with --force to interrupt it", req.ID)))
 		}
-		updated, safeDirt, err := checkLandedWork(ctx, req.Home, task, active)
+		var noCommittableWork bool
+		updated, safeDirt, err := checkLandedWork(ctx, req.Home, task, active, &noCommittableWork)
 		if err != nil {
 			return fail(err)
 		}
 		task = updated
 		dirtWasSafe = safeDirt
+		if noCommittableWork {
+			// The disposition reconcile.go's own worker-exited-unlanded convergence uses (reconcile.go:590):
+			// unlike a bool, it survives a retry that skips checkLandedWork, so completionFor never
+			// invents a merge for an attempt that produced nothing, whichever call appends the record.
+			terminalAttempt, disposition = state.AttemptInterrupted, state.TeardownDispositionWorkerExitedUnlanded
+			if err := state.SetAttemptTeardownDecision(req.Home, req.ID, active.ID, terminalAttempt, disposition); err != nil {
+				return fail(fmt.Errorf("record teardown decision: %w", err))
+			}
+		}
 	}
 	if terminalAttempt == "" {
 		terminalAttempt, disposition = teardownDecision(req.Force, launched, active.Lifecycle, dirtWasSafe)
@@ -403,9 +413,9 @@ func completionFor(t state.Task, disposition string, launched bool, lastReportSt
 }
 
 // Reports whether the task's work is landed, and whether it got there past dirt it judged safe to
-// discard - the caller has to force the worktree return in that case, since treehouse will not clean a
-// dirty worktree on its own.
-func checkLandedWork(ctx context.Context, home string, t state.Task, active state.Attempt) (state.Task, bool, error) {
+// discard - the caller has to force the worktree return in that case. noCommittableWork, read before
+// the worktree is released and unsafe to recompute after, flags the detached-branchless-zero-commit case.
+func checkLandedWork(ctx context.Context, home string, t state.Task, active state.Attempt, noCommittableWork *bool) (state.Task, bool, error) {
 	if t.Kind == state.KindScout {
 		reportPath := filepath.Join("data", t.ID, "report.md")
 		if _, err := os.Stat(filepath.Join(home, reportPath)); err != nil {
@@ -435,6 +445,18 @@ func checkLandedWork(ctx context.Context, home string, t state.Task, active stat
 	// --force keeps its one meaning of discarding work nobody delivered, so both of those still refuse.
 	if t.DeliveredAt != "" {
 		return t, dirtWasSafe, nil
+	}
+
+	// A detached, branchless worktree with no commit missing from a remote-tracking ref produced no
+	// work to land (atqamz/hand#428, observeDetachedHeadAbsence). Checked first: neither landed-work
+	// path below has anything to answer about work that was never made.
+	if t.PR == "" && active.Branch == "" {
+		if _, proven := observeDetachedHeadAbsence(active.Worktree); proven {
+			if noCommittableWork != nil {
+				*noCommittableWork = true
+			}
+			return t, dirtWasSafe, nil
+		}
 	}
 
 	if t.PR == "" {
