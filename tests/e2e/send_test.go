@@ -178,9 +178,11 @@ func TestWatcherRestartAfterResumeSideEffectDoesNotResend(t *testing.T) {
 	registerProject(t, home, "demo", "direct-pr")
 	seedSendTask(t, home)
 	_, attempt := readTaskAttempt(t, home, "task-1")
-	attempt.UsageLimitEpisode = 1
-	attempt.UsageLimitRetryAt = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
-	if err := state.UpdateAttempt(home, attempt); err != nil {
+	if err := state.UpdateAttemptObservation(home, "task-1", attempt.ID, attempt.Lifecycle,
+		attempt.StatusChangedAt, attempt.StatusChangedFor, attempt.DoneVerified,
+		attempt.LastReportState, attempt.LastReportNote, attempt.ParkedFiredFor,
+		time.Now().Add(-time.Minute).UTC().Format(time.RFC3339), attempt.UsageLimitAttempts,
+		1, attempt.UsageLimitStuckEpisode); err != nil {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(t.TempDir(), "pane.log")

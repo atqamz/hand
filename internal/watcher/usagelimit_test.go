@@ -63,8 +63,11 @@ func limitHold(t *testing.T, home, id string) (state.Hold, bool) {
 func setLimitRetryAt(t *testing.T, home, id string, at time.Time) {
 	t.Helper()
 	_, attempt := readTaskAttempt(t, home, id)
-	attempt.UsageLimitRetryAt = at.UTC().Format(time.RFC3339)
-	if err := state.UpdateAttempt(home, attempt); err != nil {
+	if err := state.UpdateAttemptObservation(home, id, attempt.ID, attempt.Lifecycle,
+		attempt.StatusChangedAt, attempt.StatusChangedFor, attempt.DoneVerified,
+		attempt.LastReportState, attempt.LastReportNote, attempt.ParkedFiredFor,
+		at.UTC().Format(time.RFC3339), attempt.UsageLimitAttempts,
+		attempt.UsageLimitEpisode, attempt.UsageLimitStuckEpisode); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -662,9 +662,9 @@ func TestCheckCollisionDetectsAConflictOnLeaseIdentity(t *testing.T) {
 	}
 }
 
-// Teardown returns the worktree before state.Delete, so a failed Delete leaves a row still naming
-// path P while treehouse has freed P and handed it to the next task under a lease of its own. That
-// is not a collision, and refusing the spawn over it was the bug.
+// A stale task row can still name path P while treehouse has freed P and handed it to the next
+// task under a lease of its own. That is not a collision, and refusing the spawn over it was the
+// bug.
 func TestCheckCollisionAllowsAReusedPathUnderAFreshLease(t *testing.T) {
 	home := t.TempDir()
 	writeCollisionTask(t, home, "stale-task", "/tmp/wt-shared", "lease-1")

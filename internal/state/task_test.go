@@ -2,7 +2,6 @@ package state
 
 import (
 	"bufio"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -313,47 +312,6 @@ func TestListFailsClosedOnMalformedState(t *testing.T) {
 	}
 }
 
-func TestDelete(t *testing.T) {
-	dir := t.TempDir()
-	if err := Write(dir, Task{ID: "fix-login"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := Delete(dir, "fix-login"); err != nil {
-		t.Fatal(err)
-	}
-	if exists, err := Exists(dir, "fix-login"); err != nil || exists {
-		t.Fatalf("Exists after delete = %v, %v, want false, nil", exists, err)
-	}
-}
-
-// Pins the cleanup a respawn depends on: a new task under a used ID starts at
-// report_offset 0, so a surviving wake log replays as this run's - re-raising resolved
-// decisions and auto-recording a PR URL out of the previous run's done line.
-func TestDeleteRemovesTheReportChannel(t *testing.T) {
-	dir := t.TempDir()
-	if err := Write(dir, Task{ID: "fix-login"}); err != nil {
-		t.Fatal(err)
-	}
-	report := ReportPath(dir, "fix-login")
-	if err := os.WriteFile(report, []byte("done: PR https://github.com/a/b/pull/1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := Delete(dir, "fix-login"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(report); !os.IsNotExist(err) {
-		t.Fatalf("stat report after delete = %v, want it gone", err)
-	}
-}
-
-func TestDeleteMissingTask(t *testing.T) {
-	dir := t.TempDir()
-	if err := Delete(dir, "missing"); err == nil {
-		t.Fatal("expected error for missing task")
-	}
-}
-
 func TestRejectsUnsafeIDs(t *testing.T) {
 	dir := t.TempDir()
 	for _, id := range []string{"../escape", "nested/task", "", "."} {
@@ -489,34 +447,6 @@ func waitForHolderReady(t *testing.T, r io.Reader) bool {
 		return line == "acquired"
 	case <-time.After(10 * time.Second):
 		return false
-	}
-}
-
-// Reclaiming the pathname would need proof no process can still hold or open
-// the old inode, which does not exist; see
-// docs/adr/lock-pathnames-are-permanent-rendezvous-points.md.
-func TestLockPathnameSurvivesDelete(t *testing.T) {
-	home := t.TempDir()
-	if err := CreateTask(home, Task{ID: "task-1"}); err != nil {
-		t.Fatal(err)
-	}
-	release, err := Lock(home, "task:task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	release()
-
-	path := filepath.Join(store.Dir(home), fmt.Sprintf(".%x.lock", sha256.Sum256([]byte("task:task-1"))))
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("lock pathname must exist before Delete: %v", err)
-	}
-
-	if err := Delete(home, "task-1"); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("lock pathname must survive Delete: %v", err)
 	}
 }
 

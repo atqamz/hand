@@ -42,6 +42,14 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 // it can only be set at the attempt's creation, same as PlannedAgainst.
 func setupPromoteHomeWithScoutBriefDigest(t *testing.T, oldWorktree, newWorktree string, herdr faketool.Herdr, scoutBriefDigest string) string {
 	t.Helper()
+	return setupPromoteHomeWithScoutAttempt(t, oldWorktree, newWorktree, herdr, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}, BriefDigest: scoutBriefDigest})
+}
+
+// Lets a caller shape the whole scout attempt fixture up front, since atqamz/hand#481 removed
+// UpdateAttempt: every field a test needs on the pre-promotion scout attempt must be set at its
+// creation, not patched onto it afterward.
+func setupPromoteHomeWithScoutAttempt(t *testing.T, oldWorktree, newWorktree string, herdr faketool.Herdr, scoutAttempt state.Attempt) string {
+	t.Helper()
 	useFastLaunchPolling(t)
 	t.Setenv("HAND_HARNESS", harness.Claude)
 	home := t.TempDir()
@@ -62,7 +70,7 @@ func setupPromoteHomeWithScoutBriefDigest(t *testing.T, oldWorktree, newWorktree
 		t.Fatal(err)
 	}
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}, BriefDigest: scoutBriefDigest}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, scoutAttempt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -199,37 +207,31 @@ func TestPromoteUnknownDetectedHarnessFailsBeforeWorktreeAcquisition(t *testing.
 func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	oldWt := filepath.Join(t.TempDir(), "old-wt")
 	newWt := filepath.Join(t.TempDir(), "new-wt")
-	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr(harness.Codex, "done"))
+	stale := time.Now().Add(-6 * time.Hour).UTC().Format(time.RFC3339)
+	scoutAttempt := state.Attempt{
+		Lifecycle:          state.AttemptRunning,
+		Worktree:           oldWt,
+		Herdr:              state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"},
+		DoneVerified:       true,
+		LeaseID:            "lease-old",
+		StatusChangedAt:    stale,
+		StatusChangedFor:   "working",
+		LastReportState:    state.ReportDone,
+		LastReportNote:     "scout findings",
+		UsageLimitRetryAt:  "2026-08-03T01:00:00Z",
+		UsageLimitAttempts: 2,
+	}
+	home := setupPromoteHomeWithScoutAttempt(t, oldWt, newWt, promoteHerdr(harness.Codex, "done"), scoutAttempt)
 
 	scout, err := state.Read(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	scoutAttempt, err := state.ActiveAttempt(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	initialScoutAttempt := scoutAttempt
-	scoutAttempt.DoneVerified = true
-	scoutAttempt.Harness = harness.Claude
-	scoutAttempt.Model = "scout-model"
-	scoutAttempt.Effort = "scout-effort"
-	scoutAttempt.LeaseID = "lease-old"
 	scout.ReportOffset = 42
 	scout.ReportDigest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-	stale := time.Now().Add(-6 * time.Hour).UTC().Format(time.RFC3339)
-	scoutAttempt.StatusChangedAt = stale
-	scoutAttempt.StatusChangedFor = "working"
-	scoutAttempt.LastReportState = state.ReportDone
-	scoutAttempt.LastReportNote = "scout findings"
 	scout.DeliveredAt = "2026-08-03T00:00:00Z"
 	scout.DeliveredReason = "report at data/task-1/report.md, no code to land"
-	scoutAttempt.UsageLimitRetryAt = "2026-08-03T01:00:00Z"
-	scoutAttempt.UsageLimitAttempts = 2
 	if err := state.Write(home, scout); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.UpdateAttempt(home, scoutAttempt); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindLimit, Reason: "out of quota"}); err != nil {
@@ -308,7 +310,7 @@ func TestPromoteResetsPaneScopedMarkersButCarriesReportOffset(t *testing.T) {
 	if len(history.Attempts) != 2 || history.Attempts[0].Lifecycle != state.AttemptCompleted || history.Attempts[1].Lifecycle != state.AttemptRunning {
 		t.Fatalf("promotion attempt lineage = %+v", history.Attempts)
 	}
-	if history.Attempts[0].Harness != initialScoutAttempt.Harness || history.Attempts[0].Model != initialScoutAttempt.Model || history.Attempts[0].Effort != initialScoutAttempt.Effort || history.Attempts[0].Worktree != scoutAttempt.Worktree || history.Attempts[0].LeaseID != scoutAttempt.LeaseID {
+	if history.Attempts[0].Harness != scoutAttempt.Harness || history.Attempts[0].Model != scoutAttempt.Model || history.Attempts[0].Effort != scoutAttempt.Effort || history.Attempts[0].Worktree != scoutAttempt.Worktree || history.Attempts[0].LeaseID != scoutAttempt.LeaseID {
 		t.Fatalf("scout attempt was overwritten: %+v", history.Attempts[0])
 	}
 	if history.Task.ReportOffset != scout.ReportOffset || history.Task.ReportDigest != scout.ReportDigest {

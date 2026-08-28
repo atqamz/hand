@@ -465,9 +465,9 @@ func TestSpawnDetectsWorktreeCollisionAgainstARowWithNoLeaseIdentity(t *testing.
 	}
 }
 
-// A row left behind by a teardown whose state.Delete failed still names the pool
-// slot treehouse has since freed and handed out again. Under a lease of its own
-// that is not a collision, and the spawn has to go through.
+// A stale task row still names the pool slot treehouse has since freed and handed
+// out again. Under a lease of its own that is not a collision, and the spawn has
+// to go through.
 func TestSpawnAllowsAReusedWorktreePathUnderAFreshLease(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))

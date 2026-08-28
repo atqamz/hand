@@ -1749,18 +1749,22 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 		t.Fatal("task.DoneVerified = false, want the scout's announcement persisted")
 	}
 
-	// hand promote: same rewrite internal/runtime/promote.go makes - kind and pane change,
-	// CreatedAt and the report channel do not - with the DoneVerified reset this
-	// test exists to cover.
-	task.Kind = state.KindShip
-	attempt.Herdr.PaneID = "p2"
-	attempt.DoneVerified = false
-	if err := state.Write(home, task); err != nil {
+	// hand promote's own rewrite: task kind flips to ship and a fresh attempt with its own pane
+	// takes over, DoneVerified starting false again - it never rewrites the scout attempt's row.
+	shipAttempt, err := state.PromoteTask(home, "task-1", attempt.ID, attempt.Lifecycle, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "p2"}, LaunchConfirmedAt: "2026-08-14T00:00:00Z",
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := state.UpdateAttempt(home, attempt); err != nil {
+	if err := state.TransitionAttempt(home, shipAttempt.ID, state.AttemptProvisioning, state.AttemptRunning); err != nil {
 		t.Fatal(err)
 	}
+
+	// One tick to let the watcher observe the ship's fresh pane before its report exists,
+	// exactly as it would after a real promote's brand-new pane comes up.
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
 
 	// The ship's own report line lands on the same continuous report stream,
 	// before any merge evidence exists - the ordinary ordering ClassifyDeferredDone
@@ -1800,74 +1804,6 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if !hasEventLine(buf.String(), "done task-1: ship work") {
 		t.Fatalf("out = %q, want the ship's own verified done announced", buf.String())
-	}
-}
-
-// The ship's first probe reads the same "working" the scout last held, so no
-// observed transition reseeds ChangedAt - which is why the forget rule cannot be
-// conditioned on one.
-func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) {
-	statusFile := filepath.Join(t.TempDir(), "status")
-	setStatus(t, statusFile, "working")
-	writeFakeHerdr(t, statusFile)
-
-	home := t.TempDir()
-	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
-		CreatedAt: dwelling}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
-		StatusChangedAt: dwelling, StatusChangedFor: "working"},
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
-	client := herdr.NewClient()
-	states := make(map[string]*TaskState)
-	ctx := context.Background()
-
-	var buf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf, io.Discard)
-
-	promoted, attempt := readTaskAttempt(t, home, "task-1")
-	promoted.Kind = state.KindShip
-	attempt.Herdr.PaneID = "p2"
-	attempt.StatusChangedAt = time.Now().UTC().Format(time.RFC3339)
-	attempt.StatusChangedFor = ""
-	if err := state.Write(home, promoted); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.UpdateAttempt(home, attempt); err != nil {
-		t.Fatal(err)
-	}
-
-	// Moves report_offset, which is what makes the next tick write task state at all.
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: starting the ship run\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	buf.Reset()
-	tick(ctx, cfg, client, states, &buf, io.Discard)
-	if strings.Contains(buf.String(), "stale task-1") {
-		t.Fatalf("out = %q, want no stale: the ship's dwell starts at the promotion, not at the scout's last observed transition", buf.String())
-	}
-
-	_, gotAttempt := readTaskAttempt(t, home, "task-1")
-	if gotAttempt.StatusChangedAt == dwelling {
-		t.Fatal("status_changed_at = the scout's stamp, want the cached scout dwell not written back over promote's restamp")
-	}
-	stamped, err := time.Parse(time.RFC3339, gotAttempt.StatusChangedAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	restamped, err := time.Parse(time.RFC3339, attempt.StatusChangedAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stamped.Before(restamped) {
-		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", gotAttempt.StatusChangedAt, attempt.StatusChangedAt)
-	}
-	if gotAttempt.StatusChangedFor != "working" {
-		t.Fatalf("status_changed_for = %q, want the status the ship's dwell was stamped for", gotAttempt.StatusChangedFor)
 	}
 }
 
@@ -2299,7 +2235,11 @@ func TestTickForgetsTornDownTasks(t *testing.T) {
 		t.Fatalf("states = %+v, want task-1 tracked", states)
 	}
 
-	if err := state.Delete(home, "task-1"); err != nil {
+	attempt, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", attempt.ID, attempt.Lifecycle, state.AttemptCompleted); err != nil {
 		t.Fatal(err)
 	}
 	tick(ctx, cfg, client, states, &buf, io.Discard)
@@ -3582,79 +3522,6 @@ func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
 	_, attempt := readTaskAttempt(t, home, "task-1")
 	if attempt.LastReportState != state.ReportNeedsDecision || !strings.Contains(attempt.LastReportNote, "which base branch?") {
 		t.Fatalf("LastReportState/Note = %q/%q, want the worker's own question left intact", attempt.LastReportState, attempt.LastReportNote)
-	}
-}
-
-// Keys tracking on identity rather than on ID. A teardown and respawn between two ticks is a
-// different task, and inheriting the previous run's TaskState suppresses the new one's verified done
-// for good: syncTaskState writes that inherited done_verified onto the fresh JSON.
-func TestTickReseedsARespawnedTaskID(t *testing.T) {
-	statusFile := filepath.Join(t.TempDir(), "status")
-	setStatus(t, statusFile, "working")
-	writeFakeHerdr(t, statusFile)
-
-	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
-	reportMD := filepath.Join(home, "data", "task-1", "report.md")
-	if err := os.MkdirAll(filepath.Dir(reportMD), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(reportMD, []byte("findings"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
-	client := herdr.NewClient()
-	states := make(map[string]*TaskState)
-	ctx := context.Background()
-
-	var buf bytes.Buffer
-	tick(ctx, cfg, client, states, &buf, io.Discard)
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: finished\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	buf.Reset()
-	tick(ctx, cfg, client, states, &buf, io.Discard)
-	if !strings.Contains(buf.String(), "done task-1: finished") {
-		t.Fatalf("output = %q, want the first run's verified done", buf.String())
-	}
-
-	if err := state.Delete(home, "task-1"); err != nil {
-		t.Fatal(err)
-	}
-	// Same hazard as a surviving report channel, one layer in, so the scout's report.md goes with the
-	// state row.
-	if err := os.Remove(reportMD); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
-
-		CreatedAt: time.Now().UTC().Add(time.Minute).Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}},
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	buf.Reset()
-	tick(ctx, cfg, client, states, &buf, io.Discard)
-	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: round two\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tick(ctx, cfg, client, states, &buf, io.Discard)
-	if !strings.Contains(buf.String(), "reported-done task-1: round two") {
-		t.Fatalf("output = %q, want the respawned task's own done report read from offset 0", buf.String())
-	}
-
-	_, respawnedAttempt := readTaskAttempt(t, home, "task-1")
-	if respawnedAttempt.DoneVerified {
-		t.Fatal("done_verified inherited by a respawned ID, want the previous run's announcement not carried over")
-	}
-
-	if err := os.WriteFile(reportMD, []byte("findings again"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	buf.Reset()
-	tick(ctx, cfg, client, states, &buf, io.Discard)
-	if !strings.Contains(buf.String(), "done task-1: round two") {
-		t.Fatalf("output = %q, want the respawned task's verified done announced too", buf.String())
 	}
 }
 

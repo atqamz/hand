@@ -187,15 +187,9 @@ func TestTeardownRetryAfterCompletionAppendDoesNotRepeatCleanup(t *testing.T) {
 }
 
 func TestTeardownReportsIncompleteHerdrOwnership(t *testing.T) {
-	home, _ := teardownFixture(t, false)
-	history, err := state.ReadHistory(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	history.ActiveAttempt.Herdr.PaneID = "pane-only"
-	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
-		t.Fatal(err)
-	}
+	home, _ := teardownFixtureWithAttempt(t, false, func(a *state.Attempt) {
+		a.Herdr.PaneID = "pane-only"
+	})
 
 	result, err := New().Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
 	if err != nil {
@@ -462,16 +456,10 @@ func TestTeardownDoesNotUseAnOlderSameSecondCompletion(t *testing.T) {
 // Covers atqamz/hand#235: the worker's own self-reported failure, not the teardown act, is what a
 // completion record must attribute a failed outcome to.
 func TestTeardownReportsGenuineWorkerFailureAsFailedOutcome(t *testing.T) {
-	home, _ := teardownFixture(t, false)
-	history, err := state.ReadHistory(home, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	history.ActiveAttempt.LastReportState = state.ReportFailed
-	history.ActiveAttempt.LastReportNote = "tests would not pass"
-	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
-		t.Fatal(err)
-	}
+	home, _ := teardownFixtureWithAttempt(t, false, func(a *state.Attempt) {
+		a.LastReportState = state.ReportFailed
+		a.LastReportNote = "tests would not pass"
+	})
 
 	result, err := New().Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
 	if err != nil {
@@ -516,15 +504,9 @@ func TestTeardownForceOnASuccessfulTaskIsNotRecordedAsFailed(t *testing.T) {
 // way - a genuine self-reported failure still reads as failed, a task nobody reported failed still
 // does not, and the two stay distinct in the same durable ledger shape.
 func TestTeardownDistinguishesGenuineFailureFromForcedSuccessInDurableState(t *testing.T) {
-	failedHome, _ := teardownFixture(t, false)
-	history, err := state.ReadHistory(failedHome, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	history.ActiveAttempt.LastReportState = state.ReportFailed
-	if err := state.UpdateAttempt(failedHome, *history.ActiveAttempt); err != nil {
-		t.Fatal(err)
-	}
+	failedHome, _ := teardownFixtureWithAttempt(t, false, func(a *state.Attempt) {
+		a.LastReportState = state.ReportFailed
+	})
 	if _, err := New().Teardown(context.Background(), TeardownRequest{Home: failedHome, ID: "task-1", Force: true}); err != nil {
 		t.Fatalf("Teardown() = %v", err)
 	}
@@ -851,29 +833,24 @@ func TestTeardownRefusesARecycledWorktreeLeaseOnFirstReturn(t *testing.T) {
 
 func leasedTeardownFixture(t *testing.T) (string, string, state.Attempt) {
 	t.Helper()
-	home, worktreePath := teardownFixture(t, true)
-	history, err := state.ReadHistory(home, "task-1")
+	home, worktreePath := teardownFixtureWithAttempt(t, true, func(a *state.Attempt) {
+		a.LeaseID = "lease-1"
+	})
+	attempt, err := state.ActiveAttempt(home, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	history.ActiveAttempt.LeaseID = "lease-1"
-	if err := state.UpdateAttempt(home, *history.ActiveAttempt); err != nil {
-		t.Fatal(err)
-	}
-	return home, worktreePath, *history.ActiveAttempt
+	return home, worktreePath, attempt
 }
 
 func terminalResourceFixture(t *testing.T) (string, string, state.Attempt) {
 	t.Helper()
-	home, worktreePath := teardownFixture(t, true)
-	history, err := state.ReadHistory(home, "task-1")
+	home, worktreePath := teardownFixtureWithAttempt(t, true, func(a *state.Attempt) {
+		a.LeaseID = "lease-1"
+		a.Herdr = state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}
+	})
+	attempt, err := state.ActiveAttempt(home, "task-1")
 	if err != nil {
-		t.Fatal(err)
-	}
-	attempt := *history.ActiveAttempt
-	attempt.LeaseID = "lease-1"
-	attempt.Herdr = state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"}
-	if err := state.UpdateAttempt(home, attempt); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.SetAttemptTeardownDecision(home, "task-1", attempt.ID, state.AttemptCompleted, state.TeardownDispositionCompleted); err != nil {
@@ -1134,6 +1111,14 @@ func runRuntimeGit(t *testing.T, dir string, args ...string) {
 
 func teardownFixture(t *testing.T, withWorktree bool) (string, string) {
 	t.Helper()
+	return teardownFixtureWithAttempt(t, withWorktree, nil)
+}
+
+// Lets a caller shape the active attempt beyond teardownFixture's defaults. atqamz/hand#481
+// removed UpdateAttempt, so a test that needs the fixture attempt in a specific shape must ask
+// for it at creation rather than patching it on afterward.
+func teardownFixtureWithAttempt(t *testing.T, withWorktree bool, configureAttempt func(*state.Attempt)) (string, string) {
+	t.Helper()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "data", "task-1"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1154,9 +1139,13 @@ func teardownFixture(t *testing.T, withWorktree bool) (string, string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.CreateAttempt(home, state.Attempt{
+	attempt := state.Attempt{
 		TaskID: "task-1", Lifecycle: state.AttemptRunning, Worktree: path, CreatedAt: "2026-08-14T00:00:00Z",
-	}); err != nil {
+	}
+	if configureAttempt != nil {
+		configureAttempt(&attempt)
+	}
+	if _, err := state.CreateAttempt(home, attempt); err != nil {
 		t.Fatal(err)
 	}
 	return home, worktree
