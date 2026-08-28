@@ -126,8 +126,11 @@ Source: [Fleet identity and user registry](adr/fleet-identity-and-user-registry.
 
 ## Project identity and the completion store
 
-Source: [A project is identified by a surrogate id, not its name](adr/a-project-is-identified-by-a-surrogate-id-not-its-name.md),
-[Completions use an uncapped append-only sibling](adr/the-completion-store-is-an-uncapped-append-only-sibling.md).
+Source: [A project is identified by a surrogate id, not its name](adr/a-project-is-identified-by-a-surrogate-id-not-its-name.md)
+governs INV-PROJ-4 through INV-PROJ-6 as written below, including the one rewrite exception
+INV-PROJ-5 names; [Completions use an uncapped append-only sibling](adr/the-completion-store-is-an-uncapped-append-only-sibling.md)
+is superseded in part by it (its own status line says so) and remains the source only for the
+uncapped/one-lock/append-only shape and, unaudited, for INV-PROJ-7.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -135,9 +138,9 @@ Source: [A project is identified by a surrogate id, not its name](adr/a-project-
 | INV-PROJ-2 | Rename writes exactly one row, found by id, and nothing else. | property | unaudited |
 | INV-PROJ-3 | A name is unique among registered projects and reusable after removal. | model | unaudited |
 | INV-PROJ-4 | A completion record keeps the label it was written with; it is an audit line, not a view. | property | unaudited |
-| INV-PROJ-5 | The completion file is append-only. The single exception - project rename rewriting only that project's records under the same lock - never touches an unrelated record, including on rollback. | property | unaudited |
+| INV-PROJ-5 | The completion file is append-only. The single exception - the one-time project-identity migration (`completion.MigrateProjectIdentity`) replacing the whole file through a temp file and a rename under the same lock - never touches an unrelated record, including on rollback. Corrected from an earlier wording naming project rename as the exception: rename stopped touching completion records once records and tasks started referencing a project's surrogate id instead of its mutable name (atqamz/hand#388, atqamz/hand#396); `internal/project/project.go`'s `Rename` says so at its own call site. | property | unaudited |
 | INV-PROJ-6 | Unplaceable lineage is marked, never guessed: an unresolvable project id is written as the explicit unknown value rather than empty. | property | unaudited |
-| INV-PROJ-7 | A completion is appended before its task row is removed, never after. | model | unaudited |
+| INV-PROJ-7 | A completion is appended before its task row is removed, never after. | model | unaudited - likely stale, flagged rather than corrected since it is phase 5's row: [Tasks are durable and Attempts own execution](adr/tasks-are-durable-and-attempts-own-execution.md) (atqamz/hand#193) replaced task-row removal at teardown with terminalization, and no production caller of `store.DeleteTask`/`state.Delete` remains (grepped clean; only test callers). The ordering claim (append before the task-row mutation) still holds in `internal/runtime/teardown.go` - `appendCompletion` runs before `finishTeardown`'s `TerminalizeTaskAndAttempt` - but "removed" is the wrong verb for what happens now. Left for phase 5 to restate against the state machine rather than rewritten here. |
 
 ## The report channel and attention
 
@@ -210,7 +213,7 @@ Source: [Lock pathnames are permanent rendezvous points](adr/lock-pathnames-are-
 | INV-LOCK-2 | Neither zero size nor an old mtime is read as evidence about whether a lock is held. | property | unaudited |
 | INV-SCHEMA-1 | A fresh database is created directly at the latest version; an existing one applies pending steps transactionally. | property | unaudited |
 | INV-SCHEMA-2 | A database newer than the binary is refused before any other statement runs. | property | unaudited |
-| INV-SCHEMA-3 | Migration is all-or-nothing: an interrupted migration leaves the recorded version and the schema agreeing with each other. | model | unaudited |
+| INV-SCHEMA-3 | Migration is all-or-nothing: an interrupted migration leaves the recorded version and the schema agreeing with each other. | model | unaudited - an honest test needs to halt a real process between a migration step's `tx.Exec` and its `tx.Commit` (`internal/store/schemaversion.go`'s `applyMigration`), the way an OS kill or power loss would. `internal/store/store.go`'s `open` hardcodes `sql.Open("sqlite", ...)` against `modernc.org/sqlite`'s self-registered driver name, leaving no seam to intercept that boundary from a test without either a fault-injection hook in production code (which would make the row pass for the wrong reason - it would prove the Go code never *calls* Commit early, not that a real interruption leaves version and schema agreeing) or OS-level fault injection (ptrace/FUSE) disproportionate to one row. Left for whoever picks this row up next, model layer as marked. |
 | INV-HOLD-1 | A hold is a standalone row with no foreign key to a task, and survives the task's teardown when human-authored. | property | unaudited |
 | INV-HOLD-2 | A machine-authored hold is cleared only after its kind is checked, never by kind-blind clearing. | property | unaudited |
 | INV-HOLD-3 | A blocked hold whose blocked_on task is terminal is actionable in both `hand orient` and `hand status`, naming the blocker; a blocked_on task that is still open leaves the hold exactly as before. | property | `TestOrientAndStatusReportASatisfiedBlockedHold`, `TestOrientAndStatusLeaveABlockedHoldUnchangedWhileItsBlockerRuns`, `TestDeriveMakesASatisfiedHoldActionableDespiteHeld` |
