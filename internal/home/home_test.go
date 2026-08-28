@@ -2,6 +2,7 @@ package home
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -262,10 +263,12 @@ func TestResolveRefusesWhenHandHomeAndCwdNameDifferentHomes(t *testing.T) {
 	if !errors.Is(err, ErrAmbiguousHome) {
 		t.Fatalf("got %v, want it to wrap ErrAmbiguousHome", err)
 	}
-	if !strings.Contains(err.Error(), envHome) {
+	// %q is this package's existing convention for rendering a path in an error (ErrHandHomeInvalid
+	// does the same), so the assertion compares against that same rendering rather than the raw path.
+	if !strings.Contains(err.Error(), fmt.Sprintf("%q", envHome)) {
 		t.Fatalf("got %q, want it to name HAND_HOME's value %q", err.Error(), envHome)
 	}
-	if !strings.Contains(err.Error(), cwdHome) {
+	if !strings.Contains(err.Error(), fmt.Sprintf("%q", cwdHome)) {
 		t.Fatalf("got %q, want it to name the working directory's home %q", err.Error(), cwdHome)
 	}
 }
