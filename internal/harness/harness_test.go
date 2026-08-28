@@ -221,6 +221,31 @@ func TestAppendPromptToBriefGrokAndPi(t *testing.T) {
 	}
 }
 
+// atqamz/hand#448: promote compares brief.Digest from before and after this append runs, so the
+// two can never disagree about what "unchanged" means. Produces the appendix through the real
+// path rather than a hand-written literal, so a format drift here would fail this test directly.
+func TestAppendPromptToBriefLeavesBriefDigestUnchanged(t *testing.T) {
+	for _, name := range []string{Grok, Pi} {
+		t.Run(name, func(t *testing.T) {
+			briefPath := writeTestBrief(t, "implement the fix.\n")
+			before, err := brief.Digest(briefPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := AppendPromptToBrief(name, Options{Brief: briefPath, ReportPath: "/tmp/state/task-1.status"}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := brief.Digest(briefPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after != before {
+				t.Fatalf("Digest after AppendPromptToBrief(%q) = %q, want %q unchanged", name, after, before)
+			}
+		})
+	}
+}
+
 func TestAppendPromptToBriefIsIdempotent(t *testing.T) {
 	briefPath := writeTestBrief(t, "do the task.\n")
 	options := Options{Brief: briefPath, ReportPath: "/tmp/state/task-1.status"}
@@ -270,7 +295,7 @@ func TestAppendPromptToBriefRejectsMissingReportPath(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "report path") {
 			t.Fatalf("AppendPromptToBrief(%q) error = %v, want missing report path error", name, err)
 		}
-		if data, readErr := os.ReadFile(briefPath); readErr != nil || strings.Contains(string(data), briefAppendMarker) {
+		if data, readErr := os.ReadFile(briefPath); readErr != nil || strings.Contains(string(data), brief.AppendMarker) {
 			t.Fatalf("AppendPromptToBrief(%q) refusal must not touch the brief file, got %q", name, data)
 		}
 	}
@@ -298,7 +323,7 @@ func assertBriefCarriesLaunchStatement(t *testing.T, briefPath string, options O
 		t.Fatalf("brief content = %q, want the supervisor's original brief preserved at the top", content)
 	}
 	for _, want := range []string{
-		briefAppendMarker,
+		brief.AppendMarker,
 		options.ReportPath,
 		"working:", "done:", "failed:", "blocked:", "needs-decision:", "paused:",
 		"plain shell redirection",

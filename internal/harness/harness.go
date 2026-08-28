@@ -353,11 +353,6 @@ func briefPrompt(o Options) (string, error) {
 	return fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief) + " " + statement, nil
 }
 
-// Also gates the idempotency check below: a brief already carrying it (a resumed or reopened
-// attempt re-provisioning the same file) is left alone rather than growing another copy of the
-// statement on every relaunch.
-const briefAppendMarker = "hand appended the block below at launch time; it is not part of the supervisor's brief above."
-
 // AppendPromptToBrief is grok's and pi's delivery of launchStatement, a no-op for every other
 // harness (atqamz/hand#418). Called once by the provisioning path before Build runs - never to
 // reconstruct already-persisted launch evidence, which must stay a read.
@@ -385,10 +380,12 @@ func appendLaunchStatement(o Options) error {
 	if err != nil {
 		return fmt.Errorf("read brief for launch statement: %w", err)
 	}
-	if strings.Contains(string(data), briefAppendMarker) {
+	// Also gates the append: a brief already carrying the marker (a resumed or reopened attempt
+	// re-provisioning the same file) is left alone rather than growing a second copy.
+	if strings.Contains(string(data), brief.AppendMarker) {
 		return nil
 	}
-	appendix := fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", briefAppendMarker, statement)
+	appendix := fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", brief.AppendMarker, statement)
 	if err := atomicfile.Write(o.Brief, ".brief-append-", append(data, appendix...), info.Mode().Perm()); err != nil {
 		return fmt.Errorf("append launch statement to brief: %w", err)
 	}

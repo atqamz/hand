@@ -45,6 +45,7 @@ Source: [Tasks are durable and Attempts own execution](adr/tasks-are-durable-and
 | INV-TASK-8 | An existing attempt's execution identity - harness, model, effort, execution class, planned-against commit, requested profile, routing source - is write-once. Nothing reroutes it after creation. | model | unaudited |
 | INV-TASK-9 | Promote refuses, and launches no attempt, when the scout attempt's recorded brief digest equals the brief's current digest. A scout attempt recorded before digest tracking existed (an empty digest) is never treated as unchanged. | unit | `TestPromoteRefusesWhenBriefIsUnchangedSinceScoutLaunch`, `TestPromoteSucceedsWhenBriefWasRewrittenSinceScoutLaunch`, `TestPromoteSucceedsWhenScoutAttemptPredatesBriefDigestRecording` |
 | INV-TASK-10 | Every attempt launch records a digest of the brief it launched against, alongside `planned_against`. | unit | `TestSpawnRecordsBriefDigestAtLaunch` |
+| INV-TASK-11 | Hand's own brief appendix (grok/pi launch delivery) never changes the brief digest, whether the appendix is already present or freshly appended. | unit | `TestAppendPromptToBriefLeavesBriefDigestUnchanged`, `TestDigestUnaffectedByHandsOwnAppendix`, `TestDigestChangesWhenSupervisorEditsPrecedeHandsAppendix`, `TestPromoteRefusesWhenOnlyHandsOwnAppendixWasAddedSinceScoutLaunch` |
 
 ## Reconciliation
 
