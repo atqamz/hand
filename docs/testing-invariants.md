@@ -213,6 +213,18 @@ Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is
 | INV-POOL-3 | A worktree recorded under its clone keeps the clone as its pool root, so a lease taken before atqamz/hand#427 stays observable and returnable. | property | `TestPoolRootKeepsALegacyWorktreeOnItsOwnClone`, `TestReturnKeepsALegacyWorktreeOnItsOwnClone` |
 | INV-POOL-4 | Pool resolution never follows a foreign recorded worktree path to that path's own pool. | property | `TestReturnNeverFollowsAForeignRecordedPathToItsOwnPool` |
 
+## Pull-request observation and terminal-task release
+
+Source: [Terminal release closes on evidence, not a new escape hatch](adr/terminal-release-closes-on-evidence-not-a-new-escape-hatch.md),
+[Every diagnosis names a reachable treatment](adr/every-diagnosis-names-a-reachable-treatment.md).
+
+| id | invariant | layer | coverage |
+|---|---|---|---|
+| INV-PR-1 | A pull request is proven absent only when HEAD is detached, no branch is recorded (durably or live), and no commit is missing from a remote-tracking ref. Any one condition failing leaves the observation unknown. | property | `TestObservePRReportsAbsentWhenDetachedHeadHasNoBranchAndNoLocalOnlyCommits`, `TestObservePRStaysUnknownWhenABranchIsRecordedDespiteDetachedHeadWithNoLocalOnlyCommits`, `TestObservePRStaysUnknownWhenDetachedHeadCarriesALocalOnlyCommit`, `TestObservePRUnaffectedByTheAbsenceProofWhenHeadIsNotDetached` |
+| INV-PR-2 | Recording a pull request changes no task lifecycle column and gains a terminal task no liveness in attention, next-action ranking, or `hand status`. | property | `TestPRRecordsOnATerminalTaskWithoutReopening` |
+| INV-PR-3 | `hand pr` is write-once regardless of task lifecycle: a second, different URL is refused whether the task is open or terminal. | unit | `TestPRRecordsOnATerminalTaskWithoutReopening` |
+| INV-PR-4 | An attempt proven to have produced no committable work releases its worktree without a pull request, and the completion record never claims a merge for it, including across a retry. | unit | `TestTeardownReleasesADetachedWorktreeWithNoBranchAndNoLocalOnlyCommits`, `TestTeardownCircleClosesOnceHandPRRecordsTheEvidenceItAsksFor` |
+
 ## Output rendering
 
 Source: [Output is TOON by default and JSON is retained](adr/output-is-toon-by-default-and-json-is-retained.md),

@@ -95,7 +95,7 @@ func TestObserveCommitSafetyReportsUnknownForEveryUnobservableComparison(t *test
 	})
 	t.Run("no worktree recorded", func(t *testing.T) {
 		observation := ObserveCommitSafety("")
-		if observation.State != CommitSafetyUnknown || observation.Probe.Command != localOnlyCommitCommand {
+		if observation.State != CommitSafetyUnknown || observation.Probe.Command != LocalOnlyCommitCommand {
 			t.Fatalf("observation = %+v, want unknown carrying the probe it would have run", observation)
 		}
 	})

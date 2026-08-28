@@ -105,6 +105,19 @@ func CurrentBranch(path string) (string, error) {
 	return branch, nil
 }
 
+// IsDetachedHead reports whether HEAD names a commit directly rather than through a branch: unlike
+// CurrentBranch, unreadable and detached do not collapse into one error - symbolic-ref must find no
+// branch while HEAD still resolves to a real commit (atqamz/hand#428).
+func IsDetachedHead(path string) (bool, error) {
+	if _, err := run(path, "symbolic-ref", "-q", "HEAD"); err == nil {
+		return false, nil
+	}
+	if _, err := run(path, "rev-parse", "--verify", "-q", "HEAD^{commit}"); err != nil {
+		return false, fmt.Errorf("resolve Git HEAD commit: %w", err)
+	}
+	return true, nil
+}
+
 func HeadCommit(path string) (string, error) {
 	out, err := run(path, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {

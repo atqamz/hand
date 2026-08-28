@@ -42,6 +42,42 @@ func TestCommonDirReturnsTheMainRepositoryForAWorktree(t *testing.T) {
 	}
 }
 
+func TestIsDetachedHeadReportsFalseOnABranch(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "repo")
+	runGit(t, dir, "init", "-q", "-b", "main")
+	runGit(t, dir, "-c", "user.name=git-test", "-c", "user.email=git-test@example.invalid", "commit", "-q", "--allow-empty", "-m", "baseline")
+
+	detached, err := IsDetachedHead(dir)
+	if err != nil || detached {
+		t.Fatalf("IsDetachedHead() = %v, %v, want false, nil on a branch", detached, err)
+	}
+}
+
+func TestIsDetachedHeadReportsTrueWhenHeadNamesACommitDirectly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "repo")
+	runGit(t, dir, "init", "-q", "-b", "main")
+	runGit(t, dir, "-c", "user.name=git-test", "-c", "user.email=git-test@example.invalid", "commit", "-q", "--allow-empty", "-m", "baseline")
+	head := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
+	runGit(t, dir, "checkout", "-q", head)
+
+	detached, err := IsDetachedHead(dir)
+	if err != nil || !detached {
+		t.Fatalf("IsDetachedHead() = %v, %v, want true, nil once HEAD is checked out directly", detached, err)
+	}
+}
+
+func TestIsDetachedHeadReportsAnErrorRatherThanDetachedWhenHeadIsUnresolvable(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "not-a-repo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	detached, err := IsDetachedHead(dir)
+	if err == nil || detached {
+		t.Fatalf("IsDetachedHead() = %v, %v, want an error and false: an unreadable HEAD is not proof of detachment", detached, err)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	if len(args) > 1 && args[0] == "init" {

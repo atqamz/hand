@@ -50,7 +50,11 @@ func newPRCmd() *cobra.Command {
 			doc.Field("id", task.ID)
 			doc.Field("result", result)
 			doc.Field("pr", url)
-			doc.Help("Run `hand merge " + task.ID + "` once this PR's checks are green")
+			// A torn-down task has no active attempt for hand merge to act on (atqamz/hand#424): naming
+			// it here would suggest the task is live again, which recording a PR on it must never do.
+			if task.Lifecycle != state.TaskTerminal {
+				doc.Help("Run `hand merge " + task.ID + "` once this PR's checks are green")
+			}
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}

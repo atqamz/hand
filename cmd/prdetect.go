@@ -15,9 +15,9 @@ import (
 // attention-is-one-derivation-over-three-channels.md, invariant 1). Empty where no lookup applies.
 func detectPRForStatus(ctx context.Context, home string, history state.TaskHistory) ghutil.PRObservation {
 	t := history.Task
-	// A scout task never answers for a PR - its deliverable is data/<id>/report.md - and a torn-down task's
-	// completion record is already written, so both skip the lookup rather than pay a forge round trip for a
-	// PR recordPR would refuse. The scout half is the short-circuit checkLandedWork opens with.
+	// A scout task never answers for a PR - its deliverable is data/<id>/report.md - and a torn-down
+	// task's completion record is already written, so both skip the lookup rather than pay a forge
+	// round trip a status render has no use for. hand pr can still record one directly (atqamz/hand#424).
 	if t.PR != "" || t.Kind == state.KindScout || t.Lifecycle == state.TaskTerminal {
 		return ghutil.PRObservation{}
 	}
