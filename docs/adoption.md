@@ -204,6 +204,7 @@ Repeated bootstrap runs are safe:
 | empty directory | initialized |
 | existing valid Hand fleet | reconciled by `hand init`, no destructive rewrite |
 | existing, non-empty, not a recognized fleet | refused |
+| Hand's own source tree, non-empty | adopted; the one non-empty exception |
 | already healthy | reports ready, mutates nothing |
 
 The registry is discovery metadata, not a second source of Fleet state.

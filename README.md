@@ -112,6 +112,8 @@ hand init
 
 `hand init` is non-interactive. It creates the fleet structure, installs the bundled `secondhand` Agent Skill for supported harnesses, installs or refreshes the Hand-owned supervisor wake bridges (the Claude Stop hook entry in `.claude/settings.json`, the OpenCode plugin, the Pi extension, and the Codex project-scope Stop hook in `.codex/hooks.json`), and writes the canonical, Hand-owned `AGENTS.md`: a small, immutable set of invariants telling any supervising harness to run `hand session start` once per runtime and `hand orient` every turn, restored byte-for-byte on every later `hand init`. A `CLAUDE.md` reference is written alongside it when that name is otherwise absent - the `@AGENTS.md` pointer file on every platform.
 
+The target must be an empty or absent directory, or a fleet home `hand init` already created; a non-empty directory that is not a recognized fleet is refused rather than adopted. A checkout of Hand itself is the one exception, so Hand can be developed with Hand from its own tree - see [hand init adopts its own source tree](docs/adr/hand-init-adopts-its-own-source-tree.md).
+
 ### 3. Add or create a project
 
 ```sh
