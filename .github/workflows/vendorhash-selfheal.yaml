@@ -1,0 +1,108 @@
+# This workflow has write access to the repository. It must never run `go`, `nix`,
+# `make`, or anything else driven by a Dependabot pull request's own content: that job
+# (ci.yaml's nix-build job) keeps a read-only token specifically because it is the one
+# that fetches and builds dependency code the PR controls. This workflow only consumes
+# the bare hash string that job hands off as a build artifact, validates its shape
+# against a strict regex, and writes it into flake.nix with plain git/sed. Every value
+# that decides WHERE it pushes (branch, commit SHA) comes from the workflow_run event
+# payload, which is GitHub's own record of what ran - never from the artifact, which
+# was produced inside the untrusted job and so is untrusted input.
+#
+# github.actor / triggering_actor are not reliable for identifying Dependabot here: on
+# this repo, a Dependabot pull_request run's first-party GITHUB_TOKEN restrictions mean
+# the run can require a maintainer to approve it, and GitHub then records that approver,
+# not dependabot[bot], as the run's actor. So this workflow looks up the open pull
+# request for the branch and checks its actual author instead.
+name: Self-heal stale vendorHash
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+jobs:
+  self-heal:
+    name: Refresh flake.nix vendorHash for a Dependabot go.mod bump
+    if: >
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/go_modules/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the branch's open pull request was actually opened by Dependabot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          author=$(gh api "repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:$BRANCH&state=open" --jq '.[0].user.login // empty')
+          if [ "$author" != "dependabot[bot]" ]; then
+            echo "::error::refusing to act: $BRANCH's open pull request author is '$author', not dependabot[bot]" >&2
+            exit 1
+          fi
+
+      - name: Download the recomputed hash
+        uses: actions/download-artifact@v8
+        with:
+          name: vendorhash-fix
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: fix
+
+      - name: Validate, apply, and push
+        id: apply
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          echo "pushed=false" >> "$GITHUB_OUTPUT"
+
+          hash=$(cat fix/vendorhash.txt)
+          if ! [[ "$hash" =~ ^sha256-[A-Za-z0-9+/]{43}=$ ]]; then
+            echo "::error::'$hash' is not a well-formed Nix SRI sha256 hash; refusing to write it into flake.nix." >&2
+            exit 1
+          fi
+
+          git clone --branch "$BRANCH" --single-branch \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" repo
+          cd repo
+
+          current_sha=$(git rev-parse HEAD)
+          if [ "$current_sha" != "$EXPECTED_SHA" ]; then
+            echo "$BRANCH moved from $EXPECTED_SHA to $current_sha since this run started; skipping so a fresh CI run on the new commit can handle it instead."
+            exit 0
+          fi
+
+          sed -i "s|vendorHash = \"[^\"]*\"|vendorHash = \"$hash\"|" flake.nix
+
+          files=$(git diff --name-only)
+          if [ "$files" != "flake.nix" ]; then
+            echo "::error::expected exactly one changed file (flake.nix), got: $files" >&2
+            exit 1
+          fi
+          stat=$(git diff --numstat -- flake.nix)
+          added=$(awk '{print $1}' <<<"$stat")
+          removed=$(awk '{print $2}' <<<"$stat")
+          if [ "$added" != "1" ] || [ "$removed" != "1" ]; then
+            echo "::error::expected exactly one changed line in flake.nix, got +$added -$removed" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(nix): refresh vendorHash for $(basename "$BRANCH")"
+          git push origin "HEAD:$BRANCH"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Re-run CI on the corrected commit
+        if: steps.apply.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yaml --repo "${{ github.repository }}" --ref "${{ github.event.workflow_run.head_branch }}"

@@ -5,6 +5,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Lets the self-heal workflow (vendorhash-selfheal.yaml) re-run CI on a Dependabot
+  # branch after it pushes a corrected vendorHash: a GITHUB_TOKEN push does not start a
+  # new run on its own, so that workflow dispatches one explicitly.
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -143,6 +147,35 @@ jobs:
           else
             echo "::warning::could not determine whether vendorHash is stale; see the 'Build flake package' failure above."
           fi
+      - name: Hand the fix to the privileged self-heal workflow
+        if: failure() && github.event.pull_request.user.login == 'dependabot[bot]'
+        # This job's token is read-only on a Dependabot pull_request run regardless of any
+        # permissions: block, and it is the only job that fetches or builds dependency code
+        # the PR controls. It hands off just a hash string; vendorhash-selfheal.yaml, which
+        # has write access, never runs go, nix, or make.
+        run: |
+          if git diff --quiet flake.nix; then
+            echo "vendorHash is already correct; nothing to hand off."
+            exit 0
+          fi
+          hash=$(grep -oP '(?<=vendorHash = ")[^"]+' flake.nix)
+          if ! [[ "$hash" =~ ^sha256-[A-Za-z0-9+/]{43}=$ ]]; then
+            echo "::error::computed vendorHash '$hash' is not a well-formed SRI hash; refusing to hand it off." >&2
+            exit 1
+          fi
+          if ! nix build .#default --no-link; then
+            echo "::error::flake.nix with the recomputed vendorHash still does not build; refusing to hand it off." >&2
+            exit 1
+          fi
+          mkdir -p /tmp/vendorhash-fix
+          printf '%s' "$hash" > /tmp/vendorhash-fix/vendorhash.txt
+      - uses: actions/upload-artifact@v7
+        if: failure() && github.event.pull_request.user.login == 'dependabot[bot]'
+        with:
+          name: vendorhash-fix
+          path: /tmp/vendorhash-fix/vendorhash.txt
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Run built binary
         run: '"$(nix build .#default --no-link --print-out-paths)/bin/hand" --version'
 
