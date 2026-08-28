@@ -6,10 +6,12 @@ import (
 )
 
 func TestSupportsUsageLimitOnlyWhereASignatureIsCatalogued(t *testing.T) {
-	if !SupportsUsageLimit(Claude) {
-		t.Fatal("SupportsUsageLimit(claude) = false, want true")
+	for _, name := range []string{Claude, Codex} {
+		if !SupportsUsageLimit(name) {
+			t.Errorf("SupportsUsageLimit(%q) = false, want true", name)
+		}
 	}
-	for _, name := range []string{Codex, Grok, Pi, OpenCode, Antigravity, "", "nonesuch"} {
+	for _, name := range []string{Grok, Pi, OpenCode, Antigravity, "", "nonesuch"} {
 		if SupportsUsageLimit(name) {
 			t.Errorf("SupportsUsageLimit(%q) = true, want false: no signature is catalogued for it", name)
 		}
@@ -49,8 +51,109 @@ func TestDetectUsageLimitIgnoresTextThatIsNotAStop(t *testing.T) {
 func TestDetectUsageLimitDeclinesForAnUncataloguedHarness(t *testing.T) {
 	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	text := "Claude usage limit reached. Your limit will reset at 3pm (UTC)."
-	if _, limited := DetectUsageLimit(Codex, text, now); limited {
-		t.Fatal("DetectUsageLimit(codex) = true: claude's wording must not be matched against another harness")
+	if _, limited := DetectUsageLimit(Grok, text, now); limited {
+		t.Fatal("DetectUsageLimit(grok) = true: claude's wording must not be matched against another harness")
+	}
+}
+
+func TestDetectUsageLimitDoesNotCrossMatchClaudeAndCodex(t *testing.T) {
+	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	claudeText := "Claude usage limit reached. Your limit will reset at 3pm (UTC)."
+	if _, limited := DetectUsageLimit(Codex, claudeText, now); limited {
+		t.Fatal("DetectUsageLimit(codex, claude's wording) = true, want false")
+	}
+	codexText := "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), " +
+		"visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 7:27 PM."
+	if _, limited := DetectUsageLimit(Claude, codexText, now); limited {
+		t.Fatal("DetectUsageLimit(claude, codex's wording) = true, want false")
+	}
+}
+
+// The verbatim refusal from atqamz/hand#435: two codex workers hit the limit simultaneously and
+// the claude-anchored pattern could not match "hit", only "reached".
+func TestDetectUsageLimitRecognizesTheObservedCodexRefusal(t *testing.T) {
+	now := time.Date(2026, 8, 27, 18, 21, 0, 0, time.FixedZone("WIB", 7*3600))
+	text := "■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), " +
+		"visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 7:27 PM."
+	reset, limited := DetectUsageLimit(Codex, text, now)
+	if !limited {
+		t.Fatal("DetectUsageLimit(codex, observed refusal) = false, want true")
+	}
+	want := time.Date(2026, 8, 27, 19, 27, 0, 0, now.Location())
+	if !reset.Equal(want) {
+		t.Fatalf("reset = %s, want %s", reset, want)
+	}
+}
+
+// The warning codex prints as quota runs low - if it ever does - must not read as a stop: the
+// signature is anchored on "hit", the word the real refusal uses, not on bare "limit".
+func TestDetectUsageLimitIgnoresCodexTextThatIsNotAStop(t *testing.T) {
+	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	for _, text := range []string{
+		"You're approaching your usage limit.",
+		"10% of your usage limit remains.",
+		"Set a spend limit for this account",
+		"",
+	} {
+		if _, limited := DetectUsageLimit(Codex, text, now); limited {
+			t.Errorf("DetectUsageLimit(codex, %q) = true, want false", text)
+		}
+	}
+}
+
+func TestDetectCodexUsageLimitResetInstant(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		now  time.Time
+		want time.Time
+		ok   bool
+	}{
+		{
+			// The exact observed shape.
+			name: "observed shape",
+			text: "You've hit your usage limit. ... or try again at 7:27 PM.",
+			now:  time.Date(2026, 8, 27, 18, 21, 0, 0, time.UTC),
+			want: time.Date(2026, 8, 27, 19, 27, 0, 0, time.UTC),
+			ok:   true,
+		},
+		{
+			// A shape the parser must not guess at: no reset is better than a wrong one.
+			name: "unparseable shape does not parse",
+			text: "You've hit your usage limit. Try again later.",
+			now:  time.Date(2026, 8, 27, 18, 21, 0, 0, time.UTC),
+			ok:   false,
+		},
+		{
+			// Dateless and zoneless: a clock time earlier than now rolls to tomorrow.
+			name: "rollover across midnight",
+			text: "You've hit your usage limit. ... or try again at 12:15 AM.",
+			now:  time.Date(2026, 8, 27, 23, 50, 0, 0, time.UTC),
+			want: time.Date(2026, 8, 28, 0, 15, 0, 0, time.UTC),
+			ok:   true,
+		},
+		{
+			// A clock time still ahead of now resolves to today, no rollover.
+			name: "clock time later today",
+			text: "You've hit your usage limit. ... or try again at 11:05 AM.",
+			now:  time.Date(2026, 8, 27, 9, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 8, 27, 11, 5, 0, 0, time.UTC),
+			ok:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reset, limited := DetectUsageLimit(Codex, tt.text, tt.now)
+			if !limited {
+				t.Fatalf("DetectUsageLimit(codex, %q) limited = false, want true: text still names a stop even when the reset does not parse", tt.text)
+			}
+			if reset.IsZero() != !tt.ok {
+				t.Fatalf("reset zero = %v, want ok=%v", reset.IsZero(), tt.ok)
+			}
+			if tt.ok && !reset.Equal(tt.want) {
+				t.Fatalf("reset = %s, want %s", reset, tt.want)
+			}
+		})
 	}
 }
 

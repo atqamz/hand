@@ -74,6 +74,19 @@ Source: [hand init is the canonical fleet reconciler](adr/hand-init-is-the-canon
 | INV-INIT-5 | A non-empty directory is adopted if and only if its `go.mod` declares hand's own module path. | property | phase 0 of atqamz/hand#436 landed unit tests; property form unaudited |
 | INV-INIT-6 | Preflight refusal is total: a refused target has no byte changed, including the private runtime root. | property | unaudited |
 
+## Usage-limit signatures
+
+Source: [Usage-limit detection is a harness capability](adr/usage-limit-detection-is-a-harness-capability.md),
+`internal/harness/usagelimit.go`.
+
+| id | invariant | layer | coverage |
+|---|---|---|---|
+| INV-LIMIT-1 | A catalogued harness's stop refusal is detected as a usage limit; an uncatalogued harness never is, for any text. | property | `TestSupportsUsageLimitOnlyWhereASignatureIsCatalogued`, `TestDetectUsageLimitDeclinesForAnUncataloguedHarness` land unit cases; property form unaudited |
+| INV-LIMIT-2 | No catalogued signature matches an approaching-limit warning, only the stop itself. | unit | `TestDetectUsageLimitIgnoresTextThatIsNotAStop`, `TestDetectUsageLimitIgnoresCodexTextThatIsNotAStop` |
+| INV-LIMIT-3 | One harness's signature never matches another harness's wording. | unit | `TestDetectUsageLimitDoesNotCrossMatchClaudeAndCodex` |
+| INV-LIMIT-4 | A reset instant that does not parse degrades to no prediction, never to a guessed one, for any unrecognized wording. | property | `TestDetectCodexUsageLimitResetInstant` lands a unit case; property form unaudited |
+| INV-LIMIT-5 | A dateless clock-time reset resolves against `now` in the local zone, rolling forward when the named time is not after `now`, for any (now, clock time) pair. | property | `TestDetectUsageLimitReadsTheResetInstant`, `TestDetectCodexUsageLimitResetInstant` land unit cases; property form unaudited |
+
 ## Registry and fleet identity
 
 Source: [Fleet identity and user registry](adr/fleet-identity-and-user-registry.md), `internal/registry`.
