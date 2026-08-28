@@ -174,6 +174,7 @@ type Attempt struct {
 	Effort                  string           `json:"effort"`
 	ExecutionClass          string           `json:"execution_class"`
 	PlannedAgainst          string           `json:"planned_against"`
+	BriefDigest             string           `json:"brief_digest"`
 	RequestedProfile        string           `json:"requested_profile"`
 	RoutingSource           string           `json:"routing_source"`
 	Worktree                string           `json:"worktree"`
@@ -316,6 +317,7 @@ CREATE TABLE IF NOT EXISTS attempt (
 	effort                 TEXT NOT NULL DEFAULT '',
 	execution_class        TEXT NOT NULL DEFAULT '',
 	planned_against        TEXT NOT NULL DEFAULT '',
+	brief_digest           TEXT NOT NULL DEFAULT '',
 	requested_profile      TEXT NOT NULL DEFAULT '',
 	routing_source        TEXT NOT NULL DEFAULT '',
 	worktree               TEXT NOT NULL DEFAULT '',
@@ -596,6 +598,9 @@ func ReadTaskHistoryReadOnly(homeDir, id string) (TaskHistory, bool, error) {
 	if current == len(migrations) {
 		return db.ReadTaskHistory(id)
 	}
+	if current == projectIdentityVersion {
+		return db.readTaskHistoryBeforeBriefDigest(id)
+	}
 	if current == fleetIdentityVersion || current == acknowledgedMetadataVersion {
 		return db.readTaskHistoryBeforeProjectIdentity(id)
 	}
@@ -703,17 +708,21 @@ var attemptColumnNames = []string{
 	"status_changed_at", "status_changed_for", "done_verified", "last_report_state", "last_report_note",
 	"send_undelivered_message", "send_undelivered_at", "parked_fired_for", "usage_limit_retry_at", "usage_limit_attempts",
 	"teardown_terminal_attempt", "teardown_disposition", "teardown_herdr_state", "teardown_worktree_state", "teardown_completion_state",
-	"usage_limit_episode", "usage_limit_stuck_episode", "branch",
+	"usage_limit_episode", "usage_limit_stuck_episode", "branch", "brief_digest",
 }
 
 var attemptColumns = strings.Join(attemptColumnNames, ", ")
 
-// -3 excludes usage_limit_episode, usage_limit_stuck_episode and branch: all three were added
-// after the send schema, in that order, at the tail of attemptColumnNames.
-var attemptColumnsBeforeSend = strings.Join(attemptColumnNames[:len(attemptColumnNames)-3], ", ")
+// -4 excludes usage_limit_episode, usage_limit_stuck_episode, branch and brief_digest: all four
+// were added after the send schema, in that order, at the tail of attemptColumnNames.
+var attemptColumnsBeforeSend = strings.Join(attemptColumnNames[:len(attemptColumnNames)-4], ", ")
 
-var attemptColumnNamesBeforeRouting = append(append([]string{}, attemptColumnNames[:7]...), attemptColumnNames[11:len(attemptColumnNames)-3]...)
+var attemptColumnNamesBeforeRouting = append(append([]string{}, attemptColumnNames[:7]...), attemptColumnNames[11:len(attemptColumnNames)-4]...)
 var attemptColumnsBeforeRouting = strings.Join(attemptColumnNamesBeforeRouting, ", ")
+
+// The column list a database carries at projectIdentityVersion, the version immediately before
+// briefDigestVersion added the tail column below.
+var attemptColumnsBeforeBriefDigest = strings.Join(attemptColumnNames[:len(attemptColumnNames)-1], ", ")
 
 func placeholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", count), ", ")
@@ -830,10 +839,25 @@ func attemptValues(a Attempt) []any {
 		a.StatusChangedAt, a.StatusChangedFor, a.DoneVerified, a.LastReportState, a.LastReportNote,
 		a.SendUndeliveredMessage, a.SendUndeliveredAt, a.ParkedFiredFor, a.UsageLimitRetryAt, a.UsageLimitAttempts,
 		a.TeardownTerminalAttempt, a.TeardownDisposition, a.TeardownHerdrState, a.TeardownWorktreeState, a.TeardownCompletionState,
-		a.UsageLimitEpisode, a.UsageLimitStuckEpisode, a.Branch}
+		a.UsageLimitEpisode, a.UsageLimitStuckEpisode, a.Branch, a.BriefDigest}
 }
 
 func scanAttempt(row interface{ Scan(...any) error }) (Attempt, error) {
+	var a Attempt
+	err := row.Scan(&a.ID, &a.TaskID, &a.Ordinal, &a.Lifecycle, &a.Harness, &a.Model, &a.Effort,
+		&a.ExecutionClass, &a.PlannedAgainst, &a.RequestedProfile, &a.RoutingSource, &a.Worktree, &a.LeaseID,
+		&a.Herdr.Session, &a.Herdr.WorkspaceID, &a.Herdr.TabID, &a.Herdr.PaneID, &a.CreatedAt, &a.PaneStartedAt,
+		&a.LaunchSubmittedAt, &a.LaunchConfirmedAt,
+		&a.StatusChangedAt, &a.StatusChangedFor, &a.DoneVerified, &a.LastReportState, &a.LastReportNote,
+		&a.SendUndeliveredMessage, &a.SendUndeliveredAt, &a.ParkedFiredFor, &a.UsageLimitRetryAt, &a.UsageLimitAttempts,
+		&a.TeardownTerminalAttempt, &a.TeardownDisposition, &a.TeardownHerdrState, &a.TeardownWorktreeState, &a.TeardownCompletionState,
+		&a.UsageLimitEpisode, &a.UsageLimitStuckEpisode, &a.Branch, &a.BriefDigest)
+	return a, err
+}
+
+// The reader for a database at projectIdentityVersion, one version behind briefDigestVersion: every
+// attempt column except the tail one that version adds.
+func scanAttemptBeforeBriefDigest(row interface{ Scan(...any) error }) (Attempt, error) {
 	var a Attempt
 	err := row.Scan(&a.ID, &a.TaskID, &a.Ordinal, &a.Lifecycle, &a.Harness, &a.Model, &a.Effort,
 		&a.ExecutionClass, &a.PlannedAgainst, &a.RequestedProfile, &a.RoutingSource, &a.Worktree, &a.LeaseID,
@@ -969,6 +993,37 @@ func (db *DB) readTaskHistoryBeforeProjectIdentity(id string) (TaskHistory, bool
 		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
 	}
 	attempts, err := db.ListAttempts(id)
+	if err != nil {
+		return TaskHistory{}, false, err
+	}
+	history := TaskHistory{Task: task, Attempts: attempts}
+	for i := range attempts {
+		if attempts[i].ID == task.ActiveAttemptID {
+			history.ActiveAttempt = &attempts[i]
+			break
+		}
+	}
+	if task.ActiveAttemptID != 0 && history.ActiveAttempt == nil {
+		return TaskHistory{}, false, fmt.Errorf("read task history %q: active attempt %d not found", id, task.ActiveAttemptID)
+	}
+	return history, true, nil
+}
+
+// A database at projectIdentityVersion has every task column current, since briefDigestVersion
+// touches only the attempt table, so only the attempt side falls back to the pre-digest reader.
+func (db *DB) readTaskHistoryBeforeBriefDigest(id string) (TaskHistory, bool, error) {
+	if db.empty {
+		return TaskHistory{}, false, nil
+	}
+	row := db.sql.QueryRow(`SELECT `+taskSelectColumns+taskSelectFrom+` WHERE task.id = ?`, id)
+	task, err := scanTask(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskHistory{}, false, nil
+	}
+	if err != nil {
+		return TaskHistory{}, false, fmt.Errorf("read task %q: %w", id, err)
+	}
+	attempts, err := db.listAttemptsBeforeBriefDigest(id)
 	if err != nil {
 		return TaskHistory{}, false, err
 	}
@@ -1178,6 +1233,26 @@ func (db *DB) listAttemptsBeforeSend(taskID string) ([]Attempt, error) {
 	return attempts, nil
 }
 
+func (db *DB) listAttemptsBeforeBriefDigest(taskID string) ([]Attempt, error) {
+	rows, err := db.sql.Query(`SELECT `+attemptColumnsBeforeBriefDigest+` FROM attempt WHERE task_id = ? ORDER BY ordinal`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list attempts for task %q: %w", taskID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var attempts []Attempt
+	for rows.Next() {
+		attempt, err := scanAttemptBeforeBriefDigest(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list attempts for task %q: %w", taskID, err)
+		}
+		attempts = append(attempts, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list attempts for task %q: %w", taskID, err)
+	}
+	return attempts, nil
+}
+
 func (db *DB) ListOpenTaskHistories() ([]TaskHistory, error) {
 	if db.empty {
 		return nil, nil
@@ -1289,6 +1364,9 @@ func ListReconciliationHistoriesReadOnly(homeDir string) ([]TaskHistory, error) 
 	if current == repairMetadataVersion || current == sendSchemaVersion {
 		return db.listReconciliationHistoriesBeforeSend()
 	}
+	if current == projectIdentityVersion {
+		return db.listReconciliationHistoriesBeforeBriefDigest()
+	}
 	return db.ListReconciliationHistories()
 }
 
@@ -1325,6 +1403,56 @@ func (db *DB) listReconciliationHistoriesBeforeProjectIdentity() ([]TaskHistory,
 	}
 	for i := range histories {
 		attempts, err := db.ListAttempts(histories[i].Task.ID)
+		if err != nil {
+			return nil, err
+		}
+		histories[i].Attempts = attempts
+		for j := range attempts {
+			if attempts[j].ID == histories[i].Task.ActiveAttemptID {
+				histories[i].ActiveAttempt = &histories[i].Attempts[j]
+				break
+			}
+		}
+		if histories[i].Task.ActiveAttemptID != 0 && histories[i].ActiveAttempt == nil {
+			return nil, fmt.Errorf("task %q active attempt %d not found", histories[i].Task.ID, histories[i].Task.ActiveAttemptID)
+		}
+	}
+	return histories, nil
+}
+
+// The reconciliation-listing counterpart to readTaskHistoryBeforeBriefDigest: projectIdentityVersion
+// predates attempt.brief_digest, so its attempt side stays on the pre-digest reader.
+func (db *DB) listReconciliationHistoriesBeforeBriefDigest() ([]TaskHistory, error) {
+	if db.empty {
+		return nil, nil
+	}
+	rows, err := db.sql.Query(`SELECT ` + taskSelectColumns + taskSelectFrom + ` WHERE task.lifecycle = 'open' OR task.repair_code <> '' OR EXISTS (
+		SELECT 1 FROM attempt
+		WHERE attempt.task_id = task.id
+		AND attempt.lifecycle NOT IN ('provisioning', 'running')
+		AND (
+			(attempt.worktree <> '' AND attempt.teardown_worktree_state NOT IN ('released', 'abandoned'))
+			OR (attempt.herdr_workspace_id <> '' AND attempt.teardown_herdr_state <> 'released')
+			OR (attempt.teardown_completion_state <> '' AND attempt.teardown_completion_state <> 'appended')
+		)
+	) ORDER BY task.id`)
+	if err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var histories []TaskHistory
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+		}
+		histories = append(histories, TaskHistory{Task: task})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list read-only reconciliation tasks: %w", err)
+	}
+	for i := range histories {
+		attempts, err := db.listAttemptsBeforeBriefDigest(histories[i].Task.ID)
 		if err != nil {
 			return nil, err
 		}

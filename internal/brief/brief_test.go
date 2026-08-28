@@ -288,3 +288,37 @@ func TestParseMissingBrief(t *testing.T) {
 		t.Fatal("expected error for missing brief")
 	}
 }
+
+func TestDigestUnaffectedByHandsOwnAppendix(t *testing.T) {
+	supervisorContent := "implement the fix"
+	plain := writeBrief(t, supervisorContent)
+	want, err := Digest(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	appended := writeBrief(t, supervisorContent+"\n\n---\n\n"+AppendMarker+"\n\nThe worker report channel is /tmp/task-1.status.\n")
+	got, err := Digest(appended)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("Digest(appended) = %q, want %q: hand's own appendix must not change the digest", got, want)
+	}
+}
+
+func TestDigestChangesWhenSupervisorEditsPrecedeHandsAppendix(t *testing.T) {
+	rewritten := writeBrief(t, "ship it"+"\n\n---\n\n"+AppendMarker+"\n\nThe worker report channel is /tmp/task-1.status.\n")
+	original := writeBrief(t, "implement the fix"+"\n\n---\n\n"+AppendMarker+"\n\nThe worker report channel is /tmp/task-1.status.\n")
+	rewrittenDigest, err := Digest(rewritten)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalDigest, err := Digest(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rewrittenDigest == originalDigest {
+		t.Fatal("Digest must still distinguish two different supervisor-authored briefs that both carry hand's appendix")
+	}
+}

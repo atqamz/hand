@@ -157,6 +157,10 @@ var migrations = []string{
 	// placeholders above: the base schema already carries project.id and task.project_id, so a home
 	// built from it and stamped backward replays this step without a duplicate-column error.
 	`SELECT 1;`,
+	// ensureAttemptBriefDigestColumn does the real work below, for the same reason: the base schema
+	// already carries the column, so a plain ALTER TABLE would fail wherever a test or a home
+	// builds its fixture from the current schema before stamping an older version onto it.
+	`SELECT 1;`,
 }
 
 // The version whose migration splits task from attempt. A database already carrying that
@@ -189,6 +193,10 @@ const fleetIdentityVersion = acknowledgedMetadataVersion + 1
 // The last version that identified a project by its mutable name: its task table has no
 // project_id, and its project table no surrogate id (atqamz/hand#388).
 const projectIdentityVersion = fleetIdentityVersion + 1
+
+// The version whose migration adds attempt.brief_digest, recorded at attempt launch so promote can
+// tell a rewritten ship brief from the scout brief attempt 1 ran against (atqamz/hand#448).
+const briefDigestVersion = projectIdentityVersion + 1
 
 // Reports whether the task table already carries the split layout. The attempt table cannot
 // answer this: createSchema builds it on every home before any migration runs, while an
@@ -509,6 +517,11 @@ func (db *DB) applyMigration(version int) error {
 			return err
 		}
 	}
+	if version == briefDigestVersion-1 {
+		if err := ensureAttemptBriefDigestColumn(tx); err != nil {
+			return err
+		}
+	}
 	if err := recordSchemaVersion(tx, version+1); err != nil {
 		return err
 	}
@@ -570,6 +583,20 @@ func ensureAttemptBranchColumn(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`ALTER TABLE attempt ADD COLUMN branch TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("add attempt branch column: %w", err)
+	}
+	return nil
+}
+
+func ensureAttemptBriefDigestColumn(tx *sql.Tx) error {
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('attempt') WHERE name = 'brief_digest'`).Scan(&count); err != nil {
+		return fmt.Errorf("inspect attempt brief_digest column: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`ALTER TABLE attempt ADD COLUMN brief_digest TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add attempt brief_digest column: %w", err)
 	}
 	return nil
 }

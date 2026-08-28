@@ -111,6 +111,12 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	task = latest.Task
 	scout = *latest.ActiveAttempt
 
+	// An empty digest means the scout attempt predates digest recording, not that its brief is
+	// unchanged: refusing it would refuse every task promoted before this check existed.
+	if scout.BriefDigest != "" && scout.BriefDigest == route.BriefDigest {
+		return fail(Precondition(fmt.Errorf("brief at %s is unchanged since the scout attempt launched; rewrite it as a ship brief before promoting", briefRel)))
+	}
+
 	var releaseProject func()
 	if route.ExecutionClass == brief.ExecutionClassMechanical {
 		releaseProject, err = state.Lock(req.Home, "project:"+projectInfo.Name)
@@ -126,7 +132,7 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	createdAt := r.deps.now().Format(time.RFC3339)
 	shipAttempt, err := state.PromoteTask(req.Home, req.ID, scout.ID, scout.Lifecycle, state.Attempt{
 		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
-		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, BriefDigest: route.BriefDigest, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write promoted provisioning state: %w", err))

@@ -109,7 +109,7 @@ func (r *Runtime) Reopen(ctx context.Context, req ReopenRequest) (Result, error)
 	createdAt := r.deps.now().Format(time.RFC3339)
 	attempt, err := state.ReopenTask(req.Home, state.Attempt{
 		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
-		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, BriefDigest: route.BriefDigest, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write reopened provisioning state: %w", err))

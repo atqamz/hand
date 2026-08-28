@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
@@ -29,7 +30,17 @@ func promoteHerdr(agent, status string) faketool.Herdr {
 	}
 }
 
+const promoteScoutBriefContent = "implement the fix"
+
 func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faketool.Herdr) string {
+	t.Helper()
+	return setupPromoteHomeWithScoutBriefDigest(t, oldWorktree, newWorktree, herdr, "")
+}
+
+// scoutBriefDigest lets a caller simulate a scout attempt launched under atqamz/hand#448's digest
+// tracking, without going through UpdateAttempt: BriefDigest is write-once execution identity, so
+// it can only be set at the attempt's creation, same as PlannedAgainst.
+func setupPromoteHomeWithScoutBriefDigest(t *testing.T, oldWorktree, newWorktree string, herdr faketool.Herdr, scoutBriefDigest string) string {
 	t.Helper()
 	useFastLaunchPolling(t)
 	t.Setenv("HAND_HARNESS", harness.Claude)
@@ -41,7 +52,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "report.md"), []byte("scout findings"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "brief.md"), []byte("implement the fix"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "brief.md"), []byte(promoteScoutBriefContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/myproj.git", Mode: project.ModeDirectPR}); err != nil {
@@ -51,7 +62,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 		t.Fatal(err)
 	}
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}}); err != nil {
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}, BriefDigest: scoutBriefDigest}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -518,6 +529,148 @@ func TestPromoteFailureKeepsPreexistingWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(string(calls), "tab close wA:tNew") {
 		t.Fatalf("calls = %q, want only the new tab closed", calls)
+	}
+}
+
+// atqamz/hand#448: a promoted scout must not silently launch a ship attempt against the brief
+// that told the scout not to ship. Refusal is total - it names the file and treats no state,
+// so a retry after rewriting the brief is exactly the promote below.
+func TestPromoteRefusesWhenBriefIsUnchangedSinceScoutLaunch(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	scratchBrief := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(scratchBrief, []byte(promoteScoutBriefContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scoutDigest, err := brief.Digest(scratchBrief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := setupPromoteHomeWithScoutBriefDigest(t, oldWt, newWt, promoteHerdr("claude", "done"), scoutDigest)
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err = cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3", err)
+	}
+	if !strings.Contains(err.Error(), filepath.Join("data", "task-1", "brief.md")) || !strings.Contains(err.Error(), "rewrite it as a ship brief") {
+		t.Fatalf("error = %q, want it to name the brief path and the rewrite treatment", err.Error())
+	}
+
+	got, readErr := state.Read(home, "task-1")
+	if readErr != nil || got.Kind != state.KindScout {
+		t.Fatalf("task after refusal = %#v, %v, want unchanged scout", got, readErr)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Attempts) != 1 || history.ActiveAttempt == nil || history.ActiveAttempt.Lifecycle != state.AttemptRunning {
+		t.Fatalf("attempts after refusal = %+v, want the scout attempt untouched and no ship attempt started", history.Attempts)
+	}
+}
+
+// The companion path: once the supervisor actually rewrites the brief, its new digest no longer
+// matches what the scout attempt recorded, and promote launches exactly as it does today.
+func TestPromoteSucceedsWhenBriefWasRewrittenSinceScoutLaunch(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	scratchBrief := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(scratchBrief, []byte(promoteScoutBriefContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scoutDigest, err := brief.Digest(scratchBrief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := setupPromoteHomeWithScoutBriefDigest(t, oldWt, newWt, promoteHerdr("claude", "done"), scoutDigest)
+	briefPath := filepath.Join(home, "data", "task-1", "brief.md")
+	if err := os.WriteFile(briefPath, []byte("implement the fix, then commit, push, and open a PR"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Kind != state.KindShip || history.ActiveAttempt == nil {
+		t.Fatalf("history after promotion = %+v, want ship with active attempt", history)
+	}
+	rewrittenDigest, err := brief.Digest(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.ActiveAttempt.BriefDigest != rewrittenDigest {
+		t.Fatalf("ship attempt BriefDigest = %q, want the rewritten brief's digest %q recorded at launch", history.ActiveAttempt.BriefDigest, rewrittenDigest)
+	}
+}
+
+// The branch most likely to be got wrong: an attempt recorded before hand tracked brief digests
+// carries an empty one, which is "no evidence either way", not "unchanged". Refusing it would
+// refuse every task promoted before this feature existed.
+func TestPromoteSucceedsWhenScoutAttemptPredatesBriefDigestRecording(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	home := setupPromoteHome(t, oldWt, newWt, promoteHerdr("claude", "done"))
+
+	scoutAttempt := readTaskAttempt(t, home, "task-1")
+	if scoutAttempt.BriefDigest != "" {
+		t.Fatalf("scout attempt BriefDigest = %q, want empty for this fixture", scoutAttempt.BriefDigest)
+	}
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Kind != state.KindShip || history.ActiveAttempt == nil {
+		t.Fatalf("history after promotion = %+v, want ship with active attempt despite an unchanged brief, since attempt 1 predates digest recording", history)
+	}
+}
+
+// atqamz/hand#418 has hand itself append a launch statement to a grok/pi brief at provision time,
+// after the scout attempt's digest is already recorded. The appendix alone must not make an
+// otherwise-untouched brief look revised, or promote would never refuse for those harnesses.
+func TestPromoteRefusesWhenOnlyHandsOwnAppendixWasAddedSinceScoutLaunch(t *testing.T) {
+	oldWt := filepath.Join(t.TempDir(), "old-wt")
+	newWt := filepath.Join(t.TempDir(), "new-wt")
+	scratchBrief := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(scratchBrief, []byte(promoteScoutBriefContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scoutDigest, err := brief.Digest(scratchBrief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := setupPromoteHomeWithScoutBriefDigest(t, oldWt, newWt, promoteHerdr("claude", "done"), scoutDigest)
+	briefPath := filepath.Join(home, "data", "task-1", "brief.md")
+	appended := promoteScoutBriefContent + "\n\n---\n\n" + brief.AppendMarker + "\n\nThe worker report channel is /tmp/task-1.status.\n"
+	if err := os.WriteFile(briefPath, []byte(appended), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newPromoteCmd()
+	cmd.SetArgs([]string{"task-1"})
+	err = cmd.Execute()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("got %v, want ExitError code 3: hand's own appendix must not read as a supervisor revision", err)
+	}
+	if !strings.Contains(err.Error(), filepath.Join("data", "task-1", "brief.md")) || !strings.Contains(err.Error(), "rewrite it as a ship brief") {
+		t.Fatalf("error = %q, want it to name the brief path and the rewrite treatment", err.Error())
 	}
 }
 
