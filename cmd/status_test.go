@@ -2155,6 +2155,9 @@ func TestStatusFlagsPartialSendAfterFreshRead(t *testing.T) {
 		// A confirmation read, not a structured herdr rejection, is what proves this one - but it is the
 		// same partial shape (text staged, submission did not happen) and gets the same treatment.
 		{name: "composer retains message after retry", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonComposerRetainsMessage}, wantFlag: "send-partial", wantAttention: true, wantSendAttention: true},
+		// atqamz/hand#472: a chunk written mid-send whose tail never confirmed, so the submit key was
+		// never chosen. Same partial shape as the two rows above - text staged, submission did not happen.
+		{name: "text chunk not confirmed", send: state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonTextChunkNotConfirmed}, wantFlag: "send-partial", wantAttention: true, wantSendAttention: true},
 		// Retry-safe before-acceptance rejections now raise send-not-submitted at the task level
 		// (atqamz/hand#419) even though internal/store.SendNeedsAttention, a narrower per-send
 		// predicate this brief does not touch, still reports false for this reason code.

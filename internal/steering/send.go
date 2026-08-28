@@ -222,6 +222,96 @@ func composerHasTail(text, sent string) bool {
 	return strings.Contains(haystack, string(runes))
 }
 
+// Bounds each PaneSendText call comfortably below the smallest measured stall (atqamz/hand#472): filler
+// stalled near 1kB, and prose that separately cleared 1965 and 1667 bytes stalled once concatenated to
+// 3634 bytes - the boundary moves with content, so this sits under half the smallest failure seen.
+var sendChunkSize = 512
+
+func ConfigureSendChunkSizeForTest(size int) func() {
+	previous := sendChunkSize
+	sendChunkSize = size
+	return func() { sendChunkSize = previous }
+}
+
+// The pause before each chunk after the first (atqamz/hand#472, live-measured): repetitive content
+// stalling around 4kB at this chunk size with no pause delivered past 20kB once every write paused here -
+// a rate the harness accepts, not a size alone. Reuses sendConfirmPolling's interval, not a second number.
+var interChunkSettle = sendConfirmPolling.Interval
+
+func ConfigureInterChunkSettleForTest(delay time.Duration) func() {
+	previous := interChunkSettle
+	interChunkSettle = delay
+	return func() { interChunkSettle = previous }
+}
+
+// Splits message into pieces of at least size bytes, cut only at rune boundaries (ranging over a
+// string yields each rune's start offset; the cut lands at the first one at or past size, so a chunk
+// can run a few bytes over). The last piece is whatever remains; a message that already fits is unchanged.
+func chunkMessage(message string, size int) []string {
+	if len(message) <= size {
+		return []string{message}
+	}
+	chunks := make([]string, 0, len(message)/size+1)
+	start := 0
+	for i := range message {
+		if i-start >= size {
+			chunks = append(chunks, message[start:i])
+			start = i
+		}
+	}
+	return append(chunks, message[start:])
+}
+
+// Confirms progress the way submissionOutcome confirms post-key: poll until sentSoFar's tail appears.
+// sentSoFar is the cumulative text through this chunk, not the chunk alone - a boundary landing
+// mid-blank-line (routine in this fleet's Markdown) strips to an empty needle, which never confirms.
+func chunkConfirms(client Client, paneID, sentSoFar string) (bool, error) {
+	confirmed, _, err := pollUntilObserved(client, paneID, func(text string) bool {
+		return composerHasTail(text, sentSoFar)
+	})
+	return confirmed, err
+}
+
+// Non-nil means sendMessage decided the send before ever reaching the submit key: a chunk's PaneSendText
+// call itself failed, or its confirmation poll never found the chunk's tail.
+type chunkOutcome struct {
+	state   state.SendState
+	reason  string
+	partial bool
+}
+
+// Writes message in sendChunkSize pieces, confirming each before the next so the submit key is chosen
+// only once the whole text is present (atqamz/hand#472). A single-chunk message costs exactly what it
+// did before chunking existed. Non-nil return means the send is decided; Execute must not press a key.
+func sendMessage(client Client, paneID, message string) *chunkOutcome {
+	chunks := chunkMessage(message, sendChunkSize)
+	var sentSoFar strings.Builder
+	for i, chunk := range chunks {
+		if i > 0 {
+			time.Sleep(interChunkSettle)
+		}
+		if err := client.PaneSendText(paneID, chunk); err != nil {
+			partial := i > 0
+			if herdr.IsPreSideEffectRejection(err) || herdr.IsProcessNotStarted(err) {
+				return &chunkOutcome{state: state.SendNotSubmitted, reason: rejectionReason(err, state.SendReasonTextRejectedBeforeAcceptance), partial: partial}
+			}
+			return &chunkOutcome{state: state.SendUncertain, reason: "text-outcome-ambiguous", partial: partial}
+		}
+		if len(chunks) == 1 {
+			return nil
+		}
+		sentSoFar.WriteString(chunk)
+		confirmed, err := chunkConfirms(client, paneID, sentSoFar.String())
+		if err != nil {
+			return &chunkOutcome{state: state.SendUncertain, reason: "composer-confirmation-read-failed"}
+		}
+		if !confirmed {
+			return &chunkOutcome{state: state.SendNotSubmitted, reason: state.SendReasonTextChunkNotConfirmed, partial: true}
+		}
+	}
+	return nil
+}
+
 // Confirms Enter by positive evidence the harness reacted, not by its own text going absent: an accepted
 // message stays visible forever as history, so an absence check races that redraw (atqamz/hand#420,
 // atqamz/hand#459). reacted distinguishes a pure no-op (nothing happened) from a stalled paste (something did).
@@ -373,11 +463,8 @@ func Execute(req Request) (Result, error) {
 	if req.Faults.BeforeText != nil {
 		return Result{}, pendingError(send, req.Faults.BeforeText, "before-text")
 	}
-	if err := req.Client.PaneSendText(current.Herdr.PaneID, req.Message); err != nil {
-		if herdr.IsPreSideEffectRejection(err) || herdr.IsProcessNotStarted(err) {
-			return finalize(req, send, state.SendNotSubmitted, rejectionReason(err, state.SendReasonTextRejectedBeforeAcceptance), false, false)
-		}
-		return finalize(req, send, state.SendUncertain, "text-outcome-ambiguous", false, false)
+	if outcome := sendMessage(req.Client, current.Herdr.PaneID, req.Message); outcome != nil {
+		return finalize(req, send, outcome.state, outcome.reason, false, outcome.partial)
 	}
 	if req.Faults.AfterText != nil {
 		return Result{}, pendingError(send, req.Faults.AfterText, "text-succeeded-before-enter")

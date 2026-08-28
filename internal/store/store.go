@@ -112,6 +112,10 @@ const (
 	// SendNotSubmitted when the composer never reacted at all, or SendUncertain when it did react but not
 	// completely - a stalled paste is evidence something landed, just not provably all of it.
 	SendReasonEnterNotConfirmed = "enter-not-confirmed"
+	// Marks a chunked PaneSendText write (atqamz/hand#472) whose own tail never appeared in the composer
+	// within the bounded poll. Always SendNotSubmitted: no submit key is ever chosen once this fires, so
+	// there is no submission ambiguity to hedge - only whether the composer holds an unsent remnant.
+	SendReasonTextChunkNotConfirmed = "text-chunk-not-confirmed"
 )
 
 type SendOrigin string
@@ -245,7 +249,8 @@ func SendNeedsAttention(send SendAttempt) bool {
 	}
 	return strings.HasPrefix(send.ReasonCode, SendReasonEnterRejectedAfterTextStaged) ||
 		strings.HasPrefix(send.ReasonCode, SendReasonComposerRetainsMessage) ||
-		strings.HasPrefix(send.ReasonCode, SendReasonEnterNotConfirmed)
+		strings.HasPrefix(send.ReasonCode, SendReasonEnterNotConfirmed) ||
+		strings.HasPrefix(send.ReasonCode, SendReasonTextChunkNotConfirmed)
 }
 
 func SendRetrySafe(send SendAttempt) bool {
