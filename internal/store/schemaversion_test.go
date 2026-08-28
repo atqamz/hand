@@ -1,11 +1,17 @@
 package store
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 func TestFreshOpenRecordsSchemaVersionAtLatest(t *testing.T) {
@@ -626,4 +632,184 @@ func TestUnstampedSplitLayoutUsesTransactionalStampBeforeNextMigration(t *testin
 	if version == 0 {
 		t.Fatal("unstamped split layout remained at version 0")
 	}
+}
+
+// INV-SCHEMA-1 (fresh half): a fresh database is created directly at the latest version - the
+// pending migrations list is never replayed against it. Every generated migration here is
+// broken SQL, so a fresh Open that actually executed any of them would fail.
+func TestFreshOpenLandsDirectlyAtLatestWithoutExecutingPendingMigrations(t *testing.T) {
+	restore := migrations
+	t.Cleanup(func() { migrations = restore })
+
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(0, 4).Draw(t, "pending")
+		broken := make([]string, n)
+		for i := range broken {
+			broken[i] = fmt.Sprintf(`SELECT missing_migration_table_%d.value FROM missing_migration_table_%d`, i, i)
+		}
+		migrations = broken
+
+		root, err := os.MkdirTemp("", "hand-schema-fresh-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+		db, err := Open(filepath.Join(root, "fleet"))
+		if err != nil {
+			t.Fatalf("fresh Open with %d broken pending migrations = %v, want the schema built directly at the latest version without replaying them", n, err)
+		}
+		defer func() { _ = db.Close() }()
+		version, err := db.schemaVersion()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version != n {
+			t.Fatalf("schemaVersion = %d, want %d", version, n)
+		}
+	})
+}
+
+// INV-SCHEMA-1 (existing half): an existing database applies pending steps transactionally -
+// each step commits independently, so a sequence that fails partway leaves user_version at the
+// last step that committed. Generalizes two existing unit tests over count and failure point.
+func TestExistingDatabaseAppliesPendingMigrationsTransactionallyForAnyCountAndFailurePoint(t *testing.T) {
+	restore := migrations
+	t.Cleanup(func() { migrations = restore })
+
+	root, err := os.MkdirTemp("", "hand-schema-pending-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	home := filepath.Join(root, "fleet")
+
+	// Built once: resetting these bytes per case is cheap, reopening store.Open per case is not.
+	migrations = []string{}
+	baseline, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := baseline.Close(); err != nil {
+		t.Fatal(err)
+	}
+	baselineBytes, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rapid.Check(t, func(t *rapid.T) {
+		before := rapid.IntRange(0, 3).Draw(t, "before")
+		fails := rapid.Bool().Draw(t, "fails")
+
+		steps := make([]string, before)
+		cols := make([]string, before)
+		for i := range steps {
+			cols[i] = fmt.Sprintf("prop_col_%d", i)
+			steps[i] = fmt.Sprintf(`ALTER TABLE project ADD COLUMN %s TEXT NOT NULL DEFAULT ''`, cols[i])
+		}
+		if fails {
+			steps = append(steps, `SELECT missing_migration_table.value FROM missing_migration_table`)
+		}
+		migrations = steps
+
+		if err := os.WriteFile(Path(home), baselineBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		db, err := Open(home)
+		switch {
+		case fails && err == nil:
+			_ = db.Close()
+			t.Fatalf("Open with a failing migration after %d successful ones = nil error, want a failure", before)
+		case !fails && err != nil:
+			t.Fatalf("Open with %d pending migrations = %v, want success", before, err)
+		case !fails:
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		raw, err := open(Path(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = raw.Close() }()
+
+		var version int
+		if err := raw.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		if version != before {
+			t.Fatalf("user_version after %d successful steps (fails=%v) = %d, want %d", before, fails, version, before)
+		}
+		for _, col := range cols {
+			var count int
+			if err := raw.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('project') WHERE name = ?`, col).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Fatalf("column %s missing though its migration's step should have committed (before=%d, fails=%v)", col, before, fails)
+			}
+		}
+	})
+}
+
+// INV-SCHEMA-2: a database newer than the binary is refused before any other statement runs.
+// Snapshots the file's exact bytes right after stamping a newer version and checks Open
+// changed none of them, rather than only checking the returned error's type.
+func TestNewerSchemaVersionRefusesBeforeAnyOtherStatementRuns(t *testing.T) {
+	root, err := os.MkdirTemp("", "hand-schema-newer-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	home := filepath.Join(root, "fleet")
+
+	db, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	baselineBytes, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rapid.Check(t, func(t *rapid.T) {
+		delta := rapid.IntRange(1, 50).Draw(t, "delta")
+		newer := len(migrations) + delta
+
+		if err := os.WriteFile(Path(home), baselineBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := open(Path(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := raw.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, newer)); err != nil {
+			t.Fatal(err)
+		}
+		if err := raw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		stamped, err := os.ReadFile(Path(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := Open(home); !errors.Is(err, ErrSchemaNewer) {
+			t.Fatalf("Open at version %d (latest %d) = %v, want ErrSchemaNewer", newer, len(migrations), err)
+		}
+
+		after, err := os.ReadFile(Path(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(after, stamped) {
+			t.Fatalf("Open at a newer version changed the database file before refusing, want it byte-for-byte untouched")
+		}
+	})
 }
