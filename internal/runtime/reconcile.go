@@ -957,10 +957,8 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
 			}
-			if attempt.TeardownHerdrState == "" {
-				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleasing); err != nil {
-					return false, reconciliationDecision{}, err
-				}
+			if err := ensureTeardownReleasing(home, task.ID, attempt, "herdr", attempt.TeardownHerdrState); err != nil {
+				return false, reconciliationDecision{}, err
 			}
 			if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleased); err != nil {
 				return false, reconciliationDecision{}, err
@@ -972,10 +970,8 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
 			}
-			if attempt.TeardownHerdrState == "" {
-				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceReleasing); err != nil {
-					return false, reconciliationDecision{}, err
-				}
+			if err := ensureTeardownReleasing(home, task.ID, attempt, "herdr", attempt.TeardownHerdrState); err != nil {
+				return false, reconciliationDecision{}, err
 			}
 			if err := closeTaskTab(r.herdrClient(attempt.Herdr.Session), attempt.Herdr.WorkspaceID, attempt.Herdr.TabID); err != nil {
 				_ = state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "herdr", state.TeardownResourceAmbiguous)
@@ -1012,6 +1008,9 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
 			}
+			if err := ensureTeardownReleasing(home, task.ID, attempt, "worktree", attempt.TeardownWorktreeState); err != nil {
+				return false, reconciliationDecision{}, err
+			}
 			if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleased); err != nil {
 				return false, reconciliationDecision{}, err
 			}
@@ -1037,10 +1036,8 @@ func (r *Runtime) reconcileHistoricalAttempt(ctx context.Context, home string, t
 			} else if cleared {
 				return true, reconciliationDecision{}, nil
 			}
-			if attempt.TeardownWorktreeState == "" || attempt.TeardownWorktreeState == state.TeardownResourceAmbiguous {
-				if err := state.SetAttemptTeardownResourceState(home, task.ID, attempt.ID, attempt.Lifecycle, "worktree", state.TeardownResourceReleasing); err != nil {
-					return false, reconciliationDecision{}, err
-				}
+			if err := ensureTeardownReleasing(home, task.ID, attempt, "worktree", attempt.TeardownWorktreeState); err != nil {
+				return false, reconciliationDecision{}, err
 			}
 			returnLease := r.deps.worktree.returnWithID
 			if attempt.LeaseID == "" || returnLease == nil {
@@ -1207,6 +1204,15 @@ func (r *Runtime) relinquishHistoricalWorktree(home string, task state.Task, att
 	detail := fmt.Sprintf("attempt %d relinquished worktree %s with recorded lease %s, which Treehouse now reports under lease %s; nothing was returned, pruned or deleted",
 		attempt.ID, attempt.Worktree, leaseOrNone(attempt.LeaseID), leaseOrNone(lease.LeaseID))
 	return true, reconciliationDecision{Action: reconciliationActionRelinquishWorktree, Detail: detail}, nil
+}
+
+// Released can only follow Releasing, so every path ending in Released must pass through here first,
+// whatever non-terminal state the resource was already latched in.
+func ensureTeardownReleasing(home, taskID string, attempt state.Attempt, resource, current string) error {
+	if current == state.TeardownResourceReleasing {
+		return nil
+	}
+	return state.SetAttemptTeardownResourceState(home, taskID, attempt.ID, attempt.Lifecycle, resource, state.TeardownResourceReleasing)
 }
 
 func recordAbandonedResource(home, taskID string, attempt state.Attempt, resource, current string) error {

@@ -1820,6 +1820,90 @@ func TestReconcileConvergesALatchedWorktreeOnceOwnershipIsProven(t *testing.T) {
 	}
 }
 
+// terminalizeWithoutRelease leaves TeardownWorktreeState at its default "" and defers the resource
+// release to a later reconcile pass. If the lease already reads absent by the time that pass runs,
+// convergence must not depend on TeardownWorktreeState having ever passed through "releasing": atqamz/hand#482.
+func TestReconcileConvergesAWorktreeWhoseLeaseReadsAbsentBeforeTeardownStateIsEverSet(t *testing.T) {
+	home, _ := unobservableTeardownFixture(t, "")
+	returns := 0
+	r := unobservableReconcileRuntime(t, &returns)
+	r.deps.worktree.observeLease = func(string, string, string) worktree.LeaseObservation {
+		return worktree.LeaseObservation{State: worktree.LeaseAbsent}
+	}
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceReleased {
+		t.Fatalf("worktree state = %q, want released", history.Attempts[0].TeardownWorktreeState)
+	}
+	if returns != 0 {
+		t.Fatalf("worktree return count = %d, want no destructive cleanup for an already-absent lease", returns)
+	}
+}
+
+// The unified releasing guard covers every predecessor SetAttemptTeardownResourceState allows into
+// "releasing", not just "" - the two branches atqamz/hand#482 called already-correct still had gaps
+// for "ambiguous" and "retryable" predecessors that a narrower =="" check would have missed.
+func TestReconcileConvergesAnAmbiguousHerdrOnceOwnershipReadsAbsent(t *testing.T) {
+	home := reconcileFixture(t)
+	attempt, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindShip, Brief: "data/task-1/brief.md"}, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Harness: "claude",
+		Herdr:             state.Herdr{Session: "default", WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+		LaunchSubmittedAt: "2026-08-15T00:00:00Z", LaunchConfirmedAt: "2026-08-15T00:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.MarkAttemptRunning(home, "task-1", attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownDecision(home, "task-1", attempt.ID, state.AttemptCompleted, state.TeardownDispositionCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptRunning, "herdr", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptRunning, "herdr", state.TeardownResourceAmbiguous); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&missingReconcileHerdr{}, nil)
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].TeardownHerdrState != state.TeardownResourceReleased {
+		t.Fatalf("herdr state = %q, want released", history.Attempts[0].TeardownHerdrState)
+	}
+}
+
+func TestReconcileConvergesARetryableWorktreeOnceLeaseReadsExactAgain(t *testing.T) {
+	home, attempt := unobservableTeardownFixture(t, "")
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptRunning, "worktree", state.TeardownResourceReleasing); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetAttemptTeardownResourceState(home, "task-1", attempt.ID, state.AttemptRunning, "worktree", state.TeardownResourceRetryable); err != nil {
+		t.Fatal(err)
+	}
+	r := reconcileRuntime(&healthyReconcileHerdr{}, nil)
+	if _, err := r.Reconcile(ReconcileRequest{Home: home, ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceReleased {
+		t.Fatalf("worktree state = %q, want released", history.Attempts[0].TeardownWorktreeState)
+	}
+}
+
 func TestReconcilePromotionCrashCleansScoutBeforeShipLaunch(t *testing.T) {
 	home := reconcileFixture(t)
 	scout, err := state.CreateTaskWithAttempt(home, state.Task{ID: "task-1", Project: "demo", Kind: state.KindScout, Brief: "data/task-1/brief.md"}, state.Attempt{
