@@ -196,7 +196,9 @@ Source: [Lock pathnames are permanent rendezvous points](adr/lock-pathnames-are-
 Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is-not-a-mismatch.md),
 [Mechanical plans verify acquired HEAD](adr/mechanical-plans-verify-acquired-head.md),
 [The landed-work guard reads the work, not the record](adr/the-landed-work-guard-reads-the-work-not-the-record.md),
-[The worktree pool lives outside every fleet home](adr/the-worktree-pool-lives-outside-every-fleet-home.md).
+[The worktree pool lives outside every fleet home](adr/the-worktree-pool-lives-outside-every-fleet-home.md),
+`internal/worktree/worktree.go` (`Get`), `cmd/doctor.go` (`doctorWorktreeFindings`), decided in
+atqamz/hand#404 and atqamz/hand#421.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -212,6 +214,8 @@ Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is
 | INV-POOL-2 | Two clones never share a pool root, so one fleet's slots cannot alias another's. | property | `TestPoolRootDiffersPerClone` |
 | INV-POOL-3 | A worktree recorded under its clone keeps the clone as its pool root, so a lease taken before atqamz/hand#427 stays observable and returnable. | property | `TestPoolRootKeepsALegacyWorktreeOnItsOwnClone`, `TestReturnKeepsALegacyWorktreeOnItsOwnClone` |
 | INV-POOL-4 | Pool resolution never follows a foreign recorded worktree path to that path's own pool. | property | `TestReturnNeverFollowsAForeignRecordedPathToItsOwnPool` |
+| INV-POOL-5 | Acquisition never hands back a lease whose worktree is rooted in a Git repository other than the registered clone, even when a distinct, same-named repository is reachable nearby. | unit | `TestGetRejectsAWorktreeFromAnotherRegisteredClone` |
+| INV-POOL-6 | `hand doctor` reports a task's worktree rooted outside its registered clone as an error, not a warning, for any such task, so the command fails rather than merely noting it. | property | `TestDoctorFindsWorktreeUsingAnotherFleetClone`, `TestDoctorFindsWorktreeUsingTheFleetHomeCheckout` land unit cases; property form unaudited |
 
 ## Pull-request observation and terminal-task release
 
