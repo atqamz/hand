@@ -11,6 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/store"
+	"github.com/atqamz/hand/internal/testtag"
 )
 
 // Registers a project directly in the store and returns the identity minted for it, for a test
@@ -86,6 +87,9 @@ func scopeHerdrForFleet(t *testing.T, home string, h faketool.Herdr) faketool.He
 }
 
 func TestMain(m *testing.M) {
+	if !testtag.Present {
+		testtag.Refuse()
+	}
 	testUserHome, err := os.MkdirTemp("", "hand-cmd-home-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

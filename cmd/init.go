@@ -28,6 +28,10 @@ var skillFields = []axi.Column[skill.DestinationResult]{
 	{Name: "outcome", Value: func(r skill.DestinationResult) string { return string(r.Outcome) }},
 }
 
+// The module path of Hand's own repository, which identifies its source tree wherever a clone
+// or a fork of it sits.
+const handModulePath = "github.com/atqamz/hand"
+
 const backlogSkeleton = `# Backlog
 
 ## Queue
@@ -77,7 +81,8 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := preflightInitTarget(homePath); err != nil {
+			handSourceTree, err := preflightInitTarget(homePath)
+			if err != nil {
 				return err
 			}
 
@@ -125,6 +130,7 @@ func newInitCmd() *cobra.Command {
 			var doc axi.Doc
 			doc.Field("result", "initialized")
 			doc.Field("home", homePath)
+			doc.Bool("hand_source_tree", handSourceTree)
 			doc.Field("fleet_id", fleetID)
 			doc.Field("registry", registryOutcome)
 			doc.Field("agents_md", writtenOrUnchanged(refresh.Changed))
@@ -159,6 +165,9 @@ func newInitCmd() *cobra.Command {
 				"Run `hand project add <source>` or `hand project create <name>` to register the first project",
 				"AGENTS.md and its CLAUDE.md reference carry the startup integration across harnesses",
 			}
+			if handSourceTree {
+				help = append(help, "This home is Hand's own source tree; register Hand as a project so workers change it in their own worktrees rather than in this checkout")
+			}
 			if refresh.ArchivedPath != "" {
 				help = append(help, fmt.Sprintf("This home's previous AGENTS.md content was archived verbatim at %s; review it and relocate anything still useful yourself", refresh.ArchivedPath))
 			}
@@ -183,45 +192,74 @@ func newInitCmd() *cobra.Command {
 	}
 }
 
-func preflightInitTarget(target string) error {
+// Also reports whether target is Hand's own source tree, which init adopts and every later
+// command reports as such whether or not this call was the one that adopted it.
+func preflightInitTarget(target string) (bool, error) {
 	info, err := os.Stat(target)
 	if os.IsNotExist(err) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("inspect init target %s: %w", target, err)
+		return false, fmt.Errorf("inspect init target %s: %w", target, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("init target %s exists and is not a directory", target)
+		return false, fmt.Errorf("init target %s exists and is not a directory", target)
+	}
+	sourceTree, err := isHandSourceTree(target)
+	if err != nil {
+		return false, err
 	}
 	known, err := home.IsHome(target)
 	if err != nil {
-		return fmt.Errorf("inspect init target %s: %w", target, err)
+		return false, fmt.Errorf("inspect init target %s: %w", target, err)
 	}
 	if known {
 		if err := state.ValidateInitTarget(target); err != nil {
-			return fmt.Errorf("init target %s is recognized but unsafe to reconcile: %w; refusing before mutation", target, err)
+			return false, fmt.Errorf("init target %s is recognized but unsafe to reconcile: %w; refusing before mutation", target, err)
 		}
-		return nil
+		return sourceTree, nil
 	}
 	entries, err := os.ReadDir(target)
 	if err != nil {
-		return fmt.Errorf("inspect init target %s: %w", target, err)
+		return false, fmt.Errorf("inspect init target %s: %w", target, err)
 	}
 	if len(entries) == 0 {
-		return nil
+		return sourceTree, nil
+	}
+	if sourceTree {
+		return true, nil
 	}
 	runtimeRoot, err := handOwnedRuntimeRoot()
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, entry := range entries {
 		if entry.Name() == ".secondhand" && runtimeRoot == filepath.Join(target, entry.Name()) {
 			continue
 		}
-		return fmt.Errorf("init target %s exists, is not empty, and is not a recognized Secondhand fleet; refusing to adopt it", target)
+		return false, fmt.Errorf("init target %s exists, is not empty, and is not a recognized Secondhand fleet; refusing to adopt it", target)
 	}
-	return nil
+	return false, nil
+}
+
+// Hand's own source tree is the one non-empty directory init adopts, because developing Hand
+// with Hand needs a fleet home in the repository it works on. Module path rather than pathname,
+// so any clone qualifies while a subdirectory, carrying no go.mod of its own, does not.
+func isHandSourceTree(target string) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(target, "go.mod"))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect init target %s module path: %w", target, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "module" {
+			return fields[1] == handModulePath, nil
+		}
+	}
+	return false, nil
 }
 
 func handOwnedRuntimeRoot() (string, error) {

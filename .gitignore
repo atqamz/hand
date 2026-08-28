@@ -11,6 +11,8 @@ hand.exe
 /.grok/
 /.pi/
 /.agents/
+/.opencode/
+/.codex/
 
 # Go
 coverage.out

@@ -587,3 +587,112 @@ func TestInitReportsASkillDestinationConflictWithoutOverwritingTheForeignFile(t 
 		t.Fatalf("unaffected destination not installed: %v", err)
 	}
 }
+
+func seedModuleTree(t *testing.T, dir, modulePath string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+modulePath+"\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "home"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "home", "home.go"), []byte("package home\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInitAdoptsHandOwnSourceTree(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	setTestUserHome(t, t.TempDir())
+	target := t.TempDir()
+	seedModuleTree(t, target, "github.com/atqamz/hand")
+
+	cmd := newInitCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{target})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init on Hand's own source tree: %v", err)
+	}
+
+	ok, err := home.IsHome(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("got IsHome false after adopting Hand's own source tree, want true")
+	}
+	if !strings.Contains(out.String(), "hand_source_tree: true\n") {
+		t.Fatalf("init output = %q, want hand_source_tree: true", out.String())
+	}
+	source, err := os.ReadFile(filepath.Join(target, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(source) != "package main\n" {
+		t.Fatalf("adopted source tree's main.go = %q, want it untouched", string(source))
+	}
+}
+
+func TestInitReportsHandSourceTreeOnEveryLaterRun(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	setTestUserHome(t, t.TempDir())
+	target := t.TempDir()
+	seedModuleTree(t, target, "github.com/atqamz/hand")
+
+	first := newInitCmd()
+	first.SetOut(&bytes.Buffer{})
+	first.SetArgs([]string{target})
+	if err := first.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	second := newInitCmd()
+	var out bytes.Buffer
+	second.SetOut(&out)
+	second.SetArgs([]string{target})
+	if err := second.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "hand_source_tree: true\n") {
+		t.Fatalf("reconcile output = %q, want hand_source_tree: true", out.String())
+	}
+}
+
+func TestInitRefusesANonEmptyTreeWithAForeignModulePath(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	target := t.TempDir()
+	seedModuleTree(t, target, "github.com/someone/else")
+	before := snapshotInitTarget(t, target)
+
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{target})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not empty") {
+		t.Fatalf("init error = %v, want foreign non-empty refusal", err)
+	}
+	if after := snapshotInitTarget(t, target); !reflect.DeepEqual(after, before) {
+		t.Fatalf("foreign module tree changed: before=%v after=%v", before, after)
+	}
+}
+
+func TestInitRefusesASubdirectoryOfHandSourceTree(t *testing.T) {
+	t.Setenv("HAND_HOME", "")
+	tree := t.TempDir()
+	seedModuleTree(t, tree, "github.com/atqamz/hand")
+	target := filepath.Join(tree, "internal")
+	before := snapshotInitTarget(t, target)
+
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{target})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not empty") {
+		t.Fatalf("init error = %v, want subdirectory refusal", err)
+	}
+	if after := snapshotInitTarget(t, target); !reflect.DeepEqual(after, before) {
+		t.Fatalf("source subdirectory changed: before=%v after=%v", before, after)
+	}
+}
