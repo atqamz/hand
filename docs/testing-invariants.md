@@ -81,11 +81,11 @@ Source: [Usage-limit detection is a harness capability](adr/usage-limit-detectio
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
-| INV-LIMIT-1 | A catalogued harness's stop refusal is detected as a usage limit; an uncatalogued harness never is, for any text. | property | `TestSupportsUsageLimitOnlyWhereASignatureIsCatalogued`, `TestDetectUsageLimitDeclinesForAnUncataloguedHarness` |
+| INV-LIMIT-1 | A catalogued harness's stop refusal is detected as a usage limit; an uncatalogued harness never is, for any text. | property | `TestSupportsUsageLimitOnlyWhereASignatureIsCatalogued`, `TestDetectUsageLimitDeclinesForAnUncataloguedHarness` land unit cases; property form unaudited |
 | INV-LIMIT-2 | No catalogued signature matches an approaching-limit warning, only the stop itself. | unit | `TestDetectUsageLimitIgnoresTextThatIsNotAStop`, `TestDetectUsageLimitIgnoresCodexTextThatIsNotAStop` |
 | INV-LIMIT-3 | One harness's signature never matches another harness's wording. | unit | `TestDetectUsageLimitDoesNotCrossMatchClaudeAndCodex` |
-| INV-LIMIT-4 | A reset instant that does not parse degrades to no prediction, never to a guessed one. | unit | `TestDetectCodexUsageLimitResetInstant` |
-| INV-LIMIT-5 | A dateless clock-time reset resolves against `now` in the local zone, rolling forward when the named time is not after `now`. | unit | `TestDetectUsageLimitReadsTheResetInstant`, `TestDetectCodexUsageLimitResetInstant` |
+| INV-LIMIT-4 | A reset instant that does not parse degrades to no prediction, never to a guessed one, for any unrecognized wording. | property | `TestDetectCodexUsageLimitResetInstant` lands a unit case; property form unaudited |
+| INV-LIMIT-5 | A dateless clock-time reset resolves against `now` in the local zone, rolling forward when the named time is not after `now`, for any (now, clock time) pair. | property | `TestDetectUsageLimitReadsTheResetInstant`, `TestDetectCodexUsageLimitResetInstant` land unit cases; property form unaudited |
 
 ## Registry and fleet identity
 
