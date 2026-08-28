@@ -21,6 +21,7 @@ The tracked `AGENTS.md` is already the exact canonical content `hand init` write
 ## Repository conventions
 
 - Behavioral contracts belong beside their implementation, command help, and focused tests. `docs/adr/README.md` owns the narrow bar for durable architectural rationale.
+- `docs/testing-invariants.md` is the map of the rules the suite holds hand to, each with a stable id. A new test cites the invariant id it checks, or names the specific case it pins; a test that can name neither is deleted rather than kept. `docs/adr/tests-state-invariants-first-examples-second.md` owns why.
 - Command output goes through `internal/axi` as TOON and every failure through `cmd/root.go`'s error document; `hand watch`'s event stream is the exception. Package and command tests own these shapes.
 - Harness/herdr syntax, exit enforcement, watch's stdout/errOut split, and first-run prompt handling are owned by their implementations and closest tests under `internal/harness`, `internal/herdr`, `internal/watcher`, and `cmd`.
 - `herdr`, `treehouse` and `gh` are faked once in `internal/faketool` for every suite. `internal/faketool/FIDELITY.md` records observed external behavior, `tests/contract` (`make contract`) rechecks it hermetically, and `make contract-live` separately probes reversible calls against installed tools. Extend the shared fake, never hand-write another.
