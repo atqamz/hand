@@ -112,12 +112,12 @@ func validObjectID(value string) bool {
 }
 
 // AppendMarker identifies the appendix hand writes to a grok or pi brief at launch time
-// (atqamz/hand#418). It must stay byte-identical to internal/harness's own copy: Digest strips
-// from this marker's enclosing delimiter onward, so hand's own edit is never read as a revision.
+// (atqamz/hand#418). This is its one definition: the code that performs the append imports it
+// rather than declaring its own copy, so Digest's boundary detection below cannot drift from it.
 const AppendMarker = "hand appended the block below at launch time; it is not part of the supervisor's brief above."
 
-// The exact bytes appendLaunchStatement (internal/harness) prepends to AppendMarker, so stripping
-// from the start of this delimiter reproduces precisely the bytes that preceded hand's append.
+// The exact bytes the append path prepends to AppendMarker, so stripping from the start of this
+// delimiter reproduces precisely the bytes that preceded hand's own append.
 const appendBoundary = "\n\n---\n\n" + AppendMarker
 
 // Digest fingerprints a brief's supervisor-authored bytes, so a later reader can tell whether the
