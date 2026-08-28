@@ -197,6 +197,7 @@ Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is
 [Mechanical plans verify acquired HEAD](adr/mechanical-plans-verify-acquired-head.md),
 [The landed-work guard reads the work, not the record](adr/the-landed-work-guard-reads-the-work-not-the-record.md),
 [The worktree pool lives outside every fleet home](adr/the-worktree-pool-lives-outside-every-fleet-home.md),
+[Every diagnosis names a reachable treatment](adr/every-diagnosis-names-a-reachable-treatment.md),
 `internal/worktree/worktree.go` (`Get`), `cmd/doctor.go` (`doctorWorktreeFindings`), decided in
 atqamz/hand#404 and atqamz/hand#421.
 
@@ -216,6 +217,9 @@ atqamz/hand#404 and atqamz/hand#421.
 | INV-POOL-4 | Pool resolution never follows a foreign recorded worktree path to that path's own pool. | property | `TestReturnNeverFollowsAForeignRecordedPathToItsOwnPool` |
 | INV-POOL-5 | Acquisition never hands back a lease whose worktree is rooted in a Git repository other than the registered clone, even when a distinct, same-named repository is reachable nearby. | unit | `TestGetRejectsAWorktreeFromAnotherRegisteredClone` |
 | INV-POOL-6 | `hand doctor` reports a task's worktree rooted outside its registered clone as an error, not a warning, for any such task, so the command fails rather than merely noting it. | property | `TestDoctorFindsWorktreeUsingAnotherFleetClone`, `TestDoctorFindsWorktreeUsingTheFleetHomeCheckout` land unit cases; property form unaudited |
+| INV-POOL-7 | `hand doctor` classifies a leased slot's holder into exactly one of: absent from the Fleet registry, registered but not ready, unparseable, or registered and ready. A ready holder is reported to neither of the first three, and none of the first three is reported as another. | property | `TestDoctorReportsLeaseHolderAbsentFromRegistry`, `TestDoctorReportsLeaseHolderRegisteredButNotReady`, `TestDoctorReportsUnparseableLeaseHolder`, `TestDoctorSaysNothingForLeaseHolderRegisteredAndReady` land unit cases; property form unaudited |
+| INV-POOL-8 | An unreadable Fleet registry is reported as its own diagnosis, and no leased slot's holder is classified absent, not-ready, or ready while it cannot be read. | property | `TestDoctorReportsRegistryUnreadableRatherThanTreatingHoldersAsAbsent` lands a unit case; property form unaudited |
+| INV-POOL-9 | Lease-holder classification never returns, releases, or otherwise mutates a Treehouse lease. | property | unaudited |
 
 ## Pull-request observation and terminal-task release
 

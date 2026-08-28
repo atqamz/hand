@@ -38,9 +38,10 @@ type Lease struct {
 }
 
 type statusEntry struct {
-	Path    string `json:"path"`
-	Status  string `json:"status"`
-	LeaseID string `json:"lease_id"`
+	Path        string `json:"path"`
+	Status      string `json:"status"`
+	LeaseID     string `json:"lease_id"`
+	LeaseHolder string `json:"lease_holder"`
 }
 
 type LeaseObservationState string
@@ -385,6 +386,53 @@ func returnTreehouse(worktreePath string, args []string, force bool) error {
 		return &returnAbortedError{message: fmt.Sprintf("treehouse return aborted, worktree %s is still leased: %s", worktreePath, strings.TrimSpace(string(out)))}
 	}
 	return nil
+}
+
+// PoolEntry is one slot as treehouse status reports it, independent of any task Hand has a
+// record of - a leased slot Hand never provisioned still appears here.
+type PoolEntry struct {
+	Path        string
+	Status      string
+	LeaseID     string
+	LeaseHolder string
+}
+
+// PoolStatus lists every slot in clonePath's worktree pool, leased or not. It names no recorded
+// worktree, so unlike ObserveLease it always resolves the pool atqamz/hand#427 put outside the
+// clone, and it runs from clonePath rather than an ambient working directory.
+func PoolStatus(clonePath string) ([]PoolEntry, error) {
+	args, err := withTreehouseRoot(clonePath, "", "status", "--json")
+	if err != nil {
+		return nil, err
+	}
+	out, stderr, err := runCore("treehouse", clonePath, args...)
+	if err != nil {
+		detail := strings.TrimSpace(string(stderr))
+		if detail == "" {
+			return nil, fmt.Errorf("treehouse status failed: %w", err)
+		}
+		return nil, fmt.Errorf("treehouse status failed: %w: %s", err, detail)
+	}
+	var entries []statusEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		return nil, fmt.Errorf("treehouse status output is not a JSON array: %w", err)
+	}
+	result := make([]PoolEntry, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, PoolEntry(entry))
+	}
+	return result, nil
+}
+
+// ParseLeaseHolder splits a slot's lease_holder into the Fleet and Task identity a Hand-taken
+// lease encodes, "hand:<fleet-id>:<task-id>" (see internal/runtime/provision.go). ok is false for
+// anything that does not fit this shape, including a lease Hand never took.
+func ParseLeaseHolder(holder string) (fleetID, taskID string, ok bool) {
+	parts := strings.SplitN(holder, ":", 3)
+	if len(parts) != 3 || parts[0] != "hand" || parts[1] == "" || parts[2] == "" {
+		return "", "", false
+	}
+	return parts[1], parts[2], true
 }
 
 // Reports the pool entries, or the reason the pool could not be observed. A missing executable, a

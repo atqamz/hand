@@ -19,6 +19,7 @@ type Treehouse struct {
 	Slots           []string
 	Held            []string
 	LeaseIDs        map[string]string
+	LeaseHolders    map[string]string
 	NoLeaseIdentity bool
 	Banner          string
 	Log             string
@@ -38,6 +39,7 @@ type treehouseSpec struct {
 	Slots           []string
 	Held            []string
 	LeaseIDs        map[string]string
+	LeaseHolders    map[string]string
 	NoLeaseIdentity bool
 	Banner          string
 	StateDir        string
@@ -58,13 +60,16 @@ func (th Treehouse) Install(t *testing.T, bin string) {
 			leaseID = "leased"
 		}
 		ensureFile(t, treehouseMarker(state, slot), leaseID+"\n")
+		if holder := th.LeaseHolders[slot]; holder != "" {
+			ensureFile(t, treehouseHolderMarker(state, slot), holder+"\n")
+		}
 	}
 	banner := th.Banner
 	if banner == "" {
 		banner = TreehouseBanner
 	}
 	installConfig(t, bin, "treehouse", "treehouse", treehouseSpec{
-		Slots: th.Slots, Held: th.Held, LeaseIDs: th.LeaseIDs, NoLeaseIdentity: th.NoLeaseIdentity,
+		Slots: th.Slots, Held: th.Held, LeaseIDs: th.LeaseIDs, LeaseHolders: th.LeaseHolders, NoLeaseIdentity: th.NoLeaseIdentity,
 		Banner: banner, StateDir: state, Log: th.Log, AcquireHeads: th.AcquireHeads, Responses: th.Responses,
 	})
 }
@@ -182,9 +187,13 @@ func treehouseStatus(spec treehouseSpec) int {
 			"lease_id": "",
 		}
 		if leased {
+			holder, err := os.ReadFile(treehouseHolderMarker(spec.StateDir, path))
+			if err != nil && !os.IsNotExist(err) {
+				return fail("inspect treehouse lease holder: %v", err)
+			}
 			entry["status"] = "leased"
 			entry["lease_id"] = leaseID
-			entry["lease_holder"] = ""
+			entry["lease_holder"] = strings.TrimSpace(string(holder))
 			entry["leased_at"] = "2026-01-01T00:00:00Z"
 		} else {
 			entry["lease_holder"] = ""
@@ -301,6 +310,10 @@ func treehouseClean(path string) error {
 
 func treehouseMarker(state, slot string) string {
 	return filepath.Join(state, "slot-"+key(slot))
+}
+
+func treehouseHolderMarker(state, slot string) string {
+	return filepath.Join(state, "holder-"+key(slot))
 }
 
 func treehouseCounterPath(state string) string {

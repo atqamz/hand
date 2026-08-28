@@ -22,7 +22,7 @@ Each record therefore notes what the call leaves behind, not only what it prints
 
 ## treehouse
 
-Driven by `internal/worktree`, and through it by `hand spawn`, `hand promote` and `hand teardown`.
+Driven by `internal/worktree`, and through it by `hand spawn`, `hand promote`, `hand teardown` and `hand doctor`.
 
 ### `treehouse get --lease --json [--lease-holder <holder>]`
 
@@ -34,7 +34,7 @@ A version banner goes to **stderr**, the JSON payload to **stdout**, which is wh
 ```
 
 `lease_id` is fresh on every acquisition, including a slot that was just returned and handed straight back out.
-`lease_holder` and `leased_at` are read by nothing in `hand`, so only `path` and `lease_id` are load-bearing.
+`leased_at` is read by nothing in `hand`, and this call's own `lease_holder` echo is not read either - `worktree.Get` parses only `path` and `lease_id`; `hand doctor` reads `lease_holder` back from a later `status --json`, not from here.
 Hand runtime acquisitions identify the diagnostic holder as `hand:<fleet_id>:<task_id>`; direct worktree and contract fixtures may use another explicit holder because Treehouse ownership proof remains the persisted lease ID.
 An update-available notice shares stderr with the banner when one is due, which is the second reason nothing may read this call's output as a whole.
 A treehouse older than v2.1.0 reports `path` alone with no identity, which stays a usable lease: `worktree.CheckCollision` falls back to comparing paths for it.
@@ -55,8 +55,9 @@ The shared fake models the identity check, and `make contract-live` verifies the
 Exit 0 with a JSON array on stdout.
 Each pool entry includes `path`, `status`, `lease_id`, `lease_holder` and `leased_at`.
 Hand uses `path`, requires `status` to be `leased`, and compares `lease_id` exactly before retrying a forced return of a previously aborted lease.
+`hand doctor` also reads `lease_holder` from a leased entry, to cross-check it against the Fleet registry (atqamz/hand#432); an available entry's `lease_holder` is not consulted.
 An available entry has an empty `lease_id` and a null `leased_at`.
-A leased entry from a backend without lease identities still has `status` `leased`, with an empty `lease_id`.
+A leased entry from a backend without lease identities still has `status` `leased`, with an empty `lease_id`; `lease_holder` is independent of `lease_id` and can be empty on a leased entry too, when nothing supplied `--lease-holder`.
 The command requires a git repository as its working directory.
 
 State left behind: the command only observes the current pool state.
