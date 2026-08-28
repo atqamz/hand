@@ -31,6 +31,13 @@ reopen or resume that re-provisions the same brief file does not grow a second c
 operator-decision rule by some channel". grok and pi now return `true`: `internal/harness/harness.go`
 owns both delivery mechanisms, and no caller outside it needs to know which one a given harness uses.
 
+`harness.Build` stays a pure function from `Options` to a `LaunchSpec`: the append lives in the
+exported `harness.AppendPromptToBrief`, called once by `internal/runtime/provision.go` - the
+provisioning path, which already owns `briefPath` - immediately before `Build`. `Build` alone is also
+called from reconcile's `reconciliationActionConfirmLaunch` arm to reconstruct already-persisted
+launch evidence for pane-text comparison; that arm observes and must not write, so it must never
+reach the append, and it does not, because the append is not inside `Build`.
+
 ## Rejected alternatives
 
 - Guessing a `--prompt`-shaped flag for grok or pi without running `--help` against the real CLI
@@ -41,6 +48,11 @@ owns both delivery mechanisms, and no caller outside it needs to know which one 
 - Leaving `CarriesPrompt` false for grok and pi while appending anyway would keep emitting a
   "cannot carry the operator-decision rule; launching anyway" warning and blocking mechanical-class
   routing to them, both wrong once the content actually reaches the worker.
+- Calling the append from inside `buildGrok`/`buildPi` was the first shape this took. It reads
+  clean, but `harness.Build` is not only called at provision time: reconcile's confirm-launch arm
+  calls it to reconstruct persisted launch evidence, which turns an observation into a write and a
+  build that can fail on a missing brief file into a reconcile failure. The append belongs to
+  provisioning, which is a fact about the caller, not about the harness, so it moved to the caller.
 
 ## Consequences
 

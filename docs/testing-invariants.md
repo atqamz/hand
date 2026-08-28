@@ -130,7 +130,8 @@ Source: [The report channel is the only outcome signal](adr/the-report-channel-i
 | INV-REP-4 | Where the two channels disagree, the disagreement is what gets surfaced. Neither is silently resolved in favour of the other. | property | unaudited |
 | INV-REP-5 | Acknowledgement is independent of both: reading status never clears it. | property | unaudited |
 | INV-REP-6 | A send state that records a delivery failure - pending, uncertain, partial, or not-submitted - reaches at least one supervisor-visible attention subject, and no two of them collapse to the same kind. A submitted send raises none. | unit | `TestClassifyNextActionExactPrecedence/send-not-submitted_outranks_queued_work`, `TestClassifyNextActionExactPrecedence/send-partial_outranks_send-not-submitted`, `TestDeriveRaisesSendNotSubmittedDistinctFromSendUncertain`, and `TestStatusFlagsPartialSendAfterFreshRead/submitted` cover it |
-| INV-REP-7 | Every harness hand dispatches to receives the report path and the operator-decision rule in identical wording, whether as a CLI prompt argument or appended to its brief file; a harness wired into neither channel is not launched silently. | unit | `TestCarriesPrompt`, `TestBuildGrok`, `TestBuildPi` |
+| INV-REP-7 | Every harness hand dispatches to receives the report path and the operator-decision rule in identical wording, whether as a CLI prompt argument or appended to its brief file; a harness wired into neither channel is not launched silently. | unit | `TestCarriesPrompt`, `TestAppendPromptToBriefGrokAndPi`, `TestAppendPromptToBriefIsIdempotent` |
+| INV-REP-8 | Reconstructing already-persisted launch evidence (reconcile's confirm-launch arm) never mutates the brief file, even for a harness whose provisioning path appends to it. | unit | `TestReconcileConfirmLaunchDoesNotModifyBriefFile` |
 
 ## Orientation and currentness
 
