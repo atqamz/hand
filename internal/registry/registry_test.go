@@ -901,15 +901,16 @@ func TestRegisterIsIdempotentAcrossRepeatedCalls(t *testing.T) {
 }
 
 // INV-REG-2: no registry operation - Register with the right id, Register with a wrong id, List,
-// Prune, or Check - ever reissues or rewrites a home's own fleet identity. The home is built once,
-// for the same reason as TestRegisterIsIdempotentAcrossRepeatedCalls: no op below mutates it.
+// Prune, or Check - ever reissues or rewrites a home's own fleet identity. Home and registry are both
+// built once: no op mutates the home, and accumulating rows across cases only exercises it harder.
 func TestNoRegistryOperationRewritesAHomesFleetIdentity(t *testing.T) {
-	homeRoot, err := os.MkdirTemp("", "hand-registry-identity-home-")
+	root, err := os.MkdirTemp("", "hand-registry-identity-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(homeRoot) })
-	home := filepath.Join(homeRoot, "fleet")
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+	home := filepath.Join(root, "fleet")
 	db, err := store.Open(home)
 	if err != nil {
 		t.Fatal(err)
@@ -923,19 +924,13 @@ func TestNoRegistryOperationRewritesAHomesFleetIdentity(t *testing.T) {
 	}
 	wrongID := flipFleetID(canonicalID)
 
+	registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = registryDB.Close() })
+
 	rapid.Check(t, func(t *rapid.T) {
-		root, err := os.MkdirTemp("", "hand-registry-identity-")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.RemoveAll(root) })
-
-		registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = registryDB.Close() })
-
 		ops := rapid.SliceOfN(rapid.SampledFrom([]string{
 			"register-correct", "register-wrong", "list", "prune", "check-correct", "check-wrong",
 		}), 1, 8).Draw(t, "ops")
@@ -1016,9 +1011,20 @@ func (f homeFixture) reset(t *rapid.T) {
 	}
 }
 
+// Empties both registry tables in an already-open Registry, in child-then-parent order for the
+// foreign key, so a case can reuse one connection instead of paying OpenAt's file and schema setup.
+func truncateRegistry(t *rapid.T, r *Registry) {
+	if _, err := r.sql.Exec(`DELETE FROM fleet_locator`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.sql.Exec(`DELETE FROM fleet_registry`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // INV-REG-3: classification is a function of (stored rows, observed filesystem), and reading it
 // mutates nothing - checked against the registry's raw bytes, not just the returned value. Homes
-// reset per case rather than rebuild, since this is the only property of the four that mutates one.
+// reset and the registry truncates per case: this is the only property that mutates a home at all.
 func TestListIsPureAndReadingMutatesNothing(t *testing.T) {
 	fixtureRoot, err := os.MkdirTemp("", "hand-registry-pure-homes-")
 	if err != nil {
@@ -1027,19 +1033,20 @@ func TestListIsPureAndReadingMutatesNothing(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(fixtureRoot) })
 	fixtures := buildHomeFixtures(t, fixtureRoot, 5)
 
-	rapid.Check(t, func(t *rapid.T) {
-		root, err := os.MkdirTemp("", "hand-registry-pure-")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.RemoveAll(root) })
+	registryRoot, err := os.MkdirTemp("", "hand-registry-pure-registry-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(registryRoot) })
+	registryPath := filepath.Join(registryRoot, "registry.db")
+	registryDB, err := OpenAt(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = registryDB.Close() })
 
-		registryPath := filepath.Join(root, "registry.db")
-		registryDB, err := OpenAt(registryPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = registryDB.Close() })
+	rapid.Check(t, func(t *rapid.T) {
+		truncateRegistry(t, registryDB)
 
 		n := rapid.IntRange(1, len(fixtures)).Draw(t, "homes")
 		var current string
@@ -1091,9 +1098,28 @@ func TestListIsPureAndReadingMutatesNothing(t *testing.T) {
 	})
 }
 
+// Returns prior truncated for reuse, or - if it is nil, or a previous case left it mid-loss - a
+// fresh Registry at path. Deleting a registry every case still only needs one fresh schema per
+// case, not two, when the prior case's own recovered connection survives to be truncated instead.
+func acquireRegistry(t *rapid.T, path string, prior *Registry) *Registry {
+	if prior != nil {
+		if _, err := prior.sql.Exec(`DELETE FROM fleet_locator`); err == nil {
+			if _, err := prior.sql.Exec(`DELETE FROM fleet_registry`); err == nil {
+				return prior
+			}
+		}
+		_ = prior.Close()
+	}
+	fresh, err := OpenAt(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fresh
+}
+
 // INV-REG-4: losing or deleting the registry changes no fleet identity, and re-registering restores
-// exactly what each home's own state/hand.db carries. Homes are built once and never mutated here
-// (unlike TestListIsPureAndReadingMutatesNothing), so the fixed pool needs no reset between cases.
+// exactly what each home's own state/hand.db carries. Homes are built once and never mutated. The
+// connection recovery opens carries into the next case via acquireRegistry instead of reopening twice.
 func TestRegistryLossLosesNoIdentityAndRegisterRecoversIt(t *testing.T) {
 	fixtureRoot, err := os.MkdirTemp("", "hand-registry-recovery-homes-")
 	if err != nil {
@@ -1102,31 +1128,35 @@ func TestRegistryLossLosesNoIdentityAndRegisterRecoversIt(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(fixtureRoot) })
 	fixtures := buildHomeFixtures(t, fixtureRoot, 4)
 
-	rapid.Check(t, func(t *rapid.T) {
-		root, err := os.MkdirTemp("", "hand-registry-recovery-")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.RemoveAll(root) })
+	registryRoot, err := os.MkdirTemp("", "hand-registry-recovery-registry-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(registryRoot) })
+	registryPath := filepath.Join(registryRoot, "registry.db")
 
-		registryPath := filepath.Join(root, "registry.db")
-		registryDB, err := OpenAt(registryPath)
-		if err != nil {
-			t.Fatal(err)
+	var current *Registry
+	t.Cleanup(func() {
+		if current != nil {
+			_ = current.Close()
 		}
+	})
+
+	rapid.Check(t, func(t *rapid.T) {
+		current = acquireRegistry(t, registryPath, current)
 
 		n := rapid.IntRange(1, len(fixtures)).Draw(t, "homes")
 		homes := make([]string, n)
 		ids := make([]string, n)
 		for i := 0; i < n; i++ {
 			stamp := timestampGen().Draw(t, fmt.Sprintf("stamp-%d", i))
-			if err := registryDB.Register(fixtures[i].dir, fixtures[i].fleetID, stamp); err != nil {
+			if err := current.Register(fixtures[i].dir, fixtures[i].fleetID, stamp); err != nil {
 				t.Fatal(err)
 			}
 			homes[i] = fixtures[i].dir
 			ids[i] = fixtures[i].fleetID
 		}
-		if err := registryDB.Close(); err != nil {
+		if err := current.Close(); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1151,7 +1181,7 @@ func TestRegistryLossLosesNoIdentityAndRegisterRecoversIt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = recovered.Close() })
+		current = recovered
 		for i, home := range homes {
 			stamp := timestampGen().Draw(t, fmt.Sprintf("recovery-stamp-%d", i))
 			if err := recovered.Register(home, ids[i], stamp); err != nil {
