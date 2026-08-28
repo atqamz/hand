@@ -136,15 +136,16 @@ jobs:
             local dir="$1" pack_json name tarball integrity
             pack_json="$(cd "$dir" && npm pack --json --pack-destination "$pack_dir")"
             # npm pack --json is an object keyed by package name, not an array (verified
-            # against the pinned npm version above; tests/release enforces the pin).
-            name="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.name')"
-            tarball="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.filename')"
-            integrity="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.integrity')"
+            # against the pinned npm version above; tests/release enforces the pin). Each
+            # value is piped through tr to drop a stray CR a chained jq -r can emit.
+            name="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.name' | tr -d '\r')"
+            tarball="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.filename' | tr -d '\r')"
+            integrity="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.integrity' | tr -d '\r')"
             .github/scripts/npm-publish-target.sh "$name" "$version" "$pack_dir/$tarball" "$integrity" "$repo_url"
           }
           # Platforms first: the meta package's optionalDependencies must never point
           # at a platform version that is not itself already published.
-          for target in $(packaging/npm/generate.sh --print-targets | jq -r '.[]'); do
+          for target in $(packaging/npm/generate.sh --print-targets | jq -r '.[]' | tr -d '\r'); do
             publish_one "packaging/npm/platforms/$target"
           done
           publish_one "packaging/npm/meta"

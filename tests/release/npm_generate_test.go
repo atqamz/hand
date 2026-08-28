@@ -102,15 +102,8 @@ func TestNpmGenerateTargetsReactToLockChanges(t *testing.T) {
 // unconditionally, rather than asserting the unprovable exact source of the CR.
 func TestNpmGenerateToleratesCRLFTerminatedToolOutput(t *testing.T) {
 	requireTools(t, "jq")
-	realJQ, err := exec.LookPath("jq")
-	if err != nil {
-		t.Fatal(err)
-	}
 	fakeBin := t.TempDir()
-	crlfJQ := "#!/bin/sh\n'" + realJQ + "' \"$@\" | awk '{printf \"%s\\r\\n\", $0}'\n"
-	if err := os.WriteFile(filepath.Join(fakeBin, "jq"), []byte(crlfJQ), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	installCRLFJQWrapper(t, fakeBin)
 
 	lockPath := filepath.Join(t.TempDir(), "runtime.lock.json")
 	lock := `{"targets":{"linux/amd64":{"components":{}},"windows/amd64":{"components":{}}}}`
@@ -126,6 +119,21 @@ func TestNpmGenerateToleratesCRLFTerminatedToolOutput(t *testing.T) {
 	want := []string{"linux-x64", "win32-x64"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("generate.sh --print-targets under a CRLF-emitting jq = %v, want %v", got, want)
+	}
+}
+
+// Writes a fake jq into bin that wraps the real jq and appends \r to every output line,
+// reproducing the CRLF-terminated output an actual Windows runner produced (atqamz/hand#283)
+// without needing a Windows host to prove a fix survives it.
+func installCRLFJQWrapper(t *testing.T, bin string) {
+	t.Helper()
+	realJQ, err := exec.LookPath("jq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\n'" + realJQ + "' \"$@\" | awk '{printf \"%s\\r\\n\", $0}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "jq"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

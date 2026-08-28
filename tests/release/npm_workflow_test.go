@@ -204,6 +204,17 @@ func TestNpmPublishStepNeverHardcodesATargetList(t *testing.T) {
 // script faked (that state machine is proven end to end in tests/npmpublish), to prove
 // platforms publish before meta in exactly the order generate.sh derives.
 func TestNpmPublishStepOrdersPlatformsBeforeMeta(t *testing.T) {
+	testNpmPublishStepOrdering(t, false)
+}
+
+// A chained "producer | jq -r" here can hand back CRLF-terminated lines (observed on a
+// Windows runner): the target loop and the packed name/tarball/integrity all read jq
+// output that way, so a hostile jq proves all four survive it at once.
+func TestNpmPublishStepToleratesCRLFTerminatedToolOutput(t *testing.T) {
+	testNpmPublishStepOrdering(t, true)
+}
+
+func testNpmPublishStepOrdering(t *testing.T, hostileJQ bool) {
 	requireTools(t, "jq", "git", "npm")
 	requirePinnedNpmVersion(t)
 	fixture := copyNpmPackagingFixture(t)
@@ -226,9 +237,15 @@ func TestNpmPublishStepOrdersPlatformsBeforeMeta(t *testing.T) {
 	step := workflowStep(t, job.Steps, "Publish every runtime-qualified platform package, then the meta package")
 	run := strings.ReplaceAll(step.Run, "${{ needs.release-please.outputs.version }}", version)
 
+	path := os.Getenv("PATH")
+	if hostileJQ {
+		fakeBin := t.TempDir()
+		installCRLFJQWrapper(t, fakeBin)
+		path = fakeBin + string(os.PathListSeparator) + path
+	}
 	cmd := exec.Command("bash", "-c", run)
 	cmd.Dir = fixture.dir
-	cmd.Env = envWithPath(os.Getenv("PATH"), "NPM_BOOTSTRAP_TOKEN=fixture-token")
+	cmd.Env = envWithPath(path, "NPM_BOOTSTRAP_TOKEN=fixture-token")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("publish step: %v: %s", err, out)
 	}
