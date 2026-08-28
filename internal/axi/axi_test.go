@@ -3,6 +3,8 @@ package axi
 import (
 	"strings"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 func TestDocRendersFieldsRowsAndHelp(t *testing.T) {
@@ -109,6 +111,43 @@ func TestTruncateCountsRunes(t *testing.T) {
 	want := "éé... (truncated, 5 chars total - use hand status x --full to see complete text)"
 	if got != want {
 		t.Fatalf("Truncate() = %q, want %q", got, want)
+	}
+}
+
+// INV-PURE-2: Truncate never splits a UTF-8 rune, and budget bounds the
+// retained prefix, not the returned string - the recovery annotation is
+// appended past it on purpose. See TestTruncateReapplicationIsNotIdempotent.
+func TestTruncateKeepsAnUnsplitPrefixBoundedByBudget(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := rapid.String().Draw(t, "s")
+		budget := rapid.IntRange(0, 200).Draw(t, "budget")
+
+		got := Truncate(s, budget, "hand status x --full")
+		runes := []rune(s)
+
+		if len(runes) <= budget {
+			if got != s {
+				t.Fatalf("Truncate(%q, %d) = %q, want unchanged", s, budget, got)
+			}
+			return
+		}
+
+		want := string(runes[:budget])
+		if !strings.HasPrefix(got, want) {
+			t.Fatalf("Truncate(%q, %d) = %q, want it to start with the first %d runes %q unsplit",
+				s, budget, got, budget, want)
+		}
+	})
+}
+
+// Truncate's only caller, cmd/status.go:82, always passes original text
+// exactly once - re-truncating Truncate's own output corrupts the
+// annotation's reported total, so a future caller must not do it silently.
+func TestTruncateReapplicationIsNotIdempotent(t *testing.T) {
+	once := Truncate("A", 0, "hand status x --full")
+	twice := Truncate(once, 0, "hand status x --full")
+	if once == twice {
+		t.Fatalf("expected re-truncation to differ from the first pass, got %q both times", once)
 	}
 }
 

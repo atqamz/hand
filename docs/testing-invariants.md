@@ -307,9 +307,9 @@ Source: `internal/shellquote`, `internal/age`, `cmd/statusview.go`.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
-| INV-PURE-1 | For any string, a real shell parses `shellquote.Quote(s)` back to exactly `s`, including spaces, quotes, newlines, and non-ASCII. | property | unaudited |
-| INV-PURE-2 | Truncation never splits a UTF-8 rune, never exceeds the requested width, and is idempotent. | property | unaudited |
-| INV-PURE-3 | Age rendering is monotonic in its input: a larger duration never renders as a smaller age. | property | unaudited |
+| INV-PURE-1 | For any string, a real shell parses `shellquote.Quote(s)` back to exactly `s`, including spaces, quotes, newlines, and non-ASCII. | property | `TestQuoteRoundTripsPOSIXShellArguments` lands unit cases; property - `TestQuoteRoundTripsAnyStringThroughARealShell` |
+| INV-PURE-2 | `axi.Truncate` never splits a UTF-8 rune: a string within budget returns unchanged, and a string over budget keeps exactly its first `budget` runes as a stable, unsplit prefix - budget bounds the retained prefix, not the returned string, since the recovery annotation is deliberately appended past it - a note that could itself be truncated away would be useless. `Truncate` is meant to be applied to original text exactly once: its only caller, `cmd/status.go:82`, always passes un-truncated text, and re-truncating `Truncate`'s own output corrupts the annotation's reported total rather than merely repeating it - a precondition the next caller needs to see stated, not rediscover. | property | unit - `TestTruncateLeavesShortTextAlone`, `TestTruncateCarriesSizeAndRecoveryHint`, `TestTruncateCountsRunes`, `TestTruncateReapplicationIsNotIdempotent`; property - `TestTruncateKeepsAnUnsplitPrefixBoundedByBudget` |
+| INV-PURE-3 | Age rendering is monotonic in its input: a larger duration never renders as a smaller age. | property | unit - `TestFormatDuration`, `TestFormatAge`; property - `TestFormatDurationIsMonotonic` |
 
 ## What is deliberately not an invariant
 
