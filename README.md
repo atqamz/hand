@@ -117,10 +117,13 @@ The target must be an empty or absent directory, or a fleet home `hand init` alr
 ### 3. Add or create a project
 
 ```sh
+hand project add git@github.com:you/project.git
 hand project add https://github.com/you/project
 hand project add ~/work/project
 hand project create new-project
 ```
+
+The currently pinned Git carries no https transport helper, so the ssh form above is the reliable default until a bundle that includes one ships; `hand runtime status` reports this as `git_https_ready`.
 
 Remote sources are cloned under the fleet home and prepared for isolated worker worktrees.
 Local Git sources are adopted once into a separate Fleet-managed clone; Hand never executes in or synchronizes with the original checkout.
@@ -270,7 +273,7 @@ Its internal review, test, documentation, lint, PR, and CI stages remain owned b
 Choose a mode when registering a project:
 
 ```sh
-hand project add https://github.com/you/project --mode direct-pr
+hand project add git@github.com:you/project.git --mode direct-pr
 ```
 
 Add an existing local Git project or create a new managed project with the local-only mode:
