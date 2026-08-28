@@ -91,6 +91,10 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 	if err != nil {
 		return routing.ResolvedRoute{}, classifyResolutionError(fmt.Errorf("parse brief %s: %w", briefPath, err), harnessName, harnessProvided)
 	}
+	digest, err := brief.Digest(briefPath)
+	if err != nil {
+		return routing.ResolvedRoute{}, classifyResolutionError(err, harnessName, harnessProvided)
+	}
 	detectedHarness := ""
 	includeRouting := declaration.ExecutionClass != "" || profileFromFlag
 	if !harnessProvided && !includeRouting {
@@ -108,6 +112,7 @@ func resolveExecution(homeDir, briefPath, kind, profile string, profileFromFlag 
 		Kind:                routing.TaskKind(kind),
 		Declaration:         declaration,
 		BriefHasFrontMatter: frontMatter,
+		BriefDigest:         digest,
 		Profile:             profile,
 		ProfileFromFlag:     profileFromFlag,
 		Harness:             harnessName,

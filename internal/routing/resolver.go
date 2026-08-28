@@ -16,6 +16,7 @@ type Request struct {
 	Kind                TaskKind
 	Declaration         brief.Declaration
 	BriefHasFrontMatter bool
+	BriefDigest         string
 	Profile             string
 	ProfileFromFlag     bool
 	Harness             string
@@ -59,6 +60,7 @@ type ResolvedRoute struct {
 	ExecutionClass      brief.ExecutionClass
 	PlannedAgainst      string
 	BriefHasFrontMatter bool
+	BriefDigest         string
 	Warnings            []string
 }
 
@@ -136,6 +138,7 @@ func Resolve(request Request, config Config, legacy LegacyDefaults, availability
 		ExecutionClass:      request.Declaration.ExecutionClass,
 		PlannedAgainst:      request.Declaration.PlannedAgainst,
 		BriefHasFrontMatter: request.BriefHasFrontMatter,
+		BriefDigest:         request.BriefDigest,
 	}
 	if request.Declaration.ExecutionClass == "" && !request.ProfileFromFlag {
 		return resolveLegacy(request, legacy, availability, result)

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/project"
@@ -268,6 +269,29 @@ func TestSpawnPersistsResolvedNotDeclaredTierValues(t *testing.T) {
 	}
 	if active.Effort != "brief-effort" {
 		t.Fatalf("got effort %q, want the brief's declared value since no flag or config overrides it", active.Effort)
+	}
+}
+
+// atqamz/hand#448: promote later compares this digest against the brief on disk to tell whether
+// the supervisor rewrote it, so it has to be captured at the moment the attempt actually launches.
+func TestSpawnRecordsBriefDigestAtLaunch(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt")
+	home := setupSpawnHome(t, wt, defaultSpawnHerdr("claude"))
+	briefPath := filepath.Join(home, "data", "task-1", "brief.md")
+
+	cmd := newSpawnCmd()
+	cmd.SetArgs([]string{"task-1", "myproj"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	want, err := brief.Digest(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := readTaskAttempt(t, home, "task-1")
+	if active.BriefDigest != want {
+		t.Fatalf("active.BriefDigest = %q, want the launched brief's digest %q", active.BriefDigest, want)
 	}
 }
 

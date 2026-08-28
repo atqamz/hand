@@ -30,6 +30,7 @@ An unaudited line is a question, not a claim that coverage is missing.
 ## Task and Attempt lifecycle
 
 Source: [Tasks are durable and Attempts own execution](adr/tasks-are-durable-and-attempts-own-execution.md),
+[Promote refuses to launch against an unrevised brief](adr/promote-refuses-to-launch-against-an-unrevised-brief.md),
 `internal/store`, `internal/runtime`.
 
 | id | invariant | layer | coverage |
@@ -42,6 +43,8 @@ Source: [Tasks are durable and Attempts own execution](adr/tasks-are-durable-and
 | INV-TASK-6 | `hand reopen` on a terminal task creates a new attempt and mutates no existing one. | model | unaudited |
 | INV-TASK-7 | Promotion preserves the scout attempt and creates the next one. | model | unaudited |
 | INV-TASK-8 | An existing attempt's execution identity - harness, model, effort, execution class, planned-against commit, requested profile, routing source - is write-once. Nothing reroutes it after creation. | model | unaudited |
+| INV-TASK-9 | Promote refuses, and launches no attempt, when the scout attempt's recorded brief digest equals the brief's current digest. A scout attempt recorded before digest tracking existed (an empty digest) is never treated as unchanged. | unit | `TestPromoteRefusesWhenBriefIsUnchangedSinceScoutLaunch`, `TestPromoteSucceedsWhenBriefWasRewrittenSinceScoutLaunch`, `TestPromoteSucceedsWhenScoutAttemptPredatesBriefDigestRecording` |
+| INV-TASK-10 | Every attempt launch records a digest of the brief it launched against, alongside `planned_against`. | unit | `TestSpawnRecordsBriefDigestAtLaunch` |
 
 ## Reconciliation
 

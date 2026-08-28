@@ -86,7 +86,7 @@ func (r *Runtime) Spawn(ctx context.Context, req SpawnRequest) (Result, error) {
 		ID: req.ID, Project: projectInfo.Name, Kind: kind, Brief: briefRel, Lifecycle: state.TaskOpen, CreatedAt: createdAt,
 	}, state.Attempt{
 		TaskID: req.ID, Lifecycle: state.AttemptProvisioning, Harness: route.Harness, Model: route.Model, Effort: route.Effort,
-		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
+		ExecutionClass: string(route.ExecutionClass), PlannedAgainst: route.PlannedAgainst, BriefDigest: route.BriefDigest, RequestedProfile: route.Profile, RoutingSource: string(route.Source), CreatedAt: createdAt,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("write provisioning state: %w", err))

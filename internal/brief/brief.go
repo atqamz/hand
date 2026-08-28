@@ -3,6 +3,8 @@ package brief
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -107,6 +109,30 @@ func validObjectID(value string) bool {
 		}
 	}
 	return true
+}
+
+// AppendMarker identifies the appendix hand writes to a grok or pi brief at launch time
+// (atqamz/hand#418). It must stay byte-identical to internal/harness's own copy: Digest strips
+// from this marker's enclosing delimiter onward, so hand's own edit is never read as a revision.
+const AppendMarker = "hand appended the block below at launch time; it is not part of the supervisor's brief above."
+
+// The exact bytes appendLaunchStatement (internal/harness) prepends to AppendMarker, so stripping
+// from the start of this delimiter reproduces precisely the bytes that preceded hand's append.
+const appendBoundary = "\n\n---\n\n" + AppendMarker
+
+// Digest fingerprints a brief's supervisor-authored bytes, so a later reader can tell whether the
+// supervisor touched it since a prior read - the same question planned_against answers for the
+// project's commit. A trailing appendix hand wrote to the file itself is excluded (see AppendMarker).
+func Digest(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read brief %s: %w", path, err)
+	}
+	if idx := strings.Index(string(data), appendBoundary); idx >= 0 {
+		data = data[:idx]
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func unquote(value string) string {
