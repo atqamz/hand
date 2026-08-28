@@ -214,3 +214,196 @@ func TestTableOnNoItemsStillEmitsSchema(t *testing.T) {
 		t.Fatalf("Render() = %q", got)
 	}
 }
+
+// Biases toward the runes Value treats specially - separator, quote,
+// boundary/embedded whitespace, non-ASCII - since a uniform rapid.String()
+// almost never produces them.
+func toonValueGen() *rapid.Generator[string] {
+	tricky := rapid.RuneFrom([]rune{',', ':', '"', '\n', '\r', '\t', ' ', '\\', 'é', '日', '🎉', '\u0085'})
+	boring := rapid.RuneFrom([]rune("abcXYZ019"))
+	mixed := rapid.StringOfN(rapid.OneOf(boring, tricky), 0, 24, -1)
+	return rapid.OneOf(rapid.String(), mixed)
+}
+
+// INV-OUT-1: a rendered block's [N] always equals the number of rows that
+// follow it, checked by an independent count of the rendered lines rather
+// than by re-reading the header Render itself computed from len(rows).
+func TestRowsHeaderCountAgreesWithRenderedRowCount(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(0, 20).Draw(t, "n")
+		rows := make([][]string, n)
+		for i := range rows {
+			rows[i] = []string{fmt.Sprintf("r%d", i)}
+		}
+		var d Doc
+		d.Rows("items", []string{"v"}, rows)
+		declared, parsed := parseRowsBlock(t, d.String(), "items")
+		if declared != n {
+			t.Fatalf("Render() = %q, header declares %d rows, want %d", d.String(), declared, n)
+		}
+		if len(parsed) != n {
+			t.Fatalf("Render() = %q, %d row lines actually follow the header, want %d", d.String(), len(parsed), n)
+		}
+	})
+}
+
+// Checks the parser against literals two other tests already assert byte
+// for byte, not documents Render produced - a self round trip would still
+// close over a parser lenient in the same place a renderer bug hid.
+func TestParserDecodesHandWrittenLiteralDocuments(t *testing.T) {
+	doc := "count: 2\n" +
+		"tasks[2]{id,state}:\n" +
+		"  fix-login,busy\n" +
+		"  ship-docs,idle\n" +
+		"help[1]:\n" +
+		"  - Run `hand status <id>` for detail\n"
+
+	if got := parseFieldValue(t, doc, "count"); got != "2" {
+		t.Fatalf("count field = %q, want %q", got, "2")
+	}
+	_, rows := parseRowsBlock(t, doc, "tasks")
+	want := [][]string{{"fix-login", "busy"}, {"ship-docs", "idle"}}
+	if len(rows) != len(want) {
+		t.Fatalf("parsed %d rows, want %d", len(rows), len(want))
+	}
+	for i := range want {
+		for j := range want[i] {
+			if rows[i][j] != want[i][j] {
+				t.Fatalf("row %d cell %d = %q, want %q", i, j, rows[i][j], want[i][j])
+			}
+		}
+	}
+
+	// Each field's value here is TestValueQuotesOnlyWhatWouldBeAmbiguous's
+	// own literal "want" column for that case, typed again rather than
+	// derived from calling Value.
+	quoted := "a: \"a,b\"\n" +
+		"b: \"say \\\"hi\\\"\"\n" +
+		"c: \"two\\nlines\"\n" +
+		"d: \" padded \"\n"
+	for key, want := range map[string]string{
+		"a": "a,b",
+		"b": `say "hi"`,
+		"c": "two\nlines",
+		"d": " padded ",
+	} {
+		if got := parseFieldValue(t, quoted, key); got != want {
+			t.Fatalf("field %q = %q, want %q", key, got, want)
+		}
+	}
+
+	// A quoted cell may itself carry a literal comma - hand-typed to check
+	// splitTOONCells' quote-boundary handling, not Render's.
+	commaInQuotedCell := "items[1]{a,b}:\n  \"x,y\",z\n"
+	_, commaRows := parseRowsBlock(t, commaInQuotedCell, "items")
+	if len(commaRows) != 1 || commaRows[0][0] != "x,y" || commaRows[0][1] != "z" {
+		t.Fatalf("parsed row = %v, want [[x,y z]]", commaRows)
+	}
+}
+
+// INV-OUT-2: rendering a Field is total over arbitrary values, including
+// quotes, newlines, commas, and non-ASCII - the document that results always
+// parses back to the same value.
+func TestFieldValueRoundTripsThroughRender(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		value := toonValueGen().Draw(t, "value")
+		var d Doc
+		d.Field("f", value)
+		if got := parseFieldValue(t, d.String(), "f"); got != value {
+			t.Fatalf("Field(%q) rendered %q, parsed back %q", value, d.String(), got)
+		}
+	})
+}
+
+// INV-OUT-2 for row cells: the same totality claim over a Rows block's
+// values - the "field values" the invariant map's Output rendering section
+// names.
+func TestRowValuesRoundTripThroughRender(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(1, 4).Draw(t, "cols")
+		values := make([]string, n)
+		fields := make([]string, n)
+		for i := range values {
+			values[i] = toonValueGen().Draw(t, fmt.Sprintf("v%d", i))
+			fields[i] = fmt.Sprintf("f%d", i)
+		}
+
+		var d Doc
+		d.Rows("items", fields, [][]string{values})
+		_, rows := parseRowsBlock(t, d.String(), "items")
+		if len(rows) != 1 {
+			t.Fatalf("Render() = %q, parsed %d rows, want 1", d.String(), len(rows))
+		}
+		for i, want := range values {
+			if rows[0][i] != want {
+				t.Fatalf("Render() = %q, cell %d parsed back %q, want %q", d.String(), i, rows[0][i], want)
+			}
+		}
+	})
+}
+
+// INV-OUT-3: an empty result renders its header with a count of 0 rather
+// than nothing, for any block name and field set - the general form of
+// TestEmptyRowsBlockKeepsCountAndSchema and TestTableOnNoItemsStillEmitsSchema above.
+func TestEmptyRowsRenderCountZeroWithSchemaHeader(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		name := rapid.StringMatching(`[a-z][a-z_]{0,9}`).Draw(t, "name")
+		fields := rapid.SliceOfN(rapid.StringMatching(`[a-z][a-z_]{0,7}`), 0, 5).Draw(t, "fields")
+
+		var d Doc
+		d.Rows(name, fields, nil)
+		doc := d.String()
+
+		declared, rows := parseRowsBlock(t, doc, name)
+		if declared != 0 {
+			t.Fatalf("Render() = %q, header declares %d rows, want 0", doc, declared)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("Render() = %q, %d rows rendered after an empty result, want 0", doc, len(rows))
+		}
+		gotFields := rowsSchemaFields(t, doc, name)
+		if strings.Join(gotFields, ",") != strings.Join(fields, ",") {
+			t.Fatalf("Render() = %q, schema fields = %v, want %v", doc, gotFields, fields)
+		}
+	})
+}
+
+type projRow map[string]string
+
+// INV-OUT-5: field selection is a projection. Select narrows which columns
+// Table renders, in the order requested, but never touches a selected
+// field's own value or which field a rendered cell belongs to.
+func TestFieldSelectionProjectsValuesUnchangedInRequestedOrder(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		names := rapid.SliceOfNDistinct(rapid.StringMatching(`[a-z][a-z_]{0,6}`), 1, 6, func(s string) string { return s }).Draw(t, "names")
+		values := make(map[string]string, len(names))
+		cols := make([]Column[projRow], len(names))
+		for i, name := range names {
+			values[name] = toonValueGen().Draw(t, "value_"+name)
+			field := name
+			cols[i] = Column[projRow]{Name: field, Value: func(r projRow) string { return r[field] }}
+		}
+		item := projRow(values)
+
+		perm := rapid.Permutation(names).Draw(t, "perm")
+		k := rapid.IntRange(1, len(perm)).Draw(t, "k")
+		want := perm[:k]
+
+		selected, err := Select(cols, want)
+		if err != nil {
+			t.Fatalf("Select(%v) error = %v", want, err)
+		}
+		var d Doc
+		Table(&d, "items", []projRow{item}, selected)
+		_, rows := parseRowsBlock(t, d.String(), "items")
+		if len(rows) != 1 || len(rows[0]) != len(want) {
+			t.Fatalf("Render() = %q, want exactly one row of %d cells", d.String(), len(want))
+		}
+		for i, name := range want {
+			if rows[0][i] != values[name] {
+				t.Fatalf("Render() = %q, field %q at position %d = %q, want %q unchanged from the source item",
+					d.String(), name, i, rows[0][i], values[name])
+			}
+		}
+	})
+}

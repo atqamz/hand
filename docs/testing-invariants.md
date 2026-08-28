@@ -273,12 +273,12 @@ Source: [Output is TOON by default and JSON is retained](adr/output-is-toon-by-d
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
-| INV-OUT-1 | A rendered block's `[N]` always equals the number of rows that follow it. | property | unaudited |
-| INV-OUT-2 | Rendering is total: arbitrary field values, including quotes, newlines, commas, and non-ASCII, render to a document that parses back to the same values. | property | unaudited |
-| INV-OUT-3 | An empty result renders its header with a count of `0` rather than nothing. | property | unaudited |
-| INV-OUT-4 | Every failure writes exactly one document carrying `error`, `kind`, and `exit`, and a command that already produced stdout keeps it. | property | unaudited |
-| INV-OUT-5 | Field selection is a projection: it changes which fields appear and never their values or their order relative to each other. | property | unaudited |
-| INV-OUT-6 | A request combining TOON-only field selection with JSON is rejected, never silently honoured in part. | property | unaudited |
+| INV-OUT-1 | A rendered block's `[N]` always equals the number of rows that follow it. | property | `TestRowsHeaderCountAgreesWithRenderedRowCount` |
+| INV-OUT-2 | Rendering is total: arbitrary field values, including quotes, newlines, commas, and non-ASCII, render to a document that parses back to the same values. | property | `TestFieldValueRoundTripsThroughRender`, `TestRowValuesRoundTripThroughRender` - scoped to `Field`/`Rows` values; `List` items are not field values and are documented-lossy on embedded newlines (`oneLine`) |
+| INV-OUT-3 | An empty result renders its header with a count of `0` rather than nothing. | property | unit - `TestEmptyRowsBlockKeepsCountAndSchema`, `TestTableOnNoItemsStillEmitsSchema`; property - `TestEmptyRowsRenderCountZeroWithSchemaHeader` |
+| INV-OUT-4 | Every failure writes exactly one document carrying `error`, `kind`, and `exit`, and a command that already produced stdout keeps it. | property | `TestRenderErrorAlwaysWritesExactlyOneDocumentWithErrorKindAndExit` covers the document shape; `TestDoctorViolationsKeepStdoutReportAndRenderASeparateErrorDocument` (cmd layer, a real command) covers the stdout-survives-the-error-path half, which has no meaningful generated-input space |
+| INV-OUT-5 | Field selection is a projection: it changes which fields appear and never their values or their order relative to each other. | property | `TestFieldSelectionProjectsValuesUnchangedInRequestedOrder` |
+| INV-OUT-6 | A request combining TOON-only field selection with JSON is rejected, never silently honoured in part. | property | unit - `TestStatusFieldsWithJSONIsAUsageError`; property - `TestRejectFieldsWithJSONRefusesOnlyWhenBothAreRequested` |
 
 ## Diagnosis and treatment
 
