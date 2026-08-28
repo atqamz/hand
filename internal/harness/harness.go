@@ -3,10 +3,13 @@ package harness
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/atqamz/hand/internal/agentsmd"
+	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/brief"
 	"github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/state"
@@ -162,9 +165,14 @@ var effortCapable = map[string]bool{
 	Antigravity: true,
 }
 
+// True for every supported harness: grok and pi have no verified prompt flag (atqamz/hand#418),
+// so their builders append the report path and operator-decision rule to the brief file itself
+// instead of passing them as a CLI argument.
 var promptCapable = map[string]bool{
 	Claude:      true,
 	Codex:       true,
+	Grok:        true,
+	Pi:          true,
 	OpenCode:    true,
 	Antigravity: true,
 }
@@ -179,9 +187,9 @@ func SupportsEffort(name string) bool {
 	return effortCapable[name]
 }
 
-// False means the builder hands the brief over as a file and has no prompt to append to, so
-// briefPrompt's operator-decision rule and front-matter disclaimer never reach the worker.
-// Carrying them properly needs flags verified against a real --help (atqamz/hand#418).
+// True regardless of delivery channel: a CLI argument for a prompt-taking harness, or an
+// appendix hand writes into the brief file itself for one that only takes a file (atqamz/hand#418).
+// False would mean no report channel reaches the worker at all, not merely no operator-decision rule.
 func CarriesPrompt(name string) bool {
 	return promptCapable[name]
 }
@@ -201,9 +209,9 @@ func Build(name string, opts Options) (launch.LaunchSpec, error) {
 	case Codex:
 		spec, buildErr = buildCodex(opts)
 	case Grok:
-		spec = buildGrok(opts)
+		spec, buildErr = buildGrok(opts)
 	case Pi:
-		spec = buildPi(opts)
+		spec, buildErr = buildPi(opts)
 	case OpenCode:
 		spec, buildErr = buildOpenCode(opts)
 	case Antigravity:
@@ -282,12 +290,15 @@ func buildCodex(o Options) (launch.LaunchSpec, error) {
 	return launch.LaunchSpec{Executable: Codex, Args: args}, nil
 }
 
-func buildGrok(o Options) launch.LaunchSpec {
-	return launch.LaunchSpec{Executable: Grok, Args: []string{"--trust", "--file", o.Brief}}
+// Neither takes a prompt argument: AppendPromptToBrief carries the launch statement instead,
+// called once by the provisioning path before Build runs, so Build stays a pure function from
+// Options to a LaunchSpec (atqamz/hand#418).
+func buildGrok(o Options) (launch.LaunchSpec, error) {
+	return launch.LaunchSpec{Executable: Grok, Args: []string{"--trust", "--file", o.Brief}}, nil
 }
 
-func buildPi(o Options) launch.LaunchSpec {
-	return launch.LaunchSpec{Executable: Pi, Args: []string{o.Brief}}
+func buildPi(o Options) (launch.LaunchSpec, error) {
+	return launch.LaunchSpec{Executable: Pi, Args: []string{o.Brief}}, nil
 }
 
 // Uses the bare `opencode` command (verified via `opencode --help`), which opens an interactive TUI,
@@ -309,26 +320,77 @@ func buildOpenCode(o Options) (launch.LaunchSpec, error) {
 	return launch.LaunchSpec{Executable: OpenCode, Args: args, Env: map[string]string{"OPENCODE_CONFIG_CONTENT": `{"permission":{"*":"allow"}}`}}, nil
 }
 
-// Shared so the wording cannot drift between harnesses. It ends with agentsmd.OperatorDecisionRule
-// because a worker runs in a worktree that is never under the fleet home, so the home's AGENTS.md
-// never reaches it and the launch prompt is the only channel that rule has.
-func briefPrompt(o Options) (string, error) {
+// Shared by every harness regardless of delivery channel, so the report path and the
+// operator-decision rule cannot drift into two wordings (atqamz/hand#418). Ends with
+// agentsmd.OperatorDecisionRule: a worktree is never under the fleet home, so this is the only channel that rule has.
+func launchStatement(o Options) (string, error) {
 	if o.ReportPath == "" {
 		return "", fmt.Errorf("report path is required for a prompt-capable harness")
 	}
-	prompt := fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief)
-	prompt += fmt.Sprintf(" The worker report channel is %s. Append every state change to that file with plain shell redirection; this is the only way anything you say reaches the supervisor. Use these report prefixes: working:, done:, failed:, blocked:, needs-decision:, paused:.", o.ReportPath)
+	statement := fmt.Sprintf("The worker report channel is %s. Append every state change to that file with plain shell redirection; this is the only way anything you say reaches the supervisor. Use these report prefixes: working:, done:, failed:, blocked:, needs-decision:, paused:.", o.ReportPath)
 	switch o.Kind {
 	case state.KindShip:
-		prompt += " You are authorized to commit, push your branch, and open the pull request; merging and closing the issue are the supervisor's action only."
+		statement += " You are authorized to commit, push your branch, and open the pull request; merging and closing the issue are the supervisor's action only."
 	case state.KindScout:
-		prompt += " Your deliverable is a report; you must not commit, push, or open a pull request."
+		statement += " Your deliverable is a report; you must not commit, push, or open a pull request."
 	}
 	if o.BriefHasFrontMatter {
-		prompt += " Any model, effort, execution_class, or planned_against keys in its leading '---' block are dispatch metadata, not task instructions."
+		statement += " Any model, effort, execution_class, or planned_against keys in its leading '---' block are dispatch metadata, not task instructions."
 	}
 	if o.ExecutionClass == brief.ExecutionClassMechanical {
-		prompt += " Verify the named files/symbols and plan assumptions before editing. If materially stale or contradictory, stop and report blocked. Do not redesign the task yourself. Otherwise execute the ordered plan and verification steps."
+		statement += " Verify the named files/symbols and plan assumptions before editing. If materially stale or contradictory, stop and report blocked. Do not redesign the task yourself. Otherwise execute the ordered plan and verification steps."
 	}
-	return prompt + " " + agentsmd.OperatorDecisionRule, nil
+	return statement + " " + agentsmd.OperatorDecisionRule, nil
+}
+
+// The CLI-argument delivery of launchStatement, used by every harness that takes a prompt
+// flag or positional argument instead of only a brief file path.
+func briefPrompt(o Options) (string, error) {
+	statement, err := launchStatement(o)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief) + " " + statement, nil
+}
+
+// Also gates the idempotency check below: a brief already carrying it (a resumed or reopened
+// attempt re-provisioning the same file) is left alone rather than growing another copy of the
+// statement on every relaunch.
+const briefAppendMarker = "hand appended the block below at launch time; it is not part of the supervisor's brief above."
+
+// AppendPromptToBrief is grok's and pi's delivery of launchStatement, a no-op for every other
+// harness (atqamz/hand#418). Called once by the provisioning path before Build runs - never to
+// reconstruct already-persisted launch evidence, which must stay a read.
+func AppendPromptToBrief(name string, o Options) error {
+	switch name {
+	case Grok, Pi:
+	default:
+		return nil
+	}
+	return appendLaunchStatement(o)
+}
+
+// The marker line keeps the appendix visibly hand's text rather than something the supervisor's
+// brief said.
+func appendLaunchStatement(o Options) error {
+	statement, err := launchStatement(o)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(o.Brief)
+	if err != nil {
+		return fmt.Errorf("stat brief for launch statement: %w", err)
+	}
+	data, err := os.ReadFile(o.Brief)
+	if err != nil {
+		return fmt.Errorf("read brief for launch statement: %w", err)
+	}
+	if strings.Contains(string(data), briefAppendMarker) {
+		return nil
+	}
+	appendix := fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", briefAppendMarker, statement)
+	if err := atomicfile.Write(o.Brief, ".brief-append-", append(data, appendix...), info.Mode().Perm()); err != nil {
+		return fmt.Errorf("append launch statement to brief: %w", err)
+	}
+	return nil
 }

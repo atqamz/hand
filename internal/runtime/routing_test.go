@@ -68,16 +68,6 @@ func TestSpawnClassifiedRoutingFailuresPrecedeLifecycleSideEffects(t *testing.T)
 			want:    "harness \"grok\" takes no model",
 		},
 		{
-			name:  "mechanical prompt incompatible",
-			brief: "---\nexecution_class: mechanical\nplanned_against: " + planned + "\n---\nbrief\n",
-			configure: func(t *testing.T, home string) {
-				t.Helper()
-				configureRoute(t, home, state.KindShip, routing.ExecutionClassMechanical, routing.Profile{Name: "daily", Harness: "grok"})
-				addHarnessToPath(t, "grok")
-			},
-			want: "cannot carry the required mechanical worker guidance",
-		},
-		{
 			name:  "stale mechanical plan",
 			brief: "---\nexecution_class: mechanical\nplanned_against: " + planned + "\n---\nbrief\n",
 			configure: func(t *testing.T, home string) {

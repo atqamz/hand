@@ -2,6 +2,8 @@ package harness
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -189,6 +191,125 @@ func TestBuildPi(t *testing.T) {
 	}
 }
 
+// Build is a pure function from Options to a LaunchSpec: the append that carries the report
+// path and operator-decision rule to grok and pi is AppendPromptToBrief's job, called
+// separately by the provisioning path, never by Build itself (atqamz/hand#418).
+func TestBuildNeverTouchesTheBriefFile(t *testing.T) {
+	for _, name := range []string{Grok, Pi} {
+		briefPath := writeTestBrief(t, "do the task.\n")
+		if _, err := Build(name, Options{Worktree: "/tmp/wt", Brief: briefPath, ReportPath: "/tmp/state/task-1.status"}); err != nil {
+			t.Fatalf("Build(%q) = %v", name, err)
+		}
+		data, err := os.ReadFile(briefPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "do the task.\n" {
+			t.Fatalf("Build(%q) modified the brief file, got %q", name, data)
+		}
+	}
+}
+
+func TestAppendPromptToBriefGrokAndPi(t *testing.T) {
+	for _, name := range []string{Grok, Pi} {
+		briefPath := writeTestBrief(t, "do the task.\n")
+		options := Options{Brief: briefPath, ReportPath: "/tmp/state/task-1.status"}
+		if err := AppendPromptToBrief(name, options); err != nil {
+			t.Fatalf("AppendPromptToBrief(%q) = %v", name, err)
+		}
+		assertBriefCarriesLaunchStatement(t, briefPath, options)
+	}
+}
+
+func TestAppendPromptToBriefIsIdempotent(t *testing.T) {
+	briefPath := writeTestBrief(t, "do the task.\n")
+	options := Options{Brief: briefPath, ReportPath: "/tmp/state/task-1.status"}
+	if err := AppendPromptToBrief(Grok, options); err != nil {
+		t.Fatal(err)
+	}
+	once, err := os.ReadFile(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendPromptToBrief(Grok, options); err != nil {
+		t.Fatal(err)
+	}
+	twice, err := os.ReadFile(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(once) != string(twice) {
+		t.Fatalf("AppendPromptToBrief grew a second copy on the second call:\nfirst:  %q\nsecond: %q", once, twice)
+	}
+}
+
+func TestAppendPromptToBriefNoopForPromptCapableHarnesses(t *testing.T) {
+	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
+		briefPath := writeTestBrief(t, "do the task.\n")
+		if err := AppendPromptToBrief(name, Options{Brief: briefPath, ReportPath: "/tmp/state/task-1.status"}); err != nil {
+			t.Fatalf("AppendPromptToBrief(%q) = %v, want nil (no-op)", name, err)
+		}
+		data, err := os.ReadFile(briefPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "do the task.\n" {
+			t.Fatalf("AppendPromptToBrief(%q) touched the brief file, got %q", name, data)
+		}
+	}
+	// A no-op harness never resolves ReportPath, so a nonexistent brief path is not an error either.
+	if err := AppendPromptToBrief(Claude, Options{Brief: "/does/not/exist.md"}); err != nil {
+		t.Fatalf("AppendPromptToBrief(claude) = %v, want nil", err)
+	}
+}
+
+func TestAppendPromptToBriefRejectsMissingReportPath(t *testing.T) {
+	for _, name := range []string{Grok, Pi} {
+		briefPath := writeTestBrief(t, "do the task.\n")
+		err := AppendPromptToBrief(name, Options{Brief: briefPath})
+		if err == nil || !strings.Contains(err.Error(), "report path") {
+			t.Fatalf("AppendPromptToBrief(%q) error = %v, want missing report path error", name, err)
+		}
+		if data, readErr := os.ReadFile(briefPath); readErr != nil || strings.Contains(string(data), briefAppendMarker) {
+			t.Fatalf("AppendPromptToBrief(%q) refusal must not touch the brief file, got %q", name, data)
+		}
+	}
+}
+
+// Gives each caller its own file under t.TempDir() rather than a fixed /tmp path, since
+// AppendPromptToBrief mutates it and a shared path would leak state between tests.
+func writeTestBrief(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func assertBriefCarriesLaunchStatement(t *testing.T, briefPath string, options Options) {
+	t.Helper()
+	data, err := os.ReadFile(briefPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.HasPrefix(content, "do the task.") {
+		t.Fatalf("brief content = %q, want the supervisor's original brief preserved at the top", content)
+	}
+	for _, want := range []string{
+		briefAppendMarker,
+		options.ReportPath,
+		"working:", "done:", "failed:", "blocked:", "needs-decision:", "paused:",
+		"plain shell redirection",
+		agentsmd.OperatorDecisionRule,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("brief content = %q, want launch statement to contain %q", content, want)
+		}
+	}
+}
+
 func TestBuildOpenCode(t *testing.T) {
 	spec := buildSpec(t, OpenCode, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
 	want := launch.LaunchSpec{
@@ -343,9 +464,24 @@ func TestSupportsEffort(t *testing.T) {
 
 func TestCarriesPrompt(t *testing.T) {
 	for _, name := range []string{Claude, Codex, Grok, Pi, OpenCode, Antigravity} {
-		spec := buildSpec(t, name, Options{Worktree: "/tmp/wt", Brief: "/tmp/brief.md"})
-		if containsText(spec.Args, agentsmd.OperatorDecisionRule) != CarriesPrompt(name) {
-			t.Errorf("CarriesPrompt(%q) = %v but args = %#v", name, CarriesPrompt(name), spec.Args)
+		briefPath := writeTestBrief(t, "do the task.\n")
+		options := withTestReportPath(Options{Worktree: "/tmp/wt", Brief: briefPath})
+		// Mirrors the provisioning path: AppendPromptToBrief runs before Build, and is a no-op
+		// for a harness that carries the prompt as a CLI argument instead.
+		if err := AppendPromptToBrief(name, options); err != nil {
+			t.Fatal(err)
+		}
+		spec := buildSpec(t, name, options)
+		carried := containsText(spec.Args, agentsmd.OperatorDecisionRule)
+		if !carried {
+			data, err := os.ReadFile(briefPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			carried = strings.Contains(string(data), agentsmd.OperatorDecisionRule)
+		}
+		if carried != CarriesPrompt(name) {
+			t.Errorf("CarriesPrompt(%q) = %v but delivered = %v (args = %#v)", name, CarriesPrompt(name), carried, spec.Args)
 		}
 	}
 	if CarriesPrompt("nonexistent") {
