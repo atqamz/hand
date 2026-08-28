@@ -22,6 +22,7 @@ func TestClassifyNextActionExactPrecedence(t *testing.T) {
 	queuedBacklog := backlogSummary{Queued: 1}
 	uncertainSend := &state.SendAttempt{State: state.SendUncertain}
 	partialSend := &state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonEnterRejectedAfterTextStaged}
+	notSubmittedSend := &state.SendAttempt{State: state.SendNotSubmitted, ReasonCode: state.SendReasonTextRejectedBeforeAcceptance}
 	pendingSend := &state.SendAttempt{State: state.SendPending}
 
 	tests := []struct {
@@ -64,6 +65,21 @@ func TestClassifyNextActionExactPrecedence(t *testing.T) {
 			configuredWorker, 1, queuedBacklog,
 			[]taskView{{task: state.Task{ID: "send-task"}, latestSend: partialSend}}, nil,
 			nextAction{Kind: nextActionSendPartial, Task: "send-task", Command: "hand status send-task", Reason: statusReason("send-task", "confirm whether its send needs to be retried")},
+		},
+		{
+			"send-not-submitted outranks queued work",
+			configuredWorker, 1, queuedBacklog,
+			[]taskView{{task: state.Task{ID: "send-task"}, latestSend: notSubmittedSend}}, nil,
+			nextAction{Kind: nextActionSendNotSubmitted, Task: "send-task", Command: "hand status send-task", Reason: statusReason("send-task", "resend the message that was not submitted")},
+		},
+		{
+			"send-partial outranks send-not-submitted",
+			configuredWorker, 1, backlogSummary{},
+			[]taskView{
+				{task: state.Task{ID: "b-not-submitted"}, latestSend: notSubmittedSend},
+				{task: state.Task{ID: "a-partial"}, latestSend: partialSend},
+			}, nil,
+			nextAction{Kind: nextActionSendPartial, Task: "a-partial", Command: "hand status a-partial", Reason: statusReason("a-partial", "confirm whether its send needs to be retried")},
 		},
 		{
 			"send-pending is not an attention condition",

@@ -72,6 +72,26 @@ func TestDeriveRetainsHeldSubjectsAsNotActionable(t *testing.T) {
 	}
 }
 
+func TestDeriveRaisesSendNotSubmittedDistinctFromSendUncertain(t *testing.T) {
+	got := Derive(Evidence{ID: "task-1", SendNotSubmitted: true})
+	if len(got) != 1 {
+		t.Fatalf("subjects = %#v, want one send-not-submitted subject", got)
+	}
+	if got[0].Kind != KindSendNotSubmitted || got[0].Provenance != ProvenanceSend {
+		t.Fatalf("subject = %#v, want send-not-submitted evidence provenance", got[0])
+	}
+	if !got[0].Actionable {
+		t.Fatal("send-not-submitted subject is not actionable")
+	}
+	if !NeedsAttention(Evidence{ID: "task-1", SendNotSubmitted: true}) {
+		t.Fatal("send-not-submitted evidence needs attention")
+	}
+	uncertain := Derive(Evidence{ID: "task-1", SendUncertain: true})
+	if uncertain[0].Kind == got[0].Kind {
+		t.Fatalf("send-uncertain and send-not-submitted collapsed to the same kind %q", got[0].Kind)
+	}
+}
+
 func TestUnreportedRuntimeMatchesWatcherCatchUpRule(t *testing.T) {
 	for _, test := range []struct {
 		runtime, reported string

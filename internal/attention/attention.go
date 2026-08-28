@@ -13,6 +13,7 @@ const (
 	KindNeedsRepair      = "needs-repair"
 	KindSendUncertain    = "send-uncertain"
 	KindSendPartial      = "send-partial"
+	KindSendNotSubmitted = "send-not-submitted"
 	KindReportPaused     = "paused"
 	KindReportBlocked    = "blocked"
 	KindReportDecision   = "needs-decision"
@@ -46,6 +47,7 @@ type Evidence struct {
 	SendUncertain    bool
 	SendPending      bool
 	SendPartial      bool
+	SendNotSubmitted bool
 	Held             bool
 	ReportedState    string
 	ReportClaim      bool
@@ -99,6 +101,9 @@ func Derive(e Evidence) []Subject {
 	}
 	if e.SendPartial {
 		add(KindSendPartial, "send may have been partially delivered", ProvenanceSend, true)
+	}
+	if e.SendNotSubmitted {
+		add(KindSendNotSubmitted, "send was not submitted to the worker", ProvenanceSend, true)
 	}
 	if e.ReportClaim {
 		switch e.ReportedState {

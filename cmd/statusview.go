@@ -125,6 +125,8 @@ func taskFlags(v taskView) []string {
 			flags = append(flags, "send-"+string(v.latestSend.State))
 		case state.SendNeedsAttention(*v.latestSend):
 			flags = append(flags, "send-partial")
+		case v.latestSend.State == state.SendNotSubmitted:
+			flags = append(flags, "send-not-submitted")
 		}
 	}
 	return flags
@@ -156,6 +158,7 @@ func taskAttentionEvidence(v taskView) attention.Evidence {
 		evidence.SendPending = v.latestSend.State == state.SendPending
 		evidence.SendUncertain = v.latestSend.State == state.SendUncertain
 		evidence.SendPartial = isSendPartial(v)
+		evidence.SendNotSubmitted = v.latestSend.State == state.SendNotSubmitted && !evidence.SendPartial
 	}
 	if kind, ok := watcher.GateKind(v.gateObserved); ok {
 		evidence.GateProblem = kind

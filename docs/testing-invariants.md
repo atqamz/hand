@@ -115,6 +115,7 @@ Source: [The report channel is the only outcome signal](adr/the-report-channel-i
 | INV-REP-3 | Evidence and claims are stored apart and rendered apart. No field carries a value from one channel in the shape the other channel's fields use. | property | unaudited |
 | INV-REP-4 | Where the two channels disagree, the disagreement is what gets surfaced. Neither is silently resolved in favour of the other. | property | unaudited |
 | INV-REP-5 | Acknowledgement is independent of both: reading status never clears it. | property | unaudited |
+| INV-REP-6 | Every send state hand durably records reaches at least one supervisor-visible attention subject, distinguishable from every other send state's. | unit | `TestClassifyNextActionExactPrecedence/send-not-submitted_outranks_queued_work` and `TestDeriveRaisesSendNotSubmittedDistinctFromSendUncertain` cover it |
 
 ## Orientation and currentness
 
