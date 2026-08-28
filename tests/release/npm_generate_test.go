@@ -230,17 +230,16 @@ type npmFixture struct {
 	commit string
 }
 
-// Copies the real packaging/npm tree and runtime.lock.json into a fresh git repository,
-// so generate.sh's own HEAD-identity check and relative path resolution work exactly as
-// they do in the real repository, without a test mutating tracked files in place.
+// Copies every tracked file's current working-tree bytes into a fresh git repository, so
+// generate.sh's HEAD-identity check and a real `go build .` both work as they do in the
+// real repository, without a test mutating tracked files in place.
 func copyNpmPackagingFixture(t *testing.T) npmFixture {
 	t.Helper()
 	root := repoRoot(t)
 	dir := t.TempDir()
-	copyTree(t, filepath.Join(root, "packaging", "npm"), filepath.Join(dir, "packaging", "npm"))
-	copyFile(t,
-		filepath.Join(root, "internal", "toolchain", "runtime.lock.json"),
-		filepath.Join(dir, "internal", "toolchain", "runtime.lock.json"))
+	for _, rel := range trackedFiles(t, root) {
+		copyFile(t, filepath.Join(root, rel), filepath.Join(dir, rel))
+	}
 
 	env := append(os.Environ(),
 		"GIT_CONFIG_GLOBAL="+writeScratchGitConfig(t),
@@ -303,24 +302,24 @@ func installFakeGo(t *testing.T, bin, logPath string) {
 	}
 }
 
-func copyTree(t *testing.T, src, dst string) {
+// Lists tracked files by name only (git ls-files), so the caller copies each one's
+// current working-tree bytes - including an uncommitted edit - rather than git's own
+// committed blob.
+func trackedFiles(t *testing.T, root string) []string {
 	t.Helper()
-	entries, err := os.ReadDir(src)
+	cmd := exec.Command("git", "ls-files", "-z")
+	cmd.Dir = root
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("git ls-files: %v", err)
 	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			copyTree(t, srcPath, dstPath)
-			continue
+	var files []string
+	for _, rel := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+		if rel != "" {
+			files = append(files, rel)
 		}
-		copyFile(t, srcPath, dstPath)
 	}
+	return files
 }
 
 func copyFile(t *testing.T, src, dst string) {
