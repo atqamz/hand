@@ -30,6 +30,7 @@ func runManagedCore(ctx context.Context, name, dir string, args ...string) ([]by
 	switch name {
 	case "git":
 		path = managed.GitPath
+		args = toolchain.GitArgsWithTemplate(managed.GitTemplateDir, args)
 	case "treehouse":
 		path = managed.TreehousePath
 	default:

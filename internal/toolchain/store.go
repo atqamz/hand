@@ -634,6 +634,10 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 	if !ok {
 		return Runtime{}, fmt.Errorf("%w: selected runtime has no Herdr executable", ErrRuntimeNotReady)
 	}
+	templateDir := filepath.Join(s.Root, "runtime", "git-templates")
+	if err := os.MkdirAll(templateDir, 0o700); err != nil {
+		templateDir = ""
+	}
 	return Runtime{
 		ID:               current.RuntimeID,
 		Target:           current.Target,
@@ -645,6 +649,7 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 		HerdrPath:        *herdrPath,
 		HerdrVersion:     target.Components["herdr"].Version,
 		GitBin:           filepath.Dir(*gitPath),
+		GitTemplateDir:   templateDir,
 	}, nil
 }
 

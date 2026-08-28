@@ -518,6 +518,7 @@ func runCore(tool, dir string, args ...string) ([]byte, []byte, error) {
 	switch tool {
 	case "git":
 		path = managed.GitPath
+		args = toolchain.GitArgsWithTemplate(managed.GitTemplateDir, args)
 	case "treehouse":
 		path = managed.TreehousePath
 	default:

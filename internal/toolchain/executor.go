@@ -124,6 +124,10 @@ type Runtime struct {
 	HerdrPath        string
 	HerdrVersion     string
 	GitBin           string
+	// GitTemplateDir is an empty directory hand ensures exists, since the bundle ships no
+	// share/git-core/templates of its own (hand#464). Empty when hand could not create it -
+	// callers treat that as "no template arg to add", not a readiness failure.
+	GitTemplateDir string
 }
 
 func (r Runtime) Process(path string, args ...string) (ProcessSpec, error) {
@@ -135,6 +139,16 @@ func (r Runtime) Process(path string, args ...string) (ProcessSpec, error) {
 		return ProcessSpec{}, err
 	}
 	return NewProcessSpec(path, args, env)
+}
+
+// GitArgsWithTemplate points a managed git invocation at an existing, empty template directory
+// (hand#464), the one answer every dispatch site shares for what a managed git run carries. A
+// blank templateDir means hand could not create one, so args pass through unchanged.
+func GitArgsWithTemplate(templateDir string, args []string) []string {
+	if templateDir == "" {
+		return args
+	}
+	return append([]string{"-c", "init.templateDir=" + templateDir}, args...)
 }
 
 // SupportsGitTransport reports whether the runtime's Git carries the external remote helper a

@@ -292,14 +292,17 @@ reconcile), `cmd/doctor.go`.
 
 ## Runtime transport readiness
 
-Source: `internal/toolchain` (`Runtime.SupportsGitTransport`, `Store.Status`), `cmd/doctor.go`,
-`cmd/runtime.go`, `cmd/project.go` (`gitClone`, `diagnoseCloneFailure`).
+Source: `internal/toolchain` (`Runtime.SupportsGitTransport`, `Store.Status`, `Store.runtimeFromCurrent`,
+`GitArgsWithTemplate`), `cmd/doctor.go`, `cmd/runtime.go`, `cmd/coreexec.go`, `internal/worktree/worktree.go`
+(`runCore`), `cmd/project.go` (`gitClone`, `diagnoseCloneFailure`).
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
 | INV-RTGIT-1 | A runtime's `git_https_ready` reflects whether `git-remote-https` is present next to the installed git binary, observed from the bundle on disk rather than assumed from the runtime id or version - for a fake bundle with and without the helper. | unit | `TestStatusObservesInstalledRemoteHelperRatherThanRuntimeID` |
 | INV-RTGIT-2 | A bundle missing the https helper is reported as a warning naming the ssh treatment, and never joins `hand doctor`'s blocking list or flips `runtime_ready` - only a runtime that fails its own integrity checks does that. | unit | `TestRuntimeHTTPSFindingsNamesTheSSHTreatmentWithoutJoiningBlocking` |
 | INV-RTGIT-3 | `hand project add` replaces git's own "remote-\<scheme\>' is not a git command" text with the named runtime defect and the ssh treatment; any other git failure, including one a source rewritten by git config resolves without an external helper, passes through unchanged. | unit | `TestDiagnoseCloneFailureNamesMissingHelperInsteadOfPassingGitTextThrough`, `TestDiagnoseCloneFailureReadsTheSchemeFromGitsOwnText`, `TestDiagnoseCloneFailureLeavesUnrelatedGitErrorsUnchanged` |
+| INV-RTGIT-4 | A selected runtime's `GitTemplateDir` names a directory hand has actually created on disk, under the store root, containing nothing - because the pinned bundle ships no templates for it to seed (hand#464), so pointing Git at real emptiness is honest, not hidden. | unit | `TestSelectedRuntimeCarriesAnExistingEmptyGitTemplateDirectory` |
+| INV-RTGIT-5 | Every managed `git` dispatch - `cmd/coreexec.go`'s `runManagedCore` and `internal/worktree/worktree.go`'s `runCore` alike - gets `-c init.templateDir=<GitTemplateDir>` prepended ahead of its own arguments when that directory exists, and is left unchanged when it does not, via the one shared `toolchain.GitArgsWithTemplate` - never by matching or filtering Git's warning text. | unit | `TestGitArgsWithTemplatePrependsInitTemplateDir`, `TestGitArgsWithTemplateLeavesArgsUnchangedWhenNoDirectory` |
 
 ## Pure helpers
 
