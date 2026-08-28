@@ -1,6 +1,7 @@
 package axi
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -116,7 +117,7 @@ func TestTruncateCountsRunes(t *testing.T) {
 
 // INV-PURE-2: Truncate never splits a UTF-8 rune, and budget bounds the
 // retained prefix, not the returned string - the recovery annotation is
-// appended past it on purpose. See TestTruncateReapplicationIsNotIdempotent.
+// appended past it on purpose. See TestTruncateMustBeAppliedToOriginalTextOnce.
 func TestTruncateKeepsAnUnsplitPrefixBoundedByBudget(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := rapid.String().Draw(t, "s")
@@ -140,14 +141,20 @@ func TestTruncateKeepsAnUnsplitPrefixBoundedByBudget(t *testing.T) {
 	})
 }
 
-// Truncate's only caller, cmd/status.go:82, always passes original text
-// exactly once - re-truncating Truncate's own output corrupts the
-// annotation's reported total, so a future caller must not do it silently.
-func TestTruncateReapplicationIsNotIdempotent(t *testing.T) {
-	once := Truncate("A", 0, "hand status x --full")
-	twice := Truncate(once, 0, "hand status x --full")
-	if once == twice {
-		t.Fatalf("expected re-truncation to differ from the first pass, got %q both times", once)
+// Truncate's only caller (cmd/status.go:82) applies it to original text
+// exactly once - a second application corrupts the reported total, since
+// it counts the prior output's length instead of the original text's.
+func TestTruncateMustBeAppliedToOriginalTextOnce(t *testing.T) {
+	original := "A"
+	recovery := "hand status x --full"
+
+	once := Truncate(original, 0, recovery)
+	twice := Truncate(once, 0, recovery)
+
+	corrupted := fmt.Sprintf("... (truncated, %d chars total - use %s to see complete text)", len([]rune(once)), recovery)
+	if twice != corrupted {
+		t.Fatalf("Truncate(Truncate(%q, 0, r), 0, r) = %q, want %q naming the prior output's length, not the original %q's",
+			original, twice, corrupted, original)
 	}
 }
 
