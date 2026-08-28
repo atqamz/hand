@@ -211,7 +211,7 @@ atqamz/hand#404 and atqamz/hand#421.
 | INV-POOL-3 | A worktree recorded under its clone keeps the clone as its pool root, so a lease taken before atqamz/hand#427 stays observable and returnable. | property | `TestPoolRootKeepsALegacyWorktreeOnItsOwnClone`, `TestReturnKeepsALegacyWorktreeOnItsOwnClone` |
 | INV-POOL-4 | Pool resolution never follows a foreign recorded worktree path to that path's own pool. | property | `TestReturnNeverFollowsAForeignRecordedPathToItsOwnPool` |
 | INV-POOL-5 | Acquisition never hands back a lease whose worktree is rooted in a Git repository other than the registered clone, even when a distinct, same-named repository is reachable nearby. | unit | `TestGetRejectsAWorktreeFromAnotherRegisteredClone` |
-| INV-POOL-6 | `hand doctor` reports a task's worktree rooted outside its registered clone as an error, not a warning, for any such task, so the command fails rather than merely noting it. | unit | `TestDoctorFindsWorktreeUsingAnotherFleetClone`, `TestDoctorFindsWorktreeUsingTheFleetHomeCheckout` |
+| INV-POOL-6 | `hand doctor` reports a task's worktree rooted outside its registered clone as an error, not a warning, for any such task, so the command fails rather than merely noting it. | property | `TestDoctorFindsWorktreeUsingAnotherFleetClone`, `TestDoctorFindsWorktreeUsingTheFleetHomeCheckout` land unit cases; property form unaudited |
 
 ## Output rendering
 
