@@ -572,7 +572,7 @@ func TestOwnershipLossCancelsActiveWaitAndForbidsClaim(t *testing.T) {
 		return context.Cause(ctx)
 	}
 	origAcquire := acquireWatcherOwnership
-	acquireWatcherOwnership = func(context.Context, string, bool) (*watcher.Ownership, error) { return nil, nil }
+	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) { return nil, nil }
 	restore := func() {
 		runWatcherUntilEvent = origRun
 		acquireWatcherOwnership = origAcquire
@@ -652,7 +652,7 @@ func TestClaimBoundaryTakeoverKeepsEpisodeAvailable(t *testing.T) {
 		return nil
 	}
 	origAcquire := acquireWatcherOwnership
-	acquireWatcherOwnership = func(context.Context, string, bool) (*watcher.Ownership, error) { return nil, nil }
+	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) { return nil, nil }
 	watcherAttached = func(string) (bool, error) { return false, nil }
 	defer func() {
 		runWatcherUntilEvent = origRun

@@ -79,6 +79,17 @@ func IsAttached(homeDir string) (bool, error) {
 
 // Context-aware acquisition stops a takeover wait without changing lock authority.
 func AcquireContext(ctx context.Context, homeDir string, takeover bool) (*Ownership, error) {
+	return acquireContext(ctx, homeDir, takeover, OwnerKindWatch)
+}
+
+// AcquireBridgeContext acquires ownership for an in-process supervision
+// bridge cycle (waitOwned). It never requests takeover, and it records
+// itself as a bridge holder so a contended refusal names it correctly.
+func AcquireBridgeContext(ctx context.Context, homeDir string) (*Ownership, error) {
+	return acquireContext(ctx, homeDir, false, OwnerKindBridge)
+}
+
+func acquireContext(ctx context.Context, homeDir string, takeover bool, kind string) (*Ownership, error) {
 	if err := acquisitionContextError(ctx); err != nil {
 		return nil, err
 	}
@@ -104,7 +115,7 @@ func AcquireContext(ctx context.Context, homeDir string, takeover bool) (*Owners
 	}
 
 	afterLockAcquired()
-	ownership, err := publishNewOwner(home, lockFile)
+	ownership, err := publishNewOwner(home, lockFile, kind)
 	if err != nil {
 		_ = lockFile.Close()
 		return nil, err
@@ -119,7 +130,7 @@ func AcquireContext(ctx context.Context, homeDir string, takeover bool) (*Owners
 // Runs the new-owner publication protocol once while holding the authoritative
 // lock: stale record out, fresh generation, endpoint ready, advisory pid, then
 // the coherent watch.owner record LAST as the readiness barrier.
-func publishNewOwner(home string, lockFile *os.File) (*Ownership, error) {
+func publishNewOwner(home string, lockFile *os.File, kind string) (*Ownership, error) {
 	if err := clearRoutingRecord(home); err != nil {
 		releaseLock(lockFile)
 		return nil, err
@@ -143,7 +154,7 @@ func publishNewOwner(home string, lockFile *os.File) (*Ownership, error) {
 		return nil, err
 	}
 
-	record := OwnerRecord{Version: ownerRecordVersion, Generation: gen, PID: os.Getpid()}
+	record := OwnerRecord{Version: ownerRecordVersion, Generation: gen, PID: os.Getpid(), Kind: kind}
 	if err := publishOwnerRecord(home, record); err != nil {
 		endpoint.Close()
 		_ = clearPID(home)
@@ -222,15 +233,19 @@ func (o *Ownership) PID() int {
 	return o.record.PID
 }
 
-// Handles lock contention. Without --takeover it refuses immediately. With
-// --takeover it requests each observed generation once after delivery succeeds
-// and waits for the kernel lock, never targeting a process by pid.
+// Handles lock contention, naming the recorded holder either way: an
+// immediate refusal without --takeover, or - with it - a fast failure
+// against a recorded bridge holder, else the usual generation-based wait.
 func contend(ctx context.Context, lockFile *os.File, home string, takeover bool) error {
 	if err := acquisitionContextError(ctx); err != nil {
 		return err
 	}
 	if !takeover {
-		return fmt.Errorf("%w - a watcher already holds the fleet-home lock; stop it through its owning session, or use --takeover for cooperative replacement", ErrAttached)
+		return refusalError(home)
+	}
+	if kind, desc := describeHolder(home); kind == holderBridge {
+		return fmt.Errorf("%w - %s; --takeover cannot succeed against it because it never observes a takeover request - wait for its current cycle to end and retry without --takeover",
+			ErrAttached, desc)
 	}
 
 	deadline := time.Now().Add(takeoverGrace)
@@ -250,8 +265,7 @@ func contend(ctx context.Context, lockFile *os.File, home string, takeover bool)
 		}
 		requestCurrent(home, requested)
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%w - the fleet-home lock did not release within %s after --takeover; stop the watcher through its owning session and retry",
-				ErrAttached, takeoverGrace)
+			return timeoutError(home)
 		}
 		timer := time.NewTimer(takeoverPoll)
 		select {
@@ -262,6 +276,72 @@ func contend(ctx context.Context, lockFile *os.File, home string, takeover bool)
 			}
 		case <-timer.C:
 		}
+	}
+}
+
+// Classifies a contended lock's recorded holder: what a refusal should say,
+// and whether --takeover is a treatment that can actually work against it.
+type holderKind int
+
+const (
+	// The busy lock's owner record is absent or malformed: nothing here
+	// names a holder, so nothing is guessed.
+	holderRecordUnreadable holderKind = iota
+	// A readable record whose Kind is watch-shaped or not recorded (legacy
+	// or unrecognized) - treated alike since neither is provably a bridge.
+	holderOther
+	// A readable record naming an in-process supervision bridge cycle,
+	// which never observes a takeover request.
+	holderBridge
+)
+
+// Reads the durable owner record and turns it into the refusal's factual
+// core: what to say about who holds the lock. Never asserts an identity
+// the record does not carry.
+func describeHolder(home string) (holderKind, string) {
+	holder, err := readOwnerRecord(home)
+	if err != nil {
+		return holderRecordUnreadable, "the fleet-home watcher lock is held, but its ownership record could not be read to identify the holder"
+	}
+	if holder.Kind == OwnerKindBridge {
+		return holderBridge, fmt.Sprintf("pid %d holds the fleet-home watcher lock as a background supervision-wait cycle (generation %s), not an interactive watcher",
+			holder.PID, holder.Generation)
+	}
+	return holderOther, fmt.Sprintf("pid %d already holds the fleet-home watcher lock (generation %s)", holder.PID, holder.Generation)
+}
+
+// Composes the immediate (non-takeover) contention refusal, matching the
+// treatment to the holder read: transient for a bridge, no guess for an
+// unreadable record, the ordinary remedy otherwise.
+func refusalError(home string) error {
+	kind, desc := describeHolder(home)
+	switch kind {
+	case holderBridge:
+		return fmt.Errorf("%w - %s; it is transient and never honors --takeover - wait for its current cycle to end and retry",
+			ErrAttached, desc)
+	case holderOther:
+		return fmt.Errorf("%w - %s; stop it through its owning session, or use --takeover for cooperative replacement",
+			ErrAttached, desc)
+	default:
+		return fmt.Errorf("%w - %s; wait for it to release the lock and retry", ErrAttached, desc)
+	}
+}
+
+// Composes the refusal for a --takeover contender that never observed the
+// kernel lock release within takeoverGrace, naming whatever the owner
+// record shows for the holder at that moment.
+func timeoutError(home string) error {
+	kind, desc := describeHolder(home)
+	switch kind {
+	case holderBridge:
+		return fmt.Errorf("%w - the fleet-home lock did not release within %s after --takeover; %s and it never observes a takeover request - wait for its current cycle to end and retry without --takeover",
+			ErrAttached, takeoverGrace, desc)
+	case holderOther:
+		return fmt.Errorf("%w - the fleet-home lock did not release within %s after --takeover; %s and did not step aside - stop it through its owning session and retry",
+			ErrAttached, takeoverGrace, desc)
+	default:
+		return fmt.Errorf("%w - the fleet-home lock did not release within %s after --takeover, and %s; wait and retry",
+			ErrAttached, takeoverGrace, desc)
 	}
 }
 

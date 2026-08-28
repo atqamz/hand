@@ -41,7 +41,7 @@ func newWatcherStub(t *testing.T, attached bool, onCycle func(*watcherStub) erro
 		stub.onCycle = func(*watcherStub) error { return nil }
 	}
 	origAcquire, origRun, origAttached := acquireWatcherOwnership, runWatcherUntilEvent, watcherAttached
-	acquireWatcherOwnership = func(context.Context, string, bool) (*watcher.Ownership, error) {
+	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) {
 		stub.acquired.Add(1)
 		return nil, nil
 	}

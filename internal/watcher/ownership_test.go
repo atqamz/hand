@@ -3,6 +3,7 @@ package watcher
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 	"time"
 )
 
-func TestAcquireRefusesASecondWatcherWithoutTrustingAdvisoryPID(t *testing.T) {
+func TestAcquireRefusesASecondWatcherAndNamesTheRecordedHolder(t *testing.T) {
 	home := t.TempDir()
 
 	ownership, err := Acquire(home, false)
@@ -32,11 +33,140 @@ func TestAcquireRefusesASecondWatcherWithoutTrustingAdvisoryPID(t *testing.T) {
 	if !strings.Contains(err.Error(), ErrAttached.Error()) {
 		t.Fatalf("got %v, want it to wrap ErrAttached", err)
 	}
-	if strings.Contains(err.Error(), "pid ") || !strings.Contains(err.Error(), "owning session") {
-		t.Fatalf("got %v, want no operator instruction based on advisory PID", err)
+	// The refusal names the real, durably-recorded holder rather than asserting
+	// "a watcher" - atqamz/hand#410. Naming the pid is not the same instruction
+	// the takeover ADR forbids: nothing here tells the operator to signal it.
+	wantPID := fmt.Sprintf("pid %d", os.Getpid())
+	if !strings.Contains(err.Error(), wantPID) {
+		t.Fatalf("got %v, want it to name the recorded holder %s", err, wantPID)
+	}
+	if !strings.Contains(err.Error(), ownership.Generation()) {
+		t.Fatalf("got %v, want it to name the recorded generation %s", err, ownership.Generation())
+	}
+	if !strings.Contains(err.Error(), "owning session") {
+		t.Fatalf("got %v, want the remedy to name the owning session", err)
 	}
 	if !strings.Contains(err.Error(), "--takeover") {
 		t.Fatalf("got %v, want the refusal to name the remedy", err)
+	}
+}
+
+// The core of atqamz/hand#410: a busy lock held by an in-process supervision
+// bridge cycle (never an interactive `hand watch`) must be named as such, and
+// must not be offered a takeover it can never honor.
+func TestContendNamesABridgeHolderAndOffersNoTakeover(t *testing.T) {
+	home := t.TempDir()
+	holder, err := AcquireBridgeContext(context.Background(), home)
+	if err != nil {
+		t.Fatalf("AcquireBridgeContext: %v", err)
+	}
+	defer holder.Release()
+
+	_, err = Acquire(home, false)
+	if err == nil {
+		t.Fatal("Acquire succeeded, want a refusal while a bridge cycle holds the lock")
+	}
+	if !strings.Contains(err.Error(), ErrAttached.Error()) {
+		t.Fatalf("got %v, want it to wrap ErrAttached", err)
+	}
+	wantPID := fmt.Sprintf("pid %d", os.Getpid())
+	if !strings.Contains(err.Error(), wantPID) {
+		t.Fatalf("got %v, want it to name the recorded holder %s", err, wantPID)
+	}
+	if !strings.Contains(err.Error(), holder.Generation()) {
+		t.Fatalf("got %v, want it to name the recorded generation %s", err, holder.Generation())
+	}
+	if strings.Contains(err.Error(), "owning session") {
+		t.Fatalf("got %v, want no owning-session instruction: a bridge holder is not stopped that way", err)
+	}
+	if strings.Contains(err.Error(), "for cooperative replacement") {
+		t.Fatalf("got %v, want --takeover never offered as a remedy against a holder that never honors one", err)
+	}
+}
+
+// A --takeover contender against a bridge holder must fail honestly and fast:
+// waiting out the full grace period against a holder that never observes a
+// takeover request would just be a slower version of the same wrong promise.
+func TestTakeoverAgainstABridgeHolderFailsFastWithoutWaitingOutTheGrace(t *testing.T) {
+	home := t.TempDir()
+	holder, err := AcquireBridgeContext(context.Background(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+
+	restoreTakeoverClocks(t)
+	takeoverGrace, takeoverPoll = 3*time.Second, 20*time.Millisecond
+
+	start := time.Now()
+	_, err = Acquire(home, true)
+	elapsed := time.Since(start)
+	if !errors.Is(err, ErrAttached) {
+		t.Fatalf("got %v, want ErrAttached", err)
+	}
+	if elapsed >= takeoverGrace {
+		t.Fatalf("took %s to fail, want it to fail well before the %s grace since this holder can never honor takeover", elapsed, takeoverGrace)
+	}
+	if strings.Contains(err.Error(), "did not release within") {
+		t.Fatalf("got %v, want an immediate honest refusal, not a timeout message", err)
+	}
+	if strings.Contains(err.Error(), "owning session") {
+		t.Fatalf("got %v, want no owning-session instruction against a bridge holder", err)
+	}
+}
+
+// An absent owner record on a busy lock is its own answer: the refusal must
+// not guess a holder or promise a treatment it cannot back with evidence.
+func TestContendWithNoRecordSaysSoRatherThanGuessingAHolder(t *testing.T) {
+	home := t.TempDir()
+	holder, err := Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	if err := os.Remove(OwnerRecordPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Acquire(home, false)
+	if err == nil {
+		t.Fatal("Acquire succeeded, want a refusal while the lock is held")
+	}
+	assertNoGuessedHolder(t, err)
+}
+
+// Same expectation for a record that exists but does not parse.
+func TestContendWithAMalformedRecordSaysSoRatherThanGuessingAHolder(t *testing.T) {
+	home := t.TempDir()
+	holder, err := Acquire(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	if err := os.WriteFile(OwnerRecordPath(home), []byte(`{truncated`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Acquire(home, false)
+	if err == nil {
+		t.Fatal("Acquire succeeded, want a refusal while the lock is held")
+	}
+	assertNoGuessedHolder(t, err)
+}
+
+func assertNoGuessedHolder(t *testing.T, err error) {
+	t.Helper()
+	if !strings.Contains(err.Error(), ErrAttached.Error()) {
+		t.Fatalf("got %v, want it to wrap ErrAttached", err)
+	}
+	if strings.Contains(err.Error(), "pid ") {
+		t.Fatalf("got %v, want no guessed pid when the record cannot be read", err)
+	}
+	if strings.Contains(err.Error(), "owning session") || strings.Contains(err.Error(), "--takeover") {
+		t.Fatalf("got %v, want no treatment promised for an unidentified holder", err)
+	}
+	if !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("got %v, want it to say plainly that the record could not be read", err)
 	}
 }
 

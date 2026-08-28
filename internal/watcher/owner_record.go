@@ -22,7 +22,22 @@ type OwnerRecord struct {
 	Version    int    `json:"version"`
 	Generation string `json:"generation"`
 	PID        int    `json:"pid"`
+	// Kind names what acquired ownership, so a contended refusal can describe
+	// the holder truthfully. Empty (legacy/unrecorded) is handled like an
+	// unrecognized kind, never asserted to be either known shape.
+	Kind string `json:"kind,omitempty"`
 }
+
+const (
+	// OwnerKindWatch marks ownership acquired by an interactive `hand watch`,
+	// which wires TakeoverRequested into its own cancellation and so can
+	// honor --takeover.
+	OwnerKindWatch = "watch"
+	// OwnerKindBridge marks ownership acquired in-process by a supervision
+	// bridge cycle (waitOwned, via `hand supervision wait`/claude-stop/codex-stop).
+	// It never observes TakeoverRequested, so --takeover cannot displace it.
+	OwnerKindBridge = "bridge"
+)
 
 // Fresh 128 random bits encoded as 32 lowercase hex characters, tying this
 // watcher's takeover endpoint to this incumbent alone.
@@ -71,6 +86,11 @@ func validateOwnerRecord(rec OwnerRecord) error {
 	}
 	if rec.PID <= 0 {
 		return fmt.Errorf("owner record: pid must be a positive integer, got %d", rec.PID)
+	}
+	switch rec.Kind {
+	case "", OwnerKindWatch, OwnerKindBridge:
+	default:
+		return fmt.Errorf("owner record: unsupported kind %q", rec.Kind)
 	}
 	return nil
 }

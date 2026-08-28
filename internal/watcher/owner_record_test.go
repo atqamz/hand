@@ -44,6 +44,23 @@ func TestNewGenerationIsLowercaseHex(t *testing.T) {
 	}
 }
 
+// The kind names what acquired ownership so a contended refusal can describe
+// the holder truthfully - atqamz/hand#410. Empty (legacy/unrecorded) and both
+// known kinds must all round-trip; only foreign values are rejected.
+func TestOwnerRecordAcceptsEmptyOrKnownKind(t *testing.T) {
+	for _, kind := range []string{"", OwnerKindWatch, OwnerKindBridge} {
+		rec := validRecord()
+		rec.Kind = kind
+		got, err := parseOwnerRecord(mustMarshal(t, rec))
+		if err != nil {
+			t.Fatalf("kind %q rejected: %v", kind, err)
+		}
+		if got.Kind != kind {
+			t.Fatalf("kind %q round-tripped as %q", kind, got.Kind)
+		}
+	}
+}
+
 func mustMarshal(t *testing.T, rec OwnerRecord) []byte {
 	t.Helper()
 	data, err := json.Marshal(rec)
@@ -76,6 +93,7 @@ func TestParseOwnerRecordRejectsInvalidRecords(t *testing.T) {
 		{"negative pid", `{"version":1,"generation":"` + gen + `","pid":-3}`},
 		{"noninteger pid", `{"version":1,"generation":"` + gen + `","pid":"abc"}`},
 		{"unknown field", `{"version":1,"generation":"` + gen + `","pid":1,"evil":2}`},
+		{"unsupported kind", `{"version":1,"generation":"` + gen + `","pid":1,"kind":"nonsense"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
