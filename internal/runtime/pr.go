@@ -100,9 +100,9 @@ func RecordPR(ctx context.Context, homeDir string, task state.Task, url string) 
 	if task.PR == url {
 		return task, true, nil
 	}
-	if task.Lifecycle == state.TaskTerminal {
-		return task, false, Precondition(fmt.Errorf("task %s is torn down; run hand reopen %s before recording a PR on it", task.ID, task.ID))
-	}
+	// A torn-down task may still record where its work landed (atqamz/hand#424): this only supplies
+	// evidence, write-once and validated like every other call, and never reopens or reactivates the
+	// task - state.SetTaskPR touches no lifecycle column.
 	projectInfo, exists, err := project.Find(homeDir, task.Project)
 	if err != nil {
 		return task, false, err

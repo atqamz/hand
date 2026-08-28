@@ -3,11 +3,13 @@ package cmd
 import (
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
-	"github.com/spf13/cobra"
 )
 
 func TestStatusInspectsTerminalTaskAndAttemptHistory(t *testing.T) {
@@ -75,37 +77,87 @@ func terminalTaskHome(t *testing.T) string {
 	return home
 }
 
-// Teardown writes the permanent completion record from the state the task had then, so a
-// delivery or a PR recorded afterwards would sit on the row unread. Both name hand reopen.
-func TestDeliverAndPRRefuseATerminalTask(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		cmd  func() *cobra.Command
-		args []string
-	}{
-		{"deliver", newDeliverCmd, []string{"task-1", "--reason", "handed to upstream"}},
-		{"pr", newPRCmd, []string{"task-1", "https://github.com/o/nsr/pull/7"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			home := terminalTaskHome(t)
-			cmd := tc.cmd()
-			cmd.SetOut(io.Discard)
-			cmd.SetErr(io.Discard)
-			cmd.SetArgs(tc.args)
-			err := cmd.Execute()
-			if err == nil {
-				t.Fatalf("hand %s accepted a terminal task", tc.name)
-			}
-			if !strings.Contains(err.Error(), "hand reopen task-1") {
-				t.Fatalf("error = %v, want it to name the remedy", err)
-			}
-			got, err := state.Read(home, "task-1")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.DeliveredAt != "" || got.PR != "" {
-				t.Fatalf("terminal task was written to: %+v", got)
-			}
-		})
+// Teardown writes the permanent completion record from the state the task had then, so a delivery
+// recorded afterwards would sit on the row unread. hand pr is the one exception (atqamz/hand#424):
+// see TestPRRecordsOnATerminalTaskWithoutReopening.
+func TestDeliverRefusesATerminalTask(t *testing.T) {
+	home := terminalTaskHome(t)
+	cmd := newDeliverCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"task-1", "--reason", "handed to upstream"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("hand deliver accepted a terminal task")
+	}
+	if !strings.Contains(err.Error(), "hand reopen task-1") {
+		t.Fatalf("error = %v, want it to name the remedy", err)
+	}
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DeliveredAt != "" {
+		t.Fatalf("terminal task was written to: %+v", got)
+	}
+}
+
+// atqamz/hand#424 ask 1: recording where a torn-down task's work landed is not resuming it, so hand
+// pr is the one write allowed past teardown's completion record. Lifecycle must stay terminal, and
+// taskFlags/needsAttention (the fleet's one attention definition) must never key off task.PR.
+func TestPRRecordsOnATerminalTaskWithoutReopening(t *testing.T) {
+	home := terminalTaskHome(t)
+	registerTerminalTaskProject(t, home)
+	const pr = "https://github.com/owner/repo/pull/7"
+	faketool.GH{PRs: []faketool.GHPR{{Number: 7, URL: pr, Repo: "owner/repo", State: "OPEN"}}}.Install(t, faketool.Bin(t))
+
+	cmd := newPRCmd()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"task-1", pr})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("hand pr refused a terminal task: %v", err)
+	}
+	if strings.Contains(out.String(), "hand merge") {
+		t.Fatalf("output = %q, want no hand merge suggestion: the task has no active attempt for it to act on", out.String())
+	}
+
+	got, err := state.Read(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PR != pr {
+		t.Fatalf("task.PR = %q, want %q recorded", got.PR, pr)
+	}
+	if got.Lifecycle != state.TaskTerminal {
+		t.Fatalf("task.Lifecycle = %q, want it to stay terminal - hand pr must not reopen the task", got.Lifecycle)
+	}
+
+	// Write-once still holds: a second, different URL is refused exactly like an open task's would be.
+	again := newPRCmd()
+	again.SetOut(io.Discard)
+	again.SetErr(io.Discard)
+	again.SetArgs([]string{"task-1", "https://github.com/owner/repo/pull/8"})
+	if err := again.Execute(); err == nil {
+		t.Fatal("hand pr accepted a second, different PR on a task that already has one recorded")
+	}
+
+	view := taskView{task: got}
+	if needsAttention(view) {
+		t.Fatalf("needsAttention(%+v) = true, want a terminal task with a recorded PR to gain no liveness", view)
+	}
+	if flags := taskFlags(view); len(flags) != 0 {
+		t.Fatalf("taskFlags(%+v) = %v, want none: a recorded-but-unmerged PR renders no flag", view, flags)
+	}
+}
+
+func registerTerminalTaskProject(t *testing.T, home string) {
+	t.Helper()
+	clonePath := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clonePath)
+	runGitIn(t, clonePath, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://github.com/owner/repo.git", Mode: project.ModeDirectPR}); err != nil {
+		t.Fatal(err)
 	}
 }
