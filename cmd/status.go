@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -235,7 +236,8 @@ type fleetJSON struct {
 }
 
 // Mirrors state.Hold, plus Inconsistent, which is set instead of the row being dropped when a value
-// cannot be trusted at face value - see holdInconsistency.
+// cannot be trusted at face value - see holdInconsistency - and Satisfied, set once a blocked hold's
+// blocked_on task has gone terminal (atqamz/hand#417).
 type holdJSON struct {
 	ID           string `json:"id"`
 	Kind         string `json:"kind"`
@@ -244,11 +246,59 @@ type holdJSON struct {
 	SetAt        string `json:"set_at"`
 	Inferred     bool   `json:"inferred,omitempty"`
 	Inconsistent string `json:"inconsistent,omitempty"`
+	Satisfied    bool   `json:"satisfied,omitempty"`
+}
+
+// What a blocked hold's blocked_on task looks like right now, read straight from the store: a cleanly
+// torn-down blocker has already left ListReconciliationHistories, so reading it there would misreport
+// a landed blocker as unknown (atqamz/hand#417).
+type blockerState struct {
+	found    bool
+	terminal bool
+}
+
+// Reads one blocked_on task's terminal state directly, independent of the fleet view. ErrTaskNotFound
+// degrades to a plain not-found answer - the caller routes that to inconsistency, never satisfaction -
+// but every other error propagates, like every other hold read in this file.
+func resolveBlocker(home, blockedOn string, readOnly bool) (blockerState, error) {
+	read := state.ReadHistory
+	if readOnly {
+		read = state.ReadHistoryReadOnly
+	}
+	history, err := read(home, blockedOn)
+	if err != nil {
+		if errors.Is(err, state.ErrTaskNotFound) {
+			return blockerState{}, nil
+		}
+		return blockerState{}, err
+	}
+	return blockerState{found: true, terminal: history.Task.Lifecycle == state.TaskTerminal}, nil
+}
+
+// Resolves a whole hold list at once, deduplicating by blocked_on so several holds waiting on the same
+// task - the issue's own example - read that task once, not once per hold.
+func resolveBlockers(home string, holds []state.Hold, readOnly bool) (map[string]blockerState, error) {
+	resolved := make(map[string]blockerState)
+	for _, h := range holds {
+		if h.Kind != state.HoldKindBlocked || h.BlockedOn == "" {
+			continue
+		}
+		if _, ok := resolved[h.BlockedOn]; ok {
+			continue
+		}
+		b, err := resolveBlocker(home, h.BlockedOn, readOnly)
+		if err != nil {
+			return nil, err
+		}
+		resolved[h.BlockedOn] = b
+	}
+	return resolved, nil
 }
 
 // Names why a hold row cannot be trusted at face value, so that ListHolds surfacing every row (rather
-// than filtering) turns into a visible flag instead of a silently wrong render.
-func holdInconsistency(h state.Hold) string {
+// than filtering) turns into a visible flag instead of a silently wrong render. blockerFound - see
+// resolveBlocker - makes an unknown blocked_on inconsistent too, never satisfied (atqamz/hand#417).
+func holdInconsistency(h state.Hold, blockerFound bool) string {
 	// An unrecognized kind, a blocked hold with nothing to point at, or an operator or limit hold carrying
 	// a blocked_on nothing set. Nothing here writes such a row today - hand hold set validates first, and
 	// limit holds set no blocked_on - so one means something outside hand touched state/hand.db directly.
@@ -268,6 +318,9 @@ func holdInconsistency(h state.Hold) string {
 		if h.Inferred {
 			return "blocked hold carries inferred, but what it waits on is named, not scraped"
 		}
+		if !blockerFound {
+			return fmt.Sprintf("blocked hold waits on unknown task %q", h.BlockedOn)
+		}
 		return ""
 	case state.HoldKindLimit:
 		if h.BlockedOn != "" {
@@ -279,19 +332,26 @@ func holdInconsistency(h state.Hold) string {
 	}
 }
 
-func holdToJSON(h state.Hold) holdJSON {
+func holdSatisfied(h state.Hold, blocker blockerState) bool {
+	return h.Kind == state.HoldKindBlocked && blocker.found && blocker.terminal
+}
+
+func holdToJSON(h state.Hold, blocker blockerState) holdJSON {
 	return holdJSON{
 		ID: h.ID, Kind: h.Kind, Reason: h.Reason, BlockedOn: h.BlockedOn, SetAt: h.SetAt,
-		Inferred: h.Inferred, Inconsistent: holdInconsistency(h),
+		Inferred: h.Inferred, Inconsistent: holdInconsistency(h, blocker.found), Satisfied: holdSatisfied(h, blocker),
 	}
 }
 
-// Renders a hold's non-identifying fields for the plain-text held block. An inconsistency takes over the
-// whole line: a garbled blocked-on or reason next to it would read as a valid detail rather than a flag.
-// Inferred instead appends a suffix, so a pane-derived conclusion says so without hiding what it says.
-func holdDetail(h state.Hold) string {
-	if inc := holdInconsistency(h); inc != "" {
+// Renders a hold's non-identifying fields for the plain-text held block. An inconsistency, then a
+// satisfied blocker (atqamz/hand#417, only reported, never auto-cleared), each take over the whole
+// line rather than sit beside a stale reason. Inferred instead appends a suffix.
+func holdDetail(h state.Hold, blocker blockerState) string {
+	if inc := holdInconsistency(h, blocker.found); inc != "" {
 		return "inconsistent: " + inc
+	}
+	if holdSatisfied(h, blocker) {
+		return fmt.Sprintf("satisfied: %s is terminal; this hold can be cleared", h.BlockedOn)
 	}
 	detail := h.Reason
 	if h.Kind == state.HoldKindBlocked {
@@ -351,7 +411,7 @@ func gateRunObservation(home string, t state.Task, reportedDone bool, p project.
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
 	herdrSession := client.ObserveSession(cmd.Context())
-	views, holds, err := fleetViews(cmd.Context(), cmd.ErrOrStderr(), home, client, true)
+	views, holds, blockers, err := fleetViews(cmd.Context(), cmd.ErrOrStderr(), home, client, true)
 	if err != nil {
 		return err
 	}
@@ -363,7 +423,7 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 		}
 		holdRows := make([]holdJSON, 0, len(holds))
 		for _, h := range holds {
-			holdRows = append(holdRows, holdToJSON(h))
+			holdRows = append(holdRows, holdToJSON(h, blockers[h.BlockedOn]))
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -371,7 +431,7 @@ func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSO
 	}
 
 	var doc axi.Doc
-	appendFleet(&doc, views, holds, cols)
+	appendFleet(&doc, views, holds, blockers, cols)
 	return doc.Render(cmd.OutOrStdout())
 }
 
@@ -383,14 +443,14 @@ func appendHerdrSession(doc *axi.Doc, observation herdr.SessionObservation) {
 
 // Writes the fleet blocks onto doc rather than a writer, so the bare command can put its identity fields
 // above the same overview.
-func appendFleet(doc *axi.Doc, views []taskView, holds []state.Hold, cols []axi.Column[taskView], leadHelp ...string) {
-	attention := appendFleetState(doc, views, holds, cols)
+func appendFleet(doc *axi.Doc, views []taskView, holds []state.Hold, blockers map[string]blockerState, cols []axi.Column[taskView], leadHelp ...string) {
+	attention := appendFleetState(doc, views, holds, blockers, cols)
 	// An unanswered configuration question leads: it is the one thing here the fleet cannot proceed
 	// without, and doc.Help renders a single list, so it cannot be a second block.
 	doc.Help(append(slices.Clone(leadHelp), fleetHelp(views, attention)...)...)
 }
 
-func appendFleetState(doc *axi.Doc, views []taskView, holds []state.Hold, cols []axi.Column[taskView]) int {
+func appendFleetState(doc *axi.Doc, views []taskView, holds []state.Hold, blockers map[string]blockerState, cols []axi.Column[taskView]) int {
 	attention := 0
 	for _, v := range views {
 		if needsAttention(v) {
@@ -402,11 +462,11 @@ func appendFleetState(doc *axi.Doc, views []taskView, holds []state.Hold, cols [
 	doc.Int("attention", attention)
 	doc.Int("held", len(holds))
 	axi.Table(doc, "tasks", views, cols)
-	axi.Table(doc, "holds", holds, holdFields)
+	axi.Table(doc, "holds", holds, holdFields(blockers))
 	return attention
 }
 
-func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *herdr.Client, readOnly bool) ([]taskView, []state.Hold, error) {
+func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *herdr.Client, readOnly bool) ([]taskView, []state.Hold, map[string]blockerState, error) {
 	listHistories := state.ListReconciliationHistories
 	listHolds := state.ListHolds
 	listProjects := project.List
@@ -419,13 +479,19 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 	// one store handle rather than one per task.
 	histories, err := listHistories(home)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Propagated rather than degraded to an empty list: a store fault reading
 	// as no holds is exactly the false all-clear this feature exists to avoid.
 	holds, err := listHolds(home)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	// Propagated for the same reason: a blocked hold's blocker misread as "unknown" would report
+	// inconsistency in place of the satisfaction the operator needs to see (atqamz/hand#417).
+	blockers, err := resolveBlockers(home, holds, readOnly)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	// Best-effort, like the project registry read elsewhere in this fleet view: a fault degrades every
@@ -435,7 +501,7 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 		// Named on stderr all the same - silently dropping every (gate: ...) marker fleet-wide would render
 		// an ungated PR as clean, the false all-clear this feature exists to avoid.
 		if _, err := fmt.Fprintf(warnOut, "warning: project registry unreadable, gate-run checks skipped: %v\n", projectsErr); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 	projectByName := make(map[string]project.Project, len(projects))
@@ -445,7 +511,7 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 	runPRs := newGateRunReader(ctx)
 	bounds, err := parkedBoundsFromConfig(home)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	views := make([]taskView, 0, len(histories))
@@ -459,12 +525,13 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 		if hold, ok := holdsByID[t.ID]; ok {
 			v.held = true
 			v.hold = hold
+			v.holdBlocker = blockers[hold.BlockedOn]
 		}
 		p, registered := projectByName[t.Project]
 		v.gateObserved = gateRunObservation(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)
 	}
-	return views, holds, nil
+	return views, holds, blockers, nil
 }
 
 func fleetHelp(views []taskView, attention int) []string {
@@ -713,6 +780,14 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		return err
 	}
 	v.hold, v.held = hold, held
+	var blocker blockerState
+	if held && hold.Kind == state.HoldKindBlocked && hold.BlockedOn != "" {
+		blocker, err = resolveBlocker(home, hold.BlockedOn, true)
+		if err != nil {
+			return err
+		}
+		v.holdBlocker = blocker
+	}
 
 	// Looked up only when the check applies, so a registry this id's detail view does not need can never
 	// fail the command.
@@ -747,7 +822,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		out.HerdrSessionReason = herdrSession.Reason
 		out.ReportHistory = history
 		if held {
-			j := holdToJSON(hold)
+			j := holdToJSON(hold, blocker)
 			out.Held = &j
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())

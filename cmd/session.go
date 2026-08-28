@@ -170,7 +170,7 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	if err != nil {
 		return err
 	}
-	views, holds, err := fleetViews(cmd.Context(), cmd.ErrOrStderr(), fleetHome, client, true)
+	views, holds, blockers, err := fleetViews(cmd.Context(), cmd.ErrOrStderr(), fleetHome, client, true)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func renderSessionOverview(cmd *cobra.Command, version, fleetHome string) error 
 	axi.Table(&doc, "projects", projects, sessionProjectFields)
 	doc.List("backlog", backlog.Items)
 	appendHerdrSession(&doc, client.ObserveSession(cmd.Context()))
-	appendFleetState(&doc, views, holds, cols)
+	appendFleetState(&doc, views, holds, blockers, cols)
 	appendSessionOrientation(&doc, oriented)
 	doc.Field("next_action_kind", next.Kind)
 	doc.Field("next_action_task", orNone(next.Task))

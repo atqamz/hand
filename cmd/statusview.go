@@ -40,6 +40,9 @@ type taskView struct {
 	latestSend  *state.SendAttempt
 	held        bool
 	hold        state.Hold
+	// What hold.BlockedOn resolves to right now, meaningful only when held && hold.Kind ==
+	// state.HoldKindBlocked - see resolveBlocker in status.go (atqamz/hand#417).
+	holdBlocker blockerState
 	// Empty where no live lookup applied, which is neither a finding nor an absence.
 	prObserved ghutil.ObservationState
 	// The URL prObserved == ghutil.ObservationFound answers with. Rendered alongside task.PR rather
@@ -153,6 +156,10 @@ func taskAttentionEvidence(v taskView) attention.Evidence {
 		ReportClaim:      v.reportedState != "",
 		ReportedState:    v.reportedState,
 		Held:             v.held,
+	}
+	if v.held && holdSatisfied(v.hold, v.holdBlocker) {
+		evidence.HoldSatisfied = true
+		evidence.HoldBlockedOn = v.hold.BlockedOn
 	}
 	if v.latestSend != nil {
 		evidence.SendPending = v.latestSend.State == state.SendPending
@@ -283,7 +290,7 @@ var taskFields = []axi.Column[taskView]{
 		if !v.held {
 			return "none"
 		}
-		return holdDetail(v.hold)
+		return holdDetail(v.hold, v.holdBlocker)
 	}},
 	{Name: "gate", Value: func(v taskView) string { return orNone(string(v.gateObserved)) }},
 	{Name: "report_file", Value: func(v taskView) string { return orNone(v.reportFile) }},
@@ -317,9 +324,14 @@ var detailDefaultFields = []string{
 	"age", "last_report", "pr", "reported", "report", "delivered", "send_id", "send_attempt", "send_state", "send_origin", "send_reason", "held", "gate", "flags", "report_file",
 }
 
-var holdFields = []axi.Column[state.Hold]{
-	{Name: "id", Value: func(h state.Hold) string { return h.ID }},
-	{Name: "kind", Value: func(h state.Hold) string { return h.Kind }},
-	{Name: "detail", Value: func(h state.Hold) string { return holdDetail(h) }},
-	{Name: "age", Value: func(h state.Hold) string { return formatAge(h.SetAt) }},
+// A function rather than a package-level var: the detail column needs each hold's blocked_on
+// resolution, resolved once per render by resolveBlockers rather than re-derived per row
+// (atqamz/hand#417).
+func holdFields(blockers map[string]blockerState) []axi.Column[state.Hold] {
+	return []axi.Column[state.Hold]{
+		{Name: "id", Value: func(h state.Hold) string { return h.ID }},
+		{Name: "kind", Value: func(h state.Hold) string { return h.Kind }},
+		{Name: "detail", Value: func(h state.Hold) string { return holdDetail(h, blockers[h.BlockedOn]) }},
+		{Name: "age", Value: func(h state.Hold) string { return formatAge(h.SetAt) }},
+	}
 }

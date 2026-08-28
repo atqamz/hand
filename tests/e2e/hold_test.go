@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -30,6 +31,7 @@ type holdView struct {
 	BlockedOn    string `json:"blocked_on"`
 	SetAt        string `json:"set_at"`
 	Inconsistent string `json:"inconsistent"`
+	Satisfied    bool   `json:"satisfied"`
 }
 
 func decodeJSON(t *testing.T, got invocation, into any) {
@@ -43,8 +45,8 @@ func decodeJSON(t *testing.T, got invocation, into any) {
 }
 
 // Drives holds end to end through the built binary: set on a live task and on an id with no task row at
-// all, rendered by every hand status surface, surviving the teardown of the task it was set on (the case a
-// task-scoped hold could not cover), refusing the spawn that would reuse the id, cleared without a trace.
+// all, rendered by every hand status surface (including an unknown blocked_on, atqamz/hand#417),
+// surviving teardown, refusing the spawn that would reuse the id, cleared without a trace.
 func TestHoldLifecycle(t *testing.T) {
 	home := newHome(t)
 	registerProject(t, home, "demo", "local-only")
@@ -75,9 +77,11 @@ func TestHoldLifecycle(t *testing.T) {
 		t.Fatalf("hold set = %q (exit %d), stderr %q", set.stdout, set.code, set.stderr)
 	}
 
+	// migrate-schema is never spawned in this test, so hand status must flag it inconsistent rather than
+	// report it satisfied or repeat the stale "waiting on" text - atqamz/hand#417's unknown-blocker case.
 	single := runHand(t, home, "status", "fix-login")
-	if single.code != 0 || !strings.Contains(single.stdout, `held: "waiting on migrate-schema: needs the new column before this can proceed"`) {
-		t.Fatalf("status fix-login = %q (exit %d), want the held field naming what it waits on", single.stdout, single.code)
+	if single.code != 0 || !strings.Contains(single.stdout, `held: "inconsistent: blocked hold waits on unknown task \"migrate-schema\""`) {
+		t.Fatalf("status fix-login = %q (exit %d), want the held field flagging its unknown blocker", single.stdout, single.code)
 	}
 
 	var one singleStatus
@@ -85,6 +89,9 @@ func TestHoldLifecycle(t *testing.T) {
 	if one.Held == nil || one.Held.Kind != state.HoldKindBlocked || one.Held.BlockedOn != "migrate-schema" ||
 		one.Held.Reason != "needs the new column before this can proceed" || one.Held.SetAt == "" {
 		t.Fatalf("single-task JSON held = %+v", one.Held)
+	}
+	if one.Held.Inconsistent == "" || one.Held.Satisfied {
+		t.Fatalf("single-task JSON held = %+v, want an unknown blocker flagged inconsistent, never satisfied", one.Held)
 	}
 
 	// An id with no task row behind it: never dispatched, so nothing but the
@@ -101,7 +108,7 @@ func TestHoldLifecycle(t *testing.T) {
 	for _, want := range []string{
 		"held: 2\n",
 		"holds[2]{id,kind,detail,age}:\n",
-		`  fix-login,blocked,"waiting on migrate-schema: needs the new column before this can proceed",`,
+		`  fix-login,blocked,"inconsistent: blocked hold waits on unknown task \"migrate-schema\"",`,
 		`  unqueued-work,operator,"two ways to do this, needs a call",`,
 	} {
 		if !strings.Contains(fleet.stdout, want) {
@@ -132,7 +139,7 @@ func TestHoldLifecycle(t *testing.T) {
 	}
 
 	survived := runHand(t, home, "status")
-	if survived.code != 0 || !strings.Contains(survived.stdout, `  fix-login,blocked,"waiting on migrate-schema`) {
+	if survived.code != 0 || !strings.Contains(survived.stdout, `  fix-login,blocked,"inconsistent: blocked hold waits on unknown task \"migrate-schema\""`) {
 		t.Fatalf("status after teardown = %q, want the torn-down task's hold still listed", survived.stdout)
 	}
 
@@ -158,5 +165,74 @@ func TestHoldLifecycle(t *testing.T) {
 	}
 	if got := runHand(t, home, "status"); got.code != 0 || !strings.Contains(got.stdout, "held: 0\n") {
 		t.Fatalf("status after clearing every hold = %q, want the held count back to zero", got.stdout)
+	}
+}
+
+// atqamz/hand#417: once a blocked hold's blocker lands, hand status and hand orient must say so - the
+// gap the issue reports as a blocked hold being write-only. migrate-schema is merged and torn down to
+// terminal (cleanly released, so it leaves ListReconciliationHistories) while needs-migration stays open.
+func TestHoldReportsSatisfiedOnceItsBlockerGoesTerminal(t *testing.T) {
+	home := newHome(t)
+	registerProject(t, home, "demo", "local-only")
+	writeBrief(t, home, "migrate-schema")
+	writeBrief(t, home, "needs-migration")
+
+	clonePath := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clonePath)
+	dir := binDir(t)
+	writeFakeHerdrStatic(t, dir, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
+
+	blockerWorktree := filepath.Join(home, "wt-migrate-schema")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "migrate-schema-branch", blockerWorktree)
+	heldWorktree := filepath.Join(home, "wt-needs-migration")
+	runGitIn(t, clonePath, "worktree", "add", "-q", "-b", "needs-migration-branch", heldWorktree)
+	// Both slots declared up front: needs-migration is spawned into the workspace migrate-schema's spawn
+	// created (via the spare tab writeFakeHerdrStatic keeps ready) before migrate-schema tears down, so its
+	// tab close never has to close the whole workspace out from under the still-live task.
+	faketool.Treehouse{Slots: []string{blockerWorktree, heldWorktree}}.Install(t, dir)
+
+	if got := runHand(t, home, "spawn", "migrate-schema", "demo"); got.code != 0 {
+		t.Fatalf("spawn migrate-schema: exit %d, stderr %q", got.code, got.stderr)
+	}
+	if got := runHand(t, home, "spawn", "needs-migration", "demo"); got.code != 0 {
+		t.Fatalf("spawn needs-migration: exit %d, stderr %q", got.code, got.stderr)
+	}
+	runGitIn(t, blockerWorktree, "commit", "--allow-empty", "-q", "-m", "wip")
+	if got := runHand(t, home, "merge", "migrate-schema", "--local"); got.code != 0 {
+		t.Fatalf("merge --local: exit %d, stderr %q", got.code, got.stderr)
+	}
+	if got := runHand(t, home, "teardown", "migrate-schema"); got.code != 0 {
+		t.Fatalf("teardown migrate-schema: exit %d, stderr %q", got.code, got.stderr)
+	}
+
+	if got := runHand(t, home, "hold", "set", "needs-migration",
+		"--kind", "blocked", "--reason", "needs the schema migration merged first",
+		"--blocked-on", "migrate-schema"); got.code != 0 {
+		t.Fatalf("hold set: exit %d, stderr %q", got.code, got.stderr)
+	}
+
+	status := runHand(t, home, "status")
+	if status.code != 0 || !strings.Contains(status.stdout, `  needs-migration,blocked,"satisfied: migrate-schema is terminal; this hold can be cleared",`) {
+		t.Fatalf("status = %q, want the hold reported satisfied, naming its terminal blocker", status.stdout)
+	}
+
+	oriented := runHand(t, home, "orient")
+	if oriented.code != 0 {
+		t.Fatalf("orient: exit %d, stderr %q", oriented.code, oriented.stderr)
+	}
+	if !strings.Contains(oriented.stdout, "next_action_kind: hold-satisfied\n") ||
+		!strings.Contains(oriented.stdout, "next_action_task: needs-migration\n") {
+		t.Fatalf("orient = %q, want the satisfied hold to lead next_action", oriented.stdout)
+	}
+	if !strings.Contains(oriented.stdout, "hold-satisfied,migrate-schema is terminal; this hold can be cleared,hold\n") {
+		t.Fatalf("orient = %q, want the actionable item naming its blocker", oriented.stdout)
+	}
+
+	// Reporting a satisfied hold did not clear it - only hand hold clear does.
+	if _, found, err := state.ReadHold(home, "needs-migration"); err != nil || !found {
+		t.Fatalf("ReadHold = %v, %v, want the satisfied hold to survive being reported", found, err)
+	}
+	if got := runHand(t, home, "hold", "clear", "needs-migration"); got.code != 0 {
+		t.Fatalf("hold clear: exit %d, stderr %q", got.code, got.stderr)
 	}
 }

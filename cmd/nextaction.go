@@ -27,6 +27,7 @@ const (
 	nextActionUnreachable      = "unreachable"
 	nextActionParked           = "parked"
 	nextActionUnacknowledged   = "unacknowledged"
+	nextActionHoldSatisfied    = "hold-satisfied"
 	nextActionHold             = "hold"
 	nextActionGate             = "gate"
 	nextActionNeedsProject     = "needs-project"
@@ -100,6 +101,10 @@ func classifyNextAction(cfg workerConfig, projectCount int, backlog backlogSumma
 	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindUnacknowledged) }); ok {
 		return nextAction{Kind: nextActionUnacknowledged, Task: v.task.ID, Command: statusCommand(v.task.ID),
 			Reason: statusReason(v.task.ID, "act on its unacknowledged worker event")}
+	}
+	if v, ok := firstView(sorted, func(v taskView) bool { return hasAttentionKind(v, attention.KindHoldSatisfied) }); ok {
+		return nextAction{Kind: nextActionHoldSatisfied, Task: v.task.ID, Command: statusCommand(v.task.ID),
+			Reason: statusReason(v.task.ID, "review its satisfied hold and clear it with `hand hold clear "+v.task.ID+"` if appropriate")}
 	}
 	if h, ok := firstOrphanHold(holds, views); ok {
 		return nextAction{Kind: nextActionHold, Task: h.ID, Command: "none",

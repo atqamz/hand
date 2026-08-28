@@ -67,7 +67,7 @@ func loadFleetSnapshot(ctx context.Context, warnOut io.Writer, fleetHome string)
 		return nil, err
 	}
 	snapshot.herdrSession = client.ObserveSession(ctx)
-	views, holds, err := fleetViews(ctx, warnOut, fleetHome, client, true)
+	views, holds, _, err := fleetViews(ctx, warnOut, fleetHome, client, true)
 	if err != nil {
 		return nil, err
 	}
