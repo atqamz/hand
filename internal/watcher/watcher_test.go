@@ -1807,6 +1807,83 @@ func TestTickAnnouncesTheShipsOwnVerifiedDoneAfterPromoteResetsTheStaleMarker(t 
 	}
 }
 
+// The ship's first probe reads the same "working" the scout last held, so no
+// observed transition reseeds ChangedAt - which is why the forget rule cannot be
+// conditioned on one.
+func TestTickDropsTheCachedDwellWhenPromoteMovesTheTaskToANewPane(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := t.TempDir()
+	dwelling := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout,
+		CreatedAt: dwelling}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"},
+		StatusChangedAt: dwelling, StatusChangedFor: "working"},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: 20 * time.Minute}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	_, attempt := readTaskAttempt(t, home, "task-1")
+	restamp := time.Now().UTC().Format(time.RFC3339)
+	// hand promote's own rewrite: a fresh attempt with its own pane takes over the task,
+	// carrying no observed status of its own yet - it never rewrites the scout attempt's row.
+	shipAttempt, err := state.PromoteTask(home, "task-1", attempt.ID, attempt.Lifecycle, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "p2"},
+		StatusChangedAt: restamp, LaunchConfirmedAt: restamp,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TransitionAttempt(home, shipAttempt.ID, state.AttemptProvisioning, state.AttemptRunning); err != nil {
+		t.Fatal(err)
+	}
+
+	// One tick for the watcher to notice the new attempt identity and reseed its tracking - a
+	// promote gives the same task ID a new attempt, which this tick treats as a first sighting
+	// rather than a continuation of the scout's cached dwell.
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	// Moves report_offset, which is what makes the next tick write task state at all.
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("working: starting the ship run\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if strings.Contains(buf.String(), "stale task-1") {
+		t.Fatalf("out = %q, want no stale: the ship's dwell starts at the promotion, not at the scout's last observed transition", buf.String())
+	}
+
+	_, gotAttempt := readTaskAttempt(t, home, "task-1")
+	if gotAttempt.StatusChangedAt == dwelling {
+		t.Fatal("status_changed_at = the scout's stamp, want the cached scout dwell not written back over promote's restamp")
+	}
+	stamped, err := time.Parse(time.RFC3339, gotAttempt.StatusChangedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restamped, err := time.Parse(time.RFC3339, restamp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped.Before(restamped) {
+		t.Fatalf("status_changed_at = %q, want no earlier than promote's restamp %q", gotAttempt.StatusChangedAt, restamp)
+	}
+	if gotAttempt.StatusChangedFor != "working" {
+		t.Fatalf("status_changed_for = %q, want the status the ship's dwell was stamped for", gotAttempt.StatusChangedFor)
+	}
+}
+
 // The latches are what make each announcement fire only once, so any one of them
 // surviving a promote silences that announcement for the ship's own pane.
 func TestForgetPaneScopedCacheClearsEveryPaneAnchoredLatch(t *testing.T) {
@@ -3522,6 +3599,101 @@ func TestTickResumesTheLastStateAfterATrailingMalformedLine(t *testing.T) {
 	_, attempt := readTaskAttempt(t, home, "task-1")
 	if attempt.LastReportState != state.ReportNeedsDecision || !strings.Contains(attempt.LastReportNote, "which base branch?") {
 		t.Fatalf("LastReportState/Note = %q/%q, want the worker's own question left intact", attempt.LastReportState, attempt.LastReportNote)
+	}
+}
+
+// Keys tracking on identity rather than on ID. A teardown and respawn between two ticks is a
+// different task, and inheriting the previous run's TaskState suppresses the new one's verified done
+// for good: syncTaskState writes that inherited done_verified onto the fresh JSON.
+func TestTickReseedsARespawnedTaskID(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	reportMD := filepath.Join(home, "data", "task-1", "report.md")
+	if err := os.MkdirAll(filepath.Dir(reportMD), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reportMD, []byte("findings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: finished\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "done task-1: finished") {
+		t.Fatalf("output = %q, want the first run's verified done", buf.String())
+	}
+
+	firstRun, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TerminalizeTaskAndAttempt(home, "task-1", firstRun.ID, firstRun.Lifecycle, state.AttemptCompleted); err != nil {
+		t.Fatal(err)
+	}
+	// Same hazard as a surviving report channel, one layer in, so the scout's report.md and the
+	// volatile wake log both go with the torn-down run - a surviving log would replay as this
+	// run's, and a surviving deliverable would misreport what the second run actually produced.
+	if err := os.Remove(reportMD); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(state.ReportPath(home, "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetTaskReportState(home, "task-1", 0, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ReopenTask(home, state.Attempt{
+		TaskID: "task-1", Lifecycle: state.AttemptProvisioning, Herdr: state.Herdr{PaneID: "p1"},
+		LaunchConfirmedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	respawned, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.TransitionAttempt(home, respawned.ID, state.AttemptProvisioning, state.AttemptRunning); err != nil {
+		t.Fatal(err)
+	}
+
+	// One tick for the watcher to notice the reopened task's new attempt identity and reseed
+	// its tracking, before either report exists for this run.
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: round two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "reported-done task-1: round two") {
+		t.Fatalf("output = %q, want the respawned task's own done report read from offset 0", buf.String())
+	}
+
+	_, respawnedAttempt := readTaskAttempt(t, home, "task-1")
+	if respawnedAttempt.DoneVerified {
+		t.Fatal("done_verified inherited by a respawned ID, want the previous run's announcement not carried over")
+	}
+
+	if err := os.WriteFile(reportMD, []byte("findings again"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	tick(ctx, cfg, client, states, &buf, io.Discard)
+	if !strings.Contains(buf.String(), "done task-1: round two") {
+		t.Fatalf("output = %q, want the respawned task's verified done announced too", buf.String())
 	}
 }
 
