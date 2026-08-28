@@ -21,6 +21,7 @@ const (
 	KindReportDone       = "report-done"
 	KindGate             = "gate"
 	KindSendPending      = "send-pending"
+	KindHoldSatisfied    = "hold-satisfied"
 )
 
 const (
@@ -32,6 +33,7 @@ const (
 	ProvenanceRepair          = "repair"
 	ProvenanceSend            = "send"
 	ProvenanceGate            = "gate"
+	ProvenanceHold            = "hold"
 )
 
 type Evidence struct {
@@ -52,6 +54,11 @@ type Evidence struct {
 	ReportedState    string
 	ReportClaim      bool
 	GateProblem      string
+	// A blocked hold whose blocked_on task has gone terminal. Set alongside Held, which is why it is
+	// derived outside add: the hold being satisfied is exactly what makes it actionable despite Held
+	// (atqamz/hand#417). Clearing stays a judgment for the operator - hand hold clear, never automatic.
+	HoldSatisfied bool
+	HoldBlockedOn string
 }
 
 type Subject struct {
@@ -121,6 +128,17 @@ func Derive(e Evidence) []Subject {
 	}
 	if e.GateProblem != "" {
 		add(KindGate, e.GateProblem, ProvenanceGate, true)
+	}
+	// Bypasses add: every other subject's actionability is masked by Held, but a satisfied hold is
+	// actionable *because* it is held - Held is definitionally still true here, since satisfaction never
+	// clears the hold itself (atqamz/hand#417).
+	if e.HoldSatisfied {
+		subjects = append(subjects, Subject{
+			Kind:       KindHoldSatisfied,
+			Reason:     fmt.Sprintf("%s is terminal; this hold can be cleared", e.HoldBlockedOn),
+			Provenance: ProvenanceHold,
+			Actionable: true,
+		})
 	}
 	return subjects
 }

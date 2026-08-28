@@ -1796,6 +1796,12 @@ func TestStatusSingleTaskShowsHeldLine(t *testing.T) {
 		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
 		t.Fatal(err)
 	}
+	// Still open, not terminal: this pins the plain "waiting on" rendering while the blocker is unresolved.
+	// TestStatusSingleTaskShowsSatisfiedHeldLine and TestStatusSingleTaskShowsInconsistentHeldLine cover
+	// the terminal and unknown-blocker cases (atqamz/hand#417).
+	if err := state.CreateTask(home, state.Task{ID: "task-2", Project: "myproj", Kind: state.KindShip}); err != nil {
+		t.Fatal(err)
+	}
 	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindBlocked,
 		Reason: "waiting on migration", BlockedOn: "task-2", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
 		t.Fatal(err)
@@ -1810,6 +1816,67 @@ func TestStatusSingleTaskShowsHeldLine(t *testing.T) {
 	}
 	if got := detailField(t, out.String(), "held"); got != "waiting on task-2: waiting on migration" {
 		t.Fatalf("held = %q, want it naming what the task waits on", got)
+	}
+}
+
+// atqamz/hand#417: once the blocker is terminal, the single-task detail names it satisfied rather
+// than repeating the stale "waiting on" text.
+func TestStatusSingleTaskShowsSatisfiedHeldLine(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CreateTask(home, state.Task{ID: "task-2", Project: "myproj", Kind: state.KindShip, Lifecycle: state.TaskTerminal}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindBlocked,
+		Reason: "waiting on migration", BlockedOn: "task-2", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := detailField(t, out.String(), "held"); got != "satisfied: task-2 is terminal; this hold can be cleared" {
+		t.Fatalf("held = %q, want it naming the terminal blocker as satisfied", got)
+	}
+}
+
+// atqamz/hand#417: a blocked_on the store has never heard of is inconsistency, never satisfaction -
+// "not found" must never read as "done".
+func TestStatusSingleTaskShowsInconsistentHeldLine(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: "2026-07-24T10:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetHold(home, state.Hold{ID: "task-1", Kind: state.HoldKindBlocked,
+		Reason: "waiting on migration", BlockedOn: "task-2", SetAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := detailField(t, out.String(), "held"); got != `inconsistent: blocked hold waits on unknown task "task-2"` {
+		t.Fatalf("held = %q, want the unknown blocker flagged inconsistent, never satisfied", got)
 	}
 }
 
@@ -1973,7 +2040,7 @@ func TestAppendFleetStateKeepsTheStatusBlocksExact(t *testing.T) {
 	views := []taskView{{task: state.Task{ID: "task-1"}, agentState: "working", unacked: true}}
 	cols := []axi.Column[taskView]{{Name: "id", Value: func(v taskView) string { return v.task.ID }}}
 	var doc axi.Doc
-	if attention := appendFleetState(&doc, views, nil, cols); attention != 1 {
+	if attention := appendFleetState(&doc, views, nil, nil, cols); attention != 1 {
 		t.Fatalf("attention = %d, want 1", attention)
 	}
 	want := "count: 1\n" +

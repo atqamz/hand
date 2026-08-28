@@ -287,7 +287,7 @@ func TestClassifyNextActionFieldNamesArePinned(t *testing.T) {
 
 func observeNextAction(t *testing.T, home string) nextAction {
 	t.Helper()
-	views, holds, err := fleetViews(context.Background(), io.Discard, home, nil, true)
+	views, holds, _, err := fleetViews(context.Background(), io.Discard, home, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

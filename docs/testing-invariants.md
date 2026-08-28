@@ -162,6 +162,9 @@ Source: [Lock pathnames are permanent rendezvous points](adr/lock-pathnames-are-
 | INV-SCHEMA-3 | Migration is all-or-nothing: an interrupted migration leaves the recorded version and the schema agreeing with each other. | model | unaudited |
 | INV-HOLD-1 | A hold is a standalone row with no foreign key to a task, and survives the task's teardown when human-authored. | property | unaudited |
 | INV-HOLD-2 | A machine-authored hold is cleared only after its kind is checked, never by kind-blind clearing. | property | unaudited |
+| INV-HOLD-3 | A blocked hold whose blocked_on task is terminal is actionable in both `hand orient` and `hand status`, naming the blocker; a blocked_on task that is still open leaves the hold exactly as before. | property | `TestOrientAndStatusReportASatisfiedBlockedHold`, `TestOrientAndStatusLeaveABlockedHoldUnchangedWhileItsBlockerRuns`, `TestDeriveMakesASatisfiedHoldActionableDespiteHeld` |
+| INV-HOLD-4 | A blocked_on naming an id the store has never heard of is reported as an inconsistency, never as satisfied - a not-found lookup never reads as terminal. | property | `TestStatusFlagsAnUnknownBlockedOnAsInconsistentNotSatisfied`, `TestStatusSingleTaskShowsInconsistentHeldLine` |
+| INV-HOLD-5 | Reporting a satisfied hold never clears it; only `hand hold clear` removes a hold row. | property | `TestOrientAndStatusReportASatisfiedBlockedHold` |
 
 ## Worktree lease and ownership proof
 

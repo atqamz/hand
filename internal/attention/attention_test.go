@@ -92,6 +92,31 @@ func TestDeriveRaisesSendNotSubmittedDistinctFromSendUncertain(t *testing.T) {
 	}
 }
 
+// atqamz/hand#417: a satisfied hold is actionable despite Held - the opposite of every other subject,
+// which Held always masks.
+func TestDeriveMakesASatisfiedHoldActionableDespiteHeld(t *testing.T) {
+	got := Derive(Evidence{ID: "task-1", Held: true, HoldSatisfied: true, HoldBlockedOn: "blocker-task"})
+	if len(got) != 1 {
+		t.Fatalf("subjects = %#v, want exactly the hold-satisfied subject", got)
+	}
+	want := Subject{Kind: KindHoldSatisfied, Reason: "blocker-task is terminal; this hold can be cleared", Provenance: ProvenanceHold, Actionable: true}
+	if got[0] != want {
+		t.Fatalf("subject = %#v, want %#v", got[0], want)
+	}
+	if !NeedsAttention(Evidence{ID: "task-1", Held: true, HoldSatisfied: true, HoldBlockedOn: "blocker-task"}) {
+		t.Fatal("satisfied hold does not need attention")
+	}
+}
+
+func TestDeriveOmitsHoldSatisfiedWhenNotSet(t *testing.T) {
+	got := Derive(Evidence{ID: "task-1", Held: true, Unreported: true})
+	for _, subject := range got {
+		if subject.Kind == KindHoldSatisfied {
+			t.Fatalf("subjects = %#v, want no hold-satisfied subject", got)
+		}
+	}
+}
+
 func TestUnreportedRuntimeMatchesWatcherCatchUpRule(t *testing.T) {
 	for _, test := range []struct {
 		runtime, reported string
