@@ -244,9 +244,9 @@ func ConfigureInterChunkSettleForTest(delay time.Duration) func() {
 	return func() { interChunkSettle = previous }
 }
 
-// Splits message into pieces no larger than size bytes, cut only at rune boundaries (ranging over a
-// string yields each rune's start offset, so slicing there never splits a multi-byte rune). A message
-// that already fits returns unchanged, so a send that never needs chunking costs nothing extra.
+// Splits message into pieces of at least size bytes, cut only at rune boundaries (ranging over a
+// string yields each rune's start offset; the cut lands at the first one at or past size, so a chunk
+// can run a few bytes over). The last piece is whatever remains; a message that already fits is unchanged.
 func chunkMessage(message string, size int) []string {
 	if len(message) <= size {
 		return []string{message}
