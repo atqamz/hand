@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/filelock"
+	"pgregory.net/rapid"
 )
 
 const (
@@ -380,4 +381,88 @@ func killAndWait(cmd *exec.Cmd) {
 	}
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
+}
+
+// INV-LOCK-1: a logical lock key maps to one permanent pathname for the life of the fleet
+// home, created on first acquisition and never unlinked by any caller. One home is reused
+// across every case: Lock never removes what it creates.
+func TestLockKeyMapsToOnePermanentPathnameAcrossRepeatedAcquisition(t *testing.T) {
+	home := t.TempDir()
+	rapid.Check(t, func(t *rapid.T) {
+		key := rapid.String().Draw(t, "key")
+		want := lockPathname(home, key)
+
+		cycles := rapid.IntRange(1, 4).Draw(t, "cycles")
+		for i := 0; i < cycles; i++ {
+			release, err := Lock(home, key, true)
+			if err != nil {
+				t.Fatalf("Lock(%q) cycle %d: %v", key, i, err)
+			}
+			if got := lockPathname(home, key); got != want {
+				t.Fatalf("lockPathname(%q) = %q on cycle %d, want the stable %q", key, got, i, want)
+			}
+			info, err := os.Stat(want)
+			if err != nil {
+				t.Fatalf("pathname missing while held on cycle %d: %v", i, err)
+			}
+			if info.Size() != 0 {
+				t.Fatalf("held lock file size = %d, want 0", info.Size())
+			}
+			release()
+			if _, err := os.Stat(want); err != nil {
+				t.Fatalf("pathname did not survive release on cycle %d: %v", i, err)
+			}
+		}
+	})
+}
+
+// INV-LOCK-2: neither zero size nor an old mtime is read as evidence about whether a lock is
+// held. Perturbs the on-disk file's size and mtime both while genuinely held and right after
+// release, and checks Lock's outcome tracks only the kernel lock.
+func TestLockIgnoresFileSizeAndModTimeAsHeldEvidence(t *testing.T) {
+	home := t.TempDir()
+	rapid.Check(t, func(t *rapid.T) {
+		key := "probe-" + rapid.StringMatching(`[a-z0-9]{1,12}`).Draw(t, "key-suffix")
+		path := lockPathname(home, key)
+		_ = os.Remove(path)
+
+		holder, err := Lock(home, key, true)
+		if err != nil {
+			t.Fatalf("acquire holder: %v", err)
+		}
+
+		size := rapid.IntRange(0, 4096).Draw(t, "size")
+		if err := os.Truncate(path, int64(size)); err != nil {
+			t.Fatalf("truncate to %d: %v", size, err)
+		}
+		offsetDays := rapid.IntRange(-1000, 1000).Draw(t, "mtime-offset-days")
+		mtime := time.Now().AddDate(0, 0, offsetDays)
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatalf("chtimes: %v", err)
+		}
+
+		if _, err := Lock(home, key, true); err != filelock.ErrBusy {
+			t.Fatalf("Lock while held, size=%d mtime-offset-days=%d = %v, want ErrBusy regardless of on-disk metadata", size, offsetDays, err)
+		}
+
+		holder()
+
+		// Perturb again after release: a stale-looking file left by the just-departed holder
+		// must not block, and must not be required either, for the next acquisition to succeed.
+		size = rapid.IntRange(0, 4096).Draw(t, "size-after-release")
+		if err := os.Truncate(path, int64(size)); err != nil {
+			t.Fatalf("truncate to %d after release: %v", size, err)
+		}
+		offsetDays = rapid.IntRange(-1000, 1000).Draw(t, "mtime-offset-days-after-release")
+		mtime = time.Now().AddDate(0, 0, offsetDays)
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatalf("chtimes after release: %v", err)
+		}
+
+		acquired, err := Lock(home, key, true)
+		if err != nil {
+			t.Fatalf("Lock after release, size=%d mtime-offset-days=%d = %v, want success regardless of on-disk metadata", size, offsetDays, err)
+		}
+		acquired()
+	})
 }

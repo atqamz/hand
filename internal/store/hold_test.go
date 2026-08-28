@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 func sampleHold() Hold {
@@ -230,4 +232,137 @@ func TestConditionalMachineClearCannotDeleteOperatorReplacement(t *testing.T) {
 	if err != nil || !found || got != operator {
 		t.Fatalf("ReadHold = %+v, %v, want %+v", got, found, operator)
 	}
+}
+
+// INV-HOLD-1: a hold is a standalone row with no foreign key to a task, and survives the
+// task's teardown when human-authored. Generalizes TestHoldSurvivesWithNoTaskRowBehindIt over
+// arbitrary field values and every order of task existence, creation, and teardown.
+func TestHumanAuthoredHoldSurvivesAnyTaskLifecycleAroundIt(t *testing.T) {
+	db, _ := openTemp(t)
+
+	rapid.Check(t, func(t *rapid.T) {
+		id := "task-" + rapid.StringMatching(`[a-z0-9]{1,16}`).Draw(t, "id")
+		_ = db.ClearHold(id)
+		_ = db.DeleteTask(id)
+
+		hold := Hold{
+			ID:        id,
+			Kind:      rapid.SampledFrom([]string{HoldKindOperator, HoldKindBlocked}).Draw(t, "kind"),
+			Reason:    rapid.String().Draw(t, "reason"),
+			BlockedOn: rapid.String().Draw(t, "blocked-on"),
+			SetAt:     rapid.String().Draw(t, "set-at"),
+			Inferred:  rapid.Bool().Draw(t, "inferred"),
+		}
+
+		// Three shapes: no task ever exists, a task exists and outlives the hold, or a task
+		// exists and is torn down (deleted) after the hold is set - all three must leave the
+		// hold exactly as it was set.
+		switch rapid.SampledFrom([]string{"no-task", "task-survives", "task-torn-down"}).Draw(t, "shape") {
+		case "no-task":
+			if err := db.SetHold(hold); err != nil {
+				t.Fatal(err)
+			}
+		case "task-survives":
+			if err := db.CreateTask(Task{ID: id}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.SetHold(hold); err != nil {
+				t.Fatal(err)
+			}
+		case "task-torn-down":
+			if err := db.CreateTask(Task{ID: id}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.SetHold(hold); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.DeleteTask(id); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		got, found, err := db.ReadHold(id)
+		if err != nil || !found {
+			t.Fatalf("ReadHold(%q) = %v, %v, want the hold to survive", id, found, err)
+		}
+		if got != hold {
+			t.Fatalf("hold after task lifecycle = %+v, want unchanged %+v", got, hold)
+		}
+	})
+}
+
+// INV-HOLD-2: a machine-authored hold is cleared, or overwritten by a would-be replacement,
+// only after its kind is checked. Generalizes TestConditionalMachineHoldCannotOverwriteOperatorHold
+// and TestConditionalMachineClearCannotDeleteOperatorReplacement over every kind pair.
+func TestConditionalHoldOperationsCheckKindBeforeActing(t *testing.T) {
+	db, _ := openTemp(t)
+	kinds := []string{HoldKindOperator, HoldKindBlocked, HoldKindLimit, "external-kind"}
+
+	rapid.Check(t, func(t *rapid.T) {
+		id := "hold-" + rapid.StringMatching(`[a-z0-9]{1,16}`).Draw(t, "id")
+		_ = db.ClearHold(id)
+
+		existing := Hold{
+			ID:        id,
+			Kind:      rapid.SampledFrom(kinds).Draw(t, "existing-kind"),
+			Reason:    rapid.String().Draw(t, "existing-reason"),
+			BlockedOn: rapid.String().Draw(t, "existing-blocked-on"),
+			SetAt:     rapid.String().Draw(t, "existing-set-at"),
+			Inferred:  rapid.Bool().Draw(t, "existing-inferred"),
+		}
+		if err := db.SetHold(existing); err != nil {
+			t.Fatal(err)
+		}
+
+		attemptKind := rapid.SampledFrom(kinds).Draw(t, "attempt-kind")
+		sameKind := attemptKind == existing.Kind
+
+		if rapid.Bool().Draw(t, "op-is-clear") {
+			cleared, err := db.ClearHoldIfKind(id, attemptKind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cleared != sameKind {
+				t.Fatalf("ClearHoldIfKind(%q) against existing kind %q = %v, want %v", attemptKind, existing.Kind, cleared, sameKind)
+			}
+			got, found, err := db.ReadHold(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sameKind {
+				if found {
+					t.Fatalf("hold still present after a same-kind clear")
+				}
+			} else if !found || got != existing {
+				t.Fatalf("hold after a different-kind clear attempt = %+v, %v, want untouched %+v", got, found, existing)
+			}
+		} else {
+			replacement := Hold{
+				ID:        id,
+				Kind:      attemptKind,
+				Reason:    rapid.String().Draw(t, "replacement-reason"),
+				BlockedOn: rapid.String().Draw(t, "replacement-blocked-on"),
+				SetAt:     rapid.String().Draw(t, "replacement-set-at"),
+				Inferred:  rapid.Bool().Draw(t, "replacement-inferred"),
+			}
+			written, err := db.SetHoldIfNotOtherKind(replacement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if written != sameKind {
+				t.Fatalf("SetHoldIfNotOtherKind(kind=%q) against existing kind %q = %v, want %v", attemptKind, existing.Kind, written, sameKind)
+			}
+			got, found, err := db.ReadHold(id)
+			if err != nil || !found {
+				t.Fatalf("ReadHold after SetHoldIfNotOtherKind = %v, %v", found, err)
+			}
+			want := existing
+			if sameKind {
+				want = replacement
+			}
+			if got != want {
+				t.Fatalf("hold after SetHoldIfNotOtherKind = %+v, want %+v", got, want)
+			}
+		}
+	})
 }

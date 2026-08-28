@@ -1,12 +1,17 @@
 package completion
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 // What Append stamps onto every record it writes, so a test can say what it appended and still
@@ -296,4 +301,213 @@ func TestMigrateProjectIdentityWritesNothingWhenThereIsNothingToDo(t *testing.T)
 	if readStore(t, dir) != content || !after.ModTime().Equal(before.ModTime()) {
 		t.Fatalf("store changed: %q at %v, want %q at %v", readStore(t, dir), after.ModTime(), content, before.ModTime())
 	}
+}
+
+func recordGen() *rapid.Generator[Record] {
+	return rapid.Custom(func(t *rapid.T) Record {
+		return Record{
+			Project:          rapid.String().Draw(t, "project"),
+			ProjectID:        rapid.OneOf(rapid.Just(""), rapid.StringMatching(`p_[0-9a-f]{4,8}`)).Draw(t, "project-id"),
+			Kind:             rapid.String().Draw(t, "kind"),
+			Outcome:          rapid.String().Draw(t, "outcome"),
+			Detail:           rapid.String().Draw(t, "detail"),
+			TornDownAt:       rapid.String().Draw(t, "torndown-at"),
+			AttemptID:        rapid.Int64Range(0, 1000).Draw(t, "attempt-id"),
+			AttemptLifecycle: rapid.String().Draw(t, "attempt-lifecycle"),
+		}
+	})
+}
+
+// INV-PROJ-4: a completion record keeps the label it was written with; it is an audit line, not
+// a view. Appends records with arbitrary labels and checks every one reads back with its own
+// label untouched by anything appended after it, never re-derived from anything else.
+func TestCompletionRecordsRoundTripTheirWrittenLabelAcrossArbitraryAppends(t *testing.T) {
+	dir := t.TempDir()
+	rapid.Check(t, func(t *rapid.T) {
+		_ = os.Remove(Path(dir))
+
+		n := rapid.IntRange(1, 8).Draw(t, "count")
+		records := make([]Record, n)
+		for i := range records {
+			r := recordGen().Draw(t, fmt.Sprintf("record-%d", i))
+			r.ID = fmt.Sprintf("rec-%d", i)
+			records[i] = r
+		}
+		for _, r := range records {
+			if err := Append(dir, r); err != nil {
+				t.Fatalf("Append(%+v): %v", r, err)
+			}
+		}
+
+		got, err := List(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != len(records) {
+			t.Fatalf("List returned %d records, want %d", len(got), len(records))
+		}
+		for i, want := range records {
+			if got[i] != appended(want) {
+				t.Fatalf("record %d = %+v, want %+v", i, got[i], appended(want))
+			}
+		}
+	})
+}
+
+// INV-PROJ-5 (content half) and INV-PROJ-6 together: the migration rewrites only lines below
+// the current record version, resolving identity through the resolver alone - an empty answer
+// always becomes ProjectIDUnknown - while every current or unparseable line passes through as is.
+func TestMigrateProjectIdentityRewritesOnlyLegacyLinesAndNeverGuessesAnUnresolvedLineage(t *testing.T) {
+	dir := t.TempDir()
+	rapid.Check(t, func(t *rapid.T) {
+		_ = os.RemoveAll(filepath.Dir(Path(dir)))
+
+		type expectation struct {
+			untouched bool
+			record    Record
+		}
+
+		n := rapid.IntRange(1, 6).Draw(t, "lines")
+		inputLines := make([]string, n)
+		expectations := make([]expectation, n)
+		resolved := map[string]string{}
+
+		for i := 0; i < n; i++ {
+			switch rapid.SampledFrom([]string{"legacy", "current", "garbage"}).Draw(t, fmt.Sprintf("kind-%d", i)) {
+			case "garbage":
+				// Deliberately unterminated JSON, so it can never accidentally decode as a
+				// low-version record and get migrated instead of passed through.
+				suffix := rapid.StringMatching(`[a-z0-9]{0,12}`).Draw(t, fmt.Sprintf("garbage-%d", i))
+				inputLines[i] = `{"id":"` + suffix
+				expectations[i] = expectation{untouched: true}
+			case "current":
+				r := recordGen().Draw(t, fmt.Sprintf("current-%d", i))
+				r.ID = fmt.Sprintf("rec-%d", i)
+				r.Version = RecordVersion
+				if r.ProjectID == "" {
+					r.ProjectID = ProjectIDUnknown
+				}
+				data, err := json.Marshal(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				inputLines[i] = string(data)
+				expectations[i] = expectation{untouched: true}
+			case "legacy":
+				r := recordGen().Draw(t, fmt.Sprintf("legacy-%d", i))
+				r.ID = fmt.Sprintf("rec-%d", i)
+				r.Version = 0
+				answer := rapid.OneOf(rapid.Just(""), rapid.StringMatching(`p_[0-9a-f]{4,8}`)).Draw(t, fmt.Sprintf("resolved-%d", i))
+				resolved[r.ID] = answer
+				data, err := json.Marshal(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				inputLines[i] = string(data)
+				want := r
+				want.Version = RecordVersion
+				want.ProjectID = answer
+				if want.ProjectID == "" {
+					want.ProjectID = ProjectIDUnknown
+				}
+				expectations[i] = expectation{record: want}
+			}
+		}
+
+		if err := os.MkdirAll(filepath.Dir(Path(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(Path(dir), []byte(strings.Join(inputLines, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		resolve := func(r Record) string { return resolved[r.ID] }
+		if err := MigrateProjectIdentity(dir, resolve); err != nil {
+			t.Fatal(err)
+		}
+
+		after, err := os.ReadFile(Path(dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotLines := strings.Split(strings.TrimSuffix(string(after), "\n"), "\n")
+		if len(gotLines) != n {
+			t.Fatalf("line count after migration = %d, want %d", len(gotLines), n)
+		}
+		for i, exp := range expectations {
+			if exp.untouched {
+				if gotLines[i] != inputLines[i] {
+					t.Fatalf("line %d changed though it should pass through untouched: before %q, after %q", i, inputLines[i], gotLines[i])
+				}
+				continue
+			}
+			var got Record
+			if err := json.Unmarshal([]byte(gotLines[i]), &got); err != nil {
+				t.Fatalf("line %d did not decode after migration: %v", i, err)
+			}
+			if got != exp.record {
+				t.Fatalf("line %d = %+v, want %+v", i, got, exp.record)
+			}
+		}
+	})
+}
+
+// INV-PROJ-5 (rollback half): the rewrite fully replaces the store or leaves it exactly as it
+// was, since atomicfile.Write stages the new content in a temp file before renaming over the
+// original. Forces temp-file creation to fail; unix-only, like notice_test.go's equivalent.
+func TestMigrateProjectIdentityLeavesTheStoreExactlyAsItWasWhenTheReplaceFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce directory write permissions the same way")
+	}
+	dir := t.TempDir()
+	stateDir := filepath.Dir(Path(dir))
+
+	rapid.Check(t, func(t *rapid.T) {
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(stateDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		n := rapid.IntRange(1, 4).Draw(t, "lines")
+		lines := make([]string, n)
+		for i := range lines {
+			r := recordGen().Draw(t, fmt.Sprintf("record-%d", i))
+			r.ID = fmt.Sprintf("rec-%d", i)
+			r.Version = 0
+			data, err := json.Marshal(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines[i] = string(data)
+		}
+		if err := os.WriteFile(Path(dir), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(Path(dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.Chmod(stateDir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(stateDir, 0o755) })
+
+		if err := MigrateProjectIdentity(dir, func(Record) string { return "p_should_not_land" }); err == nil {
+			t.Fatal("MigrateProjectIdentity succeeded despite an unwritable state directory")
+		}
+
+		if err := os.Chmod(stateDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		after, err := os.ReadFile(Path(dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(after, before) {
+			t.Fatalf("store changed despite a failed replace: before %q, after %q", before, after)
+		}
+	})
 }
