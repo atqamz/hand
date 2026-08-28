@@ -1,15 +1,18 @@
 package registry
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/secondhand"
 	"github.com/atqamz/hand/internal/store"
+	"pgregory.net/rapid"
 )
 
 func TestMain(m *testing.M) {
@@ -802,4 +805,324 @@ func TestPruneRemovesOnlyEntriesClassifiedMissingAndNeverTheCurrentHome(t *testi
 	if len(second) != 0 {
 		t.Fatalf("second Prune() = %+v, want nothing left to remove", second)
 	}
+}
+
+// Draws Unix timestamps clear of time.Time's zero value, so Register's "0001-01-01T00:00:00Z"
+// fallback to a real time.Now() never fires and every generated stamp round-trips deterministically
+// through RFC3339Nano.
+func timestampGen() *rapid.Generator[time.Time] {
+	return rapid.Map(rapid.Int64Range(0, 4102444800), func(sec int64) time.Time {
+		return time.Unix(sec, 0).UTC()
+	})
+}
+
+// Returns a validly-formatted fleet id that differs from id at one hex digit, for exercising
+// Register's and Check's identity-mismatch path without an invalid-format detour.
+func flipFleetID(id string) string {
+	b := []byte(id)
+	if b[2] == '0' {
+		b[2] = '1'
+	} else {
+		b[2] = '0'
+	}
+	return string(b)
+}
+
+// INV-REG-1: Register is idempotent per (home, fleet id) - repeating it any number of times, with
+// any timestamps, yields one registry row and one locator row, not many. A property calling Register
+// once cannot witness this; it has to run a generated sequence of repeats.
+func TestRegisterIsIdempotentAcrossRepeatedCalls(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		root, err := os.MkdirTemp("", "hand-registry-idempotent-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+		home := filepath.Join(root, "fleet")
+		db, err := store.Open(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fleetID, err := db.FleetID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = registryDB.Close() })
+
+		stamps := rapid.SliceOfN(timestampGen(), 1, 20).Draw(t, "stamps")
+		for _, stamp := range stamps {
+			if err := registryDB.Register(home, fleetID, stamp); err != nil {
+				t.Fatalf("Register(%s) = %v", stamp, err)
+			}
+		}
+
+		var registryRows int
+		if err := registryDB.sql.QueryRow(`SELECT COUNT(*) FROM fleet_registry`).Scan(&registryRows); err != nil {
+			t.Fatal(err)
+		}
+		if registryRows != 1 {
+			t.Fatalf("fleet_registry rows after %d repeats = %d, want 1", len(stamps), registryRows)
+		}
+		var locatorRows int
+		if err := registryDB.sql.QueryRow(`SELECT COUNT(*) FROM fleet_locator`).Scan(&locatorRows); err != nil {
+			t.Fatal(err)
+		}
+		if locatorRows != 1 {
+			t.Fatalf("fleet_locator rows after %d repeats = %d, want 1", len(stamps), locatorRows)
+		}
+
+		var firstSeen, lastSeen string
+		if err := registryDB.sql.QueryRow(`SELECT first_seen_at, last_seen_at FROM fleet_registry WHERE fleet_id = ?`, fleetID).Scan(&firstSeen, &lastSeen); err != nil {
+			t.Fatal(err)
+		}
+		wantFirst := stamps[0].Format(time.RFC3339Nano)
+		wantLast := stamps[len(stamps)-1].Format(time.RFC3339Nano)
+		if firstSeen != wantFirst {
+			t.Fatalf("first_seen_at = %q, want %q (the first call's stamp, unmoved by every later repeat)", firstSeen, wantFirst)
+		}
+		if lastSeen != wantLast {
+			t.Fatalf("last_seen_at = %q, want %q (the last call's stamp)", lastSeen, wantLast)
+		}
+	})
+}
+
+// INV-REG-2: no registry operation - Register with the right id, Register with a wrong id, List,
+// Prune, or Check - ever reissues or rewrites a home's own fleet identity. Register only reads that
+// identity (store.FleetIDReadOnly) to compare against; nothing here writes it.
+func TestNoRegistryOperationRewritesAHomesFleetIdentity(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		root, err := os.MkdirTemp("", "hand-registry-identity-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+		home := filepath.Join(root, "fleet")
+		db, err := store.Open(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonicalID, err := db.FleetID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		wrongID := flipFleetID(canonicalID)
+
+		registryDB, err := OpenAt(filepath.Join(root, "registry.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = registryDB.Close() })
+
+		ops := rapid.SliceOfN(rapid.SampledFrom([]string{
+			"register-correct", "register-wrong", "list", "prune", "check-correct", "check-wrong",
+		}), 1, 20).Draw(t, "ops")
+
+		for _, op := range ops {
+			switch op {
+			case "register-correct":
+				_ = registryDB.Register(home, canonicalID, time.Now().UTC())
+			case "register-wrong":
+				_ = registryDB.Register(home, wrongID, time.Now().UTC())
+			case "list":
+				_, _ = registryDB.List(home)
+			case "prune":
+				_, _ = registryDB.Prune(home)
+			case "check-correct":
+				_ = registryDB.Check(home, canonicalID)
+			case "check-wrong":
+				_ = registryDB.Check(home, wrongID)
+			}
+
+			got, err := store.FleetIDReadOnly(home)
+			if err != nil {
+				t.Fatalf("FleetIDReadOnly after %q = %v", op, err)
+			}
+			if got != canonicalID {
+				t.Fatalf("FleetIDReadOnly after %q = %q, want unchanged %q", op, got, canonicalID)
+			}
+		}
+	})
+}
+
+// INV-REG-3: classification is a function of (stored rows, observed filesystem), and reading it
+// mutates nothing. This compares the registry database's raw bytes - not merely the returned value -
+// before and after a read, and checks two reads over an unchanged pair return identical results.
+func TestListIsPureAndReadingMutatesNothing(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		root, err := os.MkdirTemp("", "hand-registry-pure-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+		registryPath := filepath.Join(root, "registry.db")
+		registryDB, err := OpenAt(registryPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = registryDB.Close() })
+
+		n := rapid.IntRange(1, 5).Draw(t, "homes")
+		var current string
+		for i := 0; i < n; i++ {
+			home := filepath.Join(root, fmt.Sprintf("home-%d", i))
+			db, err := store.Open(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := db.FleetID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := registryDB.Register(home, id, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			switch rapid.SampledFrom([]string{"ready", "missing", "unreadable"}).Draw(t, fmt.Sprintf("kind-%d", i)) {
+			case "missing":
+				if err := os.RemoveAll(home); err != nil {
+					t.Fatal(err)
+				}
+			case "unreadable":
+				if err := os.Remove(store.Path(home)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if i == 0 {
+				current = home
+			}
+		}
+
+		before, err := os.ReadFile(registryPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, err := registryDB.List(current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, err := os.ReadFile(registryPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Fatalf("registry.db changed by a read-only List(): %d bytes before, %d bytes after", len(before), len(after))
+		}
+
+		second, err := registryDB.List(current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(first, second) {
+			t.Fatalf("List() twice over the same unchanged (stored rows, filesystem) = %+v then %+v, want identical", first, second)
+		}
+	})
+}
+
+// INV-REG-4: losing or deleting the registry changes no fleet identity, and re-registering restores
+// exactly what each home's own state/hand.db carries. This crosses two stores - a property that never
+// deletes registry.db cannot witness the recovery half, so the sequence has to lose it for real.
+func TestRegistryLossLosesNoIdentityAndRegisterRecoversIt(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		root, err := os.MkdirTemp("", "hand-registry-recovery-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+		registryPath := filepath.Join(root, "registry.db")
+		registryDB, err := OpenAt(registryPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		n := rapid.IntRange(1, 4).Draw(t, "homes")
+		homes := make([]string, n)
+		ids := make([]string, n)
+		for i := 0; i < n; i++ {
+			home := filepath.Join(root, fmt.Sprintf("home-%d", i))
+			db, err := store.Open(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := db.FleetID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := registryDB.Register(home, id, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			homes[i] = home
+			ids[i] = id
+		}
+		if err := registryDB.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.Remove(registryPath); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(registryPath); !os.IsNotExist(err) {
+			t.Fatalf("registry.db still present after removal")
+		}
+
+		for i, home := range homes {
+			got, err := store.FleetIDReadOnly(home)
+			if err != nil {
+				t.Fatalf("FleetIDReadOnly(%s) after registry loss = %v", home, err)
+			}
+			if got != ids[i] {
+				t.Fatalf("home %s identity = %q after registry loss, want unchanged %q", home, got, ids[i])
+			}
+		}
+
+		recovered, err := OpenAt(registryPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = recovered.Close() })
+		for i, home := range homes {
+			if err := recovered.Register(home, ids[i], time.Now().UTC()); err != nil {
+				t.Fatalf("Register(%s) after loss = %v", home, err)
+			}
+		}
+
+		fleets, err := recovered.List("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(fleets) != n {
+			t.Fatalf("List() after recovery = %+v, want %d fleets", fleets, n)
+		}
+		recoveredIDs := make(map[string]bool, n)
+		for _, fleet := range fleets {
+			if fleet.State != StateReady {
+				t.Fatalf("fleet %+v after recovery, want ready", fleet)
+			}
+			recoveredIDs[fleet.ID] = true
+		}
+		for _, id := range ids {
+			if !recoveredIDs[id] {
+				t.Fatalf("recovered fleets = %+v, want to include %s", fleets, id)
+			}
+		}
+	})
 }
