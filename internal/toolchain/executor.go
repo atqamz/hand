@@ -124,6 +124,10 @@ type Runtime struct {
 	HerdrPath        string
 	HerdrVersion     string
 	GitBin           string
+	// GitTemplateDir is an empty directory hand ensures exists, since the bundle ships no
+	// share/git-core/templates of its own (hand#464). Empty when hand could not create it -
+	// callers treat that as "no template arg to add", not a readiness failure.
+	GitTemplateDir string
 }
 
 func (r Runtime) Process(path string, args ...string) (ProcessSpec, error) {

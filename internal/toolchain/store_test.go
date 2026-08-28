@@ -77,6 +77,63 @@ func TestEnsureInstallsRuntimeBelowStoreRoot(t *testing.T) {
 	}
 }
 
+func TestSelectedRuntimeCarriesAnExistingEmptyGitTemplateDirectory(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := filepath.Base(r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("fixture-" + name))
+	}))
+	defer server.Close()
+
+	components := make(map[string]Component, 3)
+	for _, name := range []string{"git", "treehouse", "herdr"} {
+		data := []byte("fixture-" + name)
+		digest := sha256.Sum256(data)
+		file := executableName(name)
+		components[name] = Component{
+			Name: name, Version: "test", Revision: "test", URL: server.URL + "/" + name,
+			SHA256: hex.EncodeToString(digest[:]), Format: "binary", Root: ".",
+			Files: []ExpectedFile{{Path: file, Executable: true, Regular: true}},
+		}
+	}
+	lock := Lock{Schema: 1, GeneratedBy: "store-test", Targets: map[string]Target{
+		runtime.GOOS + "/" + runtime.GOARCH: {Components: components},
+	}}
+	var err error
+	lock.RuntimeID, err = lock.DeterministicID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	store, err := NewStore(root, lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.HTTPClient = server.Client()
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	selected, err := store.Selected("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.GitTemplateDir == "" {
+		t.Fatal("GitTemplateDir is empty, want an existing directory hand can pass to git as init.templateDir")
+	}
+	if !strings.HasPrefix(selected.GitTemplateDir, filepath.Join(root, "runtime")+string(filepath.Separator)) {
+		t.Fatalf("GitTemplateDir escaped store root: %s", selected.GitTemplateDir)
+	}
+	entries, err := os.ReadDir(selected.GitTemplateDir)
+	if err != nil {
+		t.Fatalf("GitTemplateDir %s does not exist: %v", selected.GitTemplateDir, err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("GitTemplateDir %s has entries %v, want empty so it honestly seeds nothing", selected.GitTemplateDir, entries)
+	}
+}
+
 func TestExtractRejectsArchiveTraversalBeforeWritingOutsideDestination(t *testing.T) {
 	archive := tarGzipFixture(t, "../escape", []byte("unsafe"))
 	destination := t.TempDir()
