@@ -24,6 +24,7 @@ var preconditionSentinels = []error{
 	project.ErrNotFound,
 	home.ErrNotFound,
 	home.ErrHandHomeInvalid,
+	home.ErrAmbiguousHome,
 }
 
 func asPrecondition(err error) error {

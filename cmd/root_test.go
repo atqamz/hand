@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/selfupdate"
 	"github.com/atqamz/hand/internal/state"
@@ -478,6 +480,26 @@ func TestErrorDocumentNamesTheKindBehindEveryExitCode(t *testing.T) {
 				t.Fatalf("error document = %q, want it to start with %q", out.String(), want)
 			}
 		})
+	}
+}
+
+// atqamz/hand#460: the refusal's help line names both ways forward rather than the generic
+// precondition filler, per docs/adr/every-diagnosis-names-a-reachable-treatment.md.
+func TestErrorDocumentNamesBothWaysForwardForAnAmbiguousHome(t *testing.T) {
+	var out strings.Builder
+	err := fmt.Errorf(
+		"%w: HAND_HOME is %q, the working directory is inside %q; unset HAND_HOME to act on the working directory's home, or run from outside %q to act on HAND_HOME's",
+		home.ErrAmbiguousHome, "/live", "/scratch", "/scratch")
+	if renderErr := renderError(&out, err, 3, "hand status"); renderErr != nil {
+		t.Fatal(renderErr)
+	}
+	for _, want := range []string{"kind: precondition\n", "exit: 3\n", "Unset HAND_HOME", "run this command from outside"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("error document = %q, want %q", out.String(), want)
+		}
+	}
+	if strings.Contains(out.String(), "Nothing changed: this refuses until the state it names is fixed") {
+		t.Fatalf("error document = %q, want the specific two-way help, not the generic precondition filler", out.String())
 	}
 }
 

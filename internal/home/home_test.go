@@ -2,12 +2,14 @@ package home
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/secondhand"
 )
 
 // Builds a home carrying the marker IsHome checks, state/hand.db.
@@ -242,7 +244,10 @@ func TestResolveFailsLoudlyWithNoHomeAnywhereInTheTree(t *testing.T) {
 	}
 }
 
-func TestResolvePrefersHandHomeOverCwd(t *testing.T) {
+// atqamz/hand#460: HAND_HOME no longer silently outranks a cwd that is itself a different fleet
+// home. Two homes in play with no stated precedence is a diagnosis, not something Resolve may
+// pick a side on - the near-miss this replaces was exactly this shape, read via `hand status`.
+func TestResolveRefusesWhenHandHomeAndCwdNameDifferentHomes(t *testing.T) {
 	cwdHome := t.TempDir()
 	makeHome(t, cwdHome)
 	t.Chdir(cwdHome)
@@ -251,12 +256,87 @@ func TestResolvePrefersHandHomeOverCwd(t *testing.T) {
 	makeHome(t, envHome)
 	t.Setenv("HAND_HOME", envHome)
 
+	_, err := Resolve()
+	if err == nil {
+		t.Fatal("got nil error, want a refusal")
+	}
+	if !errors.Is(err, ErrAmbiguousHome) {
+		t.Fatalf("got %v, want it to wrap ErrAmbiguousHome", err)
+	}
+	// %q is this package's existing convention for rendering a path in an error (ErrHandHomeInvalid
+	// does the same), so the assertion compares against that same rendering rather than the raw path.
+	if !strings.Contains(err.Error(), fmt.Sprintf("%q", envHome)) {
+		t.Fatalf("got %q, want it to name HAND_HOME's value %q", err.Error(), envHome)
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("%q", cwdHome)) {
+		t.Fatalf("got %q, want it to name the working directory's home %q", err.Error(), cwdHome)
+	}
+}
+
+// The common shape untouched by the refusal: HAND_HOME and cwd agree, because cwd sits inside
+// the very home HAND_HOME names. Nothing here should differ from resolving HAND_HOME alone.
+func TestResolveStaysSilentWhenHandHomeAndCwdNameTheSameHome(t *testing.T) {
+	fleetHome := t.TempDir()
+	makeHome(t, fleetHome)
+	nested := filepath.Join(fleetHome, "projects", "myapp")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+	t.Setenv("HAND_HOME", fleetHome)
+
 	got, err := Resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != envHome {
-		t.Fatalf("got %q, want %q", got, envHome)
+	if got != fleetHome {
+		t.Fatalf("got %q, want %q", got, fleetHome)
+	}
+}
+
+// Every managed worker's shape (atqamz/hand#460): HAND_HOME set, cwd a Treehouse pool slot that
+// is not, and never can be, a fleet home of its own (INV-POOL-1, INV-REG-7). Must resolve to
+// HAND_HOME silently, via the pools-root shortcut rather than a walk up cwd's ancestors.
+func TestResolveUsesTheWorktreePoolShortcutWhenHandHomeIsSet(t *testing.T) {
+	t.Setenv("SECONDHAND_HOME", t.TempDir())
+	pools, err := secondhand.PoolsRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := filepath.Join(pools, "myapp-abc123", "1", "myapp")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(slot)
+
+	fleetHome := t.TempDir()
+	makeHome(t, fleetHome)
+	t.Setenv("HAND_HOME", fleetHome)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fleetHome {
+		t.Fatalf("got %q, want %q", got, fleetHome)
+	}
+}
+
+// A worker whose cwd sits outside both HAND_HOME and the worktree pool - a plain scratch
+// directory with no fleet home anywhere above it - is unambiguous too, and must stay silent.
+func TestResolveStaysSilentWhenHandHomeSetAndCwdInsideNoHome(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	fleetHome := t.TempDir()
+	makeHome(t, fleetHome)
+	t.Setenv("HAND_HOME", fleetHome)
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fleetHome {
+		t.Fatalf("got %q, want %q", got, fleetHome)
 	}
 }
 

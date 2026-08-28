@@ -229,6 +229,9 @@ func renderError(w io.Writer, err error, code int, path string) error {
 	doc.Field("kind", errorKind(code))
 	doc.Int("exit", code)
 	help := errorHelp(code, path)
+	if errors.Is(err, home.ErrAmbiguousHome) {
+		help = []string{"Unset HAND_HOME to act on the working directory's home instead, or run this command from outside that directory to act on HAND_HOME's home instead"}
+	}
 	var details interface {
 		SendFields() (int64, int64, string, string, bool, bool)
 	}

@@ -82,6 +82,19 @@ Source: [hand init is the canonical fleet reconciler](adr/hand-init-is-the-canon
 | INV-INIT-5 | A non-empty directory is adopted if and only if its `go.mod` declares hand's own module path. | property | phase 0 of atqamz/hand#436 landed unit tests; property form unaudited |
 | INV-INIT-6 | Preflight refusal is total: a refused target has no byte changed, including the private runtime root. | property | unaudited |
 
+## Home resolution
+
+Source: [Two fleet homes in play is a refusal, not a silent choice](adr/two-fleet-homes-in-play-is-a-refusal.md),
+[The worktree pool lives outside every fleet home](adr/the-worktree-pool-lives-outside-every-fleet-home.md),
+`internal/home/home.go` (`Resolve`), `internal/secondhand/home.go` (`PoolsRoot`), `internal/runtime/provision.go`.
+
+| id | invariant | layer | coverage |
+|---|---|---|---|
+| INV-HOME-1 | `Resolve` refuses with `ErrAmbiguousHome`, naming both paths, whenever `HAND_HOME` is set and the working directory sits inside a fleet home other than the one `HAND_HOME` names. | unit | `TestResolveRefusesWhenHandHomeAndCwdNameDifferentHomes` |
+| INV-HOME-2 | `Resolve` stays silent and returns `HAND_HOME` unchanged when the working directory's nearest fleet home is the same one `HAND_HOME` names, when the working directory has no fleet home above it at all, or when `HAND_HOME` is unset. | unit | `TestResolveStaysSilentWhenHandHomeAndCwdNameTheSameHome`, `TestResolveStaysSilentWhenHandHomeSetAndCwdInsideNoHome` |
+| INV-HOME-3 | A working directory inside the Treehouse worktree pool never triggers the ambiguity walk: `Resolve` returns `HAND_HOME` from a path comparison against `secondhand.PoolsRoot()` alone, so every managed worker's invocation pays no extra cost. | unit | `TestResolveUsesTheWorktreePoolShortcutWhenHandHomeIsSet` |
+| INV-HOME-4 | `hand init`'s target is never `home.Resolve()`'s result: building or refreshing a fleet home is unaffected by an ambiguous or merely different `HAND_HOME`. | unit | `TestInitBuildsAScratchHomeWhileHandHomeNamesTheLiveFleet`, `TestInitRefreshesAnExistingScratchHomeWhileHandHomeNamesADifferentLiveFleet` |
+
 ## Usage-limit signatures
 
 Source: [Usage-limit detection is a harness capability](adr/usage-limit-detection-is-a-harness-capability.md),
