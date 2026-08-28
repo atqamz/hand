@@ -748,6 +748,9 @@ func (p *steerFailingPane) PaneSendText(string, string) error { return errors.Ne
 
 func (p *steerFailingPane) PaneSendKeys(string, ...string) error { return nil }
 
+// Never reached: PaneSendText's error above ends the send before confirmation.
+func (p *steerFailingPane) PaneReadUnwrapped(string, int) (string, error) { return "", nil }
+
 // An attempt is the same steer hand send performs and takes the same lock, so a send in flight is never
 // interleaved into the composer it is already writing. The attempt is deferred rather than spent: the
 // schedule stays due, and the next tick either steers or finds the send has ended the limit for it.
@@ -901,3 +904,10 @@ func (p *countingPane) PaneSendText(string, string) error {
 }
 
 func (p *countingPane) PaneSendKeys(string, ...string) error { return nil }
+
+// Backs steering.Execute's post-send confirmation read. claudeLimitText never contains
+// limitResumeMessage, so every resume send confirms on its first read without touching the reads
+// counter above, which exists to assert the unrelated usage-limit-detection PaneRead calls this fake serves.
+func (p *countingPane) PaneReadUnwrapped(string, int) (string, error) {
+	return claudeLimitText, nil
+}

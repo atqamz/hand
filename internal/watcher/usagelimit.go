@@ -48,6 +48,7 @@ type limitPane interface {
 	PaneRead(paneID string, lines int) (string, error)
 	PaneSendText(paneID, text string) error
 	PaneSendKeys(paneID string, keys ...string) error
+	PaneReadUnwrapped(paneID string, lines int) (string, error)
 }
 
 // The whole usage-limit lifecycle for one task on one tick: detect a harness that stopped on a limit,

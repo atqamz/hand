@@ -3,6 +3,7 @@ package steering
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -19,6 +20,9 @@ type Client interface {
 	PaneGet(paneID string) (herdr.Pane, error)
 	PaneSendText(paneID, text string) error
 	PaneSendKeys(paneID string, keys ...string) error
+	// PaneReadUnwrapped reads the pane's recent scrollback with terminal line-wrap reversed, so a long
+	// sent message reads back as the same contiguous text it went in as.
+	PaneReadUnwrapped(paneID string, lines int) (string, error)
 }
 
 type Request struct {
@@ -79,6 +83,135 @@ func (e *Error) SendFields() (int64, int64, string, string, bool, bool) {
 		sendID = e.Send.ID
 	}
 	return sendID, e.AttemptID, string(e.State), e.Reason, e.RetrySafe, e.PartialComposer
+}
+
+// Bounds the read-back that decides whether a send actually left the composer, mirroring
+// internal/runtime/launch.go's confirmLaunch: act, then poll-observe with a bounded timeout rather than
+// declare success without evidence. The first read is immediate, so an idle composer costs one exec.
+type confirmPoll struct {
+	Interval  time.Duration
+	Timeout   time.Duration
+	ReadLines int
+}
+
+// ReadLines of 400 matches the value the operator's own retraction on atqamz/hand#420 (and this task's
+// scout report) verified was not viewport-clipped against a several-KB composer; 10s/300ms is a fraction
+// of confirmLaunch's minute-scale budget because this is one pane read settling, not a harness starting.
+var sendConfirmPolling = confirmPoll{Interval: 300 * time.Millisecond, Timeout: 10 * time.Second, ReadLines: 400}
+
+func ConfigureSendConfirmPollingForTest(interval, timeout time.Duration, readLines int) func() {
+	previous := sendConfirmPolling
+	sendConfirmPolling = confirmPoll{Interval: interval, Timeout: timeout, ReadLines: readLines}
+	return func() { sendConfirmPolling = previous }
+}
+
+// Codex's own on-screen text for "Enter will not submit right now, Tab queues instead" - live-verified
+// against a real busy codex pane (atqamz/hand#426). A codex UI fact, not a general one, so
+// chooseSubmitKey only ever reads it for the codex harness.
+const codexQueueDiscriminator = "tab to queue message"
+
+// What codex prints above the composer once Tab has queued a message: the message itself, echoed back
+// verbatim under this label (live-verified against a real busy codex pane). Without excluding it,
+// composerRetains would misread a successful queue as the composer still stuck holding the message.
+const codexQueuedMarker = "Queued follow-up inputs"
+
+// Picks Enter, or Tab for a codex pane currently showing its own queue discriminator - conditioned on
+// harness identity, never applied to another harness. A read failure falls back to Enter rather than
+// turning an unrelated read problem into a submit failure.
+func chooseSubmitKey(client Client, paneID, harnessName string) string {
+	if harnessName != harness.Codex {
+		return "Enter"
+	}
+	text, err := client.PaneReadUnwrapped(paneID, sendConfirmPolling.ReadLines)
+	if err != nil {
+		return "Enter"
+	}
+	if strings.Contains(strings.ToLower(text), codexQueueDiscriminator) {
+		return "Tab"
+	}
+	return "Enter"
+}
+
+// The fixed-size fragment composerRetains looks for. A live reproduction of atqamz/hand#420 found a
+// corrupted send surviving as a shifted *interior* slice, both ends missing, which only an any-intact-
+// chunk search catches. Kept small: missing a surviving fragment means wrongly declaring submitted.
+const confirmChunkSize = 24
+
+func stripWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), "")
+}
+
+// Reports whether text still shows a recognizable fragment of sent. When key is "Tab", a successful
+// queue echoes sent verbatim under codexQueuedMarker - expected confirmation, not a stuck composer -
+// so that marker and everything after it is excluded from the comparison first.
+func composerRetains(text, sent, key string) bool {
+	if key == "Tab" {
+		if idx := strings.Index(text, codexQueuedMarker); idx >= 0 {
+			text = text[:idx]
+		}
+	}
+	haystack := stripWhitespace(text)
+	needle := stripWhitespace(sent)
+	if needle == "" {
+		return false
+	}
+	runes := []rune(needle)
+	if len(runes) <= confirmChunkSize {
+		return strings.Contains(haystack, needle)
+	}
+	// Chunks overlap: a coarser, non-overlapping grid can miss a fragment straddling two chunk boundaries
+	// without fully containing either one. A stride this much smaller than the chunk keeps that gap small
+	// - any surviving span within confirmChunkSize of the full chunk size fully contains one probe.
+	const stride = 8
+	for i := 0; i < len(runes); i += stride {
+		end := i + confirmChunkSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		if end-i < confirmChunkSize/2 {
+			break
+		}
+		if strings.Contains(haystack, string(runes[i:end])) {
+			return true
+		}
+	}
+	return false
+}
+
+// Polls the pane until it no longer holds a recognizable fragment of sent, or the bounded timeout
+// elapses.
+func composerConfirms(client Client, paneID, sent, key string) (bool, error) {
+	deadline := time.Now().Add(sendConfirmPolling.Timeout)
+	for {
+		text, err := client.PaneReadUnwrapped(paneID, sendConfirmPolling.ReadLines)
+		if err != nil {
+			return false, err
+		}
+		if !composerRetains(text, sent, key) {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+		time.Sleep(sendConfirmPolling.Interval)
+	}
+}
+
+// Only the Tab path gets a composer-content confirmation: codexQueuedMarker gives composerRetains a
+// real truncation point there. Enter has none - an accepted message stays visible as a live-verified
+// ">" history line, so the same check would misreport ordinary sends as not-submitted (atqamz/hand#420).
+func submissionOutcome(client Client, paneID, message, key string) (state.SendState, string, bool, bool) {
+	if key != "Tab" {
+		return state.SendSubmitted, "text-and-enter-accepted", true, false
+	}
+	confirmed, err := composerConfirms(client, paneID, message, key)
+	if err != nil {
+		return state.SendUncertain, "composer-confirmation-read-failed", false, false
+	}
+	if confirmed {
+		return state.SendSubmitted, "text-and-tab-queued", true, false
+	}
+	return state.SendNotSubmitted, state.SendReasonComposerRetainsMessage, false, true
 }
 
 func Execute(req Request) (Result, error) {
@@ -201,7 +334,8 @@ func Execute(req Request) (Result, error) {
 	if req.Faults.BeforeEnter != nil {
 		return Result{}, pendingError(send, req.Faults.BeforeEnter, "before-enter")
 	}
-	if err := req.Client.PaneSendKeys(current.Herdr.PaneID, "Enter"); err != nil {
+	key := chooseSubmitKey(req.Client, current.Herdr.PaneID, current.Harness)
+	if err := req.Client.PaneSendKeys(current.Herdr.PaneID, key); err != nil {
 		if herdr.IsPreSideEffectRejection(err) || herdr.IsProcessNotStarted(err) {
 			return finalize(req, send, state.SendNotSubmitted, rejectionReason(err, state.SendReasonEnterRejectedAfterTextStaged), false, true)
 		}
@@ -210,10 +344,13 @@ func Execute(req Request) (Result, error) {
 	if req.Faults.AfterEnter != nil {
 		return Result{}, pendingError(send, req.Faults.AfterEnter, "enter-succeeded-before-finalization")
 	}
+
+	next, reason, submitted, partial := submissionOutcome(req.Client, current.Herdr.PaneID, req.Message, key)
+
 	if req.Faults.BeforePersist != nil {
 		return Result{}, &Error{Cause: fmt.Errorf("terminal submission returned success, but durable send finalization failed: %w", req.Faults.BeforePersist), Send: &send, AttemptID: current.ID, State: state.SendPending, Reason: "durable-finalization-unresolved", FinalizationFault: true}
 	}
-	return finalize(req, send, state.SendSubmitted, "text-and-enter-accepted", true, false)
+	return finalize(req, send, next, reason, submitted, partial)
 }
 
 func lock(req Request, name string) (func(), error) {
