@@ -2,7 +2,8 @@
 
 Date: 2026-08-28
 Status: accepted
-Issues: atqamz/hand#426, atqamz/hand#420 (closed by the amendment below), atqamz/hand#459.
+Issues: atqamz/hand#426, atqamz/hand#420 (closed by the amendment below), atqamz/hand#459,
+atqamz/hand#478 (closed by the second amendment below).
 Pull requests: none
 
 ## Context
@@ -31,6 +32,51 @@ Live-validated against a real codex worker: idle and mid-turn, small and 2-6KB m
 
 atqamz/hand#420 and atqamz/hand#426 are both closed by this amendment. The Tab/queue path above is unchanged.
 
+### Amendment - 2026-08-29 (atqamz/hand#478)
+
+The Tab/queue path above was itself the same class of bug the first amendment fixed for Enter, for the
+same underlying reason: `composerRetains`'s truncation excluded text under `codexQueuedMarker`
+("Queued follow-up inputs"), and that marker is not there to exclude once its hosting turn ends and
+codex dequeues the message. Caught organically during this task's own live testing, using the unfixed
+binary against a real codex worker: a mid-turn `hand send` queued cleanly (marker observed, echoing the
+message), then reported `not-submitted` / `composer-retains-message` after the full 10-second poll -
+while the pane transcript, read back afterward, showed the shell command run and the reply delivered,
+in full, exactly once, with no retry and no duplicate. Direct rapid pane reads bypassing `hand` entirely
+then bracketed the mechanism to single-digit milliseconds: the instant the hosting turn ends, codex
+drops the queue label and re-renders the same text as an ordinary "›"-prefixed history line -
+content-identical to a message still sitting unsent - while a fresh empty composer has already opened
+beneath it. A truncation keyed to the label goes blind at exactly that moment, because the label is
+gone by the time the history line exists, so nothing excludes the promoted text from the search.
+
+Two fixes were weighed, the two the issue posed. Porting Enter's `composerHasTail` shape verbatim does
+not work here: Tab is chosen only while codex is busy, and a busy pane's own spinner and elapsed-time
+counter redraw every tick regardless of whether anything was queued, so "differs from a pre-key
+baseline" is nearly always true within one poll interval and cannot serve Enter's role of "the harness
+reacted." Worse, the tail match itself cannot tell a fragment still sitting at the live composer from
+the identical fragment sitting under the queue label or already promoted to history, since all three
+are the same text - Tab's problem is where the fragment is, not whether it exists. Patching the
+truncation to key on something sturdier than the vanishing label - the issue's other framing - had a
+direct answer once the mechanism was in hand: codex always renders the live composer as the final
+"›"-prefixed block, busy or idle, in every state observed (queued-and-waiting, promoted-and-processing,
+genuinely stuck, and interrupted-back-to-composer). `lastComposerBlock` isolates exactly that block;
+`composerRetains`'s Tab check now searches only it, rather than everything up to a label that can
+disappear. A message under the queue label still confirms, for the same reason as before: it precedes
+the final block, never sits inside it. `codexQueuedMarker` is removed with nothing left referencing it.
+
+Live-validated against a real codex worker in a scratch fleet, across 270-plus sends. The confirmed-
+delivered half has the organic reproduction above as its live evidence, plus a `send_test.go` case built
+from text reconstructed off that reproduction's own post-transition pane read. A live capture separately
+bracketed the transition itself to single-digit milliseconds, and hand's own Tab-to-first-read gap is of
+a similar order, so aiming a second live `hand send` at that same gap through external timing alone did
+not also land an end-to-end pass under the fixed binary within this task's testing budget - the risk
+that leaves is bounded by the unit-level proof against the reconstructed real text, not by an
+aspiration. The genuine-non-delivery half was reproduced end-to-end under the fixed binary:
+interrupting codex's own turn a few hundred milliseconds after a real `hand send --force` pressed Tab
+returns the just-queued message to the live composer, unqueued, exactly where it started, and the fixed
+check ran its full bounded poll and correctly reported `not-submitted` / `composer-retains-message`
+with `RetrySafe` false - confirmed against both the CLI output and a direct pane read afterward. No
+poll-window or retry-behavior change of any kind is part of this amendment.
+
 ## Rejected alternatives
 
 Confirming the Enter path the same way was tried and reverted. `composerRetains` cannot distinguish a message still sitting unsent at the live composer from the identical text remaining visible as a `>`-prefixed history line after a genuinely successful send, because Herdr's read window carries both without marking which is which the way `codexQueuedMarker` marks a queue. The failure was not rare - it reproduced on the next live Enter send tried - and its retry compounded it into an actual duplicate message delivered to the worker, not merely a wrong label. Fixing this needs either a narrower read window (whose tradeoffs against atqamz/hand#420's own interior-slice-corruption evidence are unverified) or a positive "the harness reacted" signal in place of an absence check; both are undeveloped and belong to the still-open atqamz/hand#420, not this decision.
@@ -46,3 +92,5 @@ Retrying a send that failed to confirm was built, live-tested, and removed: its 
 `hand send`'s cost is unchanged from before this task for every non-codex harness. A codex-harness pane costs one extra exec to choose Enter or Tab; if Tab is chosen, confirming it costs one more in the common case of an immediate clear, or more within the bounded poll if it is not immediate.
 
 atqamz/hand#426 is closed by this decision. atqamz/hand#420 is not: an Enter send still reports `submitted` on the strength of two RPCs alone, exactly as [Steering records terminal submission uncertainty](steering-records-terminal-submission-uncertainty.md) already described, and stays open for a signal that survives an accepted message remaining visible in history. The amendment above is that signal; #420 is closed as of it.
+
+atqamz/hand#478 is closed by the second amendment above: the Tab path's confirmation no longer depends on `codexQueuedMarker` still being on screen, so a hosting turn ending mid-poll no longer reads as a stuck composer.

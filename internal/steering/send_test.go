@@ -558,6 +558,75 @@ func TestExecuteDoesNotConfirmCodexTabWhenMessageStaysInTheLiveComposer(t *testi
 	}
 }
 
+// Live reproduction of atqamz/hand#478, caught by rapid direct pane reads against a real codex worker:
+// the instant a Tab-queued message's hosting turn ended, codex dropped "Queued follow-up inputs" and
+// re-rendered the same text as an ordinary "›" history line, above a fresh empty composer.
+func TestExecuteConfirmsCodexTabWhenItsHostingTurnEndedDuringThePoll(t *testing.T) {
+	useFastSendConfirmPolling(t)
+	home, _ := newSteeringHome(t)
+	db, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(state.Task{ID: "task-codex", Lifecycle: state.TaskOpen}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateAttempt(state.Attempt{TaskID: "task-codex", Lifecycle: state.AttemptRunning, Harness: "codex",
+		Herdr: state.Herdr{Session: "session-1", WorkspaceID: "workspace-1", TabID: "tab-1", PaneID: "pane-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	const message = "please pause and wait for review"
+	pane := &testPane{
+		pane: herdr.Pane{PaneID: "pane-1", TabID: "tab-1", WorkspaceID: "workspace-1", AgentStatus: herdr.StatusWorking},
+		readResponses: []string{
+			"• Working (8s • esc to interrupt)\n\ntab to queue message   92% context left",
+			"• Ran sleep 8 && echo natural-done\n  └ natural-done\n\n───────────────────────────\n\n" +
+				"› " + message + "\n\n\n› \n\ngpt-5.6-luna max",
+		},
+	}
+	result, err := Execute(Request{Home: home, TaskID: "task-codex", Message: message, Origin: state.SendOriginOperator, Client: pane, Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Send.State != state.SendSubmitted {
+		t.Fatalf("result = %+v, want submitted: the turn ending mid-poll promoted the queued message to history, it did not lose it", result.Send)
+	}
+	if len(pane.textCalls) != 1 || len(pane.keyCalls) != 1 {
+		t.Fatalf("calls=%v/%v, want no retry", pane.textCalls, pane.keyCalls)
+	}
+}
+
+func TestLastComposerBlock(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "no composer line at all falls back to the full text", text: "• Ran go test ./...\n  ok", want: "• Ran go test ./...\n  ok"},
+		{name: "a single composer line at the very start is already the whole text", text: "› hello", want: "› hello"},
+		{
+			name: "history above, live composer below: only the last block is kept",
+			text: "› first turn, now history\n\n• done\n\n› second turn, still live",
+			want: "› second turn, still live",
+		},
+		{
+			// atqamz/hand#478: a dequeued message promoted to a "›" history line must not be mistaken
+			// for the live composer just because it starts with the same glyph the composer uses.
+			name: "a dequeued message promoted to history is not the final block",
+			text: "• Ran sleep 8\n  └ done\n\n› promoted queued message\n\n› \n\ngpt-5.6-luna max",
+			want: "› \n\ngpt-5.6-luna max",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := lastComposerBlock(tt.text); got != tt.want {
+				t.Fatalf("lastComposerBlock() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestComposerRetains(t *testing.T) {
 	const sent = "Please stop and wait for review before merging this pull request, thanks in advance."
 	tests := []struct {
@@ -597,6 +666,15 @@ func TestComposerRetains(t *testing.T) {
 			text: "› " + sent + "\n\ntab to queue message   90% context left",
 			key:  "Tab",
 			want: true,
+		},
+		{
+			// atqamz/hand#478: live-reproduced by reading a real codex pane the instant a queued
+			// message's hosting turn ended. The queue label is already gone, and the message now reads
+			// as an ordinary "›" history line - but it precedes the true final block, an empty composer.
+			name: "queue label gone, message promoted to history, fresh composer beneath it",
+			text: "• Ran sleep 8\n  └ done\n\n› " + sent + "\n\n\n› \n\ngpt-5.6-luna max",
+			key:  "Tab",
+			want: false,
 		},
 		{
 			// The exclusion is specific to a Tab attempt; an Enter attempt gets no special-casing even
