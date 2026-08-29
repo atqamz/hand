@@ -205,7 +205,7 @@ planned_against: <full commit ID>
 `planned_against` is the full commit ID of the registered project's verified local default branch in `<home>/projects/<project>`.
 For `mechanical`, Hand refuses dispatch when that project base no longer matches exactly, before provisioning begins.
 For `standard` and `deep`, the value is provenance only and does not trigger the mechanical exact-match refusal.
-Because Treehouse may refresh a leased worktree during acquisition, Hand also verifies the acquired worktree `HEAD` against the same commit and refuses to launch when it differs.
+Because Treehouse may refresh a leased worktree during acquisition, Hand verifies the acquired slot's Git common directory, linked-worktree metadata back-pointer, pool status, and (for mechanical plans) `HEAD` against the expected commit before launch. Unsound, foreign, missing, or unprovable slots are refused, and recovery mutates only a sound slot owned by the registered clone.
 Mechanical dispatch also requires a harness capable of carrying the shared mechanical worker guidance; unsupported harnesses fail as a precondition before lifecycle mutation.
 The supervisor must re-check the plan and rewrite or revalidate it before recording a new revision.
 
