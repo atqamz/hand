@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -478,6 +479,26 @@ func TestDoctorReportsAPoolSlotWithMissingMetadata(t *testing.T) {
 		!hasDoctorFindingContaining(findings, doctorError, missingMetadata) ||
 		!hasDoctorFindingContaining(findings, doctorError, "metadata directory does not exist") {
 		t.Fatalf("findings = %#v, want the missing metadata target and slot", findings)
+	}
+}
+
+func TestDoctorIgnoresForeignRepositoryFromPoolStatus(t *testing.T) {
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	foreign := filepath.Join(t.TempDir(), "foreign")
+	initGitRepo(t, clone)
+	initGitRepo(t, foreign)
+	status, err := json.Marshal([]map[string]string{{"path": foreign, "status": "leased"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	faketool.Treehouse{Responses: []faketool.TreehouseResponse{
+		{Command: "status", Stdout: string(status)},
+	}}.Install(t, faketool.Bin(t))
+
+	findings := doctorWorktreeFindings(home, nil, []project.Project{{Name: "demo"}})
+	if hasDoctorFindingContaining(findings, doctorError, foreign) {
+		t.Fatalf("findings = %#v, want foreign pool entry filtered", findings)
 	}
 }
 

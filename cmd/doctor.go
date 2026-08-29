@@ -406,6 +406,9 @@ func doctorPoolFindings(fleetHome string, projects []project.Project) []doctorFi
 		if entries, err := worktree.PoolStatus(clone); err == nil {
 			for _, entry := range entries {
 				soundness := worktree.CheckSoundness(clone, entry.Path)
+				if soundness.CommonDir != "" && !git.SamePath(soundness.CommonDir, filepath.Join(clone, ".git")) {
+					continue
+				}
 				reported[worktree.CanonicalPath(entry.Path)] = struct{}{}
 				appendUnsoundPoolFinding(&findings, p.Name, entry.Path, soundness, entry.Status == "leased")
 			}
