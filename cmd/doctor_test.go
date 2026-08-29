@@ -411,7 +411,10 @@ func TestDoctorFindsWorktreeUsingTheFleetHomeCheckout(t *testing.T) {
 }
 
 func TestDoctorReportsAnAliasedPoolSlotAcrossPoolRoots(t *testing.T) {
-	home := t.TempDir()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("SECONDHAND_HOME", filepath.Join(home, "secondhand"))
 	t.Chdir(home)
@@ -449,7 +452,10 @@ func TestDoctorReportsAnAliasedPoolSlotAcrossPoolRoots(t *testing.T) {
 }
 
 func TestDoctorReportsAPoolSlotWithMissingMetadata(t *testing.T) {
-	home := t.TempDir()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("SECONDHAND_HOME", filepath.Join(home, "secondhand"))
 	t.Chdir(home)
@@ -469,7 +475,9 @@ func TestDoctorReportsAPoolSlotWithMissingMetadata(t *testing.T) {
 	}
 
 	findings := doctorWorktreeFindings(home, nil, []project.Project{{Name: "demo"}})
-	if !hasDoctorFindingContaining(findings, doctorError, slot) || !hasDoctorFindingContaining(findings, doctorError, "metadata directory does not exist") {
+	if !hasDoctorFindingContaining(findings, doctorError, slot) ||
+		!hasDoctorFindingContaining(findings, doctorError, missingMetadata) ||
+		!hasDoctorFindingContaining(findings, doctorError, "metadata directory does not exist") {
 		t.Fatalf("findings = %#v, want the missing metadata target and slot", findings)
 	}
 }

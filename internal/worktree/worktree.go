@@ -348,7 +348,7 @@ func CheckSoundness(clonePath, worktreePath string) SlotSoundness {
 		info, statErr := os.Stat(metadata)
 		switch {
 		case os.IsNotExist(statErr):
-			result.Failures = append(result.Failures, "metadata directory does not exist")
+			result.Failures = append(result.Failures, fmt.Sprintf("metadata directory does not exist: %s", metadata))
 		case statErr != nil:
 			result.Failures = append(result.Failures, fmt.Sprintf("metadata directory cannot be inspected: %v", statErr))
 		case !info.IsDir():
@@ -462,6 +462,8 @@ func cloneOwnsWorktree(clonePath, worktreePath string, soundness SlotSoundness) 
 
 func rejectAcquiredLease(clonePath string, lease Lease, soundness SlotSoundness, reason error) error {
 	if !cloneOwnsWorktree(clonePath, lease.Path, soundness) {
+		// Keep unsound or foreign leases quarantined. Returning one would let treehouse recirculate
+		// an aliased slot and expose the same path to another worker.
 		return reason
 	}
 	var err error

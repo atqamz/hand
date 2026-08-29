@@ -18,6 +18,7 @@ import (
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/routing"
 	"github.com/atqamz/hand/internal/selfupdate"
+	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/skill"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/supervision"
@@ -438,7 +439,7 @@ func appendUnsoundPoolFinding(findings *[]doctorFinding, projectName, path strin
 	}
 	text := fmt.Sprintf("project %q pool slot %q is unsound: %s", projectName, path, strings.Join(soundness.Failures, "; "))
 	if leased {
-		text += "; leased, not retired"
+		text += fmt.Sprintf("; leased, not retired; recover after inspection with `treehouse return --force %s` from the pinned private runtime bundle", shellquote.Quote(path))
 	}
 	*findings = append(*findings, doctorFinding{Severity: doctorError, Text: text})
 }
