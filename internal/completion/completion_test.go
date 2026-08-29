@@ -672,9 +672,9 @@ func TestRoundTripsARecordOneByteUnderTheScannerLimit(t *testing.T) {
 	}
 }
 
-// At exactly the limit, bufio's own token-too-long error is what List and FindAttempt already
-// return for any other read failure - not a truncation and not a silent skip. atqamz/hand#498
-// asks whether that is the behavior this store wants long-term; this pins what it does today.
+// At exactly the limit, List and FindAttempt fail loudly and specifically (INV-PROJ-8): the error
+// names bufio.ErrTooLong, the store's path, and the failing line's position, rather than reading
+// like the same generic failure every other I/O error produces - never truncated, never skipped.
 func TestSurfacesTheReadErrorForARecordAtTheScannerLimit(t *testing.T) {
 	dir := t.TempDir()
 	r := paddedRecord(t, Record{ID: "huge", AttemptID: 777}, scannerMaxTokenSize)
@@ -682,17 +682,81 @@ func TestSurfacesTheReadErrorForARecordAtTheScannerLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := List(dir); !errors.Is(err, bufio.ErrTooLong) {
+	_, err := List(dir)
+	if !errors.Is(err, bufio.ErrTooLong) {
 		t.Fatalf("List error = %v, want it to wrap bufio.ErrTooLong", err)
 	}
-	if _, _, err := FindAttempt(dir, 777); !errors.Is(err, bufio.ErrTooLong) {
+	if !strings.Contains(err.Error(), Path(dir)) || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("List error = %q, want it to name the store path and line 1", err)
+	}
+
+	_, _, err = FindAttempt(dir, 777)
+	if !errors.Is(err, bufio.ErrTooLong) {
 		t.Fatalf("FindAttempt error = %v, want it to wrap bufio.ErrTooLong", err)
+	}
+	if !strings.Contains(err.Error(), Path(dir)) || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("FindAttempt error = %q, want it to name the store path and line 1", err)
 	}
 }
 
-// The failure is total, not local to the oversized line: unlike TestListSkipsDamagedLine's
-// partial-write case, List does not skip the oversized line and hand back everything else - a
-// record written before it becomes unreadable too.
+// FindAttempt keeps its own copy of the same scan loop, so a line before the oversized one has to
+// advance FindAttempt's own count, not just List's (TestListLosesPrecedingRecordsWhenALaterLine...).
+func TestFindAttemptSurfacesTheReadErrorNamingTheRealFileLine(t *testing.T) {
+	dir := t.TempDir()
+	if err := Append(dir, Record{ID: "before", AttemptID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	huge := paddedRecord(t, Record{ID: "huge", AttemptID: 2}, scannerMaxTokenSize)
+	if err := Append(dir, huge); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := FindAttempt(dir, 2)
+	if !errors.Is(err, bufio.ErrTooLong) {
+		t.Fatalf("FindAttempt error = %v, want it to wrap bufio.ErrTooLong", err)
+	}
+	if !strings.Contains(err.Error(), "line 2") {
+		t.Fatalf("FindAttempt error = %q, want it to name line 2, not the good line before it", err)
+	}
+}
+
+// Confirms the line position named in the error is the real 1-indexed line in
+// state/completions.jsonl - blank and damaged lines consumed by the scanner included - not just a
+// count of valid records, since repairing the store by hand needs the real line to open and edit.
+func TestSurfacesTheReadErrorNamingTheRealFileLineAcrossOtherLinesBeforeIt(t *testing.T) {
+	dir := t.TempDir()
+	if err := Append(dir, Record{ID: "one", AttemptID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(Path(dir), os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Line 2 is blank, line 3 is damaged (mirrors TestListSkipsDamagedLine): both are lines the
+	// scanner consumes without producing a record, so the huge line that follows is really line 4.
+	if _, err := f.WriteString("\n{\"id\":\"damag\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	huge := paddedRecord(t, Record{ID: "huge", AttemptID: 2}, scannerMaxTokenSize)
+	if err := Append(dir, huge); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = List(dir)
+	if !errors.Is(err, bufio.ErrTooLong) {
+		t.Fatalf("List error = %v, want it to wrap bufio.ErrTooLong", err)
+	}
+	if !strings.Contains(err.Error(), "line 4") {
+		t.Fatalf("List error = %q, want it to name line 4 (1 record, 1 blank, 1 damaged, then the huge line)", err)
+	}
+}
+
+// The failure is total, not local to the oversized line (INV-PROJ-8): unlike
+// TestListSkipsDamagedLine's partial-write case, List does not skip the oversized line and hand
+// back everything else - a record written before it becomes unreadable too.
 func TestListLosesPrecedingRecordsWhenALaterLineExceedsTheScannerLimit(t *testing.T) {
 	dir := t.TempDir()
 	small := Record{ID: "before", AttemptID: 1}
@@ -707,5 +771,8 @@ func TestListLosesPrecedingRecordsWhenALaterLineExceedsTheScannerLimit(t *testin
 	got, err := List(dir)
 	if !errors.Is(err, bufio.ErrTooLong) || got != nil {
 		t.Fatalf("List = %+v, err %v, want nil and a wrapped bufio.ErrTooLong even though %q came first", got, err, small.ID)
+	}
+	if !strings.Contains(err.Error(), "line 2") {
+		t.Fatalf("List error = %q, want it to name line 2 - the huge line, not the good one before it", err)
 	}
 }
