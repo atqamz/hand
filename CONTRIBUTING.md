@@ -84,6 +84,100 @@ User or contributor guidance belongs in README.md or this file.
 
 `go run ./tools/commentlint .` runs the check alone and prints one `file:line:column` per violation.
 
+## Mutation testing
+
+Mutation testing judges the tests, not the code: it changes one line of production behavior at a
+time and checks whether any test fails. A mutant the suite kills means some test constrains that
+line; a mutant that lives means nothing does, whatever the coverage report says. See
+`docs/adr/tests-state-invariants-first-examples-second.md` for why this exists and
+`docs/testing-invariants.md` for the invariants the suite is meant to hold.
+
+It runs per package, on demand, never as part of `make test` or CI. Against 38+ packages whose
+`-race` suite already takes minutes, a full-tree run would take hours and re-running it on every
+push isn't the point - the point is finding out, package by package, where the suite is weaker than
+its coverage number suggests.
+
+### Tool
+
+[`gremlins`](https://github.com/go-gremlins/gremlins) (pinned `v0.6.0`), chosen over the older
+`go-mutesting`: `go-mutesting` has no tagged release since 2021 (its latest resolvable version is a
+2021-06-10 pseudo-version), while gremlins ships regular tagged releases, understands Go build tags
+natively, and exposes `--workers`/`--test-cpu` to bound how much of the machine a run is allowed to
+use - necessary on a dev box already running other work.
+
+gremlins is a standalone CLI, never imported by hand's code, so it is not a `go.mod` dependency.
+Install it once per machine:
+
+```sh
+go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+```
+
+### Running one package
+
+```sh
+gremlins unleash --tags=test ./internal/shellquote
+```
+
+or, equivalently:
+
+```sh
+make mutation PKG=./internal/shellquote
+```
+
+`--tags=test` is required: hand's suite installs its external-tool fakes behind that build tag (see
+"Making changes" above), and gremlins otherwise mutates and tests an incomplete build.
+
+Useful flags:
+
+- `--dry-run` finds and counts mutants without running the suite against any of them - it still
+  gathers coverage once, but skips the per-mutant test loop, so it is cheap and safe to run on any
+  package to size it before committing to a real run.
+- `--workers=N` / `--test-cpu=N` bound concurrency. On a machine already doing other work, check
+  `uptime` and `nproc` first and pick something conservative; gremlins otherwise defaults to using
+  the whole machine.
+- `-o results.json` writes a machine-readable report alongside the terminal output.
+
+### How long it takes
+
+It scales with (number of covered mutants) x (one test-run wall-clock for that package). Measured
+anchor: `internal/shellquote` (9 lines of source, 2 mutants) completes in under half a second.
+`internal/store` and `internal/runtime` are multiple orders of magnitude larger and their suites are
+already minutes long under `-race`; gremlins runs each mutant's test pass without `-race`, but a run
+across either package is still expected to take minutes, not seconds. See `docs/adr/` for the phase 7
+gate-decision record, which carries real measured per-package numbers.
+
+### Reading the output
+
+Each mutant gets one line: the mutant kind, and the file:line:col it was applied to. Terminal states:
+
+- `KILLED` - a test failed with the mutation in place. Good: something constrains this line.
+- `LIVED` - every test still passed. A finding: nothing the suite runs would notice this line
+  changing. Read the surrounding test(s) and decide whether a test is missing, or whether the line
+  genuinely carries no behavior worth constraining.
+- `NOT COVERED` - no test executes this line at all. Different from `LIVED`: this is a coverage gap,
+  not a suite-strength gap.
+- `TIMED OUT` - the mutation likely produced an infinite loop or similar; treated as killed for
+  scoring purposes but worth a glance.
+- `NOT VIABLE` - the mutated code doesn't compile; not a finding, just discarded.
+
+The summary line reports two percentages: **test efficacy** (killed / (killed + lived) - the number
+that matters) and **mutator coverage** ((killed + lived) / total mutants found - how much of the
+mutated surface any test reaches at all).
+
+### Package scope
+
+Mutation testing here targets exactly the packages atqamz/hand#442 phases 1 through 6 added
+invariant-driven property or model tests to, not the whole tree:
+
+- `internal/shellquote`, `internal/age`, `internal/axi` (phase 1, phase 2)
+- `internal/registry` (phase 3)
+- `internal/store`, `internal/completion` (phase 4, phase 5)
+- `internal/runtime` (phase 6)
+
+These are the packages with a first-class claim that "the tests constrain the behavior" worth
+checking. Extending the scope to another package means adding it to this list deliberately, not
+running gremlins against the whole tree.
+
 ## Reporting issues
 
 Open a GitHub issue with repro steps, OS, arch, and hand --version.
