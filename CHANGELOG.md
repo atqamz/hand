@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.7.0](https://github.com/atqamz/hand/compare/v0.6.0...v0.7.0) (2026-08-29)
+
+
+### Features
+
+* **cmd:** record a PR delivered to a sibling repository with hand pr --cross-repo ([#467](https://github.com/atqamz/hand/issues/467)) ([e1cb96f](https://github.com/atqamz/hand/commit/e1cb96f415ecbf5d54e85b2b54e1f5c30a4510ff))
+* **completion:** carry project identity on completion records ([#400](https://github.com/atqamz/hand/issues/400)) ([c7b3f5f](https://github.com/atqamz/hand/commit/c7b3f5f76e31037ad693ee4cb2b73c3a7b7a24bf))
+* **harness:** add worker-only Antigravity support ([#351](https://github.com/atqamz/hand/issues/351)) ([b424e89](https://github.com/atqamz/hand/commit/b424e89538e3adfd88bb203f154680bdfaedfad1))
+* **harness:** catalogue codex's usage-limit signature ([#450](https://github.com/atqamz/hand/issues/450)) ([1edfc35](https://github.com/atqamz/hand/commit/1edfc35c5c3db6c8bfcda4ef3763b2efc66c6f4c))
+* **herdr:** add Fleet-scoped session lifecycle management ([#386](https://github.com/atqamz/hand/issues/386)) ([70c75ff](https://github.com/atqamz/hand/commit/70c75ff3b5723b48481ed74247a4e4914d914833))
+* **launch:** replace shell-assembled worker launches ([#349](https://github.com/atqamz/hand/issues/349)) ([e08071b](https://github.com/atqamz/hand/commit/e08071b3b7e19be1716b8f5fb7187594ed1f6d64))
+* **npm:** publish stable releases to npm behind an operator-approval gate ([#489](https://github.com/atqamz/hand/issues/489)) ([7af7221](https://github.com/atqamz/hand/commit/7af7221bfb47f77765a35cf72ec6a50decd5f26d))
+* **orientation:** make supervisor orientation stateless and Fleet-scoped ([#350](https://github.com/atqamz/hand/issues/350)) ([ebce096](https://github.com/atqamz/hand/commit/ebce0968ae76f565d026096c77b87a0edb03131f))
+* **project:** add local Git project adoption and creation ([#334](https://github.com/atqamz/hand/issues/334)) ([42883fe](https://github.com/atqamz/hand/commit/42883fe270cf7b54350e20af79c8dca25ec23299))
+* **project:** add project mode updates and renaming ([#383](https://github.com/atqamz/hand/issues/383)) ([1c7d9d5](https://github.com/atqamz/hand/commit/1c7d9d52b2984632fe4a05c9d395140306f6ddf2))
+* **runtime:** add fleet identity and registry isolation ([#341](https://github.com/atqamz/hand/issues/341)) ([a3cdd3d](https://github.com/atqamz/hand/commit/a3cdd3db8a1df8d3852c18a44056e63f013f1d46))
+* **selfupdate:** add stable bootstrap adoption flow ([#352](https://github.com/atqamz/hand/issues/352)) ([26b243c](https://github.com/atqamz/hand/commit/26b243cc017e0066a3833590a400f660919bc523))
+* **store:** give projects a durable surrogate identity ([#399](https://github.com/atqamz/hand/issues/399)) ([9661902](https://github.com/atqamz/hand/commit/96619026414ae0edabbfc2452a463e7988f801da))
+* **supervision:** autonomously re-enter supported Supervisor Harnesses without operator prompts ([#356](https://github.com/atqamz/hand/issues/356)) ([fbbdeed](https://github.com/atqamz/hand/commit/fbbdeedca24791eb623b040c8290943a0dad464b))
+* **toolchain:** add private pinned core runtime ([#342](https://github.com/atqamz/hand/issues/342)) ([749d1cc](https://github.com/atqamz/hand/commit/749d1ccf9c52f7825d5608ca635722fd57c6b1a2))
+
+
+### Bug Fixes
+
+* accept idle rendered composers ([#374](https://github.com/atqamz/hand/issues/374)) ([25ed6cd](https://github.com/atqamz/hand/commit/25ed6cd017471d0b5c4e0937b06e42a0acd0c6f6))
+* **attention:** surface a not-submitted send to the supervisor ([#447](https://github.com/atqamz/hand/issues/447)) ([8bb29b3](https://github.com/atqamz/hand/commit/8bb29b32324baf176b11d0d78480b944b84b45e7))
+* centralize secondhand infrastructure root ([2ee29db](https://github.com/atqamz/hand/commit/2ee29db532ef7ee0a2afc0edb0588c4a53229e4d))
+* **doctor:** report a Treehouse lease held by a Fleet absent from the registry ([#462](https://github.com/atqamz/hand/issues/462)) ([4af1909](https://github.com/atqamz/hand/commit/4af19092ead27ec8f5c3fff82d8f18904e544d06))
+* expose exact Fleet Herdr session state ([e5880d0](https://github.com/atqamz/hand/commit/e5880d055e7529ca687c4688fb6f6dc35d2a05fb))
+* **harness:** append the report channel to grok's and pi's brief file ([#453](https://github.com/atqamz/hand/issues/453)) ([d5968f1](https://github.com/atqamz/hand/commit/d5968f1e0a94cb5fdac35eb9aaef0a654a3959a8))
+* **harness:** state ship/scout delivery authorization at launch ([#449](https://github.com/atqamz/hand/issues/449)) ([9f7f23b](https://github.com/atqamz/hand/commit/9f7f23b0c5b779d9aa65656bca2877fa8478dabf))
+* **holds:** report a blocked hold once its blocker goes terminal ([#452](https://github.com/atqamz/hand/issues/452)) ([4d6f74c](https://github.com/atqamz/hand/commit/4d6f74c29db2c6c3465654ddfeab7cec3e19d036))
+* **home:** refuse HAND_HOME and cwd naming different fleet homes ([#469](https://github.com/atqamz/hand/issues/469)) ([8e551e0](https://github.com/atqamz/hand/commit/8e551e09f2967eca5e4cb96fb22e63501f7b288c))
+* **init:** adopt hand's own source tree, and refuse an untagged suite by name ([#438](https://github.com/atqamz/hand/issues/438)) ([fc9ee9e](https://github.com/atqamz/hand/commit/fc9ee9e3c4dbee6be83a8b0db23048129f2d2008))
+* keep help independent of fleet registry ([#381](https://github.com/atqamz/hand/issues/381)) ([d837a88](https://github.com/atqamz/hand/commit/d837a889cd296b0516a6e89b8a87567a9b8ea550))
+* **merge:** converge on a PR merged outside hand instead of refusing ([#461](https://github.com/atqamz/hand/issues/461)) ([d3c5958](https://github.com/atqamz/hand/commit/d3c59584db6e06578c34cad11b2e8ea333090325))
+* name checkout in trust refusal ([#493](https://github.com/atqamz/hand/issues/493)) ([3fedb88](https://github.com/atqamz/hand/commit/3fedb88cd845c0a6a2e629461681e4b87531f51c))
+* **orient:** corroborate and latch parked before treating it as actionable ([#494](https://github.com/atqamz/hand/issues/494)) ([5ecb1f2](https://github.com/atqamz/hand/commit/5ecb1f2b200d31ccb760db257c598b647b05634a))
+* **paths:** render resolved paths pasteably instead of %q ([#475](https://github.com/atqamz/hand/issues/475)) ([28cd355](https://github.com/atqamz/hand/commit/28cd355d5b2eb1c819f31bc3632a09e989814b06))
+* **project:** preserve unrelated completion records during rename rollback ([#396](https://github.com/atqamz/hand/issues/396)) ([d706b7c](https://github.com/atqamz/hand/commit/d706b7c8d4768997fe3bc8218b5a3da4f26c1f6f))
+* **promote:** refuse to launch a ship attempt against an unrevised brief ([#456](https://github.com/atqamz/hand/issues/456)) ([0d039ab](https://github.com/atqamz/hand/commit/0d039ab1cb52fb131414848691c2b5445387ad0b))
+* **reconcile:** guard every teardown release behind one releasing check ([#485](https://github.com/atqamz/hand/issues/485)) ([da24388](https://github.com/atqamz/hand/commit/da24388e20ed28dc45ee0818b68b92a8156dc7e1))
+* refresh mechanical plan base before dispatch ([#429](https://github.com/atqamz/hand/issues/429)) ([53e59f5](https://github.com/atqamz/hand/commit/53e59f56f497deb1da354d93620cffadf44f669e))
+* **registry:** make test isolation unforgettable, add prune, refuse managed-tree homes ([#454](https://github.com/atqamz/hand/issues/454)) ([111eef2](https://github.com/atqamz/hand/commit/111eef2c1ba5f11553cee0adc8eb1002a2b49c78))
+* **registry:** reconcile stale same-home Fleet claims ([#385](https://github.com/atqamz/hand/issues/385)) ([d9a613d](https://github.com/atqamz/hand/commit/d9a613d36d92c034c23cebe57f89c774971b02b1))
+* **registry:** scope ambiguity classification to affected Fleets ([#382](https://github.com/atqamz/hand/issues/382)) ([79a2cf4](https://github.com/atqamz/hand/commit/79a2cf49a3a91171308b25181f62c12ba2498db2))
+* **runtime:** close the worktree release gate on evidence ([#457](https://github.com/atqamz/hand/issues/457)) ([37956ca](https://github.com/atqamz/hand/commit/37956ca1f81fee8f273504c801e7599d43da076f))
+* **runtime:** diagnose a git bundle with no https helper ([#463](https://github.com/atqamz/hand/issues/463)) ([a0067a7](https://github.com/atqamz/hand/commit/a0067a780bd104c0c32710df39226c8cb474b13d))
+* **runtime:** give the managed git a real, empty template directory ([#468](https://github.com/atqamz/hand/issues/468)) ([f1b460a](https://github.com/atqamz/hand/commit/f1b460a08b561513123b5ae595fc1ce9e2d1a3b8))
+* **runtime:** use recorded PR after detached HEAD ([#390](https://github.com/atqamz/hand/issues/390)) ([44c7189](https://github.com/atqamz/hand/commit/44c7189157d6e6e13b51fa5aed240453a5294622))
+* scope treehouse pools to fleet homes ([#404](https://github.com/atqamz/hand/issues/404)) ([175c162](https://github.com/atqamz/hand/commit/175c162af7f8e12fdc5328def6d119f367e26d25))
+* **steering:** anchor Tab confirmation on the composer's last block ([#495](https://github.com/atqamz/hand/issues/495)) ([1686ef1](https://github.com/atqamz/hand/commit/1686ef1364a935f5febe78258842276d3d407e4c))
+* **steering:** chunk PaneSendText writes below the measured stall boundary ([#480](https://github.com/atqamz/hand/issues/480)) ([c4da6cc](https://github.com/atqamz/hand/commit/c4da6cc6499ed6cd9e30b9f8d6d107f3351caa54))
+* **steering:** confirm Enter submission by positive composer evidence, not a claim ([#476](https://github.com/atqamz/hand/issues/476)) ([fd7e32f](https://github.com/atqamz/hand/commit/fd7e32f0292e280e20e12435a8294a3e0abe0417))
+* **steering:** send Tab, not Enter, to a busy codex pane ([#466](https://github.com/atqamz/hand/issues/466)) ([1dc67d7](https://github.com/atqamz/hand/commit/1dc67d77d8170725f47e0261400a01de5b87f102))
+* **supervision:** fail closed on unavailable runtime identity ([#384](https://github.com/atqamz/hand/issues/384)) ([4da2106](https://github.com/atqamz/hand/commit/4da2106ee404a7ad070289eee39d2e75bf49590b))
+* **test:** make test pass reliably on a clean checkout under load ([#370](https://github.com/atqamz/hand/issues/370)) ([b4304db](https://github.com/atqamz/hand/commit/b4304db579de9e557290da1cb5106ac82943323a))
+* **watcher:** confirm parked workers with live pane activity ([#366](https://github.com/atqamz/hand/issues/366)) ([16e0faf](https://github.com/atqamz/hand/commit/16e0faf46c8a0ab60418dadba87e7ca40d6eb01a))
+* **watcher:** name the recorded lock holder in a contended refusal ([#451](https://github.com/atqamz/hand/issues/451)) ([3334151](https://github.com/atqamz/hand/commit/33341519d6829fb7e5a82a0a8c8975ba657c3202))
+* **watcher:** stop failing an arm when a task is torn down mid-probe ([#465](https://github.com/atqamz/hand/issues/465)) ([60b98d6](https://github.com/atqamz/hand/commit/60b98d6d6b23368147c28d555533060ce02ef522))
+* **watcher:** stop re-firing attention for delivered tasks ([#367](https://github.com/atqamz/hand/issues/367)) ([28c51cb](https://github.com/atqamz/hand/commit/28c51cb6810d40a9a1d9732dd1396a5b4b380ddb))
+* **worktree:** enforce pool slot integrity ([#496](https://github.com/atqamz/hand/issues/496)) ([9585b47](https://github.com/atqamz/hand/commit/9585b477f84b33823fb64045da2f12592ca1444d))
+* **worktree:** put the pool outside every fleet home ([#444](https://github.com/atqamz/hand/issues/444)) ([8f2881b](https://github.com/atqamz/hand/commit/8f2881b9a5628fa583a6f311829490434ec2772b))
+
 ## [0.6.0](https://github.com/atqamz/hand/compare/v0.5.0...v0.6.0) (2026-08-20)
 
 
