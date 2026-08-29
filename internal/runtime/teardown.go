@@ -582,7 +582,7 @@ func capStatusLines(status string) string {
 }
 
 func normalizeStatusLines(status string) string {
-	return strings.TrimRight(strings.ReplaceAll(status, "\r\n", "\n"), "\n")
+	return strings.TrimRight(strings.ReplaceAll(strings.ReplaceAll(status, "\r\n", "\n"), "\r", "\n"), "\n")
 }
 
 // Reports whether every uncommitted change in status - the worktree's `git status --porcelain` output -

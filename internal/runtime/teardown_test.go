@@ -1157,3 +1157,10 @@ func TestCapStatusLinesNormalizesCRLF(t *testing.T) {
 		t.Fatalf("capStatusLines() = %q, want normalized porcelain lines", got)
 	}
 }
+
+func TestCapStatusLinesNormalizesCarriageReturns(t *testing.T) {
+	got := capStatusLines(" M README.md\r?? scratch.txt\r")
+	if got != " M README.md\n?? scratch.txt" {
+		t.Fatalf("capStatusLines() = %q, want carriage returns normalized", got)
+	}
+}
