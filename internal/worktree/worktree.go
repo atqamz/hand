@@ -410,7 +410,6 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 		if !os.IsNotExist(statErr) {
 			return Lease{}, fmt.Errorf("inspect treehouse worktree %s: %w", lease.Path, statErr)
 		}
-		return lease, nil
 	}
 	soundness := CheckSoundness(clonePath, lease.Path)
 	if !soundness.Sound {

@@ -61,12 +61,16 @@ func writeCollisionTask(t *testing.T, home, id, path, leaseID string) {
 }
 
 func TestGetParsesLeasePathAndIdentity(t *testing.T) {
-	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1","lease_id":"5fe5412a4aabdeb85a148d6d73eb42d8"}`})
-	got, err := testGet(t.TempDir(), "hand:task-1")
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	slot := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", slot)
+	faketool.Treehouse{Held: []string{slot}, LeaseIDs: map[string]string{slot: "5fe5412a4aabdeb85a148d6d73eb42d8"}, Responses: []faketool.TreehouseResponse{{Command: "get", Stdout: mustJSON(t, map[string]string{"path": slot, "lease_id": "5fe5412a4aabdeb85a148d6d73eb42d8"})}}}.Install(t, faketool.Bin(t))
+	got, err := testGet(clone, "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Lease{Path: "/tmp/wt-1", ID: "5fe5412a4aabdeb85a148d6d73eb42d8"}
+	want := Lease{Path: slot, ID: "5fe5412a4aabdeb85a148d6d73eb42d8"}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -76,13 +80,30 @@ func TestGetParsesLeasePathAndIdentity(t *testing.T) {
 // stay a usable lease rather than an error - CheckCollision falls back to the
 // path for it.
 func TestGetAcceptsAPayloadWithoutALeaseIdentity(t *testing.T) {
-	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: `{"path":"/tmp/wt-1"}`})
-	got, err := testGet(t.TempDir(), "hand:task-1")
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	slot := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", slot)
+	faketool.Treehouse{Held: []string{slot}, NoLeaseIdentity: true, Responses: []faketool.TreehouseResponse{
+		{Command: "get", Stdout: mustJSON(t, map[string]string{"path": slot})},
+	}}.Install(t, faketool.Bin(t))
+	got, err := testGet(clone, "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != (Lease{Path: "/tmp/wt-1"}) {
+	if got != (Lease{Path: slot}) {
 		t.Fatalf("got %+v, want path-only lease", got)
+	}
+}
+
+func TestGetRejectsAMissingAcquiredWorktree(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	missing := filepath.Join(t.TempDir(), "missing")
+	writeFakeTreehouse(t, faketool.TreehouseResponse{Command: "get", Stdout: mustJSON(t, map[string]string{"path": missing, "lease_id": "lease-1"})})
+
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "unsound worktree") {
+		t.Fatalf("Get() error = %v, want missing acquired worktree rejection", err)
 	}
 }
 
@@ -107,12 +128,16 @@ func TestHeadCommitReturnsTheWorktreeCommit(t *testing.T) {
 }
 
 func TestGetPassesLeaseHolder(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	slot := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", slot)
 	writeFakeTreehouse(t, faketool.TreehouseResponse{
 		Command: "get", Args: []string{"--lease", "--json", "--lease-holder", "hand:task-1"},
-		Stdout: `{"path":"/tmp/wt-1"}`,
+		Stdout: mustJSON(t, map[string]string{"path": slot}),
 	})
-	if _, err := testGet(t.TempDir(), "hand:task-1"); err != nil {
-		t.Fatal(err)
+	if _, err := testGet(clone, "hand:task-1"); err == nil {
+		t.Fatal("Get() unexpectedly accepted an unreported lease")
 	}
 }
 
@@ -178,9 +203,9 @@ func TestGetAcquiresFromAPoolOutsideEveryFleetHome(t *testing.T) {
 	bin := faketool.Bin(t)
 	home := t.TempDir()
 	clone := filepath.Join(home, "projects", "demo")
-	if err := os.MkdirAll(clone, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	faketool.InitRepo(t, clone)
+	slot := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", slot)
 	root, err := poolRoot(clone, "")
 	if err != nil {
 		t.Fatal(err)
@@ -190,10 +215,10 @@ func TestGetAcquiresFromAPoolOutsideEveryFleetHome(t *testing.T) {
 	}
 	writeFakeTreehouseAt(t, bin, faketool.TreehouseResponse{
 		Command: "--root", Args: []string{root, "get", "--lease", "--json", "--lease-holder", "hand:task-1"},
-		Stdout: `{"path":"/tmp/wt-1"}`,
+		Stdout: mustJSON(t, map[string]string{"path": slot}),
 	})
-	if _, err := Get(clone, "hand:task-1"); err != nil {
-		t.Fatal(err)
+	if _, err := Get(clone, "hand:task-1"); err == nil {
+		t.Fatal("Get() unexpectedly accepted an unreported lease")
 	}
 }
 
@@ -257,7 +282,7 @@ func TestGetRejectsAnAliasedStaleSlotWithoutReleasingItsLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	faketool.Treehouse{
-		Log: log,
+		Log:   log,
 		Slots: []string{stale},
 		Responses: []faketool.TreehouseResponse{
 			{Command: "get", Stdout: mustJSON(t, map[string]string{"path": stale, "lease_id": "lease-1"})},
