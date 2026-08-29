@@ -279,6 +279,7 @@ func connect(ctx context.Context, client *herdr.Client) error {
 	// Recheck lifecycle cause after the operation: a configured until-event timeout is ErrNoEvent,
 	// while generic cancellation and proven takeover retain their own typed results.
 	case <-ctx.Done():
+		<-done
 		return connectContextError(ctx)
 	case err := <-done:
 		if ctxErr := contextLifecycleError(ctx); ctxErr != nil {
@@ -332,6 +333,7 @@ func probeAllTasks(ctx context.Context, home string, client *herdr.Client, targe
 	select {
 	// Recheck lifecycle cause after the operation so cancellation cannot be relabeled as an arm failure.
 	case <-ctx.Done():
+		<-done
 		return probeContextError(ctx)
 	case err := <-done:
 		if ctxErr := contextLifecycleError(ctx); ctxErr != nil {
