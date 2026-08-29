@@ -44,7 +44,10 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "fakenpm:", err)
 		return 2
 	}
-	appendLog(state, args)
+	// Every subcommand gets the same trailing marker, not just publish, so a test can
+	// tell whether a *view* call (post-publish verification) ran authenticated - the
+	// bug atqamz/hand#506 fixed was specific to verification, not to publish itself.
+	appendLog(state, append(append([]string{}, args...), "authtoken="+fmt.Sprint(os.Getenv("NODE_AUTH_TOKEN") != "")))
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "fakenpm: no subcommand given")
 		return 2

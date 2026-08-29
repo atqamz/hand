@@ -23,7 +23,23 @@ integrity=$4
 repo_url=$5
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-outcome="$(bash "$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url")"
+
+# Set by the absent-new-package branch below so the post-publish verification loop
+# further down can read what it just published (atqamz/hand#506): every other path
+# leaves this empty and verify_registry runs unauthenticated, same as before that fix.
+npmrc_dir=""
+trap 'rm -rf "${npmrc_dir}"' EXIT
+
+verify_registry() {
+  if [[ -n "$npmrc_dir" ]]; then
+    NODE_AUTH_TOKEN="$NPM_BOOTSTRAP_TOKEN" NPM_CONFIG_USERCONFIG="$npmrc_dir/.npmrc" \
+      bash "$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url"
+  else
+    bash "$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url"
+  fi
+}
+
+outcome="$(verify_registry)"
 
 case "$outcome" in
   verified-published)
@@ -47,7 +63,6 @@ case "$outcome" in
       echo "npm-publish-target: publishing ${pkg}@${version} as npm user $identity (bootstrap token, first creation)"
       npm publish "$tarball" --access public --provenance
     )
-    rm -rf "$npmrc_dir"
     ;;
   absent-new-version)
     # actions/setup-node's registry-url option is what plants an _authToken entry
@@ -68,9 +83,47 @@ case "$outcome" in
     ;;
 esac
 
-verify="$(bash "$script_dir/npm-registry-check.sh" "$pkg" "$version" "$integrity" "$repo_url")"
-if [[ "$verify" != "verified-published" ]]; then
-  echo "npm-publish-target: ${pkg}@${version} did not verify as published immediately after npm publish succeeded: $verify" >&2
-  exit 1
-fi
-echo "npm-publish-target: ${pkg}@${version} verified published"
+# npm publish above already confirmed the tarball, its provenance, and its dist-tag;
+# the only unproven thing is read-path visibility. The registry's read path is
+# eventually consistent, and a name's first-ever publish was measured taking up to 55
+# minutes to become visible (atqamz/hand#506), so absent-new-package/absent-new-version
+# here mean "not visible yet" and are worth retrying. A nonzero exit is
+# integrity-mismatch or unexpected-ownership; waiting cannot turn either into
+# agreement, so those fail immediately. verify_registry runs under set -e, so its exit
+# status is captured through an if/else rather than a bare assignment.
+verify_budget_seconds="${NPM_PUBLISH_VERIFY_BUDGET_SECONDS:-300}"
+verify_interval_seconds="${NPM_PUBLISH_VERIFY_INTERVAL_SECONDS:-15}"
+verify_elapsed=0
+while true; do
+  if verify="$(verify_registry)"; then
+    verify_status=0
+  else
+    verify_status=$?
+  fi
+
+  if [[ "$verify_status" -ne 0 ]]; then
+    echo "npm-publish-target: ${pkg}@${version} failed verification after npm publish succeeded: $verify" >&2
+    exit "$verify_status"
+  fi
+
+  case "$verify" in
+    verified-published)
+      echo "npm-publish-target: ${pkg}@${version} verified published"
+      exit 0
+      ;;
+    absent-new-package | absent-new-version)
+      if [[ "$verify_elapsed" -ge "$verify_budget_seconds" ]]; then
+        echo "::warning::npm-publish-target: ${pkg}@${version} still reports $verify ${verify_elapsed}s after npm publish succeeded; npm already confirmed the tarball, provenance, and dist-tag, so continuing instead of failing the release. The next run's pre-publish check will catch a real problem before publishing anything."
+        exit 0
+      fi
+      sleep "$verify_interval_seconds"
+      verify_elapsed=$((verify_elapsed + verify_interval_seconds))
+      ;;
+    *)
+      # Reachable only if npm-registry-check.sh's contract changes underneath this
+      # script, same as the unrecognized-outcome case above.
+      echo "npm-publish-target: unrecognized post-publish registry-check outcome: $verify" >&2
+      exit 1
+      ;;
+  esac
+done
