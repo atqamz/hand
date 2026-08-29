@@ -36,6 +36,7 @@ contract-live:
 mutation:
 	@test -n "$(PKG)" || { echo "usage: make mutation PKG=./internal/foo [GREMLINS_FLAGS='--dry-run']" >&2; exit 1; }
 	@command -v gremlins >/dev/null 2>&1 || { echo "gremlins not found; see CONTRIBUTING.md's Mutation testing section for the install command" >&2; exit 1; }
+	go clean -testcache
 	gremlins unleash --tags=test $(GREMLINS_FLAGS) $(PKG)
 
 # FAKE_VENDOR_HASH is nixpkgs' lib.fakeHash: a well-formed sha256 SRI hash that

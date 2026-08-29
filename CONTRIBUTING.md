@@ -159,73 +159,107 @@ Useful flags:
 - `--dry-run` finds and counts mutants without running the suite against any of them - it still
   gathers coverage once, but skips the per-mutant test loop, so it is cheap and safe to run on any
   package to size it before committing to a real run. Run this first on `internal/registry`,
-  `internal/store`, and `internal/runtime`; it turns the estimate table into an exact count before
-  the expensive part starts.
+  `internal/store`, and `internal/runtime`.
 - `--workers=N` / `--test-cpu=N` bound concurrency. On a machine already doing other work, check
   `uptime` and `nproc` first and pick something conservative; gremlins otherwise defaults to using
   the whole machine.
 - `-o results.json` writes a machine-readable report alongside the terminal output.
 
+### Timeout coefficient: measure it, do not guess it
+
+`make mutation` runs `go clean -testcache` before invoking gremlins. This is not optional
+housekeeping - skipping it produces silent false `TIMED OUT` verdicts, and no `--workers` value fixes
+it. Here is why.
+
+Each mutant's timeout is `2s + coefficient x baseline`, where `baseline` is how long gremlins' own
+coverage-gathering pass took (`internal/engine/executor.go` and `internal/coverage/coverage.go` in
+the pinned `v0.6.0` source, in your module cache once installed). That pass is a plain
+`go test -cover -coverprofile=...` with no `-count=1`. On a host that has already tested this
+package's unmodified source with byte-identical content - close to guaranteed when several worktrees
+of the same repo are in play - Go's test cache answers in well under a second, regardless of how long
+the suite actually takes. The coefficient then multiplies a fake number, the resulting timeout is far
+below what a real mutant run needs, and every covered mutant times out - not because anything hung,
+but because gremlins never measured its own baseline for real. More workers make this worse, not
+better, since it was never a concurrency problem.
+
+Confirmed against `internal/store`: gremlins logged its baseline as `177.563505ms`; running its exact
+coverage command by hand reproduced that number twice, both marked `(cached)`; `go clean -testcache`
+then made the identical command take 2.928s with no cache marker - the real figure, off by roughly
+16x from the cached one.
+
+`go clean -testcache` right before gremlins runs makes the baseline real, which is what actually
+fixes this - not a large `--timeout-coefficient`. Size the coefficient from a real measurement, not a
+guess: clear the cache, time a solo run (`go test -tags=test -count=1 ./internal/PKG`), then time N
+concurrent runs at the `--workers` count you intend to use (`for i in $(seq N); do go test -tags=test
+-count=1 -cpu=<test-cpu> ./internal/PKG >/dev/null 2>&1 & done; wait`) - that second number, with
+margin, is what the timeout needs to clear. Do not raise the coefficient past what that calls for: a
+coefficient generous enough to paper over a real hang defeats the point, since a genuinely
+non-terminating mutant timing out is a real kill signal, not a false one, and a timeout that never
+fires stops catching it.
+
+Real baselines measured this way:
+
+| package | real solo baseline | real cost under the workers used | coefficient used | resulting timeout |
+|---|---|---|---|---|
+| `internal/store` | 2.9s | 4.1-4.6s at 6 workers, `--test-cpu=2` | 5 | 16.5s |
+| `internal/runtime` | 19.6s | 49.6-56.5s at 8 workers, `--test-cpu=2` | 9 | ~182s |
+
+`internal/completion` hit this same failure before the cause above was understood - every covered
+mutant timed out even at `--workers=1` (baseline suite runs in 0.085s locally; nothing was slow) -
+and was resolved by raising `--timeout-coefficient` to 100 without yet knowing why that worked. That
+value is larger than the method above would have called for; it works, but a future re-run of that
+package should remeasure properly instead of reusing 100 by habit.
+
 ### How long it takes
 
-Cost is (mutants gremlins finds in covered code) x (one test-run wall-clock for that package).
-Two real numbers anchor the estimate below: `internal/shellquote` mutation-tested end to end in
-0.46s total for 2 mutants (measured locally, gremlins v0.6.0, `--workers=1`); every package's own
-single-run wall-clock, without gremlins, is visible in any CI test job log as the `ok  <pkg>  <N>s`
-line (`-race`, so a real ceiling rather than what gremlins itself pays - gremlins does not run
-`-race`, and reuses the build cache across mutants, both of which make the real number lower than a
-naive multiplication).
+Real numbers, in sweep order, all with `--tags=test` and a cleared test cache:
 
-Mutant counts below are a static upper bound, not gremlins' own count: an AST walk over each
-package's non-test `.go` files counting nodes matching the five default operators above, with no
-coverage information (gremlins additionally drops any site the test suite never executes, so its
-real "Runnable" count will be at or below this). The walk reproduced `internal/shellquote`'s real
-count exactly (2), which is the only package checked against ground truth.
+| package | total mutants | killed | lived | not covered | wall-clock | settings |
+|---|---|---|---|---|---|---|
+| `internal/shellquote` | 2 | 2 | 0 | 0 | 0.46s | 1 worker |
+| `internal/age` | 9 | 2 | 0 | 7* | 0.59s | 1 worker |
+| `internal/axi` | 6 | 6 | 0 | 0 | 1.3s | 1 worker |
+| `internal/completion` | 31 | 20 | 3 | 8 | 13.4s | 1 worker, coefficient 100 |
+| `internal/registry` | 116 | 106 | 0 | 10 | 32.9s | 8 workers, coefficient 20 |
+| `internal/store` | 829 | 622 | 0 | 207 | 5m30s | 6 workers, coefficient 5 |
+| `internal/runtime` | 832 | see the phase 7 gate-decision record | | | | 8 workers, coefficient 9 |
 
-| package | candidate mutants (ceiling) | single-run wall-clock (`-race`, CI) | estimated total |
-|---|---|---|---|
-| `internal/shellquote` | 2 | 1.3s | measured: 0.46s |
-| `internal/age` | 6 | 1.0s | a few seconds |
-| `internal/axi` | 6 | 1.1s | a few seconds |
-| `internal/completion` | 32 | 1.4s | tens of seconds |
-| `internal/registry` | 116 | 56.9s | tens of minutes, likely under two hours |
-| `internal/store` | 880 | 79.8s | hours |
-| `internal/runtime` | 1001 | 330.0s | plausibly a full day or more at 1 worker |
+*`internal/age`'s 7 "not covered" are confirmed false by `go tool cover -func` (both functions report
+100.0% real statement coverage, boundary values included) - gremlins cannot see coverage for a
+tagless `switch`'s case *conditions*, only their bodies, so a mutant placed on the comparison itself
+reads as uncovered no matter how thoroughly it is exercised. Not a suite gap; see the gate-decision
+record for the full reasoning.
 
-The four smallest packages are not a scheduling concern; their whole per-mutant cost is dominated by
-fixed build overhead that a warm cache erases, which is exactly what the shellquote anchor shows (a
-naive mutants x CI-time multiplication predicts 2.7s; the real run took 0.46s, roughly a sixth of
-that). `internal/registry`, `internal/store`, and `internal/runtime` are different: most of their
-per-run wall-clock is real test execution - SQLite files, faked subprocess tools, timing-sensitive
-waits - that a warm build cache does not shrink, so their naive ceiling (mutants x CI `-race` time)
-is a more trustworthy starting point than the shellquote discount, even though dropping `-race` still
-buys something back. On that basis, `internal/registry` likely fits in the same window as the four
-small packages; `internal/store` and, especially, `internal/runtime` should each get their own
-window and their own `--workers` allocation, not a slice of one shared with the rest - see the phase
-7 gate-decision record in `docs/adr/` for the real measured numbers once those runs have happened.
+The four smallest packages cost well under a second to a couple of seconds regardless of settings.
+`internal/registry` finished in 33 seconds once run for real - non-race execution plus a warm build
+cache across mutants cuts cost far more than a CI `-race` baseline would suggest, for every package
+size, not only tiny ones. `internal/store` and `internal/runtime` are the two that need their own
+`--workers` allocation and a coefficient sized from a real measured baseline (above), not because
+they are slow to kill mutants but because they are large enough that a cache-hit baseline's error is
+large in absolute seconds.
 
 ### Per-package plan
 
-The literal command for each package in scope, in run order - cheapest first, `--dry-run` before any
-full run on a package sized in the tens of minutes or more:
+The commands that actually ran clean, in sweep order - not a starting guess, a record of what worked:
 
 ```sh
 make mutation PKG=./internal/age
 make mutation PKG=./internal/axi
-make mutation PKG=./internal/completion
+make mutation PKG=./internal/completion GREMLINS_FLAGS='--timeout-coefficient=100'
 make mutation PKG=./internal/registry GREMLINS_FLAGS='--dry-run'
-make mutation PKG=./internal/registry GREMLINS_FLAGS='--workers=4 --test-cpu=2'
+make mutation PKG=./internal/registry GREMLINS_FLAGS='--workers=8 --test-cpu=2 --timeout-coefficient=20'
 make mutation PKG=./internal/store GREMLINS_FLAGS='--dry-run'
-make mutation PKG=./internal/store GREMLINS_FLAGS='--workers=8 --test-cpu=2'
+make mutation PKG=./internal/store GREMLINS_FLAGS='--workers=6 --test-cpu=2 --timeout-coefficient=5'
 make mutation PKG=./internal/runtime GREMLINS_FLAGS='--dry-run'
-make mutation PKG=./internal/runtime GREMLINS_FLAGS='--workers=8 --test-cpu=2'
+make mutation PKG=./internal/runtime GREMLINS_FLAGS='--workers=8 --test-cpu=2 --timeout-coefficient=9'
 ```
 
-`internal/shellquote` is already done (2/2 killed, 100% efficacy - recorded in the phase 7
-gate-decision record). The `--workers` values above are a starting point sized for a genuinely quiet
-22-core host with headroom to spare, not a fixed prescription - check `uptime` and `nproc` right
-before the `internal/store` and `internal/runtime` runs specifically and scale down if the host has
-less room than that at the time.
+These settings were measured on an otherwise-quiet 22-core host (see "Timeout coefficient" above for
+how to derive settings for a package not on this list, or for a differently loaded host) - check
+`uptime` and `nproc` before the two large ones regardless, and remeasure rather than reuse these
+numbers unchanged if the host is busy: real per-mutant cost under contention does not scale linearly
+with `--workers`, and `internal/runtime`'s tests are more CPU-bound than `internal/store`'s, so the
+same worker count costs more there.
 
 ### Reading the output
 
