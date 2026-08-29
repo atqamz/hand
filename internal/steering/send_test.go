@@ -617,6 +617,14 @@ func TestLastComposerBlock(t *testing.T) {
 			text: "• Ran sleep 8\n  └ done\n\n› promoted queued message\n\n› \n\ngpt-5.6-luna max",
 			want: "› \n\ngpt-5.6-luna max",
 		},
+		{
+			// Live-verified against a real composer: a sent message's own line starting with "›" is
+			// rendered indented ("  › ..."), never flush at column 0, so it can never be mistaken for
+			// the composer's own boundary. If it could, a stuck message would wrongly read as gone.
+			name: "the message's own glyph-prefixed line is indented, not a false composer boundary",
+			text: "› a genuinely stuck long unsent instruction line here\n  › ok",
+			want: "› a genuinely stuck long unsent instruction line here\n  › ok",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

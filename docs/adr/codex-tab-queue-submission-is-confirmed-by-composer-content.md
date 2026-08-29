@@ -63,6 +63,23 @@ genuinely stuck, and interrupted-back-to-composer). `lastComposerBlock` isolates
 disappear. A message under the queue label still confirms, for the same reason as before: it precedes
 the final block, never sits inside it. `codexQueuedMarker` is removed with nothing left referencing it.
 
+`lastComposerBlock` anchors on the *last* `"\n›"`, which raises an obvious question: what if the sent
+message's own content contains a line starting with that glyph? The anchor would then fall inside the
+message instead of at the composer's true start, `composerRetains` would search only the tail from
+there on, and if that tail is short enough to fall under `confirmChunkSize/2`, a genuinely stuck message
+could read as not retained - the false-submitted direction the issue calls strictly worse than the bug
+it fixes. Checked directly against the rig rather than by reading the renderer: codex indents every line
+of a composer or history entry after its first with two leading spaces, whether that line comes from a
+literal newline in the sent text or from the terminal's own soft-wrap - and `recent-unwrapped` reverses
+soft-wrap breaks before hand ever reads them, so a wrap-induced "›" can never surface as a fresh line at
+all. Typed multi-line unsent text directly into a live, uncommitted composer - the glyph on an interior
+line, on a short final line, and separated from the first line by a blank line - and every line after
+the first rendered with the indent intact, never flush at column 0. Separately swept five candidate wrap
+columns with the glyph placed at each and never once saw the unwrapped read produce a raw `"\n›"` from a
+soft wrap. A `"\n›"` with nothing between the newline and the glyph is therefore only ever a genuine
+entry boundary - the live composer's own start, or a promoted history line's - never something a
+message's own content can produce, regardless of what characters it contains.
+
 Live-validated against a real codex worker in a scratch fleet, across 270-plus sends. The confirmed-
 delivered half has the organic reproduction above as its live evidence, plus a `send_test.go` case built
 from text reconstructed off that reproduction's own post-transition pane read. A live capture separately
