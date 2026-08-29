@@ -110,11 +110,6 @@ func ConfigureSendConfirmPollingForTest(interval, timeout time.Duration, readLin
 // chooseSubmitKey only ever reads it for the codex harness.
 const codexQueueDiscriminator = "tab to queue message"
 
-// What codex prints above the composer once Tab has queued a message: the message itself, echoed back
-// verbatim under this label (live-verified against a real busy codex pane). Without excluding it,
-// composerRetains would misread a successful queue as the composer still stuck holding the message.
-const codexQueuedMarker = "Queued follow-up inputs"
-
 // Picks Enter, or Tab for a codex pane showing its own queue discriminator. The read is unconditional
 // now: its text doubles as submissionOutcome's pre-key baseline for the Enter path (atqamz/hand#459). A
 // read failure still falls back to Enter but is reported so submissionOutcome lands on Uncertain.
@@ -138,14 +133,22 @@ func stripWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), "")
 }
 
-// Reports whether text still shows a recognizable fragment of sent. When key is "Tab", a successful
-// queue echoes sent verbatim under codexQueuedMarker - expected confirmation, not a stuck composer -
-// so that marker and everything after it is excluded from the comparison first.
+// Codex renders the live composer as the final "›"-prefixed block, busy or idle. atqamz/hand#478:
+// a dequeued message is re-rendered as an ordinary "›" history line first, so only the last such
+// block is ever the composer - anything before it, marker-queued or already history, is not stuck.
+func lastComposerBlock(text string) string {
+	if idx := strings.LastIndex(text, "\n›"); idx >= 0 {
+		return text[idx+1:]
+	}
+	return text
+}
+
+// Reports whether text still shows a recognizable fragment of sent. When key is "Tab", only the live
+// composer's own final block (lastComposerBlock) can answer that; a fragment anywhere else - queued
+// under codex's label, or already promoted to history - is not a stuck composer.
 func composerRetains(text, sent, key string) bool {
 	if key == "Tab" {
-		if idx := strings.Index(text, codexQueuedMarker); idx >= 0 {
-			text = text[:idx]
-		}
+		text = lastComposerBlock(text)
 	}
 	haystack := stripWhitespace(text)
 	needle := stripWhitespace(sent)
@@ -325,8 +328,8 @@ func enterConfirms(client Client, paneID, sent, preKeyText string) (confirmed, r
 	return confirmed, lastText != preKeyText, nil
 }
 
-// Tab gets a composer-content confirmation because codexQueuedMarker gives composerRetains a real
-// truncation point. Enter instead requires the pre-key baseline and a positive tail match (enterConfirms)
+// Tab confirms via the composer's own final-block position (lastComposerBlock), needing no baseline.
+// Enter has no such anchor, so it needs the pre-key baseline and a positive tail match (enterConfirms)
 // - preKeyErr non-nil means that baseline read failed, so the send is honestly uncertain, not confirmed.
 func submissionOutcome(client Client, paneID, message, key, preKeyText string, preKeyErr error) (state.SendState, string, bool, bool) {
 	if key == "Tab" {
