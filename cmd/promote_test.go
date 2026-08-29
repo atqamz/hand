@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,8 +67,12 @@ func setupPromoteHomeWithScoutAttempt(t *testing.T, oldWorktree, newWorktree str
 	if err := project.Add(home, project.Project{Name: "myproj", URL: "https://example.com/myproj.git", Mode: project.ModeDirectPR}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "projects", "myproj"), 0o755); err != nil {
-		t.Fatal(err)
+	clone := filepath.Join(home, "projects", "myproj")
+	faketool.InitRepo(t, clone)
+	command := exec.Command("git", "worktree", "add", "-q", "-b", "task-1", newWorktree)
+	command.Dir = clone
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, output)
 	}
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, scoutAttempt); err != nil {
