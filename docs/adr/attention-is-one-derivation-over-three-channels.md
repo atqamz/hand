@@ -161,3 +161,9 @@ Announcement and acknowledgement are now distinct words and output fields.
 `ghutil.ObservationState` becomes the vocabulary a new observation reuses rather than restates, so the count of found/absent/unknown types stops growing with the count of things hand observes.
 Any new attention condition is one edit that both `hand status` and `hand watch` inherit, and a consumer that wants less filters rather than redefines.
 A disagreement between channels becomes something a supervisor can read directly instead of discovering when a later command refuses a precondition.
+
+atqamz/hand#492 found `KindParked`'s naive, uncorroborated verdict presented as actionable on every `hand orient`, forever, because `cmd/status.go`'s `taskParked` had neither `ClassifyParked`'s pane corroboration nor its latch.
+The fix stays inside invariant 5 rather than opening a fourth channel: `attention.Evidence` gained one field, `ParkedActionable`, and `taskAttentionEvidence` derives it from two facts a one-shot render already has cheaply - a pane this same render observed working or blocked, the same runtime observation `hand reconcile` calls `liveness: working`, and `attempt.ParkedFiredFor`, the durable half of `ClassifyParked`'s own latch that a watcher has already confirmed and announced.
+`hand status` and `hand orient` were free to diverge here - a status render showing an uncorroborated park is arguably honest reporting, where an orient next-action is an instruction - but they were kept unified instead: both read `Derive`'s one `Actionable` verdict, so a corrected fact reaches both audiences rather than becoming a second definition to keep in sync.
+Only actionability changed.
+The naive verdict itself still renders as `hand status`'s `parked` flag unconditionally, since that display was already legitimate reporting and raising `parked-other-bound` was never the fix.

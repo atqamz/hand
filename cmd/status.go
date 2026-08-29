@@ -641,6 +641,7 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 	}
 	active := t.Lifecycle == state.TaskOpen && history.ActiveAttempt != nil && attempt.Lifecycle == state.AttemptRunning
 	reportAt, reportAtObserved := lastReportAt(home, t.ID)
+	parked, parkedActionable := taskParked(home, t, e, agentState, reportedState, bounds)
 	v := taskView{
 		task:               t,
 		attempt:            attempt,
@@ -655,7 +656,8 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 		unacked:            unacked,
 		unannounced:        unannounced,
 		unreachable:        active && !reachable,
-		parked:             active && taskParked(home, t, e, reportedState, bounds),
+		parked:             active && parked,
+		parkedActionable:   active && parkedActionable,
 		reported:           reportedFrom(last, len(lines) > 0, readErr),
 	}
 	if attempt != nil {
@@ -680,15 +682,24 @@ func buildTaskView(home string, client *herdr.Client, history state.TaskHistory,
 
 // Reports whether an open task's active pane has gone silent past its last reported state's bound,
 // the status-side counterpart ClassifyParked never had (atqamz/hand#32, atqamz/hand#268's
-// disagreement 2). Degrades to false on any read fault, like lastReportAt's own stat failure.
-func taskParked(home string, t state.Task, attempt state.Attempt, reportedState string, bounds watcher.ParkedBounds) bool {
+// disagreement 2), and separately whether that verdict is corroborated enough to be actionable (atqamz/hand#492).
+func taskParked(home string, t state.Task, attempt state.Attempt, agentState, reportedState string, bounds watcher.ParkedBounds) (parked, actionable bool) {
 	silentSince, err := watcher.ReportEvidenceTime(home, t, attempt)
 	if err != nil {
-		return false
+		return false, false
 	}
-	// A one-shot render has no short, known interval baseline, so it defers corroboration to hand watch.
 	naive := watcher.Parked(reportedState, t.DeliveredAt, silentSince, time.Now(), bounds)
-	return naive
+	if !naive {
+		return false, false
+	}
+	// A pane this render observed working or blocked is the runtime observation `hand reconcile` calls
+	// `liveness: working`, one-shot and needing no baseline. A watcher's own durable confirmation of
+	// this exact episode (AlreadyAnnounced) means this render is not the first to find it either way.
+	live := herdr.Status(agentState) == herdr.StatusWorking || herdr.Status(agentState) == herdr.StatusBlocked
+	if live || watcher.AlreadyAnnounced(attempt, silentSince) {
+		return true, false
+	}
+	return true, true
 }
 
 // Reads config/parked-*-bound, shared by newWatchCmd, once per render rather than once per task, so a

@@ -45,6 +45,9 @@ type Evidence struct {
 	RuntimeUnknown   bool
 	Unreachable      bool
 	Parked           bool
+	// Whether the naive Parked verdict is corroborated enough to be actionable rather than only
+	// reported, meaningless when Parked is false (atqamz/hand#492).
+	ParkedActionable bool
 	Repair           bool
 	SendUncertain    bool
 	SendPending      bool
@@ -95,7 +98,7 @@ func Derive(e Evidence) []Subject {
 		add(KindUnreachable, "worker runtime is unreachable", ProvenanceRuntime, true)
 	}
 	if e.Parked {
-		add(KindParked, "worker has exceeded its report silence bound", ProvenanceRuntime, true)
+		add(KindParked, "worker has exceeded its report silence bound", ProvenanceRuntime, e.ParkedActionable)
 	}
 	if e.Repair {
 		add(KindNeedsRepair, "task needs repair", ProvenanceRepair, true)

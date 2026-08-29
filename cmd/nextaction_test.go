@@ -238,7 +238,7 @@ func TestClassifyNextActionRanksRuntimeAttentionFromSharedDerivation(t *testing.
 	}{
 		{name: "unreachable", view: taskView{task: state.Task{ID: "unreachable-task"}, unreachable: true}, kind: nextActionUnreachable, reason: "investigate why its worker runtime is unreachable"},
 		{name: "runtime unknown", view: taskView{task: state.Task{ID: "unknown-task"}, attempt: &state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "pane-1"}}, agentState: string(herdr.StatusUnknown)}, kind: nextActionRuntimeUnknown, reason: "investigate why its worker runtime is unknown"},
-		{name: "parked", view: taskView{task: state.Task{ID: "parked-task"}, parked: true}, kind: nextActionParked, reason: "investigate why its worker has been silent"},
+		{name: "parked", view: taskView{task: state.Task{ID: "parked-task"}, parked: true, parkedActionable: true}, kind: nextActionParked, reason: "investigate why its worker has been silent"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got := classifyNextAction(configuredWorker, 1, backlogSummary{}, []taskView{test.view}, nil)
@@ -247,6 +247,16 @@ func TestClassifyNextActionRanksRuntimeAttentionFromSharedDerivation(t *testing.
 				t.Fatalf("classifyNextAction() = %#v, want %#v", got, want)
 			}
 		})
+	}
+}
+
+// atqamz/hand#492: the ranking's own guard against regressing back to acting on parked without
+// parkedActionable; the decision itself is covered in cmd/status_test.go.
+func TestClassifyNextActionIgnoresAnUncorroboratedPark(t *testing.T) {
+	view := taskView{task: state.Task{ID: "parked-task"}, parked: true, parkedActionable: false}
+	got := classifyNextAction(configuredWorker, 1, backlogSummary{}, []taskView{view}, nil)
+	if got.Kind == nextActionParked {
+		t.Fatalf("classifyNextAction() = %#v, want an uncorroborated park to never rank as the next action", got)
 	}
 }
 

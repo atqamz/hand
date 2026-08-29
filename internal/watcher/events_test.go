@@ -579,6 +579,26 @@ func TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth(t *testing.T) {
 	}
 }
 
+// atqamz/hand#492: the durable read-back of the same latch
+// TestClassifyParkedFiresOncePerEpisodeAndResetsOnGrowth exercises from the in-memory side.
+func TestAlreadyAnnounced(t *testing.T) {
+	silentSince := time.Now().Add(-30 * time.Minute)
+	if AlreadyAnnounced(state.Attempt{}, silentSince) {
+		t.Fatal("an attempt with no recorded latch is already announced")
+	}
+	announced := state.Attempt{ParkedFiredFor: silentSince.UTC().Format(time.RFC3339Nano)}
+	if !AlreadyAnnounced(announced, silentSince) {
+		t.Fatal("an attempt latched for this exact silence instant is not already announced")
+	}
+	stale := state.Attempt{ParkedFiredFor: silentSince.Add(-time.Hour).UTC().Format(time.RFC3339Nano)}
+	if AlreadyAnnounced(stale, silentSince) {
+		t.Fatal("a latch recorded for a different, earlier episode reads as already announced")
+	}
+	if AlreadyAnnounced(state.Attempt{ParkedFiredFor: "not-a-time"}, silentSince) {
+		t.Fatal("an unparseable latch reads as already announced")
+	}
+}
+
 func TestClassifyReportLineAgainstDogfoodData(t *testing.T) {
 	home := t.TempDir()
 	ts := NewTaskState(herdr.StatusWorking, time.Now())

@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -969,7 +971,7 @@ func TestStatusFleetFlagsUnreachablePaneAndCountsAttention(t *testing.T) {
 // atqamz/hand#268's disagreement 2: KindParked existed only in hand watch, and atqamz/hand#32's own
 // pane rendered plain "state: idle" with no counterpart at all. A busy pane isolates the new
 // condition from unreportedStop, which requires the pane to be not-busy.
-func TestStatusFleetFlagsParkedPaneAndCountsAttention(t *testing.T) {
+func TestStatusFleetFlagsParkedPane(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -993,8 +995,10 @@ func TestStatusFleetFlagsParkedPaneAndCountsAttention(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "attention: 1\n") {
-		t.Fatalf("got %q, want attention: 1 for a pane silent past the parked bound", out.String())
+	// atqamz/hand#492: a pane this render observed busy corroborates the silence as an ordinary long
+	// turn, so it stays out of the fleet's shared attention count even though the raw flag still shows.
+	if !strings.Contains(out.String(), "attention: 0\n") {
+		t.Fatalf("got %q, want attention: 0 for a silence a busy pane corroborates as not stuck", out.String())
 	}
 	got := fleetFlags(t, out.String(), "task-1")
 	if !slices.Contains(got, "parked") {
@@ -1002,6 +1006,50 @@ func TestStatusFleetFlagsParkedPaneAndCountsAttention(t *testing.T) {
 	}
 	if slices.Contains(got, "unreported") {
 		t.Fatalf("flags = %v, want no unreported: the pane is busy, so only parked explains this", got)
+	}
+}
+
+// atqamz/hand#492: without a busy pane to corroborate it, or a watcher's own confirmation on record,
+// the naive parked verdict is all there is - and per the issue's own constraint, that must still
+// reach the supervisor rather than being suppressed for lack of stronger evidence.
+func TestStatusFleetFlagsParkedPaneAndCountsAttentionWhenUncorroborated(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	writeFakeHerdrPaneStatus(t, "idle")
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "parked-other-bound"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-5 * time.Second).UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}, LastReportState: state.ReportWorking}); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, "task-1")
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-5 * time.Second)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "attention: 1\n") {
+		t.Fatalf("got %q, want attention: 1 for an idle pane silent past the parked bound with nothing to corroborate it", out.String())
+	}
+	got := fleetFlags(t, out.String(), "task-1")
+	if !slices.Contains(got, "parked") {
+		t.Fatalf("flags = %v, want parked", got)
 	}
 }
 
@@ -1024,11 +1072,211 @@ func TestTaskParkedUsesNaiveOneShotFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
-	if taskParked(home, task, attempt, state.ReportWorking, watcher.ParkedBounds{Other: 40 * time.Minute}) {
+	if parked, _ := taskParked(home, task, attempt, string(herdr.StatusIdle), state.ReportWorking, watcher.ParkedBounds{Other: 40 * time.Minute}); parked {
 		t.Fatal("one-shot status reported parked before the time bound was crossed")
 	}
-	if !taskParked(home, task, attempt, state.ReportWorking, bounds) {
+	parked, actionable := taskParked(home, task, attempt, string(herdr.StatusIdle), state.ReportWorking, bounds)
+	if !parked {
 		t.Fatal("one-shot status did not preserve the naive parked verdict")
+	}
+	if !actionable {
+		t.Fatal("an idle pane past its bound with no watcher confirmation on record should still be actionable")
+	}
+}
+
+// atqamz/hand#492: a pane this render observed working or blocked is the same runtime observation
+// `hand reconcile` calls `liveness: working` for the same attempt - strong enough to keep the naive
+// verdict out of a supervisor's work queue, though it still renders in `hand status`.
+func TestTaskParkedCorroboratesAgainstALivePaneObservedThisRender(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	task := state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}
+	if err := writeTaskAttempt(t, home, task, attempt); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, task.ID)
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
+
+	for _, live := range []herdr.Status{herdr.StatusWorking, herdr.StatusBlocked} {
+		parked, actionable := taskParked(home, task, attempt, string(live), state.ReportWorking, bounds)
+		if !parked {
+			t.Fatalf("agent_status %q: parked = false, want the naive verdict preserved for hand status", live)
+		}
+		if actionable {
+			t.Fatalf("agent_status %q: actionable = true, want a live pane to keep this out of the work queue", live)
+		}
+	}
+	if parked, actionable := taskParked(home, task, attempt, string(herdr.StatusUnknown), state.ReportWorking, bounds); !parked || !actionable {
+		t.Fatalf("agent_status unknown: parked=%t actionable=%t, want both true - unknown corroborates nothing", parked, actionable)
+	}
+}
+
+// atqamz/hand#492's own reproduction: a worker mid-turn past its report silence bound is demonstrably
+// alive by `hand reconcile`'s own account, and the fleet decision orient's next action reads must not
+// contradict it inside the same binary.
+func TestOrientDoesNotFlagParkedWhileReconcileFindsALiveWorker(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	t.Setenv("HAND_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "parked-other-bound"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	task := state.Task{ID: "283-npm-distribution", Project: "demo", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}
+	launchConfirmedAt := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	attempt := state.Attempt{Lifecycle: state.AttemptRunning, Harness: "claude",
+		Herdr:             state.Herdr{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1"},
+		LaunchSubmittedAt: launchConfirmedAt, LaunchConfirmedAt: launchConfirmedAt}
+	if err := writeTaskAttempt(t, home, task, attempt); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := state.ReportPath(home, task.ID)
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-2 * time.Second)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+	faketool.Herdr{
+		Workspaces: []faketool.HerdrWorkspace{{ID: "ws-1", Label: "hand:demo", Tabs: []faketool.HerdrTab{{ID: "tab-1", Label: task.ID, Pane: "pane-1"}}}},
+		PaneAgent:  "claude", PaneStatus: "working",
+	}.Install(t, faketool.Bin(t))
+
+	reconcileCmd := newReconcileCmd()
+	var reconcileOut bytes.Buffer
+	reconcileCmd.SetOut(&reconcileOut)
+	reconcileCmd.SetArgs([]string{task.ID})
+	if err := reconcileCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(reconcileOut.Bytes(), []byte("liveness: working")) {
+		t.Fatalf("reconcile output = %q, want liveness: working for a worker mid-turn", reconcileOut.String())
+	}
+
+	client, err := currentHerdrClient(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	views, holds, _, err := fleetViews(context.Background(), io.Discard, home, client, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := classifyNextAction(workerConfig{harness: "claude"}, 1, backlogSummary{}, views, holds)
+	if next.Kind == nextActionParked {
+		t.Fatalf("next action = %#v, want orient to not call a worker parked while hand reconcile just called the same attempt liveness: working", next)
+	}
+}
+
+// atqamz/hand#492: without the latch, three simultaneously silent-but-live workers each re-present as
+// fresh parked work on every orient, so the noise scales with fleet size, not just per task.
+func TestOrientActionableCountScalesDownOnceAWatcherHasAnnouncedEverySimultaneousPark(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
+	ids := []string{"task-a", "task-b", "task-c"}
+	silentSince := time.Now().Add(-30 * time.Minute)
+
+	for _, id := range ids {
+		task := state.Task{ID: id, Project: "myproj", Kind: state.KindShip,
+			CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}
+		attempt := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}
+		if err := writeTaskAttempt(t, home, task, attempt); err != nil {
+			t.Fatal(err)
+		}
+		reportPath := state.ReportPath(home, id)
+		if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	countActionable := func() int {
+		count := 0
+		for _, id := range ids {
+			attempt := readTaskAttempt(t, home, id)
+			task, err := state.Read(home, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parked, actionable := taskParked(home, task, attempt, string(herdr.StatusIdle), state.ReportWorking, bounds)
+			if !parked {
+				t.Fatalf("task %s: parked = false, want the naive bound crossed for every task in this fixture", id)
+			}
+			if actionable {
+				count++
+			}
+		}
+		return count
+	}
+
+	if got := countActionable(); got != len(ids) {
+		t.Fatalf("actionable count = %d before any watcher confirmation, want all %d fresh episodes presented", got, len(ids))
+	}
+
+	for _, id := range ids {
+		attempt := readTaskAttempt(t, home, id)
+		if err := state.UpdateAttemptObservation(home, id, attempt.ID, state.AttemptRunning,
+			"", "", false, "", "", silentSince.UTC().Format(time.RFC3339Nano), "", 0, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := countActionable(); got != 0 {
+		t.Fatalf("actionable count = %d once every episode is durably announced, want 0 - the fleet-wide noise atqamz/hand#492's latch fix removes", got)
+	}
+}
+
+// atqamz/hand#492: a one-shot render has no in-memory latch of its own, but reading
+// attempt.ParkedFiredFor back is what keeps an already-announced episode from reading as fresh work.
+func TestTaskParkedIsNotActionableOnceAWatcherHasAlreadyAnnouncedTheSameEpisode(t *testing.T) {
+	home := t.TempDir()
+	mkFleetDirs(t, home)
+	task := state.Task{ID: "task-1", Project: "myproj", Kind: state.KindShip,
+		CreatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)}
+	reportPath := state.ReportPath(home, task.ID)
+	if err := os.WriteFile(reportPath, []byte("working: still on the migration\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	silentSince := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(reportPath, silentSince, silentSince); err != nil {
+		t.Fatal(err)
+	}
+	bounds := watcher.ParkedBounds{Other: 20 * time.Minute}
+
+	fresh := state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "wA:pB"}}
+	if err := writeTaskAttempt(t, home, task, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if parked, actionable := taskParked(home, task, fresh, string(herdr.StatusIdle), state.ReportWorking, bounds); !parked || !actionable {
+		t.Fatalf("no watcher has confirmed this episode yet: parked=%t actionable=%t, want both true", parked, actionable)
+	}
+
+	announced := fresh
+	announced.ParkedFiredFor = silentSince.UTC().Format(time.RFC3339Nano)
+	if parked, actionable := taskParked(home, task, announced, string(herdr.StatusIdle), state.ReportWorking, bounds); !parked || actionable {
+		t.Fatalf("a watcher already announced this exact episode: parked=%t actionable=%t, want parked but not fresh work", parked, actionable)
+	}
+
+	stale := fresh
+	stale.ParkedFiredFor = silentSince.Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	if parked, actionable := taskParked(home, task, stale, string(herdr.StatusIdle), state.ReportWorking, bounds); !parked || !actionable {
+		t.Fatalf("the recorded latch is for a different, earlier episode: parked=%t actionable=%t, want both true", parked, actionable)
 	}
 }
 
@@ -1054,7 +1302,7 @@ func TestTaskParkedAndGateRunAppliesStopOnceTheTaskIsDelivered(t *testing.T) {
 	}
 	bounds := watcher.ParkedBounds{Done: 20 * time.Minute, Other: 20 * time.Minute}
 
-	if !taskParked(home, task, attempt, state.ReportDone, bounds) {
+	if parked, _ := taskParked(home, task, attempt, string(herdr.StatusIdle), state.ReportDone, bounds); !parked {
 		t.Fatal("an undelivered task past its bound was not flagged parked, want the existing done-bounded behavior intact")
 	}
 	if !gateRunApplies(task, true) {
@@ -1062,7 +1310,7 @@ func TestTaskParkedAndGateRunAppliesStopOnceTheTaskIsDelivered(t *testing.T) {
 	}
 
 	task.DeliveredAt = "2026-08-17T00:00:00Z"
-	if taskParked(home, task, attempt, state.ReportDone, bounds) {
+	if parked, _ := taskParked(home, task, attempt, string(herdr.StatusIdle), state.ReportDone, bounds); parked {
 		t.Fatal("a delivered task was still flagged parked, want the silence exempt")
 	}
 	if gateRunApplies(task, true) {
