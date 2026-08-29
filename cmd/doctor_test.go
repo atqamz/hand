@@ -432,7 +432,7 @@ func TestDoctorReportsAnAliasedPoolSlotAcrossPoolRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadataPath := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(metadata)), "gitdir:"))
+	metadataPath := filepath.FromSlash(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(metadata)), "gitdir:")))
 	findings := doctorWorktreeFindings(home, nil, []project.Project{{Name: "demo"}})
 	for _, want := range []string{metadataPath, first, second} {
 		if !hasDoctorFindingContaining(findings, doctorError, want) {
