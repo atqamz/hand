@@ -236,6 +236,181 @@ func TestGetRejectsAWorktreeFromAnotherRegisteredClone(t *testing.T) {
 	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "another Git repository") {
 		t.Fatalf("Get() error = %v, want a registered-clone mismatch", err)
 	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Fatalf("foreign worktree was mutated or removed: %v", err)
+	}
+}
+
+func TestGetRejectsAnAliasedStaleSlotAndReleasesItsLease(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	live := filepath.Join(t.TempDir(), "live")
+	stale := filepath.Join(t.TempDir(), "stale")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "live", live)
+	runGit(t, clone, "worktree", "add", "-q", "-b", "stale", stale)
+	metadata, err := os.ReadFile(filepath.Join(live, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, ".git"), metadata, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	faketool.Treehouse{Slots: []string{stale}}.Install(t, faketool.Bin(t))
+
+	if _, err := Get(clone, "hand:task-1"); err == nil {
+		t.Fatal("Get() accepted a stale slot whose metadata points at another worktree")
+	}
+	entries, err := PoolStatus(clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Status != "available" {
+		t.Fatalf("PoolStatus() = %#v, want the rejected stale slot returned to the pool", entries)
+	}
+}
+
+func TestCheckSoundnessReportsMissingAndAliasedMetadata(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	live := filepath.Join(t.TempDir(), "live")
+	stale := filepath.Join(t.TempDir(), "stale")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "live", live)
+	runGit(t, clone, "worktree", "add", "-q", "-b", "stale", stale)
+	if got := CheckSoundness(clone, live); !got.Sound {
+		t.Fatalf("CheckSoundness() = %+v, want a sound linked worktree", got)
+	}
+	metadata, err := os.ReadFile(filepath.Join(live, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, ".git"), metadata, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := CheckSoundness(clone, stale); got.Sound || !containsFailure(got, "does not point back") {
+		t.Fatalf("CheckSoundness() = %+v, want an aliased metadata failure", got)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := os.MkdirAll(missing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(missing, ".git"), []byte("gitdir: "+filepath.Join(missing, "gone")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := CheckSoundness(clone, missing); got.Sound || !containsFailure(got, "metadata directory does not exist") {
+		t.Fatalf("CheckSoundness() = %+v, want a missing metadata failure", got)
+	}
+}
+
+func TestDiscoverPoolSlotsFindsMetadataAliasesAcrossPoolRoots(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	firstRoot := filepath.Join(clone, ".treehouse")
+	secondRoot := filepath.Join(t.TempDir(), ".treehouse")
+	first := filepath.Join(firstRoot, "pool-a", "1", "demo")
+	second := filepath.Join(secondRoot, "pool-b", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "first", first)
+	runGit(t, clone, "worktree", "add", "-q", "-b", "second", second)
+	metadata, err := os.ReadFile(filepath.Join(first, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, ".git"), metadata, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	slots, err := DiscoverPoolSlots(clone, firstRoot, secondRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slots) != 2 {
+		t.Fatalf("DiscoverPoolSlots() = %+v, want both pool slots", slots)
+	}
+	collisions := PoolSlotCollisions(slots)
+	if len(collisions) != 1 || len(collisions[0]) != 2 {
+		t.Fatalf("PoolSlotCollisions() = %+v, want one two-slot collision", collisions)
+	}
+}
+
+func TestDiscoverPoolSlotsFindsTheCurrentPerClonePoolLayout(t *testing.T) {
+	fleetHome := t.TempDir()
+	secondhand := filepath.Join(fleetHome, "secondhand")
+	t.Setenv("HOME", fleetHome)
+	t.Setenv("SECONDHAND_HOME", secondhand)
+	clone := filepath.Join(fleetHome, "projects", "demo")
+	faketool.InitRepo(t, clone)
+	pool, err := poolRoot(clone, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := filepath.Join(pool, ".treehouse", "pool", "1", "demo")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", slot)
+
+	slots, err := DiscoverPoolSlots(clone, PoolSearchRoots(fleetHome, clone)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slots) != 1 || slots[0].Path != slot || !slots[0].Soundness.Sound {
+		t.Fatalf("DiscoverPoolSlots() = %+v, want the current per-clone pool slot", slots)
+	}
+}
+
+func containsFailure(result SlotSoundness, want string) bool {
+	for _, failure := range result.Failures {
+		if strings.Contains(failure, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestGetRejectsAnAcquiredSlotWhenStatusOmitsIt(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	slot := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", slot)
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{
+		Log: log,
+		Responses: []faketool.TreehouseResponse{
+			{Command: "get", Stdout: mustJSON(t, map[string]string{"path": slot, "lease_id": "lease-1"})},
+			{Command: "status", Stdout: "[]"},
+			{Command: "return", Args: []string{"--if-lease-id", "lease-1", slot}},
+		},
+	}.Install(t, faketool.Bin(t))
+
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "status omitted") {
+		t.Fatalf("Get() error = %v, want status omission", err)
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "return --if-lease-id lease-1") {
+		t.Fatalf("treehouse calls = %q, want conditional lease recovery", calls)
+	}
+}
+
+func TestGetRefusesAnUnprovableSlotWithoutMutatingIt(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	foreign := filepath.Join(t.TempDir(), "foreign")
+	faketool.InitRepo(t, foreign)
+	faketool.Treehouse{Slots: []string{foreign}}.Install(t, faketool.Bin(t))
+
+	if _, err := Get(clone, "hand:task-1"); err == nil {
+		t.Fatal("Get() accepted a repository-root slot with unprovable ownership")
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Fatalf("unprovable worktree was mutated or removed: %v", err)
+	}
+	entries, err := PoolStatus(clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Status != "leased" {
+		t.Fatalf("PoolStatus() = %#v, want the unprovable lease left untouched", entries)
+	}
 }
 
 func TestGetFailsOnNonZeroExit(t *testing.T) {
@@ -426,15 +601,17 @@ func TestObserveCleanlinessIncludesUntrackedFiles(t *testing.T) {
 }
 
 func TestObserveLeaseRunsStatusFromTheWorktreeRepository(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
 	worktreePath := filepath.Join(t.TempDir(), "worktree")
-	faketool.InitRepo(t, worktreePath)
+	runGit(t, clone, "worktree", "add", "-q", "-b", "worktree", worktreePath)
 	faketool.Treehouse{Slots: []string{worktreePath}}.Install(t, faketool.Bin(t))
 
-	lease, err := testGet(worktreePath, "hand:task-1")
+	lease, err := testGet(clone, "hand:task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := testObserveLease(worktreePath, lease.ID); got.State != LeaseExact {
+	if got := ObserveLease(clone, worktreePath, lease.ID); got.State != LeaseExact {
 		t.Fatalf("testObserveLease() = %+v, want the lease visible from the worktree repository", got)
 	}
 }
@@ -562,21 +739,23 @@ func TestReturnLeaseRejectsMismatchedIdentityAndKeepsLease(t *testing.T) {
 }
 
 func TestReturnLeaseProtectsAReusedPathFromAStaleLease(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
 	path := filepath.Join(t.TempDir(), "wt-1")
-	faketool.InitRepo(t, path)
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", path)
 	faketool.Treehouse{Slots: []string{path}, Held: []string{path}, LeaseIDs: map[string]string{path: "lease-original"}}.Install(t, faketool.Bin(t))
 
-	if err := testReturnLease(path, "lease-original", true); err != nil {
+	if err := ReturnLease(clone, path, "lease-original", true); err != nil {
 		t.Fatal(err)
 	}
-	l2, err := testGet(path, "hand:l2")
+	l2, err := testGet(clone, "hand:l2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := testReturnLease(path, "lease-original", true); err == nil {
+	if err := ReturnLease(clone, path, "lease-original", true); err == nil {
 		t.Fatal("stale testReturnLease() released the reused path")
 	}
-	if _, err := testGet(path, "hand:still-held"); err == nil {
+	if _, err := testGet(clone, "hand:still-held"); err == nil {
 		t.Fatalf("stale testReturnLease() released current lease %q", l2.ID)
 	}
 }

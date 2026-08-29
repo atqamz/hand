@@ -283,7 +283,7 @@ func doctorFindings(fleetHome string, histories []state.TaskHistory) ([]doctorFi
 			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q no-mistakes gate is %s", p.Name, issue)})
 		}
 	}
-	findings = append(findings, doctorWorktreeFindings(fleetHome, histories)...)
+	findings = append(findings, doctorWorktreeFindings(fleetHome, histories, projects)...)
 	findings = append(findings, doctorLeaseHolderFindings(fleetHome, projects)...)
 
 	detection, err := harness.DetectCurrent()
@@ -359,7 +359,7 @@ func isReportPathSuffixChar(char byte) bool {
 	return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-' || char == '/' || char == '\\'
 }
 
-func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []doctorFinding {
+func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory, projects []project.Project) []doctorFinding {
 	findings := make([]doctorFinding, 0)
 	for _, history := range histories {
 		attempt := history.ActiveAttempt
@@ -382,7 +382,65 @@ func doctorWorktreeFindings(fleetHome string, histories []state.TaskHistory) []d
 		}
 		findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("task %q worktree is rooted in another Git repository: got %s, want %s", history.Task.ID, actual, expected)})
 	}
+	return append(findings, doctorPoolFindings(fleetHome, projects)...)
+}
+
+func doctorPoolFindings(fleetHome string, projects []project.Project) []doctorFinding {
+	findings := make([]doctorFinding, 0)
+	seenProjects := make(map[string]struct{}, len(projects))
+	for _, p := range projects {
+		if _, seen := seenProjects[p.Name]; seen {
+			continue
+		}
+		seenProjects[p.Name] = struct{}{}
+		clone := filepath.Join(fleetHome, "projects", p.Name)
+		if _, err := os.Stat(filepath.Join(clone, ".git")); err != nil {
+			if !os.IsNotExist(err) {
+				findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q registered clone cannot be inspected: %v", p.Name, err)})
+			}
+			continue
+		}
+
+		reported := make(map[string]struct{})
+		if entries, err := worktree.PoolStatus(clone); err == nil {
+			for _, entry := range entries {
+				soundness := worktree.CheckSoundness(clone, entry.Path)
+				reported[worktree.CanonicalPath(entry.Path)] = struct{}{}
+				appendUnsoundPoolFinding(&findings, p.Name, entry.Path, soundness, entry.Status == "leased")
+			}
+		}
+
+		poolSlots, err := worktree.DiscoverPoolSlots(clone, worktree.PoolSearchRoots(fleetHome, clone)...)
+		if err != nil {
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q worktree pool directories cannot be inspected: %v", p.Name, err)})
+			continue
+		}
+		for _, slot := range poolSlots {
+			if _, ok := reported[worktree.CanonicalPath(slot.Path)]; ok {
+				continue
+			}
+			appendUnsoundPoolFinding(&findings, p.Name, slot.Path, slot.Soundness, false)
+		}
+		for _, collision := range worktree.PoolSlotCollisions(poolSlots) {
+			claims := make([]string, 0, len(collision))
+			for _, slot := range collision {
+				claims = append(claims, fmt.Sprintf("pool %q slot %q", slot.PoolRoot, slot.Path))
+			}
+			findings = append(findings, doctorFinding{Severity: doctorError, Text: fmt.Sprintf("project %q metadata target %q is claimed by %s", p.Name, collision[0].MetadataDir, strings.Join(claims, ", "))})
+		}
+	}
 	return findings
+}
+
+func appendUnsoundPoolFinding(findings *[]doctorFinding, projectName, path string, soundness worktree.SlotSoundness, leased bool) {
+	if soundness.Sound {
+		return
+	}
+	text := fmt.Sprintf("project %q pool slot %q is unsound: %s", projectName, path, strings.Join(soundness.Failures, "; "))
+	if leased {
+		text += "; leased, not retired"
+	}
+	*findings = append(*findings, doctorFinding{Severity: doctorError, Text: text})
 }
 
 // A leased slot's holder classifies into exactly one of four cases - absent from the Fleet
