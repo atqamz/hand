@@ -241,11 +241,12 @@ func TestGetRejectsAWorktreeFromAnotherRegisteredClone(t *testing.T) {
 	}
 }
 
-func TestGetRejectsAnAliasedStaleSlotAndReleasesItsLease(t *testing.T) {
+func TestGetRejectsAnAliasedStaleSlotWithoutReleasingItsLease(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	faketool.InitRepo(t, clone)
 	live := filepath.Join(t.TempDir(), "live")
 	stale := filepath.Join(t.TempDir(), "stale")
+	log := filepath.Join(t.TempDir(), "treehouse.log")
 	runGit(t, clone, "worktree", "add", "-q", "-b", "live", live)
 	runGit(t, clone, "worktree", "add", "-q", "-b", "stale", stale)
 	metadata, err := os.ReadFile(filepath.Join(live, ".git"))
@@ -255,7 +256,14 @@ func TestGetRejectsAnAliasedStaleSlotAndReleasesItsLease(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stale, ".git"), metadata, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	faketool.Treehouse{Slots: []string{stale}}.Install(t, faketool.Bin(t))
+	faketool.Treehouse{
+		Log: log,
+		Slots: []string{stale},
+		Responses: []faketool.TreehouseResponse{
+			{Command: "get", Stdout: mustJSON(t, map[string]string{"path": stale, "lease_id": "lease-1"})},
+			{Command: "status", Stdout: mustJSON(t, []map[string]string{{"path": stale, "status": "leased", "lease_id": "lease-1"}})},
+		},
+	}.Install(t, faketool.Bin(t))
 
 	if _, err := Get(clone, "hand:task-1"); err == nil {
 		t.Fatal("Get() accepted a stale slot whose metadata points at another worktree")
@@ -264,8 +272,15 @@ func TestGetRejectsAnAliasedStaleSlotAndReleasesItsLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Status != "available" {
-		t.Fatalf("PoolStatus() = %#v, want the rejected stale slot returned to the pool", entries)
+	if len(entries) != 1 || entries[0].Status != "leased" {
+		t.Fatalf("PoolStatus() = %#v, want the aliased stale slot left leased", entries)
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), " return ") {
+		t.Fatalf("treehouse calls = %q, want no recovery mutation", calls)
 	}
 }
 
@@ -388,6 +403,33 @@ func TestGetRejectsAnAcquiredSlotWhenStatusOmitsIt(t *testing.T) {
 	}
 	if !strings.Contains(string(calls), "return --if-lease-id lease-1") {
 		t.Fatalf("treehouse calls = %q, want conditional lease recovery", calls)
+	}
+}
+
+func TestGetReturnsASoundSlotWhenLegacyStatusOmitsItsLease(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	slot := filepath.Join(t.TempDir(), "slot")
+	runGit(t, clone, "worktree", "add", "-q", "-b", "slot", slot)
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{
+		Log: log,
+		Responses: []faketool.TreehouseResponse{
+			{Command: "get", Stdout: mustJSON(t, map[string]string{"path": slot})},
+			{Command: "status", Stdout: "[]"},
+			{Command: "return", Args: []string{slot}},
+		},
+	}.Install(t, faketool.Bin(t))
+
+	if _, err := Get(clone, "hand:task-1"); err == nil || !strings.Contains(err.Error(), "status omitted") {
+		t.Fatalf("Get() error = %v, want status omission", err)
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "return "+slot) {
+		t.Fatalf("treehouse calls = %q, want path-only legacy recovery", calls)
 	}
 }
 

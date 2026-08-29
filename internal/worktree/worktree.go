@@ -457,14 +457,20 @@ func poolEntry(pool []PoolEntry, path string) (PoolEntry, bool) {
 
 func cloneOwnsWorktree(clonePath, worktreePath string, soundness SlotSoundness) bool {
 	info, err := os.Stat(filepath.Join(worktreePath, ".git"))
-	return err == nil && !info.IsDir() && soundness.CommonDir != "" && gitrepo.SamePath(soundness.CommonDir, filepath.Join(clonePath, ".git"))
+	return soundness.Sound && err == nil && !info.IsDir() && soundness.CommonDir != "" && gitrepo.SamePath(soundness.CommonDir, filepath.Join(clonePath, ".git"))
 }
 
 func rejectAcquiredLease(clonePath string, lease Lease, soundness SlotSoundness, reason error) error {
-	if lease.ID == "" || !cloneOwnsWorktree(clonePath, lease.Path, soundness) {
+	if !cloneOwnsWorktree(clonePath, lease.Path, soundness) {
 		return reason
 	}
-	if err := ReturnLease(clonePath, lease.Path, lease.ID, false); err != nil {
+	var err error
+	if lease.ID == "" {
+		err = Return(clonePath, lease.Path, false)
+	} else {
+		err = ReturnLease(clonePath, lease.Path, lease.ID, false)
+	}
+	if err != nil {
 		return fmt.Errorf("%v; lease release failed: %w", reason, err)
 	}
 	return fmt.Errorf("%v; lease released", reason)
