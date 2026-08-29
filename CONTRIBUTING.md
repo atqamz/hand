@@ -222,7 +222,7 @@ Real numbers, in sweep order, all with `--tags=test` and a cleared test cache:
 | `internal/completion` | 31 | 20 | 3 | 8 | 13.4s | 1 worker, coefficient 100 |
 | `internal/registry` | 116 | 106 | 0 | 10 | 32.9s | 8 workers, coefficient 20 |
 | `internal/store` | 829 | 622 | 0 | 207 | 5m30s | 6 workers, coefficient 5 |
-| `internal/runtime` | 832 | see the phase 7 gate-decision record | | | | 8 workers, coefficient 9 |
+| `internal/runtime` | 832 | 716 | 0 | 116 | 10m14s | 8 workers, coefficient 9 |
 
 *`internal/age`'s 7 "not covered" are confirmed false by `go tool cover -func` (both functions report
 100.0% real statement coverage, boundary values included) - gremlins cannot see coverage for a
@@ -231,12 +231,14 @@ reads as uncovered no matter how thoroughly it is exercised. Not a suite gap; se
 record for the full reasoning.
 
 The four smallest packages cost well under a second to a couple of seconds regardless of settings.
-`internal/registry` finished in 33 seconds once run for real - non-race execution plus a warm build
-cache across mutants cuts cost far more than a CI `-race` baseline would suggest, for every package
-size, not only tiny ones. `internal/store` and `internal/runtime` are the two that need their own
-`--workers` allocation and a coefficient sized from a real measured baseline (above), not because
-they are slow to kill mutants but because they are large enough that a cache-hit baseline's error is
-large in absolute seconds.
+Non-race execution plus a warm build cache across mutants cuts cost far more than a CI `-race`
+baseline would suggest, for every package size, not only tiny ones: `internal/registry` finished in
+33 seconds, `internal/store` (829 mutants) in 5m30s, and `internal/runtime` (832 mutants, the
+package whose own suite alone takes 20s to run once) in 10m14s - all three with sized `--workers`
+and a coefficient from a real measured baseline (above). The full six-package sweep, run in sequence
+rather than all at once, fits inside a single quiet hour on a 22-core host with room to spare; it
+does not need to be split across separate windows the way a naive `-race`-baseline estimate would
+suggest.
 
 ### Per-package plan
 
