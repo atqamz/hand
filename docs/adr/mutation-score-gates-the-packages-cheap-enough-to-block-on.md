@@ -44,8 +44,8 @@ wherever this runs, including in CI - not only during local, repeated iteration.
 score is not 100% and, as currently written, never can be: one of its three survivors is
 behaviorally identical to the code it replaced, for every input, so no test - however strong - could
 ever kill it. A gate stated as "efficacy >= N%" either sets N below 100 for every package (weakening
-the five packages that currently earn a perfect score for no reason) or blocks `completion` forever
-on a mutant that is not a defect. The only correct threshold is per-mutant identity: does a specific
+the six other packages, all of which currently earn a perfect score, for no reason) or blocks
+`completion` forever on a mutant that is not a defect. The only correct threshold is per-mutant identity: does a specific
 `file:line:col` + operator that was `KILLED` before now come back `LIVED`. That requires diffing
 `-o results.json` output against a stored baseline, not comparing one aggregate number.
 
@@ -99,6 +99,14 @@ to add an entry, and that assertion can be wrong. That cost is accepted because 
 after this whole sweep) and because the alternative - a threshold - fails silently in exactly the case
 that matters most.
 
+**`internal/completion`'s baseline is not generated yet.** Two of its three current survivors are
+atqamz/hand#498's real, open findings, not accepted equivalences. Generating the baseline from
+today's tree would record both as accepted `LIVED` alongside the genuine equivalent mutant, which
+turns a still-open bug into gate policy indistinguishable from the one entry that actually belongs
+there. `completion` joins the always-on gate only once atqamz/hand#498 lands and both survivors come
+back `KILLED`, at which point its baseline has exactly one entry: the equivalent mutant. See
+Consequences for the general rule this is one case of.
+
 **`internal/store` and `internal/runtime` do not gate on every push.** At an estimated 8-20 minutes
 apiece on CI-sized hardware, blocking every PR - including ones that touch neither package - on this
 cost is not justified by what phase 7 actually found: both packages are already at 100% test
@@ -131,14 +139,23 @@ of this decision first.
 
 ## Consequences
 
-Five packages get a real, cheap, always-on regression check the moment the workflow lands. The two
-expensive packages keep the protection phase 7 already gave them (both at 100% today) without an
-ongoing CI tax, at the cost of a regression there surfacing on the next scheduled run or touching PR
-rather than immediately - an accepted latency given neither package is currently in a bad state to
-begin with.
+Four packages get a real, cheap, always-on regression check the moment the workflow lands;
+`internal/completion` joins them once atqamz/hand#498 lands, not before. The two expensive packages
+keep the protection phase 7 already gave them (both at 100% today) without an ongoing CI tax, at the
+cost of a regression there surfacing on the next scheduled run or touching PR rather than immediately
+- an accepted latency given neither package is currently in a bad state to begin with.
 
 The baseline file this gate depends on has to be regenerated deliberately whenever a mutant's
 identity legitimately changes (a line moves, an operator's mutation changes, `completion`'s equivalent
 mutant is refactored away) - an unreviewed regeneration would silently accept a real regression as
 the new normal, the same failure mode `docs/adr/tests-state-invariants-first-examples-second.md`
 already warns about for the invariant map itself.
+
+The same hazard sits at first generation, not only at regeneration, and `completion` is the case in
+point: a baseline generated from today's tree would capture atqamz/hand#498's two open survivors as
+accepted `LIVED` entries, because generation cannot distinguish "nothing better exists yet" from "this
+is genuinely equivalent" - only the person generating it can, and only by already knowing which
+survivors are which. The general rule this ADR commits to: a baseline is never generated, first time
+or regeneration, for a package with a known-open survivor that has not been positively judged
+equivalent. Every baseline entry records a judgment made before the baseline existed, never one made
+by the act of writing it.
