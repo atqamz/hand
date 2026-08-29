@@ -136,6 +136,35 @@ func TestPublishTargetTakesTheBootstrapPathOnlyForATrulyNewPackage(t *testing.T)
 	}
 }
 
+func TestPublishTargetVerifiesTheBootstrapPathAuthenticated(t *testing.T) {
+	state := t.TempDir()
+	tarball := seedTarball(t, "@atqamz/hand-linux-x64", "0.7.0", "sha512-fresh", repoURL)
+
+	cmd := exec.Command("bash", scriptPath(t, "npm-publish-target.sh"),
+		"@atqamz/hand-linux-x64", "0.7.0", tarball, "sha512-fresh", repoURL)
+	cmd.Env = append(fakeNpmEnv(t, state), "NPM_BOOTSTRAP_TOKEN=bootstrap-secret-value")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("npm-publish-target.sh: %v: %s", err, out)
+	}
+
+	// The bootstrap token used to live only inside the subshell running `npm publish`,
+	// so post-publish verification ran unauthenticated (atqamz/hand#506): the
+	// pre-publish view must stay unauthenticated, every view after it must not.
+	views := callsWithPrefix(t, readCallsLog(t, state), "view")
+	if len(views) < 2 {
+		t.Fatalf("calls = %v, want at least a pre-publish and a post-publish view call", views)
+	}
+	if !strings.Contains(views[0], "authtoken=false") {
+		t.Fatalf("pre-publish view call = %q, want it unauthenticated", views[0])
+	}
+	for _, v := range views[1:] {
+		if !strings.Contains(v, "authtoken=true") {
+			t.Fatalf("post-publish view call = %q, want it authenticated with the bootstrap token", v)
+		}
+	}
+}
+
 func TestPublishTargetRefusesANewPackageWithoutTheBootstrapToken(t *testing.T) {
 	state := t.TempDir()
 	tarball := seedTarball(t, "@atqamz/hand-linux-x64", "0.7.0", "sha512-fresh", repoURL)
@@ -325,6 +354,17 @@ func containsCall(calls []string, word string) bool {
 		}
 	}
 	return false
+}
+
+func callsWithPrefix(t *testing.T, calls []string, prefix string) []string {
+	t.Helper()
+	var matched []string
+	for _, c := range calls {
+		if strings.HasPrefix(c, prefix+" ") {
+			matched = append(matched, c)
+		}
+	}
+	return matched
 }
 
 func onlyPublishCall(t *testing.T, calls []string) string {
