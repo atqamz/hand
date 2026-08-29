@@ -560,7 +560,7 @@ func gitStatusPorcelain(worktreePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("git status failed: %w", err)
 	}
-	return strings.TrimRight(string(out), "\n"), nil
+	return normalizeStatusLines(string(out)), nil
 }
 
 // Bounds the refusal's git status dump (atqamz/hand#65 is the same lesson for report rendering):
@@ -569,7 +569,7 @@ func gitStatusPorcelain(worktreePath string) (string, error) {
 const maxDirtStatusLines = 20
 
 func capStatusLines(status string) string {
-	trimmed := strings.TrimRight(status, "\n")
+	trimmed := normalizeStatusLines(status)
 	if trimmed == "" {
 		return trimmed
 	}
@@ -579,6 +579,10 @@ func capStatusLines(status string) string {
 	}
 	rest := len(lines) - maxDirtStatusLines
 	return strings.Join(lines[:maxDirtStatusLines], "\n") + fmt.Sprintf("\n...and %d more", rest)
+}
+
+func normalizeStatusLines(status string) string {
+	return strings.TrimRight(strings.ReplaceAll(strings.ReplaceAll(status, "\r\n", "\n"), "\r", "\n"), "\n")
 }
 
 // Reports whether every uncommitted change in status - the worktree's `git status --porcelain` output -

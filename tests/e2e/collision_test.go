@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,13 +20,18 @@ func setupCollisionHome(t *testing.T) (string, string) {
 	writeBrief(t, home, "task-2")
 
 	clonePath := filepath.Join(home, "projects", "demo")
-	if err := os.MkdirAll(clonePath, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGitRepo(t, clonePath)
 
 	dir := binDir(t)
 	writeFakeHerdrStatic(t, dir, herdrIDs{WorkspaceID: "ws-1", TabID: "tab-1", PaneID: "pane-1", Label: "demo"})
 	return home, dir
+}
+
+func setupCollisionWorktree(t *testing.T, home string) string {
+	t.Helper()
+	path := filepath.Join(home, "wt-shared")
+	runGitIn(t, filepath.Join(home, "projects", "demo"), "worktree", "add", "-q", "-b", "shared", path)
+	return path
 }
 
 // Proves worktree.CheckCollision is actually wired into the built spawn command, not just unit-tested in
@@ -36,7 +40,7 @@ func setupCollisionHome(t *testing.T) (string, string) {
 func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 	home, dir := setupCollisionHome(t)
 
-	sharedWorktree := filepath.Join(home, "wt-shared")
+	sharedWorktree := setupCollisionWorktree(t, home)
 	// With nothing to key on but the path, the fallback this fake drives cannot tell task-1's row from a live
 	// holder, so it refuses; that conservatism is the whole point of keeping it.
 	writeFakeTreehouseWithoutLeaseIdentity(t, dir, sharedWorktree)
@@ -71,7 +75,7 @@ func TestSpawnDetectsWorktreeCollision(t *testing.T) {
 // legitimately acquired it.
 func TestSpawnAllowsARecycledWorktreePathUnderAFreshLease(t *testing.T) {
 	home, dir := setupCollisionHome(t)
-	sharedWorktree := filepath.Join(home, "wt-shared")
+	sharedWorktree := setupCollisionWorktree(t, home)
 	writeFakeTreehouse(t, dir, sharedWorktree)
 
 	first := runHand(t, home, "spawn", "task-1", "demo")

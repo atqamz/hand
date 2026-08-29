@@ -17,7 +17,7 @@ The project lock does not fence Git mutations performed internally by Treehouse.
 ## Decision
 
 Mechanical provisioning verifies the leased worktree's full `HEAD` against `planned_against` immediately after acquisition and before Herdr or worker launch.
-On mismatch or verification failure, Hand safely returns the lease and retains provisioning evidence if cleanup fails.
+On a mismatch or verification failure after sound clone ownership is proven, Hand safely returns the lease and retains provisioning evidence if cleanup fails; foreign, unsound, missing, or unprovable slots are left untouched.
 The project lock remains held through the verification, worktree lock, and provisioning boundary.
 
 ## Rejected alternatives

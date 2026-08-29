@@ -233,7 +233,7 @@ Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is
 [The worktree pool lives outside every fleet home](adr/the-worktree-pool-lives-outside-every-fleet-home.md),
 [Every diagnosis names a reachable treatment](adr/every-diagnosis-names-a-reachable-treatment.md),
 `internal/worktree/worktree.go` (`Get`), `cmd/doctor.go` (`doctorWorktreeFindings`), decided in
-atqamz/hand#404 and atqamz/hand#421.
+atqamz/hand#404, atqamz/hand#412, and atqamz/hand#421.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -242,7 +242,7 @@ atqamz/hand#404 and atqamz/hand#421.
 | INV-LEASE-3 | Unknown carries the probe that failed: the command, the working directory that selected the pool, and the reason. | property | unaudited |
 | INV-LEASE-4 | Unproven ownership never authorizes a destructive command, and `--force` does not change that. | property | unaudited |
 | INV-LEASE-5 | Mechanical provisioning verifies the leased worktree's full HEAD against `planned_against` before Herdr or worker launch, never after. | model | unaudited |
-| INV-LEASE-6 | On mismatch or verification failure the lease is returned safely, and provisioning evidence is retained if cleanup fails. | model | unaudited |
+| INV-LEASE-6 | On mismatch or verification failure after sound clone ownership is proven, the lease is returned safely, and provisioning evidence is retained if cleanup fails; foreign, unsound, missing, or unprovable slots are left untouched. | model | unaudited |
 | INV-LEASE-7 | The project lock is held continuously across verification, worktree lock, and the provisioning boundary. | model | unaudited |
 | INV-LEASE-8 | Any unresolved read, parse, ref, or PR ambiguity in the landed-work guard refuses. Ambiguity never resolves to "landed". | property | unaudited |
 | INV-POOL-1 | A worktree pool never sits inside any fleet home, so no harness picks up the supervisor's context by directory ancestry. | property | `TestGetAcquiresFromAPoolOutsideEveryFleetHome`, `TestReturnUsesThePoolOutsideEveryFleetHome` |
@@ -254,6 +254,8 @@ atqamz/hand#404 and atqamz/hand#421.
 | INV-POOL-7 | `hand doctor` classifies a leased slot's holder into exactly one of: absent from the Fleet registry, registered but not ready, unparseable, or registered and ready. A ready holder is reported to neither of the first three, and none of the first three is reported as another. | property | `TestDoctorReportsLeaseHolderAbsentFromRegistry`, `TestDoctorReportsLeaseHolderRegisteredButNotReady`, `TestDoctorReportsUnparseableLeaseHolder`, `TestDoctorSaysNothingForLeaseHolderRegisteredAndReady` land unit cases; property form unaudited |
 | INV-POOL-8 | A Fleet registry that cannot be consulted - missing entirely or unreadable - is reported as one diagnosis about the registry, never as a per-holder classification, and never once per leased slot. | property | `TestDoctorReportsAMissingRegistryAsOneFindingRatherThanPerHolderAbsence`, `TestDoctorReportsRegistryUnreadableRatherThanTreatingHoldersAsAbsent` land unit cases; property form unaudited |
 | INV-POOL-9 | Lease-holder classification never returns, releases, or otherwise mutates a Treehouse lease. | property | unaudited |
+| INV-POOL-10 | Acquisition accepts only a pool slot whose Git common directory is the registered clone and whose linked-worktree metadata points back to that slot; unsound, foreign, missing, or unprovable paths are refused, and recovery mutates only a sound clone-owned slot. | property | `TestGetRejectsAWorktreeFromAnotherRegisteredClone`, `TestGetRejectsAMissingAcquiredWorktree`, `TestGetRejectsAnAliasedStaleSlotWithoutReleasingItsLease`, `TestGetRejectsAnAcquiredSlotWhenStatusOmitsIt`, `TestGetReturnsASoundSlotWhenLegacyStatusOmitsItsLease`, `TestGetRefusesAnUnprovableSlotWithoutMutatingIt` land unit cases; property form unaudited |
+| INV-POOL-11 | `hand doctor` reports every discovered pool slot with missing or inconsistent metadata, including slots whose metadata targets another slot or an arbitrary missing target, while filtering foreign live repositories. | property | `TestDoctorReportsAnAliasedPoolSlotAcrossPoolRoots`, `TestDoctorReportsAPoolSlotWithMissingMetadata` land unit cases; property form unaudited |
 
 ## Pull-request observation and terminal-task release
 

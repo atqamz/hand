@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,8 +43,12 @@ func setupSpawnHome(t *testing.T, worktreePath string, herdr faketool.Herdr) str
 	if err := os.WriteFile(filepath.Join(home, "data", "task-1", "brief.md"), []byte("do the thing"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "projects", "myproj"), 0o755); err != nil {
-		t.Fatal(err)
+	clone := filepath.Join(home, "projects", "myproj")
+	faketool.InitRepo(t, clone)
+	command := exec.Command("git", "worktree", "add", "-q", "-b", "task-1", worktreePath)
+	command.Dir = clone
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, output)
 	}
 
 	bin := faketool.Bin(t)

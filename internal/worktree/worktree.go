@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -35,6 +37,20 @@ func (e *returnAbortedError) Unwrap() error { return ErrReturnAborted }
 type Lease struct {
 	Path string
 	ID   string
+}
+
+type SlotSoundness struct {
+	Sound       bool
+	MetadataDir string
+	CommonDir   string
+	Failures    []string
+}
+
+type PoolSlot struct {
+	PoolRoot    string
+	Path        string
+	MetadataDir string
+	Soundness   SlotSoundness
 }
 
 type statusEntry struct {
@@ -283,6 +299,84 @@ func gitLines(worktreePath string, args ...string) ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
+func ReadMetadataDir(worktreePath string) (string, error) {
+	return readGitDirPointer(filepath.Join(worktreePath, ".git"))
+}
+
+func readGitDirPointer(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read Git directory pointer %q: %w", path, err)
+	}
+	line := strings.TrimSpace(string(data))
+	const prefix = "gitdir:"
+	if !strings.HasPrefix(line, prefix) {
+		return "", fmt.Errorf("git directory pointer %q has no gitdir target", path)
+	}
+	return resolvePointer(path, strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+}
+
+func readWorktreeGitDir(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read linked worktree pointer %q: %w", path, err)
+	}
+	return resolvePointer(path, strings.TrimSpace(string(data)))
+}
+
+func resolvePointer(path, target string) (string, error) {
+	if target == "" {
+		return "", fmt.Errorf("git directory pointer %q has an empty gitdir target", path)
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("make Git directory pointer absolute: %w", err)
+	}
+	return filepath.Clean(abs), nil
+}
+
+func CheckSoundness(clonePath, worktreePath string) SlotSoundness {
+	result := SlotSoundness{}
+	metadata, err := ReadMetadataDir(worktreePath)
+	if err != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf(".git does not resolve: %v", err))
+	} else {
+		result.MetadataDir = metadata
+		info, statErr := os.Stat(metadata)
+		switch {
+		case os.IsNotExist(statErr):
+			result.Failures = append(result.Failures, fmt.Sprintf("metadata directory does not exist: %s", metadata))
+		case statErr != nil:
+			result.Failures = append(result.Failures, fmt.Sprintf("metadata directory cannot be inspected: %v", statErr))
+		case !info.IsDir():
+			result.Failures = append(result.Failures, "metadata path is not a directory")
+		default:
+			back, backErr := readWorktreeGitDir(filepath.Join(metadata, "gitdir"))
+			if backErr != nil {
+				result.Failures = append(result.Failures, fmt.Sprintf("metadata gitdir does not point back to this slot: %v", backErr))
+			} else if !gitrepo.SamePath(back, filepath.Join(worktreePath, ".git")) {
+				result.Failures = append(result.Failures, fmt.Sprintf("metadata gitdir does not point back to this slot: got %s", back))
+			}
+		}
+	}
+
+	common, commonErr := gitrepo.CommonDir(worktreePath)
+	if commonErr != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf("common directory cannot be resolved: %v", commonErr))
+	} else {
+		result.CommonDir = common
+		expected := filepath.Join(clonePath, ".git")
+		if !gitrepo.SamePath(common, expected) {
+			result.Failures = append(result.Failures, fmt.Sprintf("common directory is %s, want %s", common, expected))
+		}
+	}
+	result.Sound = len(result.Failures) == 0
+	return result
+}
+
 // Get acquires a worktree from the project clone's treehouse pool. clonePath must be the project
 // clone directory, because treehouse resolves the pool from its own working directory.
 func Get(clonePath, leaseHolder string) (Lease, error) {
@@ -312,19 +406,76 @@ func Get(clonePath, leaseHolder string) (Lease, error) {
 		return Lease{}, fmt.Errorf("treehouse get returned no worktree path")
 	}
 	lease := Lease{Path: payload.Path, ID: payload.LeaseID}
-	if _, err := os.Stat(lease.Path); err == nil {
-		actual, err := gitrepo.CommonDir(lease.Path)
-		if err != nil {
-			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
-			return Lease{}, fmt.Errorf("treehouse get returned an unreadable worktree: %w", err)
-		}
-		expected := filepath.Join(clonePath, ".git")
-		if !gitrepo.SamePath(expected, actual) {
-			_ = ReturnLease(clonePath, lease.Path, lease.ID, true)
-			return Lease{}, fmt.Errorf("treehouse get returned worktree rooted in another Git repository: got %s, want %s", actual, expected)
+	_, statErr := os.Stat(lease.Path)
+	if statErr != nil {
+		if !os.IsNotExist(statErr) {
+			return Lease{}, fmt.Errorf("inspect treehouse worktree %s: %w", lease.Path, statErr)
 		}
 	}
+	soundness := CheckSoundness(clonePath, lease.Path)
+	if !soundness.Sound {
+		reason := acquiredWorktreeError(clonePath, lease.Path, soundness)
+		return Lease{}, rejectAcquiredLease(clonePath, lease, soundness, reason)
+	}
+	entries, statusErr := PoolStatus(clonePath)
+	if statusErr != nil {
+		reason := fmt.Errorf("inspect treehouse pool after acquisition: %w", statusErr)
+		return Lease{}, rejectAcquiredLease(clonePath, lease, soundness, reason)
+	}
+	entry, found := poolEntry(entries, lease.Path)
+	if !found {
+		reason := fmt.Errorf("treehouse acquired worktree %s but status omitted it", lease.Path)
+		return Lease{}, rejectAcquiredLease(clonePath, lease, soundness, reason)
+	}
+	if entry.Status != "leased" {
+		reason := fmt.Errorf("treehouse reported acquired worktree %s as %s, not leased", lease.Path, entry.Status)
+		return Lease{}, rejectAcquiredLease(clonePath, lease, soundness, reason)
+	}
+	if lease.ID != "" && entry.LeaseID != lease.ID {
+		reason := fmt.Errorf("treehouse reported acquired worktree %s with lease %s, want %s", lease.Path, entry.LeaseID, lease.ID)
+		return Lease{}, rejectAcquiredLease(clonePath, lease, soundness, reason)
+	}
 	return lease, nil
+}
+
+func acquiredWorktreeError(clonePath, worktreePath string, soundness SlotSoundness) error {
+	expected := filepath.Join(clonePath, ".git")
+	if soundness.CommonDir != "" && !gitrepo.SamePath(soundness.CommonDir, expected) {
+		return fmt.Errorf("treehouse get returned worktree rooted in another Git repository: got %s, want %s", soundness.CommonDir, expected)
+	}
+	return fmt.Errorf("treehouse get returned unsound worktree %s: %s", worktreePath, strings.Join(soundness.Failures, "; "))
+}
+
+func poolEntry(pool []PoolEntry, path string) (PoolEntry, bool) {
+	for _, entry := range pool {
+		if gitrepo.SamePath(entry.Path, path) {
+			return entry, true
+		}
+	}
+	return PoolEntry{}, false
+}
+
+func cloneOwnsWorktree(clonePath, worktreePath string, soundness SlotSoundness) bool {
+	info, err := os.Stat(filepath.Join(worktreePath, ".git"))
+	return soundness.Sound && err == nil && !info.IsDir() && soundness.CommonDir != "" && gitrepo.SamePath(soundness.CommonDir, filepath.Join(clonePath, ".git"))
+}
+
+func rejectAcquiredLease(clonePath string, lease Lease, soundness SlotSoundness, reason error) error {
+	if !cloneOwnsWorktree(clonePath, lease.Path, soundness) {
+		// Keep unsound or foreign leases quarantined. Returning one would let treehouse recirculate
+		// an aliased slot and expose the same path to another worker.
+		return reason
+	}
+	var err error
+	if lease.ID == "" {
+		err = Return(clonePath, lease.Path, false)
+	} else {
+		err = ReturnLease(clonePath, lease.Path, lease.ID, false)
+	}
+	if err != nil {
+		return fmt.Errorf("%v; lease release failed: %w", reason, err)
+	}
+	return fmt.Errorf("%v; lease released", reason)
 }
 
 // Reads the full commit object ID currently checked out by a leased worktree.
@@ -396,6 +547,166 @@ type PoolEntry struct {
 	LeaseID     string
 	LeaseHolder string
 }
+
+func PoolSearchRoots(fleetHome, clonePath string) []string {
+	roots := make([]string, 0, 4)
+	add := func(path string) {
+		for _, existing := range roots {
+			if gitrepo.SamePath(existing, path) {
+				return
+			}
+		}
+		roots = append(roots, filepath.Clean(path))
+	}
+	add(filepath.Join(clonePath, ".treehouse"))
+	add(filepath.Join(fleetHome, ".treehouse"))
+	if userHome, err := os.UserHomeDir(); err == nil {
+		add(filepath.Join(userHome, ".treehouse"))
+	}
+	if pools, err := PoolsRoot(); err == nil {
+		add(filepath.Join(pools, ".treehouse"))
+		if current, currentErr := poolRoot(clonePath, ""); currentErr == nil {
+			add(filepath.Join(current, ".treehouse"))
+		}
+		if poolDirs, readErr := os.ReadDir(pools); readErr == nil {
+			for _, poolDir := range poolDirs {
+				if poolDir.IsDir() {
+					add(filepath.Join(pools, poolDir.Name(), ".treehouse"))
+				}
+			}
+		}
+	}
+	return roots
+}
+
+func DiscoverPoolSlots(clonePath string, searchRoots ...string) ([]PoolSlot, error) {
+	expected := filepath.Join(clonePath, ".git")
+	slots := make([]PoolSlot, 0)
+	seenRoots := make(map[string]struct{}, len(searchRoots))
+	seenSlots := make(map[string]struct{})
+	for _, searchRoot := range searchRoots {
+		root, err := filepath.Abs(searchRoot)
+		if err != nil {
+			return nil, fmt.Errorf("resolve pool search root %q: %w", searchRoot, err)
+		}
+		root = filepath.Clean(root)
+		rootKey := canonicalPath(root)
+		if _, seen := seenRoots[rootKey]; seen {
+			continue
+		}
+		seenRoots[rootKey] = struct{}{}
+		poolDirs, err := os.ReadDir(root)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("inspect pool search root %s: %w", root, err)
+		}
+		for _, poolDir := range poolDirs {
+			if !poolDir.IsDir() {
+				continue
+			}
+			poolPath := filepath.Join(root, poolDir.Name())
+			slotDirs, err := os.ReadDir(poolPath)
+			if err != nil {
+				return nil, fmt.Errorf("inspect pool %s: %w", poolPath, err)
+			}
+			for _, slotDir := range slotDirs {
+				if !slotDir.IsDir() {
+					continue
+				}
+				slotPath := filepath.Join(poolPath, slotDir.Name())
+				worktrees, err := os.ReadDir(slotPath)
+				if err != nil {
+					return nil, fmt.Errorf("inspect pool slot directory %s: %w", slotPath, err)
+				}
+				for _, worktreeDir := range worktrees {
+					if !worktreeDir.IsDir() {
+						continue
+					}
+					worktreePath := filepath.Join(slotPath, worktreeDir.Name())
+					key := canonicalPath(worktreePath)
+					if _, seen := seenSlots[key]; seen {
+						continue
+					}
+					seenSlots[key] = struct{}{}
+					soundness := CheckSoundness(clonePath, worktreePath)
+					if !resolvesIntoClone(expected, soundness) {
+						continue
+					}
+					slots = append(slots, PoolSlot{PoolRoot: poolPath, Path: worktreePath, MetadataDir: soundness.MetadataDir, Soundness: soundness})
+				}
+			}
+		}
+	}
+	return slots, nil
+}
+
+func resolvesIntoClone(expected string, soundness SlotSoundness) bool {
+	if soundness.CommonDir != "" {
+		return gitrepo.SamePath(soundness.CommonDir, expected)
+	}
+	if soundness.MetadataDir != "" {
+		if _, err := os.Stat(soundness.MetadataDir); os.IsNotExist(err) {
+			return true
+		}
+	}
+	return pathWithin(filepath.Join(expected, "worktrees"), soundness.MetadataDir)
+}
+
+func pathWithin(root, path string) bool {
+	if path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+func PoolSlotCollisions(slots []PoolSlot) [][]PoolSlot {
+	groups := make(map[string][]PoolSlot)
+	for _, slot := range slots {
+		if slot.MetadataDir == "" {
+			continue
+		}
+		key := canonicalPath(slot.MetadataDir)
+		groups[key] = append(groups[key], slot)
+	}
+	collisions := make([][]PoolSlot, 0)
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+		sort.Slice(group, func(i, j int) bool {
+			if group[i].PoolRoot == group[j].PoolRoot {
+				return group[i].Path < group[j].Path
+			}
+			return group[i].PoolRoot < group[j].PoolRoot
+		})
+		collisions = append(collisions, group)
+	}
+	sort.Slice(collisions, func(i, j int) bool { return collisions[i][0].MetadataDir < collisions[j][0].MetadataDir })
+	return collisions
+}
+
+func canonicalPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return canonicalPathKey(filepath.Clean(path))
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return canonicalPathKey(filepath.Clean(resolved))
+	}
+	return canonicalPathKey(filepath.Clean(abs))
+}
+
+func canonicalPathKey(path string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(path)
+	}
+	return path
+}
+
+func CanonicalPath(path string) string { return canonicalPath(path) }
 
 // PoolStatus lists every slot in clonePath's worktree pool, leased or not. It names no recorded
 // worktree, so unlike ObserveLease it always resolves the pool atqamz/hand#427 put outside the

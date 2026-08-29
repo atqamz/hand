@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -316,6 +317,15 @@ func hasDoctorFindingPrefix(findings []doctorFinding, severity doctorSeverity, p
 	return false
 }
 
+func hasDoctorFindingContaining(findings []doctorFinding, severity doctorSeverity, text string) bool {
+	for _, finding := range findings {
+		if finding.Severity == severity && strings.Contains(finding.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDoctorFindsWorktreeUsingAnotherFleetClone(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -398,6 +408,98 @@ func TestDoctorFindsWorktreeUsingTheFleetHomeCheckout(t *testing.T) {
 		}
 	}
 	t.Fatalf("findings = %#v, want an operator-checkout worktree finding", findings)
+}
+
+func TestDoctorReportsAnAliasedPoolSlotAcrossPoolRoots(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("SECONDHAND_HOME", filepath.Join(home, "secondhand"))
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clone)
+	first := filepath.Join(clone, ".treehouse", "pool-a", "1", "demo")
+	second := filepath.Join(home, ".treehouse", "pool-b", "1", "demo")
+	runGitOutput(t, clone, "worktree", "add", "-q", "-b", "first", first)
+	runGitOutput(t, clone, "worktree", "add", "-q", "-b", "second", second)
+	metadata, err := os.ReadFile(filepath.Join(first, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, ".git"), metadata, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	metadataPath := filepath.FromSlash(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(metadata)), "gitdir:")))
+	findings := doctorWorktreeFindings(home, nil, []project.Project{{Name: "demo"}})
+	for _, want := range []string{metadataPath, first, second} {
+		if !hasDoctorFindingContaining(findings, doctorError, want) {
+			t.Fatalf("findings = %#v, want alias finding to name %q", findings, want)
+		}
+	}
+	if !hasDoctorFindingContaining(findings, doctorError, "metadata target") {
+		t.Fatalf("findings = %#v, want a metadata-target collision", findings)
+	}
+	if !hasDoctorFindingContaining(findings, doctorError, second+" is unsound") {
+		t.Fatalf("findings = %#v, want the stale claimant reported as unsound", findings)
+	}
+}
+
+func TestDoctorReportsAPoolSlotWithMissingMetadata(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("SECONDHAND_HOME", filepath.Join(home, "secondhand"))
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	if err := project.Add(home, project.Project{Name: "demo", URL: "https://example.com/demo.git", Mode: project.ModeLocalOnly}); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(home, "projects", "demo")
+	initGitRepo(t, clone)
+	slot := filepath.Join(home, ".treehouse", "pool", "1", "demo")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missingMetadata := filepath.Join(clone, ".git", "worktrees", "gone")
+	if err := os.WriteFile(filepath.Join(slot, ".git"), []byte("gitdir: "+missingMetadata+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := doctorWorktreeFindings(home, nil, []project.Project{{Name: "demo"}})
+	if !hasDoctorFindingContaining(findings, doctorError, slot) ||
+		!hasDoctorFindingContaining(findings, doctorError, missingMetadata) ||
+		!hasDoctorFindingContaining(findings, doctorError, "metadata directory does not exist") {
+		t.Fatalf("findings = %#v, want the missing metadata target and slot", findings)
+	}
+}
+
+func TestDoctorIgnoresForeignRepositoryFromPoolStatus(t *testing.T) {
+	home := t.TempDir()
+	clone := filepath.Join(home, "projects", "demo")
+	foreign := filepath.Join(t.TempDir(), "foreign")
+	initGitRepo(t, clone)
+	initGitRepo(t, foreign)
+	status, err := json.Marshal([]map[string]string{{"path": foreign, "status": "leased"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	faketool.Treehouse{Responses: []faketool.TreehouseResponse{
+		{Command: "status", Stdout: string(status)},
+	}}.Install(t, faketool.Bin(t))
+
+	findings := doctorWorktreeFindings(home, nil, []project.Project{{Name: "demo"}})
+	if hasDoctorFindingContaining(findings, doctorError, foreign) {
+		t.Fatalf("findings = %#v, want foreign pool entry filtered", findings)
+	}
 }
 
 func TestDoctorIncludesProjectListGateFinding(t *testing.T) {
