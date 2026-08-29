@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint e2e contract contract-live install clean
+.PHONY: build test fmt lint e2e contract contract-live install clean vendorhash
 
 VERSION ?= dev
 CHANNEL ?= dev
@@ -30,6 +30,26 @@ contract:
 
 contract-live:
 	go test -tags=contract,contractlive -count=1 -timeout=10m ./tests/contract/...
+
+# FAKE_VENDOR_HASH is nixpkgs' lib.fakeHash: a well-formed sha256 SRI hash that
+# no real fixed-output derivation will ever produce, so the build below is
+# guaranteed to fail and report the real hash in its "got:" line.
+FAKE_VENDOR_HASH := sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+vendorhash:
+	@backup=$$(mktemp); cp flake.nix "$$backup"; \
+	sed -i 's|vendorHash = "[^"]*"|vendorHash = "$(FAKE_VENDOR_HASH)"|' flake.nix; \
+	log=$$(mktemp); \
+	nix build .#default --no-link >"$$log" 2>&1; \
+	got=$$(grep -oP 'got:\s+\Ksha256-\S+' "$$log" | tail -1); \
+	if [ -z "$$got" ]; then \
+		echo "could not compute vendorHash; nix build did not fail on a hash mismatch:" >&2; \
+		cat "$$log" >&2; \
+		cp "$$backup" flake.nix; rm -f "$$backup" "$$log"; exit 1; \
+	fi; \
+	sed -i "s|vendorHash = \"$(FAKE_VENDOR_HASH)\"|vendorHash = \"$$got\"|" flake.nix; \
+	rm -f "$$backup" "$$log"; \
+	echo "flake.nix vendorHash updated to $$got"
 
 install: build
 	cp hand $(GOPATH)/bin/ 2>/dev/null || cp hand ~/.local/bin/
