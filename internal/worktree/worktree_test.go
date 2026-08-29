@@ -372,6 +372,28 @@ func TestDiscoverPoolSlotsFindsMetadataAliasesAcrossPoolRoots(t *testing.T) {
 	}
 }
 
+func TestDiscoverPoolSlotsFindsAnArbitraryMissingMetadataTarget(t *testing.T) {
+	clone := filepath.Join(t.TempDir(), "clone")
+	faketool.InitRepo(t, clone)
+	root := filepath.Join(t.TempDir(), ".treehouse")
+	worktree := filepath.Join(root, "pool-a", "1", "demo")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "unrelated", "missing")
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+missing+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	slots, err := DiscoverPoolSlots(clone, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slots) != 1 || slots[0].Path != worktree || slots[0].Soundness.Sound {
+		t.Fatalf("DiscoverPoolSlots() = %+v, want the unsound slot retained for reporting", slots)
+	}
+}
+
 func TestDiscoverPoolSlotsFindsTheCurrentPerClonePoolLayout(t *testing.T) {
 	fleetHome := t.TempDir()
 	secondhand := filepath.Join(fleetHome, "secondhand")

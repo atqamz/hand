@@ -643,6 +643,11 @@ func resolvesIntoClone(expected string, soundness SlotSoundness) bool {
 	if soundness.CommonDir != "" {
 		return gitrepo.SamePath(soundness.CommonDir, expected)
 	}
+	if soundness.MetadataDir != "" {
+		if _, err := os.Stat(soundness.MetadataDir); os.IsNotExist(err) {
+			return true
+		}
+	}
 	return pathWithin(filepath.Join(expected, "worktrees"), soundness.MetadataDir)
 }
 
