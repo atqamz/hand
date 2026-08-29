@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint e2e contract contract-live install clean vendorhash
+.PHONY: build test fmt lint e2e contract contract-live install clean vendorhash mutation
 
 VERSION ?= dev
 CHANNEL ?= dev
@@ -30,6 +30,14 @@ contract:
 
 contract-live:
 	go test -tags=contract,contractlive -count=1 -timeout=10m ./tests/contract/...
+
+# Not part of `make test`: mutation testing runs per package, on demand. See
+# CONTRIBUTING.md's "Mutation testing" section for the tool, install command, and package scope.
+mutation:
+	@test -n "$(PKG)" || { echo "usage: make mutation PKG=./internal/foo [GREMLINS_FLAGS='--dry-run']" >&2; exit 1; }
+	@command -v gremlins >/dev/null 2>&1 || { echo "gremlins not found; see CONTRIBUTING.md's Mutation testing section for the install command" >&2; exit 1; }
+	go clean -testcache
+	gremlins unleash --tags=test $(GREMLINS_FLAGS) $(PKG)
 
 # FAKE_VENDOR_HASH is nixpkgs' lib.fakeHash: a well-formed sha256 SRI hash that
 # no real fixed-output derivation will ever produce, so the build below is
