@@ -96,8 +96,65 @@ jobs:
           name: hand-${{ matrix.goos }}-${{ matrix.goarch }}
           path: hand-${{ matrix.goos }}-${{ matrix.goarch }}.*
 
+  npm-publish:
+    name: Publish npm packages
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Pin npm
+        run: npm install -g npm@12.0.2
+      - name: Generate npm packages for this release
+        run: |
+          set -eu
+          commit='${{ needs.release-please.outputs.sha }}'
+          test "$(git rev-parse HEAD)" = "$commit"
+          packaging/npm/generate.sh --version "${{ needs.release-please.outputs.version }}" --commit "$commit"
+      - name: Publish every runtime-qualified platform package, then the meta package
+        env:
+          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          set -eu
+          version="${{ needs.release-please.outputs.version }}"
+          repo_url='git+https://github.com/atqamz/hand.git'
+          pack_dir="$(mktemp -d)"
+          trap 'rm -rf "$pack_dir"' EXIT
+          publish_one() {
+            local dir="$1" pack_json name tarball integrity
+            pack_json="$(cd "$dir" && npm pack --json --pack-destination "$pack_dir")"
+            # npm pack --json is an object keyed by package name, not an array (verified
+            # against the pinned npm version above; tests/release enforces the pin). Each
+            # value is piped through tr to drop a stray CR a chained jq -r can emit.
+            name="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.name' | tr -d '\r')"
+            tarball="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.filename' | tr -d '\r')"
+            integrity="$(printf '%s' "$pack_json" | jq -r 'to_entries[0].value.integrity' | tr -d '\r')"
+            .github/scripts/npm-publish-target.sh "$name" "$version" "$pack_dir/$tarball" "$integrity" "$repo_url"
+          }
+          # Platforms first: the meta package's optionalDependencies must never point
+          # at a platform version that is not itself already published.
+          for target in $(packaging/npm/generate.sh --print-targets | jq -r '.[]' | tr -d '\r'); do
+            publish_one "packaging/npm/platforms/$target"
+          done
+          publish_one "packaging/npm/meta"
+
   publish:
     name: Publish release assets
+    # Deliberately independent of npm-publish: the GitHub release is the primary
+    # distribution channel and npm is additional, so a pending operator approval, a
+    # rejected gate, or an npm outage must never hold back the primary one.
     needs: [release-please, build]
     runs-on: ubuntu-latest
     steps:
