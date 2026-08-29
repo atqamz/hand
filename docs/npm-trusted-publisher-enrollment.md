@@ -1,12 +1,52 @@
 # npm Trusted Publisher enrollment
 
-Required before the second stable release publishes to npm. This is a one-time,
-operator-performed procedure on npmjs.com; nothing in this repository executes it, and it
-is out of scope for `atqamz/hand#283` to automate (npm has no API to configure Trusted
-Publishing for a package that does not exist yet - see
-[npm/cli#8544](https://github.com/npm/cli/issues/8544)).
+Two prerequisites gate this npm surface: the operator-approval gate below, required before
+the *first* release can publish anything, and Trusted Publisher enrollment, required before
+the *second* stable release publishes to npm. The latter is a one-time, operator-performed
+procedure on npmjs.com; nothing in this repository executes it, and it is out of scope for
+`atqamz/hand#283` to automate (npm has no API to configure Trusted Publishing for a package
+that does not exist yet - see [npm/cli#8544](https://github.com/npm/cli/issues/8544)).
 
-## Why this cannot wait
+## The operator-approval gate (required before the first release)
+
+`.github/workflows/release.yaml`'s `npm-publish` job runs under `environment: npm-publish`.
+Referencing an environment name that does not yet exist as a repository environment does
+not fail and does not wait: GitHub auto-creates it with no protection rules at all, and the
+job runs immediately, unattended. The entire operator-approval design described in
+[the ADR](adr/npm-publishes-only-runtime-qualified-targets-behind-one-operator-gate.md)
+depends on this environment actually existing with a reviewer configured before that ever
+happens - an auto-created environment is not a gate, it just has the same name as one.
+
+As of 2026-08-29, both of the following are true and verified on `atqamz/hand`:
+
+- The `npm-publish` environment exists, with `atqamz` as a required reviewer and a
+  protected-branches deployment policy (`main` is a protected branch, so this is
+  satisfiable). Verify with:
+
+  ```sh
+  gh api repos/atqamz/hand/environments/npm-publish
+  ```
+
+  A response with a `required_reviewers` protection rule naming the operator confirms the
+  gate is real. An empty `protection_rules` array means the environment was auto-created
+  and is not gating anything.
+- `NPM_BOOTSTRAP_TOKEN` is a secret scoped to the `npm-publish` environment, not a bare
+  repository secret - a repository secret is readable by every workflow job in the repo,
+  which would let an ungated job read it regardless of the environment's own protection.
+  The repository-level secret of the same name has been deleted. Verify with:
+
+  ```sh
+  gh secret list --repo atqamz/hand                    # must not list NPM_BOOTSTRAP_TOKEN
+  gh secret list --repo atqamz/hand --env npm-publish  # must list it here instead
+  ```
+
+If a fresh clone, fork, or repository recreation ever needs this redone: create the
+`npm-publish` environment under repository Settings -> Environments, add the intended
+approver as a required reviewer, restrict deployment branches to protected branches, then
+add `NPM_BOOTSTRAP_TOKEN` as a secret scoped to that environment - never as a repository
+secret.
+
+## Why Trusted Publisher enrollment cannot wait
 
 `.github/scripts/npm-publish-target.sh` only ever uses `NPM_BOOTSTRAP_TOKEN` to create a
 package name's first version (the `absent-new-package` outcome). Every later version of an

@@ -98,17 +98,17 @@ func TestNpmPublishJobIsGatedForOperatorApproval(t *testing.T) {
 	}
 }
 
-// A GitHub release must not go non-draft while npm publication for the same release is
-// still pending approval or has failed - an otherwise-complete-looking GitHub release
-// with no matching npm package would be a silent partial release.
-func TestPublishJobWaitsForNpmPublish(t *testing.T) {
+// GitHub releases are the primary distribution channel and npm is additional; a future
+// edit reintroducing needs: npm-publish would silently invert that priority even though
+// the job would still look correct on its own.
+func TestPublishJobDoesNotDependOnNpmPublish(t *testing.T) {
 	job, ok := loadReleaseWorkflowJobs(t)["publish"]
 	if !ok {
 		t.Fatal("release workflow has no publish job")
 	}
 	needs := workflowJobNeeds(t, job.Needs)
-	if !containsString(needs, "npm-publish") {
-		t.Fatalf("publish needs = %v, want it to include npm-publish", needs)
+	if containsString(needs, "npm-publish") {
+		t.Fatalf("publish needs = %v, want it to not depend on npm-publish", needs)
 	}
 }
 

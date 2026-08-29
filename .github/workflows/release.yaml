@@ -152,7 +152,10 @@ jobs:
 
   publish:
     name: Publish release assets
-    needs: [release-please, build, npm-publish]
+    # Deliberately independent of npm-publish: the GitHub release is the primary
+    # distribution channel and npm is additional, so a pending operator approval, a
+    # rejected gate, or an npm outage must never hold back the primary one.
+    needs: [release-please, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
