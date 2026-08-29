@@ -64,10 +64,40 @@ The gate is split by measured cost, not applied uniformly across the scoped pack
 next to this repository's existing multi-minute `-race` suite, cheap enough that scoping the trigger
 to changed paths would save nothing worth the added workflow complexity. The gate compares each
 mutant's `KILLED`/`LIVED` outcome against a checked-in baseline keyed by `file:line:col` and operator;
-a mutant that flips from `KILLED` to `LIVED` fails the build, a `NOT COVERED` count that grows is
+a mutant that flips from `KILLED` to `LIVED` fails the build, and a `NOT COVERED` count that grows is
 reported but does not fail it (that is a coverage question, which this issue explicitly is not
-about), and `completion`'s one known equivalent mutant is recorded in the baseline as an accepted
-`LIVED` rather than chased.
+about).
+
+**Equivalent mutants are handled by a suppression list, not a threshold or a per-run human read.**
+This has to be answered explicitly, not left implicit in "diff against a baseline," because a gate
+that recommends itself without an answer here is recommending a permanent false failure: `completion`
+cannot reach 100% as currently written, ever, at any level of test quality, because one of its three
+survivors - `migrated++` versus `migrated--` in `MigrateProjectIdentity` - is behaviorally identical
+to the code it replaced for every input (`migrated` is only ever compared against zero; both
+operators move it away from zero identically once anything is migrated). No test, however strong,
+can kill a mutation that changes nothing observable. Three ways to answer what the gate does with
+that:
+
+- **A suppression list** (the decision here): the checked-in baseline records this exact mutant -
+  `internal/completion/completion.go:149:11`, `INCREMENT_DECREMENT` - as an accepted `LIVED`, with the
+  reason inline (why it is equivalent, not merely why it was tolerated). A new, different survivor
+  anywhere in the package is not in that list, so it fails the gate on its own merits. Adding an entry
+  is a normal reviewed code change to the baseline file, which is where a human judges "is this
+  actually equivalent" - exactly once, at the moment someone makes that claim, not on every run after.
+- **A count threshold** ("`completion` may have up to N survivors"), rejected: it verifies how many,
+  not which. A real new gap introduced alongside this equivalent mutant being (hypothetically) fixed
+  stays invisible as long as the total count does not change - the budget the equivalent mutant was
+  quietly spending gets spent by a real regression instead, and the gate has no way to tell the
+  difference. This is strictly weaker than identity-based suppression for the same cost.
+- **A human read on every run** (no automated pass/fail, someone looks at the survivor list each
+  time), rejected as the sole mechanism: it is not a gate, it is the manual process mutation testing
+  here exists to make repeatable. It remains the right fallback for a survivor that is *not* already
+  in the suppression list - which is exactly what "fails the gate" routes to.
+
+The suppression list is reviewed maintenance, not free: someone has to positively assert equivalence
+to add an entry, and that assertion can be wrong. That cost is accepted because it is rare (one entry
+after this whole sweep) and because the alternative - a threshold - fails silently in exactly the case
+that matters most.
 
 **`internal/store` and `internal/runtime` do not gate on every push.** At an estimated 8-20 minutes
 apiece on CI-sized hardware, blocking every PR - including ones that touch neither package - on this
