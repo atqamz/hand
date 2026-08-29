@@ -133,17 +133,11 @@ func generateReal(t *testing.T, fixture npmFixture, version string) {
 func npmPackFiles(t *testing.T, dir string) []string {
 	t.Helper()
 	dest := t.TempDir()
-	cmd := exec.Command("npm", "pack", "--json", "--pack-destination", dest)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("npm pack --json in %s: %v: %s", dir, err, out)
-	}
 	entry := decodeSoleNpmPackEntry[struct {
 		Files []struct {
 			Path string `json:"path"`
 		} `json:"files"`
-	}](t, out)
+	}](t, npmPackJSON(t, dir, dest))
 	files := make([]string, len(entry.Files))
 	for i, f := range entry.Files {
 		files[i] = f.Path
@@ -154,16 +148,27 @@ func npmPackFiles(t *testing.T, dir string) []string {
 func npmPackTarball(t *testing.T, dir string) string {
 	t.Helper()
 	dest := t.TempDir()
-	cmd := exec.Command("npm", "pack", "--json", "--pack-destination", dest)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("npm pack --json in %s: %v: %s", dir, err, out)
-	}
 	entry := decodeSoleNpmPackEntry[struct {
 		Filename string `json:"filename"`
-	}](t, out)
+	}](t, npmPackJSON(t, dir, dest))
 	return filepath.Join(dest, entry.Filename)
+}
+
+// Captures stdout only, matching release.yaml's own $(...) capture of this same command:
+// a stderr warning (an engine-mismatch notice, an update nag) merged in via CombinedOutput
+// would otherwise corrupt the JSON this feeds to decodeSoleNpmPackEntry.
+func npmPackJSON(t *testing.T, dir, dest string) []byte {
+	t.Helper()
+	cmd := exec.Command("npm", "pack", "--json", "--pack-destination", dest)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			t.Fatalf("npm pack --json in %s: %v: %s", dir, err, exitErr.Stderr)
+		}
+		t.Fatalf("npm pack --json in %s: %v", dir, err)
+	}
+	return out
 }
 
 // npm pack --json is an object keyed by package name, not an array (verified against the
