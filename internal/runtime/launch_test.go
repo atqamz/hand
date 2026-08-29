@@ -68,6 +68,7 @@ func fakeLaunchPane(t *testing.T, frames ...launchFrame) (keyLog string) {
 
 const (
 	launchEchoFrame       = "$ cd '/tmp/wt' && claude --dangerously-skip-permissions 'Read the brief'"
+	launchCheckoutPath    = "/tmp/trusted-checkout"
 	launchReadyFrame      = "Welcome to Claude Code\n\n> \n  ? for shortcuts"
 	launchBypassOnFrame   = "> \n  secondhand (fm/x)\n  bypass permissions on (shift+tab to cycle)"
 	launchTrustFrame      = "Do you trust the files in this folder?\n> 1. Yes, I trust this folder\n  2. No\n\nEnter to confirm"
@@ -146,13 +147,13 @@ func TestConfirmLaunch(t *testing.T) {
 			name:    "refuses the managed settings prompt instead of answering it",
 			harness: "claude",
 			frames:  []launchFrame{live(launchSettingsFrame)},
-			wantErr: "waiting on the managed settings prompt",
+			wantErr: "waiting on the managed settings prompt in checkout " + launchCheckoutPath,
 		},
 		{
 			name:    "refuses the codex directory trust prompt instead of answering it",
 			harness: "codex",
 			frames:  []launchFrame{{text: launchCodexTrustFrame, agent: "codex"}},
-			wantErr: "waiting on the directory trust prompt",
+			wantErr: "waiting on the directory trust prompt in checkout " + launchCheckoutPath,
 		},
 		{
 			// The refused signature is catalogued after the answerable one, so answering by list
@@ -160,7 +161,7 @@ func TestConfirmLaunch(t *testing.T) {
 			name:    "a refused prompt wins over an answerable one on the same screen",
 			harness: "claude",
 			frames:  []launchFrame{live(launchTrustFrame + "\n" + launchSettingsFrame)},
-			wantErr: "waiting on the managed settings prompt",
+			wantErr: "waiting on the managed settings prompt in checkout " + launchCheckoutPath,
 		},
 		{
 			name:    "an unrecognized dialog keeps resetting the quiet count",
@@ -215,7 +216,7 @@ func TestConfirmLaunch(t *testing.T) {
 			}
 			keyLog := fakeLaunchPane(t, tt.frames...)
 
-			err := confirmLaunch(herdr.NewClient(), "wA:pC", tt.harness, launchSpec{Executable: tt.harness})
+			err := confirmLaunch(herdr.NewClient(), "wA:pC", tt.harness, launchSpec{Executable: tt.harness, Cwd: launchCheckoutPath})
 			switch {
 			case tt.wantErr == "" && err != nil:
 				t.Fatalf("confirmLaunch() = %v, want success", err)

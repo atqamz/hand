@@ -90,7 +90,7 @@ func confirmLaunch(client herdrClient, paneID, harnessName string, spec launch.L
 				stall = noAgent
 			}
 		case known && prompt.Refuse != "":
-			return fmt.Errorf("worker is waiting on the %s prompt: %s", prompt.Name, prompt.Refuse)
+			return fmt.Errorf("worker is waiting on the %s prompt in checkout %s: %s", prompt.Name, spec.Cwd, prompt.Refuse)
 		case known:
 			if !answered[prompt.Name] {
 				if err := answerFirstRunPrompt(client, paneID, prompt); err != nil {

@@ -42,18 +42,19 @@ func fakeSwitchablePane(t *testing.T, agent string) func(string) {
 
 // The reconcile runtime with the two dependencies this path has to exercise for real: the Herdr client
 // that talks to the installed fake, and the launch confirmation that reads the pane.
-func unwindRuntime(t *testing.T, returns *int) *Runtime {
+func unwindRuntime(t *testing.T, returns *int) (*Runtime, string) {
 	t.Helper()
 	pool := t.TempDir()
+	worktreePath := filepath.Join(pool, "slot-1")
 	r := reconcileRuntime(nil, func(string, string) (worktree.Lease, error) {
-		return worktree.Lease{Path: filepath.Join(pool, "slot-1"), ID: "lease-1"}, nil
+		return worktree.Lease{Path: worktreePath, ID: "lease-1"}, nil
 	})
 	r.deps.herdr = func() herdrClient { return herdr.NewClient() }
 	r.deps.buildHarness = harness.Build
 	r.deps.confirmLaunch = confirmLaunch
 	r.deps.worktree.returnWorktree = func(string, string, bool) error { *returns++; return nil }
 	r.deps.worktree.returnWithID = func(string, string, string, bool) error { *returns++; return nil }
-	return r
+	return r, worktreePath
 }
 
 // The whole path atqamz/hand#254 exists for, driven only through supported commands: a spawn refused
@@ -66,12 +67,12 @@ func TestSpawnRefusedAtTheTrustPromptUnwindsAndSpawnsAgain(t *testing.T) {
 	paneText := fakeSwitchablePane(t, harness.Codex)
 	paneText(launchCodexTrustFrame)
 	returns := 0
-	r := unwindRuntime(t, &returns)
+	r, worktreePath := unwindRuntime(t, &returns)
 
 	_, err := r.Spawn(context.Background(), SpawnRequest{
 		Home: home, ID: "task-1", Project: "demo", Kind: state.KindShip, Harness: harness.Codex, HarnessFromFlag: true,
 	})
-	if err == nil || !strings.Contains(err.Error(), "waiting on the directory trust prompt") {
+	if err == nil || !strings.Contains(err.Error(), "waiting on the directory trust prompt") || !strings.Contains(err.Error(), worktreePath) {
 		t.Fatalf("Spawn() = %v, want the launch refused at the codex directory trust prompt", err)
 	}
 	failed := readOnlyAttempt(t, home)
