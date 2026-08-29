@@ -242,7 +242,7 @@ atqamz/hand#404, atqamz/hand#412, and atqamz/hand#421.
 | INV-LEASE-3 | Unknown carries the probe that failed: the command, the working directory that selected the pool, and the reason. | property | unaudited |
 | INV-LEASE-4 | Unproven ownership never authorizes a destructive command, and `--force` does not change that. | property | unaudited |
 | INV-LEASE-5 | Mechanical provisioning verifies the leased worktree's full HEAD against `planned_against` before Herdr or worker launch, never after. | model | unaudited |
-| INV-LEASE-6 | On mismatch or verification failure the lease is returned safely, and provisioning evidence is retained if cleanup fails. | model | unaudited |
+| INV-LEASE-6 | On mismatch or verification failure after sound clone ownership is proven, the lease is returned safely, and provisioning evidence is retained if cleanup fails; foreign, unsound, missing, or unprovable slots are left untouched. | model | unaudited |
 | INV-LEASE-7 | The project lock is held continuously across verification, worktree lock, and the provisioning boundary. | model | unaudited |
 | INV-LEASE-8 | Any unresolved read, parse, ref, or PR ambiguity in the landed-work guard refuses. Ambiguity never resolves to "landed". | property | unaudited |
 | INV-POOL-1 | A worktree pool never sits inside any fleet home, so no harness picks up the supervisor's context by directory ancestry. | property | `TestGetAcquiresFromAPoolOutsideEveryFleetHome`, `TestReturnUsesThePoolOutsideEveryFleetHome` |
