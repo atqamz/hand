@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/atqamz/hand/compare/v0.7.1...v0.7.2) (2026-08-29)
+
+
+### Bug Fixes
+
+* **npm:** read npm 12's array-shaped npm view document ([#512](https://github.com/atqamz/hand/issues/512)) ([b8d22bb](https://github.com/atqamz/hand/commit/b8d22bb48f1e74de192cb275a5bd5d919070c66c)), closes [#511](https://github.com/atqamz/hand/issues/511)
+
 ## [0.7.1](https://github.com/atqamz/hand/compare/v0.7.0...v0.7.1) (2026-08-29)
 
 
