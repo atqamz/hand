@@ -412,6 +412,14 @@ func Parked(lastReportState, deliveredAt string, silentSince, now time.Time, bou
 	return now.Sub(silentSince) >= bound
 }
 
+// AlreadyAnnounced is the durable half of ClassifyParked's own latch, exported so cmd/statusview.go
+// can ask it too: a one-shot render has no in-memory ts.ParkedFiredFor, but attempt.ParkedFiredFor
+// already carries whichever watcher last confirmed and announced this episode (atqamz/hand#492).
+func AlreadyAnnounced(a state.Attempt, silentSince time.Time) bool {
+	fired := parkedFiredSeed(a)
+	return !fired.IsZero() && fired.Equal(silentSince)
+}
+
 // mtime is deliberately never reset to "now" on resume: --until-event restarts on
 // every delivered event, and a busy fleet would otherwise erase the clock before
 // it ever completes once.

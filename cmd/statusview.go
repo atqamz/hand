@@ -37,9 +37,12 @@ type taskView struct {
 	// computed only for an open task's one running attempt; see buildTaskView.
 	unreachable bool
 	parked      bool
-	latestSend  *state.SendAttempt
-	held        bool
-	hold        state.Hold
+	// Whether parked belongs in a supervisor's work queue rather than only in this render: see
+	// taskParked and atqamz/hand#492. Meaningless when parked is false.
+	parkedActionable bool
+	latestSend       *state.SendAttempt
+	held             bool
+	hold             state.Hold
 	// What hold.BlockedOn resolves to right now, meaningful only when held && hold.Kind ==
 	// state.HoldKindBlocked - see resolveBlocker in status.go (atqamz/hand#417).
 	holdBlocker blockerState
@@ -158,6 +161,7 @@ func taskAttentionEvidence(v taskView) attention.Evidence {
 		RuntimeUnknown:   runtimeUnknown(v),
 		Unreachable:      v.unreachable,
 		Parked:           v.parked,
+		ParkedActionable: v.parkedActionable,
 		Repair:           v.task.RepairCode != "",
 		ReportClaim:      v.reportedState != "",
 		ReportedState:    v.reportedState,

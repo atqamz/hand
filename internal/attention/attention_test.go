@@ -117,6 +117,29 @@ func TestDeriveOmitsHoldSatisfiedWhenNotSet(t *testing.T) {
 	}
 }
 
+// atqamz/hand#492: Parked alone is not enough to earn a supervisor's attention - the naive verdict
+// still renders (Parked stays a subject either way), but only a corroborated one is actionable.
+func TestDeriveRequiresParkedActionableForAttention(t *testing.T) {
+	uncorroborated := Derive(Evidence{ID: "task-1", Parked: true})
+	if len(uncorroborated) != 1 || uncorroborated[0].Kind != KindParked {
+		t.Fatalf("subjects = %#v, want one uncorroborated parked subject", uncorroborated)
+	}
+	if uncorroborated[0].Actionable {
+		t.Fatal("an uncorroborated park is actionable")
+	}
+	if NeedsAttention(Evidence{ID: "task-1", Parked: true}) {
+		t.Fatal("an uncorroborated park needs attention")
+	}
+
+	corroborated := Derive(Evidence{ID: "task-1", Parked: true, ParkedActionable: true})
+	if len(corroborated) != 1 || !corroborated[0].Actionable {
+		t.Fatalf("subjects = %#v, want a corroborated, actionable parked subject", corroborated)
+	}
+	if !NeedsAttention(Evidence{ID: "task-1", Parked: true, ParkedActionable: true}) {
+		t.Fatal("a corroborated park does not need attention")
+	}
+}
+
 func TestUnreportedRuntimeMatchesWatcherCatchUpRule(t *testing.T) {
 	for _, test := range []struct {
 		runtime, reported string
