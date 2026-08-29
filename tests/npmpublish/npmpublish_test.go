@@ -91,20 +91,25 @@ func TestRegistryCheckDistinguishesEveryEnumeratedOutcome(t *testing.T) {
 			wantExit:    1,
 		},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			state := t.TempDir()
-			tt.seed(t, state)
-			cmd := exec.Command("bash", script, "@atqamz/hand-linux-x64", "0.7.0", tt.integrity, repoURL)
-			cmd.Env = fakeNpmEnv(t, state)
-			out, err := cmd.CombinedOutput()
-			exit := exitCode(t, err)
-			if exit != tt.wantExit {
-				t.Fatalf("exit = %d, want %d; output = %s", exit, tt.wantExit, out)
-			}
-			if got := firstLine(out); got != tt.wantOutcome {
-				t.Fatalf("outcome = %q, want %q; full output = %s", got, tt.wantOutcome, out)
-			}
-		})
+		// npm 12 - what release CI pins - wraps a successful `npm view --json` document
+		// in an array where npm 11 printed it bare; reading only the bare shape aborted
+		// the v0.7.1 npm publish before it published anything (atqamz/hand#511).
+		for _, shape := range []string{"array", "object"} {
+			t.Run(tt.name+"/"+shape+" view document", func(t *testing.T) {
+				state := t.TempDir()
+				tt.seed(t, state)
+				cmd := exec.Command("bash", script, "@atqamz/hand-linux-x64", "0.7.0", tt.integrity, repoURL)
+				cmd.Env = append(fakeNpmEnv(t, state), "FAKE_NPM_VIEW_SHAPE="+shape)
+				out, err := cmd.CombinedOutput()
+				exit := exitCode(t, err)
+				if exit != tt.wantExit {
+					t.Fatalf("exit = %d, want %d; output = %s", exit, tt.wantExit, out)
+				}
+				if got := firstLine(out); got != tt.wantOutcome {
+					t.Fatalf("outcome = %q, want %q; full output = %s", got, tt.wantOutcome, out)
+				}
+			})
+		}
 	}
 }
 
