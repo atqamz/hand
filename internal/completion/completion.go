@@ -29,6 +29,11 @@ const RecordVersion = 2
 // instead of reading as one belonging to whatever project now holds the name it was written with.
 const ProjectIDUnknown = "unknown"
 
+// Bounds how long a single encoded line List and FindAttempt will read. A worker's own free-text
+// report note reaches a record's Detail verbatim with nothing capping its length beforehand
+// (internal/runtime/teardown.go's completionFor, the ReportFailed case) - a real ceiling, not a hypothetical one.
+const maxRecordBytes = 1024 * 1024
+
 // Record is one task's teardown outcome. Project is the label the project carried when the record
 // was written and is never rewritten afterwards; ProjectID is the identity a rename cannot change,
 // and is what a reader joins on.
@@ -157,6 +162,12 @@ func MigrateProjectIdentity(homeDir string, resolve ProjectIdentityResolver) err
 	return nil
 }
 
+// Names the store, the failing line's 1-indexed position, and the byte limit it crossed, so an
+// operator can find and repair that one line by hand instead of reading a generic I/O failure.
+func tooLongError(homeDir string, lineNum int, err error) error {
+	return fmt.Errorf("completions store %s: line %d exceeds the %d-byte scanner limit and cannot be read back; repair or remove that line by hand: %w", Path(homeDir), lineNum, maxRecordBytes, err)
+}
+
 // List returns every record, oldest first, and nil if the store doesn't exist yet. A
 // line that does not parse is skipped: a short write leaves a partial line the next
 // O_APPEND glues onto, and one damaged line must not hide the good records before it.
@@ -172,8 +183,10 @@ func List(homeDir string) ([]Record, error) {
 
 	var records []Record
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), maxRecordBytes)
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
@@ -185,6 +198,9 @@ func List(homeDir string) ([]Record, error) {
 		records = append(records, r)
 	}
 	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return nil, tooLongError(homeDir, lineNum+1, err)
+		}
 		return nil, fmt.Errorf("read completions store: %w", err)
 	}
 	return records, nil
@@ -206,8 +222,10 @@ func FindAttempt(homeDir string, attemptID int64) (Record, bool, error) {
 	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), maxRecordBytes)
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
@@ -219,6 +237,9 @@ func FindAttempt(homeDir string, attemptID int64) (Record, bool, error) {
 		return record, true, nil
 	}
 	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return Record{}, false, tooLongError(homeDir, lineNum+1, err)
+		}
 		return Record{}, false, fmt.Errorf("read completions store: %w", err)
 	}
 	return Record{}, false, nil
