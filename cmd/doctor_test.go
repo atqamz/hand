@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -442,7 +443,7 @@ func TestDoctorReportsAnAliasedPoolSlotAcrossPoolRoots(t *testing.T) {
 	if !hasDoctorFindingContaining(findings, doctorError, "metadata target") {
 		t.Fatalf("findings = %#v, want a metadata-target collision", findings)
 	}
-	if !hasDoctorFindingContaining(findings, doctorError, second+`" is unsound`) {
+	if !hasDoctorFindingContaining(findings, doctorError, strconv.Quote(second)+` is unsound`) {
 		t.Fatalf("findings = %#v, want the stale claimant reported as unsound", findings)
 	}
 }
