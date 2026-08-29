@@ -125,22 +125,29 @@ func writeFields(name, version string, entry versionState, pkg packageState, fie
 		"dist.integrity": entry.Integrity,
 		"repository.url": pkg.RepositoryURL,
 	}
+	var doc any
 	if len(fields) == 1 {
-		fmt.Println(quoteJSON(values[fields[0]]))
-		return 0
+		doc = values[fields[0]]
+	} else {
+		out := map[string]string{}
+		for _, f := range fields {
+			out[f] = values[f]
+		}
+		doc = out
 	}
-	out := map[string]string{}
-	for _, f := range fields {
-		out[f] = values[f]
+	if arrayViewShape() {
+		doc = []any{doc}
 	}
-	data, _ := json.MarshalIndent(out, "", "  ")
+	data, _ := json.MarshalIndent(doc, "", "  ")
 	fmt.Println(string(data))
 	return 0
 }
 
-func quoteJSON(s string) string {
-	data, _ := json.Marshal(s)
-	return string(data)
+// npm 12 wraps a successful `npm view --json` document in an array where npm 11 and
+// earlier printed it bare. Release CI pins npm 12, so the array is the default and the
+// object shape is opt-in, letting one test table prove both are read (atqamz/hand#511).
+func arrayViewShape() bool {
+	return os.Getenv("FAKE_NPM_VIEW_SHAPE") != "object"
 }
 
 func cmdWhoami(state string) int {

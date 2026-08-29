@@ -52,11 +52,23 @@ query() {
   npm view "$1" "${@:2}" --json 2>/dev/null
 }
 
+# npm 12 wraps a successful `npm view --json` document in an array holding one entry per
+# version the spec matched; npm 11 and earlier printed it bare (both observed against the
+# real registry). Every query below names an exact version or a bare package name, so
+# either shape carries exactly one document.
+field() {
+  jq -r --arg key "$2" 'if type == "array" then .[0] else . end | .[$key] // empty' "$1"
+}
+
+error_field() {
+  jq -r --arg key "$2" 'if type == "array" then .[0] else . end | .error[$key]? // empty' "$1" 2>/dev/null || printf ''
+}
+
 version_doc=$(mktemp)
 trap 'rm -f "$version_doc"' EXIT
 if query "${pkg}@${version}" name version dist.integrity repository.url > "$version_doc"; then
-  got_integrity=$(jq -r '."dist.integrity" // empty' "$version_doc")
-  got_repo=$(jq -r '."repository.url" // empty' "$version_doc")
+  got_integrity=$(field "$version_doc" dist.integrity)
+  got_repo=$(field "$version_doc" repository.url)
   if [[ "$got_integrity" != "$want_integrity" ]]; then
     stop integrity-mismatch "${pkg}@${version} registry dist.integrity ($got_integrity) != local pack integrity ($want_integrity)"
   fi
@@ -67,8 +79,8 @@ if query "${pkg}@${version}" name version dist.integrity repository.url > "$vers
   exit 0
 fi
 
-code=$(jq -r '.error.code // empty' "$version_doc" 2>/dev/null || printf '')
-summary=$(jq -r '.error.summary // empty' "$version_doc" 2>/dev/null || printf '')
+code=$(error_field "$version_doc" code)
+summary=$(error_field "$version_doc" summary)
 if [[ "$code" != "E404" ]]; then
   stop ambiguous "registry query for ${pkg}@${version} answered code=${code:-<none>} summary=${summary:-<none>}"
 fi
@@ -79,13 +91,13 @@ case "$summary" in
     # confirm this existing name is still ours before treating it as safe to extend.
     name_doc=$(mktemp)
     trap 'rm -f "$version_doc" "$name_doc"' EXIT
-    # A single field argument makes npm view print a bare scalar instead of an object
-    # (observed against the real registry), so a second field is requested purely to
-    # keep the dotted-key object shape the parsing below expects.
+    # A single field argument makes npm view drop the dotted-key mapping and print the
+    # bare value instead (npm 11 a scalar, npm 12 an array of scalars), so a second
+    # field is requested purely to keep the keyed shape the parsing below expects.
     if ! query "$pkg" name repository.url > "$name_doc"; then
       stop ambiguous "registry query for existing package ${pkg} failed after its version was reported absent"
     fi
-    existing_repo=$(jq -r '."repository.url" // empty' "$name_doc")
+    existing_repo=$(field "$name_doc" repository.url)
     if [[ "$existing_repo" != "$want_repo" ]]; then
       stop unexpected-ownership "${pkg} already exists with repository.url ($existing_repo) != expected ($want_repo)"
     fi
