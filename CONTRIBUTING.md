@@ -92,10 +92,12 @@ line; a mutant that lives means nothing does, whatever the coverage report says.
 `docs/adr/tests-state-invariants-first-examples-second.md` for why this exists and
 `docs/testing-invariants.md` for the invariants the suite is meant to hold.
 
-It runs per package, on demand, never as part of `make test` or CI. Against 38+ packages whose
-`-race` suite already takes minutes, a full-tree run would take hours and re-running it on every
-push isn't the point - the point is finding out, package by package, where the suite is weaker than
-its coverage number suggests.
+`make mutation` runs per package, on demand, and is never part of `make test`: against 38+ packages
+whose `-race` suite already takes minutes, a full-tree run would take hours, and re-running it on
+every push isn't the point - the point is finding out, package by package, where the suite is weaker
+than its coverage number suggests. Whether (and which of) the packages below belong in CI as an
+actual gate, measured rather than assumed, is decided in
+`docs/adr/mutation-score-gates-the-packages-cheap-enough-to-block-on.md`.
 
 ### Package scope
 
@@ -227,8 +229,7 @@ Real numbers, in sweep order, all with `--tags=test` and a cleared test cache:
 *`internal/age`'s 7 "not covered" are confirmed false by `go tool cover -func` (both functions report
 100.0% real statement coverage, boundary values included) - gremlins cannot see coverage for a
 tagless `switch`'s case *conditions*, only their bodies, so a mutant placed on the comparison itself
-reads as uncovered no matter how thoroughly it is exercised. Not a suite gap; see the gate-decision
-record for the full reasoning.
+reads as uncovered no matter how thoroughly it is exercised. Not a suite gap.
 
 The four smallest packages cost well under a second to a couple of seconds regardless of settings.
 Non-race execution plus a warm build cache across mutants cuts cost far more than a CI `-race`
