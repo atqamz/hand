@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -688,12 +689,19 @@ func PoolSlotCollisions(slots []PoolSlot) [][]PoolSlot {
 func canonicalPath(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return filepath.Clean(path)
+		return canonicalPathKey(filepath.Clean(path))
 	}
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return filepath.Clean(resolved)
+		return canonicalPathKey(filepath.Clean(resolved))
 	}
-	return filepath.Clean(abs)
+	return canonicalPathKey(filepath.Clean(abs))
+}
+
+func canonicalPathKey(path string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(path)
+	}
+	return path
 }
 
 func CanonicalPath(path string) string { return canonicalPath(path) }
