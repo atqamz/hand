@@ -17,12 +17,17 @@ import (
 const stubRegistryCheckScript = `#!/usr/bin/env bash
 # Pops the next "outcome:exit" line from $STUB_OUTCOMES on each call, clamping to the
 # last line once exhausted, so a test can script an exact sequence across
-# npm-publish-target.sh's repeated invocations of its checker.
+# npm-publish-target.sh's repeated invocations of its checker. Reads the file into an
+# array with a while/read loop rather than mapfile, which macOS's system bash (3.2)
+# does not have - the CI runners this stub must also work under.
 set -euo pipefail
 idx_file="$STUB_STATE/idx"
 idx=0
 [[ -f "$idx_file" ]] && idx=$(<"$idx_file")
-mapfile -t lines < "$STUB_OUTCOMES"
+lines=()
+while IFS= read -r outcome_line || [[ -n "$outcome_line" ]]; do
+  lines+=("$outcome_line")
+done < "$STUB_OUTCOMES"
 line_no=$idx
 if (( line_no >= ${#lines[@]} )); then
   line_no=$((${#lines[@]} - 1))
