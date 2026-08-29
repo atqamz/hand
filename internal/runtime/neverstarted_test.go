@@ -22,7 +22,7 @@ func TestAttemptNeverStartedAttestationEndsTheAttemptHonestly(t *testing.T) {
 	paneText := fakeSwitchablePane(t, harness.Codex)
 	paneText("codex ready\n")
 	returns := 0
-	r := unwindRuntime(t, &returns)
+	r, _ := unwindRuntime(t, &returns)
 
 	if _, err := r.Spawn(context.Background(), SpawnRequest{
 		Home: home, ID: "task-1", Project: "demo", Kind: state.KindShip, Harness: harness.Codex, HarnessFromFlag: true,
