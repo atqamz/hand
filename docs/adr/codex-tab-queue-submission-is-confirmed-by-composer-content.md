@@ -94,6 +94,39 @@ check ran its full bounded poll and correctly reported `not-submitted` / `compos
 with `RetrySafe` false - confirmed against both the CLI output and a direct pane read afterward. No
 poll-window or retry-behavior change of any kind is part of this amendment.
 
+A second, independent live reproduction - from the operator's own supervision loop, not this task's
+testing, and later corroborated on a second, unrelated worker (different task, worktree, and model
+profile), for four false `not-submitted` verdicts across two workers in total - surfaced a third pane
+shape: the queue label still on screen, the hosting turn still running, a background terminal attached,
+and the queued message itself shown truncated with an ellipsis under `codexQueuedMarker`, exactly as
+codex renders a long queued item. Reproducing that shape alone (busy turn, background terminal, intact
+label, ellipsis-truncated preview, greyed composer placeholder) against the unfixed binary, six times
+running, did not reproduce a failure - the label being present and correct was not sufficient by itself.
+Instrumenting the confirmation poll to log each read's raw text found the actual trigger: the same or
+overlapping message content already sitting in that worker's scrollback, promoted to ordinary "›"
+history from an earlier send, above the currently-intact label. `codexQueuedMarker`'s truncation
+(`text[:idx]`) excludes only what comes after the label; it does nothing about an older copy above it,
+and `composerRetains`'s chunk search finds that older copy regardless of whether the current queue
+attempt itself succeeded. A control send of never-before-seen text, under the identical busy-turn,
+background-terminal, host-CPU-load conditions, confirmed correctly within two poll iterations -
+isolating scrollback repetition, not turn state or system load, as the necessary trigger. The background
+terminal itself was checked separately and is incidental, not causal: both operator workers were holding
+one, but a plain (non-`--force`) send treats an attached background terminal as an indefinitely busy
+composer and simply waits out its own timeout without ever reaching the Tab path, which is why `--force`
+was the only way either worker's send got text in at all - the terminal explains why `--force` was
+needed, not why the confirmation was wrong. The same repeated-content trigger, on the unfixed binary,
+reproduced identically against a busy turn holding no background terminal at all, generating nothing but
+streamed reasoning text. `lastComposerBlock` is unaffected by this mechanism for the same structural
+reason it is unaffected by the first: it never looks at anything before the composer's own final block,
+so an older copy anywhere earlier in scrollback, however similar, cannot be found by a search that never
+reaches it - with or without a background terminal attached. Verified directly: the fixed binary
+correctly reported `submitted` against the identical poisoned-scrollback, busy, host-loaded pane, both
+with and without a background terminal attached, each confirmed against a direct pane read showing the
+message genuinely and correctly queued. `TestComposerRetains`'s "an earlier copy already sits in history
+above an intact, still-visible queue label" case pins this - run against a reconstruction of the old
+truncation logic directly, it returns `true`, reproducing the exact defect, where the current code
+returns `false`.
+
 ## Rejected alternatives
 
 Confirming the Enter path the same way was tried and reverted. `composerRetains` cannot distinguish a message still sitting unsent at the live composer from the identical text remaining visible as a `>`-prefixed history line after a genuinely successful send, because Herdr's read window carries both without marking which is which the way `codexQueuedMarker` marks a queue. The failure was not rare - it reproduced on the next live Enter send tried - and its retry compounded it into an actual duplicate message delivered to the worker, not merely a wrong label. Fixing this needs either a narrower read window (whose tradeoffs against atqamz/hand#420's own interior-slice-corruption evidence are unverified) or a positive "the harness reacted" signal in place of an absence check; both are undeveloped and belong to the still-open atqamz/hand#420, not this decision.
@@ -110,4 +143,4 @@ Retrying a send that failed to confirm was built, live-tested, and removed: its 
 
 atqamz/hand#426 is closed by this decision. atqamz/hand#420 is not: an Enter send still reports `submitted` on the strength of two RPCs alone, exactly as [Steering records terminal submission uncertainty](steering-records-terminal-submission-uncertainty.md) already described, and stays open for a signal that survives an accepted message remaining visible in history. The amendment above is that signal; #420 is closed as of it.
 
-atqamz/hand#478 is closed by the second amendment above: the Tab path's confirmation no longer depends on `codexQueuedMarker` still being on screen, so a hosting turn ending mid-poll no longer reads as a stuck composer.
+atqamz/hand#478 is closed by the second amendment above: the Tab path's confirmation no longer depends on `codexQueuedMarker` still being on screen or on nothing resembling the sent text appearing earlier in scrollback, so neither a hosting turn ending mid-poll nor an older, already-delivered copy of similar text sitting in history reads as a stuck composer.

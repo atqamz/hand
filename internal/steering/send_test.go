@@ -685,6 +685,15 @@ func TestComposerRetains(t *testing.T) {
 			want: false,
 		},
 		{
+			// Live-reproduced under real CPU load against a long-lived worker: an earlier send of the
+			// same text already promoted to history, with the label still on screen and intact below it.
+			// A truncation keyed on the label's position alone would still see this older copy above it.
+			name: "an earlier copy already sits in history above an intact, still-visible queue label",
+			text: "› " + sent + "\n\n• Queued follow-up inputs\n  ↳ " + sent + "\n\n› \n",
+			key:  "Tab",
+			want: false,
+		},
+		{
 			// The exclusion is specific to a Tab attempt; an Enter attempt gets no special-casing even
 			// if the literal label string appears somewhere unrelated.
 			name: "the queued label text is irrelevant when the key was Enter, not Tab",
