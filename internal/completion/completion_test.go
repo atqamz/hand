@@ -1,8 +1,10 @@
 package completion
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -510,4 +512,200 @@ func TestMigrateProjectIdentityLeavesTheStoreExactlyAsItWasWhenTheReplaceFails(t
 			t.Fatalf("store changed despite a failed replace: before %q, after %q", before, after)
 		}
 	})
+}
+
+// FindAttempt is completion_test.go's own suite's responsibility to exercise directly
+// (atqamz/hand#498): internal/runtime's tests only reach it indirectly as a teardown-recovery
+// dependency, which left it at 0% coverage from this package's own suite despite being live code.
+func TestFindAttemptFindsTheMatchingRecordAmongOthers(t *testing.T) {
+	dir := t.TempDir()
+	records := []Record{
+		{ID: "one", AttemptID: 10, Kind: "ship", Outcome: "merged"},
+		{ID: "two", AttemptID: 20, Kind: "scout", Outcome: "done"},
+		{ID: "three", AttemptID: 30, Kind: "ship", Outcome: "merged"},
+	}
+	for _, r := range records {
+		if err := Append(dir, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	record, found, err := FindAttempt(dir, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || record != appended(records[1]) {
+		t.Fatalf("FindAttempt(20) = %+v, found=%v, want %+v, found=true", record, found, appended(records[1]))
+	}
+}
+
+func TestFindAttemptReportsAbsentAttemptWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	if err := Append(dir, Record{ID: "one", AttemptID: 10}); err != nil {
+		t.Fatal(err)
+	}
+
+	record, found, err := FindAttempt(dir, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found || record != (Record{}) {
+		t.Fatalf("FindAttempt(99) = %+v, found=%v, want zero value, found=false", record, found)
+	}
+}
+
+func TestFindAttemptMissingStoreReportsAbsentWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	record, found, err := FindAttempt(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found || record != (Record{}) {
+		t.Fatalf("FindAttempt on a missing store = %+v, found=%v, want zero value, found=false", record, found)
+	}
+}
+
+// Mirrors TestListSkipsDamagedLine: a truncated write leaves one unparseable line, and the
+// attempt recorded after it must still be reachable.
+func TestFindAttemptSkipsADamagedLineAndFindsWhatFollows(t *testing.T) {
+	dir := t.TempDir()
+	if err := Append(dir, Record{ID: "before", AttemptID: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.OpenFile(Path(dir), os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("{\"id\":\"damag\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	after := Record{ID: "after", AttemptID: 2}
+	if err := Append(dir, after); err != nil {
+		t.Fatal(err)
+	}
+
+	record, found, err := FindAttempt(dir, 2)
+	if err != nil {
+		t.Fatalf("FindAttempt failed on a store with one damaged line: %v", err)
+	}
+	if !found || record != appended(after) {
+		t.Fatalf("FindAttempt(2) = %+v, found=%v, want %+v, found=true", record, found, appended(after))
+	}
+}
+
+// FindAttempt's doc comment says an absent AttemptID is intentionally never inferred. Proves the
+// guard actually short-circuits: this store holds a record whose own AttemptID decodes to the
+// zero value an unset field reads back as, and would satisfy the scan loop's equality check without it.
+func TestFindAttemptZeroNeverMatchesEvenARecordThatWouldOtherwiseQualify(t *testing.T) {
+	dir := t.TempDir()
+	if err := Append(dir, Record{ID: "no-attempt", Kind: "scout", Outcome: "done"}); err != nil {
+		t.Fatal(err)
+	}
+
+	record, found, err := FindAttempt(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found || record != (Record{}) {
+		t.Fatalf("FindAttempt(dir, 0) = %+v, found=%v, want zero value, found=false", record, found)
+	}
+}
+
+// The value scanner.Buffer caps List and FindAttempt's line length at (completion.go:175, 209);
+// mirrored here rather than imported since it is a local literal, not an exported constant.
+const scannerMaxTokenSize = 1024 * 1024
+
+// Returns r with Detail set so the encoded JSON line is exactly target bytes once Append stamps
+// it, measured from r's own real encoding rather than a guessed fixed overhead. r must go
+// through Append unmodified afterwards or the byte count this anticipates will not match.
+func paddedRecord(t *testing.T, r Record, target int) Record {
+	t.Helper()
+	r = appended(r)
+	r.Detail = ""
+	probe, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pad := target - len(probe)
+	if pad < 0 {
+		t.Fatalf("record already encodes to %d bytes without Detail, want %d", len(probe), target)
+	}
+	r.Detail = strings.Repeat("x", pad)
+	final, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(final) != target {
+		t.Fatalf("padded record encodes to %d bytes, want %d", len(final), target)
+	}
+	return r
+}
+
+// atqamz/hand#498: nothing wrote a record near this bound before, so neither scanner.Buffer
+// argument was pinned. One byte under the limit is the largest line the scanner accepts at all.
+func TestRoundTripsARecordOneByteUnderTheScannerLimit(t *testing.T) {
+	dir := t.TempDir()
+	r := paddedRecord(t, Record{ID: "huge", AttemptID: 777}, scannerMaxTokenSize-1)
+	if err := Append(dir, r); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := List(dir)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 || got[0] != appended(r) {
+		t.Fatalf("List = %+v, want [%+v]", got, appended(r))
+	}
+
+	record, found, err := FindAttempt(dir, 777)
+	if err != nil {
+		t.Fatalf("FindAttempt: %v", err)
+	}
+	if !found || record != appended(r) {
+		t.Fatalf("FindAttempt(777) = %+v, found=%v, want %+v, found=true", record, found, appended(r))
+	}
+}
+
+// At exactly the limit, bufio's own token-too-long error is what List and FindAttempt already
+// return for any other read failure - not a truncation and not a silent skip. atqamz/hand#498
+// asks whether that is the behavior this store wants long-term; this pins what it does today.
+func TestSurfacesTheReadErrorForARecordAtTheScannerLimit(t *testing.T) {
+	dir := t.TempDir()
+	r := paddedRecord(t, Record{ID: "huge", AttemptID: 777}, scannerMaxTokenSize)
+	if err := Append(dir, r); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := List(dir); !errors.Is(err, bufio.ErrTooLong) {
+		t.Fatalf("List error = %v, want it to wrap bufio.ErrTooLong", err)
+	}
+	if _, _, err := FindAttempt(dir, 777); !errors.Is(err, bufio.ErrTooLong) {
+		t.Fatalf("FindAttempt error = %v, want it to wrap bufio.ErrTooLong", err)
+	}
+}
+
+// The failure is total, not local to the oversized line: unlike TestListSkipsDamagedLine's
+// partial-write case, List does not skip the oversized line and hand back everything else - a
+// record written before it becomes unreadable too.
+func TestListLosesPrecedingRecordsWhenALaterLineExceedsTheScannerLimit(t *testing.T) {
+	dir := t.TempDir()
+	small := Record{ID: "before", AttemptID: 1}
+	if err := Append(dir, small); err != nil {
+		t.Fatal(err)
+	}
+	huge := paddedRecord(t, Record{ID: "huge", AttemptID: 2}, scannerMaxTokenSize)
+	if err := Append(dir, huge); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := List(dir)
+	if !errors.Is(err, bufio.ErrTooLong) || got != nil {
+		t.Fatalf("List = %+v, err %v, want nil and a wrapped bufio.ErrTooLong even though %q came first", got, err, small.ID)
+	}
 }
