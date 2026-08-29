@@ -1150,3 +1150,10 @@ func teardownFixtureWithAttempt(t *testing.T, withWorktree bool, configureAttemp
 	}
 	return home, worktree
 }
+
+func TestCapStatusLinesNormalizesCRLF(t *testing.T) {
+	got := capStatusLines(" M README.md\r\n?? scratch.txt\r\n")
+	if got != " M README.md\n?? scratch.txt" {
+		t.Fatalf("capStatusLines() = %q, want normalized porcelain lines", got)
+	}
+}
