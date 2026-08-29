@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/atqamz/hand/compare/v0.7.0...v0.7.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **npm:** retry post-publish verification instead of failing a first-ever publish ([#507](https://github.com/atqamz/hand/issues/507)) ([2a9a8e3](https://github.com/atqamz/hand/commit/2a9a8e379538513fd54fbf4e58dcf08015ccda88))
+
 ## [0.7.0](https://github.com/atqamz/hand/compare/v0.6.0...v0.7.0) (2026-08-29)
 
 
