@@ -233,7 +233,7 @@ Source: [Unobservable ownership is not a mismatch](adr/unobservable-ownership-is
 [The worktree pool lives outside every fleet home](adr/the-worktree-pool-lives-outside-every-fleet-home.md),
 [Every diagnosis names a reachable treatment](adr/every-diagnosis-names-a-reachable-treatment.md),
 `internal/worktree/worktree.go` (`Get`), `cmd/doctor.go` (`doctorWorktreeFindings`), decided in
-atqamz/hand#404 and atqamz/hand#421.
+atqamz/hand#404, atqamz/hand#412, and atqamz/hand#421.
 
 | id | invariant | layer | coverage |
 |---|---|---|---|
@@ -254,6 +254,8 @@ atqamz/hand#404 and atqamz/hand#421.
 | INV-POOL-7 | `hand doctor` classifies a leased slot's holder into exactly one of: absent from the Fleet registry, registered but not ready, unparseable, or registered and ready. A ready holder is reported to neither of the first three, and none of the first three is reported as another. | property | `TestDoctorReportsLeaseHolderAbsentFromRegistry`, `TestDoctorReportsLeaseHolderRegisteredButNotReady`, `TestDoctorReportsUnparseableLeaseHolder`, `TestDoctorSaysNothingForLeaseHolderRegisteredAndReady` land unit cases; property form unaudited |
 | INV-POOL-8 | A Fleet registry that cannot be consulted - missing entirely or unreadable - is reported as one diagnosis about the registry, never as a per-holder classification, and never once per leased slot. | property | `TestDoctorReportsAMissingRegistryAsOneFindingRatherThanPerHolderAbsence`, `TestDoctorReportsRegistryUnreadableRatherThanTreatingHoldersAsAbsent` land unit cases; property form unaudited |
 | INV-POOL-9 | Lease-holder classification never returns, releases, or otherwise mutates a Treehouse lease. | property | unaudited |
+| INV-POOL-10 | Acquisition accepts only a pool slot whose Git common directory is the registered clone and whose linked-worktree metadata points back to that slot; unsound, foreign, missing, or unprovable paths are refused, and recovery mutates only a sound clone-owned slot. | property | `TestGetRejectsAWorktreeFromAnotherRegisteredClone`, `TestGetRejectsAMissingAcquiredWorktree`, `TestGetRejectsAnAliasedStaleSlotWithoutReleasingItsLease`, `TestGetRejectsAnAcquiredSlotWhenStatusOmitsIt`, `TestGetReturnsASoundSlotWhenLegacyStatusOmitsItsLease`, `TestGetRefusesAnUnprovableSlotWithoutMutatingIt` land unit cases; property form unaudited |
+| INV-POOL-11 | `hand doctor` reports every discovered pool slot with missing or inconsistent metadata, including slots whose metadata targets another slot or an arbitrary missing target, while filtering foreign live repositories. | property | `TestDoctorReportsAnAliasedPoolSlotAcrossPoolRoots`, `TestDoctorReportsAPoolSlotWithMissingMetadata` land unit cases; property form unaudited |
 
 ## Pull-request observation and terminal-task release
 
