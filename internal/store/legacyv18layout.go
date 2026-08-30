@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const legacyV072LayoutFingerprint = "discover-in-ci"
+const legacyV072LayoutFingerprint = "7cf67e6ac1c738e348d91ca552f66daa7b5eaf6e4aab9db84a78b49b70a07bec"
 
 func legacyV18LayoutFingerprint(sqlDB *sql.DB) (string, error) {
 	lines, err := legacyV18LayoutLines(sqlDB)
@@ -91,6 +91,11 @@ func legacyV18ColumnLines(sqlDB *sql.DB, table string) ([]string, error) {
 		var defaultValue sql.NullString
 		if err := rows.Scan(&name, &typ, &notNull, &defaultValue, &primaryKey, &hidden); err != nil {
 			return nil, fmt.Errorf("read legacy v18 columns for %s: %w", table, err)
+		}
+		// Shipped pre-split homes had hold.kind NOT NULL without a default; fresh v0.7.2
+		// has DEFAULT ''. Cutover never writes the source, so those forms are equivalent.
+		if table == "hold" && name == "kind" && !defaultValue.Valid {
+			defaultValue = sql.NullString{String: "''", Valid: true}
 		}
 		lines = append(lines, fmt.Sprintf("column|%s|%s|%s|%d|%s|%d|%d",
 			table, name, strings.ToUpper(strings.TrimSpace(typ)), notNull,
