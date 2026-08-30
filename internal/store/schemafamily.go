@@ -9,7 +9,10 @@ import (
 
 const (
 	legacyV072SchemaVersion     = 21
-	legacyV072SchemaFingerprint = "discover-in-ci"
+	legacyV072SchemaFingerprint = "ad9cf375336aeca24fc3d2adaa4fcac986b48defcb1343c8c95825e7077e18d4"
+	legacyV072TableCount        = 7
+	legacyV072IndexCount        = 5
+	legacyV072TriggerCount      = 0
 )
 
 // SchemaFamily names the persistence family found at state/hand.db without
@@ -112,6 +115,12 @@ func inspectSchemaFamily(sqlDB *sql.DB) (SchemaInfo, error) {
 		}
 		if identity.Fingerprint != legacyV072SchemaFingerprint {
 			return info, fmt.Errorf("%w: schema fingerprint = %s, want %s", ErrUnsupportedLegacyV18Schema, identity.Fingerprint, legacyV072SchemaFingerprint)
+		}
+		if identity.Tables != legacyV072TableCount || identity.Indexes != legacyV072IndexCount || identity.Triggers != legacyV072TriggerCount {
+			return info, fmt.Errorf("%w: schema objects = %d tables / %d indexes / %d triggers, want %d / %d / %d",
+				ErrUnsupportedLegacyV18Schema,
+				identity.Tables, identity.Indexes, identity.Triggers,
+				legacyV072TableCount, legacyV072IndexCount, legacyV072TriggerCount)
 		}
 		return info, nil
 	}
