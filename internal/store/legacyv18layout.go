@@ -12,9 +12,21 @@ import (
 const legacyV072LayoutFingerprint = "discover-in-ci"
 
 func legacyV18LayoutFingerprint(sqlDB *sql.DB) (string, error) {
-	tables, err := legacyV18TableNames(sqlDB)
+	lines, err := legacyV18LayoutLines(sqlDB)
 	if err != nil {
 		return "", err
+	}
+	hash := sha256.New()
+	for _, line := range lines {
+		_, _ = hash.Write([]byte(line + "\n"))
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func legacyV18LayoutLines(sqlDB *sql.DB) ([]string, error) {
+	tables, err := legacyV18TableNames(sqlDB)
+	if err != nil {
+		return nil, err
 	}
 
 	lines := make([]string, 0, 128)
@@ -22,27 +34,23 @@ func legacyV18LayoutFingerprint(sqlDB *sql.DB) (string, error) {
 		lines = append(lines, "table|"+table)
 		columns, err := legacyV18ColumnLines(sqlDB, table)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		lines = append(lines, columns...)
 		foreignKeys, err := legacyV18ForeignKeyLines(sqlDB, table)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		lines = append(lines, foreignKeys...)
 		indexes, err := legacyV18IndexLines(sqlDB, table)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		lines = append(lines, indexes...)
 	}
 
 	sort.Strings(lines)
-	hash := sha256.New()
-	for _, line := range lines {
-		_, _ = hash.Write([]byte(line + "\n"))
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return lines, nil
 }
 
 func legacyV18TableNames(sqlDB *sql.DB) ([]string, error) {
