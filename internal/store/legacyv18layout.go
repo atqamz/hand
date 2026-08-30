@@ -11,11 +11,9 @@ import (
 
 const legacyV072LayoutFingerprint = "discover-in-ci"
 
-// legacyV18LayoutFingerprint hashes the schema properties cutover reads rather
-// than sqlite_schema's historical CREATE text. That keeps fresh and migrated
-// v0.7.2 databases equivalent when ALTER TABLE changed text or column order,
-// while still freezing tables, columns, defaults, keys, foreign keys, explicit
-// indexes, and partial-index predicates.
+// legacyV18LayoutFingerprint hashes the structural schema properties cutover reads.
+// It ignores historical CREATE formatting and column order while freezing keys,
+// defaults, foreign keys, explicit indexes, and partial-index predicates.
 func legacyV18LayoutFingerprint(sqlDB *sql.DB) (string, error) {
 	tables, err := legacyV18TableNames(sqlDB)
 	if err != nil {
