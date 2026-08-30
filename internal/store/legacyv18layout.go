@@ -11,9 +11,6 @@ import (
 
 const legacyV072LayoutFingerprint = "discover-in-ci"
 
-// legacyV18LayoutFingerprint hashes the structural schema properties cutover reads.
-// It ignores historical CREATE formatting and column order while freezing keys,
-// defaults, foreign keys, explicit indexes, and partial-index predicates.
 func legacyV18LayoutFingerprint(sqlDB *sql.DB) (string, error) {
 	tables, err := legacyV18TableNames(sqlDB)
 	if err != nil {
