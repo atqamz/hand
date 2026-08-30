@@ -8,11 +8,10 @@ import (
 )
 
 const (
-	legacyV072SchemaVersion     = 21
-	legacyV072SchemaFingerprint = "ad9cf375336aeca24fc3d2adaa4fcac986b48defcb1343c8c95825e7077e18d4"
-	legacyV072TableCount        = 7
-	legacyV072IndexCount        = 5
-	legacyV072TriggerCount      = 0
+	legacyV072SchemaVersion = 21
+	legacyV072TableCount    = 7
+	legacyV072IndexCount    = 5
+	legacyV072TriggerCount  = 0
 )
 
 // SchemaFamily names the persistence family found at state/hand.db without
@@ -34,12 +33,13 @@ const (
 
 // SchemaInfo is the non-mutating persistence identity observed for one state database.
 type SchemaInfo struct {
-	Family      SchemaFamily
-	UserVersion int
-	Fingerprint string
-	Tables      int
-	Indexes     int
-	Triggers    int
+	Family            SchemaFamily
+	UserVersion       int
+	Fingerprint       string
+	LayoutFingerprint string
+	Tables            int
+	Indexes           int
+	Triggers          int
 }
 
 // ErrUnsupportedLegacyV18Schema marks a legacy-family database that is not the
@@ -98,6 +98,7 @@ func inspectSchemaFamily(sqlDB *sql.DB) (SchemaInfo, error) {
 	}
 	if canonical {
 		info.Family = SchemaFamilyCanonicalV19
+		info.LayoutFingerprint = identity.Fingerprint
 		if err := validateCanonicalV19Schema(sqlDB); err != nil {
 			return info, err
 		}
@@ -110,11 +111,16 @@ func inspectSchemaFamily(sqlDB *sql.DB) (SchemaInfo, error) {
 	}
 	if legacy {
 		info.Family = SchemaFamilyLegacyV18
+		layoutFingerprint, err := legacyV18LayoutFingerprint(sqlDB)
+		if err != nil {
+			return info, err
+		}
+		info.LayoutFingerprint = layoutFingerprint
 		if version != legacyV072SchemaVersion {
 			return info, fmt.Errorf("%w: PRAGMA user_version = %d, want %d", ErrUnsupportedLegacyV18Schema, version, legacyV072SchemaVersion)
 		}
-		if identity.Fingerprint != legacyV072SchemaFingerprint {
-			return info, fmt.Errorf("%w: schema fingerprint = %s, want %s", ErrUnsupportedLegacyV18Schema, identity.Fingerprint, legacyV072SchemaFingerprint)
+		if layoutFingerprint != legacyV072LayoutFingerprint {
+			return info, fmt.Errorf("%w: layout fingerprint = %s, want %s", ErrUnsupportedLegacyV18Schema, layoutFingerprint, legacyV072LayoutFingerprint)
 		}
 		if identity.Tables != legacyV072TableCount || identity.Indexes != legacyV072IndexCount || identity.Triggers != legacyV072TriggerCount {
 			return info, fmt.Errorf("%w: schema objects = %d tables / %d indexes / %d triggers, want %d / %d / %d",
