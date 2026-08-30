@@ -26,10 +26,12 @@ runtime-qualified (today linux/amd64 and windows/amd64), derived at generation t
 rather than tracked as a second list, and its `npm-publish` release job pauses for
 operator approval every release rather than publishing unattended (see
 `docs/adr/npm-publishes-only-runtime-qualified-targets-behind-one-operator-gate.md`).
-The operator must configure the `npm-publish` GitHub Environment (required reviewer,
-`NPM_BOOTSTRAP_TOKEN` scoped to it) before the first release can publish, and must
-complete `docs/npm-trusted-publisher-enrollment.md` after that first release or the
-second one fails at the npm step.
+The operator must configure the `npm-publish` GitHub Environment with a required reviewer,
+and must complete `docs/npm-trusted-publisher-enrollment.md` for each name after its first
+release or the next one fails at the npm step. `NPM_BOOTSTRAP_TOKEN` was needed only to
+create a name that had never been published; every current name is enrolled, so the token
+was revoked and no longer exists. Creating a brand-new package name needs it back for one
+release; that doc carries the procedure.
 
 WinGet and AUR intentionally stay on the prebuilt asset: WinGet has no build step, and an
 AUR `-bin` package is defined as installing a prebuilt binary rather than compiling one

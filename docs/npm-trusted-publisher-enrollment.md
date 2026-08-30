@@ -103,13 +103,35 @@ name yet.
 
 - The pinned npm CLI (`npm@12.0.2`, see `.github/workflows/release.yaml`) already supports
   OIDC Trusted Publishing; no toolchain change is needed alongside enrollment.
-- `NPM_BOOTSTRAP_TOKEN` stays necessary only for a package name that has never been
-  published before - for example the first platform package created when a new target
-  newly qualifies in `internal/toolchain/runtime.lock.json`. It should not be revoked
-  while any future first-time publish might still need it, but it is no longer used for
-  any name already enrolled here.
+- `NPM_BOOTSTRAP_TOKEN` is needed only for a package name that has never been published
+  before - for example the first platform package created when a new target newly
+  qualifies in `internal/toolchain/runtime.lock.json`. It is never used for a name
+  already enrolled here.
 - Repeat this procedure once for each brand-new package name after its first version
   publishes, since Trusted Publishing is configured per package name, not per scope.
+
+## The bootstrap token no longer exists
+
+As of 2026-08-30 the operator revoked the token on npmjs.com and it was deleted from the
+`npm-publish` environment; `gh secret list --repo atqamz/hand --env npm-publish` returns
+nothing. Every package name this repository owns - `@atqamz/hand`, `@atqamz/hand-linux-x64`,
+`@atqamz/hand-win32-x64` - published through v0.7.2 and is enrolled above, so releases of
+existing names need no token at all.
+
+A release that has to create a *new* package name therefore fails, by design and visibly:
+`.github/scripts/npm-publish-target.sh` refuses before touching the registry with
+`<name> has never been published and NPM_BOOTSTRAP_TOKEN is not set; refusing`. Nothing is
+left half-published.
+
+That happens the first time a currently unqualified target qualifies. As of this record
+`internal/toolchain/runtime.lock.json` marks `darwin/amd64`, `darwin/arm64`, and
+`linux/arm64` unsupported, and `packaging/npm/generate.sh` derives the published set from
+that file, so any of them qualifying introduces a name that has never been published.
+
+When that happens: create a fresh Granular Access Token on npmjs.com scoped to the
+`@atqamz` scope with publish permission, add it as `NPM_BOOTSTRAP_TOKEN` scoped to the
+`npm-publish` environment (never as a repository secret), let the release publish the new
+name, enroll that name with the procedure above, then revoke the token again.
 
 See
 [`docs/adr/npm-publishes-only-runtime-qualified-targets-behind-one-operator-gate.md`](adr/npm-publishes-only-runtime-qualified-targets-behind-one-operator-gate.md)
