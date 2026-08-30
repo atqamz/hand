@@ -30,10 +30,8 @@ var ErrCanonicalV19SchemaMismatch = errors.New("canonical v19 schema does not ma
 
 var ErrCanonicalV19TargetNotEmpty = errors.New("canonical v19 target database is not empty")
 
-// v19.sql.gz is an implementation mirror of the exact #344 authority at
-// docs/architecture/v19.sql.gz. The two repository paths intentionally point at
-// the same Git blob; the tests below the store package verify both compressed
-// and reconstructed SHA-256 values before production code may execute it.
+// The embedded v19.sql.gz mirrors #344's docs artifact by exact Git blob.
+// Tests verify compressed and reconstructed SHA-256 before execution.
 //
 //go:embed v19.sql.gz
 var canonicalV19Gzip []byte
@@ -83,9 +81,8 @@ func canonicalV19DDL() ([]byte, error) {
 	return ddl, nil
 }
 
-// createCanonicalV19Schema executes the exact locked #344 DDL only against an
-// empty database. Cutover will build this into a temporary sibling and publish
-// that file only after its own archive/import/durability proof succeeds.
+// Builds the exact locked #344 DDL only into an empty database. Future cutover
+// code will publish the temporary database only after archive/import proof.
 func createCanonicalV19Schema(sqlDB *sql.DB) error {
 	var objects int
 	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'`).Scan(&objects); err != nil {
@@ -105,11 +102,8 @@ func createCanonicalV19Schema(sqlDB *sql.DB) error {
 	return validateCanonicalV19Schema(sqlDB)
 }
 
-// canonicalV19Candidate distinguishes canonical v19 from the legacy migration
-// ladder. This cannot use PRAGMA user_version alone: legacy v18 migration
-// versions overlap the canonical value 19. Canonical-only relation names are a
-// positive discriminator; migration-version 19 with the legacy meta table is
-// still v18 and must stay on the legacy path.
+// Distinguishes canonical v19 from the legacy ladder by schema family, not the
+// overlapping numeric PRAGMA user_version. Legacy migration 19 stays legacy.
 func canonicalV19Candidate(sqlDB *sql.DB) (bool, error) {
 	var canonicalMarkers int
 	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM sqlite_schema
