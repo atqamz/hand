@@ -122,38 +122,53 @@ func legacyV18ForeignKeyLines(sqlDB *sql.DB, table string) ([]string, error) {
 	return lines, nil
 }
 
+type legacyV18IndexDescriptor struct {
+	Name    string
+	Origin  string
+	Unique  int
+	Partial int
+}
+
 func legacyV18IndexLines(sqlDB *sql.DB, table string) ([]string, error) {
 	rows, err := sqlDB.Query(`SELECT name, "unique", origin, partial FROM pragma_index_list(?)`, table)
 	if err != nil {
 		return nil, fmt.Errorf("read legacy v18 indexes for %s: %w", table, err)
 	}
-	defer func() { _ = rows.Close() }()
 
-	var lines []string
+	var indexes []legacyV18IndexDescriptor
 	for rows.Next() {
-		var name, origin string
-		var unique, partial int
-		if err := rows.Scan(&name, &unique, &origin, &partial); err != nil {
+		var index legacyV18IndexDescriptor
+		if err := rows.Scan(&index.Name, &index.Unique, &index.Origin, &index.Partial); err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("read legacy v18 indexes for %s: %w", table, err)
 		}
-		keys, err := legacyV18IndexKey(sqlDB, name)
+		indexes = append(indexes, index)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("read legacy v18 indexes for %s: %w", table, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close legacy v18 indexes for %s: %w", table, err)
+	}
+
+	var lines []string
+	for _, index := range indexes {
+		keys, err := legacyV18IndexKey(sqlDB, index.Name)
 		if err != nil {
 			return nil, err
 		}
-		if origin == "c" {
-			predicate, err := legacyV18IndexPredicate(sqlDB, name, partial != 0)
+		if index.Origin == "c" {
+			predicate, err := legacyV18IndexPredicate(sqlDB, index.Name, index.Partial != 0)
 			if err != nil {
 				return nil, err
 			}
 			lines = append(lines, fmt.Sprintf("index|%s|%s|%d|%d|%s|%s",
-				table, name, unique, partial, keys, predicate))
+				table, index.Name, index.Unique, index.Partial, keys, predicate))
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("constraint-index|%s|%s|%d|%d|%s",
-			table, origin, unique, partial, keys))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read legacy v18 indexes for %s: %w", table, err)
+			table, index.Origin, index.Unique, index.Partial, keys))
 	}
 	return lines, nil
 }
