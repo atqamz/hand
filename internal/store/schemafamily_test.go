@@ -40,8 +40,8 @@ func TestInspectSchemaRecognizesExactV072Legacy(t *testing.T) {
 	if info.UserVersion != legacyV072SchemaVersion {
 		t.Fatalf("user_version = %d, want %d", info.UserVersion, legacyV072SchemaVersion)
 	}
-	if info.Fingerprint != legacyV072SchemaFingerprint {
-		t.Fatalf("schema fingerprint = %s, want %s", info.Fingerprint, legacyV072SchemaFingerprint)
+	if info.LayoutFingerprint != legacyV072LayoutFingerprint {
+		t.Fatalf("layout fingerprint = %s, want %s", info.LayoutFingerprint, legacyV072LayoutFingerprint)
 	}
 	if info.Tables != legacyV072TableCount || info.Indexes != legacyV072IndexCount || info.Triggers != legacyV072TriggerCount {
 		t.Fatalf("schema objects = %d tables / %d indexes / %d triggers, want %d / %d / %d",
@@ -119,6 +119,9 @@ func TestInspectSchemaRecognizesCanonicalV19(t *testing.T) {
 	}
 	if info.Fingerprint != canonicalV19SchemaFingerprint {
 		t.Fatalf("schema fingerprint = %s, want %s", info.Fingerprint, canonicalV19SchemaFingerprint)
+	}
+	if info.LayoutFingerprint != canonicalV19SchemaFingerprint {
+		t.Fatalf("layout fingerprint = %s, want canonical schema fingerprint %s", info.LayoutFingerprint, canonicalV19SchemaFingerprint)
 	}
 }
 
