@@ -43,6 +43,11 @@ func TestInspectSchemaRecognizesExactV072Legacy(t *testing.T) {
 	if info.Fingerprint != legacyV072SchemaFingerprint {
 		t.Fatalf("schema fingerprint = %s, want %s", info.Fingerprint, legacyV072SchemaFingerprint)
 	}
+	if info.Tables != legacyV072TableCount || info.Indexes != legacyV072IndexCount || info.Triggers != legacyV072TriggerCount {
+		t.Fatalf("schema objects = %d tables / %d indexes / %d triggers, want %d / %d / %d",
+			info.Tables, info.Indexes, info.Triggers,
+			legacyV072TableCount, legacyV072IndexCount, legacyV072TriggerCount)
+	}
 }
 
 func TestInspectSchemaRejectsLegacyVersion19DespiteCurrentLayout(t *testing.T) {
@@ -175,6 +180,10 @@ func TestInspectSchemaExistingEmptySQLite(t *testing.T) {
 	}
 	sqlDB, err := open(path)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.Exec(`CREATE TABLE empty_probe (id INTEGER); DROP TABLE empty_probe;`); err != nil {
+		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
 	if err := sqlDB.Close(); err != nil {
