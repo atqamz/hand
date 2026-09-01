@@ -133,6 +133,9 @@ func TestFrozenLegacyBridgeBlocksPreparedStaleWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _, _ = gate.ExecContext(ctx, `ROLLBACK`) }()
+	if _, err := gate.ExecContext(ctx, `PRAGMA query_only = 1`); err != nil {
+		t.Fatalf("enable query_only for source inspection/archive: %v", err)
+	}
 
 	// Source identity is frozen only after the writer reservation exists. The
 	// byte-exact original archive must therefore be read and digested here, not
@@ -152,6 +155,24 @@ func TestFrozenLegacyBridgeBlocksPreparedStaleWriter(t *testing.T) {
 	}
 	if archivedDigest := sha256.Sum256(archived); archivedDigest != beforeDigest {
 		t.Fatalf("original archive digest = %x, want %x", archivedDigest, beforeDigest)
+	}
+
+	// No source mutation is allowed before the exact original archive exists.
+	// From this explicit boundary onward the same reserved transaction may write
+	// only the bounded freeze certificate/guards that make old writers fail closed.
+	if _, err := gate.ExecContext(ctx, `PRAGMA query_only = 0`); err != nil {
+		t.Fatalf("disable query_only at explicit freeze boundary: %v", err)
+	}
+	var queryOnly int
+	if err := gate.QueryRowContext(ctx, `PRAGMA query_only`).Scan(&queryOnly); err != nil {
+		t.Fatal(err)
+	}
+	if queryOnly != 0 {
+		t.Fatalf("PRAGMA query_only = %d after freeze boundary, want 0", queryOnly)
+	}
+	certificate := fmt.Sprintf("v1:%x", beforeDigest)
+	if _, err := gate.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('v19-cutover-freeze', ?)`, certificate); err != nil {
+		t.Fatalf("write freeze certificate: %v", err)
 	}
 
 	tables := []string{"task", "attempt", "fleet_identity", "meta", "hold", "project", "send_attempt"}
@@ -181,6 +202,20 @@ func TestFrozenLegacyBridgeBlocksPreparedStaleWriter(t *testing.T) {
 	}
 	if staleRows != 0 {
 		t.Fatalf("stale writer rows = %d, want 0", staleRows)
+	}
+	var gotCertificate string
+	if err := staleDB.QueryRow(`SELECT value FROM meta WHERE key = 'v19-cutover-freeze'`).Scan(&gotCertificate); err != nil {
+		t.Fatal(err)
+	}
+	if gotCertificate != certificate {
+		t.Fatalf("freeze certificate = %q, want %q", gotCertificate, certificate)
+	}
+	archivedAfter, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archivedDigest := sha256.Sum256(archivedAfter); archivedDigest != beforeDigest {
+		t.Fatalf("original archive changed after freeze: got %x want %x", archivedDigest, beforeDigest)
 	}
 
 	if _, err := Open(home); !errors.Is(err, ErrSchemaNewer) {
