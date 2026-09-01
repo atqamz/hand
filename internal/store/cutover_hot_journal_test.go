@@ -174,12 +174,10 @@ func TestCutoverPendingExclusiveHandoffSurvivesHotJournal(t *testing.T) {
 	probeDB.SetMaxOpenConns(1)
 	defer func() { _ = probeDB.Close() }()
 	deadline = time.Now().Add(5 * time.Second)
-	pendingObserved := false
-	for !pendingObserved {
+	for {
 		var value string
 		err := probeDB.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'hot-journal-probe'`).Scan(&value)
 		if isSQLiteBusy(err) {
-			pendingObserved = true
 			break
 		}
 		if err != nil {
