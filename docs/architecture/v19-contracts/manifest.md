@@ -2,10 +2,10 @@
 
 This manifest anchors the repository-owned semantic contract snapshots used by the v0.8.0 / canonical v19 implementation.
 
-Snapshot revision containing the complete contract set, before this manifest commit:
+Permanent `main` revision containing the complete contract set:
 
 ```text
-4cbc97490b6a793b3cc4abcd890f504496f40960
+6699745bb451e3daca072b4c958e5b79f31e4775
 ```
 
 The GitHub issue bodies remain tracker/review surfaces. For the snapshots listed below, the repository file at the snapshot revision is the immutable semantic evidence. A later issue-body edit cannot retroactively change that evidence. Comments are never normative architecture state.
