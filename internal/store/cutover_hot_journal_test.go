@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestCutoverReadGuardPreventsHotJournalRecovery(t *testing.T) {
+func TestCutoverArchiveBeforeGateSurvivesHotJournalRecovery(t *testing.T) {
 	home := t.TempDir()
 	db, err := Open(home)
 	if err != nil {
@@ -35,40 +35,68 @@ func TestCutoverReadGuardPreventsHotJournalRecovery(t *testing.T) {
 	}
 
 	path := Path(home)
-	baseline, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	baselineDigest := sha256.Sum256(baseline)
 	escaped := (&url.URL{Path: path}).EscapedPath()
 	ctx := context.Background()
 
-	// Hold a genuine read-only SHARED transaction before a legacy writer can
-	// race the rw-capable cutover gate. A rollback-journal writer may reserve and
-	// create its journal, but it cannot modify the main DB while this reader lives.
+	// First establish a real read-only SHARED snapshot. While it is held, no
+	// concurrent rollback-journal writer can commit changes to the main DB file.
 	readDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=ro&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)&_pragma=query_only(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	readDB.SetMaxOpenConns(1)
-	defer func() { _ = readDB.Close() }()
 	readGuard, err := readDB.Conn(ctx)
 	if err != nil {
+		_ = readDB.Close()
 		t.Fatal(err)
 	}
-	defer func() { _ = readGuard.Close() }()
 	if _, err := readGuard.ExecContext(ctx, `BEGIN`); err != nil {
+		_ = readGuard.Close()
+		_ = readDB.Close()
 		t.Fatal(err)
 	}
-	defer func() { _, _ = readGuard.ExecContext(ctx, `ROLLBACK`) }()
 	var clean string
 	if err := readGuard.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'hot-journal-probe'`).Scan(&clean); err != nil {
+		_ = readGuard.Close()
+		_ = readDB.Close()
 		t.Fatal(err)
 	}
 	if clean != "clean" {
+		_ = readGuard.Close()
+		_ = readDB.Close()
 		t.Fatalf("read guard saw %q, want clean", clean)
 	}
 
+	// The byte-exact archive candidate is made durable before any rw-capable
+	// SQLite gate is opened. The later writer gate must revalidate this digest.
+	archived, err := os.ReadFile(path)
+	if err != nil {
+		_ = readGuard.Close()
+		_ = readDB.Close()
+		t.Fatal(err)
+	}
+	archiveDigest := sha256.Sum256(archived)
+	archivePath := path + ".original-candidate"
+	if err := os.WriteFile(archivePath, archived, 0o600); err != nil {
+		_ = readGuard.Close()
+		_ = readDB.Close()
+		t.Fatal(err)
+	}
+	archivedAgain, err := os.ReadFile(archivePath)
+	if err != nil {
+		_ = readGuard.Close()
+		_ = readDB.Close()
+		t.Fatal(err)
+	}
+	if got := sha256.Sum256(archivedAgain); got != archiveDigest {
+		_ = readGuard.Close()
+		_ = readDB.Close()
+		t.Fatalf("archive candidate digest = %x, want %x", got, archiveDigest)
+	}
+
+	// Race a supported old writer after the archive snapshot. It can obtain a
+	// RESERVED lock and create rollback journal state, but the SHARED reader keeps
+	// the committed main DB bytes equal to the archive until the reader is released.
 	readyPath := path + ".hot-writer-ready"
 	cmd := exec.Command(os.Args[0], "-test.run=^TestCutoverHotJournalWriterHelper$")
 	cmd.Env = append(os.Environ(),
@@ -79,6 +107,8 @@ func TestCutoverReadGuardPreventsHotJournalRecovery(t *testing.T) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
+		_ = readGuard.Close()
+		_ = readDB.Close()
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -129,28 +159,35 @@ func TestCutoverReadGuardPreventsHotJournalRecovery(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	<-done
 
-	mainBeforeGate, err := os.ReadFile(path)
+	mainBeforeRelease, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sha256.Sum256(mainBeforeGate); got != baselineDigest {
-		t.Fatalf("concurrent writer changed main DB while read guard held: baseline=%x got=%x", baselineDigest, got)
+	if got := sha256.Sum256(mainBeforeRelease); got != archiveDigest {
+		t.Fatalf("concurrent writer changed main DB while read snapshot held: archive=%x got=%x", archiveDigest, got)
 	}
-	journalBeforeGate, err := os.ReadFile(journalPath)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.ReadFile(journalPath); err != nil {
+		t.Fatalf("expected crashed writer rollback journal: %v", err)
 	}
-	journalDigest := sha256.Sum256(journalBeforeGate)
 
-	// Opening the rw-capable gate in the presence of the now-hot journal would
-	// normally trigger rollback recovery. The still-held SHARED guard must make
-	// recovery/gate acquisition fail busy instead, without touching either file.
+	// The archive is already durable, so it is safe to release the reader and let
+	// BEGIN IMMEDIATE perform normal crash recovery if needed. A committed writer
+	// in this gap would change hand.db and be caught by the exact digest check below.
+	if _, err := readGuard.ExecContext(ctx, `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	if err := readGuard.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := readDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	gateDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=rw&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
@@ -162,59 +199,27 @@ func TestCutoverReadGuardPreventsHotJournalRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = gate.Close() }()
-	if _, err := gate.ExecContext(ctx, `BEGIN IMMEDIATE`); !isSQLiteBusy(err) {
-		if err == nil {
-			_, _ = gate.ExecContext(ctx, `ROLLBACK`)
-		}
-		t.Fatalf("BEGIN IMMEDIATE with hot journal + read guard = %v, want SQLITE_BUSY without recovery", err)
+	if _, err := gate.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatalf("acquire writer gate after durable archive candidate: %v", err)
 	}
+	defer func() { _, _ = gate.ExecContext(ctx, `ROLLBACK`) }()
 
 	mainAfterGate, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sha256.Sum256(mainAfterGate); got != baselineDigest {
-		t.Fatalf("failed writer gate changed main DB: baseline=%x got=%x", baselineDigest, got)
-	}
-	journalAfterGate, err := os.ReadFile(journalPath)
-	if err != nil {
-		t.Fatalf("failed writer gate removed hot journal: %v", err)
-	}
-	if got := sha256.Sum256(journalAfterGate); got != journalDigest {
-		t.Fatalf("failed writer gate changed hot journal: before=%x after=%x", journalDigest, got)
-	}
-
-	// Prove the fixture really is a hot journal: once the SHARED guard is gone,
-	// the same rw BEGIN IMMEDIATE is allowed to recover it.
-	if _, err := readGuard.ExecContext(ctx, `ROLLBACK`); err != nil {
-		t.Fatal(err)
-	}
-	if err := readGuard.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := readDB.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	recoveryDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=rw&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	recoveryDB.SetMaxOpenConns(1)
-	defer func() { _ = recoveryDB.Close() }()
-	recovery, err := recoveryDB.Conn(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = recovery.Close() }()
-	if _, err := recovery.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		t.Fatalf("recover hot journal after releasing read guard: %v", err)
-	}
-	if _, err := recovery.ExecContext(ctx, `ROLLBACK`); err != nil {
-		t.Fatal(err)
+	if got := sha256.Sum256(mainAfterGate); got != archiveDigest {
+		t.Fatalf("writer gate/recovery changed committed source bytes: archive=%x active=%x", archiveDigest, got)
 	}
 	if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
-		t.Fatalf("rollback journal still exists after unguarded recovery: %v", err)
+		t.Fatalf("hot rollback journal remains after successful writer gate recovery: %v", err)
+	}
+	archivedAfterGate, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sha256.Sum256(archivedAfterGate); got != archiveDigest {
+		t.Fatalf("archive candidate changed during gate recovery: before=%x after=%x", archiveDigest, got)
 	}
 }
 
