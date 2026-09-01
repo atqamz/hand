@@ -8,6 +8,7 @@ supersedes_path: docs/architecture/v19-contracts/348-cutover-archive.md
 supersedes_blob: c5c8045698ca8bea3b093d1adbe13d0b87c651d0
 writer_exclusion_issue: 524
 mechanical_probe_pr: 525
+mechanical_probe_head: 5f985170f6ece5d60fc9f083bfef70b0d8bbc667
 ---
 
 # Canonical persistence cutover and legacy archival contract — revision 2
@@ -47,9 +48,11 @@ A corrupt/structurally invalid v19 DB is not silently replaced from legacy archi
 
 # Supported automatic source
 
-Fresh automatic cutover accepts exactly the shipped/supported v0.7.2 source contract, including exact schema/layout identity and safe rollback-journal state.
+Fresh automatic cutover accepts exactly the shipped/supported v0.7.2 source contract, including exact schema/layout identity and a mechanically safe rollback-journal state.
 
-Reject older/newer/unknown/mismatched/recovery-needing/WAL-active sources before the deliberate freeze boundary.
+Reject older/newer/unknown/mismatched/WAL-active sources before the deliberate freeze boundary. A rollback journal is not rejected merely because a `-journal` pathname exists: existence alone does not prove a hot or unsafe journal. Conversely, an unresolved recovery state is never assumed safe.
+
+A rollback-journal residue/race is admissible only through the SHARED→PENDING→EXCLUSIVE protocol below and only when the committed snapshot, candidate archive, and post-EXCLUSIVE active DB all revalidate to the same exact DB digest and semantic source state. Any recovery that changes the active DB bytes or semantic source state from the candidate blocks automatic cutover.
 
 Do not run an old migration ladder merely to manufacture supported source semantics for import.
 
@@ -63,55 +66,109 @@ Read-only surfaces (`status`, Presentation, `hand orient`, `hand session start`,
 
 Cutover uses one cross-process Fleet MigrationLock to serialize cutover processes. MigrationLock alone is **not** old-writer exclusion because ordinary v0.7.2 writers do not hold it.
 
-Under MigrationLock, final source inspection uses exactly one pinned SQLite connection opened write-capable solely because SQLite writer reservation itself requires write capability.
+`BEGIN IMMEDIATE` is also insufficient as the final gate. It excludes a second RESERVED writer but still permits new SHARED readers. Exact v0.7.2 commands such as Project add/create can read authoritative DB state and then perform clone/legacy Treehouse work before their eventual DB registration; allowing a new reader during cutover therefore leaves an external-effect race.
 
-The ordering is mandatory:
+Mechanical proof #525 at exact head `5f985170f6ece5d60fc9f083bfef70b0d8bbc667` passed the repository's Windows, Linux x64/ARM, macOS ARM/Intel, Nix, lint, contract, and E2E matrix for the required rollback-journal handoff.
+
+The mandatory no-gap ordering is:
 
 ```text
-open pinned mode=rw connection with foreign_keys=ON
-→ BEGIN IMMEDIATE
-→ require writer reservation success
-→ PRAGMA query_only=1
-→ verify query_only=1
-→ perform final source reads/checks/archive only
+MigrationLock held
+→ open pinned mode=ro connection with foreign_keys=ON, query_only=1, bounded busy policy
+→ BEGIN deferred read transaction
+→ execute source reads sufficient to establish a genuine SHARED snapshot
+→ validate candidate exact legacy family/layout + rollback-journal eligibility
+→ read exact active DB bytes and candidate digest while SHARED is held
+→ on a second pinned mode=rw connection request BEGIN EXCLUSIVE asynchronously
+→ while the known SHARED snapshot is still held, positively require a fresh mode=ro reader to fail SQLITE_BUSY
+→ prove active DB bytes remain candidate-identical while SHARED + observed reader barrier coexist
+→ write+flush+reopen+hash a same-volume NON-AUTHORITATIVE archive candidate
+→ release only the known SHARED reader
+→ require OUR already-requested BEGIN EXCLUSIVE to return successfully within bounded policy
+→ PRAGMA query_only=1 on that same EXCLUSIVE connection and verify it is enabled
+→ re-read/revalidate exact source state and active DB digest
+→ require active DB digest == candidate digest == candidate archive digest
+→ establish exact legacy lock/provider quiescence while OUR EXCLUSIVE remains held
+→ only then promote/publish the candidate as immutable original archive authority
 ```
 
-Do not set `query_only=1` before `BEGIN IMMEDIATE`: mechanical proof #525 shows that ordering makes the reservation fail with `SQLITE_READONLY` on the production driver.
+The fresh-reader `SQLITE_BUSY` observation is a barrier observation, not proof that the PENDING lock belonged to the cutover connection. Therefore it never authorizes publication by itself. Authority advances only after **our** `BEGIN EXCLUSIVE` returns and the exact digest/state revalidation succeeds.
 
-`BEGIN IMMEDIATE` is the writer gate. If another supported writer already holds a conflicting write reservation/transaction, acquisition fails/blocks according to the bounded busy policy and cutover stops/retries. Once the reservation is held, no second supported writer can acquire a successful write reservation before the gate transaction ends.
+Do not set `query_only=1` before requesting the SQLite write transaction: #525 proves `query_only=1 → BEGIN IMMEDIATE` fails `SQLITE_READONLY` on the production driver. The production protocol instead keeps the initial snapshot on a separate genuinely read-only connection and sets `query_only=1` on the cutover connection only after OUR EXCLUSIVE acquisition returns.
 
-While `query_only=1`, source mutation is forbidden. Final exact family/layout validation, journal/WAL/SHM checks, integrity/FK checks, quiescence source reads, import-plan reads, Fleet identity, and exact source digest/archive bytes are established only after the writer reservation exists.
+A conflicting live RESERVED/PENDING/EXCLUSIVE writer prevents this handoff from completing within the bounded policy. Cutover stops/retries; it never kills a process, guesses from PID/process name, or weakens the gate.
 
-Refuse when safety cannot be established, including unsupported journal mode, active WAL/SHM, unresolved journal, integrity/FK failure, inability to acquire the writer gate, or any quiescence ambiguity.
+OUR EXCLUSIVE acquisition may cause SQLite to resolve rollback-journal state as part of acquiring the database. That resolution is accepted only if the post-acquisition active DB bytes and semantic source state remain exactly candidate-identical. Otherwise the candidate is discarded/non-authoritative and automatic cutover fails closed.
 
-Never checkpoint, VACUUM, run the old migration ladder, or mutate data merely to make cutover easier.
+WAL/SHM is not normalized by cutover. Never checkpoint, VACUUM, run the old migration ladder, or mutate data merely to make source acceptance easier.
+
+---
+
+# Legacy lock and provider quiescence under EXCLUSIVE
+
+SQLite EXCLUSIVE closes new DB readers/writers, but a v0.7.2 command that passed its authoritative DB read before the PENDING barrier may still be in the middle of a filesystem/network/provider operation. Therefore SQLite locking and legacy command locks compose; neither replaces the other.
+
+After OUR EXCLUSIVE is held and before the original archive becomes authoritative or any freeze mutation occurs, cutover must nonblockingly prove the exact Fleet-local legacy lock graph quiescent.
+
+At minimum this includes:
+
+```text
+MigrationLock — already held by cutover
+all existing permanent hashed state/.<sha256(name)>.lock rendezvous points
+explicit fixed Fleet-local sidecar locks required by exact v0.7.2
+state/watch.pid.lock watcher ownership rendezvous
+data/projects.md.lock project-registry projection rendezvous
+```
+
+Known hashed namespaces include command-sequence locks such as task/project/send/worktree and fixed Fleet-local sidecar/config locks where present. The implementation may proactively acquire known fixed namespaces even when their rendezvous file does not yet exist.
+
+Permanent hashed lock pathnames are rendezvous points, not evidence that a holder exists. Cutover opens each candidate pathname and attempts the same kernel file-lock primitive nonblockingly. Busy, unreadable, unopenable, disappearing/reappearing ambiguity, or unknown lock state blocks automatic cutover.
+
+Enumeration must be race-safe. After OUR EXCLUSIVE, a newly-started exact v0.7.2 command cannot pass its first authoritative DB read. A command that passed that read before the barrier must retain its Fleet-local command/sidecar lock across any subsequent safety-relevant external mutation; this exact-source property is part of supported-source qualification. If an audited source command can perform such a mutation after authoritative DB read without a discoverable Fleet-local lock, that source is not eligible for automatic concurrent cutover.
+
+Do not freeze user-global locks merely because exact v0.7.2 also uses them. Herdr-start, toolchain/runtime selection, and other user-global mechanisms may be shared by another Fleet. Their safety is established through typed provider/runtime observations and #519 cross-Fleet ownership rules, not by taking a global destructive/exclusive cutover lock.
+
+While OUR EXCLUSIVE and all required Fleet-local locks are held, re-run provider/resource quiescence. Provider unavailable or unclassifiable is `unknown`, never permission to proceed.
+
+Only after DB digest/state, Fleet-local lock graph, and provider/resource observations all agree may the candidate archive be promoted to immutable original evidence.
 
 ---
 
 # Exact original archive before freeze
 
-The forensic original archive is created while the writer gate is held and `query_only=1`.
+The initial file copy produced under SHARED+reader-barrier conditions is an archive **candidate**, not forensic authority.
 
-Required ordering:
+The candidate becomes the immutable original archive only while OUR EXCLUSIVE is held, `query_only=1`, exact source state has been revalidated, all required Fleet-local legacy locks are held/quiescent, provider/resource quiescence is positive, and all three digests are equal:
 
 ```text
-writer gate held
-+ query_only=1
-+ exact source validated/quiescent
-→ read exact active DB bytes
-→ derive source SHA-256 and migration identity
-→ write immutable-archive temp on the same volume
-→ flush file
-→ atomically publish archive path
-→ flush relevant parent directory
-→ reopen archive and require exact digest equality
+initial committed candidate source digest
+== post-EXCLUSIVE active DB digest
+== candidate archive digest
 ```
 
-No source DB mutation may occur before this archive is durable and revalidated.
+Required promotion ordering:
+
+```text
+OUR EXCLUSIVE held
++ query_only=1
++ exact source validated/quiescent
++ lock/provider closure positive
++ exact digest equality positive
+→ flush candidate archive file
+→ atomically publish deterministic immutable original-archive path
+→ flush relevant parent directory
+→ reopen published archive
+→ require exact digest equality again
+→ record original source SHA-256 and migration identity
+```
+
+No source DB mutation may occur before this immutable original archive is durable and revalidated.
 
 Migration identity remains a documented versioned derivation from exact Fleet identity + exact **original source DB digest**. The later frozen bridge has a different digest and never replaces the original digest in migration identity or forensic provenance.
 
 Never overwrite an existing archive identity unless exact digests prove it is the same evidence.
+
+A failed candidate/barrier/EXCLUSIVE/quiescence attempt may leave a bounded non-authoritative temp candidate that recovery can safely delete by exact path/identity. It must never be advertised as original evidence.
 
 Archive preserves forensic truth, not current authority.
 
@@ -119,9 +176,9 @@ Archive preserves forensic truth, not current authority.
 
 # One-way frozen bridge
 
-After the exact original archive is durable and revalidated, the same pinned `BEGIN IMMEDIATE` transaction may cross one explicit freeze boundary.
+After the exact original archive is durable and revalidated, the same pinned `BEGIN EXCLUSIVE` transaction may cross one explicit freeze boundary while all required Fleet-local quiescence locks remain held.
 
-The only permitted source mutations at this boundary are the exact frozen-bridge mechanism below. First set `PRAGMA query_only=0` on the same pinned reserved connection and verify it is disabled. Then, atomically in that already-reserved transaction:
+The only permitted source mutations at this boundary are the exact frozen-bridge mechanism below. First set `PRAGMA query_only=0` on the same pinned EXCLUSIVE connection and verify it is disabled. Then, atomically in that already-exclusive transaction:
 
 1. require `meta.key = 'v19-cutover-freeze'` to be absent;
 2. insert exactly one freeze certificate:
@@ -162,13 +219,13 @@ legacy source frozen for v19 cutover
 
 `user_version=22` here is a cutover mechanism sentinel, not a new canonical schema version and not a supported legacy schema. Canonical v19 remains `user_version=19`.
 
-If freeze commit cannot complete, roll back and stop/retry. A failed/rolled-back freeze must leave the active source as exact supported v0.7.2 semantics; the already durable original archive may remain as non-authoritative evidence.
+If freeze commit cannot complete, roll back and stop/retry. A failed/rolled-back freeze must leave the active source as exact supported v0.7.2 semantics; the already durable original archive may remain as non-authoritative-for-current-state forensic evidence until a later successful freeze proves the source still matches it exactly.
 
 After freeze commit:
 
 - a fresh v0.7.2 `Open` must fail closed as newer-than-supported before baseline schema work;
 - a stale already-open/prepared v0.7.2 writer must fail every canonical table DML through the persistent guards;
-- writer exclusion no longer depends on keeping the SQLite reservation handle open;
+- writer exclusion no longer depends on keeping the SQLite EXCLUSIVE handle open;
 - the original immutable archive remains byte-identical to the pre-freeze source.
 
 The frozen bridge is mechanism/recovery state only. It is never imported as legacy semantic authority and never replaces the original archive.
@@ -205,6 +262,8 @@ pending/ambiguous legacy semantic Send or staged terminal input residual
 open safety Repair/Hold/Backoff controlling future work
 unresolved external effect
 repository/workspace identity/revision ambiguity
+busy/unknown Fleet-local legacy command or sidecar lock
+unknown provider/runtime ownership or liveness
 ```
 
 Provider unavailable is `unknown`, never permission to forget state.
@@ -219,6 +278,7 @@ Use deterministic same-volume paths for:
 
 ```text
 active state/hand.db
+non-authoritative original-archive candidate
 canonical temp sibling
 cutover marker
 immutable archive directory
@@ -230,7 +290,7 @@ allowed semantic sidecars
 
 Manifest records exact original source/archive digests, Fleet ID, supported source version/layout identity, freeze-certificate version/digest, target v19 contract identity from the current #344 authority, imported Project/workspace evidence, observed physical identities/revisions, and sidecar digests.
 
-Exclude repositories, credentials, tokens, caches, binaries, private-runtime bundles, and unrelated files.
+Sidecars that participate in semantic/archive evidence are read/digested only under their exact Fleet-local lock and final provider/resource quiescence closure. Exclude repositories, credentials, tokens, caches, binaries, private-runtime bundles, and unrelated files.
 
 ---
 
@@ -370,11 +430,13 @@ No provider/Git/registry/network mutation occurs between final temp validation a
 
 # Marker is advisory only
 
-Cutover marker records deterministic recovery evidence/phase, expected original source/archive/frozen-bridge/temp/target contract identities, and paths.
+Cutover marker records deterministic recovery evidence/phase, expected original candidate/archive/frozen-bridge/temp/target contract identities, and paths.
 
 Marker is never authority. Corrupt/missing/stale marker cannot override a valid canonical DB or cryptographically/schema-validated archive/frozen-bridge/temp evidence.
 
 A crash after freeze commit must remain recoverable even if the marker update did not land: exact frozen-bridge certificate + exact matching immutable original archive provide the durable binding. If that unique binding cannot be proven, fail closed.
+
+A marker that mentions only a non-authoritative archive candidate does not upgrade that candidate into original evidence.
 
 ---
 
@@ -392,14 +454,22 @@ Publication sequence conceptually:
 
 ```text
 MigrationLock
-→ BEGIN IMMEDIATE writer gate
-→ query_only=1
-→ final source safety/quiescence/import read plan
-→ publish+flush+reopen/hash exact immutable original archive
+→ read-only SHARED committed snapshot
+→ request BEGIN EXCLUSIVE on pinned rw connection
+→ positively observe new-reader SQLITE_BUSY while known SHARED remains held
+→ prove active DB unchanged and write/flush/hash NON-AUTHORITATIVE archive candidate
+→ release known SHARED reader only
+→ require OUR BEGIN EXCLUSIVE to return
+→ query_only=1 on OUR EXCLUSIVE connection
+→ exact source/digest revalidation against candidate
+→ nonblocking Fleet-local legacy lock closure
+→ provider/resource quiescence revalidation
+→ promote+flush+reopen/hash exact immutable original archive
 → persist advisory prepared/original-archived marker
 → query_only=0 at explicit freeze boundary
 → write exact freeze certificate + 21 guards + user_version=22
 → COMMIT freeze
+→ release Fleet-local quiescence locks only after persistent bridge protection is committed
 → close cutover-owned source handles
 → build/validate/flush canonical temp from exact original archive/import plan
 → retire/move frozen bridge away from active state/hand.db
@@ -426,7 +496,10 @@ valid canonical v19 active
 → canonical wins; repair marker/registry only as projections
 
 valid exact supported v0.7.2 active
-→ legacy wins; resume/restart cutover only under MigrationLock and a fresh writer gate
+→ legacy wins; resume/restart cutover only under MigrationLock and a fresh SHARED→PENDING→EXCLUSIVE gate
+
+valid exact supported v0.7.2 active + only non-authoritative archive candidate
+→ legacy wins; candidate may be reused only after a fresh complete gate proves exact digest equality, otherwise discard candidate
 
 exact frozen bridge active + exact matching immutable original archive
 → original archive is legacy semantic/import evidence; resume cutover from archive; never import bridge mechanism rows/triggers
@@ -474,18 +547,30 @@ Incidents #357–#360 are regression inputs to this boundary, not justification 
 
 At minimum inject/prove:
 
-- `query_only=1` before `BEGIN IMMEDIATE` is rejected and never used as the gate ordering;
-- `BEGIN IMMEDIATE → query_only=1` acquires writer exclusion without changing source bytes;
-- a conflicting existing writer prevents writer-gate acquisition;
-- a second/new writer cannot acquire a successful write reservation while the gate is held;
-- source digest/original archive are established only after writer-gate acquisition;
+- `query_only=1` before a SQLite write transaction is rejected and never used as the gate ordering;
+- `BEGIN IMMEDIATE` excludes writers but still permits readers and therefore is rejected as the final cutover gate;
+- a genuine read-only SHARED snapshot can coexist with a pending EXCLUSIVE request without source mutation;
+- before releasing the known SHARED reader, a fresh reader observes `SQLITE_BUSY` on every supported CI platform;
+- the fresh-reader busy observation alone never authorizes archive publication;
+- the archive candidate remains non-authoritative until OUR EXCLUSIVE acquisition returns;
+- a conflicting existing writer prevents OUR EXCLUSIVE acquisition from completing within bounded policy;
+- a new old command cannot pass an authoritative DB read after the PENDING/EXCLUSIVE barrier;
+- a raced/hard-killed rollback-journal writer cannot change the candidate committed DB bytes;
+- OUR EXCLUSIVE acquisition/recovery must leave active DB digest/state candidate-identical or cutover refuses;
+- every required Fleet-local permanent hashed lock rendezvous is nonblockingly checked/held before archive promotion;
+- busy/unknown watcher ownership lock blocks cutover;
+- busy/unknown `data/projects.md.lock` blocks cutover;
+- a legacy command already past its DB read and mid external mutation is caught by its Fleet-local lock;
+- no user-global lock is treated as Fleet-exclusive cutover authority;
+- source digest/original archive authority is established only after OUR EXCLUSIVE + lock/provider closure;
 - `query_only=0` is crossed only after exact original archive durability/revalidation;
 - freeze certificate + all 21 guards + sentinel commit atomically;
 - a prepared stale pre-freeze writer cannot mutate any guarded table after freeze;
 - a fresh v0.7.2 open refuses the frozen sentinel;
 - failed freeze commit rolls back to supported source semantics;
 - immutable original archive bytes remain unchanged after freeze;
-- every marker/archive/freeze/temp/publication rename/flush boundary;
+- every marker/candidate/archive/freeze/temp/publication rename/flush boundary;
+- crash after candidate but before OUR EXCLUSIVE;
 - crash after original archive but before freeze;
 - crash after freeze commit before marker/temp/publication;
 - exact frozen bridge + exact archive recovery;
@@ -495,7 +580,7 @@ At minimum inject/prove:
 - Windows sharing violations leave the frozen bridge safe and retryable;
 - POSIX rename/dir-fsync crash windows;
 - corrupt temp and corrupt active canonical DB;
-- WAL/SHM/journal refusal;
+- WAL/SHM refusal and rollback-journal recovery/digest mismatch refusal;
 - Project locator/physical alias;
 - unresolved Treehouse resource;
 - unresolved legacy Send/staged input residual;
@@ -513,7 +598,10 @@ Every case proves one unique authority and no silent deletion/overwrite/fabricat
 - [ ] Target schema identity comes only from the current #344 immutable DDL/proof authority.
 - [ ] Valid canonical v19 DB outranks marker/archive/frozen-bridge/registry projection.
 - [ ] Fresh automatic source acceptance is exact, quiescent, and fail-closed.
-- [ ] Writer exclusion uses `BEGIN IMMEDIATE` before query-only source inspection; MigrationLock is not misrepresented as an old-writer rendezvous.
+- [ ] Final old-command exclusion uses the mechanically proven read-only SHARED → observed new-reader barrier → OUR EXCLUSIVE handoff; `BEGIN IMMEDIATE` and MigrationLock are not misrepresented as sufficient old-reader/writer rendezvous.
+- [ ] A PENDING/new-reader-busy observation is never treated as cutover ownership; OUR successful EXCLUSIVE acquisition plus exact digest/state revalidation is mandatory.
+- [ ] Fleet-local legacy command/sidecar locks and provider/resource state are positively quiescent under OUR EXCLUSIVE before original archive authority is published.
+- [ ] User-global runtime/provider locks remain outside Fleet-exclusive cutover authority and obey #519 cross-Fleet safety.
 - [ ] Source mutation is zero until the exact original archive is durable/revalidated; after that only the exact one-way frozen-bridge mechanism is permitted before canonical publication.
 - [ ] Original pre-freeze DB bytes are preserved as immutable archive evidence and remain the migration-identity digest authority.
 - [ ] Exact frozen bridge blocks stale and new supported old writers and is recoverable only with matching immutable original archive evidence.
