@@ -193,33 +193,86 @@ func TestCutoverArchiveBeforeGateSurvivesHotJournalRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	gateDB.SetMaxOpenConns(1)
-	defer func() { _ = gateDB.Close() }()
 	gate, err := gateDB.Conn(ctx)
 	if err != nil {
+		_ = gateDB.Close()
 		t.Fatal(err)
 	}
-	defer func() { _ = gate.Close() }()
 	if _, err := gate.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		_ = gate.Close()
+		_ = gateDB.Close()
 		t.Fatalf("acquire writer gate after durable archive candidate: %v", err)
 	}
-	defer func() { _, _ = gate.ExecContext(ctx, `ROLLBACK`) }()
 
 	mainAfterGate, err := os.ReadFile(path)
 	if err != nil {
+		_ = gate.Close()
+		_ = gateDB.Close()
 		t.Fatal(err)
 	}
 	if got := sha256.Sum256(mainAfterGate); got != archiveDigest {
+		_ = gate.Close()
+		_ = gateDB.Close()
 		t.Fatalf("writer gate/recovery changed committed source bytes: archive=%x active=%x", archiveDigest, got)
 	}
-	if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
-		t.Fatalf("hot rollback journal remains after successful writer gate recovery: %v", err)
+	var recovered string
+	if err := gate.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'hot-journal-probe'`).Scan(&recovered); err != nil {
+		_ = gate.Close()
+		_ = gateDB.Close()
+		t.Fatal(err)
+	}
+	if recovered != "clean" {
+		_ = gate.Close()
+		_ = gateDB.Close()
+		t.Fatalf("writer gate observed recovered value %q, want clean", recovered)
 	}
 	archivedAfterGate, err := os.ReadFile(archivePath)
 	if err != nil {
+		_ = gate.Close()
+		_ = gateDB.Close()
 		t.Fatal(err)
 	}
 	if got := sha256.Sum256(archivedAfterGate); got != archiveDigest {
+		_ = gate.Close()
+		_ = gateDB.Close()
 		t.Fatalf("archive candidate changed during gate recovery: before=%x after=%x", archiveDigest, got)
+	}
+
+	// SQLite may leave a non-hot rollback-journal file behind. File existence is
+	// not the safety property. After releasing the writer gate, a new read-only
+	// connection must observe the archived committed state without mutating the DB.
+	if _, err := gate.ExecContext(ctx, `ROLLBACK`); err != nil {
+		_ = gate.Close()
+		_ = gateDB.Close()
+		t.Fatal(err)
+	}
+	if err := gate.Close(); err != nil {
+		_ = gateDB.Close()
+		t.Fatal(err)
+	}
+	if err := gateDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	verifyDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=ro&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)&_pragma=query_only(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyDB.SetMaxOpenConns(1)
+	defer func() { _ = verifyDB.Close() }()
+	var verified string
+	if err := verifyDB.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'hot-journal-probe'`).Scan(&verified); err != nil {
+		t.Fatalf("read-only verification after writer-gate recovery: %v", err)
+	}
+	if verified != "clean" {
+		t.Fatalf("read-only verification saw %q, want clean", verified)
+	}
+	mainAfterVerify, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sha256.Sum256(mainAfterVerify); got != archiveDigest {
+		t.Fatalf("post-recovery read-only verification changed source bytes: archive=%x active=%x", archiveDigest, got)
 	}
 }
 
