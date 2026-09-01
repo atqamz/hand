@@ -36,6 +36,35 @@ func TestValidateLegacyV18CutoverSourceAcceptsPinnedExactRollbackSource(t *testi
 	}
 }
 
+func TestValidateLegacyV18CutoverSourceRejectsPinnedSchemaDrift(t *testing.T) {
+	home := createLegacyV18CutoverTestSource(t)
+	sqlDB := openLegacyV18CutoverTestDB(t, home, true)
+	if _, err := sqlDB.Exec(`CREATE TABLE legacy_cutover_drift (id TEXT PRIMARY KEY)`); err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
+
+	db, err := openReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	tx, err := db.sql.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = validateLegacyV18CutoverSource(tx)
+	if !errors.Is(err, ErrUnsupportedLegacyV18Schema) {
+		t.Fatalf("validateLegacyV18CutoverSource error = %v, want ErrUnsupportedLegacyV18Schema", err)
+	}
+}
+
 func TestValidateLegacyV18CutoverSourceRejectsMemoryJournal(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	sqlDB := openLegacyV18CutoverTestDB(t, home, true)
