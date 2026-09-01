@@ -117,12 +117,6 @@ func TestFrozenLegacyBridgeBlocksPreparedStaleWriter(t *testing.T) {
 	}
 	defer func() { _ = staleWrite.Close() }()
 
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	beforeDigest := sha256.Sum256(before)
-
 	gateDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=rw&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
@@ -140,6 +134,14 @@ func TestFrozenLegacyBridgeBlocksPreparedStaleWriter(t *testing.T) {
 	}
 	defer func() { _, _ = gate.ExecContext(ctx, `ROLLBACK`) }()
 
+	// Source identity is frozen only after the writer reservation exists. The
+	// byte-exact original archive must therefore be read and digested here, not
+	// during an optimistic preflight another process could race.
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeDigest := sha256.Sum256(before)
 	archivePath := path + ".original"
 	if err := os.WriteFile(archivePath, before, 0o600); err != nil {
 		t.Fatal(err)
