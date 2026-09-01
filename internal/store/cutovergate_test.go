@@ -50,6 +50,15 @@ func TestAcquireLegacyV18CutoverGateHoldsExactExclusiveSource(t *testing.T) {
 		t.Fatal("query-only cutover gate allowed a source mutation")
 	}
 
+	migrationRelease, lockErr := Lock(home, MigrationLock, true)
+	if !errors.Is(lockErr, filelock.ErrBusy) {
+		if lockErr == nil {
+			migrationRelease()
+		}
+		_ = gate.Close()
+		t.Fatalf("MigrationLock while cutover gate is held = %v, want filelock.ErrBusy", lockErr)
+	}
+
 	reader, err := openLegacyV18CutoverSQLite(Path(home), "ro", 0, true)
 	if err != nil {
 		_ = gate.Close()
@@ -78,6 +87,12 @@ func TestAcquireLegacyV18CutoverGateHoldsExactExclusiveSource(t *testing.T) {
 	if err := gate.Close(); err != nil {
 		t.Fatal(err)
 	}
+	migrationRelease, err = Lock(home, MigrationLock, true)
+	if err != nil {
+		t.Fatalf("MigrationLock after cutover gate close = %v, want success", err)
+	}
+	migrationRelease()
+
 	reader, err = openLegacyV18CutoverSQLite(Path(home), "ro", 0, true)
 	if err != nil {
 		t.Fatal(err)
