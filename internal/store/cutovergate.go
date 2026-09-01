@@ -58,15 +58,15 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
+	handoffCtx, handoffCancel := context.WithTimeout(parent, timeout)
+	defer handoffCancel()
 	path := Path(homeDir)
 
 	readDB, err := openLegacyV18CutoverSQLite(path, "ro", timeout, true)
 	if err != nil {
 		return nil, err
 	}
-	readTx, err := readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	readTx, err := readDB.BeginTx(handoffCtx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		_ = readDB.Close()
 		return nil, fmt.Errorf("begin legacy v18 cutover SHARED snapshot: %w", err)
@@ -92,7 +92,7 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 	if err != nil {
 		return nil, err
 	}
-	gateConn, err := gateDB.Conn(ctx)
+	gateConn, err := gateDB.Conn(handoffCtx)
 	if err != nil {
 		_ = gateDB.Close()
 		return nil, fmt.Errorf("pin legacy v18 cutover EXCLUSIVE connection: %w", err)
@@ -106,14 +106,14 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 
 	exclusive := make(chan error, 1)
 	go func() {
-		_, beginErr := gateConn.ExecContext(ctx, `BEGIN EXCLUSIVE`)
+		_, beginErr := gateConn.ExecContext(handoffCtx, `BEGIN EXCLUSIVE`)
 		exclusive <- beginErr
 	}()
 
-	exclusiveDone, err := waitForLegacyV18CutoverReaderBarrier(ctx, path, exclusive)
+	exclusiveDone, err := waitForLegacyV18CutoverReaderBarrier(handoffCtx, path, exclusive)
 	if err != nil {
 		if !exclusiveDone {
-			cancel()
+			handoffCancel()
 			<-exclusive
 		}
 		return nil, err
@@ -121,23 +121,23 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 
 	barrierDigest, err := legacyV18CutoverFileSHA256(path)
 	if err != nil {
-		cancel()
+		handoffCancel()
 		<-exclusive
 		return nil, fmt.Errorf("hash legacy v18 source under reader barrier: %w", err)
 	}
 	if barrierDigest != candidateDigest {
-		cancel()
+		handoffCancel()
 		<-exclusive
 		return nil, fmt.Errorf("legacy v18 cutover source changed under SHARED reader barrier: candidate=%s barrier=%s", candidateDigest, barrierDigest)
 	}
 
 	if err := readTx.Rollback(); err != nil {
-		cancel()
+		handoffCancel()
 		<-exclusive
 		return nil, fmt.Errorf("release legacy v18 cutover SHARED snapshot: %w", err)
 	}
 	if err := readDB.Close(); err != nil {
-		cancel()
+		handoffCancel()
 		<-exclusive
 		return nil, fmt.Errorf("close legacy v18 cutover SHARED source: %w", err)
 	}
@@ -148,16 +148,18 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 		if err != nil {
 			return nil, fmt.Errorf("acquire legacy v18 cutover EXCLUSIVE gate: %w", err)
 		}
-	case <-ctx.Done():
-		cancel()
+	case <-handoffCtx.Done():
+		handoffCancel()
 		<-exclusive
-		return nil, fmt.Errorf("acquire legacy v18 cutover EXCLUSIVE gate: %w", ctx.Err())
+		return nil, fmt.Errorf("acquire legacy v18 cutover EXCLUSIVE gate: %w", handoffCtx.Err())
 	}
 
-	if _, err := gateConn.ExecContext(ctx, `PRAGMA query_only = 1`); err != nil {
+	validationCtx, validationCancel := context.WithTimeout(parent, timeout)
+	defer validationCancel()
+	if _, err := gateConn.ExecContext(validationCtx, `PRAGMA query_only = 1`); err != nil {
 		return nil, fmt.Errorf("set legacy v18 cutover EXCLUSIVE query_only: %w", err)
 	}
-	postInfo, err := validateLegacyV18CutoverSource(sqliteConnQueryer{ctx: ctx, conn: gateConn})
+	postInfo, err := validateLegacyV18CutoverSource(sqliteConnQueryer{ctx: validationCtx, conn: gateConn})
 	if err != nil {
 		return nil, fmt.Errorf("revalidate legacy v18 source under EXCLUSIVE gate: %w", err)
 	}
