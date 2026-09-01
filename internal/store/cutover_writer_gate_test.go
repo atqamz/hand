@@ -222,3 +222,43 @@ func TestFrozenLegacyBridgeBlocksPreparedStaleWriter(t *testing.T) {
 		t.Fatalf("Open frozen bridge = %v, want ErrSchemaNewer for a v0.7.2-style binary", err)
 	}
 }
+
+func TestLegacyOpenCannotMutateCanonicalV19(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := createCanonicalV19Schema(sqlDB); err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeDigest := sha256.Sum256(before)
+
+	legacy, openErr := Open(home)
+	if legacy != nil {
+		_ = legacy.Close()
+	}
+	after, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterDigest := sha256.Sum256(after)
+	if afterDigest != beforeDigest {
+		t.Fatalf("v0.7.2-style Open mutated canonical v19 before failing: err=%v before=%x after=%x", openErr, beforeDigest, afterDigest)
+	}
+	if openErr == nil {
+		t.Fatal("v0.7.2-style Open accepted canonical v19; old writers are not excluded after publication")
+	}
+}
