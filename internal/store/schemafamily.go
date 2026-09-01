@@ -128,6 +128,9 @@ func inspectSchemaFamily(sqlDB *sql.DB) (SchemaInfo, error) {
 				identity.Tables, identity.Indexes, identity.Triggers,
 				legacyV072TableCount, legacyV072IndexCount, legacyV072TriggerCount)
 		}
+		if err := validateLegacyV18DDLFeatures(sqlDB); err != nil {
+			return info, err
+		}
 		return info, nil
 	}
 
