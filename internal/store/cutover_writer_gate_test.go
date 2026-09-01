@@ -27,7 +27,7 @@ func TestCutoverWriterGateCanReserveWithoutMutatingLegacyDB(t *testing.T) {
 
 	path := Path(home)
 	escaped := (&url.URL{Path: path}).EscapedPath()
-	gateDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=rw&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)&_pragma=query_only(1)")
+	gateDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=rw&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,9 +42,12 @@ func TestCutoverWriterGateCanReserveWithoutMutatingLegacyDB(t *testing.T) {
 	defer func() { _ = gate.Close() }()
 
 	if _, err := gate.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		t.Fatalf("BEGIN IMMEDIATE with query_only = %v; cannot reserve legacy writer slot without allowing data mutation", err)
+		t.Fatalf("BEGIN IMMEDIATE = %v; cannot reserve legacy writer slot", err)
 	}
 	defer func() { _, _ = gate.ExecContext(ctx, `ROLLBACK`) }()
+	if _, err := gate.ExecContext(ctx, `PRAGMA query_only = 1`); err != nil {
+		t.Fatalf("enable query_only after reserving writer slot: %v", err)
+	}
 
 	var queryOnly int
 	if err := gate.QueryRowContext(ctx, `PRAGMA query_only`).Scan(&queryOnly); err != nil {
