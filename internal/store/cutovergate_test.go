@@ -45,6 +45,10 @@ func TestAcquireLegacyV18CutoverGateHoldsExactExclusiveSource(t *testing.T) {
 		_ = gate.Close()
 		t.Fatalf("gate query_only = %d, want 1", queryOnly)
 	}
+	if _, err := gate.conn.ExecContext(context.Background(), `CREATE TABLE forbidden_cutover_write (id INTEGER)`); err == nil {
+		_ = gate.Close()
+		t.Fatal("query-only cutover gate allowed a source mutation")
+	}
 
 	reader, err := openLegacyV18CutoverSQLite(Path(home), "ro", 0, true)
 	if err != nil {
