@@ -194,8 +194,8 @@ func validateCanonicalV19Schema(sqlDB *sql.DB) error {
 	return nil
 }
 
-func inspectCanonicalV19Identity(sqlDB *sql.DB) (canonicalV19Identity, error) {
-	rows, err := sqlDB.Query(`SELECT type, name, tbl_name, sql
+func inspectCanonicalV19Identity(q sqliteQueryer) (canonicalV19Identity, error) {
+	rows, err := q.Query(`SELECT type, name, tbl_name, sql
 		FROM sqlite_schema
 		WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL
 		ORDER BY type, name`)

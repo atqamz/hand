@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"unicode"
@@ -32,8 +31,8 @@ var legacyV072AutoIncrement = map[string]bool{
 // Legacy cutover accepts only the shipped v0.7.2 table semantics that PRAGMA
 // layout inspection cannot observe. Semantic DDL drift fails closed even when
 // columns, foreign keys, and indexes otherwise match.
-func validateLegacyV18DDLFeatures(sqlDB *sql.DB) error {
-	rows, err := sqlDB.Query(`SELECT name, sql FROM sqlite_schema
+func validateLegacyV18DDLFeatures(q sqliteQueryer) error {
+	rows, err := q.Query(`SELECT name, sql FROM sqlite_schema
 		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
 		ORDER BY name`)
 	if err != nil {

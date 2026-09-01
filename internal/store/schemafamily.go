@@ -49,6 +49,11 @@ var ErrUnsupportedLegacyV18Schema = errors.New("legacy v18 schema is not the exa
 // ErrUnknownSchema marks a non-empty database outside both recognized Hand schema families.
 var ErrUnknownSchema = errors.New("state database schema family is unknown")
 
+type sqliteQueryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // InspectSchema opens an existing state database read-only and classifies its
 // schema family. It never creates, migrates, checkpoints, or repairs state.
 func InspectSchema(homeDir string) (SchemaInfo, error) {
@@ -110,45 +115,73 @@ func inspectSchemaFamily(sqlDB *sql.DB) (SchemaInfo, error) {
 		return SchemaInfo{}, err
 	}
 	if legacy {
-		info.Family = SchemaFamilyLegacyV18
-		layoutFingerprint, err := legacyV18LayoutFingerprint(sqlDB)
-		if err != nil {
-			return info, err
-		}
-		info.LayoutFingerprint = layoutFingerprint
-		if version != legacyV072SchemaVersion {
-			return info, fmt.Errorf("%w: PRAGMA user_version = %d, want %d", ErrUnsupportedLegacyV18Schema, version, legacyV072SchemaVersion)
-		}
-		if layoutFingerprint != legacyV072LayoutFingerprint {
-			return info, fmt.Errorf("%w: layout fingerprint = %s, want %s", ErrUnsupportedLegacyV18Schema, layoutFingerprint, legacyV072LayoutFingerprint)
-		}
-		if identity.Tables != legacyV072TableCount || identity.Indexes != legacyV072IndexCount || identity.Triggers != legacyV072TriggerCount {
-			return info, fmt.Errorf("%w: schema objects = %d tables / %d indexes / %d triggers, want %d / %d / %d",
-				ErrUnsupportedLegacyV18Schema,
-				identity.Tables, identity.Indexes, identity.Triggers,
-				legacyV072TableCount, legacyV072IndexCount, legacyV072TriggerCount)
-		}
-		if err := validateLegacyV18DDLFeatures(sqlDB); err != nil {
-			return info, err
-		}
-		return info, nil
+		return inspectExactLegacyV18Schema(sqlDB)
 	}
 
 	info.Family = SchemaFamilyUnknown
 	return info, ErrUnknownSchema
 }
 
-func schemaUserVersion(sqlDB *sql.DB) (int, error) {
+func inspectExactLegacyV18Schema(q sqliteQueryer) (SchemaInfo, error) {
+	version, err := schemaUserVersion(q)
+	if err != nil {
+		return SchemaInfo{}, err
+	}
+	identity, err := inspectCanonicalV19Identity(q)
+	if err != nil {
+		return SchemaInfo{}, err
+	}
+	info := SchemaInfo{
+		Family:      SchemaFamilyLegacyV18,
+		UserVersion: version,
+		Fingerprint: identity.Fingerprint,
+		Tables:      identity.Tables,
+		Indexes:     identity.Indexes,
+		Triggers:    identity.Triggers,
+	}
+
+	legacy, err := legacyV18Candidate(q)
+	if err != nil {
+		return info, err
+	}
+	if !legacy {
+		return info, fmt.Errorf("%w: missing legacy meta relation", ErrUnsupportedLegacyV18Schema)
+	}
+
+	layoutFingerprint, err := legacyV18LayoutFingerprint(q)
+	if err != nil {
+		return info, err
+	}
+	info.LayoutFingerprint = layoutFingerprint
+	if version != legacyV072SchemaVersion {
+		return info, fmt.Errorf("%w: PRAGMA user_version = %d, want %d", ErrUnsupportedLegacyV18Schema, version, legacyV072SchemaVersion)
+	}
+	if layoutFingerprint != legacyV072LayoutFingerprint {
+		return info, fmt.Errorf("%w: layout fingerprint = %s, want %s", ErrUnsupportedLegacyV18Schema, layoutFingerprint, legacyV072LayoutFingerprint)
+	}
+	if identity.Tables != legacyV072TableCount || identity.Indexes != legacyV072IndexCount || identity.Triggers != legacyV072TriggerCount {
+		return info, fmt.Errorf("%w: schema objects = %d tables / %d indexes / %d triggers, want %d / %d / %d",
+			ErrUnsupportedLegacyV18Schema,
+			identity.Tables, identity.Indexes, identity.Triggers,
+			legacyV072TableCount, legacyV072IndexCount, legacyV072TriggerCount)
+	}
+	if err := validateLegacyV18DDLFeatures(q); err != nil {
+		return info, err
+	}
+	return info, nil
+}
+
+func schemaUserVersion(q sqliteQueryer) (int, error) {
 	var version int
-	if err := sqlDB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+	if err := q.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return 0, fmt.Errorf("read schema user_version: %w", err)
 	}
 	return version, nil
 }
 
-func legacyV18Candidate(sqlDB *sql.DB) (bool, error) {
+func legacyV18Candidate(q sqliteQueryer) (bool, error) {
 	var meta int
-	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'meta'`).Scan(&meta); err != nil {
+	if err := q.QueryRow(`SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'meta'`).Scan(&meta); err != nil {
 		return false, fmt.Errorf("detect legacy v18 meta relation: %w", err)
 	}
 	return meta == 1, nil
