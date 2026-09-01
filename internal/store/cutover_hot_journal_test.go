@@ -149,10 +149,9 @@ func TestCutoverReadSnapshotAndWriterGateSurviveHotJournal(t *testing.T) {
 	}
 	journalDigest := sha256.Sum256(journalBeforeGate)
 
-	// A SHARED reader and a RESERVED writer gate are compatible. Acquiring the
-	// cutover reservation while the reader still lives closes the future-writer
-	// race without first releasing the snapshot. The existing SHARED lock must
-	// also prevent this acquisition from changing DB or journal bytes.
+	// A SHARED reader and RESERVED writer gate are compatible. Acquiring the gate
+	// while the reader lives closes the future-writer race, and the SHARED lock
+	// must prevent gate acquisition from changing DB or journal bytes.
 	gateDB, err := sql.Open("sqlite", "file:"+escaped+"?mode=rw&_pragma=busy_timeout(0)&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
