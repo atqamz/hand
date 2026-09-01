@@ -11,8 +11,8 @@ import (
 
 const legacyV072LayoutFingerprint = "7cf67e6ac1c738e348d91ca552f66daa7b5eaf6e4aab9db84a78b49b70a07bec"
 
-func legacyV18LayoutFingerprint(sqlDB *sql.DB) (string, error) {
-	lines, err := legacyV18LayoutLines(sqlDB)
+func legacyV18LayoutFingerprint(q sqliteQueryer) (string, error) {
+	lines, err := legacyV18LayoutLines(q)
 	if err != nil {
 		return "", err
 	}
@@ -23,8 +23,8 @@ func legacyV18LayoutFingerprint(sqlDB *sql.DB) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func legacyV18LayoutLines(sqlDB *sql.DB) ([]string, error) {
-	tables, err := legacyV18TableNames(sqlDB)
+func legacyV18LayoutLines(q sqliteQueryer) ([]string, error) {
+	tables, err := legacyV18TableNames(q)
 	if err != nil {
 		return nil, err
 	}
@@ -32,17 +32,17 @@ func legacyV18LayoutLines(sqlDB *sql.DB) ([]string, error) {
 	lines := make([]string, 0, 128)
 	for _, table := range tables {
 		lines = append(lines, "table|"+table)
-		columns, err := legacyV18ColumnLines(sqlDB, table)
+		columns, err := legacyV18ColumnLines(q, table)
 		if err != nil {
 			return nil, err
 		}
 		lines = append(lines, columns...)
-		foreignKeys, err := legacyV18ForeignKeyLines(sqlDB, table)
+		foreignKeys, err := legacyV18ForeignKeyLines(q, table)
 		if err != nil {
 			return nil, err
 		}
 		lines = append(lines, foreignKeys...)
-		indexes, err := legacyV18IndexLines(sqlDB, table)
+		indexes, err := legacyV18IndexLines(q, table)
 		if err != nil {
 			return nil, err
 		}
@@ -53,8 +53,8 @@ func legacyV18LayoutLines(sqlDB *sql.DB) ([]string, error) {
 	return lines, nil
 }
 
-func legacyV18TableNames(sqlDB *sql.DB) ([]string, error) {
-	rows, err := sqlDB.Query(`SELECT name FROM sqlite_schema
+func legacyV18TableNames(q sqliteQueryer) ([]string, error) {
+	rows, err := q.Query(`SELECT name FROM sqlite_schema
 		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
 		ORDER BY name`)
 	if err != nil {
@@ -76,8 +76,8 @@ func legacyV18TableNames(sqlDB *sql.DB) ([]string, error) {
 	return tables, nil
 }
 
-func legacyV18ColumnLines(sqlDB *sql.DB, table string) ([]string, error) {
-	rows, err := sqlDB.Query(`SELECT name, type, "notnull", dflt_value, pk, hidden
+func legacyV18ColumnLines(q sqliteQueryer, table string) ([]string, error) {
+	rows, err := q.Query(`SELECT name, type, "notnull", dflt_value, pk, hidden
 		FROM pragma_table_xinfo(?)`, table)
 	if err != nil {
 		return nil, fmt.Errorf("read legacy v18 columns for %s: %w", table, err)
@@ -107,8 +107,8 @@ func legacyV18ColumnLines(sqlDB *sql.DB, table string) ([]string, error) {
 	return lines, nil
 }
 
-func legacyV18ForeignKeyLines(sqlDB *sql.DB, table string) ([]string, error) {
-	rows, err := sqlDB.Query(`SELECT "from", "table", "to", on_update, on_delete, match
+func legacyV18ForeignKeyLines(q sqliteQueryer, table string) ([]string, error) {
+	rows, err := q.Query(`SELECT "from", "table", "to", on_update, on_delete, match
 		FROM pragma_foreign_key_list(?)`, table)
 	if err != nil {
 		return nil, fmt.Errorf("read legacy v18 foreign keys for %s: %w", table, err)
@@ -137,8 +137,8 @@ type legacyV18IndexDescriptor struct {
 	Partial int
 }
 
-func legacyV18IndexLines(sqlDB *sql.DB, table string) ([]string, error) {
-	rows, err := sqlDB.Query(`SELECT name, "unique", origin, partial FROM pragma_index_list(?)`, table)
+func legacyV18IndexLines(q sqliteQueryer, table string) ([]string, error) {
+	rows, err := q.Query(`SELECT name, "unique", origin, partial FROM pragma_index_list(?)`, table)
 	if err != nil {
 		return nil, fmt.Errorf("read legacy v18 indexes for %s: %w", table, err)
 	}
@@ -162,12 +162,12 @@ func legacyV18IndexLines(sqlDB *sql.DB, table string) ([]string, error) {
 
 	var lines []string
 	for _, index := range indexes {
-		keys, err := legacyV18IndexKey(sqlDB, index.Name)
+		keys, err := legacyV18IndexKey(q, index.Name)
 		if err != nil {
 			return nil, err
 		}
 		if index.Origin == "c" {
-			predicate, err := legacyV18IndexPredicate(sqlDB, index.Name, index.Partial != 0)
+			predicate, err := legacyV18IndexPredicate(q, index.Name, index.Partial != 0)
 			if err != nil {
 				return nil, err
 			}
@@ -181,8 +181,8 @@ func legacyV18IndexLines(sqlDB *sql.DB, table string) ([]string, error) {
 	return lines, nil
 }
 
-func legacyV18IndexKey(sqlDB *sql.DB, index string) (string, error) {
-	rows, err := sqlDB.Query(`SELECT seqno, name, "desc", coll, key FROM pragma_index_xinfo(?)
+func legacyV18IndexKey(q sqliteQueryer, index string) (string, error) {
+	rows, err := q.Query(`SELECT seqno, name, "desc", coll, key FROM pragma_index_xinfo(?)
 		WHERE key = 1 ORDER BY seqno`, index)
 	if err != nil {
 		return "", fmt.Errorf("read legacy v18 index %s: %w", index, err)
@@ -205,12 +205,12 @@ func legacyV18IndexKey(sqlDB *sql.DB, index string) (string, error) {
 	return strings.Join(parts, ","), nil
 }
 
-func legacyV18IndexPredicate(sqlDB *sql.DB, index string, partial bool) (string, error) {
+func legacyV18IndexPredicate(q sqliteQueryer, index string, partial bool) (string, error) {
 	if !partial {
 		return "", nil
 	}
 	var ddl string
-	if err := sqlDB.QueryRow(`SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?`, index).Scan(&ddl); err != nil {
+	if err := q.QueryRow(`SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?`, index).Scan(&ddl); err != nil {
 		return "", fmt.Errorf("read legacy v18 partial index %s: %w", index, err)
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(ddl), " "))
