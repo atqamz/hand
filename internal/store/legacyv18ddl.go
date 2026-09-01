@@ -28,12 +28,9 @@ var legacyV072AutoIncrement = map[string]bool{
 	"send_attempt": true,
 }
 
-// validateLegacyV18DDLFeatures covers table semantics SQLite's PRAGMA-derived
-// layout fingerprint cannot observe. The accepted v0.7.2 source has exactly the
-// CHECK constraints and AUTOINCREMENT use below and no alternate table mode,
-// collation, conflict, or deferred-FK clauses. Cutover is read-only, but source
-// eligibility still fails closed on semantic DDL drift rather than calling two
-// schemas equivalent because their columns and indexes happen to match.
+// Legacy cutover accepts only the shipped v0.7.2 table semantics that PRAGMA
+// layout inspection cannot observe. Semantic DDL drift fails closed even when
+// columns, foreign keys, and indexes otherwise match.
 func validateLegacyV18DDLFeatures(sqlDB *sql.DB) error {
 	rows, err := sqlDB.Query(`SELECT name, sql FROM sqlite_schema
 		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
