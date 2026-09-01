@@ -62,7 +62,7 @@ func acquireLegacyV18CutoverLocks(ctx context.Context, homeDir string, gate *leg
 		path := legacyV18CutoverHashedLockPath(homeDir, key)
 		held, err := acquireLegacyV18CutoverPathLock(path, 0o600)
 		if err != nil {
-			return nil, fmt.Errorf("%w: acquire logical lock %q: %v", errLegacyV18CutoverLocksUnsafe, key, err)
+			return nil, fmt.Errorf("%w: acquire logical lock %q: %w", errLegacyV18CutoverLocksUnsafe, key, err)
 		}
 		locks.held = append(locks.held, held)
 		ownedHashed[path] = struct{}{}
@@ -71,28 +71,28 @@ func acquireLegacyV18CutoverLocks(ctx context.Context, homeDir string, gate *leg
 	watchPath := filepath.Join(Dir(homeDir), "watch.pid.lock")
 	watchLock, err := acquireLegacyV18CutoverPathLock(watchPath, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("%w: acquire watcher ownership lock: %v", errLegacyV18CutoverLocksUnsafe, err)
+		return nil, fmt.Errorf("%w: acquire watcher ownership lock: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 	locks.held = append(locks.held, watchLock)
 
 	registryPath := filepath.Join(homeDir, "data", "projects.md.lock")
 	if err := ensureLegacyV18CutoverLockParent(registryPath); err != nil {
-		return nil, fmt.Errorf("%w: prepare project registry lock: %v", errLegacyV18CutoverLocksUnsafe, err)
+		return nil, fmt.Errorf("%w: prepare project registry lock: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 	registryLock, err := acquireLegacyV18CutoverPathLock(registryPath, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("%w: acquire project registry lock: %v", errLegacyV18CutoverLocksUnsafe, err)
+		return nil, fmt.Errorf("%w: acquire project registry lock: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 	locks.held = append(locks.held, registryLock)
 
 	migrationPath := legacyV18CutoverHashedLockPath(homeDir, MigrationLock)
 	if err := validateLegacyV18CutoverRendezvousPath(migrationPath); err != nil {
-		return nil, fmt.Errorf("%w: validate held MigrationLock pathname: %v", errLegacyV18CutoverLocksUnsafe, err)
+		return nil, fmt.Errorf("%w: validate held MigrationLock pathname: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 
 	before, err := legacyV18CutoverHashedLockNames(Dir(homeDir))
 	if err != nil {
-		return nil, fmt.Errorf("%w: enumerate hashed lock namespace: %v", errLegacyV18CutoverLocksUnsafe, err)
+		return nil, fmt.Errorf("%w: enumerate hashed lock namespace: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 	for _, name := range before {
 		path := filepath.Join(Dir(homeDir), name)
@@ -101,7 +101,7 @@ func acquireLegacyV18CutoverLocks(ctx context.Context, homeDir string, gate *leg
 		}
 		held, err := acquireLegacyV18CutoverPathLock(path, 0o600)
 		if err != nil {
-			return nil, fmt.Errorf("%w: acquire existing hashed rendezvous %s: %v", errLegacyV18CutoverLocksUnsafe, name, err)
+			return nil, fmt.Errorf("%w: acquire existing hashed rendezvous %s: %w", errLegacyV18CutoverLocksUnsafe, name, err)
 		}
 		locks.held = append(locks.held, held)
 		ownedHashed[path] = struct{}{}
@@ -109,18 +109,18 @@ func acquireLegacyV18CutoverLocks(ctx context.Context, homeDir string, gate *leg
 
 	after, err := legacyV18CutoverHashedLockNames(Dir(homeDir))
 	if err != nil {
-		return nil, fmt.Errorf("%w: re-enumerate hashed lock namespace: %v", errLegacyV18CutoverLocksUnsafe, err)
+		return nil, fmt.Errorf("%w: re-enumerate hashed lock namespace: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 	if !equalLegacyV18CutoverLockNames(before, after) {
 		return nil, fmt.Errorf("%w: hashed lock namespace changed during quiescence proof: before=%v after=%v", errLegacyV18CutoverLocksUnsafe, before, after)
 	}
 	for _, held := range locks.held {
 		if err := held.verifyPathIdentity(); err != nil {
-			return nil, fmt.Errorf("%w: %v", errLegacyV18CutoverLocksUnsafe, err)
+			return nil, fmt.Errorf("%w: %w", errLegacyV18CutoverLocksUnsafe, err)
 		}
 	}
 	if err := validateLegacyV18CutoverRendezvousPath(migrationPath); err != nil {
-		return nil, fmt.Errorf("%w: revalidate held MigrationLock pathname: %v", errLegacyV18CutoverLocksUnsafe, err)
+		return nil, fmt.Errorf("%w: revalidate held MigrationLock pathname: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 
 	keep = true
@@ -131,7 +131,7 @@ func legacyV18CutoverLogicalLockKeys(q sqliteQueryer) ([]string, error) {
 	keys := map[string]struct{}{
 		"config:routing": {},
 		"completions":    {},
-		SchemaLock:        {},
+		SchemaLock:       {},
 	}
 
 	taskRows, err := q.Query(`SELECT id, project FROM task ORDER BY id`)
