@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 var legacyV072Checks = map[string][]string{
@@ -83,10 +84,70 @@ func validateLegacyV18DDLFeatures(sqlDB *sql.DB) error {
 }
 
 func compactLegacyV18DDL(ddl string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			return -1
+	var compact strings.Builder
+	for i := 0; i < len(ddl); {
+		switch {
+		case strings.HasPrefix(ddl[i:], "--"):
+			i += 2
+			for i < len(ddl) && ddl[i] != '\n' {
+				i++
+			}
+		case strings.HasPrefix(ddl[i:], "/*"):
+			i += 2
+			for i < len(ddl) && !strings.HasPrefix(ddl[i:], "*/") {
+				i++
+			}
+			if i < len(ddl) {
+				i += 2
+			}
+		case ddl[i] == '\'':
+			compact.WriteByte(ddl[i])
+			i++
+			for i < len(ddl) {
+				compact.WriteByte(ddl[i])
+				if ddl[i] == '\'' {
+					if i+1 < len(ddl) && ddl[i+1] == '\'' {
+						compact.WriteByte(ddl[i+1])
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+		case ddl[i] == '"' || ddl[i] == '`':
+			quote := ddl[i]
+			i++
+			for i < len(ddl) {
+				if ddl[i] == quote {
+					if i+1 < len(ddl) && ddl[i+1] == quote {
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+			compact.WriteString("quotedidentifier")
+		case ddl[i] == '[':
+			i++
+			for i < len(ddl) && ddl[i] != ']' {
+				i++
+			}
+			if i < len(ddl) {
+				i++
+			}
+			compact.WriteString("quotedidentifier")
+		default:
+			r, size := utf8.DecodeRuneInString(ddl[i:])
+			i += size
+			if unicode.IsSpace(r) {
+				continue
+			}
+			compact.WriteRune(unicode.ToLower(r))
 		}
-		return unicode.ToLower(r)
-	}, ddl)
+	}
+	return compact.String()
 }
