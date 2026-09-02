@@ -61,12 +61,12 @@ type legacyV18CutoverProjectTreehouseDeps struct {
 	resolveRoot        func(string) (string, error)
 	commonDir          func(string) (string, error)
 	isBare             func(string) (bool, error)
-	headCommit          func(string) (string, error)
-	poolSearchRoots     func(string, string) []string
-	discoverPoolSlots   func(string, ...string) ([]worktree.PoolSlot, error)
+	headCommit         func(string) (string, error)
+	poolSearchRoots    func(string, string) []string
+	discoverPoolSlots  func(string, ...string) ([]worktree.PoolSlot, error)
 	poolSlotCollisions func([]worktree.PoolSlot) [][]worktree.PoolSlot
-	poolStatus          func(string) ([]worktree.PoolEntry, error)
-	observeLease        func(string, string, string) worktree.LeaseObservation
+	poolStatus         func(string) ([]worktree.PoolEntry, error)
+	observeLease       func(string, string, string) worktree.LeaseObservation
 }
 
 func defaultLegacyV18CutoverProjectTreehouseDeps() legacyV18CutoverProjectTreehouseDeps {
@@ -74,12 +74,12 @@ func defaultLegacyV18CutoverProjectTreehouseDeps() legacyV18CutoverProjectTreeho
 		resolveRoot:        gitrepo.ResolveRoot,
 		commonDir:          gitrepo.CommonDir,
 		isBare:             gitrepo.IsBare,
-		headCommit:          gitrepo.HeadCommit,
-		poolSearchRoots:     worktree.PoolSearchRoots,
-		discoverPoolSlots:   worktree.DiscoverPoolSlots,
+		headCommit:         gitrepo.HeadCommit,
+		poolSearchRoots:    worktree.PoolSearchRoots,
+		discoverPoolSlots:  worktree.DiscoverPoolSlots,
 		poolSlotCollisions: worktree.PoolSlotCollisions,
-		poolStatus:          worktree.PoolStatus,
-		observeLease:        worktree.ObserveLease,
+		poolStatus:         worktree.PoolStatus,
+		observeLease:       worktree.ObserveLease,
 	}
 }
 
