@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,10 +12,16 @@ import (
 	"github.com/atqamz/hand/internal/worktree"
 )
 
+func TestObserveLegacyV18CutoverProjectTreehouseRejectsNilGuard(t *testing.T) {
+	if _, err := observeLegacyV18CutoverProjectTreehouse(context.Background(), t.TempDir(), nil); !errors.Is(err, store.ErrLegacyV18CutoverGuardClosed) {
+		t.Fatalf("nil guard observation = %v, want %v", err, store.ErrLegacyV18CutoverGuardClosed)
+	}
+}
+
 func TestObserveLegacyV18CutoverProjectTreehousePlanAllowsQuiescentProjectAndPool(t *testing.T) {
 	home, _, plan, deps := legacyV18CutoverProjectTreehouseFixture(t)
 
-	evidence, err := observeLegacyV18CutoverProjectTreehousePlan(nil, home, plan, deps)
+	evidence, err := observeLegacyV18CutoverProjectTreehousePlan(context.Background(), home, plan, deps)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +37,7 @@ func TestObserveLegacyV18CutoverProjectTreehousePlanAllowsForeignFleetLease(t *t
 		return []worktree.PoolEntry{{Path: slot, Status: "leased", LeaseID: "lease-2", LeaseHolder: "hand:f_other:task-2"}}, nil
 	}
 
-	if _, err := observeLegacyV18CutoverProjectTreehousePlan(nil, home, plan, deps); err != nil {
+	if _, err := observeLegacyV18CutoverProjectTreehousePlan(context.Background(), home, plan, deps); err != nil {
 		t.Fatalf("foreign Fleet lease blocked cutover: %v", err)
 	}
 }
@@ -79,7 +86,7 @@ func TestObserveLegacyV18CutoverProjectTreehousePlanAllowsRecordedLeaseReusedByF
 		return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "new-lease"}
 	}
 
-	if _, err := observeLegacyV18CutoverProjectTreehousePlan(nil, home, plan, deps); err != nil {
+	if _, err := observeLegacyV18CutoverProjectTreehousePlan(context.Background(), home, plan, deps); err != nil {
 		t.Fatalf("positively foreign lease reuse blocked cutover: %v", err)
 	}
 }
@@ -176,7 +183,7 @@ func legacyV18CutoverProjectTreehouseFixture(t *testing.T) (string, string, stor
 
 func requireLegacyV18CutoverProjectTreehouseBlocker(t *testing.T, home string, plan store.LegacyV18CutoverObservationPlan, deps legacyV18CutoverProjectTreehouseDeps, code string) {
 	t.Helper()
-	_, err := observeLegacyV18CutoverProjectTreehousePlan(nil, home, plan, deps)
+	_, err := observeLegacyV18CutoverProjectTreehousePlan(context.Background(), home, plan, deps)
 	if err == nil {
 		t.Fatalf("want blocker %q, got nil", code)
 	}
