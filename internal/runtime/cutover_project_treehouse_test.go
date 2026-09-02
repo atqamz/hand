@@ -156,7 +156,7 @@ func legacyV18CutoverProjectTreehouseFixture(t *testing.T) (string, string, stor
 			return nil, nil
 		},
 		poolSlotCollisions: func([]worktree.PoolSlot) [][]worktree.PoolSlot { return nil },
-		poolStatus:          func(string) ([]worktree.PoolEntry, error) { return nil, nil },
+		poolStatus:         func(string) ([]worktree.PoolEntry, error) { return nil, nil },
 		observeLease: func(string, string, string) worktree.LeaseObservation {
 			return worktree.LeaseObservation{State: worktree.LeaseAbsent}
 		},
