@@ -32,8 +32,8 @@ func TestClassifyLegacyV18CutoverDurableStateAcceptsTerminalArchiveOnlyHistory(t
 
 func TestClassifyLegacyV18CutoverDurableStateRejectsSafetyRelevantOpenFacts(t *testing.T) {
 	tests := []struct {
-		name string
-		code string
+		name   string
+		code   string
 		mutate func(t *testing.T, db *DB)
 	}{
 		{
