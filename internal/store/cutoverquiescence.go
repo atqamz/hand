@@ -235,7 +235,7 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 		worktree, lease_id,
 		herdr_session, herdr_workspace_id, herdr_tab_id, herdr_pane_id,
 		launch_submitted_at, launch_confirmed_at,
-		send_undelivered_message, usage_limit_retry_at, usage_limit_stuck_episode,
+		send_undelivered_message, usage_limit_retry_at,
 		teardown_terminal_attempt, teardown_disposition,
 		teardown_herdr_state, teardown_worktree_state, teardown_completion_state
 		FROM attempt ORDER BY task_id, ordinal, id`)
@@ -243,7 +243,7 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 		return plan, fmt.Errorf("read legacy v18 Attempts for cutover quiescence: %w", err)
 	}
 	for attemptRows.Next() {
-		var id, usageLimitStuckEpisode int64
+		var id int64
 		var taskID, lifecycle string
 		var worktreePath, leaseID string
 		var herdrSession, herdrWorkspaceID, herdrTabID, herdrPaneID string
@@ -256,7 +256,7 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 			&worktreePath, &leaseID,
 			&herdrSession, &herdrWorkspaceID, &herdrTabID, &herdrPaneID,
 			&launchSubmittedAt, &launchConfirmedAt,
-			&sendUndeliveredMessage, &usageLimitRetryAt, &usageLimitStuckEpisode,
+			&sendUndeliveredMessage, &usageLimitRetryAt,
 			&teardownTerminalAttempt, &teardownDisposition,
 			&teardownHerdrState, &teardownWorktreeState, &teardownCompletionState,
 		); err != nil {
@@ -276,7 +276,7 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 		if (launchSubmittedAt != "" || launchConfirmedAt != "") && teardownDisposition == "" && legacyV18AttemptLifecycleTerminal(lifecycle) {
 			addBlocker("attempt-launch-unresolved", subject, "terminal launched attempt has no durable teardown disposition")
 		}
-		if usageLimitRetryAt != "" || usageLimitStuckEpisode != 0 {
+		if usageLimitRetryAt != "" {
 			addBlocker("attempt-backoff-open", subject, "usage-limit retry/backoff state remains open")
 		}
 		if sendUndeliveredMessage != "" {
