@@ -5,6 +5,9 @@ import (
 	"errors"
 )
 
+// ErrLegacyV18CutoverGuardClosed means provider observation no longer owns the required source guards.
+var ErrLegacyV18CutoverGuardClosed = errors.New("legacy v18 cutover guard is closed")
+
 // LegacyV18CutoverProjectObservation is one registered legacy Project that provider quiescence must verify.
 type LegacyV18CutoverProjectObservation struct {
 	ProjectID string
@@ -88,16 +91,16 @@ func AcquireLegacyV18CutoverGuard(ctx context.Context, homeDir string) (*LegacyV
 	return &LegacyV18CutoverGuard{gate: gate, locks: locks, plan: exportLegacyV18CutoverObservationPlan(plan)}, nil
 }
 
-// ObservationPlan returns a copy so a provider observer cannot mutate the guard's source-derived evidence.
-func (g *LegacyV18CutoverGuard) ObservationPlan() LegacyV18CutoverObservationPlan {
-	if g == nil {
-		return LegacyV18CutoverObservationPlan{}
+// ObservationPlan returns a copy only while the source gate and Fleet-local lock closure remain held.
+func (g *LegacyV18CutoverGuard) ObservationPlan() (LegacyV18CutoverObservationPlan, error) {
+	if g == nil || g.gate == nil || g.locks == nil {
+		return LegacyV18CutoverObservationPlan{}, ErrLegacyV18CutoverGuardClosed
 	}
 	plan := g.plan
 	plan.Projects = append([]LegacyV18CutoverProjectObservation(nil), g.plan.Projects...)
 	plan.Worktrees = append([]LegacyV18CutoverWorktreeObservation(nil), g.plan.Worktrees...)
 	plan.Herdr = append([]LegacyV18CutoverHerdrObservation(nil), g.plan.Herdr...)
-	return plan
+	return plan, nil
 }
 
 // Close releases Fleet-local locks before the EXCLUSIVE source gate and MigrationLock.
