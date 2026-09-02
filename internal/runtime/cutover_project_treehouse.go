@@ -61,7 +61,7 @@ type legacyV18CutoverProjectTreehouseDeps struct {
 	resolveRoot        func(string) (string, error)
 	commonDir          func(string) (string, error)
 	isBare             func(string) (bool, error)
-	headCommit          func(string) (string, error)
+	headCommit         func(string) (string, error)
 	poolSearchRoots    func(string, string) []string
 	discoverPoolSlots  func(string, ...string) ([]worktree.PoolSlot, error)
 	poolSlotCollisions func([]worktree.PoolSlot) [][]worktree.PoolSlot
