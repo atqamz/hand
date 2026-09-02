@@ -217,6 +217,22 @@ func TestClassifyLegacyV18CutoverDurableStateResolvesCurrentProjectThroughProjec
 	}
 }
 
+func TestClassifyLegacyV18CutoverDurableStateDoesNotReattachRemovedProjectByReusedName(t *testing.T) {
+	home := createLegacyV18DurableQuiescenceFixture(t)
+	db, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execLegacyV18DurableQuiescenceTest(t, db, `UPDATE task SET project_id = '' WHERE id = 'task-1'`)
+	execLegacyV18DurableQuiescenceTest(t, db, `UPDATE attempt SET worktree = '/tmp/demo-worktree', lease_id = 'lease-1', teardown_worktree_state = 'released' WHERE task_id = 'task-1'`)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = classifyLegacyV18DurableQuiescenceTestHome(t, home)
+	requireLegacyV18CutoverBlockerCode(t, err, "worktree-project-unresolved")
+}
+
 func TestPlanLegacyV18CutoverObservationsRequiresLiveGateAndLockClosure(t *testing.T) {
 	home := createLegacyV18DurableQuiescenceFixture(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
