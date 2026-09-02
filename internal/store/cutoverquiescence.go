@@ -82,7 +82,6 @@ type legacyV18CutoverObservationPlan struct {
 }
 
 type legacyV18CutoverTaskProject struct {
-	RawName   string
 	ProjectID string
 }
 
@@ -153,7 +152,6 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 	}
 
 	projectsByID := make(map[string]legacyV18CutoverProjectObservationRequest)
-	projectsByName := make(map[string]legacyV18CutoverProjectObservationRequest)
 	projectRows, err := q.Query(`SELECT id, name, url, mode, upstream FROM project ORDER BY position, name`)
 	if err != nil {
 		return plan, fmt.Errorf("read legacy v18 Projects for cutover quiescence: %w", err)
@@ -172,7 +170,6 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 			addBlocker("project-name-invalid", "project:"+project.Name, "name is not a registry-safe path segment")
 		}
 		projectsByID[project.ProjectID] = project
-		projectsByName[project.Name] = project
 		plan.Projects = append(plan.Projects, project)
 	}
 	if err := projectRows.Err(); err != nil {
@@ -184,18 +181,18 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 	}
 
 	taskProjects := make(map[string]legacyV18CutoverTaskProject)
-	taskRows, err := q.Query(`SELECT id, project, project_id, lifecycle, active_attempt_id, repair_code FROM task ORDER BY id`)
+	taskRows, err := q.Query(`SELECT id, project_id, lifecycle, active_attempt_id, repair_code FROM task ORDER BY id`)
 	if err != nil {
 		return plan, fmt.Errorf("read legacy v18 Tasks for cutover quiescence: %w", err)
 	}
 	for taskRows.Next() {
-		var id, projectName, projectID, lifecycle, repairCode string
+		var id, projectID, lifecycle, repairCode string
 		var activeAttempt sql.NullInt64
-		if err := taskRows.Scan(&id, &projectName, &projectID, &lifecycle, &activeAttempt, &repairCode); err != nil {
+		if err := taskRows.Scan(&id, &projectID, &lifecycle, &activeAttempt, &repairCode); err != nil {
 			_ = taskRows.Close()
 			return plan, fmt.Errorf("read legacy v18 Tasks for cutover quiescence: %w", err)
 		}
-		taskProjects[id] = legacyV18CutoverTaskProject{RawName: projectName, ProjectID: projectID}
+		taskProjects[id] = legacyV18CutoverTaskProject{ProjectID: projectID}
 		if lifecycle != string(TaskTerminal) {
 			addBlocker("task-nonterminal", "task:"+id, "lifecycle="+strconv.Quote(lifecycle))
 		}
@@ -294,10 +291,10 @@ func classifyLegacyV18CutoverDurableState(homeDir string, q sqliteQueryer) (lega
 		}
 
 		taskProject := taskProjects[taskID]
+		// An empty ProjectID is deliberate historical provenance when the registered Project was
+		// removed. Exact v0.7.2 migration refuses to reattach that task if the name is later reused,
+		// so cutover must never recover authority by falling back to task.project.
 		project, projectKnown := projectsByID[taskProject.ProjectID]
-		if !projectKnown && taskProject.ProjectID == "" {
-			project, projectKnown = projectsByName[taskProject.RawName]
-		}
 
 		if worktreePath == "" {
 			if leaseID != "" || teardownWorktreeState != "" {
