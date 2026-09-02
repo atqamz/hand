@@ -35,6 +35,16 @@ func TestObserveLegacyV18CutoverProjectTreehousePlanAllowsForeignFleetLease(t *t
 	}
 }
 
+func TestObserveLegacyV18CutoverProjectTreehousePlanBlocksForeignHolderWithoutLeaseIdentity(t *testing.T) {
+	home, _, plan, deps := legacyV18CutoverProjectTreehouseFixture(t)
+	slot := filepath.Join(home, "pool", "slot-1")
+	deps.poolStatus = func(string) ([]worktree.PoolEntry, error) {
+		return []worktree.PoolEntry{{Path: slot, Status: "leased", LeaseHolder: "hand:f_other:task-2"}}, nil
+	}
+
+	requireLegacyV18CutoverProjectTreehouseBlocker(t, home, plan, deps, "treehouse-live-or-unknown-lease")
+}
+
 func TestObserveLegacyV18CutoverProjectTreehousePlanBlocksSameFleetLease(t *testing.T) {
 	home, _, plan, deps := legacyV18CutoverProjectTreehouseFixture(t)
 	slot := filepath.Join(home, "pool", "slot-1")
