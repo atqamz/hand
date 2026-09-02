@@ -10,10 +10,10 @@ func TestLegacyV18CutoverGuardObservationPlanIsCopiedAndRequiresHeldGuard(t *tes
 		gate:  &legacyV18CutoverGate{},
 		locks: &legacyV18CutoverLocks{},
 		plan: LegacyV18CutoverObservationPlan{
-			FleetID: "f_test",
-			Projects: []LegacyV18CutoverProjectObservation{{ProjectID: "project-1", Name: "demo"}},
+			FleetID:   "f_test",
+			Projects:  []LegacyV18CutoverProjectObservation{{ProjectID: "project-1", Name: "demo"}},
 			Worktrees: []LegacyV18CutoverWorktreeObservation{{AttemptID: 1, WorktreePath: "/worktree"}},
-			Herdr: []LegacyV18CutoverHerdrObservation{{AttemptID: 1, WorkspaceID: "workspace"}},
+			Herdr:     []LegacyV18CutoverHerdrObservation{{AttemptID: 1, WorkspaceID: "workspace"}},
 		},
 	}
 
