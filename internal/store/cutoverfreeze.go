@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	legacyV18CutoverFrozenUserVersion         = 22
+	legacyV18CutoverFrozenUserVersion        = 22
 	legacyV18CutoverFreezeCertificateKey     = "v19-cutover-freeze"
 	legacyV18CutoverFreezeCertificateVersion = "v1"
-	legacyV18CutoverFreezeAbortMessage        = "legacy source frozen for v19 cutover"
+	legacyV18CutoverFreezeAbortMessage       = "legacy source frozen for v19 cutover"
 )
 
 var legacyV18CutoverFreezeTables = []string{
