@@ -11,15 +11,15 @@ import (
 )
 
 type legacyV18CutoverProjectManifestEvidence struct {
-	ProjectID           string
-	Locator             string
+	ProjectID            string
+	Locator              string
 	RepositoryPhysicalID string
-	CommonDirPhysicalID string
-	Revision            string
-	LegacyName          string
-	LegacyURL           string
-	LegacyMode          string
-	LegacyUpstream      string
+	CommonDirPhysicalID  string
+	Revision             string
+	LegacyName           string
+	LegacyURL            string
+	LegacyMode           string
+	LegacyUpstream       string
 }
 
 type legacyV18CutoverProjectManifestDeps struct {
