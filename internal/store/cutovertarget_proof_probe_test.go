@@ -21,39 +21,32 @@ func TestProbeCanonicalV19CutoverProof(t *testing.T) {
 	}
 	defer func() { _ = reader.Close() }()
 
-	var lines []string
+	var out []string
+	inside := false
 	scanner := bufio.NewScanner(reader)
+	lineNumber := 0
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		lineNumber++
+		line := scanner.Text()
+		if strings.HasPrefix(line, "def cutover_target_proof(") {
+			inside = true
+		}
+		if !inside {
+			continue
+		}
+		if len(out) > 0 && strings.HasPrefix(line, "def ") {
+			break
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			out = append(out, fmt.Sprintf("%04d %s", lineNumber, trimmed))
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-
-	seen := make(map[int]struct{})
-	var out []string
-	for i, line := range lines {
-		if !strings.Contains(line, "legacy_import") {
-			continue
-		}
-		start := i - 40
-		if start < 0 {
-			start = 0
-		}
-		end := i + 41
-		if end > len(lines) {
-			end = len(lines)
-		}
-		for j := start; j < end; j++ {
-			if _, ok := seen[j]; ok {
-				continue
-			}
-			seen[j] = struct{}{}
-			out = append(out, fmt.Sprintf("%04d %s", j+1, strings.TrimSpace(lines[j])))
-		}
-	}
 	if len(out) == 0 {
-		t.Fatal("locked v19 proof contains no legacy_import reference")
+		t.Fatal("locked v19 proof contains no cutover_target_proof function")
 	}
-	t.Fatalf("locked v19 cutover proof context:\n%s", strings.Join(out, "\n"))
+	t.Fatalf("locked v19 cutover proof function: %s", strings.Join(out, " || "))
 }
