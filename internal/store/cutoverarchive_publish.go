@@ -65,6 +65,19 @@ func promoteLegacyV18CutoverArchiveCandidate(homeDir string, candidate legacyV18
 		if digest != candidate.SHA256 {
 			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("existing legacy v18 cutover original archive digest=%s, want %s", digest, candidate.SHA256)
 		}
+		if err := syncLegacyV18CutoverFile(archive.Path); err != nil {
+			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("flush existing legacy v18 cutover original archive: %w", err)
+		}
+		if err := syncLegacyV18CutoverDirectoryParent(archive.Path); err != nil {
+			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("flush existing legacy v18 cutover original archive directory: %w", err)
+		}
+		digest, err = legacyV18CutoverFileSHA256(archive.Path)
+		if err != nil {
+			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("reopen and hash existing legacy v18 cutover original archive: %w", err)
+		}
+		if digest != candidate.SHA256 {
+			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("existing legacy v18 cutover original archive changed after flush: digest=%s, want %s", digest, candidate.SHA256)
+		}
 		return archive, nil
 	} else if !os.IsNotExist(err) {
 		return legacyV18CutoverOriginalArchive{}, fmt.Errorf("inspect legacy v18 cutover original archive: %w", err)
