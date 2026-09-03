@@ -21,9 +21,8 @@ type legacyV18CutoverArchiveCandidate struct {
 	SHA256      string
 }
 
-// legacyV18CutoverMigrationIdentity is the versioned deterministic identity for one
-// exact legacy source. The digest input is the lowercase hex SHA-256 of the original
-// pre-freeze database bytes, not any later frozen-bridge digest.
+// This versioned deterministic identity binds one exact Fleet to the original
+// pre-freeze database bytes, never to a later frozen-bridge digest.
 func legacyV18CutoverMigrationIdentity(fleetID, sourceSHA256 string) (string, error) {
 	if err := validateFleetID(fleetID); err != nil {
 		return "", fmt.Errorf("derive legacy v18 cutover migration identity: %w", err)
