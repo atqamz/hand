@@ -120,6 +120,41 @@ func TestAcquireLegacyV18CutoverGateReusesExactCandidateAfterFreshGateProof(t *t
 	}
 }
 
+func TestWriteLegacyV18CutoverArchiveCandidateRebuildsMismatchedExistingCandidate(t *testing.T) {
+	home := createLegacyV18CutoverTestSource(t)
+	sourcePath := Path(home)
+	sourceDigest, err := legacyV18CutoverFileSHA256(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidatePath := filepath.Join(filepath.Dir(sourcePath), "candidate")
+	if err := os.WriteFile(candidatePath, []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeLegacyV18CutoverArchiveCandidate(sourcePath, candidatePath, sourceDigest); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(before, after) {
+		t.Fatal("mismatched archive candidate was retained instead of rebuilt")
+	}
+	gotDigest, err := legacyV18CutoverFileSHA256(candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDigest != sourceDigest {
+		t.Fatalf("rebuilt archive candidate digest = %s, want %s", gotDigest, sourceDigest)
+	}
+}
+
 func TestWriteLegacyV18CutoverArchiveCandidateRefusesNonRegularExistingPath(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	sourceDigest, err := legacyV18CutoverFileSHA256(Path(home))
