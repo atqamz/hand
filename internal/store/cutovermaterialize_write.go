@@ -81,5 +81,5 @@ func canonicalV19CutoverTotalDataRows(sqlDB *sql.DB) (int, error) {
 }
 
 func quoteCanonicalV19Identifier(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+	return "\"" + strings.ReplaceAll(value, "\"", "\"\"") + "\""
 }
