@@ -79,7 +79,7 @@ func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *leg
 	if err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: %w", err)
 	}
-	expectedMigrationID, err := legacyV18CutoverMigrationID(fleetID, gate.sourceSHA256)
+	expectedMigrationID, err := legacyV18CutoverMigrationIdentity(fleetID, gate.sourceSHA256)
 	if err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: derive migration identity: %w", err)
 	}
