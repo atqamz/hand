@@ -18,14 +18,14 @@ const (
 )
 
 type legacyV18CutoverRecoveryState struct {
-	Disposition   legacyV18CutoverRecoveryDisposition
-	Reason        string
-	MigrationID   string
-	FleetID       string
-	SourceSHA256  string
-	BridgeSHA256  string
-	Manifest      legacyV18CutoverManifestArtifact
-	Materialized  canonicalV19CutoverMaterialization
+	Disposition  legacyV18CutoverRecoveryDisposition
+	Reason       string
+	MigrationID  string
+	FleetID      string
+	SourceSHA256 string
+	BridgeSHA256 string
+	Manifest     legacyV18CutoverManifestArtifact
+	Materialized canonicalV19CutoverMaterialization
 }
 
 // Classifies startup cutover/recovery authority without writing, syncing,
