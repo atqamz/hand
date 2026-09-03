@@ -9,9 +9,9 @@ import (
 	"github.com/atqamz/hand/internal/store"
 )
 
-// legacyV18CutoverImportPlan is the bounded semantic input that 5C may later
-// materialize into canonical v19. It deliberately contains no legacy execution,
-// runtime, Treehouse, Herdr, Send, or effect history.
+// This bounded semantic input is all that 5C may later materialize into
+// canonical v19. It deliberately contains no legacy execution, runtime,
+// Treehouse, Herdr, Send, or effect history.
 type legacyV18CutoverImportPlan struct {
 	FleetID  string
 	Projects []legacyV18CutoverProjectImportPlan
