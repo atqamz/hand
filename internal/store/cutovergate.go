@@ -20,6 +20,7 @@ const (
 type legacyV18CutoverGate struct {
 	info             SchemaInfo
 	sourceSHA256     string
+	archiveCandidate legacyV18CutoverArchiveCandidate
 	db               *sql.DB
 	conn             *sql.Conn
 	releaseMigration func()
@@ -83,6 +84,10 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 	if err != nil {
 		return nil, fmt.Errorf("validate legacy v18 cutover SHARED snapshot: %w", err)
 	}
+	fleetID, err := legacyV18CutoverFleetID(readTx)
+	if err != nil {
+		return nil, err
+	}
 	candidateDigest, err := legacyV18CutoverFileSHA256(path)
 	if err != nil {
 		return nil, fmt.Errorf("hash legacy v18 cutover SHARED source: %w", err)
@@ -130,6 +135,23 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 		<-exclusive
 		return nil, fmt.Errorf("legacy v18 cutover source changed under SHARED reader barrier: candidate=%s barrier=%s", candidateDigest, barrierDigest)
 	}
+	archiveCandidate, err := prepareLegacyV18CutoverArchiveCandidate(homeDir, fleetID, candidateDigest)
+	if err != nil {
+		handoffCancel()
+		<-exclusive
+		return nil, fmt.Errorf("prepare legacy v18 cutover archive candidate under reader barrier: %w", err)
+	}
+	barrierPostArchiveDigest, err := legacyV18CutoverFileSHA256(path)
+	if err != nil {
+		handoffCancel()
+		<-exclusive
+		return nil, fmt.Errorf("rehash legacy v18 source after archive candidate: %w", err)
+	}
+	if barrierPostArchiveDigest != candidateDigest {
+		handoffCancel()
+		<-exclusive
+		return nil, fmt.Errorf("legacy v18 cutover source changed while archive candidate was written: candidate=%s post_archive=%s", candidateDigest, barrierPostArchiveDigest)
+	}
 
 	if err := readTx.Rollback(); err != nil {
 		handoffCancel()
@@ -173,12 +195,16 @@ func acquireLegacyV18CutoverGateWithTimeout(parent context.Context, homeDir stri
 	if postDigest != candidateDigest {
 		return nil, fmt.Errorf("legacy v18 cutover source changed across EXCLUSIVE handoff: candidate=%s post=%s", candidateDigest, postDigest)
 	}
+	if archiveCandidate.SHA256 != postDigest {
+		return nil, fmt.Errorf("legacy v18 cutover archive candidate digest = %s, source under EXCLUSIVE = %s", archiveCandidate.SHA256, postDigest)
+	}
 
 	gateOpen = false
 	releaseOnError = false
 	return &legacyV18CutoverGate{
 		info:             postInfo,
 		sourceSHA256:     postDigest,
+		archiveCandidate: archiveCandidate,
 		db:               gateDB,
 		conn:             gateConn,
 		releaseMigration: releaseMigration,
