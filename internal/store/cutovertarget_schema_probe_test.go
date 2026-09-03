@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -31,12 +30,12 @@ func TestProbeCanonicalV19CutoverRelations(t *testing.T) {
 		}
 		lower := strings.ToLower(name)
 		if strings.Contains(lower, "fleet") || strings.Contains(lower, "project") || strings.Contains(lower, "workspace") || strings.Contains(lower, "policy") || strings.Contains(lower, "migration") || strings.Contains(lower, "import") || strings.Contains(lower, "archive") || strings.Contains(lower, "cutover") {
-			found = append(found, fmt.Sprintf("TABLE %s\n%s", name, ddl))
+			found = append(found, "TABLE "+name+" "+strings.Join(strings.Fields(ddl), " "))
 		}
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 	sort.Strings(found)
-	t.Fatalf("locked v19 cutover relations:\n%s", strings.Join(found, "\n---\n"))
+	t.Fatalf("locked v19 cutover relations: %s", strings.Join(found, " || "))
 }
