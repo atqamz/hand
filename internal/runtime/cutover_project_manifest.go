@@ -30,20 +30,6 @@ type legacyV18CutoverProjectManifestDeps struct {
 	physicalIdentity func(string, os.FileInfo) (string, error)
 }
 
-func defaultLegacyV18CutoverProjectManifestDeps() legacyV18CutoverProjectManifestDeps {
-	return legacyV18CutoverProjectManifestDeps{
-		resolveRoot:      gitrepo.ResolveRoot,
-		commonDir:        gitrepo.CommonDir,
-		isBare:           gitrepo.IsBare,
-		headCommit:       gitrepo.HeadCommit,
-		physicalIdentity: legacyV18CutoverPhysicalIdentity,
-	}
-}
-
-func buildLegacyV18CutoverProjectManifestEvidence(homeDir string, plan store.LegacyV18CutoverObservationPlan, observed legacyV18CutoverProjectTreehouseEvidence) ([]legacyV18CutoverProjectManifestEvidence, error) {
-	return buildLegacyV18CutoverProjectManifestEvidenceWithDeps(homeDir, plan, observed, defaultLegacyV18CutoverProjectManifestDeps())
-}
-
 func buildLegacyV18CutoverProjectManifestEvidenceWithDeps(homeDir string, plan store.LegacyV18CutoverObservationPlan, observed legacyV18CutoverProjectTreehouseEvidence, deps legacyV18CutoverProjectManifestDeps) ([]legacyV18CutoverProjectManifestEvidence, error) {
 	if err := validateLegacyV18CutoverProjectManifestDeps(deps); err != nil {
 		return nil, err
@@ -176,7 +162,10 @@ func buildLegacyV18CutoverProjectManifestEvidenceWithDeps(homeDir string, plan s
 	}
 	for i := range captured {
 		for j := i + 1; j < len(captured); j++ {
-			if os.SameFile(captured[i].cloneInfo, captured[j].cloneInfo) || os.SameFile(captured[i].commonInfo, captured[j].commonInfo) {
+			if os.SameFile(captured[i].cloneInfo, captured[j].cloneInfo) ||
+				os.SameFile(captured[i].cloneInfo, captured[j].commonInfo) ||
+				os.SameFile(captured[i].commonInfo, captured[j].cloneInfo) ||
+				os.SameFile(captured[i].commonInfo, captured[j].commonInfo) {
 				return nil, fmt.Errorf("freeze legacy v18 cutover Project evidence: physical repository alias between %q and %q", captured[i].evidence.ProjectID, captured[j].evidence.ProjectID)
 			}
 		}
