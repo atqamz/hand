@@ -13,8 +13,8 @@ const canonicalV19AuthorityCommit = "67ca4b35b773ef25ac9ff88cd1b16213153ed498"
 const canonicalV19AuthorityDDLPath = "docs/architecture/v19.sql.gz"
 const canonicalV19AuthorityDDLGitBlobSHA1 = "d529d7a687db8d0266d5592ade9520c04766bf43"
 
-// LegacyV18CutoverManifestInput is the positively verified evidence that may be
-// recorded in the deterministic archive manifest after the one-way source freeze.
+// LegacyV18CutoverManifestInput is positive import evidence that may be made
+// durable after final quiescence and before the one-way source freeze.
 type LegacyV18CutoverManifestInput struct {
 	FleetID    string
 	ImportedAt string
