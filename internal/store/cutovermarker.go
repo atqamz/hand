@@ -339,7 +339,7 @@ func validateLegacyV18CutoverMarkerIdentity(migrationID, fleetID, sourceSHA256 s
 		return fmt.Errorf("migration identity: %w", err)
 	}
 	if err := validateFleetID(fleetID); err != nil {
-		return fmt.Errorf("Fleet identity: %w", err)
+		return fmt.Errorf("fleet identity: %w", err)
 	}
 	if err := validateLegacyV18CutoverSHA256(sourceSHA256); err != nil {
 		return fmt.Errorf("source digest: %w", err)
