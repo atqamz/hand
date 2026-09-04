@@ -96,11 +96,11 @@ func CreateCanonicalV19Task(ctx context.Context, homeDir string, input Canonical
 
 func validateCanonicalV19TaskCreateInput(input CanonicalV19TaskCreateInput) error {
 	for name, value := range map[string]string{
-		"Task ID": input.ID,
-		"Project ID": input.ProjectID,
-		"goal": input.Goal,
+		"Task ID":     input.ID,
+		"Project ID":  input.ProjectID,
+		"goal":        input.Goal,
 		"goal digest": input.GoalDigest,
-		"created_at": input.CreatedAt,
+		"created_at":  input.CreatedAt,
 	} {
 		if value == "" {
 			return fmt.Errorf("create canonical v19 Task: %s is empty", name)
