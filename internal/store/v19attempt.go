@@ -92,11 +92,11 @@ func CreateCanonicalV19Attempt(ctx context.Context, homeDir string, input Canoni
 
 func validateCanonicalV19AttemptCreateInput(input CanonicalV19AttemptCreateInput) error {
 	for name, value := range map[string]string{
-		"Attempt ID":         input.ID,
-		"Plan ID":            input.PlanID,
-		"Worker Harness ref": input.WorkerHarnessRef,
+		"Attempt ID":          input.ID,
+		"Plan ID":             input.PlanID,
+		"Worker Harness ref":  input.WorkerHarnessRef,
 		"Session adapter ref": input.SessionAdapterRef,
-		"created_at":         input.CreatedAt,
+		"created_at":          input.CreatedAt,
 	} {
 		if value == "" {
 			return fmt.Errorf("create canonical v19 Attempt: %s is empty", name)
