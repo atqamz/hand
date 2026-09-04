@@ -7,10 +7,9 @@ import (
 
 var errLegacyV18CutoverRecoveryExecutionUnsafe = errors.New("v19 cutover recovery execution is not mechanically safe")
 
-// recoverCanonicalV19Cutover executes only already-authorized recovery work.
-// It never starts a fresh legacy cutover, repairs registry projection, or uses
-// advisory marker prose as authority. Each mutating transition re-acquires the
-// existing MigrationLock and reclassifies exact durable evidence internally.
+// Executes only recovery work already authorized by the read-only classifier.
+// It never starts fresh legacy cutover or treats advisory marker prose as authority.
+// Mutating transitions retain their own MigrationLock and exact reclassification.
 func recoverCanonicalV19Cutover(homeDir string) (legacyV18CutoverRecoveryState, error) {
 	const maxInspections = 3 // rebuild -> publish -> canonical authority
 
