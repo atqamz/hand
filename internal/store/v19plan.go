@@ -205,12 +205,12 @@ func ReplanCanonicalV19Plan(ctx context.Context, homeDir string, input Canonical
 
 func validateCanonicalV19PlanCreateInput(action string, input CanonicalV19PlanCreateInput) error {
 	for name, value := range map[string]string{
-		"Plan ID":              input.ID,
-		"Task ID":              input.TaskID,
-		"brief digest":         input.BriefDigest,
+		"Plan ID":             input.ID,
+		"Task ID":             input.TaskID,
+		"brief digest":        input.BriefDigest,
 		"WorkspaceBinding ID": input.WorkspaceBindingID,
 		"PolicyRevision ID":   input.PolicyRevisionID,
-		"created_at":           input.CreatedAt,
+		"created_at":          input.CreatedAt,
 	} {
 		if value == "" {
 			return fmt.Errorf("%s: %s is empty", action, name)
