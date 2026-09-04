@@ -13,7 +13,7 @@ func moveLegacyV18CutoverNoReplaceDurable(source, target string) error {
 		if !errors.Is(err, os.ErrExist) {
 			return err
 		}
-		// A crash may have happened after the durable target link was created but
+		// A crash may have happened after the target hardlink was created but
 		// before the source name was removed. Resume only when both names still
 		// identify the exact same inode; never accept a merely byte-equal file.
 		sourceInfo, sourceErr := os.Lstat(source)
@@ -24,7 +24,11 @@ func moveLegacyV18CutoverNoReplaceDurable(source, target string) error {
 		if targetErr != nil || !os.SameFile(sourceInfo, targetInfo) {
 			return err
 		}
-	} else if err := syncLegacyV18CutoverDirectory(filepath.Dir(target)); err != nil {
+	}
+	// Repeat the directory sync even on crash-resume. The previous attempt may
+	// have created the hardlink but failed before making that directory entry
+	// durable, so source removal cannot safely advance until this succeeds.
+	if err := syncLegacyV18CutoverDirectory(filepath.Dir(target)); err != nil {
 		return err
 	}
 	if err := os.Remove(source); err != nil {
