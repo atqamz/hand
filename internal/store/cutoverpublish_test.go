@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -195,24 +194,3 @@ func canonicalV19CutoverPublicationFixture(t *testing.T) (string, legacyV18Cutov
 	}
 	return home, bridge, archive, artifact, target, materialized
 }
-
-func assertPublishedCanonicalV19CutoverRows(t *testing.T, home string, artifact legacyV18CutoverManifestArtifact) {
-	t.Helper()
-	manifest, err := readLegacyV18CutoverManifest(home, artifact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := openLegacyV18CutoverSQLite(Path(home), "ro", legacyV18CutoverGateTimeout, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := validateCanonicalV19Schema(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateCanonicalV19CutoverImportRows(db, buildCanonicalV19CutoverImportPlan(manifest, artifact.SHA256)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-var _ = context.Background
