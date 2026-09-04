@@ -7,8 +7,9 @@ import (
 
 func TestLegacyV18CutoverGuardObservationPlanIsCopiedAndRequiresHeldGuard(t *testing.T) {
 	guard := &LegacyV18CutoverGuard{
-		gate:  &legacyV18CutoverGate{},
-		locks: &legacyV18CutoverLocks{},
+		gate:       &legacyV18CutoverGate{},
+		locks:      &legacyV18CutoverLocks{},
+		sourceHeld: true,
 		plan: LegacyV18CutoverObservationPlan{
 			FleetID:   "f_test",
 			Projects:  []LegacyV18CutoverProjectObservation{{ProjectID: "project-1", Name: "demo"}},
