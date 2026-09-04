@@ -57,9 +57,9 @@ type legacyV18CutoverMarkerPaths struct {
 }
 
 type legacyV18CutoverMarkerEvidence struct {
-	ArchiveCandidateSHA256    string `json:"archive_candidate_sha256"`
-	OriginalArchiveSHA256     string `json:"original_archive_sha256"`
-	FrozenBridgeSHA256        string `json:"frozen_bridge_sha256"`
+	ArchiveCandidateSHA256   string `json:"archive_candidate_sha256"`
+	OriginalArchiveSHA256    string `json:"original_archive_sha256"`
+	FrozenBridgeSHA256       string `json:"frozen_bridge_sha256"`
 	FreezeCertificateVersion string `json:"freeze_certificate_version"`
 	FreezeCertificateSHA256  string `json:"freeze_certificate_sha256"`
 	ManifestSHA256           string `json:"manifest_sha256"`
