@@ -303,9 +303,12 @@ func nextCanonicalV19PlanOrdinal(ctx context.Context, tx *sql.Tx, taskID string)
 
 func requireCanonicalV19ActivePredecessor(ctx context.Context, tx *sql.Tx, taskID, planID string) error {
 	var ordinal int64
-	if err := tx.QueryRowContext(ctx, `SELECT ordinal FROM plan
-		WHERE id=? AND task_id=? AND lifecycle='active' AND terminal_at=''`, planID, taskID).Scan(&ordinal); errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: predecessor Plan %q is not the exact active predecessor", ErrCanonicalV19PlanNotCurrent, planID)
+	if err := tx.QueryRowContext(ctx, `SELECT p.ordinal FROM plan p
+		WHERE p.id=? AND p.task_id=? AND p.lifecycle='active' AND p.terminal_at=''
+		  AND NOT EXISTS (
+			SELECT 1 FROM attempt a WHERE a.plan_id=p.id AND a.lifecycle='active'
+		  )`, planID, taskID).Scan(&ordinal); errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: predecessor Plan %q is not the exact active predecessor without an active Attempt", ErrCanonicalV19PlanNotCurrent, planID)
 	} else if err != nil {
 		return canonicalV19PlanWriteError("canonical v19 Plan", "read exact predecessor", err)
 	}
