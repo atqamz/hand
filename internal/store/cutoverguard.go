@@ -53,9 +53,10 @@ type LegacyV18CutoverObservationPlan struct {
 
 // LegacyV18CutoverGuard holds the source EXCLUSIVE gate and Fleet-local lock closure while providers are observed.
 type LegacyV18CutoverGuard struct {
-	gate  *legacyV18CutoverGate
-	locks *legacyV18CutoverLocks
-	plan  LegacyV18CutoverObservationPlan
+	gate       *legacyV18CutoverGate
+	locks      *legacyV18CutoverLocks
+	plan       LegacyV18CutoverObservationPlan
+	sourceHeld bool
 }
 
 // AcquireLegacyV18CutoverGuard acquires the landed 5A2/5A3 source guards and derives the durable observation plan.
@@ -88,7 +89,12 @@ func AcquireLegacyV18CutoverGuard(ctx context.Context, homeDir string) (*LegacyV
 	}
 	keepGate = true
 	keepLocks = true
-	return &LegacyV18CutoverGuard{gate: gate, locks: locks, plan: exportLegacyV18CutoverObservationPlan(plan)}, nil
+	return &LegacyV18CutoverGuard{
+		gate:       gate,
+		locks:      locks,
+		plan:       exportLegacyV18CutoverObservationPlan(plan),
+		sourceHeld: true,
+	}, nil
 }
 
 // ObservationPlan returns a copy only while the source gate and Fleet-local lock closure remain held.
@@ -108,6 +114,7 @@ func (g *LegacyV18CutoverGuard) Close() error {
 	if g == nil {
 		return nil
 	}
+	g.sourceHeld = false
 	var errs []error
 	if g.locks != nil {
 		errs = append(errs, g.locks.Close())
