@@ -15,10 +15,9 @@ type CanonicalV19AttemptTerminalizeInput struct {
 	TerminalAt string
 }
 
-// TerminalizeCanonicalV19Attempt transitions only the named exact active
-// Attempt under a still-current Project/Task/Plan lineage. Locked #344 schema
-// constraints remain the final arbiter for child-state invariants such as an
-// unresolved AttemptBackoff blocking terminalization.
+// TerminalizeCanonicalV19Attempt transitions only the named exact active Attempt
+// under current Project/Task/Plan lineage; locked #344 constraints remain final
+// arbiter for child invariants such as unresolved AttemptBackoff.
 func TerminalizeCanonicalV19Attempt(ctx context.Context, homeDir string, input CanonicalV19AttemptTerminalizeInput) error {
 	if ctx == nil {
 		ctx = context.Background()
