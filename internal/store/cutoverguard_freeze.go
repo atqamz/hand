@@ -38,6 +38,9 @@ func (g *LegacyV18CutoverGuard) Freeze(ctx context.Context, homeDir string, inpu
 	}
 
 	bridge, err := freezeLegacyV18CutoverSource(ctx, homeDir, g.gate, archive)
+	if bridge.Committed {
+		g.sourceHeld = false
+	}
 	if err != nil {
 		return fmt.Errorf("freeze held legacy v18 cutover guard: %w", err)
 	}
@@ -59,7 +62,7 @@ func (g *LegacyV18CutoverGuard) Freeze(ctx context.Context, homeDir string, inpu
 }
 
 func (g *LegacyV18CutoverGuard) held() bool {
-	return g != nil && g.gate != nil && g.gate.conn != nil && g.gate.db != nil && g.locks != nil
+	return g != nil && g.sourceHeld && g.gate != nil && g.locks != nil
 }
 
 func validateLegacyV18CutoverManifestInputAgainstPlan(plan LegacyV18CutoverObservationPlan, input LegacyV18CutoverManifestInput) error {
