@@ -93,7 +93,7 @@ func AcquireLegacyV18CutoverGuard(ctx context.Context, homeDir string) (*LegacyV
 
 // ObservationPlan returns a copy only while the source gate and Fleet-local lock closure remain held.
 func (g *LegacyV18CutoverGuard) ObservationPlan() (LegacyV18CutoverObservationPlan, error) {
-	if g == nil || g.gate == nil || g.locks == nil {
+	if !g.held() {
 		return LegacyV18CutoverObservationPlan{}, ErrLegacyV18CutoverGuardClosed
 	}
 	plan := g.plan
