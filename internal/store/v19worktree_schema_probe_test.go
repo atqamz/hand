@@ -14,9 +14,11 @@ func TestCanonicalV19WorktreeSchemaProbe(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	rows, err := db.sql.Query(`SELECT type,name,sql FROM sqlite_schema
-		WHERE name LIKE '%worktree%'
-		   OR name LIKE 'external_operation%'
-		   OR name LIKE '%operation_scope%'
+		WHERE sql IS NOT NULL AND (
+			name LIKE '%worktree%'
+			OR name LIKE 'external_operation%'
+			OR name LIKE '%operation_scope%'
+		)
 		ORDER BY type,name`)
 	if err != nil {
 		t.Fatal(err)
