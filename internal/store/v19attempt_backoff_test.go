@@ -148,7 +148,7 @@ func TestResolveCanonicalV19AttemptBackoffRefusesReplay(t *testing.T) {
 	}
 }
 
-func TestTerminalizeCanonicalV19AttemptRequiresBackoffResolution(t *testing.T) {
+func TestTerminalizeCanonicalV19AttemptResolvesBackoffAtomically(t *testing.T) {
 	fixture := canonicalV19AttemptBackoffWriterFixture(t)
 	backoff := canonicalV19AttemptBackoffWriterInput("backoff-1", "attempt-1")
 	if _, err := CreateCanonicalV19AttemptBackoff(context.Background(), fixture.Home, backoff); err != nil {
@@ -163,17 +163,79 @@ func TestTerminalizeCanonicalV19AttemptRequiresBackoffResolution(t *testing.T) {
 		t.Fatalf("terminalize with unresolved Backoff error = %v, want %v", err, ErrCanonicalV19AttemptConflict)
 	}
 
-	if err := ResolveCanonicalV19AttemptBackoff(context.Background(), fixture.Home,
-		CanonicalV19AttemptBackoffResolveInput{
-			BackoffID:      backoff.ID,
-			Resolution:     "superseded",
-			ResolvedAt:     "2026-09-05T02:05:59Z",
-			EvidenceDigest: "digest-resolution-terminal",
-		}); err != nil {
-		t.Fatal(err)
+	resolution := CanonicalV19AttemptBackoffResolveInput{
+		BackoffID:      backoff.ID,
+		Resolution:     "superseded",
+		ResolvedAt:     "2026-09-05T02:05:59Z",
+		EvidenceDigest: "digest-resolution-terminal",
 	}
+	terminal.BackoffResolution = &resolution
 	if err := TerminalizeCanonicalV19Attempt(context.Background(), fixture.Home, terminal); err != nil {
 		t.Fatal(err)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var lifecycle, terminalAt, gotResolution, resolvedAt, evidenceDigest string
+	if err := db.sql.QueryRow(`SELECT lifecycle,terminal_at FROM attempt WHERE id=?`, terminal.AttemptID).
+		Scan(&lifecycle, &terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.sql.QueryRow(`SELECT resolution,resolved_at,evidence_digest
+		FROM attempt_backoff_resolution WHERE backoff_id=?`, backoff.ID).Scan(
+		&gotResolution, &resolvedAt, &evidenceDigest,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != terminal.Lifecycle || terminalAt != terminal.TerminalAt {
+		t.Fatalf("terminal Attempt = %q/%q, want %q/%q", lifecycle, terminalAt, terminal.Lifecycle, terminal.TerminalAt)
+	}
+	if gotResolution != resolution.Resolution || resolvedAt != resolution.ResolvedAt || evidenceDigest != resolution.EvidenceDigest {
+		t.Fatalf("atomic Backoff resolution = %q/%q/%q", gotResolution, resolvedAt, evidenceDigest)
+	}
+}
+
+func TestTerminalizeCanonicalV19AttemptRefusesMissingBackoffWithoutMutation(t *testing.T) {
+	fixture := canonicalV19AttemptBackoffWriterFixture(t)
+	backoff := canonicalV19AttemptBackoffWriterInput("backoff-1", "attempt-1")
+	if _, err := CreateCanonicalV19AttemptBackoff(context.Background(), fixture.Home, backoff); err != nil {
+		t.Fatal(err)
+	}
+	missing := CanonicalV19AttemptBackoffResolveInput{
+		BackoffID:      "backoff-missing",
+		Resolution:     "superseded",
+		ResolvedAt:     "2026-09-05T02:06:59Z",
+		EvidenceDigest: "digest-resolution-missing",
+	}
+	err := TerminalizeCanonicalV19Attempt(context.Background(), fixture.Home,
+		CanonicalV19AttemptTerminalizeInput{
+			AttemptID:         "attempt-1",
+			Lifecycle:         "failed",
+			TerminalAt:        "2026-09-05T02:07:00Z",
+			BackoffResolution: &missing,
+		})
+	if !errors.Is(err, ErrCanonicalV19AttemptBackoffNotCurrent) {
+		t.Fatalf("missing Backoff terminalization error = %v, want %v", err, ErrCanonicalV19AttemptBackoffNotCurrent)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var lifecycle, terminalAt string
+	if err := db.sql.QueryRow(`SELECT lifecycle,terminal_at FROM attempt WHERE id='attempt-1'`).
+		Scan(&lifecycle, &terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "active" || terminalAt != "" {
+		t.Fatalf("Attempt mutated after missing Backoff refusal: %q/%q", lifecycle, terminalAt)
+	}
+	if got := canonicalV19AttemptBackoffResolutionCount(t, fixture.Home); got != 0 {
+		t.Fatalf("Backoff resolution rows after missing identity = %d, want 0", got)
 	}
 }
 
@@ -196,7 +258,7 @@ func TestCanonicalV19AttemptBackoffWritersRejectInvalidEnumsWithoutMutation(t *t
 		CanonicalV19AttemptBackoffResolveInput{
 			BackoffID:      valid.ID,
 			Resolution:     "unknown",
-			ResolvedAt:     "2026-09-05T02:07:00Z",
+			ResolvedAt:     "2026-09-05T02:08:00Z",
 			EvidenceDigest: "digest-invalid-resolution",
 		}); err == nil {
 		t.Fatal("invalid Backoff resolution unexpectedly accepted")
@@ -225,7 +287,7 @@ func canonicalV19AttemptBackoffWriterInput(id, attemptID string) CanonicalV19Att
 		ID:             id,
 		AttemptID:      attemptID,
 		Reason:         "rate-limit",
-		NotBefore:      "2026-09-05T02:08:00Z",
+		NotBefore:      "2026-09-05T02:09:00Z",
 		EvidenceDigest: "digest-backoff-1",
 		CreatedAt:      "2026-09-05T02:00:00Z",
 	}
