@@ -165,8 +165,8 @@ func ResolveCanonicalV19TaskHold(
 
 func validateCanonicalV19TaskHoldCreateInput(input CanonicalV19TaskHoldCreateInput) error {
 	for name, value := range map[string]string{
-		"TaskHold ID":    input.ID,
-		"Task ID":        input.TaskID,
+		"TaskHold ID":     input.ID,
+		"Task ID":         input.TaskID,
 		"evidence digest": input.EvidenceDigest,
 		"created_at":      input.CreatedAt,
 	} {
@@ -187,7 +187,7 @@ func validateCanonicalV19TaskHoldCreateInput(input CanonicalV19TaskHoldCreateInp
 
 func validateCanonicalV19TaskHoldResolveInput(input CanonicalV19TaskHoldResolveInput) error {
 	for name, value := range map[string]string{
-		"TaskHold ID":    input.HoldID,
+		"TaskHold ID":     input.HoldID,
 		"resolved_at":     input.ResolvedAt,
 		"evidence digest": input.EvidenceDigest,
 	} {
