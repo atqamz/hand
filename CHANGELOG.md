@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.8.0](https://github.com/atqamz/hand/compare/v0.7.2...v0.8.0) (2026-09-05)
+
+
+### Features
+
+* **runtime:** freeze v19 cutover Project manifest evidence ([#538](https://github.com/atqamz/hand/issues/538)) ([72f22bd](https://github.com/atqamz/hand/commit/72f22bd56a6cf6e504e60225e37c7a9faa598c37))
+* **runtime:** plan positive v19 cutover imports ([#540](https://github.com/atqamz/hand/issues/540)) ([a291315](https://github.com/atqamz/hand/commit/a291315c966e107cc6ad52e2ed5f1757fce75902))
+* **runtime:** prove v19 cutover Herdr quiescence ([#536](https://github.com/atqamz/hand/issues/536)) ([fb47bed](https://github.com/atqamz/hand/commit/fb47bedff599fdb957f7f8aa46ddaae289ab335a))
+* **runtime:** prove v19 cutover Project and Treehouse quiescence ([#534](https://github.com/atqamz/hand/issues/534)) ([4a077f3](https://github.com/atqamz/hand/commit/4a077f34d4ccfeaa81327b61476691d7a3f2b860))
+* **store:** add canonical v19 Attempt terminalization ([#556](https://github.com/atqamz/hand/issues/556)) ([f4759a3](https://github.com/atqamz/hand/commit/f4759a346963cec71da76890677bcf7dfda3d37c))
+* **store:** add canonical v19 Attempt writer ([#555](https://github.com/atqamz/hand/issues/555)) ([78018e3](https://github.com/atqamz/hand/commit/78018e32f846ee634945d6b0b3969bf9f0a6616e))
+* **store:** add canonical v19 AttemptBackoff writer ([#557](https://github.com/atqamz/hand/issues/557)) ([a35b5d0](https://github.com/atqamz/hand/commit/a35b5d059cc71ec93c093ee56e702465b20d0eef))
+* **store:** add canonical v19 Plan writers ([#553](https://github.com/atqamz/hand/issues/553)) ([10da3c7](https://github.com/atqamz/hand/commit/10da3c7737d9d8b0c4695a8a5ab6989b006c7d96))
+* **store:** add canonical v19 Repair writer ([#559](https://github.com/atqamz/hand/issues/559)) ([4807c9b](https://github.com/atqamz/hand/commit/4807c9b030989fa5255a74549d7d57a3c877388b))
+* **store:** add canonical v19 Task writer ([#552](https://github.com/atqamz/hand/issues/552)) ([2ce4b90](https://github.com/atqamz/hand/commit/2ce4b90e53e97d7ef1ef2988c65856c7b92d42a6))
+* **store:** add canonical v19 TaskHold writer ([#558](https://github.com/atqamz/hand/issues/558)) ([194c3ca](https://github.com/atqamz/hand/commit/194c3ca6893b18f85887fa71117e4edde32e9fb1))
+* **store:** add v19 cutover 5A1 source eligibility gate ([#529](https://github.com/atqamz/hand/issues/529)) ([c3f9b53](https://github.com/atqamz/hand/commit/c3f9b53735ce77c6115ec65d7e05c1718299fd36))
+* **store:** add v19 cutover 5A2 SQLite source gate ([#530](https://github.com/atqamz/hand/issues/530)) ([7434c02](https://github.com/atqamz/hand/commit/7434c028d9069bd43658742b001c6a668aa811cf))
+* **store:** add v19 cutover 5A3 Fleet-local lock closure ([#531](https://github.com/atqamz/hand/issues/531)) ([d48f3d5](https://github.com/atqamz/hand/commit/d48f3d597bec58d59ebb52c1b76afffb5cdf45cb))
+* **store:** bootstrap the locked canonical v19 schema ([#515](https://github.com/atqamz/hand/issues/515)) ([f6821fa](https://github.com/atqamz/hand/commit/f6821fa94594caec45649c1bf00a8dda5bcfb609))
+* **store:** build fresh canonical v19 cutover target ([#541](https://github.com/atqamz/hand/issues/541)) ([0ecf0a4](https://github.com/atqamz/hand/commit/0ecf0a4f13a39a6315ffd66fe0983b9690ed0588))
+* **store:** classify v18 and canonical v19 schema families ([#517](https://github.com/atqamz/hand/issues/517)) ([818efd3](https://github.com/atqamz/hand/commit/818efd3f57087bf9b85ad433dfdbb0c613d4ead3))
+* **store:** classify v19 cutover 5A3 durable quiescence ([#532](https://github.com/atqamz/hand/issues/532)) ([ea5ab0f](https://github.com/atqamz/hand/commit/ea5ab0fcef2d1bb0de9fa479f09f67d0948945ea))
+* **store:** classify v19 cutover recovery authority ([#546](https://github.com/atqamz/hand/issues/546)) ([ead919d](https://github.com/atqamz/hand/commit/ead919d0102c2a07720b3b5fa27193ddb0a3fca7))
+* **store:** drive v19 cutover recovery state ([#550](https://github.com/atqamz/hand/issues/550)) ([5e2679d](https://github.com/atqamz/hand/commit/5e2679da33a866ebbb76c20232025b2b9da55ce8))
+* **store:** freeze legacy source for v19 cutover ([#542](https://github.com/atqamz/hand/issues/542)) ([e50a5fe](https://github.com/atqamz/hand/commit/e50a5fe4b9e0167fb9bb021738f2fb8c60fd16e2))
+* **store:** materialize canonical v19 cutover evidence ([#545](https://github.com/atqamz/hand/issues/545)) ([10099be](https://github.com/atqamz/hand/commit/10099be17535432147a0ed32180d47509a6bea6e))
+* **store:** persist advisory v19 cutover marker ([#548](https://github.com/atqamz/hand/issues/548)) ([48e9c3b](https://github.com/atqamz/hand/commit/48e9c3be62774001b1b4352a86762bd715f7b800))
+* **store:** persist deterministic v19 cutover manifest certificate ([#544](https://github.com/atqamz/hand/issues/544)) ([12fcd6c](https://github.com/atqamz/hand/commit/12fcd6c2445285fe33292e75df467ed274243fb7))
+* **store:** persist v19 recovery manifest before freeze ([#551](https://github.com/atqamz/hand/issues/551)) ([700cdec](https://github.com/atqamz/hand/commit/700cdecb6ca3b849335c08c1046b4929ff7c4afc))
+* **store:** promote v19 cutover original archive ([#539](https://github.com/atqamz/hand/issues/539)) ([985eb4e](https://github.com/atqamz/hand/commit/985eb4e41b1c54cb3228087d8c12323f21511c97))
+* **store:** publish canonical v19 cutover target crash-safely ([#547](https://github.com/atqamz/hand/issues/547)) ([7b38fd5](https://github.com/atqamz/hand/commit/7b38fd58df3dc1d59fef1198d08cbe5741cd1ba2))
+* **store:** rebuild v19 cutover temp from archive ([#549](https://github.com/atqamz/hand/issues/549)) ([471596c](https://github.com/atqamz/hand/commit/471596cf10c7bfdee4e46978a9c2eb74b6878167))
+* **store:** stage deterministic v19 cutover archive candidate ([#537](https://github.com/atqamz/hand/issues/537)) ([8a32eb2](https://github.com/atqamz/hand/commit/8a32eb2276f7d17ec058fc333144223616f03736))
+
 ## [0.7.2](https://github.com/atqamz/hand/compare/v0.7.1...v0.7.2) (2026-08-29)
 
 
