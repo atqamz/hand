@@ -268,18 +268,14 @@ func TestCanonicalV19AttemptBackoffWritersRejectInvalidEnumsWithoutMutation(t *t
 	}
 }
 
-type canonicalV19AttemptBackoffWriterTestFixture struct {
-	Home string
-}
-
-func canonicalV19AttemptBackoffWriterFixture(t *testing.T) canonicalV19AttemptBackoffWriterTestFixture {
+func canonicalV19AttemptBackoffWriterFixture(t *testing.T) canonicalV19AttemptWriterTestFixture {
 	t.Helper()
 	fixture := canonicalV19AttemptWriterFixture(t)
 	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home,
 		canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
 		t.Fatal(err)
 	}
-	return canonicalV19AttemptBackoffWriterTestFixture{Home: fixture.Home}
+	return fixture
 }
 
 func canonicalV19AttemptBackoffWriterInput(id, attemptID string) CanonicalV19AttemptBackoffCreateInput {
