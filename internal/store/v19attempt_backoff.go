@@ -134,19 +134,11 @@ func ResolveCanonicalV19AttemptBackoff(
 	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
 		return fmt.Errorf("resolve canonical v19 AttemptBackoff: %w", err)
 	}
-	if err := requireCanonicalV19AttemptBackoffCurrent(ctx, tx, input.BackoffID); err != nil {
+	if _, err := requireCanonicalV19AttemptBackoffCurrent(ctx, tx, "resolve", input.BackoffID); err != nil {
 		return fmt.Errorf("resolve canonical v19 AttemptBackoff: %w", err)
 	}
-
-	_, err = tx.ExecContext(ctx, `INSERT INTO attempt_backoff_resolution(
-		backoff_id,resolution,resolved_at,evidence_digest
-	) VALUES(?,?,?,?)`, input.BackoffID, input.Resolution, input.ResolvedAt, input.EvidenceDigest)
-	if err != nil {
-		if isSQLiteConstraint(err) {
-			return fmt.Errorf("resolve canonical v19 AttemptBackoff: %w: Backoff %q",
-				ErrCanonicalV19AttemptBackoffConflict, input.BackoffID)
-		}
-		return canonicalV19AttemptBackoffWriteError("resolve", "insert Backoff resolution", err)
+	if err := insertCanonicalV19AttemptBackoffResolution(ctx, tx, "resolve", input); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return canonicalV19AttemptBackoffWriteError("resolve", "commit writer", err)
@@ -240,25 +232,66 @@ func nextCanonicalV19AttemptBackoffOrdinal(ctx context.Context, tx *sql.Tx, atte
 	return ordinal, nil
 }
 
-func requireCanonicalV19AttemptBackoffCurrent(ctx context.Context, tx *sql.Tx, backoffID string) error {
-	var exactBackoffID string
-	err := tx.QueryRowContext(ctx, `SELECT b.id
+func requireCanonicalV19AttemptBackoffCurrent(
+	ctx context.Context,
+	tx *sql.Tx,
+	operation string,
+	backoffID string,
+) (string, error) {
+	var exactBackoffID, attemptID string
+	err := tx.QueryRowContext(ctx, `SELECT b.id,b.attempt_id
 		FROM attempt_backoff b
 		JOIN attempt a ON a.id=b.attempt_id AND a.lifecycle='active' AND a.terminal_at=''
 		JOIN plan p ON p.id=a.plan_id AND p.lifecycle='active' AND p.terminal_at=''
 		JOIN task t ON t.id=p.task_id AND t.lifecycle='active' AND t.terminal_at=''
 		JOIN project project_current ON project_current.id=t.project_id AND project_current.retired_at=''
 		LEFT JOIN attempt_backoff_resolution r ON r.backoff_id=b.id
-		WHERE b.id=? AND r.backoff_id IS NULL`, backoffID).Scan(&exactBackoffID)
+		WHERE b.id=? AND r.backoff_id IS NULL`, backoffID).Scan(&exactBackoffID, &attemptID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: Backoff %q is not unresolved under exact active lineage",
+		return "", fmt.Errorf("%w: Backoff %q is not unresolved under exact active lineage",
 			ErrCanonicalV19AttemptBackoffNotCurrent, backoffID)
 	}
 	if err != nil {
-		return canonicalV19AttemptBackoffWriteError("resolve", "read exact unresolved Backoff", err)
+		return "", canonicalV19AttemptBackoffWriteError(operation, "read exact unresolved Backoff", err)
 	}
 	if exactBackoffID != backoffID {
-		return fmt.Errorf("%w: Backoff identity changed", ErrCanonicalV19AttemptBackoffNotCurrent)
+		return "", fmt.Errorf("%w: Backoff identity changed", ErrCanonicalV19AttemptBackoffNotCurrent)
+	}
+	return attemptID, nil
+}
+
+func resolveCanonicalV19AttemptBackoffForTerminalization(
+	ctx context.Context,
+	tx *sql.Tx,
+	attemptID string,
+	input CanonicalV19AttemptBackoffResolveInput,
+) error {
+	ownerAttemptID, err := requireCanonicalV19AttemptBackoffCurrent(ctx, tx, "terminalize", input.BackoffID)
+	if err != nil {
+		return err
+	}
+	if ownerAttemptID != attemptID {
+		return fmt.Errorf("%w: Backoff %q belongs to Attempt %q, not %q",
+			ErrCanonicalV19AttemptBackoffNotCurrent, input.BackoffID, ownerAttemptID, attemptID)
+	}
+	return insertCanonicalV19AttemptBackoffResolution(ctx, tx, "terminalize", input)
+}
+
+func insertCanonicalV19AttemptBackoffResolution(
+	ctx context.Context,
+	tx *sql.Tx,
+	operation string,
+	input CanonicalV19AttemptBackoffResolveInput,
+) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO attempt_backoff_resolution(
+		backoff_id,resolution,resolved_at,evidence_digest
+	) VALUES(?,?,?,?)`, input.BackoffID, input.Resolution, input.ResolvedAt, input.EvidenceDigest)
+	if err != nil {
+		if isSQLiteConstraint(err) {
+			return fmt.Errorf("%s canonical v19 AttemptBackoff: %w: Backoff %q",
+				operation, ErrCanonicalV19AttemptBackoffConflict, input.BackoffID)
+		}
+		return canonicalV19AttemptBackoffWriteError(operation, "insert Backoff resolution", err)
 	}
 	return nil
 }
