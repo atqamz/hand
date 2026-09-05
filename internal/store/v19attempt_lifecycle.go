@@ -10,14 +10,15 @@ import (
 // CanonicalV19AttemptTerminalizeInput names one exact Attempt terminal
 // transition. Terminal evidence is immutable once committed.
 type CanonicalV19AttemptTerminalizeInput struct {
-	AttemptID  string
-	Lifecycle  string
-	TerminalAt string
+	AttemptID          string
+	Lifecycle          string
+	TerminalAt         string
+	BackoffResolution  *CanonicalV19AttemptBackoffResolveInput
 }
 
 // TerminalizeCanonicalV19Attempt transitions only the named exact active Attempt
-// under current Project/Task/Plan lineage; locked #344 constraints remain final
-// arbiter for child invariants such as unresolved AttemptBackoff.
+// under current Project/Task/Plan lineage. An optional unresolved Backoff closure
+// is committed in the same writer transaction before terminalization.
 func TerminalizeCanonicalV19Attempt(ctx context.Context, homeDir string, input CanonicalV19AttemptTerminalizeInput) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -48,6 +49,13 @@ func TerminalizeCanonicalV19Attempt(ctx context.Context, homeDir string, input C
 	}
 	if err := requireCanonicalV19AttemptCurrent(ctx, tx, input.AttemptID); err != nil {
 		return fmt.Errorf("terminalize canonical v19 Attempt: %w", err)
+	}
+	if input.BackoffResolution != nil {
+		if err := resolveCanonicalV19AttemptBackoffForTerminalization(
+			ctx, tx, input.AttemptID, *input.BackoffResolution,
+		); err != nil {
+			return fmt.Errorf("terminalize canonical v19 Attempt: %w", err)
+		}
 	}
 
 	result, err := tx.ExecContext(ctx, `UPDATE attempt
@@ -85,6 +93,11 @@ func validateCanonicalV19AttemptTerminalizeInput(input CanonicalV19AttemptTermin
 	}
 	if input.TerminalAt == "" {
 		return fmt.Errorf("terminalize canonical v19 Attempt: terminal_at is empty")
+	}
+	if input.BackoffResolution != nil {
+		if err := validateCanonicalV19AttemptBackoffResolveInput(*input.BackoffResolution); err != nil {
+			return fmt.Errorf("terminalize canonical v19 Attempt: Backoff resolution: %w", err)
+		}
 	}
 	return nil
 }
