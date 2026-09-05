@@ -10,10 +10,10 @@ import (
 // CanonicalV19AttemptTerminalizeInput names one exact Attempt terminal
 // transition. Terminal evidence is immutable once committed.
 type CanonicalV19AttemptTerminalizeInput struct {
-	AttemptID          string
-	Lifecycle          string
-	TerminalAt         string
-	BackoffResolution  *CanonicalV19AttemptBackoffResolveInput
+	AttemptID         string
+	Lifecycle         string
+	TerminalAt        string
+	BackoffResolution *CanonicalV19AttemptBackoffResolveInput
 }
 
 // TerminalizeCanonicalV19Attempt transitions only the named exact active Attempt
