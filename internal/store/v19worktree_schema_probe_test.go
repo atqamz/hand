@@ -13,7 +13,7 @@ func TestCanonicalV19WorktreeSchemaProbe(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	rows, err := db.sql.Query(`SELECT name, sql FROM sqlite_schema
+	rows, err := db.sql.Query(`SELECT name, COALESCE(sql,'') FROM sqlite_schema
 		WHERE name='attempt_worktree_binding'
 		   OR name LIKE 'external_operation%'
 		   OR name LIKE '%worktree%'
