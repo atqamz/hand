@@ -50,6 +50,9 @@ func TerminalizeCanonicalV19Attempt(ctx context.Context, homeDir string, input C
 	if err := requireCanonicalV19AttemptCurrent(ctx, tx, input.AttemptID); err != nil {
 		return fmt.Errorf("terminalize canonical v19 Attempt: %w", err)
 	}
+	if err := requireCanonicalV19AttemptNoUnresolvedExternalOperation(ctx, tx, input.AttemptID); err != nil {
+		return fmt.Errorf("terminalize canonical v19 Attempt: %w", err)
+	}
 	if input.BackoffResolution != nil {
 		if err := resolveCanonicalV19AttemptBackoffForTerminalization(
 			ctx, tx, input.AttemptID, *input.BackoffResolution,
@@ -120,6 +123,20 @@ func requireCanonicalV19AttemptCurrent(ctx context.Context, tx *sql.Tx, attemptI
 		return fmt.Errorf("%w: Attempt identity changed", ErrCanonicalV19AttemptNotCurrent)
 	}
 	return nil
+}
+
+func requireCanonicalV19AttemptNoUnresolvedExternalOperation(ctx context.Context, tx *sql.Tx, attemptID string) error {
+	var operationID string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM external_operation
+		WHERE attempt_id=? AND state IN ('prepared','submitted','uncertain')
+		ORDER BY created_at,id LIMIT 1`, attemptID).Scan(&operationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return canonicalV19AttemptTerminalWriteError("read unresolved external operation", err)
+	}
+	return fmt.Errorf("%w: Attempt %q has unresolved external operation %q", ErrCanonicalV19AttemptConflict, attemptID, operationID)
 }
 
 func canonicalV19AttemptTerminalWriteError(action string, err error) error {
