@@ -97,8 +97,7 @@ func reconcileCanonicalV19WorktreeCreate(
 	case canonicalV19GitWorktreeExact:
 		return establishCanonicalV19ObservedWorktree(ctx, homeDir, current, observed, deps.now)
 	case canonicalV19GitWorktreeMismatch:
-		return classifyCanonicalV19ObservedNoEffect(ctx, homeDir, current, observed, deps.now,
-			"requested path is occupied by a different or malformed Git worktree")
+		return current.State, fmt.Errorf("reconcile canonical v19 WorktreeCreate: requested path ownership/registration is unresolved: %s", observed.Reason)
 	case canonicalV19GitWorktreeUnknown:
 		return current.State, fmt.Errorf("reconcile canonical v19 WorktreeCreate: native Git observation is unknown: %s", observed.Reason)
 	case canonicalV19GitWorktreeAbsent:
@@ -119,10 +118,7 @@ func reconcileCanonicalV19WorktreeCreate(
 	switch observed.State {
 	case canonicalV19GitWorktreeExact:
 		return establishCanonicalV19ObservedWorktree(ctx, homeDir, current, observed, deps.now)
-	case canonicalV19GitWorktreeMismatch:
-		return classifyCanonicalV19ObservedNoEffect(ctx, homeDir, current, observed, deps.now,
-			"requested path changed before the first mutation")
-	case canonicalV19GitWorktreeUnknown:
+	case canonicalV19GitWorktreeMismatch, canonicalV19GitWorktreeUnknown:
 		return classifyCanonicalV19ObservedUncertain(ctx, homeDir, current, observed, deps.now, nil)
 	case canonicalV19GitWorktreeAbsent:
 	default:
