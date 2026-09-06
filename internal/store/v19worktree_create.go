@@ -39,29 +39,29 @@ type CanonicalV19WorktreeCreatePrepareInput struct {
 // CanonicalV19WorktreeCreateRequest is the exact immutable request persisted
 // before any external Git/filesystem mutation is authorized.
 type CanonicalV19WorktreeCreateRequest struct {
-	OperationID         string
-	OperationKey        string
-	RequestDigest       string
-	ProjectID           string
-	TaskID              string
-	PlanID              string
-	AttemptID           string
-	WorkspaceBindingID  string
-	BindingID           string
-	RepositoryLocator   string
-	RequestedPath       string
-	BasisRevision       string
+	OperationID          string
+	OperationKey         string
+	RequestDigest        string
+	ProjectID            string
+	TaskID               string
+	PlanID               string
+	AttemptID            string
+	WorkspaceBindingID   string
+	BindingID            string
+	RepositoryLocator    string
+	RequestedPath        string
+	BasisRevision        string
 	ExpectedCommonGitDir string
-	ExpectedLockReason  string
-	CreatedAt           string
+	ExpectedLockReason   string
+	CreatedAt            string
 }
 
 // CanonicalV19WorktreeCreateTransitionInput records typed evidence for a
 // non-success WorktreeCreate state transition.
 type CanonicalV19WorktreeCreateTransitionInput struct {
-	OperationID   string
-	State         string
-	ObservedAt    string
+	OperationID    string
+	State          string
+	ObservedAt     string
 	EvidenceDigest string
 }
 
