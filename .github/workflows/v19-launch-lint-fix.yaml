@@ -1,0 +1,49 @@
+name: Temporary v19 launch lint fix
+
+on:
+  push:
+    branches:
+      - implementation/v19-step10-launch-executor
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: implementation/v19-step10-launch-executor
+          fetch-depth: 0
+      - name: Patch exact lint strings
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("internal/store/v19launch.go")
+          text = path.read_text()
+          replacements = [
+              ('Launch environment %q value digest is empty', 'launch environment %q value digest is empty'),
+              ('Launch environment %q secret reference is empty', 'launch environment %q secret reference is empty'),
+              ('Launch environment %q value kind %q is invalid', 'launch environment %q value kind %q is invalid'),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"expected exact lint string not found: {old}")
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          gofmt -w internal/store/v19launch.go
+          git diff --check
+      - name: Commit exact lint fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/store/v19launch.go
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(store): satisfy launch lint'
+          git push origin HEAD:implementation/v19-step10-launch-executor
