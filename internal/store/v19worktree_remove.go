@@ -23,21 +23,17 @@ var ErrCanonicalV19WorktreeRemoveNotCurrent = errors.New("canonical v19 worktree
 var ErrCanonicalV19WorktreeRemoveTransition = errors.New("canonical v19 worktree remove transition conflict")
 
 // CanonicalV19WorktreeRemovePrepareInput identifies one fresh logical native
-// Git WorktreeRemove request. ExpectedHeadRevision comes from the exact
-// observation that the native adapter will re-prove before mutation.
+// Git WorktreeRemove request.
 type CanonicalV19WorktreeRemovePrepareInput struct {
-	OperationID          string
-	OperationKey         string
-	AttemptID            string
-	BindingID            string
-	ExpectedHeadRevision string
-	CreatedAt            string
+	OperationID  string
+	OperationKey string
+	AttemptID    string
+	BindingID    string
+	CreatedAt    string
 }
 
 // CanonicalV19WorktreeRemoveRequest is the exact immutable remove request.
-// Binding ownership fields are copied from the immutable WorktreeBinding;
-// ExpectedHeadRevision freezes the observed HEAD the destructive safety proof
-// applies to.
+// Exact identity fields are copied from the immutable WorktreeBinding.
 type CanonicalV19WorktreeRemoveRequest struct {
 	OperationID                    string
 	OperationKey                   string
@@ -51,7 +47,6 @@ type CanonicalV19WorktreeRemoveRequest struct {
 	RepositoryLocator              string
 	Path                           string
 	BasisRevision                  string
-	EstablishedHeadRevision        string
 	ExpectedPhysicalIdentityDigest string
 	ExpectedCommonGitDir           string
 	ExpectedPrivateGitDir          string
@@ -70,8 +65,8 @@ type CanonicalV19WorktreeRemoveTransitionInput struct {
 }
 
 // CanonicalV19WorktreeRemovedEvidence is positive exact Git/filesystem
-// postcondition evidence that the exact requested linked worktree and its
-// registration/admin resource are absent.
+// postcondition evidence that the exact linked worktree registration and
+// physical resource are absent.
 type CanonicalV19WorktreeRemovedEvidence struct {
 	OperationID    string
 	RemovedAt      string
@@ -85,9 +80,9 @@ type canonicalV19WorktreeRemoveCurrent struct {
 }
 
 // PrepareCanonicalV19WorktreeRemove durably records one prepared native Git
-// remove request plus exact worktree/workspace scope claims. It permits
-// cleanup of terminal semantic ancestors, but only for an open exact binding
-// with no open dependent SessionBinding. It performs no external mutation.
+// remove request plus exact worktree/workspace scope claims. Cleanup may run
+// after semantic ancestors become terminal, but only for an unreleased exact
+// WorktreeBinding with no open dependent SessionBinding.
 func PrepareCanonicalV19WorktreeRemove(
 	ctx context.Context,
 	homeDir string,
@@ -163,9 +158,9 @@ func PrepareCanonicalV19WorktreeRemove(
 }
 
 // SubmitCanonicalV19WorktreeRemove commits durable mutation authorization for
-// the exact prepared request. The caller must have freshly proved the native
-// identity/dependency/preservation preconditions represented by evidenceDigest.
-// External Git/filesystem mutation may start only after this returns.
+// the exact prepared request. The caller must freshly prove native identity,
+// dependency, cleanliness/preservation, and registration preconditions before
+// calling. External mutation may start only after this returns successfully.
 func SubmitCanonicalV19WorktreeRemove(
 	ctx context.Context,
 	homeDir string,
@@ -185,6 +180,7 @@ func SubmitCanonicalV19WorktreeRemove(
 		return CanonicalV19WorktreeRemoveRequest{}, err
 	}
 	defer func() { _ = sqlDB.Close() }()
+
 	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return CanonicalV19WorktreeRemoveRequest{}, canonicalV19WorktreeRemoveWriteError("submit", "begin writer", err)
@@ -195,6 +191,7 @@ func SubmitCanonicalV19WorktreeRemove(
 			_ = tx.Rollback()
 		}
 	}()
+
 	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
 		return CanonicalV19WorktreeRemoveRequest{}, fmt.Errorf("submit canonical v19 WorktreeRemove: %w", err)
 	}
@@ -208,6 +205,7 @@ func SubmitCanonicalV19WorktreeRemove(
 	if current.State != "prepared" || current.StateChangedAt == submittedAt {
 		return CanonicalV19WorktreeRemoveRequest{}, fmt.Errorf("submit canonical v19 WorktreeRemove: %w: operation %q is %q", ErrCanonicalV19WorktreeRemoveTransition, operationID, current.State)
 	}
+
 	result, err := tx.ExecContext(ctx, `UPDATE external_operation
 		SET state='submitted',state_changed_at=?,state_evidence_digest=?,submitted_at=?
 		WHERE id=? AND state='prepared'`, submittedAt, evidenceDigest, submittedAt, operationID)
@@ -225,8 +223,8 @@ func SubmitCanonicalV19WorktreeRemove(
 }
 
 // ClassifyCanonicalV19WorktreeRemove records exact nonsuccess evidence.
-// Success uses CompleteCanonicalV19WorktreeRemove so only positive exact
-// removal evidence derivationally closes the immutable WorktreeBinding.
+// Success uses CompleteCanonicalV19WorktreeRemove so operation success and the
+// immutable WorktreeBinding release relation are committed atomically.
 func ClassifyCanonicalV19WorktreeRemove(
 	ctx context.Context,
 	homeDir string,
@@ -244,6 +242,7 @@ func ClassifyCanonicalV19WorktreeRemove(
 		return err
 	}
 	defer func() { _ = sqlDB.Close() }()
+
 	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return canonicalV19WorktreeRemoveWriteError("classify", "begin writer", err)
@@ -254,6 +253,7 @@ func ClassifyCanonicalV19WorktreeRemove(
 			_ = tx.Rollback()
 		}
 	}()
+
 	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
 		return fmt.Errorf("classify canonical v19 WorktreeRemove: %w", err)
 	}
@@ -287,10 +287,9 @@ func ClassifyCanonicalV19WorktreeRemove(
 	return nil
 }
 
-// CompleteCanonicalV19WorktreeRemove marks the exact remove succeeded only
-// from positive exact postcondition evidence. WorktreeBinding is immutable;
-// successful removal is derived from this exact terminal operation rather than
-// by rewriting or deleting the binding row.
+// CompleteCanonicalV19WorktreeRemove atomically marks the exact remove
+// succeeded and inserts the immutable WorktreeBinding release relation from
+// positive exact Git/filesystem absence evidence.
 func CompleteCanonicalV19WorktreeRemove(
 	ctx context.Context,
 	homeDir string,
@@ -308,6 +307,7 @@ func CompleteCanonicalV19WorktreeRemove(
 		return err
 	}
 	defer func() { _ = sqlDB.Close() }()
+
 	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return canonicalV19WorktreeRemoveWriteError("complete", "begin writer", err)
@@ -318,6 +318,7 @@ func CompleteCanonicalV19WorktreeRemove(
 			_ = tx.Rollback()
 		}
 	}()
+
 	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
 		return fmt.Errorf("complete canonical v19 WorktreeRemove: %w", err)
 	}
@@ -345,6 +346,12 @@ func CompleteCanonicalV19WorktreeRemove(
 	if err := requireCanonicalV19WorktreeRemoveOneChanged(result, "complete", evidence.OperationID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_binding_release(
+		binding_id,remove_operation_id,released_at,evidence_digest
+	) VALUES(?,?,?,?)`, current.Request.BindingID, evidence.OperationID,
+		evidence.RemovedAt, evidence.EvidenceDigest); err != nil {
+		return canonicalV19WorktreeRemoveConstraintError("complete", "insert exact WorktreeBinding release", evidence.OperationID, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return canonicalV19WorktreeRemoveWriteError("complete", "commit writer", err)
 	}
@@ -354,12 +361,11 @@ func CompleteCanonicalV19WorktreeRemove(
 
 func validateCanonicalV19WorktreeRemovePrepareInput(input CanonicalV19WorktreeRemovePrepareInput) error {
 	for name, value := range map[string]string{
-		"operation ID":           input.OperationID,
-		"operation key":          input.OperationKey,
-		"Attempt ID":             input.AttemptID,
-		"binding ID":             input.BindingID,
-		"expected HEAD revision": input.ExpectedHeadRevision,
-		"created_at":              input.CreatedAt,
+		"operation ID":  input.OperationID,
+		"operation key": input.OperationKey,
+		"Attempt ID":    input.AttemptID,
+		"binding ID":    input.BindingID,
+		"created_at":     input.CreatedAt,
 	} {
 		if value == "" {
 			return fmt.Errorf("prepare canonical v19 WorktreeRemove: %s is empty", name)
@@ -405,16 +411,15 @@ func buildCanonicalV19WorktreeRemoveRequest(
 	input CanonicalV19WorktreeRemovePrepareInput,
 ) (CanonicalV19WorktreeRemoveRequest, error) {
 	request := CanonicalV19WorktreeRemoveRequest{
-		OperationID:          input.OperationID,
-		OperationKey:         input.OperationKey,
-		AttemptID:            input.AttemptID,
-		BindingID:            input.BindingID,
-		ExpectedHeadRevision: input.ExpectedHeadRevision,
-		CreatedAt:            input.CreatedAt,
+		OperationID:  input.OperationID,
+		OperationKey: input.OperationKey,
+		AttemptID:    input.AttemptID,
+		BindingID:    input.BindingID,
+		CreatedAt:    input.CreatedAt,
 	}
 	err := tx.QueryRowContext(ctx, `SELECT project_owner.id,t.id,p.id,w.id,w.repository_locator,
-		b.path,b.basis_revision,b.head_revision,b.physical_identity_digest,b.common_git_dir,
-		b.private_git_dir,b.lock_reason
+		b.path,b.basis_revision,b.physical_identity_digest,b.common_git_dir,b.private_git_dir,
+		b.lock_reason,b.head_revision
 		FROM attempt_worktree_binding b
 		JOIN attempt a ON a.id=b.attempt_id
 		JOIN plan p ON p.id=a.plan_id
@@ -422,18 +427,14 @@ func buildCanonicalV19WorktreeRemoveRequest(
 		JOIN project project_owner ON project_owner.id=t.project_id
 		JOIN workspace_binding w ON w.id=p.workspace_binding_id AND w.project_id=t.project_id
 		WHERE b.id=? AND b.attempt_id=?
-		  AND NOT EXISTS (
-			SELECT 1 FROM worktree_remove_operation prior_remove
-			JOIN external_operation prior_operation ON prior_operation.id=prior_remove.operation_id
-			WHERE prior_remove.binding_id=b.id AND prior_operation.kind='worktree-remove'
-			  AND prior_operation.state='succeeded'
-		  )`, input.BindingID, input.AttemptID).Scan(
+		  AND NOT EXISTS (SELECT 1 FROM worktree_binding_release r WHERE r.binding_id=b.id)`,
+		input.BindingID, input.AttemptID).Scan(
 		&request.ProjectID, &request.TaskID, &request.PlanID, &request.WorkspaceBindingID,
 		&request.RepositoryLocator, &request.Path, &request.BasisRevision,
-		&request.EstablishedHeadRevision, &request.ExpectedPhysicalIdentityDigest,
-		&request.ExpectedCommonGitDir, &request.ExpectedPrivateGitDir, &request.ExpectedLockReason)
+		&request.ExpectedPhysicalIdentityDigest, &request.ExpectedCommonGitDir,
+		&request.ExpectedPrivateGitDir, &request.ExpectedLockReason, &request.ExpectedHeadRevision)
 	if errors.Is(err, sql.ErrNoRows) {
-		return CanonicalV19WorktreeRemoveRequest{}, fmt.Errorf("%w: binding %q is not an open exact WorktreeBinding of Attempt %q", ErrCanonicalV19WorktreeRemoveNotCurrent, input.BindingID, input.AttemptID)
+		return CanonicalV19WorktreeRemoveRequest{}, fmt.Errorf("%w: binding %q is not an unreleased exact WorktreeBinding of Attempt %q", ErrCanonicalV19WorktreeRemoveNotCurrent, input.BindingID, input.AttemptID)
 	}
 	if err != nil {
 		return CanonicalV19WorktreeRemoveRequest{}, canonicalV19WorktreeRemoveWriteError("prepare", "read exact WorktreeBinding ownership", err)
@@ -451,9 +452,9 @@ func loadCanonicalV19WorktreeRemoveCurrent(
 	request := &current.Request
 	err := tx.QueryRowContext(ctx, `SELECT o.state,o.state_changed_at,o.operation_key,o.request_digest,
 		o.project_id,o.task_id,o.plan_id,o.attempt_id,w.id,w.repository_locator,
-		b.id,b.path,b.basis_revision,b.head_revision,
-		wr.expected_physical_identity_digest,wr.expected_common_git_dir,wr.expected_private_git_dir,
-		wr.expected_lock_reason,wr.expected_head_revision,o.created_at
+		b.id,b.path,b.basis_revision,wr.expected_physical_identity_digest,
+		wr.expected_common_git_dir,wr.expected_private_git_dir,wr.expected_lock_reason,
+		wr.expected_head_revision,o.created_at
 		FROM external_operation o
 		JOIN worktree_remove_operation wr ON wr.operation_id=o.id
 		JOIN attempt_worktree_binding b ON b.id=wr.binding_id AND b.attempt_id=o.attempt_id
@@ -472,21 +473,17 @@ func loadCanonicalV19WorktreeRemoveCurrent(
 		  AND wr.expected_common_git_dir=b.common_git_dir
 		  AND wr.expected_private_git_dir=b.private_git_dir
 		  AND wr.expected_lock_reason=b.lock_reason
-		  AND NOT EXISTS (
-			SELECT 1 FROM worktree_remove_operation other_remove
-			JOIN external_operation other_operation ON other_operation.id=other_remove.operation_id
-			WHERE other_remove.binding_id=b.id AND other_operation.kind='worktree-remove'
-			  AND other_operation.state='succeeded' AND other_operation.id<>o.id
-		  )`, operationID, canonicalV19GitWorktreeAdapterRef).Scan(
+		  AND wr.expected_head_revision=b.head_revision
+		  AND NOT EXISTS (SELECT 1 FROM worktree_binding_release r WHERE r.binding_id=b.id)`,
+		operationID, canonicalV19GitWorktreeAdapterRef).Scan(
 		&current.State, &current.StateChangedAt, &request.OperationKey, &request.RequestDigest,
 		&request.ProjectID, &request.TaskID, &request.PlanID, &request.AttemptID,
 		&request.WorkspaceBindingID, &request.RepositoryLocator, &request.BindingID,
-		&request.Path, &request.BasisRevision, &request.EstablishedHeadRevision,
-		&request.ExpectedPhysicalIdentityDigest, &request.ExpectedCommonGitDir,
-		&request.ExpectedPrivateGitDir, &request.ExpectedLockReason,
-		&request.ExpectedHeadRevision, &request.CreatedAt)
+		&request.Path, &request.BasisRevision, &request.ExpectedPhysicalIdentityDigest,
+		&request.ExpectedCommonGitDir, &request.ExpectedPrivateGitDir,
+		&request.ExpectedLockReason, &request.ExpectedHeadRevision, &request.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return canonicalV19WorktreeRemoveCurrent{}, fmt.Errorf("%w: operation %q lacks exact WorktreeRemove request/ownership/claims", ErrCanonicalV19WorktreeRemoveNotCurrent, operationID)
+		return canonicalV19WorktreeRemoveCurrent{}, fmt.Errorf("%w: operation %q lacks exact unreleased WorktreeRemove request/ownership/claims", ErrCanonicalV19WorktreeRemoveNotCurrent, operationID)
 	}
 	if err != nil {
 		return canonicalV19WorktreeRemoveCurrent{}, canonicalV19WorktreeRemoveWriteError("currentness", "read exact WorktreeRemove", err)
@@ -501,15 +498,10 @@ func loadCanonicalV19WorktreeRemoveCurrent(
 func requireCanonicalV19WorktreeRemoveNoOpenSession(ctx context.Context, tx *sql.Tx, bindingID string) error {
 	var openCount int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*)
-		FROM session_binding sb
-		WHERE sb.worktree_binding_id=?
+		FROM session_binding s
+		WHERE s.worktree_binding_id=?
 		  AND NOT EXISTS (
-			SELECT 1 FROM session_release_operation sr
-			JOIN external_operation release_operation ON release_operation.id=sr.operation_id
-			WHERE sr.session_binding_id=sb.id AND release_operation.kind='session-release'
-			  AND release_operation.primary_scope_kind='session'
-			  AND release_operation.primary_scope_key=sb.id
-			  AND release_operation.state='succeeded'
+			SELECT 1 FROM session_binding_release r WHERE r.session_binding_id=s.id
 		  )`, bindingID).Scan(&openCount); err != nil {
 		return canonicalV19WorktreeRemoveWriteError("currentness", "read dependent SessionBinding", err)
 	}
@@ -544,7 +536,6 @@ func canonicalV19WorktreeRemoveDigest(request CanonicalV19WorktreeRemoveRequest)
 	writeCanonicalV19DigestField(hash, "repository_locator", request.RepositoryLocator)
 	writeCanonicalV19DigestField(hash, "path", request.Path)
 	writeCanonicalV19DigestField(hash, "basis_revision", request.BasisRevision)
-	writeCanonicalV19DigestField(hash, "established_head_revision", request.EstablishedHeadRevision)
 	writeCanonicalV19DigestField(hash, "expected_physical_identity_digest", request.ExpectedPhysicalIdentityDigest)
 	writeCanonicalV19DigestField(hash, "expected_common_git_dir", request.ExpectedCommonGitDir)
 	writeCanonicalV19DigestField(hash, "expected_private_git_dir", request.ExpectedPrivateGitDir)
