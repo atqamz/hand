@@ -184,12 +184,65 @@ func TestReconcilePreparedCanonicalV19WorktreeCreateDoesNotOverwriteForeignPath(
 	}
 
 	state, err := ReconcileCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID)
-	if state != "no-effect" || err == nil {
-		t.Fatalf("foreign path reconcile = %q, %v, want no-effect with diagnostic", state, err)
+	if state != "prepared" || err == nil {
+		t.Fatalf("foreign path reconcile = %q, %v, want prepared with diagnostic", state, err)
 	}
 	contents, readErr := os.ReadFile(sentinel)
 	if readErr != nil || string(contents) != "foreign\n" {
 		t.Fatalf("foreign path was modified: %q, %v", contents, readErr)
+	}
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var persistedState, submittedAt string
+	if err := db.sql.QueryRow(`SELECT state,submitted_at FROM external_operation WHERE id=?`, request.OperationID).Scan(&persistedState, &submittedAt); err != nil {
+		t.Fatal(err)
+	}
+	if persistedState != "prepared" || submittedAt != "" {
+		t.Fatalf("foreign path persisted state = %q submitted_at=%q, want prepared without submission", persistedState, submittedAt)
+	}
+}
+
+func TestReconcileSubmittedCanonicalV19WorktreeCreateKeepsForeignPathUncertain(t *testing.T) {
+	fixture := canonicalV19WorktreeCreateFixture(t)
+	input := canonicalV19WorktreeCreatePrepareInput(fixture.Home, "operation-submitted-foreign", "binding-submitted-foreign")
+	request, err := PrepareCanonicalV19WorktreeCreate(context.Background(), fixture.Home, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SubmitCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID,
+		"2026-09-06T09:00:01Z", strings.Repeat("f", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(request.RequestedPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(request.RequestedPath, "foreign.txt")
+	if err := os.WriteFile(sentinel, []byte("foreign\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := ReconcileCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID)
+	if state != "uncertain" || err == nil {
+		t.Fatalf("submitted foreign reconcile = %q, %v, want uncertain with diagnostic", state, err)
+	}
+	contents, readErr := os.ReadFile(sentinel)
+	if readErr != nil || string(contents) != "foreign\n" {
+		t.Fatalf("submitted foreign path was modified: %q, %v", contents, readErr)
+	}
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var persistedState string
+	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&persistedState); err != nil {
+		t.Fatal(err)
+	}
+	if persistedState != "uncertain" {
+		t.Fatalf("submitted foreign persisted state = %q, want uncertain", persistedState)
 	}
 }
 
