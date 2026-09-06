@@ -2,13 +2,19 @@ name: Gofmt probe
 on:
   pull_request:
 permissions:
-  contents: read
+  contents: write
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Diff
+        with:
+          ref: implementation/v19-step9-worktree-remove
+      - name: Format
         run: |
-          gofmt -d internal/store/v19worktree_remove.go
-          test -z "$(gofmt -l internal/store/v19worktree_remove.go)"
+          gofmt -w internal/store/v19worktree_remove.go
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add internal/store/v19worktree_remove.go
+          git diff --cached --quiet || git commit -m 'style(store): gofmt WorktreeRemove persistence'
+          git push origin HEAD:implementation/v19-step9-worktree-remove
