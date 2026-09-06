@@ -1,0 +1,14 @@
+name: Gofmt probe
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Diff
+        run: |
+          gofmt -d internal/store/v19worktree_remove.go
+          test -z "$(gofmt -l internal/store/v19worktree_remove.go)"
