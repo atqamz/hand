@@ -393,16 +393,16 @@ func validateCanonicalV19LaunchSpec(spec CanonicalV19LaunchSpec) error {
 			return errors.New("launch environment name is empty")
 		}
 		if value.ValueDigest == "" {
-			return fmt.Errorf("Launch environment %q value digest is empty", name)
+			return fmt.Errorf("launch environment %q value digest is empty", name)
 		}
 		switch value.ValueKind {
 		case "literal":
 		case "secret-ref":
 			if value.ValueMaterial == "" {
-				return fmt.Errorf("Launch environment %q secret reference is empty", name)
+				return fmt.Errorf("launch environment %q secret reference is empty", name)
 			}
 		default:
-			return fmt.Errorf("Launch environment %q value kind %q is invalid", name, value.ValueKind)
+			return fmt.Errorf("launch environment %q value kind %q is invalid", name, value.ValueKind)
 		}
 	}
 	return nil
