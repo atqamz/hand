@@ -365,7 +365,7 @@ func validateCanonicalV19WorktreeRemovePrepareInput(input CanonicalV19WorktreeRe
 		"operation key": input.OperationKey,
 		"Attempt ID":    input.AttemptID,
 		"binding ID":    input.BindingID,
-		"created_at":     input.CreatedAt,
+		"created_at":    input.CreatedAt,
 	} {
 		if value == "" {
 			return fmt.Errorf("prepare canonical v19 WorktreeRemove: %s is empty", name)
