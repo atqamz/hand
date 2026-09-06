@@ -391,7 +391,7 @@ func canonicalV19WorktreeCreateFixture(t *testing.T) canonicalV19WorktreeCreateT
 		canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
 		t.Fatal(err)
 	}
-	return canonicalV19WorktreeCreateTestFixture{Home: fixture.Home}
+	return canonicalV19WorktreeCreateTestFixture(fixture)
 }
 
 func canonicalV19WorktreeCreatePrepareInput(home, operationID, bindingID string) CanonicalV19WorktreeCreatePrepareInput {
