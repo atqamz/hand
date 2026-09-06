@@ -16,7 +16,8 @@ func TestProbeCanonicalV19InterruptSchema(t *testing.T) {
 	rows, err := db.sql.Query(`SELECT type,name,tbl_name,sql FROM sqlite_schema
 		WHERE sql IS NOT NULL AND (
 			name LIKE '%interrupt%' OR name LIKE '%executor_binding%' OR
-			tbl_name LIKE '%interrupt%' OR tbl_name LIKE '%executor_binding%'
+			tbl_name LIKE '%interrupt%' OR tbl_name LIKE '%executor_binding%' OR
+			sql LIKE '%interrupt_operation%' OR sql LIKE '%executor_binding_termination%'
 		)
 		ORDER BY type,name`)
 	if err != nil {
