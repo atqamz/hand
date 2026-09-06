@@ -16,10 +16,8 @@ func TestCanonicalV19Step10SchemaProbe(t *testing.T) {
 	rows, err := db.sql.Query(`
 		SELECT type, name, COALESCE(sql, '')
 		FROM sqlite_master
-		WHERE lower(name) LIKE '%session%'
-		   OR lower(name) LIKE '%launch%'
-		   OR lower(name) LIKE '%executor%'
-		   OR lower(name) LIKE '%interrupt%'
+		WHERE lower(name) LIKE '%scope%'
+		   OR lower(name) LIKE 'external_operation%'
 		ORDER BY type, name`)
 	if err != nil {
 		t.Fatal(err)
@@ -43,5 +41,5 @@ func TestCanonicalV19Step10SchemaProbe(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	t.Fatalf("locked v19 step10 schema:%s", out.String())
+	t.Fatalf("locked v19 operation scope schema:%s", out.String())
 }
