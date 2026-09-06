@@ -1,0 +1,21 @@
+name: Schema probe
+
+on:
+  pull_request:
+    paths:
+      - internal/store/v19worktree_remove_probe_test.go
+      - .github/workflows/schema-probe.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Probe
+        run: go test -tags=test -run '^TestProbeCanonicalV19WorktreeRemoveSchema$' -v ./internal/store
