@@ -216,10 +216,9 @@ func SubmitCanonicalV19WorktreeCreate(
 	return current.Request, nil
 }
 
-// ClassifyCanonicalV19WorktreeCreate records uncertain or terminal nonsuccess
-// evidence for the exact current WorktreeCreate. Success requires the separate
-// binding-establishment writer so operation success and binding insertion are
-// atomic.
+// ClassifyCanonicalV19WorktreeCreate records exact nonsuccess evidence.
+// Success uses the separate binding-establishment writer so operation success
+// and WorktreeBinding insertion remain atomic.
 func ClassifyCanonicalV19WorktreeCreate(
 	ctx context.Context,
 	homeDir string,
