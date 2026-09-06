@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"testing"
 )
 
@@ -24,26 +23,21 @@ func TestProbeCanonicalV19WorktreeRemoveSchema(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	for _, table := range []string{"session_release_operation"} {
-		rows, err := db.sql.Query(`PRAGMA table_info(` + table + `)`)
-		if err != nil {
+	rows, err := db.sql.Query(`SELECT name,sql FROM sqlite_master
+		WHERE type='trigger' AND sql LIKE '%worktree_remove_operation%' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var name, sqlText string
+		if err := rows.Scan(&name, &sqlText); err != nil {
 			t.Fatal(err)
 		}
-		var cols []string
-		for rows.Next() {
-			var cid, notNull, pk int
-			var name, typ string
-			var defaultValue any
-			if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-				_ = rows.Close()
-				t.Fatal(err)
-			}
-			cols = append(cols, fmt.Sprintf("%s:%s:notnull=%d:pk=%d", name, typ, notNull, pk))
-		}
-		if err := rows.Close(); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("%s columns: %v", table, cols)
+		t.Logf("trigger %s: %s", name, sqlText)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	t.FailNow()
 }
