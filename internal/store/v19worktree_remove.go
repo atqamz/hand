@@ -79,10 +79,9 @@ type canonicalV19WorktreeRemoveCurrent struct {
 	StateChangedAt string
 }
 
-// PrepareCanonicalV19WorktreeRemove durably records one prepared native Git
-// remove request plus exact worktree/workspace scope claims. Cleanup may run
-// after semantic ancestors become terminal, but only for an unreleased exact
-// WorktreeBinding with no open dependent SessionBinding.
+// PrepareCanonicalV19WorktreeRemove records a prepared native Git remove request
+// plus exact worktree/workspace claims. Terminal ancestors are allowed, but the
+// exact WorktreeBinding must be unreleased with no open SessionBinding.
 func PrepareCanonicalV19WorktreeRemove(
 	ctx context.Context,
 	homeDir string,
@@ -157,10 +156,9 @@ func PrepareCanonicalV19WorktreeRemove(
 	return request, nil
 }
 
-// SubmitCanonicalV19WorktreeRemove commits durable mutation authorization for
-// the exact prepared request. The caller must freshly prove native identity,
-// dependency, cleanliness/preservation, and registration preconditions before
-// calling. External mutation may start only after this returns successfully.
+// SubmitCanonicalV19WorktreeRemove durably authorizes the exact prepared request.
+// The caller must freshly prove native identity, dependency, preservation, and
+// registration preconditions; external mutation may start only after success.
 func SubmitCanonicalV19WorktreeRemove(
 	ctx context.Context,
 	homeDir string,
