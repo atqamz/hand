@@ -281,6 +281,43 @@ func TestReconcileUncertainCanonicalV19WorktreeCreateNeverMutates(t *testing.T) 
 	}
 }
 
+func TestReconcileUncertainCanonicalV19WorktreeCreateConvergesFromLaterExactProof(t *testing.T) {
+	fixture := canonicalV19WorktreeCreateFixture(t)
+	input := canonicalV19WorktreeCreatePrepareInput(fixture.Home, "operation-uncertain-exact", "binding-uncertain-exact")
+	if err := os.MkdirAll(filepath.Dir(input.RequestedPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	request, err := PrepareCanonicalV19WorktreeCreate(context.Background(), fixture.Home, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SubmitCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID,
+		"2026-09-06T09:00:01Z", strings.Repeat("1", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClassifyCanonicalV19WorktreeCreate(context.Background(), fixture.Home, CanonicalV19WorktreeCreateTransitionInput{
+		OperationID: request.OperationID, State: "uncertain", ObservedAt: "2026-09-06T09:00:02Z", EvidenceDigest: strings.Repeat("2", 64),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repository := canonicalV19ObservedPath(fixture.Home, request.RepositoryLocator)
+	canonicalV19PlanWriterGit(t, repository, "worktree", "add", "--detach", "--lock", "--reason", request.ExpectedLockReason,
+		request.RequestedPath, request.BasisRevision)
+
+	performCalls := 0
+	state, err := reconcileCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID, canonicalV19WorktreeCreateNativeDeps{
+		observe: observeCanonicalV19GitWorktree,
+		perform: func(string, CanonicalV19WorktreeCreateRequest) error {
+			performCalls++
+			return errors.New("must not run")
+		},
+		now: time.Now,
+	})
+	if err != nil || state != "succeeded" || performCalls != 0 {
+		t.Fatalf("uncertain exact reconcile = %q, %v perform=%d, want succeeded/nil/0", state, err, performCalls)
+	}
+}
+
 func TestParseCanonicalV19GitWorktreeListPreservesLockReason(t *testing.T) {
 	head := strings.Repeat("a", 40)
 	output := "worktree /repo\x00HEAD " + head + "\x00detached\x00locked hand:v1:binding-1\x00\x00"
