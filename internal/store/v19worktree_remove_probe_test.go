@@ -24,7 +24,7 @@ func TestProbeCanonicalV19WorktreeRemoveSchema(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	for _, table := range []string{"worktree_remove_operation", "attempt_worktree_binding", "session_binding"} {
+	for _, table := range []string{"session_release_operation"} {
 		rows, err := db.sql.Query(`PRAGMA table_info(` + table + `)`)
 		if err != nil {
 			t.Fatal(err)
