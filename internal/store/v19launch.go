@@ -383,14 +383,14 @@ func validateCanonicalV19LaunchPrepareInput(input CanonicalV19LaunchPrepareInput
 
 func validateCanonicalV19LaunchSpec(spec CanonicalV19LaunchSpec) error {
 	if spec.Executable == "" {
-		return errors.New("Launch executable is empty")
+		return errors.New("launch executable is empty")
 	}
 	if spec.Cwd == "" {
-		return errors.New("Launch cwd is empty")
+		return errors.New("launch cwd is empty")
 	}
 	for name, value := range spec.Environment {
 		if name == "" {
-			return errors.New("Launch environment name is empty")
+			return errors.New("launch environment name is empty")
 		}
 		if value.ValueDigest == "" {
 			return fmt.Errorf("Launch environment %q value digest is empty", name)
