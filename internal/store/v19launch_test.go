@@ -223,6 +223,28 @@ func TestPrepareCanonicalV19LaunchRefusesReleasedSession(t *testing.T) {
 	}
 }
 
+func TestSuccessfulCanonicalV19LaunchBlocksSessionReleaseUntilExecutorTerminates(t *testing.T) {
+	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
+	input := canonicalV19LaunchPrepareInput(worktree, session, "operation-launch-1", "executor-binding-1")
+	request, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := EstablishCanonicalV19ExecutorBinding(context.Background(), fixture.Home, CanonicalV19ExecutorBindingEvidence{
+		OperationID: request.OperationID, ProviderExecutorKey: "provider-executor-1",
+		EstablishedAt: "2026-09-06T17:04:00Z", EvidenceDigest: "executor-established-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = PrepareCanonicalV19SessionRelease(context.Background(), fixture.Home, CanonicalV19SessionReleasePrepareInput{
+		OperationID: "operation-session-release-open-executor", OperationKey: "operation-key-session-release-open-executor",
+		SessionBindingID: session.BindingID, CreatedAt: "2026-09-06T17:05:00Z",
+	})
+	if !errors.Is(err, ErrCanonicalV19SessionConflict) {
+		t.Fatalf("SessionRelease with open ExecutorBinding error = %v, want %v", err, ErrCanonicalV19SessionConflict)
+	}
+}
+
 func TestPrepareCanonicalV19LaunchValidatesTypedEnvironment(t *testing.T) {
 	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
 	input := canonicalV19LaunchPrepareInput(worktree, session, "operation-launch-1", "executor-binding-1")
