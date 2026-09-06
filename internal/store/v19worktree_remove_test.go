@@ -19,7 +19,7 @@ func TestPrepareCanonicalV19WorktreeRemovePersistsExactRequestAndClaims(t *testi
 		request.ExpectedPhysicalIdentityDigest != "worktree-physical-1" ||
 		request.ExpectedCommonGitDir != binding.ExpectedCommonGitDir ||
 		request.ExpectedPrivateGitDir == "" || request.ExpectedLockReason != binding.ExpectedLockReason ||
-		request.ExpectedHeadRevision != input.ExpectedHeadRevision || len(request.RequestDigest) != 64 {
+		request.ExpectedHeadRevision != binding.BasisRevision || len(request.RequestDigest) != 64 {
 		t.Fatalf("derived WorktreeRemove request = %#v", request)
 	}
 
@@ -83,7 +83,7 @@ func TestPrepareCanonicalV19WorktreeRemoveAllowsTerminalAttemptCleanup(t *testin
 	}
 }
 
-func TestCanonicalV19WorktreeRemoveNoEffectLeavesBindingOpen(t *testing.T) {
+func TestCanonicalV19WorktreeRemoveNoEffectLeavesBindingUnreleased(t *testing.T) {
 	fixture, binding := canonicalV19WorktreeRemoveFixture(t)
 	first := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-1")
 	if _, err := PrepareCanonicalV19WorktreeRemove(context.Background(), fixture.Home, first); err != nil {
@@ -93,6 +93,20 @@ func TestCanonicalV19WorktreeRemoveNoEffectLeavesBindingOpen(t *testing.T) {
 		OperationID: first.OperationID, State: "no-effect", ObservedAt: "2026-09-05T15:04:00Z", EvidenceDigest: "remove-no-effect-1",
 	}); err != nil {
 		t.Fatal(err)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var releases int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM worktree_binding_release WHERE binding_id=?`, binding.BindingID).Scan(&releases); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if releases != 0 {
+		t.Fatalf("WorktreeBinding release rows = %d, want 0", releases)
 	}
 
 	second := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-2")
@@ -140,9 +154,19 @@ func TestSubmitAndReconcileCanonicalV19WorktreeRemove(t *testing.T) {
 	if state != "succeeded" || finalizedAt != "2026-09-05T15:06:00Z" {
 		t.Fatalf("remove terminal state = %q/%q", state, finalizedAt)
 	}
+	var releaseOperationID, releasedAt, evidenceDigest string
+	if err := db.sql.QueryRow(`SELECT remove_operation_id,released_at,evidence_digest
+		FROM worktree_binding_release WHERE binding_id=?`, binding.BindingID).Scan(
+		&releaseOperationID, &releasedAt, &evidenceDigest,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if releaseOperationID != prepared.OperationID || releasedAt != finalizedAt || evidenceDigest != "remove-positive-absence-1" {
+		t.Fatalf("WorktreeBinding release = %q/%q/%q", releaseOperationID, releasedAt, evidenceDigest)
+	}
 }
 
-func TestCanonicalV19WorktreeRemoveSuccessClosesBindingDerivationally(t *testing.T) {
+func TestCompleteCanonicalV19WorktreeRemoveClosesBinding(t *testing.T) {
 	fixture, binding := canonicalV19WorktreeRemoveFixture(t)
 	input := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-1")
 	if _, err := PrepareCanonicalV19WorktreeRemove(context.Background(), fixture.Home, input); err != nil {
@@ -158,21 +182,25 @@ func TestCanonicalV19WorktreeRemoveSuccessClosesBindingDerivationally(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	var bindingRows int
+	var bindingRows, releaseRows int
 	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM attempt_worktree_binding WHERE id=?`, binding.BindingID).Scan(&bindingRows); err != nil {
 		_ = db.Close()
 		t.Fatal(err)
 	}
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM worktree_binding_release WHERE binding_id=?`, binding.BindingID).Scan(&releaseRows); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
 	_ = db.Close()
-	if bindingRows != 1 {
-		t.Fatalf("immutable WorktreeBinding rows = %d, want 1", bindingRows)
+	if bindingRows != 1 || releaseRows != 1 {
+		t.Fatalf("immutable binding/release rows = %d/%d, want 1/1", bindingRows, releaseRows)
 	}
 
 	second := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-2")
 	second.CreatedAt = "2026-09-05T15:05:00Z"
 	_, err = PrepareCanonicalV19WorktreeRemove(context.Background(), fixture.Home, second)
 	if !errors.Is(err, ErrCanonicalV19WorktreeRemoveNotCurrent) {
-		t.Fatalf("remove already closed binding error = %v, want %v", err, ErrCanonicalV19WorktreeRemoveNotCurrent)
+		t.Fatalf("remove already released binding error = %v, want %v", err, ErrCanonicalV19WorktreeRemoveNotCurrent)
 	}
 }
 
@@ -203,11 +231,10 @@ func canonicalV19WorktreeRemoveFixture(t *testing.T) (canonicalV19WorktreeCreate
 
 func canonicalV19WorktreeRemovePrepareInput(binding CanonicalV19WorktreeCreateRequest, operationID string) CanonicalV19WorktreeRemovePrepareInput {
 	return CanonicalV19WorktreeRemovePrepareInput{
-		OperationID:          operationID,
-		OperationKey:         "operation-key-" + operationID,
-		AttemptID:            binding.AttemptID,
-		BindingID:            binding.BindingID,
-		ExpectedHeadRevision: binding.BasisRevision,
-		CreatedAt:            "2026-09-05T15:03:00Z",
+		OperationID:  operationID,
+		OperationKey: "operation-key-" + operationID,
+		AttemptID:    binding.AttemptID,
+		BindingID:    binding.BindingID,
+		CreatedAt:    "2026-09-05T15:03:00Z",
 	}
 }
