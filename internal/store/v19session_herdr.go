@@ -63,11 +63,9 @@ type canonicalV19HerdrSessionAcquireDeps struct {
 	now       func() time.Time
 }
 
-// ReconcileCanonicalV19HerdrSessionAcquire reconciles one exact canonical v19
-// SessionAcquire against Herdr. Herdr assigns workspace/tab/pane identities, so
-// fresh acquisition requires an empty RequestedProviderSessionKey. Once an
-// unresolved mutation loses those provider-assigned identities, recovery is
-// observation-only and never adopts a workspace from its locator label.
+// ReconcileCanonicalV19HerdrSessionAcquire reconciles one exact canonical v19 SessionAcquire against Herdr.
+// Fresh acquisition requires an empty RequestedProviderSessionKey because Herdr assigns provider identities.
+// Recovery never blindly retries or adopts a workspace from its locator label after those identities are lost.
 func ReconcileCanonicalV19HerdrSessionAcquire(ctx context.Context, homeDir, operationID string) (string, error) {
 	return reconcileCanonicalV19HerdrSessionAcquire(ctx, homeDir, operationID, canonicalV19HerdrSessionAcquireDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrSessionClient {
