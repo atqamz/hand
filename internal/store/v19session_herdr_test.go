@@ -107,7 +107,7 @@ func TestReconcileSubmittedCanonicalV19HerdrSessionAcquireDoesNotBlindRetryResid
 		t.Fatal(err)
 	}
 	client := newCanonicalV19HerdrSessionAcquireFakeClient(t, fixture.Home, request.OperationID)
-	client.addCreatedWorkspace(canonicalV19HerdrSessionWorkspaceLabel(request.BindingID), request.WorktreeBindingID)
+	client.addCreatedWorkspace(canonicalV19HerdrSessionWorkspaceLabel(request.BindingID), "unobserved-cwd")
 	client.createCalls = 0
 	deps := canonicalV19HerdrSessionAcquireDeps{
 		clientFor: func(string) canonicalV19HerdrSessionClient { return client },
@@ -123,18 +123,57 @@ func TestReconcileSubmittedCanonicalV19HerdrSessionAcquireDoesNotBlindRetryResid
 	}
 }
 
-func TestReconcileCanonicalV19HerdrSessionAcquirePositiveAbsenceIsNoEffect(t *testing.T) {
-	fixture, request := canonicalV19HerdrSessionAcquireFixture(t, "operation-herdr-session-no-effect")
+func TestReconcileSubmittedCanonicalV19HerdrSessionAcquireLocatorAbsenceRemainsUncertain(t *testing.T) {
+	fixture, request := canonicalV19HerdrSessionAcquireFixture(t, "operation-herdr-session-submitted-absent")
+	if _, err := SubmitCanonicalV19SessionAcquire(context.Background(), fixture.Home, request.OperationID,
+		"2026-09-06T16:59:00Z", "submitted-before-crash"); err != nil {
+		t.Fatal(err)
+	}
 	client := newCanonicalV19HerdrSessionAcquireFakeClient(t, fixture.Home, request.OperationID)
-	client.createErr = errors.New("provider rejected workspace create")
+	deps := canonicalV19HerdrSessionAcquireDeps{
+		clientFor: func(string) canonicalV19HerdrSessionClient { return client },
+		now:       func() time.Time { return time.Date(2026, 9, 6, 17, 3, 30, 0, time.UTC) },
+	}
+
+	state, err := reconcileCanonicalV19HerdrSessionAcquire(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || err == nil {
+		t.Fatalf("submitted absent-locator recovery = %q, %v, want uncertain error", state, err)
+	}
+	if client.createCalls != 0 {
+		t.Fatalf("workspace create calls = %d, want 0", client.createCalls)
+	}
+}
+
+func TestReconcileCanonicalV19HerdrSessionAcquireAmbiguousStartedFailureRemainsUncertain(t *testing.T) {
+	fixture, request := canonicalV19HerdrSessionAcquireFixture(t, "operation-herdr-session-started-failure")
+	client := newCanonicalV19HerdrSessionAcquireFakeClient(t, fixture.Home, request.OperationID)
+	client.createErr = errors.New("started Herdr command failed without classifiable provider evidence")
 	deps := canonicalV19HerdrSessionAcquireDeps{
 		clientFor: func(string) canonicalV19HerdrSessionClient { return client },
 		now:       func() time.Time { return time.Date(2026, 9, 6, 17, 4, 0, 0, time.UTC) },
 	}
 
 	state, err := reconcileCanonicalV19HerdrSessionAcquire(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || err == nil {
+		t.Fatalf("ambiguous started failure = %q, %v, want uncertain error", state, err)
+	}
+	if client.createCalls != 1 {
+		t.Fatalf("workspace create calls = %d, want 1", client.createCalls)
+	}
+}
+
+func TestReconcileCanonicalV19HerdrSessionAcquireProcessNotStartedIsNoEffect(t *testing.T) {
+	fixture, request := canonicalV19HerdrSessionAcquireFixture(t, "operation-herdr-session-no-effect")
+	client := newCanonicalV19HerdrSessionAcquireFakeClient(t, fixture.Home, request.OperationID)
+	client.createErr = &herdr.ExecError{Started: false, Err: errors.New("Herdr executable could not start")}
+	deps := canonicalV19HerdrSessionAcquireDeps{
+		clientFor: func(string) canonicalV19HerdrSessionClient { return client },
+		now:       func() time.Time { return time.Date(2026, 9, 6, 17, 5, 0, 0, time.UTC) },
+	}
+
+	state, err := reconcileCanonicalV19HerdrSessionAcquire(context.Background(), fixture.Home, request.OperationID, deps)
 	if state != "no-effect" || err == nil {
-		t.Fatalf("no-effect reconcile = %q, %v, want no-effect diagnostic", state, err)
+		t.Fatalf("process-not-started reconcile = %q, %v, want no-effect diagnostic", state, err)
 	}
 	if client.createCalls != 1 {
 		t.Fatalf("workspace create calls = %d, want 1", client.createCalls)
@@ -261,7 +300,8 @@ func (f *canonicalV19HerdrSessionAcquireFakeClient) WorkspaceCreate(
 		}
 		return herdr.Workspace{}, herdr.Tab{}, herdr.Pane{}, f.createErr
 	}
-	return f.addCreatedWorkspace(label, cwd)
+	workspace, tab, pane := f.addCreatedWorkspace(label, cwd)
+	return workspace, tab, pane, nil
 }
 
 func (f *canonicalV19HerdrSessionAcquireFakeClient) addCreatedWorkspace(
