@@ -64,10 +64,10 @@ type canonicalV19HerdrSessionAcquireDeps struct {
 }
 
 // ReconcileCanonicalV19HerdrSessionAcquire reconciles one exact canonical v19
-// SessionAcquire against the Herdr provider. Herdr assigns workspace/tab/pane
-// identities, so a fresh request must leave RequestedProviderSessionKey empty.
-// Submitted/uncertain operations are observation-only and are never blindly
-// replayed after process-memory loss.
+// SessionAcquire against Herdr. Herdr assigns workspace/tab/pane identities, so
+// fresh acquisition requires an empty RequestedProviderSessionKey. Once an
+// unresolved mutation loses those provider-assigned identities, recovery is
+// observation-only and never adopts a workspace from its locator label.
 func ReconcileCanonicalV19HerdrSessionAcquire(ctx context.Context, homeDir, operationID string) (string, error) {
 	return reconcileCanonicalV19HerdrSessionAcquire(ctx, homeDir, operationID, canonicalV19HerdrSessionAcquireDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrSessionClient {
@@ -114,8 +114,7 @@ func reconcileCanonicalV19HerdrSessionAcquire(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: provider-assigned Session key must be empty before fresh acquisition")
 	}
 
-	sessionName := herdr.SessionName(current.FleetID)
-	client := deps.clientFor(sessionName)
+	client := deps.clientFor(herdr.SessionName(current.FleetID))
 	if client == nil {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: provider client is unavailable")
 	}
@@ -144,35 +143,32 @@ func reconcileCanonicalV19HerdrSessionAcquire(
 	current.Current.StateChangedAt = submittedAt
 
 	observed = observeCanonicalV19HerdrSessionAcquire(ctx, current, "", client)
-	switch observed.State {
-	case canonicalV19HerdrSessionAbsent:
-	case canonicalV19HerdrSessionMismatch, canonicalV19HerdrSessionUnknown:
+	if observed.State != canonicalV19HerdrSessionAbsent {
 		return classifyCanonicalV19HerdrSessionAcquireUncertain(ctx, homeDir, current, observed, deps.now, nil)
-	default:
-		return "submitted", fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: provider observation state %q is invalid", observed.State)
 	}
 
 	providerKey, performErr := performCanonicalV19HerdrSessionAcquire(current, client)
 	if providerKey != "" {
 		observed = observeCanonicalV19HerdrSessionAcquire(ctx, current, providerKey, client)
-	} else {
-		observed = observeCanonicalV19HerdrSessionAcquire(ctx, current, "", client)
-	}
-	switch observed.State {
-	case canonicalV19HerdrSessionExact:
-		if providerKey == "" {
-			return classifyCanonicalV19HerdrSessionAcquireUncertain(ctx, homeDir, current, observed, deps.now,
-				errors.New("provider returned no exact Session key"))
+		switch observed.State {
+		case canonicalV19HerdrSessionExact:
+			return establishCanonicalV19ObservedHerdrSession(ctx, homeDir, current, observed, deps.now)
+		case canonicalV19HerdrSessionAbsent:
+			return classifyCanonicalV19HerdrSessionAcquireNoEffect(ctx, homeDir, current, observed, deps.now,
+				"positive observation proves the exact provider-assigned Session resource is absent")
+		case canonicalV19HerdrSessionMismatch, canonicalV19HerdrSessionUnknown:
+			return classifyCanonicalV19HerdrSessionAcquireUncertain(ctx, homeDir, current, observed, deps.now, performErr)
+		default:
+			return "submitted", fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: provider observation state %q is invalid", observed.State)
 		}
-		return establishCanonicalV19ObservedHerdrSession(ctx, homeDir, current, observed, deps.now)
-	case canonicalV19HerdrSessionAbsent:
-		return classifyCanonicalV19HerdrSessionAcquireNoEffect(ctx, homeDir, current, observed, deps.now,
-			canonicalV19HerdrSessionPerformFailure("positive observation proves no requested Session resource remains", performErr))
-	case canonicalV19HerdrSessionMismatch, canonicalV19HerdrSessionUnknown:
-		return classifyCanonicalV19HerdrSessionAcquireUncertain(ctx, homeDir, current, observed, deps.now, performErr)
-	default:
-		return "submitted", fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: provider observation state %q is invalid", observed.State)
 	}
+
+	observed = observeCanonicalV19HerdrSessionAcquire(ctx, current, "", client)
+	if performErr != nil && herdr.IsProcessNotStarted(performErr) && observed.State == canonicalV19HerdrSessionAbsent {
+		return classifyCanonicalV19HerdrSessionAcquireNoEffect(ctx, homeDir, current, observed, deps.now,
+			"Herdr process did not start and positive pre/post observation proves no dedicated Session locator exists")
+	}
+	return classifyCanonicalV19HerdrSessionAcquireUncertain(ctx, homeDir, current, observed, deps.now, performErr)
 }
 
 func reconcileCanonicalV19SubmittedHerdrSessionAcquire(
@@ -182,18 +178,16 @@ func reconcileCanonicalV19SubmittedHerdrSessionAcquire(
 	observed canonicalV19HerdrSessionObservation,
 	now func() time.Time,
 ) (string, error) {
-	switch observed.State {
-	case canonicalV19HerdrSessionAbsent:
-		return classifyCanonicalV19HerdrSessionAcquireNoEffect(ctx, homeDir, current, observed, now,
-			"positive provider observation proves the unresolved acquisition left no dedicated Session resource")
-	case canonicalV19HerdrSessionMismatch, canonicalV19HerdrSessionUnknown:
-		if current.Current.State == "submitted" {
-			return classifyCanonicalV19HerdrSessionAcquireUncertain(ctx, homeDir, current, observed, now, nil)
-		}
-		return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: operation remains uncertain: %s", observed.Reason)
-	default:
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: provider observation state %q is invalid", observed.State)
+	if observed.Reason == "" {
+		observed.Reason = "provider-assigned workspace/tab/pane identity was not durably captured before recovery"
+	} else {
+		observed.Reason += "; provider-assigned workspace/tab/pane identity was not durably captured before recovery"
 	}
+	observed = finalizeCanonicalV19HerdrSessionObservation(current, observed)
+	if current.Current.State == "submitted" {
+		return classifyCanonicalV19HerdrSessionAcquireUncertain(ctx, homeDir, current, observed, now, nil)
+	}
+	return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: operation remains uncertain: %s", observed.Reason)
 }
 
 func establishCanonicalV19ObservedHerdrSession(
@@ -259,6 +253,9 @@ func classifyCanonicalV19HerdrSessionAcquireUncertain(
 	if performErr != nil {
 		reason = canonicalV19HerdrSessionPerformFailure(reason, performErr)
 	}
+	if reason == "" {
+		reason = "strongest provider evidence cannot classify the submitted acquisition"
+	}
 	return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: operation is uncertain: %s", reason)
 }
 
@@ -316,14 +313,12 @@ func observeCanonicalV19HerdrSessionAcquire(
 			}
 		}
 		if matches == 0 {
-			return finalizeCanonicalV19HerdrSessionObservation(current, canonicalV19HerdrSessionObservation{
-				State: canonicalV19HerdrSessionAbsent,
-			})
+			return finalizeCanonicalV19HerdrSessionObservation(current, canonicalV19HerdrSessionObservation{State: canonicalV19HerdrSessionAbsent})
 		}
 		return finalizeCanonicalV19HerdrSessionObservation(current, canonicalV19HerdrSessionObservation{
 			State:        canonicalV19HerdrSessionMismatch,
 			LabelMatches: matches,
-			Reason:       "dedicated Session workspace locator already exists but provider-assigned tab/pane identity is not durably known",
+			Reason:       "dedicated Session workspace locator exists but exact provider-assigned tab/pane identity is not durably known",
 		})
 	}
 
@@ -350,7 +345,8 @@ func observeCanonicalV19HerdrSessionAcquire(
 	workspaceMatches := 0
 	for _, candidate := range workspaces {
 		if candidate.WorkspaceID == key.WorkspaceID {
-			workspace, workspaceMatches = candidate, workspaceMatches+1
+			workspace = candidate
+			workspaceMatches++
 		}
 	}
 	if workspaceMatches == 0 {
