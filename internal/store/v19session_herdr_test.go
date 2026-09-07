@@ -221,7 +221,7 @@ func canonicalV19HerdrSessionAcquireFixture(
 	if _, err := CreateCanonicalV19Attempt(context.Background(), base.Home, attempt); err != nil {
 		t.Fatal(err)
 	}
-	fixture := canonicalV19WorktreeCreateTestFixture{Home: base.Home}
+	fixture := canonicalV19WorktreeCreateTestFixture(base)
 	createInput := canonicalV19WorktreeCreatePrepareInput(fixture.Home, "operation-create", "binding-1")
 	worktree, err := PrepareCanonicalV19WorktreeCreate(context.Background(), fixture.Home, createInput)
 	if err != nil {
