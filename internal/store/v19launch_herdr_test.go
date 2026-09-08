@@ -142,22 +142,11 @@ func TestReconcileCanonicalV19HerdrLaunchProcessNotStartedIsNoEffect(t *testing.
 }
 
 func TestReconcileCanonicalV19HerdrLaunchSecretRefRemainsPrepared(t *testing.T) {
-	fixture, request := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-secret")
-	db, err := openCanonicalV19Writer(fixture.Home)
-	if err != nil {
-		t.Fatal(err)
+	environment := map[string]CanonicalV19LaunchEnvironmentValue{
+		"HAND_ROLE": {ValueKind: "literal", ValueMaterial: "worker", ValueDigest: "digest-role-worker"},
+		"TOKEN":     {ValueKind: "secret-ref", ValueMaterial: "secret://worker/token", ValueDigest: "digest-secret"},
 	}
-	if _, err := db.Exec(`INSERT INTO launch_environment(operation_id,name,value_kind,value_material,value_digest)
-		VALUES(?,?,?,?,?)`, request.OperationID, "TOKEN", "secret-ref", "secret://worker/token", "digest-secret"); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	_ = db.Close()
-	// The persisted request digest must remain exact after extending the fixture.
-	if err := rewriteCanonicalV19HerdrLaunchDigestsForTest(fixture.Home, request.OperationID); err != nil {
-		t.Fatal(err)
-	}
-
+	fixture, request := canonicalV19HerdrLaunchFixtureWithEnvironment(t, "operation-herdr-launch-secret", environment)
 	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request)
 	deps := canonicalV19HerdrLaunchDeps{
 		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
@@ -208,6 +197,17 @@ func canonicalV19HerdrLaunchFixture(
 	operationID string,
 ) (canonicalV19WorktreeCreateTestFixture, CanonicalV19LaunchRequest) {
 	t.Helper()
+	return canonicalV19HerdrLaunchFixtureWithEnvironment(t, operationID, map[string]CanonicalV19LaunchEnvironmentValue{
+		"HAND_ROLE": {ValueKind: "literal", ValueMaterial: "worker", ValueDigest: "digest-role-worker"},
+	})
+}
+
+func canonicalV19HerdrLaunchFixtureWithEnvironment(
+	t *testing.T,
+	operationID string,
+	environment map[string]CanonicalV19LaunchEnvironmentValue,
+) (canonicalV19WorktreeCreateTestFixture, CanonicalV19LaunchRequest) {
+	t.Helper()
 	fixture, session := canonicalV19HerdrSessionAcquireFixture(t, "operation-session-for-"+operationID)
 	providerKey, err := encodeCanonicalV19HerdrSessionProviderKey(canonicalV19HerdrSessionProviderKey{
 		SessionName: "hand-fleet-1", WorkspaceID: "w-session", TabID: "w-session:t1", PaneID: "w-session:p1",
@@ -237,10 +237,8 @@ func canonicalV19HerdrLaunchFixture(
 		AttemptID: session.AttemptID, SessionBindingID: session.BindingID, BindingID: "executor-binding-1",
 		Spec: CanonicalV19LaunchSpec{
 			Executable: "worker-bin", Arguments: []string{"--mode", "execute"},
-			Environment: map[string]CanonicalV19LaunchEnvironmentValue{
-				"HAND_ROLE": {ValueKind: "literal", ValueMaterial: "worker", ValueDigest: "digest-role-worker"},
-			},
-			Cwd: cwd,
+			Environment: environment,
+			Cwd:         cwd,
 		},
 		CreatedAt: "2026-09-08T02:28:00Z",
 	})
@@ -248,56 +246,6 @@ func canonicalV19HerdrLaunchFixture(
 		t.Fatal(err)
 	}
 	return fixture, request
-}
-
-func rewriteCanonicalV19HerdrLaunchDigestsForTest(homeDir, operationID string) error {
-	db, err := openCanonicalV19Writer(homeDir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	current, err := loadCanonicalV19LaunchCurrent(context.Background(), tx, operationID)
-	if err == nil {
-		return errors.New("test fixture unexpectedly remained digest-valid after direct environment mutation")
-	}
-	// Reconstruct the request directly because the current-loader intentionally rejects the stale digest.
-	var request CanonicalV19LaunchRequest
-	var stateChanged string
-	err = tx.QueryRow(`SELECT o.operation_key,o.project_id,o.task_id,o.plan_id,o.attempt_id,
-		s.worktree_binding_id,l.session_binding_id,l.binding_id,o.adapter_ref,l.executable,l.cwd,o.created_at,o.state_changed_at
-		FROM external_operation o JOIN launch_operation l ON l.operation_id=o.id
-		JOIN session_binding s ON s.id=l.session_binding_id WHERE o.id=?`, operationID).Scan(
-		&request.OperationKey, &request.ProjectID, &request.TaskID, &request.PlanID, &request.AttemptID,
-		&request.WorktreeBindingID, &request.SessionBindingID, &request.BindingID, &request.AdapterRef,
-		&request.Spec.Executable, &request.Spec.Cwd, &request.CreatedAt, &stateChanged,
-	)
-	if err != nil {
-		return err
-	}
-	_ = stateChanged
-	request.OperationID = operationID
-	request.Spec.Arguments, err = loadCanonicalV19LaunchArguments(context.Background(), tx, operationID)
-	if err != nil {
-		return err
-	}
-	request.Spec.Environment, err = loadCanonicalV19LaunchEnvironment(context.Background(), tx, operationID)
-	if err != nil {
-		return err
-	}
-	request.LaunchSpecDigest = canonicalV19LaunchSpecDigest(request.Spec)
-	request.RequestDigest = canonicalV19LaunchRequestDigest(request)
-	if _, err := tx.Exec(`UPDATE launch_operation SET launch_spec_digest=? WHERE operation_id=?`, request.LaunchSpecDigest, operationID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`UPDATE external_operation SET request_digest=? WHERE id=?`, request.RequestDigest, operationID); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 type canonicalV19HerdrLaunchFakeClient struct {
