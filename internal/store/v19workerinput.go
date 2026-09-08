@@ -103,7 +103,7 @@ func CreateCanonicalV19WorkerInput(
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_input(
 		id,attempt_id,executor_binding_id,ordinal,payload,payload_digest,origin_kind,created_at
 	) VALUES(?,?,?,?,?,?,?,?)`, result.ID, result.AttemptID, result.ExecutorBindingID, result.Ordinal,
-		result.Payload, result.PayloadDigest, result.OriginKind, result.CreatedAt); err != nil {
+		[]byte(result.Payload), result.PayloadDigest, result.OriginKind, result.CreatedAt); err != nil {
 		if isSQLiteConstraint(err) {
 			return CanonicalV19WorkerInput{}, fmt.Errorf("%w: WorkerInput %q: %v", ErrCanonicalV19WorkerInputConflict, input.ID, err)
 		}
@@ -168,16 +168,18 @@ func loadCanonicalV19WorkerInputByID(
 	workerInputID string,
 ) (CanonicalV19WorkerInput, bool, error) {
 	var input CanonicalV19WorkerInput
+	var payload []byte
 	err := tx.QueryRowContext(ctx, `SELECT id,attempt_id,executor_binding_id,ordinal,payload,payload_digest,origin_kind,created_at
 		FROM worker_input WHERE id=?`, workerInputID).Scan(
 		&input.ID, &input.AttemptID, &input.ExecutorBindingID, &input.Ordinal,
-		&input.Payload, &input.PayloadDigest, &input.OriginKind, &input.CreatedAt)
+		&payload, &input.PayloadDigest, &input.OriginKind, &input.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CanonicalV19WorkerInput{}, false, nil
 	}
 	if err != nil {
 		return CanonicalV19WorkerInput{}, false, canonicalV19WorkerInputWriteError("read exact WorkerInput identity", err)
 	}
+	input.Payload = string(payload)
 	return input, true, nil
 }
 
