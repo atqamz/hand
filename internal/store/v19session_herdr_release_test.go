@@ -242,18 +242,18 @@ func canonicalV19HerdrSessionReleaseFixture(
 }
 
 type canonicalV19HerdrSessionReleaseFakeClient struct {
-	t                        *testing.T
-	home                     string
-	operationID              string
-	sessionName              string
-	sessionBindingID         string
-	worktreePath             string
-	workspaces               []herdr.Workspace
-	tabs                     map[string][]herdr.Tab
-	panes                    map[string]herdr.Pane
-	closeCalls               int
-	closeErr                 error
-	mutateOnCloseError       bool
+	t                       *testing.T
+	home                    string
+	operationID             string
+	sessionName             string
+	sessionBindingID        string
+	worktreePath            string
+	workspaces              []herdr.Workspace
+	tabs                    map[string][]herdr.Tab
+	panes                   map[string]herdr.Pane
+	closeCalls              int
+	closeErr                error
+	mutateOnCloseError      bool
 	requireSubmittedAtClose bool
 }
 
