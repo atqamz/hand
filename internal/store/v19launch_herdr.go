@@ -317,9 +317,9 @@ func canonicalV19HerdrLiteralLaunchSpec(spec CanonicalV19LaunchSpec) (launch.Lau
 		case "literal":
 			provider.Env[name] = value.ValueMaterial
 		case "secret-ref":
-			return launch.LaunchSpec{}, fmt.Errorf("Launch environment %q uses unresolved secret-ref %q; no canonical v19 secret resolver is available", name, value.ValueMaterial)
+			return launch.LaunchSpec{}, fmt.Errorf("launch environment %q uses unresolved secret-ref %q; no canonical v19 secret resolver is available", name, value.ValueMaterial)
 		default:
-			return launch.LaunchSpec{}, fmt.Errorf("Launch environment %q has unsupported value kind %q", name, value.ValueKind)
+			return launch.LaunchSpec{}, fmt.Errorf("launch environment %q has unsupported value kind %q", name, value.ValueKind)
 		}
 	}
 	validated, err := launch.NewSpec(provider)
