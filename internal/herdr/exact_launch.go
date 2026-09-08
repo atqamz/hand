@@ -9,10 +9,9 @@ import (
 	"github.com/atqamz/hand/internal/shellquote"
 )
 
-// PaneRunExactSpec starts one exact structured process in the pane. Unlike the
-// transitional PaneRunSpec path, it applies the LaunchSpec cwd and environment
-// explicitly so a long-lived Herdr daemon or pane shell cannot supply semantic
-// child environment implicitly. Errors before pane run are marked process-not-started.
+// PaneRunExactSpec starts one exact structured process with explicit LaunchSpec cwd and environment.
+// Unlike transitional PaneRunSpec, it does not inherit semantic child settings from daemon/pane state.
+// Errors before pane run are marked process-not-started.
 func (c *Client) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
 	if err := spec.Validate(); err != nil {
 		return &ExecError{Started: false, Err: fmt.Errorf("validate exact launch spec: %w", err)}
