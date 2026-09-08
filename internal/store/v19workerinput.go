@@ -38,7 +38,7 @@ type CanonicalV19WorkerInput struct {
 	CreatedAt         string
 }
 
-// CreateCanonicalV19WorkerInput durably appends semantic input to one exact current ExecutorBinding.
+// CreateCanonicalV19WorkerInput durably appends non-Answer semantic input to one exact current ExecutorBinding.
 // It performs no provider mutation; WorkerWake is a separate external operation.
 func CreateCanonicalV19WorkerInput(
 	ctx context.Context,
@@ -127,7 +127,14 @@ func validateCanonicalV19WorkerInputCreateInput(input CanonicalV19WorkerInputCre
 			return fmt.Errorf("create canonical v19 WorkerInput: %s is empty", name)
 		}
 	}
-	return nil
+	switch input.OriginKind {
+	case "operator", "supervisor":
+		return nil
+	case "answer":
+		return fmt.Errorf("create canonical v19 WorkerInput: answer origin requires exact typed Answer-origin binding")
+	default:
+		return fmt.Errorf("create canonical v19 WorkerInput: unsupported origin kind %q", input.OriginKind)
+	}
 }
 
 func requireCanonicalV19WorkerInputCurrent(
