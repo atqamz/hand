@@ -1,0 +1,47 @@
+name: tmp-v19-launch-hardening
+on:
+  push:
+    branches: [implementation/v19-step10-herdr-launch]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: implementation/v19-step10-herdr-launch
+      - run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          store = Path('internal/store/v19launch_herdr.go')
+          text = store.read_text()
+          old = 'strings.ReplaceAll(value, `\\\\`, "/")'
+          new = 'strings.ReplaceAll(value, "\\\\", "/")'
+          if old not in text:
+              raise SystemExit('store executable-normalization target missing')
+          text = text.replace(old, new, 1)
+          old = 'if info.PaneID != "" && info.PaneID != sessionKey.PaneID {'
+          new = 'if info.PaneID != sessionKey.PaneID {'
+          if old not in text:
+              raise SystemExit('store pane identity target missing')
+          store.write_text(text.replace(old, new, 1))
+
+          transport = Path('internal/herdr/canonical_launch.go')
+          text = transport.read_text()
+          old = '''\tinfo, err := c.PaneProcessInfo(paneID)\n\tif err != nil {\n\t\treturn fmt.Errorf("observe canonical launch pane process info: %w", err)\n\t}\n\tshell, err := shellForProcess(info)'''
+          new = '''\tinfo, err := c.PaneProcessInfo(paneID)\n\tif err != nil {\n\t\treturn fmt.Errorf("observe canonical launch pane process info: %w", err)\n\t}\n\tif info.PaneID != paneID {\n\t\treturn fmt.Errorf("canonical launch process observation names pane %q, want %q", info.PaneID, paneID)\n\t}\n\tshell, err := shellForProcess(info)'''
+          if old not in text:
+              raise SystemExit('transport pane identity target missing')
+          transport.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/herdr/canonical_launch.go internal/store/v19launch_herdr.go
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/herdr/canonical_launch.go internal/store/v19launch_herdr.go
+          git commit -m 'fix(store): harden Herdr Launch identity checks'
+          git push
