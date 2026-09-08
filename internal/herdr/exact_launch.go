@@ -12,22 +12,22 @@ import (
 // PaneRunExactSpec starts one exact structured process in the pane. Unlike the
 // transitional PaneRunSpec path, it applies the LaunchSpec cwd and environment
 // explicitly so a long-lived Herdr daemon or pane shell cannot supply semantic
-// child environment implicitly.
+// child environment implicitly. Errors before pane run are marked process-not-started.
 func (c *Client) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
 	if err := spec.Validate(); err != nil {
-		return fmt.Errorf("validate exact launch spec: %w", err)
+		return &ExecError{Started: false, Err: fmt.Errorf("validate exact launch spec: %w", err)}
 	}
 	info, err := c.PaneProcessInfo(paneID)
 	if err != nil {
-		return fmt.Errorf("observe pane shell: %w", err)
+		return &ExecError{Started: false, Err: fmt.Errorf("observe pane shell: %w", err)}
 	}
 	shell, err := shellForProcess(info)
 	if err != nil {
-		return err
+		return &ExecError{Started: false, Err: err}
 	}
 	command, err := renderExactLaunchSpec(shell, spec)
 	if err != nil {
-		return fmt.Errorf("render exact launch for %s: %w", shell, err)
+		return &ExecError{Started: false, Err: fmt.Errorf("render exact launch for %s: %w", shell, err)}
 	}
 	return c.paneRun(paneID, command)
 }
