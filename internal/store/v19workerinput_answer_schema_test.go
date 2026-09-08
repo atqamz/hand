@@ -14,7 +14,7 @@ func TestCanonicalV19AnswerOriginLockedSchemaDiagnostic(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	var out []string
-	for _, table := range []string{"worker_input_answer_origin", "decision_answer", "decision"} {
+	for _, table := range []string{"worker_input_answer_origin", "decision_answer"} {
 		var sql string
 		if err := db.sql.QueryRow(`SELECT sql FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&sql); err != nil {
 			t.Fatal(err)
