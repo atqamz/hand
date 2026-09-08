@@ -46,18 +46,28 @@ func TestCreateCanonicalV19WorkerInputPersistsExactSemanticInputAndOrdinal(t *te
 	var got []CanonicalV19WorkerInput
 	for rows.Next() {
 		var input CanonicalV19WorkerInput
+		var payload []byte
 		if err := rows.Scan(&input.ID, &input.AttemptID, &input.ExecutorBindingID, &input.Ordinal,
-			&input.Payload, &input.PayloadDigest, &input.OriginKind, &input.CreatedAt); err != nil {
+			&payload, &input.PayloadDigest, &input.OriginKind, &input.CreatedAt); err != nil {
 			t.Fatal(err)
 		}
+		input.Payload = string(payload)
 		got = append(got, input)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 || got[0].ID != "worker-input-1" || got[0].Ordinal != 1 ||
-		got[1].ID != "worker-input-2" || got[1].Ordinal != 2 {
+		got[0].Payload != "first instruction" || got[1].ID != "worker-input-2" || got[1].Ordinal != 2 ||
+		got[1].Payload != "second instruction" {
 		t.Fatalf("persisted WorkerInputs = %#v", got)
+	}
+	var payloadType string
+	if err := db.sql.QueryRow(`SELECT typeof(payload) FROM worker_input WHERE id=?`, first.ID).Scan(&payloadType); err != nil {
+		t.Fatal(err)
+	}
+	if payloadType != "blob" {
+		t.Fatalf("WorkerInput payload storage class = %q, want blob", payloadType)
 	}
 }
 
