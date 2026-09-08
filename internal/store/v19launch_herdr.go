@@ -320,7 +320,7 @@ func observeCanonicalV19HerdrLaunch(
 	request := current.Current.Request
 	observation := canonicalV19HerdrLaunchObservation{
 		ProviderSessionKey: current.ProviderSessionKey,
-		WorkspaceID: sessionKey.WorkspaceID, TabID: sessionKey.TabID, PaneID: sessionKey.PaneID,
+		WorkspaceID:        sessionKey.WorkspaceID, TabID: sessionKey.TabID, PaneID: sessionKey.PaneID,
 	}
 	expectedSession := herdr.SessionName(current.FleetID)
 	session := client.ObserveSession(ctx)
