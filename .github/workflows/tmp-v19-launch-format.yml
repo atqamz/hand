@@ -1,0 +1,29 @@
+name: tmp-v19-launch-format
+on:
+  push:
+    branches: [implementation/v19-step10-herdr-launch]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: implementation/v19-step10-herdr-launch
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: |
+          gofmt -w internal/store/v19launch_herdr.go
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/store/v19launch_herdr.go
+          git commit -m 'style(store): format Herdr Launch reconciliation'
+          git push
