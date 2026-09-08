@@ -28,12 +28,12 @@ const (
 )
 
 type canonicalV19HerdrExecutorProviderKey struct {
-	SessionName  string
-	WorkspaceID  string
-	TabID        string
-	PaneID       string
-	ProcessGroup int
-	ProcessID    int
+	SessionName   string
+	WorkspaceID   string
+	TabID         string
+	PaneID        string
+	ProcessGroup  int
+	ProcessID     int
 	ProcessDigest string
 }
 
