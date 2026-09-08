@@ -22,7 +22,7 @@ func TestRenderCanonicalPOSIXLaunchCarriesSortedLiteralEnvironment(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "A_FIRST='a'\"'\"'value' Z_LAST='z value' 'worker bin' '--mode' 'spaces and '\"'\"'quotes'\"'"
+	want := "A_FIRST='a'\\''value' Z_LAST='z value' 'worker bin' '--mode' 'spaces and '\\''quotes'\\'''"
 	if got != want {
 		t.Fatalf("canonical POSIX launch = %q, want %q", got, want)
 	}
