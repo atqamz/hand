@@ -237,10 +237,10 @@ func canonicalV19HerdrInterruptFixture(
 	}
 	client := &canonicalV19HerdrInterruptFakeClient{
 		canonicalV19HerdrLaunchFakeClient: baseClient,
-		interruptOperationID:             operationID,
-		targetPID:                        target.PID,
-		targetAlive:                      true,
-		mutateOnSend:                     true,
+		interruptOperationID:              operationID,
+		targetPID:                         target.PID,
+		targetAlive:                       true,
+		mutateOnSend:                      true,
 	}
 	return fixture, request, executorKey, client
 }
