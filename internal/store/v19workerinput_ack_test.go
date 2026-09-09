@@ -92,8 +92,7 @@ func TestCreateCanonicalV19WorkerInputAcknowledgementEvidenceDriftConflicts(t *t
 		t.Fatal(err)
 	}
 	input.EvidenceDigest = "different-ack-evidence"
-	if _, err := CreateCanonicalV19WorkerInputAcknowledgement(context.Background(), fixture.Home, input);
-		!errors.Is(err, ErrCanonicalV19WorkerInputAcknowledgementConflict) {
+	if _, err := CreateCanonicalV19WorkerInputAcknowledgement(context.Background(), fixture.Home, input); !errors.Is(err, ErrCanonicalV19WorkerInputAcknowledgementConflict) {
 		t.Fatalf("acknowledgement evidence drift error = %v, want %v",
 			err, ErrCanonicalV19WorkerInputAcknowledgementConflict)
 	}
@@ -106,8 +105,7 @@ func TestCreateCanonicalV19WorkerInputAcknowledgementRejectsExecutorMismatch(t *
 		t.Fatal(err)
 	}
 	input := canonicalV19WorkerInputAcknowledgementCreateInput(workerInput.ID, "different-executor-binding")
-	if _, err := CreateCanonicalV19WorkerInputAcknowledgement(context.Background(), fixture.Home, input);
-		!errors.Is(err, ErrCanonicalV19WorkerInputAcknowledgementConflict) {
+	if _, err := CreateCanonicalV19WorkerInputAcknowledgement(context.Background(), fixture.Home, input); !errors.Is(err, ErrCanonicalV19WorkerInputAcknowledgementConflict) {
 		t.Fatalf("acknowledgement executor mismatch error = %v, want %v",
 			err, ErrCanonicalV19WorkerInputAcknowledgementConflict)
 	}
