@@ -66,6 +66,9 @@ func newWorkerInputCmdWithDeps(deps workerInputCommandDeps) *cobra.Command {
 		Use:    "worker-input",
 		Short:  "Use the canonical WorkerInput runtime protocol",
 		Hidden: true,
+		// Canonical v19 protocol commands deliberately shadow the root PersistentPreRunE. Ordinary
+		// runtime commands still use legacy startup/migration guards until the explicit #339 cutover.
+		PersistentPreRunE: func(*cobra.Command, []string) error { return nil },
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "drain <attempt-id> <executor-binding-id>",
