@@ -28,7 +28,7 @@ func TestAAAWorkerInputAcknowledgementLockedSchemaDiagnostic(t *testing.T) {
 				_ = rows.Close()
 				t.Fatal(err)
 			}
-			out = append(out, objectType+" "+name+":\n"+objectSQL)
+			out = append(out, objectType+" "+name+": "+strings.Join(strings.Fields(objectSQL), " "))
 		}
 		if err := rows.Err(); err != nil {
 			_ = rows.Close()
@@ -36,5 +36,5 @@ func TestAAAWorkerInputAcknowledgementLockedSchemaDiagnostic(t *testing.T) {
 		}
 		_ = rows.Close()
 	}
-	panic(fmt.Sprintf("locked WorkerInputAcknowledgement schema:\n%s", strings.Join(out, "\n\n")))
+	panic(fmt.Sprintf("locked WorkerInputAcknowledgement schema:\n%s", strings.Join(out, "\n")))
 }
