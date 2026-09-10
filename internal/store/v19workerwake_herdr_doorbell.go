@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -50,13 +51,13 @@ func canonicalV19HerdrWorkerWakeDoorbellFor(input CanonicalV19HerdrWorkerWakeDoo
 	writeCanonicalV19DigestField(markerHash, "pending_through_ordinal", strconv.FormatInt(input.PendingThroughOrdinal, 10))
 	marker := hex.EncodeToString(markerHash.Sum(nil))[:16]
 
-	drainArgv, err := json.Marshal([]string{
+	drainArgv, err := canonicalV19HerdrWorkerWakeArgvJSON([]string{
 		"runtime", "worker-input", "drain", input.AttemptID, input.ExecutorBindingID,
 	})
 	if err != nil {
 		return canonicalV19HerdrWorkerWakeDoorbell{}, fmt.Errorf("build canonical v19 Herdr WorkerWake doorbell drain argv: %w", err)
 	}
-	ackArgv, err := json.Marshal([]string{
+	ackArgv, err := canonicalV19HerdrWorkerWakeArgvJSON([]string{
 		"runtime", "worker-input", "acknowledge", "<worker-input-id>", input.ExecutorBindingID,
 	})
 	if err != nil {
@@ -72,4 +73,14 @@ func canonicalV19HerdrWorkerWakeDoorbellFor(input CanonicalV19HerdrWorkerWakeDoo
 	}
 	digest := sha256.Sum256([]byte(text))
 	return canonicalV19HerdrWorkerWakeDoorbell{Text: text, Digest: hex.EncodeToString(digest[:])}, nil
+}
+
+func canonicalV19HerdrWorkerWakeArgvJSON(argv []string) (string, error) {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(argv); err != nil {
+		return "", err
+	}
+	return string(bytes.TrimSuffix(encoded.Bytes(), []byte{'\n'})), nil
 }
