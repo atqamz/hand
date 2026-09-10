@@ -198,7 +198,7 @@ func (f *canonicalV19HerdrWorkerWakeFakeClient) AgentPromptContext(_ context.Con
 	}
 	want, err := canonicalV19HerdrWorkerWakeDoorbellFor(CanonicalV19HerdrWorkerWakeDoorbellInput{
 		OperationID: current.Current.Request.OperationID, AttemptID: current.Current.Request.AttemptID,
-		ExecutorBindingID: current.Current.Request.ExecutorBindingID,
+		ExecutorBindingID:     current.Current.Request.ExecutorBindingID,
 		PendingThroughOrdinal: current.Current.Request.PendingThroughOrdinal,
 	})
 	if err != nil {
