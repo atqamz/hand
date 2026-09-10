@@ -14,8 +14,10 @@ func TestCanonicalV19WorkerReportSchemaProbe(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	rows, err := db.sql.Query(`SELECT type,name,sql FROM sqlite_schema
-		WHERE name LIKE '%worker_report%'
-		   OR name LIKE '%report_acknowledgement%'
+		WHERE sql IS NOT NULL
+		  AND (tbl_name IN ('worker_report','report_acknowledgement')
+		       OR name LIKE '%worker_report%'
+		       OR name LIKE '%report_acknowledgement%')
 		ORDER BY type,name`)
 	if err != nil {
 		t.Fatal(err)
