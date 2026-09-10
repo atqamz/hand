@@ -14,7 +14,7 @@ func newRuntimeCmd() *cobra.Command {
 		Short: "Inspect and repair the private core runtime",
 		Args:  usageArgs(cobra.NoArgs),
 	}
-	cmd.AddCommand(newRuntimeStatusCmd(), newRuntimeEnsureCmd())
+	cmd.AddCommand(newRuntimeStatusCmd(), newRuntimeEnsureCmd(), newWorkerInputCmd())
 	return cmd
 }
 
