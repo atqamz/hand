@@ -265,9 +265,9 @@ func canonicalV19HerdrWorkerWakeFixture(
 	}
 	client := &canonicalV19HerdrWorkerWakeFakeClient{
 		canonicalV19HerdrLaunchFakeClient: baseClient,
-		wakeOperationID:                  operationID,
-		targetPID:                        target.PID,
-		targetAlive:                      true,
+		wakeOperationID:                   operationID,
+		targetPID:                         target.PID,
+		targetAlive:                       true,
 	}
 	return fixture, request, executorKey, client, workerInput
 }
