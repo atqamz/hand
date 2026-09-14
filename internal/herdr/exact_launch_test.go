@@ -1,11 +1,53 @@
 package herdr
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/launch"
 )
+
+func TestPaneRunExactSpecRefusesForeignForegroundProcess(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	faketool.Herdr{Responses: []faketool.HerdrResponse{
+		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":"/tmp/work"},{"pid":99,"name":"vim","cwd":"/tmp/work"}]}}}`),
+		herdrResponse("pane run", ""),
+	}, Log: callLog}.Install(t, faketool.Bin(t))
+	spec := launch.LaunchSpec{Executable: "worker", Cwd: "/tmp/work"}
+	err := NewClient().PaneRunExactSpec("wA:pB", spec)
+	if err == nil || !strings.Contains(err.Error(), "foreign foreground process") || !IsProcessNotStarted(err) {
+		t.Fatalf("PaneRunExactSpec() = %v, want pre-mutation refusal", err)
+	}
+	calls, readErr := os.ReadFile(callLog)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if strings.Contains(string(calls), "pane run") {
+		t.Fatalf("calls = %q, want no pane run", calls)
+	}
+}
+
+func TestPaneRunExactSpecRefusesShellCwdMismatch(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	faketool.Herdr{Responses: []faketool.HerdrResponse{
+		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":"/tmp/other"}]}}}`),
+		herdrResponse("pane run", ""),
+	}, Log: callLog}.Install(t, faketool.Bin(t))
+	err := NewClient().PaneRunExactSpec("wA:pB", launch.LaunchSpec{Executable: "worker", Cwd: "/tmp/work"})
+	if err == nil || !strings.Contains(err.Error(), "cwd") || !IsProcessNotStarted(err) {
+		t.Fatalf("PaneRunExactSpec() = %v, want pre-mutation refusal", err)
+	}
+	calls, readErr := os.ReadFile(callLog)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if strings.Contains(string(calls), "pane run") {
+		t.Fatalf("calls = %q, want no pane run", calls)
+	}
+}
 
 func TestRenderExactPOSIXLaunchSpecAppliesCwdAndSortedEnvironment(t *testing.T) {
 	spec := launch.LaunchSpec{

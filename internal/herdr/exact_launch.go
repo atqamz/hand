@@ -24,6 +24,15 @@ func (c *Client) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
 	if err != nil {
 		return &ExecError{Started: false, Err: err}
 	}
+	if info.ForegroundProcessGroupID != info.ShellPID {
+		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: foreground process group %d does not match shell pid %d", info.ForegroundProcessGroupID, info.ShellPID)}
+	}
+	if len(info.ForegroundProcesses) != 1 || info.ForegroundProcesses[0].PID != info.ShellPID {
+		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: foreign foreground process exists")}
+	}
+	if info.ForegroundProcesses[0].Cwd != spec.Cwd {
+		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: shell cwd %q does not match launch cwd %q", info.ForegroundProcesses[0].Cwd, spec.Cwd)}
+	}
 	command, err := renderExactLaunchSpec(shell, spec)
 	if err != nil {
 		return &ExecError{Started: false, Err: fmt.Errorf("render exact launch for %s: %w", shell, err)}
