@@ -150,7 +150,7 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string, enterWork
 	// result object on exit 0, real failure a non-zero exit plus a diagnostic on stderr (the same contract
 	// cmd/status_test.go's writeFakeHerdrPaneStatus documents), which the "unreachable" sentinel reproduces.
 	quotedStatusDir, quotedLog := shellSingleQuote(statusDir), shellSingleQuote(logPath)
-	workingPane := ""
+	workingPane := shellSingleQuote("")
 	if len(enterWorkingPane) > 0 {
 		workingPane = shellSingleQuote(enterWorkingPane[0])
 	}
