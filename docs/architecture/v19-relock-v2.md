@@ -16,21 +16,21 @@ gzip -dc docs/architecture/v19-v2.sql.gz > /tmp/hand-v19-v2.sql
 
 Reconstructed DDL:
 
-- byte count: `109107`
-- SHA-256: `d4a3d0adf3a84cc56002a1b558387d2169cb771b484addcb0fd8af743e19f16c`
-- schema fingerprint: `b3ba6d26db1f5aa520f248249b2e3679361283301484f7ea7c0f69ddd514e7f0`
+- byte count: `109144`
+- SHA-256: `2af1fb976f0ef53fe067930773577e52a7cff66035c309d93c7e59972e9fa56e`
+- schema fingerprint: `955afb83a0fd1703778728621ba658848af87990fa746f0de0013d163e9157e9`
 - schema-defined objects: `56 tables / 38 explicit indexes / 172 triggers` (`266` SQL-bearing objects; SQLite additionally creates `87` autoindexes)
 - `PRAGMA user_version = 19`
 
 Stored compressed DDL:
 
-- byte count: `11604`
-- SHA-256: `f4527132e7db93d0b527514b7418606be13d3d47565359dd5a6a754a56e2f7e2`
-- Git blob SHA-1: `10361016d6c6372e873d70b73ae13a9764297531`
+- byte count: `11612`
+- SHA-256: `19d03a1476ff6b7d3f6131d094a606ad0067f08f47541adf1d581dc6249d8bf4`
+- Git blob SHA-1: `6f2d81abddc1f565c3f6e9f7d48e2015ce4383a1`
 
 Schema fingerprint algorithm: SHA-256 of UTF-8 lines `type|name|tbl_name|sql`, sorted by `(type,name)`, selected from `sqlite_schema` where `name NOT LIKE 'sqlite_%'` and `sql IS NOT NULL`.
 
-The only relational addition is `task_archive`, keyed one-to-one to exact `task.id`. It records byte-bounded actor, time, reason, and an exact lowercase SHA-256 evidence digest; byte bounds prevent embedded NUL from truncating SQLite text-length validation. Insert guards require terminal Task/Plan/Attempt lineage and absence of unresolved operations, Holds, Backoffs, resource bindings, handling-worthy unacknowledged WorkerReports, Decisions, and Repairs. Update and delete are forbidden. A later evidence insert remains possible so archive never hides or rewrites history.
+The only relational addition is `task_archive`, keyed one-to-one to exact `task.id`. It records byte-bounded actor, time, reason, and an exact lowercase SHA-256 evidence digest. Blob lengths prevent embedded NUL from truncating bounded-field validation; the digest additionally requires both text and blob lengths of exactly 64 so NUL cannot hide a non-hex suffix. Insert guards require terminal Task/Plan/Attempt lineage and absence of unresolved operations, Holds, Backoffs, resource bindings, handling-worthy unacknowledged WorkerReports, Decisions, and Repairs. Update and delete are forbidden. A later evidence insert remains possible so archive never hides or rewrites history.
 
 The archive writer must use one `BEGIN IMMEDIATE` transaction, establish required positive external resource observations before the transaction, revalidate their exact identities inside the transaction, and insert the fact only after the relational predicate passes. Unknown external ownership or liveness refuses archival. The schema evidence digest does not replace those writer obligations.
 
@@ -48,14 +48,14 @@ python3 /tmp/hand-v19-proof-v2.py /tmp/hand-v19-v2.sql --json
 
 Reconstructed proof runner:
 
-- byte count: `54900`
-- SHA-256: `7045446f4cbb71bc8a4faa92faf58db9329d059b38ce1aea1065f9e488dd202c`
+- byte count: `55241`
+- SHA-256: `55900aa18843a21328afa035282edc7eee167f590d61c9a456fb939cd711f68f`
 
 Stored compressed proof runner:
 
-- byte count: `10831`
-- SHA-256: `88b52de5581b4d41f4f554c709cfb365da447fc7da266960b0df63c55183e876`
-- Git blob SHA-1: `4a067c7df1d100a13e718091380cb310fb69c9de`
+- byte count: `10873`
+- SHA-256: `7fa953c09a724348fb3e603d8c8d5148477acc05e4bc5c955df744402e05b9ad`
+- Git blob SHA-1: `0a4832efa9d9d65182d2edd8e614b9dcbda6e38b`
 
 Relock proof result on SQLite `3.53.4`: `PASS`.
 
@@ -63,7 +63,7 @@ The proof retains every revision-1 case and adds:
 
 - exact DDL SHA-256, normalized schema fingerprint, object-count, foreign-key, and integrity assertions;
 - one successful terminal/reconciled Task archive flow;
-- `18` Task archive predicate, byte-bound/NUL-tail, constraint, replay-conflict, immutability, and post-archive evidence cases;
+- `20` Task archive predicate, byte-bound/NUL-tail, constraint, replay-conflict, immutability, and post-archive evidence cases;
 - `32` retained adversarial/currentness/immutability/aliasing cases;
 - `11` indexed hot-query `EXPLAIN QUERY PLAN` checks, including exact archive lookup;
 - all `12` external-operation kinds and the six-state operation ledger;
