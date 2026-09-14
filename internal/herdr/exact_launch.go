@@ -31,6 +31,9 @@ func (c *Client) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
 	if len(info.ForegroundProcesses) != 1 || info.ForegroundProcesses[0].PID != info.ShellPID {
 		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: foreign foreground process exists")}
 	}
+	if info.ForegroundProcesses[0].Cwd == "" {
+		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: missing shell cwd")}
+	}
 	if !handgit.SamePath(info.ForegroundProcesses[0].Cwd, spec.Cwd) {
 		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: shell cwd %q does not match launch cwd %q", info.ForegroundProcesses[0].Cwd, spec.Cwd)}
 	}

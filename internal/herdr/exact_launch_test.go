@@ -57,7 +57,7 @@ func TestPaneRunExactSpecAcceptsEquivalentShellCwd(t *testing.T) {
 	if err := os.Mkdir(work, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	observed := work
+	var observed string
 	if runtime.GOOS == "windows" {
 		observed = strings.ToUpper(work)
 	} else {
@@ -84,6 +84,29 @@ func TestPaneRunExactSpecAcceptsEquivalentShellCwd(t *testing.T) {
 	}
 	if !strings.Contains(string(calls), "pane run") {
 		t.Fatalf("calls = %q, want pane run", calls)
+	}
+}
+
+func TestPaneRunExactSpecRefusesMissingShellCwd(t *testing.T) {
+	work, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	faketool.Herdr{Responses: []faketool.HerdrResponse{
+		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":""}]}}}`),
+		herdrResponse("pane run", ""),
+	}, Log: callLog}.Install(t, faketool.Bin(t))
+	err = NewClient().PaneRunExactSpec("wA:pB", launch.LaunchSpec{Executable: "worker", Cwd: work})
+	if err == nil || !strings.Contains(err.Error(), "missing shell cwd") || !IsProcessNotStarted(err) {
+		t.Fatalf("PaneRunExactSpec() = %v, want pre-mutation refusal", err)
+	}
+	calls, readErr := os.ReadFile(callLog)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if strings.Contains(string(calls), "pane run") {
+		t.Fatalf("calls = %q, want no pane run", calls)
 	}
 }
 
