@@ -15,22 +15,23 @@ import (
 const (
 	canonicalV19SchemaVersion = 19
 
-	canonicalV19GzipBytes  = 10841
-	canonicalV19DDLBytes   = 103445
-	canonicalV19GzipSHA256 = "6e92cb72ad52c135a0cb8ae8f6352f1ff2c938a289ae1e313a9ce1d6a9e42399"
-	canonicalV19DDLSHA256  = "81118c2e982be7e08c0f8bf3bbb980e2ec4c5bffbbc7d419e9952732ad36c58a"
+	canonicalV19GzipBytes  = 11584
+	canonicalV19DDLBytes   = 108973
+	canonicalV19GzipSHA256 = "1cc0f415ae2a05f0aa1091ca0aa551ede16ec8504d11983ad7f7342d7a334f19"
+	canonicalV19DDLSHA256  = "5285df4ae43fb61d65977061bb79a0c1e8cf498df0028df52bca4bff1b48c966"
 
-	canonicalV19SchemaFingerprint = "8726f0875845d610553928e6bb56fc5566019a6667d81e29a94ee3d3d45ef3b8"
-	canonicalV19TableCount        = 55
-	canonicalV19IndexCount        = 38
-	canonicalV19TriggerCount      = 169
+	canonicalV19SchemaFingerprint      = "3967400d6f0fdda716d48bf8ddbb1942367239ce3e08461c0bbf46279caebfbb"
+	canonicalV19PriorSchemaFingerprint = "8726f0875845d610553928e6bb56fc5566019a6667d81e29a94ee3d3d45ef3b8"
+	canonicalV19TableCount             = 56
+	canonicalV19IndexCount             = 38
+	canonicalV19TriggerCount           = 172
 )
 
 var ErrCanonicalV19SchemaMismatch = errors.New("canonical v19 schema does not match locked #344 contract")
 
 var ErrCanonicalV19TargetNotEmpty = errors.New("canonical v19 target database is not empty")
 
-// The embedded v19.sql.gz mirrors #344's docs artifact by exact Git blob.
+// The embedded v19.sql.gz mirrors the versioned #344 docs artifact named above.
 // Tests verify compressed and reconstructed SHA-256 before execution.
 //
 //go:embed v19.sql.gz
@@ -184,6 +185,9 @@ func validateCanonicalV19Schema(sqlDB *sql.DB) error {
 		return err
 	}
 	if identity.Fingerprint != canonicalV19SchemaFingerprint {
+		if identity.Fingerprint == canonicalV19PriorSchemaFingerprint {
+			return canonicalV19Mismatch("prior v19 fingerprint %s is incompatible with the current exact contract; preserve evidence and create a fresh target", identity.Fingerprint)
+		}
 		return canonicalV19Mismatch("schema fingerprint = %s, want %s", identity.Fingerprint, canonicalV19SchemaFingerprint)
 	}
 	if identity.Tables != canonicalV19TableCount || identity.Indexes != canonicalV19IndexCount || identity.Triggers != canonicalV19TriggerCount {
