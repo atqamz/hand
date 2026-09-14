@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	handgit "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/shellquote"
 )
@@ -30,7 +31,7 @@ func (c *Client) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
 	if len(info.ForegroundProcesses) != 1 || info.ForegroundProcesses[0].PID != info.ShellPID {
 		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: foreign foreground process exists")}
 	}
-	if info.ForegroundProcesses[0].Cwd != spec.Cwd {
+	if !handgit.SamePath(info.ForegroundProcesses[0].Cwd, spec.Cwd) {
 		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: shell cwd %q does not match launch cwd %q", info.ForegroundProcesses[0].Cwd, spec.Cwd)}
 	}
 	command, err := renderExactLaunchSpec(shell, spec)
