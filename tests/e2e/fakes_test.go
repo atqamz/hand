@@ -144,12 +144,16 @@ func writeFakeHerdrStaticLogged(t *testing.T, dir, logPath string, ids herdrIDs)
 // A herdr fake for the watch scenario: "workspace list" always succeeds, satisfying watcher.Run's
 // reachability probe, and "pane get <id>" reports whatever status sits in statusDir/<id>, letting a test
 // drive per-task transitions while `hand watch` polls in the background by rewriting one file per task.
-func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
+func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string, enterWorkingPane ...string) {
 	t.Helper()
 	// Both are query commands per internal/herdr/client.go's call() doc comment: real success is a non-null
 	// result object on exit 0, real failure a non-zero exit plus a diagnostic on stderr (the same contract
 	// cmd/status_test.go's writeFakeHerdrPaneStatus documents), which the "unreachable" sentinel reproduces.
 	quotedStatusDir, quotedLog := shellSingleQuote(statusDir), shellSingleQuote(logPath)
+	workingPane := shellSingleQuote("")
+	if len(enterWorkingPane) > 0 {
+		workingPane = shellSingleQuote(enterWorkingPane[0])
+	}
 	// The agent comes from statusDir/<id>.agent, set only via setPaneAgent. "pane read" answers with
 	// statusDir/<id>.text (bare stdout, not a result envelope - client.go's PaneRead); send-text overwrites
 	// it and send-keys Enter appends a marker, so a confirmation poll (atqamz/hand#459) sees a reaction.
@@ -174,9 +178,12 @@ func writeFakeHerdrWatch(t *testing.T, dir, statusDir, logPath string) {
     ;;
   "pane send-keys")
     echo "herdr pane send-keys $3 $4" >> %s
-    if [ "$4" = "Enter" ]; then printf '\n\n[accepted]' >> %s/"$3".text; fi
+    if [ "$4" = "Enter" ]; then
+      printf '\n\n[accepted]' >> %s/"$3".text
+      if [ "$3" = %s ]; then printf 'working' > %s/"$3"; fi
+    fi
     ;;`,
-		quotedStatusDir, quotedStatusDir, quotedLog, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir)
+		quotedStatusDir, quotedStatusDir, quotedLog, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir, quotedLog, quotedStatusDir, workingPane, quotedStatusDir)
 	// Each "pane get" is logged after the status read, never before: a test waiting on the Nth poll before
 	// publishing would otherwise still be racing that poll's read. The failing branch logs too, so waiting on
 	// the Nth probe works for a dark pane - one taken down and brought back mid-poll - as for a healthy one.
