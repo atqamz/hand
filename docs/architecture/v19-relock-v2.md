@@ -16,21 +16,21 @@ gzip -dc docs/architecture/v19-v2.sql.gz > /tmp/hand-v19-v2.sql
 
 Reconstructed DDL:
 
-- byte count: `108973`
-- SHA-256: `5285df4ae43fb61d65977061bb79a0c1e8cf498df0028df52bca4bff1b48c966`
-- schema fingerprint: `3967400d6f0fdda716d48bf8ddbb1942367239ce3e08461c0bbf46279caebfbb`
+- byte count: `109107`
+- SHA-256: `d4a3d0adf3a84cc56002a1b558387d2169cb771b484addcb0fd8af743e19f16c`
+- schema fingerprint: `b3ba6d26db1f5aa520f248249b2e3679361283301484f7ea7c0f69ddd514e7f0`
 - schema-defined objects: `56 tables / 38 explicit indexes / 172 triggers` (`266` SQL-bearing objects; SQLite additionally creates `87` autoindexes)
 - `PRAGMA user_version = 19`
 
 Stored compressed DDL:
 
-- byte count: `11584`
-- SHA-256: `1cc0f415ae2a05f0aa1091ca0aa551ede16ec8504d11983ad7f7342d7a334f19`
-- Git blob SHA-1: `f0896754f4c171e7c486b136fc15d93335ac7282`
+- byte count: `11604`
+- SHA-256: `f4527132e7db93d0b527514b7418606be13d3d47565359dd5a6a754a56e2f7e2`
+- Git blob SHA-1: `10361016d6c6372e873d70b73ae13a9764297531`
 
 Schema fingerprint algorithm: SHA-256 of UTF-8 lines `type|name|tbl_name|sql`, sorted by `(type,name)`, selected from `sqlite_schema` where `name NOT LIKE 'sqlite_%'` and `sql IS NOT NULL`.
 
-The only relational addition is `task_archive`, keyed one-to-one to exact `task.id`. It records bounded actor, time, reason, and lowercase SHA-256 evidence. Insert guards require terminal Task/Plan/Attempt lineage and absence of unresolved operations, Holds, Backoffs, resource bindings, handling-worthy unacknowledged WorkerReports, Decisions, and Repairs. Update and delete are forbidden. A later evidence insert remains possible so archive never hides or rewrites history.
+The only relational addition is `task_archive`, keyed one-to-one to exact `task.id`. It records byte-bounded actor, time, reason, and an exact lowercase SHA-256 evidence digest; byte bounds prevent embedded NUL from truncating SQLite text-length validation. Insert guards require terminal Task/Plan/Attempt lineage and absence of unresolved operations, Holds, Backoffs, resource bindings, handling-worthy unacknowledged WorkerReports, Decisions, and Repairs. Update and delete are forbidden. A later evidence insert remains possible so archive never hides or rewrites history.
 
 The archive writer must use one `BEGIN IMMEDIATE` transaction, establish required positive external resource observations before the transaction, revalidate their exact identities inside the transaction, and insert the fact only after the relational predicate passes. Unknown external ownership or liveness refuses archival. The schema evidence digest does not replace those writer obligations.
 
@@ -48,14 +48,14 @@ python3 /tmp/hand-v19-proof-v2.py /tmp/hand-v19-v2.sql --json
 
 Reconstructed proof runner:
 
-- byte count: `53756`
-- SHA-256: `36287ad41a9c13e7994a4e6a0a31cd01e90336bf64f4b035e65b5e55f4b05584`
+- byte count: `54900`
+- SHA-256: `7045446f4cbb71bc8a4faa92faf58db9329d059b38ce1aea1065f9e488dd202c`
 
 Stored compressed proof runner:
 
-- byte count: `10645`
-- SHA-256: `a600ad60f637b50f0288fa6fd4360807e9cfbb58aac8cee057bb1ab6dbc10683`
-- Git blob SHA-1: `bc69d8eea5ede35669f363d0016c1710d1fb5370`
+- byte count: `10831`
+- SHA-256: `88b52de5581b4d41f4f554c709cfb365da447fc7da266960b0df63c55183e876`
+- Git blob SHA-1: `4a067c7df1d100a13e718091380cb310fb69c9de`
 
 Relock proof result on SQLite `3.53.4`: `PASS`.
 
@@ -63,7 +63,7 @@ The proof retains every revision-1 case and adds:
 
 - exact DDL SHA-256, normalized schema fingerprint, object-count, foreign-key, and integrity assertions;
 - one successful terminal/reconciled Task archive flow;
-- `14` Task archive predicate, constraint, replay-conflict, immutability, and post-archive evidence cases;
+- `18` Task archive predicate, byte-bound/NUL-tail, constraint, replay-conflict, immutability, and post-archive evidence cases;
 - `32` retained adversarial/currentness/immutability/aliasing cases;
 - `11` indexed hot-query `EXPLAIN QUERY PLAN` checks, including exact archive lookup;
 - all `12` external-operation kinds and the six-state operation ledger;
