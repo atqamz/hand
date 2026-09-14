@@ -5,7 +5,7 @@ This file is deterministic input for the permanent revision-3 manifest anchor fo
 Immutable content revision containing every candidate snapshot and revision-2 #344 artifact:
 
 ```text
-e07c5a2984e1410e207fad20ed25b421fe41e197
+4f0bb2a0e4e3c7db62cc23dc2cdaee35fbafa3de
 ```
 
 The follow-up must create a new versioned manifest, preserve every prior manifest/snapshot/artifact byte, and name the permanent merged `main` revision that contains this content revision. No placeholder anchor is permitted.
@@ -13,24 +13,24 @@ The follow-up must create a new versioned manifest, preserve every prior manifes
 ## Revision-2 #344 relational input
 
 ```text
-content commit: e07c5a2984e1410e207fad20ed25b421fe41e197
+content commit: 4f0bb2a0e4e3c7db62cc23dc2cdaee35fbafa3de
 DDL: docs/architecture/v19-v2.sql.gz
-Git blob: f0896754f4c171e7c486b136fc15d93335ac7282
-stored gzip bytes: 11584
-stored gzip SHA-256: 1cc0f415ae2a05f0aa1091ca0aa551ede16ec8504d11983ad7f7342d7a334f19
-reconstructed DDL bytes: 108973
-reconstructed DDL SHA-256: 5285df4ae43fb61d65977061bb79a0c1e8cf498df0028df52bca4bff1b48c966
-schema fingerprint: 3967400d6f0fdda716d48bf8ddbb1942367239ce3e08461c0bbf46279caebfbb
+Git blob: 10361016d6c6372e873d70b73ae13a9764297531
+stored gzip bytes: 11604
+stored gzip SHA-256: f4527132e7db93d0b527514b7418606be13d3d47565359dd5a6a754a56e2f7e2
+reconstructed DDL bytes: 109107
+reconstructed DDL SHA-256: d4a3d0adf3a84cc56002a1b558387d2169cb771b484addcb0fd8af743e19f16c
+schema fingerprint: b3ba6d26db1f5aa520f248249b2e3679361283301484f7ea7c0f69ddd514e7f0
 schema-defined objects: 56 tables / 38 explicit indexes / 172 triggers
 PRAGMA user_version: 19
 proof: docs/architecture/v19-proof-v2.py.gz
-proof Git blob: bc69d8eea5ede35669f363d0016c1710d1fb5370
-proof stored gzip bytes: 10645
-proof stored gzip SHA-256: a600ad60f637b50f0288fa6fd4360807e9cfbb58aac8cee057bb1ab6dbc10683
-proof reconstructed bytes: 53756
-proof reconstructed SHA-256: 36287ad41a9c13e7994a4e6a0a31cd01e90336bf64f4b035e65b5e55f4b05584
+proof Git blob: 4a067c7df1d100a13e718091380cb310fb69c9de
+proof stored gzip bytes: 10831
+proof stored gzip SHA-256: 88b52de5581b4d41f4f554c709cfb365da447fc7da266960b0df63c55183e876
+proof reconstructed bytes: 54900
+proof reconstructed SHA-256: 7045446f4cbb71bc8a4faa92faf58db9329d059b38ce1aea1065f9e488dd202c
 relock: docs/architecture/v19-relock-v2.md
-relock Git blob: f5403ed2613b4c1c5fd0926ee4e044f015c0c405
+relock Git blob: 33a1d7cab18565829eecad4e121b80f8f7229dec
 ```
 
 ## Revision-3 snapshot set input

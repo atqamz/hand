@@ -285,13 +285,49 @@ func canonicalV19ExpectTaskArchiveRejected(t *testing.T, db *sql.DB, taskID stri
 }
 
 func TestCanonicalV19TaskArchiveBoundsEvidence(t *testing.T) {
-	home := canonicalV19TaskArchiveTerminalFixture(t)
-	db := canonicalV19TaskArchiveOpen(t, home)
-	defer func() { _ = db.Close() }()
-	_, err := db.Exec(`INSERT INTO task_archive(task_id,actor_kind,actor_ref,archived_at,reason,evidence_digest)
-		VALUES('task-1','operator',?,'2026-09-15T01:02:03Z','reason',?)`,
-		strings.Repeat("x", 257), canonicalV19TaskArchiveDigest)
-	if err == nil {
-		t.Fatal("oversized archive actor was accepted")
+	tests := map[string]struct {
+		actorRef       string
+		archivedAt     string
+		reason         string
+		evidenceDigest string
+	}{
+		"actor reference": {
+			actorRef:       "x\x00" + strings.Repeat("x", 256),
+			archivedAt:     "2026-09-15T01:02:03Z",
+			reason:         "reason",
+			evidenceDigest: canonicalV19TaskArchiveDigest,
+		},
+		"archive time": {
+			actorRef:       "operator-1",
+			archivedAt:     "x\x00" + strings.Repeat("x", 64),
+			reason:         "reason",
+			evidenceDigest: canonicalV19TaskArchiveDigest,
+		},
+		"reason": {
+			actorRef:       "operator-1",
+			archivedAt:     "2026-09-15T01:02:03Z",
+			reason:         "x\x00" + strings.Repeat("x", 1024),
+			evidenceDigest: canonicalV19TaskArchiveDigest,
+		},
+		"evidence digest": {
+			actorRef:       "operator-1",
+			archivedAt:     "2026-09-15T01:02:03Z",
+			reason:         "reason",
+			evidenceDigest: canonicalV19TaskArchiveDigest + "\x00junk",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			home := canonicalV19TaskArchiveTerminalFixture(t)
+			db := canonicalV19TaskArchiveOpen(t, home)
+			defer func() { _ = db.Close() }()
+			_, err := db.Exec(`INSERT INTO task_archive(
+				task_id,actor_kind,actor_ref,archived_at,reason,evidence_digest
+			) VALUES('task-1','operator',?,?,?,?)`,
+				test.actorRef, test.archivedAt, test.reason, test.evidenceDigest)
+			if err == nil {
+				t.Fatalf("oversized archive %s was accepted", name)
+			}
+		})
 	}
 }
