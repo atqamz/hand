@@ -595,14 +595,13 @@ func TestWatchResumesAUsageLimitedWorkerAndLeavesOthersAlone(t *testing.T) {
 	}
 
 	resumeLog := filepath.Join(t.TempDir(), "resume.log")
-	writeFakeHerdrWatch(t, dir, statusDir, resumeLog)
+	writeFakeHerdrWatch(t, dir, statusDir, resumeLog, "pane-limited")
 	resumed := startHandBackground(t, home, "watch", "--poll", "30ms")
 
 	waitForInvocation(t, resumeLog, "herdr pane send-text pane-limited", 10*time.Second)
 	waitForInvocation(t, resumeLog, "herdr pane send-keys pane-limited Enter", 10*time.Second)
 
-	// The steer is only an attempt; the pane running again is what ends the limit.
-	setPaneStatus(t, statusDir, "pane-limited", "working")
+	// The opt-in fake marks this pane working when it accepts Enter, matching the real boundary.
 	resumed.waitForStdout(t, "usage-limit-resumed limited: running again after 1 attempt", 10*time.Second)
 
 	if _, found, err := state.ReadHold(home, "limited"); found || err != nil {
