@@ -10,6 +10,9 @@ on:
   # new run on its own, so that workflow dispatches one explicitly.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint

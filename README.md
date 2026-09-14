@@ -483,7 +483,7 @@ See the [releases page](https://github.com/atqamz/hand/releases) for every asset
 
 ### Edge builds
 
-Edge is a rolling GitHub prerelease for maintainers and contributors who want the newest CI-verified `main` build.
+Automatic edge advancement is paused pending exact [#305](https://github.com/atqamz/hand/issues/305) qualification, so the current edge asset may lag `main`.
 It is intentionally mutable and may contain unreleased behavior or state/schema changes.
 Stable users should continue using the normal release assets above.
 

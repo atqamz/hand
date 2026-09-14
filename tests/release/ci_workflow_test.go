@@ -18,12 +18,21 @@ func TestCIPushCannotPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 	var document struct {
-		Jobs map[string]struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
 			Uses string `yaml:"uses"`
 		} `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatalf("parse ci.yaml: %v", err)
+	}
+	if document.Permissions["contents"] != "read" {
+		t.Fatalf("ci workflow permissions[contents] = %q, want read", document.Permissions["contents"])
+	}
+	for scope, level := range document.Permissions {
+		if level == "write" {
+			t.Fatalf("ci workflow permissions[%s] = write", scope)
+		}
 	}
 	for name, job := range document.Jobs {
 		if job.Uses == "./.github/workflows/edge.yaml" {
@@ -31,8 +40,10 @@ func TestCIPushCannotPublish(t *testing.T) {
 		}
 	}
 	for name, job := range jobs {
-		if job.Permissions["contents"] == "write" {
-			t.Fatalf("ci workflow job %q grants contents: write", name)
+		for scope, level := range job.Permissions {
+			if level == "write" {
+				t.Fatalf("ci workflow job %q grants %s: write", name, scope)
+			}
 		}
 	}
 }
