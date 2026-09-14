@@ -309,11 +309,23 @@ func TestCanonicalV19TaskArchiveBoundsEvidence(t *testing.T) {
 			reason:         "x\x00" + strings.Repeat("x", 1024),
 			evidenceDigest: canonicalV19TaskArchiveDigest,
 		},
-		"evidence digest": {
+		"oversized evidence digest": {
 			actorRef:       "operator-1",
 			archivedAt:     "2026-09-15T01:02:03Z",
 			reason:         "reason",
 			evidenceDigest: canonicalV19TaskArchiveDigest + "\x00junk",
+		},
+		"NUL-terminated evidence digest": {
+			actorRef:       "operator-1",
+			archivedAt:     "2026-09-15T01:02:03Z",
+			reason:         "reason",
+			evidenceDigest: strings.Repeat("a", 63) + "\x00",
+		},
+		"NUL-hidden evidence suffix": {
+			actorRef:       "operator-1",
+			archivedAt:     "2026-09-15T01:02:03Z",
+			reason:         "reason",
+			evidenceDigest: strings.Repeat("a", 62) + "\x00z",
 		},
 	}
 	for name, test := range tests {
