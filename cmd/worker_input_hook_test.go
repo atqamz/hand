@@ -1,10 +1,9 @@
 package cmd
 
 import (
-	"context"
+	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/store"
@@ -21,22 +20,19 @@ func TestWorkerInputProtocolShadowsLegacyRootStartupHook(t *testing.T) {
 	}
 	runtime := &cobra.Command{Use: "runtime"}
 	runtime.AddCommand(newWorkerInputCmdWithDeps(workerInputCommandDeps{
-		role:        func() string { return harness.WorkerRole },
-		resolveHome: func() (string, error) { return "/fleet", nil },
-		now:         func() time.Time { return time.Date(2026, 9, 9, 9, 32, 0, 0, time.UTC) },
-		drain: func(context.Context, string, store.CanonicalV19WorkerInputDrainInput) ([]store.CanonicalV19WorkerInput, error) {
-			return []store.CanonicalV19WorkerInput{}, nil
-		},
+		role: func() string { return harness.WorkerRole },
 	}))
 	root.AddCommand(runtime)
 	root.SetArgs([]string{"runtime", "worker-input", "drain", "attempt-1", "executor-1"})
 	var out strings.Builder
 	root.SetOut(&out)
 	root.SetErr(new(strings.Builder))
-	if _, err := root.ExecuteC(); err != nil {
-		t.Fatal(err)
+	_, err := root.ExecuteC()
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 || !errors.Is(err, store.ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("worker-input error = %v, want unsupported precondition", err)
 	}
-	if !strings.Contains(out.String(), `"inputs":[]`) {
-		t.Fatalf("drain output = %q", out.String())
+	if strings.Contains(out.String(), `"inputs"`) || strings.Contains(out.String(), `"worker_input_id"`) {
+		t.Fatalf("worker-input emitted semantic output: %q", out.String())
 	}
 }

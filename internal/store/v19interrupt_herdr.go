@@ -60,8 +60,9 @@ type canonicalV19HerdrInterruptDeps struct {
 	now          func() time.Time
 }
 
-// ReconcileCanonicalV19HerdrInterrupt reconciles one exact canonical v19
-// Interrupt against the persisted Herdr ExecutorBinding.
+// ReconcileCanonicalV19HerdrInterrupt reconciles one exact canonical v19 Interrupt.
+// The selected managed provider is refused before submission until its ExecutorBinding
+// proves exact execution identity and positive cessation.
 func ReconcileCanonicalV19HerdrInterrupt(ctx context.Context, homeDir, operationID string) (string, error) {
 	return reconcileCanonicalV19HerdrInterrupt(ctx, homeDir, operationID, canonicalV19HerdrInterruptDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrInterruptClient {
@@ -112,176 +113,9 @@ func reconcileCanonicalV19HerdrInterrupt(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: adapter %q is not %q",
 			ErrCanonicalV19InterruptNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
 	}
-
-	executorKey, err := parseCanonicalV19HerdrExecutorProviderKey(request.ProviderExecutorKey)
-	if err != nil {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: invalid provider Executor key: %v",
-			ErrCanonicalV19InterruptNotCurrent, err)
-	}
-	sessionKey, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
-	if err != nil {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: invalid provider Session key: %v",
-			ErrCanonicalV19InterruptNotCurrent, err)
-	}
-	expectedSession := herdr.SessionName(current.FleetID)
-	if executorKey.SessionName != expectedSession || sessionKey.SessionName != expectedSession ||
-		executorKey.WorkspaceID != sessionKey.WorkspaceID || executorKey.TabID != sessionKey.TabID || executorKey.PaneID != sessionKey.PaneID {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: provider Executor and Session identities differ",
-			ErrCanonicalV19InterruptNotCurrent)
-	}
-
-	client := deps.clientFor(expectedSession)
-	if client == nil {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: provider client is unavailable")
-	}
-	observed := observeCanonicalV19HerdrInterrupt(ctx, current, executorKey, sessionKey, client, deps.processAlive)
-	if observed.State == canonicalV19HerdrInterruptCeased {
-		return completeCanonicalV19ObservedHerdrInterrupt(ctx, homeDir, current, observed, deps.now)
-	}
-	if current.Current.State != "prepared" {
-		return reconcileCanonicalV19SubmittedHerdrInterrupt(ctx, homeDir, current, observed, deps.now)
-	}
-
-	switch observed.State {
-	case canonicalV19HerdrInterruptRunning:
-	case canonicalV19HerdrInterruptMismatch:
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: provider ownership is unresolved: %s", observed.Reason)
-	case canonicalV19HerdrInterruptUnknown:
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: provider observation is unknown: %s", observed.Reason)
-	default:
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: provider observation state %q is invalid", observed.State)
-	}
-
-	submittedAt := canonicalV19HerdrSessionTimestampAfter(deps.now(), current.Current.StateChangedAt)
-	submitted, err := SubmitCanonicalV19Interrupt(ctx, homeDir, operationID, submittedAt, observed.EvidenceDigest)
-	if err != nil {
-		return "prepared", err
-	}
-	current.Current.Request = submitted
-	current.Current.State = "submitted"
-	current.Current.StateChangedAt = submittedAt
-
-	observed = observeCanonicalV19HerdrInterrupt(ctx, current, executorKey, sessionKey, client, deps.processAlive)
-	switch observed.State {
-	case canonicalV19HerdrInterruptCeased:
-		return completeCanonicalV19ObservedHerdrInterrupt(ctx, homeDir, current, observed, deps.now)
-	case canonicalV19HerdrInterruptRunning:
-	case canonicalV19HerdrInterruptMismatch, canonicalV19HerdrInterruptUnknown:
-		return classifyCanonicalV19HerdrInterruptUncertain(ctx, homeDir, current, observed, deps.now, nil)
-	default:
-		return "submitted", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: provider observation state %q is invalid", observed.State)
-	}
-
-	performErr := client.PaneSendKeys(executorKey.PaneID, "ctrl+c")
-	observed = observeCanonicalV19HerdrInterrupt(ctx, current, executorKey, sessionKey, client, deps.processAlive)
-	switch observed.State {
-	case canonicalV19HerdrInterruptCeased:
-		return completeCanonicalV19ObservedHerdrInterrupt(ctx, homeDir, current, observed, deps.now)
-	case canonicalV19HerdrInterruptRunning:
-		if performErr != nil && herdr.IsPreSideEffectRejection(performErr) {
-			return classifyCanonicalV19HerdrInterruptNoEffect(ctx, homeDir, current, observed, deps.now,
-				"Herdr rejected ctrl+c before terminal input and the exact Executor remains running")
-		}
-		return classifyCanonicalV19HerdrInterruptUncertain(ctx, homeDir, current, observed, deps.now, performErr)
-	case canonicalV19HerdrInterruptMismatch, canonicalV19HerdrInterruptUnknown:
-		return classifyCanonicalV19HerdrInterruptUncertain(ctx, homeDir, current, observed, deps.now, performErr)
-	default:
-		return "submitted", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: provider observation state %q is invalid", observed.State)
-	}
-}
-
-func reconcileCanonicalV19SubmittedHerdrInterrupt(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrInterruptCurrent,
-	observed canonicalV19HerdrInterruptObservation,
-	now func() time.Time,
-) (string, error) {
-	if observed.Reason == "" {
-		observed.Reason = "submitted Interrupt cannot be replayed without positive exact cessation evidence"
-	} else {
-		observed.Reason += "; submitted Interrupt cannot be replayed without positive exact cessation evidence"
-	}
-	observed = finalizeCanonicalV19HerdrInterruptObservation(current, observed)
-	if current.Current.State == "submitted" {
-		return classifyCanonicalV19HerdrInterruptUncertain(ctx, homeDir, current, observed, now, nil)
-	}
-	return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: operation remains uncertain: %s", observed.Reason)
-}
-
-func completeCanonicalV19ObservedHerdrInterrupt(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrInterruptCurrent,
-	observed canonicalV19HerdrInterruptObservation,
-	now func() time.Time,
-) (string, error) {
-	observedAt := canonicalV19HerdrSessionTimestampAfter(now(), current.Current.StateChangedAt)
-	if err := CompleteCanonicalV19Interrupt(ctx, homeDir, CanonicalV19ExecutorInterruptedEvidence{
-		OperationID:    current.Current.Request.OperationID,
-		ObservedAt:     observedAt,
-		EvidenceDigest: observed.EvidenceDigest,
-	}); err != nil {
-		return current.Current.State, err
-	}
-	return "succeeded", nil
-}
-
-func classifyCanonicalV19HerdrInterruptNoEffect(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrInterruptCurrent,
-	observed canonicalV19HerdrInterruptObservation,
-	now func() time.Time,
-	reason string,
-) (string, error) {
-	observedAt := canonicalV19HerdrSessionTimestampAfter(now(), current.Current.StateChangedAt)
-	if err := ClassifyCanonicalV19Interrupt(ctx, homeDir, CanonicalV19InterruptTransitionInput{
-		OperationID:    current.Current.Request.OperationID,
-		State:          "no-effect",
-		ObservedAt:     observedAt,
-		EvidenceDigest: observed.EvidenceDigest,
-	}); err != nil {
-		return current.Current.State, err
-	}
-	if observed.Reason != "" {
-		reason += ": " + observed.Reason
-	}
-	return "no-effect", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %s", reason)
-}
-
-func classifyCanonicalV19HerdrInterruptUncertain(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrInterruptCurrent,
-	observed canonicalV19HerdrInterruptObservation,
-	now func() time.Time,
-	performErr error,
-) (string, error) {
-	if current.Current.State == "uncertain" {
-		reason := observed.Reason
-		if reason == "" {
-			reason = "strongest provider evidence still cannot prove exact Executor cessation"
-		}
-		return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: operation remains uncertain: %s", reason)
-	}
-	observedAt := canonicalV19HerdrSessionTimestampAfter(now(), current.Current.StateChangedAt)
-	if err := ClassifyCanonicalV19Interrupt(ctx, homeDir, CanonicalV19InterruptTransitionInput{
-		OperationID:    current.Current.Request.OperationID,
-		State:          "uncertain",
-		ObservedAt:     observedAt,
-		EvidenceDigest: observed.EvidenceDigest,
-	}); err != nil {
-		return current.Current.State, err
-	}
-	reason := observed.Reason
-	if performErr != nil {
-		reason = canonicalV19HerdrLaunchJoinReason(reason, "Herdr exact Interrupt failed: "+canonicalV19HerdrSessionErrorText(performErr))
-	}
-	if reason == "" {
-		reason = "strongest provider evidence cannot prove exact Executor cessation"
-	}
-	return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr Interrupt: operation is uncertain: %s", reason)
+	return current.Current.State, canonicalV19HerdrCapabilityUnsupported(
+		"Interrupt", "exact execution identity and positive cessation evidence",
+	)
 }
 
 func observeCanonicalV19HerdrInterrupt(
@@ -303,8 +137,8 @@ func observeCanonicalV19HerdrInterrupt(
 	alive, aliveErr := processAlive(executorKey.ProcessID)
 	observed.ProcessAlive = alive
 	if aliveErr == nil && !alive {
-		observed.State = canonicalV19HerdrInterruptCeased
-		observed.Reason = "exact provider Executor PID is absent"
+		observed.State = canonicalV19HerdrInterruptUnknown
+		observed.Reason = "provider Executor PID is absent, but Herdr v0.8.2 cannot prove exact execution cessation"
 		return finalizeCanonicalV19HerdrInterruptObservation(current, observed)
 	}
 
@@ -436,8 +270,8 @@ func observeCanonicalV19HerdrInterrupt(
 		observed.Reason = "exact provider Executor PID remains live but is absent from the exact pane foreground process evidence"
 		return finalizeCanonicalV19HerdrInterruptObservation(current, observed)
 	}
-	observed.State = canonicalV19HerdrInterruptCeased
-	observed.Reason = "exact provider Executor PID is absent"
+	observed.State = canonicalV19HerdrInterruptUnknown
+	observed.Reason = "provider Executor PID is absent, but Herdr v0.8.2 cannot prove exact execution cessation"
 	return finalizeCanonicalV19HerdrInterruptObservation(current, observed)
 }
 

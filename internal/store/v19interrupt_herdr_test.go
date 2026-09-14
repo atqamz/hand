@@ -3,146 +3,128 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/herdr"
 )
 
-func TestReconcileCanonicalV19HerdrInterruptSucceedsAfterExactCessationAndReruns(t *testing.T) {
-	fixture, request, key, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-success")
-	client.requireSubmittedAtSend = true
-	deps := canonicalV19HerdrInterruptTestDeps(t, key, client, time.Date(2026, 9, 8, 4, 10, 0, 0, time.UTC))
+func TestReconcileCanonicalV19HerdrInterruptFailsClosedWithoutExactExecutionProof(t *testing.T) {
+	fixture, request, _, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-unsupported")
+	deps := canonicalV19HerdrInterruptDeps{
+		clientFor:    func(string) canonicalV19HerdrInterruptClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now:          func() time.Time { return time.Date(2026, 9, 8, 4, 9, 0, 0, time.UTC) },
+	}
 
 	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("reconcile Herdr Interrupt = %q, %v", state, err)
+	if state != "prepared" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unqualified Herdr Interrupt = %q, %v, want prepared unsupported error", state, err)
 	}
-	if client.sendCalls != 1 {
-		t.Fatalf("pane send-keys calls = %d, want 1", client.sendCalls)
+	if client.sendCalls != 0 {
+		t.Fatalf("pane send-keys calls = %d, want 0", client.sendCalls)
 	}
 
 	db, err := openReadOnly(fixture.Home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var operationState, terminalKind, interruptOperationID string
-	if err := db.sql.QueryRow(`SELECT o.state,t.terminal_kind,t.interrupt_operation_id
-		FROM external_operation o JOIN executor_binding_termination t ON t.interrupt_operation_id=o.id
-		WHERE o.id=?`, request.OperationID).Scan(&operationState, &terminalKind, &interruptOperationID); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	_ = db.Close()
-	if operationState != "succeeded" || terminalKind != "interrupted" || interruptOperationID != request.OperationID {
-		t.Fatalf("persisted Interrupt = %q/%q/%q", operationState, terminalKind, interruptOperationID)
-	}
-
-	state, err = reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("terminal rerun = %q, %v", state, err)
-	}
-	if client.sendCalls != 1 {
-		t.Fatalf("pane send-keys calls after terminal rerun = %d, want 1", client.sendCalls)
-	}
-}
-
-func TestReconcileCanonicalV19HerdrInterruptLostResponseConvergesFromPIDAbsence(t *testing.T) {
-	fixture, request, key, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-lost-response")
-	client.sendErr = errors.New("provider response lost after ctrl+c")
-	deps := canonicalV19HerdrInterruptTestDeps(t, key, client, time.Date(2026, 9, 8, 4, 11, 0, 0, time.UTC))
-
-	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("lost-response Interrupt = %q, %v", state, err)
-	}
-	if client.sendCalls != 1 {
-		t.Fatalf("pane send-keys calls = %d, want 1", client.sendCalls)
-	}
-}
-
-func TestReconcileCanonicalV19HerdrInterruptPreSideEffectRejectionIsNoEffect(t *testing.T) {
-	fixture, request, key, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-no-effect")
-	client.mutateOnSend = false
-	client.sendErr = &herdr.APIError{Code: "pane_send_failed", Message: "queue full", PreSideEffectRejection: true}
-	deps := canonicalV19HerdrInterruptTestDeps(t, key, client, time.Date(2026, 9, 8, 4, 12, 0, 0, time.UTC))
-
-	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "no-effect" || err == nil {
-		t.Fatalf("pre-side-effect Interrupt = %q, %v, want no-effect diagnostic", state, err)
-	}
-	if client.sendCalls != 1 || !client.targetAlive {
-		t.Fatalf("provider state after no-effect = sends %d, alive %v, want 1/true", client.sendCalls, client.targetAlive)
-	}
-	db, err := openReadOnly(fixture.Home)
-	if err != nil {
+	defer func() { _ = db.Close() }()
+	var operationState string
+	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
 		t.Fatal(err)
 	}
 	var terminations int
 	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM executor_binding_termination WHERE interrupt_operation_id=?`, request.OperationID).Scan(&terminations); err != nil {
-		_ = db.Close()
 		t.Fatal(err)
 	}
-	_ = db.Close()
-	if terminations != 0 {
-		t.Fatalf("ExecutorBinding termination rows = %d, want 0", terminations)
+	if operationState != "prepared" || terminations != 0 {
+		t.Fatalf("persisted Interrupt state/terminations = %q/%d, want prepared/0", operationState, terminations)
 	}
 }
 
-func TestReconcileSubmittedCanonicalV19HerdrInterruptDoesNotBlindReplay(t *testing.T) {
-	fixture, request, key, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-submitted")
-	if _, err := SubmitCanonicalV19Interrupt(context.Background(), fixture.Home, request.OperationID,
-		"2026-09-08T04:08:00Z", "interrupt-submitted-before-crash"); err != nil {
+func TestObserveCanonicalV19HerdrInterruptTreatsPIDAbsenceAndInventoryFailureAsUnknown(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*canonicalV19HerdrInterruptFakeClient)
+	}{
+		{name: "PID absent", setup: func(client *canonicalV19HerdrInterruptFakeClient) { client.targetAlive = false }},
+		{name: "provider inventory unavailable", setup: func(client *canonicalV19HerdrInterruptFakeClient) {
+			client.workspaceErr = errors.New("provider inventory unavailable")
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, request, executorKey, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-pid-absence")
+			test.setup(client)
+			current, err := readCanonicalV19HerdrInterruptCurrent(context.Background(), fixture.Home, request.OperationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionKey, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			observed := observeCanonicalV19HerdrInterrupt(context.Background(), current, executorKey, sessionKey, client,
+				func(int) (bool, error) { return client.targetAlive, client.livenessErr })
+			if observed.State != canonicalV19HerdrInterruptUnknown {
+				t.Fatalf("unqualified observation = %q, want unknown", observed.State)
+			}
+		})
+	}
+}
+
+func TestObserveCanonicalV19HerdrInterruptCannotDistinguishRestartOrReplacement(t *testing.T) {
+	fixture, request, executorKey, original := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-replacement")
+	if !strings.HasPrefix(request.ProviderExecutorKey, "herdr-executor:v1?") {
+		t.Fatalf("fixture provider Executor key = %q, want legacy v1", request.ProviderExecutorKey)
+	}
+	current, err := readCanonicalV19HerdrInterruptCurrent(context.Background(), fixture.Home, request.OperationID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	deps := canonicalV19HerdrInterruptTestDeps(t, key, client, time.Date(2026, 9, 8, 4, 13, 0, 0, time.UTC))
+	sessionKey, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedBase := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, original.request, sessionKey)
+	restartedBase.startTarget(original.request.Spec)
+	restarted := &canonicalV19HerdrInterruptFakeClient{
+		canonicalV19HerdrLaunchFakeClient: restartedBase,
+		targetPID:                         executorKey.ProcessID,
+		targetAlive:                       true,
+	}
 
-	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "uncertain" || err == nil {
-		t.Fatalf("submitted recovery = %q, %v, want uncertain error", state, err)
+	observe := func(client *canonicalV19HerdrInterruptFakeClient) canonicalV19HerdrInterruptObservation {
+		return observeCanonicalV19HerdrInterrupt(context.Background(), current, executorKey, sessionKey, client,
+			func(int) (bool, error) { return client.targetAlive, client.livenessErr })
 	}
-	if client.sendCalls != 0 {
-		t.Fatalf("pane send-keys calls = %d, want 0", client.sendCalls)
-	}
-	state, err = reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "uncertain" || err == nil {
-		t.Fatalf("uncertain recovery = %q, %v, want uncertain error", state, err)
-	}
-	if client.sendCalls != 0 {
-		t.Fatalf("pane send-keys calls after uncertain recovery = %d, want 0", client.sendCalls)
+	before, after := observe(original), observe(restarted)
+	if before.State != canonicalV19HerdrInterruptRunning || before.EvidenceDigest != after.EvidenceDigest {
+		t.Fatalf("restart/replacement observations = %#v / %#v, want indistinguishable running evidence", before, after)
 	}
 }
 
-func TestReconcilePreparedCanonicalV19HerdrInterruptCompletesAlreadyCeasedExecutorWithoutMutation(t *testing.T) {
-	fixture, request, key, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-already-ceased")
-	client.stopTarget()
-	deps := canonicalV19HerdrInterruptTestDeps(t, key, client, time.Date(2026, 9, 8, 4, 14, 0, 0, time.UTC))
-
-	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("already-ceased Interrupt = %q, %v", state, err)
+func TestHerdrInterruptAcceptanceWithoutCessationIsOnlyDiagnostic(t *testing.T) {
+	fixture, request, executorKey, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-accepted-running")
+	client.mutateOnSend = false
+	if err := client.PaneSendKeys(executorKey.PaneID, "ctrl+c"); err != nil {
+		t.Fatal(err)
 	}
-	if client.sendCalls != 0 {
-		t.Fatalf("pane send-keys calls = %d, want 0", client.sendCalls)
+	current, err := readCanonicalV19HerdrInterruptCurrent(context.Background(), fixture.Home, request.OperationID)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestReconcilePreparedCanonicalV19HerdrInterruptRefusesProviderIdentityMismatch(t *testing.T) {
-	fixture, request, key, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-mismatch")
-	for i := range client.processInfo.ForegroundProcesses {
-		if client.processInfo.ForegroundProcesses[i].PID == key.ProcessID {
-			client.processInfo.ForegroundProcesses[i].Argv = []string{"different-worker", "--other"}
-		}
+	sessionKey, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
+	if err != nil {
+		t.Fatal(err)
 	}
-	deps := canonicalV19HerdrInterruptTestDeps(t, key, client, time.Date(2026, 9, 8, 4, 15, 0, 0, time.UTC))
-
-	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "prepared" || err == nil {
-		t.Fatalf("mismatched Interrupt = %q, %v, want prepared error", state, err)
-	}
-	if client.sendCalls != 0 {
-		t.Fatalf("pane send-keys calls = %d, want 0", client.sendCalls)
+	observed := observeCanonicalV19HerdrInterrupt(context.Background(), current, executorKey, sessionKey, client,
+		func(int) (bool, error) { return client.targetAlive, client.livenessErr })
+	if observed.State != canonicalV19HerdrInterruptRunning {
+		t.Fatalf("accepted interrupt without cessation = %q, want running diagnostic", observed.State)
 	}
 }
 
@@ -243,28 +225,4 @@ func canonicalV19HerdrInterruptFixture(
 		mutateOnSend:                      true,
 	}
 	return fixture, request, executorKey, client
-}
-
-func canonicalV19HerdrInterruptTestDeps(
-	t *testing.T,
-	key canonicalV19HerdrExecutorProviderKey,
-	client *canonicalV19HerdrInterruptFakeClient,
-	now time.Time,
-) canonicalV19HerdrInterruptDeps {
-	t.Helper()
-	return canonicalV19HerdrInterruptDeps{
-		clientFor: func(sessionName string) canonicalV19HerdrInterruptClient {
-			if sessionName != key.SessionName {
-				t.Fatalf("Herdr session = %q, want %q", sessionName, key.SessionName)
-			}
-			return client
-		},
-		processAlive: func(pid int) (bool, error) {
-			if pid != client.targetPID {
-				return false, fmt.Errorf("unexpected PID %d", pid)
-			}
-			return client.targetAlive, client.livenessErr
-		},
-		now: func() time.Time { return now },
-	}
 }
