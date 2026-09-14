@@ -3,6 +3,8 @@ package herdr
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -51,17 +53,26 @@ func TestPaneRunExactSpecRefusesShellCwdMismatch(t *testing.T) {
 
 func TestPaneRunExactSpecAcceptsEquivalentShellCwd(t *testing.T) {
 	root := t.TempDir()
-	work := filepath.Join(root, "work")
+	work := filepath.Join(root, "WorkDir")
 	if err := os.Mkdir(work, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(root, "link")
-	if err := os.Symlink(work, link); err != nil {
-		t.Fatal(err)
+	observed := work
+	if runtime.GOOS == "windows" {
+		observed = strings.ToUpper(work)
+	} else {
+		link := filepath.Join(root, "link")
+		if err := os.Symlink(work, link); err != nil {
+			t.Fatal(err)
+		}
+		observed = link
+	}
+	if observed == work {
+		t.Fatalf("equivalent cwd spelling did not differ: %q", observed)
 	}
 	callLog := filepath.Join(root, "calls.log")
 	faketool.Herdr{Responses: []faketool.HerdrResponse{
-		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":"`+link+`"}]}}}`),
+		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":`+strconv.Quote(observed)+`}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
 	if err := NewClient().PaneRunExactSpec("wA:pB", launch.LaunchSpec{Executable: "worker", Cwd: work}); err != nil {
