@@ -320,6 +320,9 @@ func TestPublishTargetRefusesOIDCPublicationWhenConfigPipeGetsSIGPIPE(t *testing
 }
 
 func TestShadowingAuthTokenConfigPipelineReturnsSIGPIPE(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGPIPE status 141 is POSIX-specific")
+	}
 	state := t.TempDir()
 	mustWriteFile(t, filepath.Join(state, "config-shadow-token-pipefail"), "")
 
