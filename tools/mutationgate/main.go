@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -141,12 +142,14 @@ func (result requiredGremlinsResult) value() (gremlinsResult, error) {
 }
 
 func decode(path string, target any) error {
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = file.Close() }()
-	decoder := json.NewDecoder(file)
+	if err := rejectDuplicateObjectMembers(data); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
@@ -158,6 +161,64 @@ func decode(path string, target any) error {
 		return err
 	}
 	return nil
+}
+
+func rejectDuplicateObjectMembers(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := rejectDuplicateObjectMembersValue(decoder); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func rejectDuplicateObjectMembersValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		members := map[string]struct{}{}
+		for decoder.More() {
+			token, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			member, ok := token.(string)
+			if !ok {
+				return errors.New("invalid JSON object member")
+			}
+			if _, exists := members[member]; exists {
+				return fmt.Errorf("duplicate JSON object member %q", member)
+			}
+			members[member] = struct{}{}
+			if err := rejectDuplicateObjectMembersValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err = decoder.Token()
+		return err
+	case '[':
+		for decoder.More() {
+			if err := rejectDuplicateObjectMembersValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err = decoder.Token()
+		return err
+	default:
+		return errors.New("invalid JSON delimiter")
+	}
 }
 
 func compare(baseline baselineFile, result gremlinsResult, module, packagePath, tool, tags string) error {

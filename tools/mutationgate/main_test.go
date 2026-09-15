@@ -214,6 +214,58 @@ func TestLoadRejectsMalformedEvidence(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsDuplicateObjectMembers(t *testing.T) {
+	result, err := json.Marshal(fixtureResult("KILLED", "LIVED"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := json.Marshal(fixtureBaseline())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		data string
+		load func(string) error
+	}{
+		{
+			name: "nested mutation status",
+			data: strings.Replace(string(result), `"status":"KILLED"`, `"status":"TIMED OUT","status":"KILLED"`, 1),
+			load: func(path string) error {
+				_, err := loadResult(path)
+				return err
+			},
+		},
+		{
+			name: "top-level result module",
+			data: strings.Replace(string(result), `"go_module":"github.com/example/hand"`, `"go_module":"other","go_module":"github.com/example/hand"`, 1),
+			load: func(path string) error {
+				_, err := loadResult(path)
+				return err
+			},
+		},
+		{
+			name: "nested baseline package path",
+			data: strings.Replace(string(baseline), `"path":"./internal/age"`, `"path":"./internal/other","path":"./internal/age"`, 1),
+			load: func(path string) error {
+				_, err := loadBaseline(path)
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "evidence.json")
+			if err := os.WriteFile(path, []byte(tc.data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.load(path); err == nil || !strings.Contains(err.Error(), "duplicate JSON object member") {
+				t.Fatalf("load error = %v, want duplicate JSON object member rejection", err)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsMissingRequiredResultFields(t *testing.T) {
 	data, err := json.Marshal(fixtureResult("KILLED", "LIVED"))
 	if err != nil {
