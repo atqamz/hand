@@ -311,8 +311,12 @@ func sameFloat(got, want float64) bool {
 
 func mutatorStatistic(mutator string) (string, bool) {
 	switch mutator {
-	case "ARITHMETIC_BASE", "CONDITIONALS_NEGATION", "CONDITIONALS_BOUNDARY", "INCREMENT_DECREMENT", "INVERT_ASSIGNMENTS", "INVERT_BITWISE", "INVERT_BITWISE_ASSIGNMENTS", "INVERT_LOGICAL", "INVERT_LOOP_CTRL", "INVERT_NEGATIVES", "REMOVE_SELF_ASSIGNMENTS":
+	case "ARITHMETIC_BASE", "CONDITIONALS_NEGATION", "CONDITIONALS_BOUNDARY", "INCREMENT_DECREMENT", "INVERT_ASSIGNMENTS", "INVERT_BITWISE", "INVERT_LOGICAL", "INVERT_NEGATIVES", "REMOVE_SELF_ASSIGNMENTS":
 		return strings.ToLower(mutator), true
+	case "INVERT_BWASSIGN":
+		return "invert_bitwise_assignments", true
+	case "INVERT_LOOPCTRL":
+		return "invert_loop_ctrl", true
 	default:
 		return "", false
 	}

@@ -18,6 +18,27 @@ func TestCompareAcceptsOnlyExactReviewedEvidence(t *testing.T) {
 	}
 }
 
+func TestCompareAcceptsV060MutatorNames(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		statistic string
+	}{
+		{name: "INVERT_LOOPCTRL", statistic: "invert_loop_ctrl"},
+		{name: "INVERT_BWASSIGN", statistic: "invert_bitwise_assignments"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseline := fixtureBaseline()
+			baseline.Packages[0].Mutants[0].Operator = tc.name
+			result := fixtureResult("KILLED", "LIVED")
+			result.Files[0].Mutations[0].Type = tc.name
+			result.Statistics = map[string]int{tc.statistic: 1, "increment_decrement": 1}
+			if err := compare(baseline, result, "github.com/example/hand", "./internal/age", "v0.6.0", "test"); err != nil {
+				t.Fatalf("compare v0.6.0 %s: %v", tc.name, err)
+			}
+		})
+	}
+}
+
 func TestCompareDoesNotBlockNotCovered(t *testing.T) {
 	t.Run("transition from reviewed mutant", func(t *testing.T) {
 		result := fixtureResult("KILLED", "LIVED")
