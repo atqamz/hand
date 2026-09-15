@@ -41,13 +41,14 @@ type workflowJobStrategyDef struct {
 }
 
 type workflowJobDef struct {
-	Needs       any                    `yaml:"needs"`
-	If          string                 `yaml:"if"`
-	Environment any                    `yaml:"environment"`
-	Permissions map[string]string      `yaml:"permissions"`
-	Outputs     map[string]string      `yaml:"outputs"`
-	Steps       []workflowStepDef      `yaml:"steps"`
-	Strategy    workflowJobStrategyDef `yaml:"strategy"`
+	Needs           any                    `yaml:"needs"`
+	If              string                 `yaml:"if"`
+	Environment     any                    `yaml:"environment"`
+	Permissions     map[string]string      `yaml:"permissions"`
+	Outputs         map[string]string      `yaml:"outputs"`
+	Steps           []workflowStepDef      `yaml:"steps"`
+	Strategy        workflowJobStrategyDef `yaml:"strategy"`
+	ContinueOnError bool                   `yaml:"continue-on-error"`
 }
 
 // YAML's needs: is a bare string for one dependency or a list for several; normalizing

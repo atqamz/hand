@@ -3,6 +3,7 @@ package release
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -45,5 +46,51 @@ func TestCIPushCannotPublish(t *testing.T) {
 				t.Fatalf("ci workflow job %q grants %s: write", name, scope)
 			}
 		}
+	}
+}
+
+func TestMutationWorkflowGatesCheapPackagesAndReportsExpensiveOnes(t *testing.T) {
+	jobs := loadWorkflowJobs(t, "ci.yaml")
+	cheap, ok := jobs["mutation"]
+	if !ok {
+		t.Fatal("ci workflow has no always-on mutation job")
+	}
+	expensive, ok := jobs["mutation-expensive"]
+	if !ok {
+		t.Fatal("ci workflow has no expensive mutation job")
+	}
+	if expensive.ContinueOnError != true {
+		t.Fatal("expensive mutation job must stay non-blocking")
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+	for _, packagePath := range []string{
+		"./internal/shellquote",
+		"./internal/age",
+		"./internal/axi",
+		"./internal/registry",
+		"./internal/completion",
+	} {
+		if !strings.Contains(workflow, packagePath) {
+			t.Errorf("always-on mutation job does not name %s", packagePath)
+		}
+	}
+	for _, packagePath := range []string{"./internal/store", "./internal/runtime"} {
+		if !strings.Contains(workflow, packagePath) {
+			t.Errorf("expensive mutation job does not name %s", packagePath)
+		}
+	}
+	for name, job := range map[string]workflowJobDef{"mutation": cheap, "mutation-expensive": expensive} {
+		for scope, level := range job.Permissions {
+			if level == "write" {
+				t.Errorf("%s grants %s: write", name, scope)
+			}
+		}
+	}
+	if !strings.Contains(workflow, "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0") {
+		t.Errorf("mutation workflow does not pin gremlins v0.6.0")
 	}
 }

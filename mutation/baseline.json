@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "tool": "v0.6.0",
+  "tags": "test",
+  "packages": [
+    {
+      "path": "./internal/shellquote",
+      "digest": "sha256:71000fdf970388845b6fdb08e97399edeb0143244cc94c39362550fcda854435",
+      "total": 2,
+      "killed": 2,
+      "lived": 0,
+      "not_covered": 0,
+      "suppressions": []
+    },
+    {
+      "path": "./internal/age",
+      "digest": "sha256:6404444c7ea675a262e02a01fd16701dee7e444ba2cb1e25c7df4b25bf51a76a",
+      "total": 2,
+      "killed": 2,
+      "lived": 0,
+      "not_covered": 7,
+      "suppressions": []
+    },
+    {
+      "path": "./internal/axi",
+      "digest": "sha256:313e5ec5ea1cb5fad80b1e2b1f1e4029d561b2df0e78c57ba07e8d0f9f819cc1",
+      "total": 6,
+      "killed": 6,
+      "lived": 0,
+      "not_covered": 0,
+      "suppressions": []
+    },
+    {
+      "path": "./internal/completion",
+      "digest": "sha256:ec4d64d031093e86e9de8a7b1db75bc31873eea7cf61e41bacae7e3f43901343",
+      "total": 33,
+      "killed": 30,
+      "lived": 3,
+      "not_covered": 1,
+      "suppressions": [
+        {
+          "file": "completion.go",
+          "line": 154,
+          "column": 11,
+          "operator": "INCREMENT_DECREMENT",
+          "rationale": "MigrateProjectIdentity only tests whether migrated is zero; incrementing or decrementing any migrated record makes it nonzero."
+        },
+        {
+          "file": "completion.go",
+          "line": 186,
+          "column": 32,
+          "operator": "ARITHMETIC_BASE",
+          "rationale": "List's 64 KiB value is Scanner's initial buffer capacity; Scanner grows it up to maxRecordBytes, so this mutation changes allocation but no observable record limit."
+        },
+        {
+          "file": "completion.go",
+          "line": 225,
+          "column": 32,
+          "operator": "ARITHMETIC_BASE",
+          "rationale": "FindAttempt's 64 KiB value is Scanner's initial buffer capacity; Scanner grows it up to maxRecordBytes, so this mutation changes allocation but no observable record limit."
+        }
+      ]
+    },
+    {
+      "path": "./internal/registry",
+      "digest": "sha256:36d8293f9356777e0b3ca68fd6eb8da822d89a87c8ff78eca7ac9a91800b0e70",
+      "total": 106,
+      "killed": 106,
+      "lived": 0,
+      "not_covered": 10,
+      "suppressions": []
+    }
+  ]
+}
