@@ -8,9 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	handgit "github.com/atqamz/hand/internal/git"
@@ -74,8 +72,8 @@ type canonicalV19HerdrLaunchDeps struct {
 }
 
 // ReconcileCanonicalV19HerdrLaunch reconciles one exact canonical v19 Launch against Herdr.
-// It commits submitted immediately before pane-run mutation, establishes an ExecutorBinding only
-// from exact process identity/argv/cwd evidence, and never blindly relaunches submitted/uncertain work.
+// The selected managed provider is refused before submission until it supplies exact executable
+// object and never-reused execution-incarnation identity.
 func ReconcileCanonicalV19HerdrLaunch(ctx context.Context, homeDir, operationID string) (string, error) {
 	return reconcileCanonicalV19HerdrLaunch(ctx, homeDir, operationID, canonicalV19HerdrLaunchDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrLaunchClient {
@@ -125,208 +123,89 @@ func reconcileCanonicalV19HerdrLaunch(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: adapter %q is not %q",
 			ErrCanonicalV19LaunchNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
 	}
-	key, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
-	if err != nil {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: invalid provider Session key: %v",
-			ErrCanonicalV19LaunchNotCurrent, err)
-	}
-	expectedSession := herdr.SessionName(current.FleetID)
-	if key.SessionName != expectedSession {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: provider Session key names %q, want %q",
-			ErrCanonicalV19LaunchNotCurrent, key.SessionName, expectedSession)
-	}
-
-	providerSpec, specErr := canonicalV19HerdrLiteralLaunchSpec(request.Spec)
-	if specErr != nil && current.Current.State == "prepared" {
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Launch: %w", specErr)
-	}
-	client := deps.clientFor(expectedSession)
-	if client == nil {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: provider client is unavailable")
-	}
-	observed := observeCanonicalV19HerdrLaunch(ctx, current, client)
-	if current.Current.State != "prepared" {
-		if specErr != nil {
-			observed.Reason = canonicalV19HerdrLaunchJoinReason(observed.Reason, specErr.Error())
-			observed = finalizeCanonicalV19HerdrLaunchObservation(current, observed)
-		}
-		return reconcileCanonicalV19SubmittedHerdrLaunch(ctx, homeDir, current, observed, deps.now, specErr == nil)
-	}
-
-	switch observed.State {
-	case canonicalV19HerdrLaunchReady:
-	case canonicalV19HerdrLaunchRunning:
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Launch: exact target process already exists before submission")
-	case canonicalV19HerdrLaunchMismatch:
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Launch: provider ownership is unresolved: %s", observed.Reason)
-	case canonicalV19HerdrLaunchUnknown:
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Launch: provider observation is unknown: %s", observed.Reason)
-	default:
-		return "prepared", fmt.Errorf("reconcile canonical v19 Herdr Launch: provider observation state %q is invalid", observed.State)
-	}
-
-	submittedAt := canonicalV19HerdrSessionTimestampAfter(deps.now(), current.Current.StateChangedAt)
-	submitted, err := SubmitCanonicalV19Launch(ctx, homeDir, operationID, submittedAt, observed.EvidenceDigest)
-	if err != nil {
-		return "prepared", err
-	}
-	current.Current.Request = submitted
-	current.Current.State = "submitted"
-	current.Current.StateChangedAt = submittedAt
-
-	observed = observeCanonicalV19HerdrLaunch(ctx, current, client)
-	switch observed.State {
-	case canonicalV19HerdrLaunchRunning:
-		return establishCanonicalV19ObservedHerdrExecutor(ctx, homeDir, current, observed, deps.now)
-	case canonicalV19HerdrLaunchReady:
-	case canonicalV19HerdrLaunchMismatch, canonicalV19HerdrLaunchUnknown:
-		return classifyCanonicalV19HerdrLaunchUncertain(ctx, homeDir, current, observed, deps.now, nil)
-	default:
-		return "submitted", fmt.Errorf("reconcile canonical v19 Herdr Launch: provider observation state %q is invalid", observed.State)
-	}
-
-	performErr := client.PaneRunExactSpec(key.PaneID, providerSpec)
-	observed = observeCanonicalV19HerdrLaunch(ctx, current, client)
-	switch observed.State {
-	case canonicalV19HerdrLaunchRunning:
-		return establishCanonicalV19ObservedHerdrExecutor(ctx, homeDir, current, observed, deps.now)
-	case canonicalV19HerdrLaunchReady:
-		if performErr != nil && herdr.IsProcessNotStarted(performErr) {
-			return classifyCanonicalV19HerdrLaunchNoEffect(ctx, homeDir, current, observed, deps.now,
-				"Herdr launch mutation did not start and the exact Session pane remains at its pre-launch shell state")
-		}
-		return classifyCanonicalV19HerdrLaunchUncertain(ctx, homeDir, current, observed, deps.now, performErr)
-	case canonicalV19HerdrLaunchMismatch, canonicalV19HerdrLaunchUnknown:
-		return classifyCanonicalV19HerdrLaunchUncertain(ctx, homeDir, current, observed, deps.now, performErr)
-	default:
-		return "submitted", fmt.Errorf("reconcile canonical v19 Herdr Launch: provider observation state %q is invalid", observed.State)
-	}
-}
-
-func reconcileCanonicalV19SubmittedHerdrLaunch(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrLaunchCurrent,
-	observed canonicalV19HerdrLaunchObservation,
-	now func() time.Time,
-	environmentResolved bool,
-) (string, error) {
-	if observed.State == canonicalV19HerdrLaunchRunning && environmentResolved {
-		return establishCanonicalV19ObservedHerdrExecutor(ctx, homeDir, current, observed, now)
-	}
-	if observed.Reason == "" {
-		observed.Reason = "submitted Launch cannot be replayed without positive exact ExecutorBinding evidence"
-	} else {
-		observed.Reason += "; submitted Launch cannot be replayed without positive exact ExecutorBinding evidence"
-	}
-	observed = finalizeCanonicalV19HerdrLaunchObservation(current, observed)
-	if current.Current.State == "submitted" {
-		return classifyCanonicalV19HerdrLaunchUncertain(ctx, homeDir, current, observed, now, nil)
-	}
-	return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr Launch: operation remains uncertain: %s", observed.Reason)
-}
-
-func establishCanonicalV19ObservedHerdrExecutor(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrLaunchCurrent,
-	observed canonicalV19HerdrLaunchObservation,
-	now func() time.Time,
-) (string, error) {
-	if observed.ProviderExecutorKey == "" {
-		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: exact process observation lacks provider Executor key")
-	}
-	establishedAt := canonicalV19HerdrSessionTimestampAfter(now(), current.Current.StateChangedAt)
-	if err := EstablishCanonicalV19ExecutorBinding(ctx, homeDir, CanonicalV19ExecutorBindingEvidence{
-		OperationID:         current.Current.Request.OperationID,
-		ProviderExecutorKey: observed.ProviderExecutorKey,
-		EstablishedAt:       establishedAt,
-		EvidenceDigest:      observed.EvidenceDigest,
-	}); err != nil {
-		return current.Current.State, err
-	}
-	return "succeeded", nil
-}
-
-func classifyCanonicalV19HerdrLaunchNoEffect(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrLaunchCurrent,
-	observed canonicalV19HerdrLaunchObservation,
-	now func() time.Time,
-	reason string,
-) (string, error) {
-	observedAt := canonicalV19HerdrSessionTimestampAfter(now(), current.Current.StateChangedAt)
-	if err := ClassifyCanonicalV19Launch(ctx, homeDir, CanonicalV19LaunchTransitionInput{
-		OperationID:    current.Current.Request.OperationID,
-		State:          "no-effect",
-		ObservedAt:     observedAt,
-		EvidenceDigest: observed.EvidenceDigest,
-	}); err != nil {
-		return current.Current.State, err
-	}
-	if observed.Reason != "" {
-		reason += ": " + observed.Reason
-	}
-	return "no-effect", fmt.Errorf("reconcile canonical v19 Herdr Launch: %s", reason)
-}
-
-func classifyCanonicalV19HerdrLaunchUncertain(
-	ctx context.Context,
-	homeDir string,
-	current canonicalV19HerdrLaunchCurrent,
-	observed canonicalV19HerdrLaunchObservation,
-	now func() time.Time,
-	performErr error,
-) (string, error) {
+	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
+		"Launch", "exact executable-object and never-reused execution-incarnation identity",
+	)
 	if current.Current.State == "uncertain" {
-		reason := observed.Reason
-		if reason == "" {
-			reason = "strongest provider evidence still cannot classify the Launch"
+		return current.Current.State, unsupportedErr
+	}
+	if current.Current.State == "prepared" {
+		if err := classifyCanonicalV19LaunchPreparedNoEffect(ctx, homeDir, CanonicalV19LaunchTransitionInput{
+			OperationID:    operationID,
+			State:          "no-effect",
+			ObservedAt:     canonicalV19HerdrSessionTimestampAfter(deps.now(), current.Current.StateChangedAt),
+			EvidenceDigest: canonicalV19HerdrUnsupportedEvidenceDigest("Launch", operationID, request.RequestDigest, "no-effect"),
+		}); err == nil {
+			return "no-effect", unsupportedErr
+		} else if errors.Is(err, ErrCanonicalV19LaunchTransition) {
+			return reconcileCanonicalV19HerdrLaunch(ctx, homeDir, operationID, deps)
+		} else {
+			return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: persist unsupported no-effect transition: %w", err)
 		}
-		return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr Launch: operation remains uncertain: %s", reason)
 	}
-	observedAt := canonicalV19HerdrSessionTimestampAfter(now(), current.Current.StateChangedAt)
+	state := "uncertain"
 	if err := ClassifyCanonicalV19Launch(ctx, homeDir, CanonicalV19LaunchTransitionInput{
-		OperationID:    current.Current.Request.OperationID,
-		State:          "uncertain",
-		ObservedAt:     observedAt,
-		EvidenceDigest: observed.EvidenceDigest,
+		OperationID:    operationID,
+		State:          state,
+		ObservedAt:     canonicalV19HerdrSessionTimestampAfter(deps.now(), current.Current.StateChangedAt),
+		EvidenceDigest: canonicalV19HerdrUnsupportedEvidenceDigest("Launch", operationID, request.RequestDigest, state),
 	}); err != nil {
-		return current.Current.State, err
+		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: persist unsupported %s transition: %w", state, err)
 	}
-	reason := observed.Reason
-	if performErr != nil {
-		reason = canonicalV19HerdrLaunchJoinReason(reason, "Herdr exact Launch failed: "+canonicalV19HerdrSessionErrorText(performErr))
-	}
-	if reason == "" {
-		reason = "strongest provider evidence cannot classify the submitted Launch"
-	}
-	return "uncertain", fmt.Errorf("reconcile canonical v19 Herdr Launch: operation is uncertain: %s", reason)
+	return state, unsupportedErr
 }
 
-func canonicalV19HerdrLiteralLaunchSpec(spec CanonicalV19LaunchSpec) (launch.LaunchSpec, error) {
-	provider := launch.LaunchSpec{
-		Executable: spec.Executable,
-		Args:       append([]string(nil), spec.Arguments...),
-		Env:        make(map[string]string, len(spec.Environment)),
-		Cwd:        spec.Cwd,
+func classifyCanonicalV19LaunchPreparedNoEffect(
+	ctx context.Context,
+	homeDir string,
+	input CanonicalV19LaunchTransitionInput,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	for name, value := range spec.Environment {
-		switch value.ValueKind {
-		case "literal":
-			provider.Env[name] = value.ValueMaterial
-		case "secret-ref":
-			return launch.LaunchSpec{}, fmt.Errorf("launch environment %q uses unresolved secret-ref %q; no canonical v19 secret resolver is available", name, value.ValueMaterial)
-		default:
-			return launch.LaunchSpec{}, fmt.Errorf("launch environment %q has unsupported value kind %q", name, value.ValueKind)
-		}
+	if err := validateCanonicalV19LaunchTransitionInput(input); err != nil {
+		return err
 	}
-	validated, err := launch.NewSpec(provider)
+	if input.State != "no-effect" {
+		return fmt.Errorf("classify canonical v19 Launch: prepared settlement requires no-effect state")
+	}
+	sqlDB, err := openCanonicalV19Writer(homeDir)
 	if err != nil {
-		return launch.LaunchSpec{}, fmt.Errorf("convert persisted LaunchSpec: %w", err)
+		return err
 	}
-	return validated, nil
+	defer func() { _ = sqlDB.Close() }()
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return canonicalV19LaunchWriteError("classify", "begin writer", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
+		return fmt.Errorf("classify canonical v19 Launch: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE external_operation
+		SET state='no-effect',state_changed_at=?,state_evidence_digest=?,finalized_at=?
+		WHERE id=? AND kind='launch' AND state='prepared'`, input.ObservedAt, input.EvidenceDigest,
+		input.ObservedAt, input.OperationID)
+	if err != nil {
+		return canonicalV19LaunchConstraintError("classify", "settle prepared exact operation", input.OperationID, err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return canonicalV19LaunchWriteError("classify", "count prepared state transition", err)
+	}
+	if changed != 1 {
+		return fmt.Errorf("classify canonical v19 Launch: %w: operation %q was not prepared", ErrCanonicalV19LaunchTransition, input.OperationID)
+	}
+	if err := tx.Commit(); err != nil {
+		return canonicalV19LaunchWriteError("classify", "commit writer", err)
+	}
+	committed = true
+	return nil
 }
 
 func observeCanonicalV19HerdrLaunch(
@@ -462,17 +341,8 @@ func observeCanonicalV19HerdrLaunch(
 		target := targets[0]
 		observed.ProcessID = target.PID
 		observed.ProcessDigest = canonicalV19HerdrProcessDigest(target)
-		providerKey, err := encodeCanonicalV19HerdrExecutorProviderKey(canonicalV19HerdrExecutorProviderKey{
-			SessionName: key.SessionName, WorkspaceID: key.WorkspaceID, TabID: key.TabID, PaneID: key.PaneID,
-			ProcessGroup: info.ForegroundProcessGroupID, ProcessID: target.PID, ProcessDigest: observed.ProcessDigest,
-		})
-		if err != nil {
-			observed.State = canonicalV19HerdrLaunchUnknown
-			observed.Reason = "encode exact provider Executor key: " + err.Error()
-			return finalizeCanonicalV19HerdrLaunchObservation(current, observed)
-		}
-		observed.ProviderExecutorKey = providerKey
-		observed.State = canonicalV19HerdrLaunchRunning
+		observed.State = canonicalV19HerdrLaunchUnknown
+		observed.Reason = "Herdr v0.8.2 PID/argv/cwd evidence cannot prove an exact executable object or never-reused execution incarnation"
 		return finalizeCanonicalV19HerdrLaunchObservation(current, observed)
 	}
 	if foreignForeground || pane.Agent != "" {
@@ -488,7 +358,7 @@ func canonicalV19HerdrProcessMatchesLaunch(process herdr.Process, spec Canonical
 	if process.PID <= 0 || len(process.Argv) != len(spec.Arguments)+1 || process.Cwd == "" {
 		return false
 	}
-	if canonicalV19HerdrExecutableBase(process.Argv[0]) != canonicalV19HerdrExecutableBase(spec.Executable) {
+	if !handgit.SamePath(process.Argv[0], spec.Executable) {
 		return false
 	}
 	for i, argument := range spec.Arguments {
@@ -497,15 +367,6 @@ func canonicalV19HerdrProcessMatchesLaunch(process herdr.Process, spec Canonical
 		}
 	}
 	return handgit.SamePath(process.Cwd, spec.Cwd)
-}
-
-func canonicalV19HerdrExecutableBase(value string) string {
-	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
-	value = strings.TrimPrefix(filepath.Base(value), "-")
-	if len(value) >= len(".exe") && strings.EqualFold(value[len(value)-len(".exe"):], ".exe") {
-		value = value[:len(value)-len(".exe")]
-	}
-	return value
 }
 
 func canonicalV19HerdrProcessDigest(process herdr.Process) string {
@@ -541,58 +402,6 @@ func encodeCanonicalV19HerdrExecutorProviderKey(key canonicalV19HerdrExecutorPro
 	values.Set("tab", key.TabID)
 	values.Set("workspace", key.WorkspaceID)
 	return "herdr-executor:v1?" + values.Encode(), nil
-}
-
-func parseCanonicalV19HerdrExecutorProviderKey(value string) (canonicalV19HerdrExecutorProviderKey, error) {
-	const prefix = "herdr-executor:v1?"
-	if !strings.HasPrefix(value, prefix) {
-		return canonicalV19HerdrExecutorProviderKey{}, fmt.Errorf("missing %q prefix", prefix)
-	}
-	values, err := url.ParseQuery(strings.TrimPrefix(value, prefix))
-	if err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, fmt.Errorf("parse query: %w", err)
-	}
-	if len(values) != 7 {
-		return canonicalV19HerdrExecutorProviderKey{}, fmt.Errorf("want exactly session/workspace/tab/pane/pgid/pid/digest fields")
-	}
-	one := func(name string) (string, error) {
-		items := values[name]
-		if len(items) != 1 || items[0] == "" {
-			return "", fmt.Errorf("field %q must occur exactly once and be non-empty", name)
-		}
-		return items[0], nil
-	}
-	var key canonicalV19HerdrExecutorProviderKey
-	if key.SessionName, err = one("session"); err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, err
-	}
-	if key.WorkspaceID, err = one("workspace"); err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, err
-	}
-	if key.TabID, err = one("tab"); err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, err
-	}
-	if key.PaneID, err = one("pane"); err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, err
-	}
-	if key.ProcessDigest, err = one("digest"); err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, err
-	}
-	pgid, err := one("pgid")
-	if err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, err
-	}
-	if key.ProcessGroup, err = strconv.Atoi(pgid); err != nil || key.ProcessGroup <= 0 {
-		return canonicalV19HerdrExecutorProviderKey{}, fmt.Errorf("field %q must be a positive integer", "pgid")
-	}
-	pid, err := one("pid")
-	if err != nil {
-		return canonicalV19HerdrExecutorProviderKey{}, err
-	}
-	if key.ProcessID, err = strconv.Atoi(pid); err != nil || key.ProcessID <= 0 {
-		return canonicalV19HerdrExecutorProviderKey{}, fmt.Errorf("field %q must be a positive integer", "pid")
-	}
-	return key, nil
 }
 
 func readCanonicalV19HerdrLaunchCurrent(

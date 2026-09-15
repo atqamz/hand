@@ -6,6 +6,43 @@ import (
 	"testing"
 )
 
+func TestDrainCanonicalV19WorkerInputsRefusesMissingCallerAttestationWithoutRevealingInput(t *testing.T) {
+	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+	if _, err := CreateCanonicalV19WorkerInput(context.Background(), fixture.Home,
+		canonicalV19WorkerInputCreateInput(launch, "worker-input-unattested-drain", "successor secret", "digest-unattested-drain")); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, CanonicalV19WorkerInputDrainInput{
+		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
+	})
+	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unattested WorkerInput drain error = %v, want attestation refusal", err)
+	}
+	if pending != nil {
+		t.Fatalf("unattested WorkerInput drain revealed %#v, want nil", pending)
+	}
+}
+
+func TestDrainCanonicalV19WorkerInputsRefusesStaleCallerAttestationWithoutRevealingSuccessorInput(t *testing.T) {
+	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+	if _, err := CreateCanonicalV19WorkerInput(context.Background(), fixture.Home,
+		canonicalV19WorkerInputCreateInput(launch, "worker-input-successor-drain", "successor secret", "digest-successor-drain")); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, CanonicalV19WorkerInputDrainInput{
+		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
+		callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: "executor-binding-predecessor"},
+	})
+	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("stale WorkerInput drain error = %v, want attestation refusal", err)
+	}
+	if pending != nil {
+		t.Fatalf("stale WorkerInput drain revealed %#v, want nil", pending)
+	}
+}
+
 func TestDrainCanonicalV19WorkerInputsReturnsPendingInOrdinalOrder(t *testing.T) {
 	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
 	first, err := CreateCanonicalV19WorkerInput(context.Background(), fixture.Home,
@@ -29,13 +66,12 @@ func TestDrainCanonicalV19WorkerInputsReturnsPendingInOrdinalOrder(t *testing.T)
 		CanonicalV19WorkerInputAcknowledgementCreateInput{
 			WorkerInputID: second.ID, ExecutorBindingID: launch.BindingID,
 			ObservedAt: "2026-09-09T06:33:00Z", EvidenceDigest: "worker-drained-second",
+			callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: launch.BindingID},
 		}); err != nil {
 		t.Fatal(err)
 	}
 
-	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
-	})
+	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, canonicalV19WorkerInputDrainInput(launch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,13 +92,12 @@ func TestDrainCanonicalV19WorkerInputsReturnsEmptyAfterAcknowledgement(t *testin
 		CanonicalV19WorkerInputAcknowledgementCreateInput{
 			WorkerInputID: created.ID, ExecutorBindingID: launch.BindingID,
 			ObservedAt: "2026-09-09T06:31:00Z", EvidenceDigest: "worker-drained-only-input",
+			callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: launch.BindingID},
 		}); err != nil {
 		t.Fatal(err)
 	}
 
-	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
-	})
+	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, canonicalV19WorkerInputDrainInput(launch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +128,7 @@ func TestSuccessfulCanonicalV19WorkerWakeDoesNotAcknowledgeWorkerInput(t *testin
 		t.Fatal(err)
 	}
 
-	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
-	})
+	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, canonicalV19WorkerInputDrainInput(launch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,9 +149,7 @@ func TestUnresolvedCanonicalV19WorkerWakeDoesNotBlockWorkerInputDrain(t *testing
 		t.Fatal(err)
 	}
 
-	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
-	})
+	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, canonicalV19WorkerInputDrainInput(launch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +179,16 @@ func TestDrainCanonicalV19WorkerInputsRefusesTerminatedExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
-	})
+	_, err = DrainCanonicalV19WorkerInputs(context.Background(), fixture.Home, canonicalV19WorkerInputDrainInput(launch))
 	if !errors.Is(err, ErrCanonicalV19WorkerInputDrainNotCurrent) {
 		t.Fatalf("WorkerInput drain after executor termination error = %v, want %v",
 			err, ErrCanonicalV19WorkerInputDrainNotCurrent)
+	}
+}
+
+func canonicalV19WorkerInputDrainInput(launch CanonicalV19LaunchRequest) CanonicalV19WorkerInputDrainInput {
+	return CanonicalV19WorkerInputDrainInput{
+		AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
+		callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: launch.BindingID},
 	}
 }

@@ -22,6 +22,7 @@ func TestReadCanonicalV19WorkerInputAcknowledgementReturnsExactHistoricalEvidenc
 		CanonicalV19WorkerInputAcknowledgementCreateInput{
 			WorkerInputID: createdInput.ID, ExecutorBindingID: launch.BindingID,
 			ObservedAt: "2026-09-09T09:31:00Z", EvidenceDigest: "worker-observed-ack-read",
+			callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: launch.BindingID},
 		})
 	if err != nil {
 		t.Fatal(err)
