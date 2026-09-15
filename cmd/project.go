@@ -54,6 +54,8 @@ var setProjectOrigin = setOriginURL
 
 var setProjectURL = project.SetURL
 
+var resolveProjectRuntime = toolchain.Resolve
+
 func newProjectSetURLCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set-url <name> <repo-url>",
@@ -402,8 +404,14 @@ func newProjectAddCmd() *cobra.Command {
 			}
 			locator := source.input
 			normalizedHTTPS := false
+			var runtime toolchain.Runtime
+			runtimeReady := false
 			if source.remote {
-				locator, normalizedHTTPS = normalizeProjectHTTPSForClone(locator)
+				runtime, err = resolveProjectRuntime()
+				if err == nil {
+					locator, normalizedHTTPS = normalizeProjectHTTPSForClone(runtime, locator)
+					runtimeReady = true
+				}
 			} else {
 				locator = source.locator
 			}
@@ -436,7 +444,12 @@ func newProjectAddCmd() *cobra.Command {
 			}
 			var cloneErr error
 			if source.remote {
-				out, err := gitCloneOutput(locator, clonePath)
+				var out []byte
+				if runtimeReady {
+					out, err = gitCloneOutputWithRuntime(runtime, locator, clonePath)
+				} else {
+					out, err = gitCloneOutput(locator, clonePath)
+				}
 				if err != nil {
 					cloneErr = diagnoseCloneFailure(locator, out)
 				}
@@ -635,16 +648,16 @@ func diagnoseCloneFailure(url string, out []byte) error {
 
 // git ls-remote --get-url applies url.<base>.insteadOf without contacting the remote. Only an
 // unchanged HTTPS locator plus an observed absent helper permits SSH normalization.
-func normalizeProjectHTTPSForClone(locator string) (string, bool) {
+func normalizeProjectHTTPSForClone(runtime toolchain.Runtime, locator string) (string, bool) {
 	normalized, recognized := normalizeProjectHTTPSLocator(locator)
 	if !recognized {
 		return locator, false
 	}
-	runtime, err := toolchain.Resolve()
-	if err != nil || runtime.SupportsGitTransport("https") {
+	httpsReady, err := runtime.GitTransportAvailable(context.Background(), "https")
+	if err != nil || httpsReady {
 		return locator, false
 	}
-	out, err := runManagedCore(context.Background(), "git", "", "ls-remote", "--get-url", locator)
+	out, err := runRuntimeCore(context.Background(), runtime, "git", "", "ls-remote", "--get-url", locator)
 	if err != nil || strings.TrimSpace(string(out)) != locator {
 		return locator, false
 	}
@@ -653,6 +666,10 @@ func normalizeProjectHTTPSForClone(locator string) (string, bool) {
 
 func gitCloneOutput(url, dest string) ([]byte, error) {
 	return runManagedCore(context.Background(), "git", "", "clone", url, dest)
+}
+
+func gitCloneOutputWithRuntime(runtime toolchain.Runtime, url, dest string) ([]byte, error) {
+	return runRuntimeCore(context.Background(), runtime, "git", "", "clone", url, dest)
 }
 
 func noMistakesInit(clonePath string) error {

@@ -48,6 +48,51 @@ func TestProjectAddPreservesHTTPSWhenGitInsteadOfRoutesIt(t *testing.T) {
 	}
 }
 
+func TestProjectAddPreservesHTTPSWhenExternalExecPathHelperExists(t *testing.T) {
+	input := "https://github.com/owner/repo.git"
+	execPath := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "https-helper-ran")
+	helper := filepath.Join(execPath, "git-remote-https")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n: > "+marker+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+	t.Setenv("GIT_EXEC_PATH", execPath)
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code == 0 || strings.Contains(added.stdout, "Normalized HTTPS locator") {
+		t.Fatalf("project add = %+v, want original HTTPS failure without normalization", added)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("managed Git did not execute external HTTPS helper: %v", err)
+	}
+}
+
+func TestProjectAddPreservesHTTPSWhenHelperInspectionIsUnknown(t *testing.T) {
+	input := "https://github.com/owner/repo.git"
+	execPath := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(execPath, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+	t.Setenv("GIT_EXEC_PATH", execPath)
+	cloneLog := replaceManagedGit(t, home, input, input, "fatal: original HTTPS clone failed")
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code == 0 || strings.Contains(added.stdout, "Normalized HTTPS locator") {
+		t.Fatalf("project add = %+v, want original HTTPS failure without normalization", added)
+	}
+	if got, err := os.ReadFile(cloneLog); err != nil || string(got) != input+"\n" {
+		t.Fatalf("clone attempts = %q, %v; want original HTTPS only", got, err)
+	}
+}
+
 func TestProjectAddNormalizesEffectiveHTTPSWithoutHelper(t *testing.T) {
 	remote := filepath.Join(t.TempDir(), "remote")
 	initGitRepo(t, remote)

@@ -12,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -1294,6 +1295,57 @@ func TestReserveCloneDestinationIsAtomic(t *testing.T) {
 	}
 	if successes != 1 {
 		t.Fatalf("reserveCloneDestination successes = %d, want 1", successes)
+	}
+}
+
+func TestProjectAddBindsRuntimeAcrossPreflightAndClone(t *testing.T) {
+	remote := filepath.Join(t.TempDir(), "remote")
+	initGitRepo(t, remote)
+	input := "https://github.com/owner/repo.git"
+	ssh := "git@github.com:owner/repo.git"
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url."+remote+".insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", ssh)
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeDir := t.TempDir()
+	t.Setenv("GIT_EXEC_PATH", runtimeDir)
+	runtimeA := toolchain.Runtime{GitPath: gitPath, GitBin: runtimeDir}
+	runtimeB := runtimeA
+	runtimeB.GitPath = filepath.Join(t.TempDir(), "git")
+
+	oldResolve := resolveProjectRuntime
+	t.Cleanup(func() { resolveProjectRuntime = oldResolve })
+	calls := 0
+	resolveProjectRuntime = func() (toolchain.Runtime, error) {
+		calls++
+		if calls == 1 {
+			return runtimeA, nil
+		}
+		return runtimeB, nil
+	}
+
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	faketool.Treehouse{}.Install(t, faketool.Bin(t))
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{input, "--mode", project.ModeDirectPR})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("project runtime resolves = %d, want one bound runtime", calls)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].URL != ssh {
+		t.Fatalf("project.List = %+v, want SSH clone through runtime A", projects)
 	}
 }
 

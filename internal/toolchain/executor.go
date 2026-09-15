@@ -171,6 +171,38 @@ func (r Runtime) SupportsGitTransport(scheme string) bool {
 	return true
 }
 
+// GitTransportAvailable asks this Runtime's Git for the exec path it will use before inspecting
+// the helper there. An inspection error is distinct from a known absent helper.
+func (r Runtime) GitTransportAvailable(ctx context.Context, scheme string) (bool, error) {
+	spec, err := r.Process(r.GitPath, "--exec-path")
+	if err != nil {
+		return false, err
+	}
+	out, err := spec.Output(ctx)
+	if err != nil {
+		return false, err
+	}
+	execPath := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(execPath) {
+		return false, fmt.Errorf("managed Git exec path %q is not absolute", execPath)
+	}
+	path := filepath.Join(execPath, executableName("git-remote-"+scheme))
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, nil
+	}
+	if info.Mode()&0o111 == 0 && !strings.HasSuffix(strings.ToLower(path), ".exe") {
+		return false, nil
+	}
+	return true, nil
+}
+
 func requireExecutable(path string) error {
 	if err := requireAbsolute(path); err != nil {
 		return err
