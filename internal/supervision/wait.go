@@ -182,12 +182,15 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 			return nil, fmt.Errorf("claim runtime generation lease: %w", err)
 		}
 	}
-	leaseTransferred := false
-	defer func() {
-		if !leaseTransferred && releaseGenerationLease != nil {
-			_ = releaseGenerationLease()
+	releaseLease := func(cause error) error {
+		if releaseGenerationLease == nil {
+			return cause
 		}
-	}()
+		if err := releaseGenerationLease(); err != nil {
+			return errors.Join(cause, fmt.Errorf("release runtime generation lease: %w", err))
+		}
+		return cause
+	}
 	now := time.Now()
 	lease := 3 * interval
 	record := AttachmentRecord{
@@ -203,12 +206,11 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	}
 	acquired, err := AcquireAttachment(w.Home, record)
 	if err != nil {
-		return nil, fmt.Errorf("claim bridge attachment: %w", err)
+		return nil, releaseLease(fmt.Errorf("claim bridge attachment: %w", err))
 	}
 	if !acquired {
-		return nil, ErrBridgeOwned
+		return nil, releaseLease(ErrBridgeOwned)
 	}
-	leaseTransferred = true
 
 	guardCtx, cancel := context.WithCancelCause(ctx)
 	guard := &bridgeGuard{

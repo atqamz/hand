@@ -183,6 +183,70 @@ func TestSecondaryRuntimeCannotStealAnAttachedBridge(t *testing.T) {
 	}
 }
 
+func TestBridgeAttachmentFailureReleasesGenerationLease(t *testing.T) {
+	notDirectory := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(notDirectory, []byte("occupied"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	releaseErr := errors.New("release generation lease")
+	var releases atomic.Int64
+	originalLease := acquireWaiterGenerationLease
+	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) {
+		return func() error {
+			releases.Add(1)
+			return releaseErr
+		}, nil
+	}
+	t.Cleanup(func() { acquireWaiterGenerationLease = originalLease })
+
+	_, err := acquireBridge(context.Background(), Waiter{Home: notDirectory}, WaitConfig{
+		Host:              "claude",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "hand-generation-a",
+		LeaseGeneration:   "runtime-generation-a",
+	}, "f_1")
+	if err == nil || !strings.Contains(err.Error(), "claim bridge attachment") || !errors.Is(err, releaseErr) {
+		t.Fatalf("err = %v, want attachment and lease-release failures", err)
+	}
+	if got := releases.Load(); got != 1 {
+		t.Fatalf("lease releases = %d, want one", got)
+	}
+}
+
+func TestBridgeOwnershipRefusalReleasesGenerationLease(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	writeAttachmentRecord(t, home, AttachmentRecord{
+		Host: "claude", Runtime: "session-a", Generation: "hand-generation-a", WaiterID: "waiter-a",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	})
+
+	releaseErr := errors.New("release generation lease")
+	var releases atomic.Int64
+	originalLease := acquireWaiterGenerationLease
+	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) {
+		return func() error {
+			releases.Add(1)
+			return releaseErr
+		}, nil
+	}
+	t.Cleanup(func() { acquireWaiterGenerationLease = originalLease })
+
+	_, err := acquireBridge(context.Background(), Waiter{Home: home}, WaitConfig{
+		Host:              "claude",
+		RuntimeSession:    "session-b",
+		RuntimeGeneration: "hand-generation-b",
+		LeaseGeneration:   "runtime-generation-b",
+	}, "f_1")
+	if !errors.Is(err, ErrBridgeOwned) || !errors.Is(err, releaseErr) {
+		t.Fatalf("err = %v, want bridge-ownership and lease-release failures", err)
+	}
+	if got := releases.Load(); got != 1 {
+		t.Fatalf("lease releases = %d, want one", got)
+	}
+}
+
 // Capability honesty: nothing claims supported before live qualification,
 // instruction-only bridges included, and non-supervisor harness names are
 // outside the registry even if they build workers.
