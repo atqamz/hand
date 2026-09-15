@@ -14,10 +14,12 @@ var ErrCanonicalV19WorkerInputDrainNotCurrent = errors.New("canonical v19 Worker
 type CanonicalV19WorkerInputDrainInput struct {
 	AttemptID         string
 	ExecutorBindingID string
+	callerAttestation *canonicalV19WorkerInputCallerAttestation
 }
 
-// DrainCanonicalV19WorkerInputs returns every pending semantic input for one exact current ExecutorBinding
-// in canonical ordinal order. It performs no mutation and never treats WorkerWake state as acknowledgement.
+// DrainCanonicalV19WorkerInputs returns pending semantic input only after trusted caller
+// attestation matches one exact current ExecutorBinding. It performs no mutation and never
+// treats WorkerWake state as acknowledgement.
 func DrainCanonicalV19WorkerInputs(
 	ctx context.Context,
 	homeDir string,
@@ -28,6 +30,9 @@ func DrainCanonicalV19WorkerInputs(
 	}
 	if input.AttemptID == "" || input.ExecutorBindingID == "" {
 		return nil, fmt.Errorf("drain canonical v19 WorkerInput: Attempt ID and ExecutorBinding ID are required")
+	}
+	if err := requireCanonicalV19WorkerInputCallerAttestation(input.ExecutorBindingID, input.callerAttestation); err != nil {
+		return nil, fmt.Errorf("drain canonical v19 WorkerInput: %w", err)
 	}
 
 	db, err := openReadOnly(homeDir)

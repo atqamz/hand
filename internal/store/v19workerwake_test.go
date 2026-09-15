@@ -203,6 +203,7 @@ func TestCanonicalV19WorkerWakeAllowsCoalescedPendingBoundary(t *testing.T) {
 	if _, err := CreateCanonicalV19WorkerInputAcknowledgement(context.Background(), fixture.Home, CanonicalV19WorkerInputAcknowledgementCreateInput{
 		WorkerInputID: createdFirst.ID, ExecutorBindingID: launch.BindingID,
 		ObservedAt: "2026-09-09T05:17:00Z", EvidenceDigest: "worker-observed-first-coalesced-input",
+		callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: launch.BindingID},
 	}); err != nil {
 		t.Fatal(err)
 	}

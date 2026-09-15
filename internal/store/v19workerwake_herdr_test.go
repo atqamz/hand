@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,136 +10,149 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 )
 
-func TestReconcileCanonicalV19HerdrWorkerWakeSucceedsOnlyFromAcceptedPromptAndReruns(t *testing.T) {
-	fixture, request, key, client, workerInput := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-success")
-	client.requireSubmittedAtPrompt = true
-	deps := canonicalV19HerdrWorkerWakeTestDeps(t, key, client, time.Date(2026, 9, 9, 6, 10, 0, 0, time.UTC))
+func TestReconcileCanonicalV19HerdrWorkerWakeFailsClosedForLegacyBindingBeforePrompt(t *testing.T) {
+	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-unsupported")
+	deps := canonicalV19HerdrWorkerWakeDeps{
+		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now:          func() time.Time { return time.Date(2026, 9, 9, 6, 9, 0, 0, time.UTC) },
+	}
 
 	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("reconcile Herdr WorkerWake = %q, %v", state, err)
+	if state != "no-effect" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unqualified Herdr WorkerWake = %q, %v, want no-effect unsupported error", state, err)
 	}
-	if client.promptCalls != 1 {
-		t.Fatalf("agent prompt calls = %d, want 1", client.promptCalls)
+	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "no-effect" || err != nil {
+		t.Fatalf("replayed no-effect Herdr WorkerWake = %q, %v, want stable terminal state", state, err)
 	}
-	if strings.Contains(client.lastPrompt, workerInput.Payload) {
-		t.Fatalf("doorbell leaked WorkerInput payload: %q", client.lastPrompt)
+	if client.promptCalls != 0 {
+		t.Fatalf("agent prompt calls = %d, want 0", client.promptCalls)
 	}
 
 	db, err := openReadOnly(fixture.Home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var operationState string
-	var acknowledgements int
-	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
-		_ = db.Close()
+	defer func() { _ = db.Close() }()
+	var operationState, finalizedAt string
+	if err := db.sql.QueryRow(`SELECT state,finalized_at FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState, &finalizedAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.sql.QueryRow(`SELECT count(*) FROM worker_input_acknowledgement WHERE worker_input_id=?`, workerInput.ID).Scan(&acknowledgements); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
+	if operationState != "no-effect" {
+		t.Fatalf("persisted WorkerWake state = %q, want no-effect", operationState)
 	}
-	_ = db.Close()
-	if operationState != "succeeded" || acknowledgements != 0 {
-		t.Fatalf("WorkerWake persisted state/acknowledgements = %q/%d, want succeeded/0", operationState, acknowledgements)
+	if finalizedAt == "" {
+		t.Fatal("no-effect WorkerWake lacks terminal timestamp")
 	}
-
-	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("terminal rerun = %q, %v", state, err)
+	second := CanonicalV19WorkerWakePrepareInput{
+		OperationID:           "operation-herdr-worker-wake-after-no-effect",
+		OperationKey:          "operation-key-operation-herdr-worker-wake-after-no-effect",
+		ExecutorBindingID:     request.ExecutorBindingID,
+		PendingThroughOrdinal: request.PendingThroughOrdinal,
+		WakeReason:            request.WakeReason,
+		DoorbellDigest:        request.DoorbellDigest,
+		CreatedAt:             "2026-09-09T06:15:00Z",
 	}
-	if client.promptCalls != 1 {
-		t.Fatalf("agent prompt calls after terminal rerun = %d, want 1", client.promptCalls)
-	}
-}
-
-func TestReconcileCanonicalV19HerdrWorkerWakePreSideEffectRejectionIsNoEffect(t *testing.T) {
-	fixture, request, key, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-no-effect")
-	client.promptErr = &herdr.APIError{
-		Operation: "agent prompt " + key.PaneID + " wake", Code: "agent_blocked", Message: "agent blocked",
-	}
-	deps := canonicalV19HerdrWorkerWakeTestDeps(t, key, client, time.Date(2026, 9, 9, 6, 11, 0, 0, time.UTC))
-
-	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "no-effect" || err == nil {
-		t.Fatalf("pre-side-effect WorkerWake = %q, %v, want no-effect diagnostic", state, err)
-	}
-	if client.promptCalls != 1 {
-		t.Fatalf("agent prompt calls = %d, want 1", client.promptCalls)
+	if _, err := PrepareCanonicalV19WorkerWake(context.Background(), fixture.Home, second); err != nil {
+		t.Fatalf("WorkerWake after terminal no-effect remained blocked: %v", err)
 	}
 }
 
-func TestReconcileCanonicalV19HerdrWorkerWakeAmbiguousPromptBecomesUncertainWithoutReplay(t *testing.T) {
-	fixture, request, key, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-ambiguous")
-	client.promptErr = errors.New("provider response lost after agent prompt")
-	deps := canonicalV19HerdrWorkerWakeTestDeps(t, key, client, time.Date(2026, 9, 9, 6, 12, 0, 0, time.UTC))
-
-	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "uncertain" || err == nil {
-		t.Fatalf("ambiguous WorkerWake = %q, %v, want uncertain diagnostic", state, err)
-	}
-	if client.promptCalls != 1 {
-		t.Fatalf("agent prompt calls = %d, want 1", client.promptCalls)
-	}
-
-	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "uncertain" || err == nil {
-		t.Fatalf("uncertain rerun = %q, %v, want uncertain diagnostic", state, err)
-	}
-	if client.promptCalls != 1 {
-		t.Fatalf("agent prompt calls after uncertain rerun = %d, want 1", client.promptCalls)
-	}
-}
-
-func TestReconcileSubmittedCanonicalV19HerdrWorkerWakeDoesNotBlindReplay(t *testing.T) {
-	fixture, request, key, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-submitted")
+func TestReconcileCanonicalV19HerdrWorkerWakeSubmittedBecomesUncertainWithoutReplay(t *testing.T) {
+	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-submitted-unsupported")
 	if _, err := SubmitCanonicalV19WorkerWake(context.Background(), fixture.Home, request.OperationID,
-		"2026-09-09T06:08:00Z", "worker-wake-submitted-before-crash"); err != nil {
+		"2026-09-09T06:12:00Z", "submitted-worker-wake-unsupported"); err != nil {
 		t.Fatal(err)
 	}
-	deps := canonicalV19HerdrWorkerWakeTestDeps(t, key, client, time.Date(2026, 9, 9, 6, 13, 0, 0, time.UTC))
-
+	deps := canonicalV19HerdrWorkerWakeDeps{
+		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now:          func() time.Time { return time.Date(2026, 9, 9, 6, 13, 0, 0, time.UTC) },
+	}
 	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "uncertain" || err == nil {
-		t.Fatalf("submitted recovery = %q, %v, want uncertain diagnostic", state, err)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("submitted Herdr WorkerWake = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed Herdr WorkerWake = %q, %v, want terminal uncertain unsupported error", state, err)
 	}
 	if client.promptCalls != 0 {
-		t.Fatalf("agent prompt calls = %d, want 0", client.promptCalls)
+		t.Fatalf("provider WorkerWake calls = %d, want 0", client.promptCalls)
+	}
+	var operationState string
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "uncertain" {
+		t.Fatalf("persisted WorkerWake state = %q, want uncertain", operationState)
 	}
 }
 
-func TestReconcilePreparedCanonicalV19HerdrWorkerWakeBlockedAgentIsNoEffectWithoutMutation(t *testing.T) {
-	fixture, request, key, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-blocked")
-	pane := client.panes[key.PaneID]
-	pane.AgentStatus = herdr.StatusBlocked
-	client.panes[key.PaneID] = pane
-	deps := canonicalV19HerdrWorkerWakeTestDeps(t, key, client, time.Date(2026, 9, 9, 6, 14, 0, 0, time.UTC))
-
+func TestReconcileCanonicalV19HerdrWorkerWakePreparedSettlementRejectsConcurrentSubmit(t *testing.T) {
+	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-prepared-submit-race")
+	submitted := false
+	deps := canonicalV19HerdrWorkerWakeDeps{
+		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now: func() time.Time {
+			if !submitted {
+				submitted = true
+				if _, err := SubmitCanonicalV19WorkerWake(context.Background(), fixture.Home, request.OperationID,
+					"2026-09-09T06:16:00Z", "submitted-worker-wake-race"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return time.Date(2026, 9, 9, 6, 17, 0, 0, time.UTC)
+		},
+	}
 	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "no-effect" || err == nil {
-		t.Fatalf("blocked WorkerWake = %q, %v, want no-effect diagnostic", state, err)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("prepared WorkerWake after concurrent submit = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed raced WorkerWake = %q, %v, want stable uncertain unsupported error", state, err)
 	}
 	if client.promptCalls != 0 {
-		t.Fatalf("agent prompt calls = %d, want 0", client.promptCalls)
+		t.Fatalf("raced WorkerWake provider calls = %d, want 0", client.promptCalls)
+	}
+	second := CanonicalV19WorkerWakePrepareInput{
+		OperationID:           "operation-herdr-worker-wake-after-submit-race",
+		OperationKey:          "operation-key-operation-herdr-worker-wake-after-submit-race",
+		ExecutorBindingID:     request.ExecutorBindingID,
+		PendingThroughOrdinal: request.PendingThroughOrdinal,
+		WakeReason:            request.WakeReason,
+		DoorbellDigest:        request.DoorbellDigest,
+		CreatedAt:             "2026-09-09T06:18:00Z",
+	}
+	if _, err := PrepareCanonicalV19WorkerWake(context.Background(), fixture.Home, second); !errors.Is(err, ErrCanonicalV19WorkerWakeConflict) {
+		t.Fatalf("WorkerWake claim after raced submit error = %v, want unresolved claim conflict", err)
 	}
 }
 
-func TestReconcilePreparedCanonicalV19HerdrWorkerWakeRefusesProviderIdentityMismatch(t *testing.T) {
-	fixture, request, key, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-mismatch")
-	for i := range client.processInfo.ForegroundProcesses {
-		if client.processInfo.ForegroundProcesses[i].PID == key.ProcessID {
-			client.processInfo.ForegroundProcesses[i].Argv = []string{"different-worker", "--other"}
-		}
+func TestObserveCanonicalV19HerdrWorkerWakeTreatsPIDAbsenceAsUnknown(t *testing.T) {
+	fixture, request, executorKey, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-pid-absence")
+	client.targetAlive = false
+	current, err := readCanonicalV19HerdrWorkerWakeCurrent(context.Background(), fixture.Home, request.OperationID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	deps := canonicalV19HerdrWorkerWakeTestDeps(t, key, client, time.Date(2026, 9, 9, 6, 15, 0, 0, time.UTC))
+	sessionKey, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "prepared" || err == nil {
-		t.Fatalf("mismatched WorkerWake = %q, %v, want prepared error", state, err)
-	}
-	if client.promptCalls != 0 {
-		t.Fatalf("agent prompt calls = %d, want 0", client.promptCalls)
+	observed := observeCanonicalV19HerdrWorkerWake(context.Background(), current, executorKey, sessionKey, client,
+		func(int) (bool, error) { return client.targetAlive, client.livenessErr })
+	if observed.State != canonicalV19HerdrWorkerWakeUnknown {
+		t.Fatalf("PID absence observation = %q, want unknown", observed.State)
 	}
 }
 
@@ -270,28 +282,4 @@ func canonicalV19HerdrWorkerWakeFixture(
 		targetAlive:                       true,
 	}
 	return fixture, request, executorKey, client, workerInput
-}
-
-func canonicalV19HerdrWorkerWakeTestDeps(
-	t *testing.T,
-	key canonicalV19HerdrExecutorProviderKey,
-	client *canonicalV19HerdrWorkerWakeFakeClient,
-	now time.Time,
-) canonicalV19HerdrWorkerWakeDeps {
-	t.Helper()
-	return canonicalV19HerdrWorkerWakeDeps{
-		clientFor: func(sessionName string) canonicalV19HerdrWorkerWakeClient {
-			if sessionName != key.SessionName {
-				t.Fatalf("Herdr session = %q, want %q", sessionName, key.SessionName)
-			}
-			return client
-		},
-		processAlive: func(pid int) (bool, error) {
-			if pid != client.targetPID {
-				return false, fmt.Errorf("unexpected PID %d", pid)
-			}
-			return client.targetAlive, client.livenessErr
-		},
-		now: func() time.Time { return now },
-	}
 }

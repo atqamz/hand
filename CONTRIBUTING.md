@@ -29,7 +29,7 @@ The tracked `AGENTS.md` is already the exact canonical content `hand init` write
 
 ## Dogfooding edge builds
 
-An installed edge release tracks the newest `main` commit that passed the complete CI gate.
+Automatic edge advancement is paused pending exact [#305](https://github.com/atqamz/hand/issues/305) qualification, so the current edge asset may lag `main`.
 It is useful for maintainers and contributors who want to exercise the packaged application during normal work.
 
 Opt into the channel with:
@@ -43,7 +43,7 @@ Use `hand update --channel stable` to switch back explicitly.
 Edge can contain unreleased behavior and state/schema changes, so switching back to an older stable binary may not be compatible with every migration performed while using edge.
 
 An executable built as `./hand` from the checkout remains the preferred path while actively changing or debugging `hand` itself.
-An installed edge release is the preferred path for dogfooding the newest CI-verified `main` during normal work.
+Use an executable built from the checkout to dogfood current `main`; the installed edge release may be stale.
 
 ## Making changes
 
