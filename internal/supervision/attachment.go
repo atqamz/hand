@@ -29,6 +29,8 @@ type AttachmentRecord struct {
 	Schema      string    `json:"schema"`
 	Host        string    `json:"host"`
 	Runtime     string    `json:"runtime,omitempty"`
+	Generation  string    `json:"generation,omitempty"`
+	WaiterID    string    `json:"waiter_id,omitempty"`
 	PID         int       `json:"pid"`
 	FleetID     string    `json:"fleet_id"`
 	StartedAt   time.Time `json:"started_at"`
@@ -105,11 +107,15 @@ func mutateAttachment(home string, change func(existing *AttachmentRecord) (*Att
 	return nil
 }
 
-// The exact bridge-owner identity combines harness AND runtime: the harness
-// selects the delivery mechanism, never an ownership domain - a Fleet holds
-// one live Supervisor bridge regardless of provider.
-func ownerKey(rec AttachmentRecord) string {
-	return rec.Host + "\x00" + rec.Runtime
+// The owner scope identifies one host runtime generation. A newer waiter in
+// that exact scope supersedes its predecessor; every other scope still
+// competes for the Fleet's single bridge.
+func ownerScope(rec AttachmentRecord) string {
+	return rec.FleetID + "\x00" + rec.Host + "\x00" + rec.Runtime + "\x00" + rec.Generation
+}
+
+func holderKey(rec AttachmentRecord) string {
+	return ownerScope(rec) + "\x00" + rec.WaiterID
 }
 
 // Claims THE Fleet bridge for rec's owner under the file lock, exclusive
@@ -118,7 +124,7 @@ func ownerKey(rec AttachmentRecord) string {
 func AcquireAttachment(home string, rec AttachmentRecord) (bool, error) {
 	acquired := false
 	err := mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		if existing != nil && existing.Fresh(time.Now()) && ownerKey(*existing) != ownerKey(rec) {
+		if existing != nil && existing.Fresh(time.Now()) && ownerScope(*existing) != ownerScope(rec) {
 			return nil, false, nil
 		}
 		acquired = true
@@ -136,7 +142,7 @@ func AcquireAttachment(home string, rec AttachmentRecord) (bool, error) {
 func RefreshAttachment(home string, rec AttachmentRecord, lease time.Duration) (bool, error) {
 	ours := false
 	err := mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		if existing == nil || ownerKey(*existing) != ownerKey(rec) {
+		if existing == nil || holderKey(*existing) != holderKey(rec) {
 			return nil, false, nil
 		}
 		now := time.Now()
@@ -155,9 +161,9 @@ func RefreshAttachment(home string, rec AttachmentRecord, lease time.Duration) (
 
 // Removes the record only when it still belongs to this runtime, so a
 // replaced child cannot revoke its successor's claim.
-func ClearAttachment(home, host, runtime string) {
+func ClearAttachment(home string, rec AttachmentRecord) {
 	_ = mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		if existing == nil || existing.Host != host || existing.Runtime != runtime {
+		if existing == nil || holderKey(*existing) != holderKey(rec) {
 			return nil, false, nil
 		}
 		return nil, true, nil

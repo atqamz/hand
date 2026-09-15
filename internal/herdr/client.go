@@ -47,11 +47,14 @@ func (e *ComposerBusyError) Detail() string {
 }
 
 type Client struct {
-	session    string
-	executable string
-	env        []string
-	childEnv   []string
-	initErr    error
+	session           string
+	executable        string
+	guardian          string
+	runtimeGeneration string
+	fleetID           string
+	env               []string
+	childEnv          []string
+	initErr           error
 }
 
 func NewClient() *Client {
@@ -102,6 +105,20 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		return &Client{initErr: err}
+	}
+	guardian, err := os.Executable()
+	if err != nil {
+		return &Client{initErr: fmt.Errorf("resolve Hand runtime guardian: %w", err)}
+	}
+	guardian, err = store.MaterializeHandExecutable(guardian)
+	if err != nil {
+		return &Client{initErr: fmt.Errorf("materialize Hand runtime guardian: %w", err)}
+	}
+	client.guardian = guardian
+	client.runtimeGeneration = generation
 	client.childEnv = []string{"PATH=" + environmentValue(env, "PATH")}
 	return client
 }
@@ -294,13 +311,18 @@ func (c *Client) startServer(ctx context.Context) error {
 		return err
 	}
 	executable := c.executable
+	args := c.wireArgs("server")
+	if c.guardian != "" {
+		executable = c.guardian
+		args = []string{"runtime", "herdr-server", "--fleet-id", c.fleetID, "--generation", c.runtimeGeneration, "--session", c.session}
+	}
 	if executable == "" {
 		executable = "herdr"
 	}
 	if !filepath.IsAbs(executable) {
 		return fmt.Errorf("managed Herdr executable %s must be an absolute path", pathdisplay.Context(executable))
 	}
-	cmd := exec.Command(executable, c.wireArgs("server")...)
+	cmd := exec.Command(executable, args...)
 	parentEnv := c.env
 	if parentEnv == nil {
 		parentEnv = os.Environ()

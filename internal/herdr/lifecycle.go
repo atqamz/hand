@@ -59,10 +59,12 @@ type FleetHerdr struct {
 }
 
 func NewFleetHerdr(fleetID string) *FleetHerdr {
+	client := NewManagedSessionClient(SessionName(fleetID))
+	client.fleetID = fleetID
 	return &FleetHerdr{
 		fleetID:      fleetID,
 		session:      SessionName(fleetID),
-		client:       NewManagedSessionClient(SessionName(fleetID)),
+		client:       client,
 		startTimeout: defaultHerdrStartTimeout,
 		pollInterval: defaultHerdrPollInterval,
 	}

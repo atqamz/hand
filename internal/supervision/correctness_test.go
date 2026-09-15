@@ -2,6 +2,7 @@ package supervision
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -224,6 +225,25 @@ func TestCapabilityVocabularyStaysHonestBeforeLiveQualification(t *testing.T) {
 	}
 	if grok.Integration != "not-required" && grok.WakeDelivery == CapabilitySupported {
 		t.Fatal("grok must not become supported from instructions alone")
+	}
+}
+
+func TestCodexStatusInspectsRetainedManagedGeneration(t *testing.T) {
+	home := t.TempDir()
+	exe := filepath.Join(home, "runtime", "hand-generations", strings.Repeat("a", sha256.Size*2), "hand")
+	if _, err := InstallCodexHooks(home, exe); err != nil {
+		t.Fatal(err)
+	}
+	status, err := IntegrationStatus(context.Background(), StatusInput{
+		Home:      home,
+		Detection: harness.Detection{Name: harness.Codex, Source: "override"},
+		Exe:       exe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Integration != "installed" {
+		t.Fatalf("codex integration = %q, want installed for retained generation", status.Integration)
 	}
 }
 
@@ -555,6 +575,126 @@ func TestRefreshPreservesStartedAtAndAdvancesLeaseExplicitly(t *testing.T) {
 	}
 	if remaining := time.Until(after.ExpiresAt); remaining > lease || remaining < lease-time.Second {
 		t.Fatalf("lease after refresh = %v, want ~%v regardless of prior staleness", remaining, lease)
+	}
+}
+
+func TestExactSessionGenerationSuccessorInvalidatesPredecessor(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	predecessor := AttachmentRecord{
+		Host: "claude", Runtime: "session-a", Generation: "hand-generation-a", WaiterID: "waiter-old",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	acquired, err := AcquireAttachment(home, predecessor)
+	if err != nil || !acquired {
+		t.Fatalf("predecessor acquire = %v, %v", acquired, err)
+	}
+	successor := predecessor
+	successor.WaiterID = "waiter-new"
+	successor.PID = 2
+	acquired, err = AcquireAttachment(home, successor)
+	if err != nil || !acquired {
+		t.Fatalf("successor acquire = %v, %v; want exact-scope replacement", acquired, err)
+	}
+	if ours, err := RefreshAttachment(home, predecessor, time.Minute); err != nil || ours {
+		t.Fatalf("predecessor refresh = %v, %v; want retired", ours, err)
+	}
+	if ours, err := RefreshAttachment(home, successor, time.Minute); err != nil || !ours {
+		t.Fatalf("successor refresh = %v, %v; want sole owner", ours, err)
+	}
+	current := ReadAttachment(home)
+	if current == nil || current.WaiterID != successor.WaiterID || current.Generation != successor.Generation {
+		t.Fatalf("attachment = %#v, want exact successor", current)
+	}
+}
+
+func TestExactSessionGenerationDoesNotCrossFleetOwnership(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	owner := AttachmentRecord{
+		Host: "claude", Runtime: "session-a", Generation: "hand-generation-a", WaiterID: "waiter-a",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	acquired, err := AcquireAttachment(home, owner)
+	if err != nil || !acquired {
+		t.Fatalf("owner acquire = %v, %v", acquired, err)
+	}
+	foreign := owner
+	foreign.FleetID = "f_2"
+	foreign.WaiterID = "waiter-b"
+	if acquired, err := AcquireAttachment(home, foreign); err != nil || acquired {
+		t.Fatalf("foreign Fleet successor acquire = %v, %v; want refused", acquired, err)
+	}
+	if current := ReadAttachment(home); current == nil || current.FleetID != owner.FleetID || current.WaiterID != owner.WaiterID {
+		t.Fatalf("attachment = %#v, want original Fleet owner", current)
+	}
+}
+
+func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
+	home := t.TempDir()
+	blocked := make(chan struct{})
+	ticks := make(chan time.Time, 2)
+	var cycles atomic.Int64
+
+	originalRun := runWatcherUntilEvent
+	originalAcquire := acquireWatcherOwnership
+	originalAttached := watcherAttached
+	originalHeartbeat := bridgeHeartbeat
+	originalWaiterID := newWaiterIdentity
+	ids := []string{"waiter-old", "waiter-new"}
+	newWaiterIdentity = func() (string, error) {
+		id := ids[0]
+		ids = ids[1:]
+		return id, nil
+	}
+	bridgeHeartbeat = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
+	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) { return nil, nil }
+	watcherAttached = func(string) (bool, error) { return false, nil }
+	runWatcherUntilEvent = func(ctx context.Context, cfg watcher.Config, out, errOut io.Writer) error {
+		cycles.Add(1)
+		close(blocked)
+		<-ctx.Done()
+		return context.Cause(ctx)
+	}
+	defer func() {
+		runWatcherUntilEvent = originalRun
+		acquireWatcherOwnership = originalAcquire
+		watcherAttached = originalAttached
+		bridgeHeartbeat = originalHeartbeat
+		newWaiterIdentity = originalWaiterID
+	}()
+
+	oldResult := make(chan error, 1)
+	go func() {
+		_, err := Wait(context.Background(), Waiter{
+			Home: home, ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1"}), Ledger: OpenLedger(home),
+		}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", PollInterval: time.Millisecond})
+		oldResult <- err
+	}()
+	<-blocked
+
+	wake, err := Wait(context.Background(), Waiter{
+		Home: home,
+		ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{
+			actionableEvidence("task-1", "episode-1", "blocked"),
+		}}),
+		Ledger: OpenLedger(home),
+	}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", PollInterval: time.Millisecond})
+	if err != nil || len(wake.Episodes) != 1 {
+		t.Fatalf("successor wake = %#v, %v", wake, err)
+	}
+	ticks <- time.Now()
+
+	select {
+	case err := <-oldResult:
+		if !errors.Is(err, ErrBridgeOwned) {
+			t.Fatalf("predecessor = %v, want ErrBridgeOwned", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("predecessor did not exit after deterministic ownership probe")
+	}
+	if got := cycles.Load(); got != 1 {
+		t.Fatalf("blocked watcher cycles = %d, want one sleeping call before reaping", got)
 	}
 }
 

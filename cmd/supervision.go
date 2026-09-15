@@ -15,6 +15,7 @@ import (
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/supervision"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/atqamz/hand/internal/watcher"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +28,14 @@ const defaultStopHookTimeout = 30 * time.Minute
 // The cooldown that keeps a deterministic bridge failure from becoming a
 // per-turn feedback loop.
 const bridgeFailureCooldown = supervision.BridgeFailureCooldown
+
+func waiterRuntimeGeneration() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve managed Hand executable: %w", err)
+	}
+	return supervision.ExecutableGeneration(executable)
+}
 
 func newSupervisionCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -77,18 +86,23 @@ func newSupervisionWaitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			generation, err := waiterRuntimeGeneration()
+			if err != nil {
+				return err
+			}
 
 			wake, err := supervision.Wait(cmd.Context(), supervision.Waiter{
 				Home:         fleetHome,
 				ReadEvidence: fleetEvidenceReader(cmd, fleetHome),
 				Ledger:       supervision.OpenLedger(fleetHome),
 			}, supervision.WaitConfig{
-				Host:           host,
-				RuntimeSession: os.Getenv("HAND_RUNTIME_SESSION"),
-				PollInterval:   pollInterval,
-				StaleThreshold: staleThreshold,
-				ParkedBounds:   parkedBounds,
-				Timeout:        timeout,
+				Host:              host,
+				RuntimeSession:    os.Getenv("HAND_RUNTIME_SESSION"),
+				RuntimeGeneration: generation,
+				PollInterval:      pollInterval,
+				StaleThreshold:    staleThreshold,
+				ParkedBounds:      parkedBounds,
+				Timeout:           timeout,
 			})
 			if errors.Is(err, supervision.ErrBridgeOwned) {
 				return &ExitError{Err: err, Code: 3}
@@ -167,18 +181,23 @@ func newClaudeStopCmd() *cobra.Command {
 				return err
 			}
 			ledger := supervision.OpenLedger(fleetHome)
+			generation, err := waiterRuntimeGeneration()
+			if err != nil {
+				return err
+			}
 
 			wake, waitErr := supervision.Wait(cmd.Context(), supervision.Waiter{
 				Home:         fleetHome,
 				ReadEvidence: fleetEvidenceReader(cmd, fleetHome),
 				Ledger:       ledger,
 			}, supervision.WaitConfig{
-				Host:           harness.Claude,
-				RuntimeSession: hookSessionID(cmd.InOrStdin()),
-				PollInterval:   pollInterval,
-				StaleThreshold: staleThreshold,
-				ParkedBounds:   parkedBounds,
-				Timeout:        timeout,
+				Host:              harness.Claude,
+				RuntimeSession:    hookSessionID(cmd.InOrStdin()),
+				RuntimeGeneration: generation,
+				PollInterval:      pollInterval,
+				StaleThreshold:    staleThreshold,
+				ParkedBounds:      parkedBounds,
+				Timeout:           timeout,
 			})
 			switch {
 			case waitErr == nil:
@@ -241,18 +260,23 @@ func newCodexStopCmd() *cobra.Command {
 				return err
 			}
 			ledger := supervision.OpenLedger(fleetHome)
+			generation, err := waiterRuntimeGeneration()
+			if err != nil {
+				return err
+			}
 
 			wake, waitErr := supervision.Wait(cmd.Context(), supervision.Waiter{
 				Home:         fleetHome,
 				ReadEvidence: fleetEvidenceReader(cmd, fleetHome),
 				Ledger:       ledger,
 			}, supervision.WaitConfig{
-				Host:           harness.Codex,
-				RuntimeSession: threadID,
-				PollInterval:   pollInterval,
-				StaleThreshold: staleThreshold,
-				ParkedBounds:   parkedBounds,
-				Timeout:        timeout,
+				Host:              harness.Codex,
+				RuntimeSession:    threadID,
+				RuntimeGeneration: generation,
+				PollInterval:      pollInterval,
+				StaleThreshold:    staleThreshold,
+				ParkedBounds:      parkedBounds,
+				Timeout:           timeout,
 			})
 			switch {
 			case waitErr == nil:
@@ -409,6 +433,11 @@ func installSupervisorBridgesForInit(fleetHome, exe string) ([]supervision.Insta
 		conflicts = append(conflicts, fmt.Sprintf("%s: %s", claudeResult.Path, err.Error()))
 	}
 	results = append(results, claudeResult)
+	codexResult, err := supervision.InstallCodexHooks(fleetHome, exe)
+	if err != nil {
+		conflicts = append(conflicts, fmt.Sprintf("%s: %s", codexResult.Path, err.Error()))
+	}
+	results = append(results, codexResult)
 	for _, host := range supervision.ManagedAssetHosts() {
 		assetResults, err := supervision.InstallHostAssets(fleetHome, host, exe)
 		if err != nil {
@@ -423,6 +452,30 @@ func installSupervisorBridgesForInit(fleetHome, exe string) ([]supervision.Insta
 		}
 	}
 	return results, conflicts
+}
+
+func materializeSupervisionExecutable(exe string) (string, error) {
+	store, err := toolchain.DefaultStore()
+	if err != nil {
+		return "", fmt.Errorf("open managed Hand generation store: %w", err)
+	}
+	managed, err := store.MaterializeHandExecutable(exe)
+	if err != nil {
+		return "", fmt.Errorf("materialize managed Hand generation: %w", err)
+	}
+	return managed, nil
+}
+
+func currentSupervisionExecutable(exe string) string {
+	store, err := toolchain.DefaultStore()
+	if err != nil {
+		return exe
+	}
+	managed, err := store.HandExecutableGeneration(exe)
+	if err != nil {
+		return exe
+	}
+	return managed
 }
 
 func watchConfigFromFleet(fleetHome string) (time.Duration, time.Duration, watcher.ParkedBounds, error) {

@@ -118,7 +118,11 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			supervisionInstalls, supervisionConflicts := installSupervisorBridgesForInit(homePath, exe)
+			managedExe, err := materializeSupervisionExecutable(exe)
+			if err != nil {
+				return err
+			}
+			supervisionInstalls, supervisionConflicts := installSupervisorBridgesForInit(homePath, managedExe)
 
 			if err := warnHandHomeMismatch(cmd.ErrOrStderr(), homePath); err != nil {
 				return err

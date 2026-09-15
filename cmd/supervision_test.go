@@ -224,6 +224,35 @@ func TestInitExclusivelyOwnsStaticIntegrationRepair(t *testing.T) {
 	}
 }
 
+func TestInitInstallsCodexHookForManagedGeneration(t *testing.T) {
+	home := t.TempDir()
+	exe := filepath.Join(home, "runtime", "hand-generations", strings.Repeat("a", sha256.Size*2), "hand")
+
+	results, conflicts := installSupervisorBridgesForInit(home, exe)
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %v", conflicts)
+	}
+	found := false
+	for _, result := range results {
+		if result.Host == harness.Codex {
+			found = true
+			if result.State != "installed" {
+				t.Fatalf("codex install state = %q, want installed", result.State)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("hand init omitted the Fleet-local Codex Stop hook")
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(exe)) {
+		t.Fatalf("codex hook does not retain managed generation %q: %s", exe, data)
+	}
+}
+
 // Hand integration is Fleet-local by construction: initializing a fleet home
 // must leave no hook, plugin, or extension in any global harness directory.
 func TestInitWritesNoGlobalHarnessConfiguration(t *testing.T) {

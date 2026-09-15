@@ -379,6 +379,35 @@ func TestFleetHerdrServerStartUsesStructuredArgvAndSurvivesParent(t *testing.T) 
 	}
 }
 
+func TestManagedFleetHerdrStartsThroughExactGenerationGuardian(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the shell fixture is POSIX-only")
+	}
+	root := t.TempDir()
+	guardian := filepath.Join(root, "managed hand guardian")
+	argsPath := filepath.Join(root, "args")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argsPath)
+	if err := os.WriteFile(guardian, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		session: "hand-f_0123456789abcdef0123456789abcdef", executable: filepath.Join(root, "herdr"),
+		guardian: guardian, fleetID: "f_0123456789abcdef0123456789abcdef", runtimeGeneration: "runtime-deadbeef",
+	}
+	if err := client.startServer(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForTestFile(t, argsPath)
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"runtime", "herdr-server", "--fleet-id", client.fleetID, "--generation", client.runtimeGeneration, "--session", client.session}
+	if got := strings.Fields(string(args)); strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("guardian argv = %q, want %q", got, want)
+	}
+}
+
 func TestFleetHerdrAttachUsesStructuredArgvAndScrubbedEnvironment(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the shell fixture is POSIX-only")

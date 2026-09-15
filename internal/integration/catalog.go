@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,8 +16,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/atqamz/hand/internal/atomicfile"
+	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/pathdisplay"
+	"github.com/atqamz/hand/internal/state"
 )
 
 type Capability struct {
@@ -75,11 +77,53 @@ func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, e
 	if legacyCapabilityFallback {
 		return runExecutable(ctx, capability.Executable, dir, args...)
 	}
-	path, err := DefaultStore().Resolve(id)
+	store := DefaultStore()
+	path, err := store.Resolve(id)
 	if err != nil {
 		return nil, nil, err
 	}
-	return runExecutable(ctx, path, dir, args...)
+	fleetID, err := payloadFleetID()
+	if err != nil {
+		return nil, nil, fmt.Errorf("identify Fleet for optional capability %q reference: %w", id, err)
+	}
+	referenceID, err := newPayloadReferenceID()
+	if err != nil {
+		return nil, nil, fmt.Errorf("create optional capability %q reference identity: %w", id, err)
+	}
+	role := os.Getenv("HAND_ROLE")
+	if role == "" {
+		role = "operator"
+	}
+	reference, err := store.AcquireReference(id, path, PayloadReferenceRequest{
+		ReferenceID: referenceID,
+		FleetID:     fleetID,
+		Consumer:    "integration-process",
+		Evidence:    "role=" + role + ";capability=" + id,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	stdout, stderr, runErr := runExecutable(ctx, path, dir, args...)
+	return stdout, stderr, errors.Join(runErr, reference.Close())
+}
+
+func payloadFleetID() (string, error) {
+	fleetHome, err := home.Resolve()
+	if errors.Is(err, home.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return state.FleetIDReadOnly(fleetHome)
+}
+
+func newPayloadReferenceID() (string, error) {
+	var identity [16]byte
+	if _, err := cryptorand.Read(identity[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(identity[:]), nil
 }
 
 func runExecutable(ctx context.Context, path, dir string, args ...string) ([]byte, []byte, error) {
@@ -133,7 +177,15 @@ func (s *Store) Resolve(id string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unsupported optional capability %q", id)
 	}
-	data, err := os.ReadFile(filepath.Join(s.Root, "integrations", id, "current.json"))
+	rootHandle, err := openDirectIntegrationRoot(s.Root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", &MissingError{ID: id, Command: "hand integration install " + id}
+		}
+		return "", fmt.Errorf("open optional capability store: %w", err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	data, err := readIntegrationFile(rootHandle, s.Root, filepath.Join(s.Root, "integrations", id, "current.json"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", &MissingError{ID: id, Command: "hand integration install " + id}
@@ -162,10 +214,11 @@ func (s *Store) Resolve(id string) (string, error) {
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
 		return "", fmt.Errorf("optional capability %q selection escapes its private store", id)
 	}
-	info, err := os.Lstat(path)
+	input, info, err := openIntegrationFile(rootHandle, s.Root, path, os.O_RDONLY, 0)
 	if err != nil {
 		return "", fmt.Errorf("optional capability %q is incomplete: %w", id, err)
 	}
+	defer func() { _ = input.Close() }()
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("optional capability %q path is not a regular file", id)
 	}
@@ -180,18 +233,10 @@ func (s *Store) Resolve(id string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("optional capability %q selection has invalid payload digest", id)
 	}
-	input, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("open optional capability %q payload: %w", id, err)
-	}
 	hash := sha256.New()
 	_, copyErr := io.Copy(hash, input)
-	closeErr := input.Close()
 	if copyErr != nil {
 		return "", fmt.Errorf("hash optional capability %q payload: %w", id, copyErr)
-	}
-	if closeErr != nil {
-		return "", fmt.Errorf("close optional capability %q payload: %w", id, closeErr)
 	}
 	if !bytes.Equal(hash.Sum(nil), want) {
 		return "", fmt.Errorf("optional capability %q payload digest mismatch", id)
@@ -226,36 +271,64 @@ func (s *Store) Install(id, source string) (string, error) {
 		return "", fmt.Errorf("hash optional capability source: %w", err)
 	}
 	digest := fmt.Sprintf("%x", hash.Sum(nil))
-	bundle := filepath.Join(s.Root, "integrations", id, "payloads", digest)
-	if err := os.MkdirAll(bundle, 0o700); err != nil {
-		return "", fmt.Errorf("create optional capability bundle: %w", err)
+	payloadRoot := filepath.Join(s.Root, "integrations", id, "payloads")
+	if err := ensureIntegrationDirectory(s.Root, payloadRoot, 0o700); err != nil {
+		return "", fmt.Errorf("create optional capability payload store: %w", err)
 	}
+	rootHandle, err := openDirectIntegrationRoot(s.Root)
+	if err != nil {
+		return "", fmt.Errorf("open optional capability store: %w", err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	bundle := filepath.Join(payloadRoot, digest)
 	destination := filepath.Join(bundle, capability.Executable)
-	if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
+	bundleRelative, err := integrationRelativePath(s.Root, bundle)
+	if err != nil {
+		return "", err
+	}
+	if _, err := rootHandle.Lstat(bundleRelative); err == nil {
+		if err := verifyIntegrationPayload(rootHandle, s.Root, destination, digest); err != nil {
+			return "", fmt.Errorf("existing exact optional capability payload is invalid and will not be rewritten: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect optional capability bundle: %w", err)
+	} else {
+		stage, err := mkdirTempIntegration(rootHandle, s.Root, payloadRoot, ".staging-")
+		if err != nil {
+			return "", fmt.Errorf("create optional capability staging directory: %w", err)
+		}
+		defer func() {
+			if stage != "" {
+				_ = removeAllIntegrationPath(rootHandle, s.Root, stage)
+			}
+		}()
+		stagedDestination := filepath.Join(stage, capability.Executable)
 		if _, err := input.Seek(0, io.SeekStart); err != nil {
 			return "", fmt.Errorf("rewind optional capability source: %w", err)
 		}
-		output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+		output, _, err := openIntegrationFile(rootHandle, s.Root, stagedDestination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
 		if err != nil {
-			return "", fmt.Errorf("create optional capability bundle: %w", err)
+			return "", fmt.Errorf("create staged optional capability payload: %w", err)
 		}
 		_, copyErr := io.Copy(output, input)
+		syncErr := output.Sync()
 		closeErr := output.Close()
-		if copyErr != nil {
-			return "", fmt.Errorf("copy optional capability source: %w", copyErr)
+		if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+			return "", fmt.Errorf("copy optional capability source: %w", err)
 		}
-		if closeErr != nil {
-			return "", fmt.Errorf("close optional capability bundle: %w", closeErr)
+		if err := verifyIntegrationPayload(rootHandle, s.Root, stagedDestination, digest); err != nil {
+			return "", fmt.Errorf("verify staged optional capability payload: %w", err)
 		}
-	} else if err != nil {
-		return "", fmt.Errorf("inspect optional capability bundle: %w", err)
-	}
-	destinationDigest, err := digestFile(destination)
-	if err != nil {
-		return "", fmt.Errorf("hash optional capability bundle: %w", err)
-	}
-	if destinationDigest != digest {
-		return "", fmt.Errorf("optional capability source changed while installing %q", id)
+		if err := renameIntegrationPath(rootHandle, s.Root, stage, bundle); err != nil {
+			if validationErr := verifyIntegrationPayload(rootHandle, s.Root, destination, digest); validationErr != nil {
+				return "", fmt.Errorf("publish optional capability payload: %w", err)
+			}
+		} else {
+			stage = ""
+			if err := verifyIntegrationPayload(rootHandle, s.Root, destination, digest); err != nil {
+				return "", fmt.Errorf("verify published optional capability payload: %w", err)
+			}
+		}
 	}
 	selected := selection{Path: filepath.ToSlash(filepath.Join("payloads", digest, capability.Executable))}
 	data, err := json.MarshalIndent(selected, "", "  ")
@@ -263,7 +336,7 @@ func (s *Store) Install(id, source string) (string, error) {
 		return "", fmt.Errorf("encode optional capability selection: %w", err)
 	}
 	selectionPath := filepath.Join(s.Root, "integrations", id, "current.json")
-	if err := atomicfile.Write(selectionPath, ".current-", append(data, '\n'), 0o600); err != nil {
+	if err := atomicWriteIntegrationFile(rootHandle, s.Root, selectionPath, ".current-", append(data, '\n'), 0o600); err != nil {
 		return "", fmt.Errorf("publish optional capability selection: %w", err)
 	}
 	return destination, nil
@@ -273,7 +346,15 @@ func (s *Store) Remove(id string) error {
 	if _, ok := find(id); !ok {
 		return fmt.Errorf("unsupported optional capability %q", id)
 	}
-	if err := os.Remove(filepath.Join(s.Root, "integrations", id, "current.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	rootHandle, err := openDirectIntegrationRoot(s.Root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open optional capability store: %w", err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	if err := removeIntegrationFile(rootHandle, s.Root, filepath.Join(s.Root, "integrations", id, "current.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove optional capability %q selection: %w", id, err)
 	}
 	return nil
@@ -306,4 +387,313 @@ func digestFile(path string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func verifyIntegrationPayload(rootHandle *os.Root, root, path, digest string) error {
+	input, info, err := openIntegrationFile(rootHandle, root, path, os.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = input.Close() }()
+	if !info.Mode().IsRegular() || runtime.GOOS != "windows" && info.Mode()&0111 == 0 {
+		return errors.New("optional capability payload is not an executable regular file")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, input); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(hash.Sum(nil)); got != digest {
+		return fmt.Errorf("optional capability payload digest mismatch: got %s, want %s", got, digest)
+	}
+	return nil
+}
+
+func ensureIntegrationDirectory(root, path string, perm os.FileMode) error {
+	relative, err := integrationRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root, perm); err != nil {
+		return err
+	}
+	rootHandle, err := openDirectIntegrationRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	parts := []string(nil)
+	if relative != "." {
+		parts = strings.Split(relative, string(filepath.Separator))
+	}
+	current := rootHandle
+	defer func() {
+		if current != rootHandle {
+			_ = current.Close()
+		}
+	}()
+	for _, part := range parts {
+		info, inspectErr := current.Lstat(part)
+		if errors.Is(inspectErr, os.ErrNotExist) {
+			if mkdirErr := current.Mkdir(part, perm); mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
+				return mkdirErr
+			}
+			info, inspectErr = current.Lstat(part)
+		}
+		if inspectErr != nil {
+			return inspectErr
+		}
+		if integrationPathIsIndirect(info) || !info.IsDir() {
+			return fmt.Errorf("integration directory %s is not a direct directory", filepath.Join(root, relative))
+		}
+		next, err := current.OpenRoot(part)
+		if err != nil {
+			return err
+		}
+		opened, err := next.Stat(".")
+		if err != nil || !os.SameFile(info, opened) {
+			_ = next.Close()
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("integration directory %s changed while opening it", filepath.Join(root, relative))
+		}
+		if current != rootHandle {
+			_ = current.Close()
+		}
+		current = next
+	}
+	return nil
+}
+
+func integrationRelativePath(root, path string) (string, error) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("integration path %q escapes store %q", path, root)
+	}
+	return relative, nil
+}
+
+func openDirectIntegrationRoot(root string) (*os.Root, error) {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return nil, err
+	}
+	if integrationPathIsIndirect(info) || !info.IsDir() {
+		return nil, fmt.Errorf("integration store %s is not a direct directory", root)
+	}
+	handle, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := handle.Stat(".")
+	if err != nil || !os.SameFile(info, opened) {
+		_ = handle.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("integration store %s changed while opening it", root)
+	}
+	return handle, nil
+}
+
+func openDirectIntegrationSubroot(rootHandle *os.Root, relative string) (*os.Root, bool, error) {
+	if relative == "." || relative == "" {
+		return rootHandle, false, nil
+	}
+	current := rootHandle
+	owned := false
+	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+		info, err := current.Lstat(part)
+		if err != nil {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, false, err
+		}
+		if integrationPathIsIndirect(info) || !info.IsDir() {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, false, fmt.Errorf("integration path component %s is not a direct directory", part)
+		}
+		next, err := current.OpenRoot(part)
+		if err != nil {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, false, err
+		}
+		opened, err := next.Stat(".")
+		if err != nil || !os.SameFile(info, opened) {
+			_ = next.Close()
+			if owned {
+				_ = current.Close()
+			}
+			if err != nil {
+				return nil, false, err
+			}
+			return nil, false, fmt.Errorf("integration path component %s changed while opening it", part)
+		}
+		if owned {
+			_ = current.Close()
+		}
+		current = next
+		owned = true
+	}
+	return current, owned, nil
+}
+
+func openIntegrationFile(rootHandle *os.Root, root, path string, flag int, perm os.FileMode) (*os.File, os.FileInfo, error) {
+	relative, err := integrationRelativePath(root, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if relative == "." {
+		return nil, nil, fmt.Errorf("integration file path names the store root")
+	}
+	parent, owned, err := openDirectIntegrationSubroot(rootHandle, filepath.Dir(relative))
+	if err != nil {
+		return nil, nil, err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	leaf := filepath.Base(relative)
+	expected, inspectErr := parent.Lstat(leaf)
+	if inspectErr == nil && integrationPathIsIndirect(expected) {
+		return nil, nil, fmt.Errorf("integration path component %s is indirect", path)
+	}
+	if inspectErr != nil && !errors.Is(inspectErr, os.ErrNotExist) {
+		return nil, nil, inspectErr
+	}
+	file, err := parent.OpenFile(leaf, flag, perm)
+	if err != nil {
+		return nil, nil, err
+	}
+	opened, err := file.Stat()
+	if err != nil || integrationPathIsIndirect(opened) || expected != nil && !os.SameFile(expected, opened) {
+		_ = file.Close()
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("integration path component %s changed while opening it", path)
+	}
+	return file, opened, nil
+}
+
+func readIntegrationFile(rootHandle *os.Root, root, path string) ([]byte, error) {
+	file, _, err := openIntegrationFile(rootHandle, root, path, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	return io.ReadAll(file)
+}
+
+func atomicWriteIntegrationFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode) error {
+	relative, err := integrationRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return fmt.Errorf("integration file path names the store root")
+	}
+	parent, owned, err := openDirectIntegrationSubroot(rootHandle, filepath.Dir(relative))
+	if err != nil {
+		return err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	var nonce [16]byte
+	if _, err := cryptorand.Read(nonce[:]); err != nil {
+		return err
+	}
+	temporary := prefix + hex.EncodeToString(nonce[:])
+	file, err := parent.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parent.Remove(temporary) }()
+	_, writeErr := file.Write(data)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		return err
+	}
+	return parent.Rename(temporary, filepath.Base(relative))
+}
+
+func removeIntegrationFile(rootHandle *os.Root, root, path string) error {
+	relative, err := integrationRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return errors.New("refusing to remove integration store root")
+	}
+	parent, owned, err := openDirectIntegrationSubroot(rootHandle, filepath.Dir(relative))
+	if err != nil {
+		return err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	return parent.Remove(filepath.Base(relative))
+}
+
+func mkdirTempIntegration(rootHandle *os.Root, root, parentPath, prefix string) (string, error) {
+	relative, err := integrationRelativePath(root, parentPath)
+	if err != nil {
+		return "", err
+	}
+	parent, owned, err := openDirectIntegrationSubroot(rootHandle, relative)
+	if err != nil {
+		return "", err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	for range 100 {
+		var nonce [16]byte
+		if _, err := cryptorand.Read(nonce[:]); err != nil {
+			return "", err
+		}
+		name := prefix + hex.EncodeToString(nonce[:])
+		if err := parent.Mkdir(name, 0o700); err == nil {
+			return filepath.Join(parentPath, name), nil
+		} else if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+	}
+	return "", errors.New("allocate unique integration staging directory")
+}
+
+func removeAllIntegrationPath(rootHandle *os.Root, root, path string) error {
+	relative, err := integrationRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return errors.New("refusing to remove integration store root")
+	}
+	return rootHandle.RemoveAll(relative)
+}
+
+func renameIntegrationPath(rootHandle *os.Root, root, oldPath, newPath string) error {
+	oldRelative, err := integrationRelativePath(root, oldPath)
+	if err != nil {
+		return err
+	}
+	if oldRelative == "." {
+		return errors.New("refusing to rename integration store root")
+	}
+	newRelative, err := integrationRelativePath(root, newPath)
+	if err != nil {
+		return err
+	}
+	if newRelative == "." {
+		return errors.New("refusing to replace integration store root")
+	}
+	return rootHandle.Rename(oldRelative, newRelative)
 }

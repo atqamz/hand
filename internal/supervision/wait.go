@@ -3,6 +3,8 @@ package supervision
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +24,17 @@ var (
 	acquireWatcherOwnership = watcher.AcquireBridgeContext
 	runWatcherUntilEvent    = watcher.RunUntilEvent
 	watcherAttached         = watcher.IsAttached
+	bridgeHeartbeat         = func(interval time.Duration) (<-chan time.Time, func()) {
+		ticker := time.NewTicker(interval)
+		return ticker.C, ticker.Stop
+	}
+	newWaiterIdentity = func() (string, error) {
+		var id [16]byte
+		if _, err := rand.Read(id[:]); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(id[:]), nil
+	}
 )
 
 // WaitConfig carries the host name and everything the watcher boundary needs
@@ -33,10 +46,13 @@ type WaitConfig struct {
 	// OpenCode session ID, a Codex thread). It scopes the bridge-attachment
 	// record so a secondary runtime defers instead of stealing.
 	RuntimeSession string
-	PollInterval   time.Duration
-	StaleThreshold time.Duration
-	ParkedBounds   watcher.ParkedBounds
-	Timeout        time.Duration
+	// RuntimeGeneration identifies the immutable Hand runtime generation
+	// executing this waiter.
+	RuntimeGeneration string
+	PollInterval      time.Duration
+	StaleThreshold    time.Duration
+	ParkedBounds      watcher.ParkedBounds
+	Timeout           time.Duration
 }
 
 // Wake is one coalesced delivery: every currently eligible episode collapses
@@ -132,13 +148,23 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	}
 	runtime := cfg.RuntimeSession
 	if runtime == "" {
-		runtime = fmt.Sprintf("pid:%d", os.Getpid())
+		runtime = "unidentified"
+	}
+	generation := cfg.RuntimeGeneration
+	if generation == "" {
+		generation = "unidentified"
+	}
+	waiterID, err := newWaiterIdentity()
+	if err != nil {
+		return nil, fmt.Errorf("create waiter identity: %w", err)
 	}
 	now := time.Now()
 	lease := 3 * interval
 	record := AttachmentRecord{
 		Host:        cfg.Host,
 		Runtime:     runtime,
+		Generation:  generation,
+		WaiterID:    waiterID,
 		PID:         os.Getpid(),
 		FleetID:     fleetID,
 		StartedAt:   now,
@@ -162,12 +188,12 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	}
 	guard.stop = sync.OnceFunc(func() {
 		close(guard.stopc)
-		ClearAttachment(w.Home, cfg.Host, runtime)
+		ClearAttachment(w.Home, record)
 		cancel(errors.New("supervision bridge stopped"))
 	})
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		heartbeats, stopHeartbeat := bridgeHeartbeat(interval)
+		defer stopHeartbeat()
 		for {
 			select {
 			case <-guard.stopc:
@@ -176,7 +202,7 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 				return
 			case <-guardCtx.Done():
 				return
-			case <-ticker.C:
+			case <-heartbeats:
 				if proofErr := guard.prove(); proofErr != nil {
 					guard.errc <- proofErr
 					cancel(proofErr)
