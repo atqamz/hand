@@ -172,10 +172,6 @@ func NewManagedClient() *Client {
 	if err != nil {
 		return &Client{initErr: fmt.Errorf("resolve Hand runtime guardian: %w", err)}
 	}
-	guardian, err = store.MaterializeHandExecutable(guardian)
-	if err != nil {
-		return &Client{initErr: fmt.Errorf("materialize Hand runtime guardian: %w", err)}
-	}
 	client.guardian = guardian
 	client.runtimeGeneration = generation
 	client.childEnv = []string{"PATH=" + environmentValue(env, "PATH")}
@@ -372,6 +368,15 @@ func (c *Client) startServer(ctx context.Context) error {
 	executable := c.executable
 	args := c.wireArgs("server")
 	if c.guardian != "" {
+		store, err := toolchain.DefaultStore()
+		if err != nil {
+			return err
+		}
+		materialized, err := store.MaterializeHandExecutable(c.guardian)
+		if err != nil {
+			return fmt.Errorf("materialize Hand runtime guardian: %w", err)
+		}
+		c.guardian = materialized
 		executable = c.guardian
 		args = []string{"runtime", "herdr-server", "--fleet-id", c.fleetID, "--generation", c.runtimeGeneration, "--session", c.session}
 	}

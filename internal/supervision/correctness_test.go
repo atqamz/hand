@@ -690,12 +690,14 @@ func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
 	originalAttached := watcherAttached
 	originalHeartbeat := bridgeHeartbeat
 	originalWaiterID := newWaiterIdentity
+	originalLease := acquireWaiterGenerationLease
 	ids := []string{"waiter-old", "waiter-new"}
 	newWaiterIdentity = func() (string, error) {
 		id := ids[0]
 		ids = ids[1:]
 		return id, nil
 	}
+	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) { return func() error { return nil }, nil }
 	bridgeHeartbeat = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
 	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) { return nil, nil }
 	watcherAttached = func(string) (bool, error) { return false, nil }
@@ -711,6 +713,7 @@ func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
 		watcherAttached = originalAttached
 		bridgeHeartbeat = originalHeartbeat
 		newWaiterIdentity = originalWaiterID
+		acquireWaiterGenerationLease = originalLease
 	}()
 
 	oldResult := make(chan error, 1)

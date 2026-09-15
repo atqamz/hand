@@ -171,7 +171,7 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		return nil, fmt.Errorf("create waiter identity: %w", err)
 	}
 	var releaseGenerationLease func() error
-	if cfg.RuntimeGeneration != "" && os.Getenv("SECONDHAND_HOME") != "" {
+	if cfg.RuntimeGeneration != "" {
 		releaseGenerationLease, err = acquireWaiterGenerationLease(cfg.RuntimeGeneration, fleetID, waiterID, cfg.Host+":"+cfg.RuntimeSession)
 		if err != nil {
 			return nil, fmt.Errorf("claim runtime generation lease: %w", err)
