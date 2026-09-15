@@ -61,6 +61,7 @@ type WaitConfig struct {
 	// RuntimeGeneration identifies the immutable Hand runtime generation
 	// executing this waiter.
 	RuntimeGeneration string
+	LeaseGeneration   string
 	PollInterval      time.Duration
 	StaleThreshold    time.Duration
 	ParkedBounds      watcher.ParkedBounds
@@ -171,12 +172,22 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		return nil, fmt.Errorf("create waiter identity: %w", err)
 	}
 	var releaseGenerationLease func() error
-	if cfg.RuntimeGeneration != "" {
-		releaseGenerationLease, err = acquireWaiterGenerationLease(cfg.RuntimeGeneration, fleetID, waiterID, cfg.Host+":"+cfg.RuntimeSession)
+	leaseGeneration := cfg.LeaseGeneration
+	if leaseGeneration == "" {
+		leaseGeneration = cfg.RuntimeGeneration
+	}
+	if leaseGeneration != "" {
+		releaseGenerationLease, err = acquireWaiterGenerationLease(leaseGeneration, fleetID, waiterID, cfg.Host+":"+cfg.RuntimeSession)
 		if err != nil {
 			return nil, fmt.Errorf("claim runtime generation lease: %w", err)
 		}
 	}
+	leaseTransferred := false
+	defer func() {
+		if !leaseTransferred && releaseGenerationLease != nil {
+			_ = releaseGenerationLease()
+		}
+	}()
 	now := time.Now()
 	lease := 3 * interval
 	record := AttachmentRecord{
@@ -197,6 +208,7 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	if !acquired {
 		return nil, ErrBridgeOwned
 	}
+	leaseTransferred = true
 
 	guardCtx, cancel := context.WithCancelCause(ctx)
 	guard := &bridgeGuard{

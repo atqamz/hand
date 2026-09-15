@@ -143,7 +143,7 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
-	runtime, err := resolveManagedRuntimeReadOnly(store)
+	runtime, err := selectRuntime(store)
 	if err != nil {
 		if legacyHerdrFallback {
 			return NewClient()
@@ -372,6 +372,15 @@ func (c *Client) startServer(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		runtime, err := resolveManagedRuntime(store)
+		if err != nil {
+			return fmt.Errorf("materialize managed runtime for server: %w", err)
+		}
+		c.runtimeGeneration, err = store.GenerationID("", "")
+		if err != nil {
+			return err
+		}
+		c.executable = runtime.HerdrPath
 		materialized, err := store.MaterializeHandExecutable(c.guardian)
 		if err != nil {
 			return fmt.Errorf("materialize Hand runtime guardian: %w", err)

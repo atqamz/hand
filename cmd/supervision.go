@@ -37,6 +37,14 @@ func waiterRuntimeGeneration() (string, error) {
 	return supervision.ExecutableGeneration(executable)
 }
 
+func waiterToolchainGeneration() (string, error) {
+	store, err := toolchain.DefaultStore()
+	if err != nil {
+		return "", err
+	}
+	return store.GenerationID("", "")
+}
+
 func newSupervisionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "supervision",
@@ -90,6 +98,10 @@ func newSupervisionWaitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			leaseGeneration, err := waiterToolchainGeneration()
+			if err != nil {
+				return err
+			}
 
 			wake, err := supervision.Wait(cmd.Context(), supervision.Waiter{
 				Home:         fleetHome,
@@ -99,6 +111,7 @@ func newSupervisionWaitCmd() *cobra.Command {
 				Host:              host,
 				RuntimeSession:    os.Getenv("HAND_RUNTIME_SESSION"),
 				RuntimeGeneration: generation,
+				LeaseGeneration:   leaseGeneration,
 				PollInterval:      pollInterval,
 				StaleThreshold:    staleThreshold,
 				ParkedBounds:      parkedBounds,
@@ -185,6 +198,10 @@ func newClaudeStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			leaseGeneration, err := waiterToolchainGeneration()
+			if err != nil {
+				return err
+			}
 
 			wake, waitErr := supervision.Wait(cmd.Context(), supervision.Waiter{
 				Home:         fleetHome,
@@ -194,6 +211,7 @@ func newClaudeStopCmd() *cobra.Command {
 				Host:              harness.Claude,
 				RuntimeSession:    hookSessionID(cmd.InOrStdin()),
 				RuntimeGeneration: generation,
+				LeaseGeneration:   leaseGeneration,
 				PollInterval:      pollInterval,
 				StaleThreshold:    staleThreshold,
 				ParkedBounds:      parkedBounds,
@@ -264,6 +282,10 @@ func newCodexStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			leaseGeneration, err := waiterToolchainGeneration()
+			if err != nil {
+				return err
+			}
 
 			wake, waitErr := supervision.Wait(cmd.Context(), supervision.Waiter{
 				Home:         fleetHome,
@@ -273,6 +295,7 @@ func newCodexStopCmd() *cobra.Command {
 				Host:              harness.Codex,
 				RuntimeSession:    threadID,
 				RuntimeGeneration: generation,
+				LeaseGeneration:   leaseGeneration,
 				PollInterval:      pollInterval,
 				StaleThreshold:    staleThreshold,
 				ParkedBounds:      parkedBounds,
