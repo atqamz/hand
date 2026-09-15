@@ -61,12 +61,39 @@ var ensureDeterministicRuntime = func(store *toolchain.Store) (toolchain.Runtime
 	return store.Ensure(context.Background(), "", "")
 }
 
+var selectRuntime = func(store *toolchain.Store) (toolchain.Runtime, error) {
+	return store.Selected("", "")
+}
+
 func reconcileManagedRuntime(store *toolchain.Store, selected toolchain.Runtime, generation string) (toolchain.Runtime, error) {
 	expectedBundle := filepath.Join(store.Root, "runtime", "bundles", generation)
 	if filepath.Clean(selected.BundleDir) == filepath.Clean(expectedBundle) {
 		return selected, nil
 	}
 	return ensureDeterministicRuntime(store)
+}
+
+func runtimeSelectionExists(store *toolchain.Store) bool {
+	_, err := os.Stat(filepath.Join(store.Root, "runtime", "current.json"))
+	return err == nil
+}
+
+func resolveManagedRuntime(store *toolchain.Store) (toolchain.Runtime, error) {
+	runtime, err := selectRuntime(store)
+	if err != nil && runtimeSelectionExists(store) {
+		runtime, err = ensureDeterministicRuntime(store)
+		if err != nil {
+			return toolchain.Runtime{}, fmt.Errorf("materialize deterministic runtime generation: %w", err)
+		}
+	}
+	if err != nil {
+		return toolchain.Runtime{}, err
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		return toolchain.Runtime{}, err
+	}
+	return reconcileManagedRuntime(store, runtime, generation)
 }
 
 func NewClient() *Client {
@@ -96,7 +123,7 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
-	runtime, err := store.Selected("", "")
+	runtime, err := resolveManagedRuntime(store)
 	if err != nil {
 		if legacyHerdrFallback {
 			return NewClient()
@@ -106,14 +133,6 @@ func NewManagedClient() *Client {
 	generation, err := store.GenerationID("", "")
 	if err != nil {
 		return &Client{initErr: err}
-	}
-	// A legacy timestamp selection can still validate while naming a bundle
-	// that no longer exists under the deterministic generation contract. Force
-	// Ensure through that boundary before a managed Herdr server records or
-	// launches the generation it owns.
-	runtime, err = reconcileManagedRuntime(store, runtime, generation)
-	if err != nil {
-		return &Client{initErr: fmt.Errorf("materialize deterministic runtime generation: %w", err)}
 	}
 	env, err := toolchain.ManagedEnvironment(os.Environ(), runtime.GitBin)
 	if err != nil {

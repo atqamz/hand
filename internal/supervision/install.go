@@ -411,10 +411,8 @@ func checkClaudeSettings(path, exe string) mergeState {
 	return mergeState{State: found}
 }
 
-// The canonical Codex Stop group entry: upstream embeds arguments in the
-// command string, and commandWindows is passed to cmd.exe /C. Keep the
-// Windows executable token in cmd.exe's ordinary quoted-path form; doubling
-// path separators changes the path seen by the provider.
+// commandWindows is passed to cmd.exe /C, so keep its executable token in
+// cmd.exe's ordinary quoted-path form; doubling separators changes the path.
 func codexStopHandler(exe string) map[string]any {
 	return map[string]any{
 		"type":           "command",
