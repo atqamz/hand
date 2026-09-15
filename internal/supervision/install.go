@@ -219,10 +219,19 @@ func unquoteToken(token string) string {
 	if len(token) >= 2 && token[0] == '\'' && token[len(token)-1] == '\'' {
 		var out strings.Builder
 		quoted := false
-		for i := 0; i < len(token) {
-			if token[i] == '\'' { quoted = !quoted; i++; continue }
-			if token[i] == '\\' && !quoted && i+1 < len(token) { out.WriteByte(token[i+1]); i += 2; continue }
-			out.WriteByte(token[i]); i++
+		for i := 0; i < len(token); {
+			if token[i] == '\'' {
+				quoted = !quoted
+				i++
+				continue
+			}
+			if token[i] == '\\' && !quoted && i+1 < len(token) {
+				out.WriteByte(token[i+1])
+				i += 2
+				continue
+			}
+			out.WriteByte(token[i])
+			i++
 		}
 		return out.String()
 	}
