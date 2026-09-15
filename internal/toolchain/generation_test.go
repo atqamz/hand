@@ -175,7 +175,7 @@ func TestOpenDirectRuntimeRootAllowsConfiguredRootSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open configured root symlink: %v", err)
 	}
-	defer h.Close()
+	defer func() { _ = h.Close() }()
 }
 
 func TestRuntimeFileAccessRemainsAnchoredAcrossRootReplacement(t *testing.T) {
