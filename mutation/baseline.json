@@ -177,7 +177,7 @@
           "line": 154,
           "column": 11,
           "operator": "INCREMENT_DECREMENT",
-          "outcome": "KILLED"
+          "outcome": "LIVED"
         },
         {
           "file": "completion.go",
@@ -205,7 +205,7 @@
           "line": 186,
           "column": 32,
           "operator": "ARITHMETIC_BASE",
-          "outcome": "KILLED"
+          "outcome": "LIVED"
         },
         {
           "file": "completion.go",
@@ -261,7 +261,7 @@
           "line": 225,
           "column": 32,
           "operator": "ARITHMETIC_BASE",
-          "outcome": "KILLED"
+          "outcome": "LIVED"
         },
         {
           "file": "completion.go",
@@ -306,7 +306,29 @@
           "outcome": "KILLED"
         }
       ],
-      "suppressions": []
+      "suppressions": [
+        {
+          "file": "completion.go",
+          "line": 154,
+          "column": 11,
+          "operator": "INCREMENT_DECREMENT",
+          "rationale": "MigrateProjectIdentity only tests whether migrated is zero; incrementing or decrementing any migrated record makes it nonzero."
+        },
+        {
+          "file": "completion.go",
+          "line": 186,
+          "column": 32,
+          "operator": "ARITHMETIC_BASE",
+          "rationale": "List's 64 KiB value is Scanner's initial buffer capacity; Scanner grows it up to maxRecordBytes, so this mutation changes allocation but no observable record limit."
+        },
+        {
+          "file": "completion.go",
+          "line": 225,
+          "column": 32,
+          "operator": "ARITHMETIC_BASE",
+          "rationale": "FindAttempt's 64 KiB value is Scanner's initial buffer capacity; Scanner grows it up to maxRecordBytes, so this mutation changes allocation but no observable record limit."
+        }
+      ]
     },
     {
       "path": "./internal/registry",
