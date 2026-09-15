@@ -298,6 +298,63 @@ func TestPublishTargetRefusesOIDCPublicationBehindAShadowingAuthToken(t *testing
 	}
 }
 
+func TestPublishTargetRefusesOIDCPublicationWhenConfigPipeGetsSIGPIPE(t *testing.T) {
+	state := t.TempDir()
+	seedPackage(t, state, "@atqamz/hand-linux-x64", repoURL, map[string]string{"0.6.0": "sha512-old"})
+	mustWriteFile(t, filepath.Join(state, "config-shadow-token-pipefail"), "")
+	tarball := seedTarball(t, "@atqamz/hand-linux-x64", "0.7.0", "sha512-new", repoURL)
+
+	cmd := exec.Command("bash", scriptPath(t, "npm-publish-target.sh"),
+		"@atqamz/hand-linux-x64", "0.7.0", tarball, "sha512-new", repoURL)
+	cmd.Env = fakeNpmEnv(t, state)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("npm-publish-target.sh succeeded after config list wrote a shadowing token then hit SIGPIPE; output = %s", out)
+	}
+	if !strings.Contains(string(out), "shadow OIDC") {
+		t.Fatalf("output = %s, want bounded shadowing-auth diagnostic", out)
+	}
+	if containsCall(readCallsLog(t, state), "publish") {
+		t.Fatal("a shadowing classic auth token must never reach npm publish when grep exits early")
+	}
+}
+
+func TestShadowingAuthTokenConfigPipelineReturnsSIGPIPE(t *testing.T) {
+	state := t.TempDir()
+	mustWriteFile(t, filepath.Join(state, "config-shadow-token-pipefail"), "")
+
+	cmd := exec.Command("bash", "-c", `set -o pipefail; npm config list 2>/dev/null | grep -q '_authToken'; printf '%s\n' "$?"`)
+	cmd.Env = fakeNpmEnv(t, state)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config pipeline: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "141" {
+		t.Fatalf("config pipeline status = %q, want SIGPIPE status 141", got)
+	}
+}
+
+func TestPublishTargetRefusesOIDCPublicationWhenConfigInspectionFails(t *testing.T) {
+	state := t.TempDir()
+	seedPackage(t, state, "@atqamz/hand-linux-x64", repoURL, map[string]string{"0.6.0": "sha512-old"})
+	mustWriteFile(t, filepath.Join(state, "config-list-fail"), "")
+	tarball := seedTarball(t, "@atqamz/hand-linux-x64", "0.7.0", "sha512-new", repoURL)
+
+	cmd := exec.Command("bash", scriptPath(t, "npm-publish-target.sh"),
+		"@atqamz/hand-linux-x64", "0.7.0", tarball, "sha512-new", repoURL)
+	cmd.Env = fakeNpmEnv(t, state)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("npm-publish-target.sh succeeded after config inspection failed; output = %s", out)
+	}
+	if !strings.Contains(string(out), "config inspection failed") {
+		t.Fatalf("output = %s, want bounded config-inspection diagnostic", out)
+	}
+	if containsCall(readCallsLog(t, state), "publish") {
+		t.Fatal("a failed config inspection must never reach npm publish")
+	}
+}
+
 // Writes fakenpm's on-disk package state directly (the same shape
 // tests/npmpublish/fakenpm/main.go reads), so a test can arrange "this version is
 // already published" without ever calling npm publish itself.

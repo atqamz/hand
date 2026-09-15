@@ -68,7 +68,11 @@ case "$outcome" in
     # actions/setup-node's registry-url option is what plants an _authToken entry
     # (atqamz/hand#283); this workflow never passes it, so any such entry here would
     # mean something else configured one, and it must not be left to shadow OIDC.
-    if npm config list 2>/dev/null | grep -q '_authToken'; then
+    if ! npm_config="$(npm config list 2>/dev/null)"; then
+      echo "npm-publish-target: npm config inspection failed; refusing OIDC publication" >&2
+      exit 1
+    fi
+    if [[ "$npm_config" == *"_authToken"* ]]; then
       echo "npm-publish-target: a classic npm _authToken config is present; refusing to let it shadow OIDC" >&2
       exit 1
     fi
