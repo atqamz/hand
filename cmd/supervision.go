@@ -99,6 +99,8 @@ func newSupervisionWaitCmd() *cobra.Command {
 			default:
 				return &ExitError{Err: fmt.Errorf("invalid --format %q: want toon or json", format), Code: 2}
 			}
+			waitCtx, cancelWait := supervisionWaitContext(cmd.Context(), timeout)
+			defer cancelWait()
 			fleetHome, err := home.Resolve()
 			if err != nil {
 				return asPrecondition(err)
@@ -111,12 +113,12 @@ func newSupervisionWaitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leaseGeneration, err := waiterToolchainGeneration(cmd.Context())
+			leaseGeneration, err := waiterToolchainGeneration(waitCtx)
 			if err != nil {
-				return err
+				return mapWatchResult(supervisionContextError(waitCtx, err))
 			}
 
-			wake, err := supervision.Wait(cmd.Context(), supervision.Waiter{
+			wake, err := supervision.Wait(waitCtx, supervision.Waiter{
 				Home:         fleetHome,
 				ReadEvidence: fleetEvidenceReader(cmd, fleetHome),
 				Ledger:       supervision.OpenLedger(fleetHome),
@@ -130,6 +132,9 @@ func newSupervisionWaitCmd() *cobra.Command {
 				ParkedBounds:      parkedBounds,
 				Timeout:           timeout,
 			})
+			if err != nil {
+				err = supervisionContextError(waitCtx, err)
+			}
 			if errors.Is(err, supervision.ErrBridgeOwned) {
 				return &ExitError{Err: err, Code: 3}
 			}
@@ -202,6 +207,8 @@ func newClaudeStopCmd() *cobra.Command {
 				return asPrecondition(err)
 			}
 			timeout := stopHookTimeoutFromEnv(defaultStopHookTimeout)
+			waitCtx, cancelWait := supervisionWaitContext(cmd.Context(), timeout)
+			defer cancelWait()
 			pollInterval, staleThreshold, parkedBounds, err := watchConfigFromFleet(fleetHome)
 			if err != nil {
 				return err
@@ -211,12 +218,16 @@ func newClaudeStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leaseGeneration, err := waiterToolchainGeneration(cmd.Context())
+			leaseGeneration, err := waiterToolchainGeneration(waitCtx)
 			if err != nil {
-				return err
+				preparationErr := supervisionContextError(waitCtx, err)
+				if errors.Is(preparationErr, watcher.ErrNoEvent) {
+					return nil
+				}
+				return preparationErr
 			}
 
-			wake, waitErr := supervision.Wait(cmd.Context(), supervision.Waiter{
+			wake, waitErr := supervision.Wait(waitCtx, supervision.Waiter{
 				Home:         fleetHome,
 				ReadEvidence: fleetEvidenceReader(cmd, fleetHome),
 				Ledger:       ledger,
@@ -230,6 +241,9 @@ func newClaudeStopCmd() *cobra.Command {
 				ParkedBounds:      parkedBounds,
 				Timeout:           timeout,
 			})
+			if waitErr != nil {
+				waitErr = supervisionContextError(waitCtx, waitErr)
+			}
 			switch {
 			case waitErr == nil:
 				// Requesting the rewake here is acceptance by this bridge; the
@@ -286,6 +300,8 @@ func newCodexStopCmd() *cobra.Command {
 				return nil
 			}
 			timeout := stopHookTimeoutFromEnv(defaultStopHookTimeout)
+			waitCtx, cancelWait := supervisionWaitContext(cmd.Context(), timeout)
+			defer cancelWait()
 			pollInterval, staleThreshold, parkedBounds, err := watchConfigFromFleet(fleetHome)
 			if err != nil {
 				return err
@@ -295,12 +311,16 @@ func newCodexStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leaseGeneration, err := waiterToolchainGeneration(cmd.Context())
+			leaseGeneration, err := waiterToolchainGeneration(waitCtx)
 			if err != nil {
-				return err
+				preparationErr := supervisionContextError(waitCtx, err)
+				if errors.Is(preparationErr, watcher.ErrNoEvent) {
+					return nil
+				}
+				return preparationErr
 			}
 
-			wake, waitErr := supervision.Wait(cmd.Context(), supervision.Waiter{
+			wake, waitErr := supervision.Wait(waitCtx, supervision.Waiter{
 				Home:         fleetHome,
 				ReadEvidence: fleetEvidenceReader(cmd, fleetHome),
 				Ledger:       ledger,
@@ -314,6 +334,9 @@ func newCodexStopCmd() *cobra.Command {
 				ParkedBounds:      parkedBounds,
 				Timeout:           timeout,
 			})
+			if waitErr != nil {
+				waitErr = supervisionContextError(waitCtx, waitErr)
+			}
 			switch {
 			case waitErr == nil:
 				if deliverErr := supervision.DeliverCodexQueue(cmd.Context(), supervision.RunCommand, threadID, wake.Message); deliverErr != nil {
@@ -422,6 +445,21 @@ func stopHookTimeoutFromEnv(fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func supervisionWaitContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return parent, func() {}
+	}
+	return context.WithDeadlineCause(parent, time.Now().Add(timeout),
+		fmt.Errorf("no eligible wake within %s: %w", timeout, watcher.ErrNoEvent))
+}
+
+func supervisionContextError(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	return err
 }
 
 // Builds the fresh unbounded actionable-evidence reader every wait cycle

@@ -11,7 +11,7 @@ import (
 )
 
 func TestPayloadReferenceRemainsHeldByManagedChildAfterParentRelease(t *testing.T) {
-	store, path := installReferenceFixture(t)
+	store, path := installExecutableReferenceFixture(t)
 	request := PayloadReferenceRequest{
 		ReferenceID: "managed-child", FleetID: integrationTestFleetID,
 		Consumer: "integration-process", Evidence: "capability=github/gh",

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,13 +13,22 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/toolchain"
+	"github.com/atqamz/hand/internal/watcher"
 )
 
 type waiterGenerationStoreStub struct {
 	ensured bool
+}
+
+type blockingWaiterGenerationStore struct{}
+
+func (*blockingWaiterGenerationStore) Ensure(ctx context.Context, _, _ string) (toolchain.Runtime, error) {
+	<-ctx.Done()
+	return toolchain.Runtime{}, ctx.Err()
 }
 
 func (store *waiterGenerationStoreStub) Ensure(context.Context, string, string) (toolchain.Runtime, error) {
@@ -34,6 +44,18 @@ func TestWaiterToolchainGenerationMaterializesBeforeLeasing(t *testing.T) {
 	}
 	if !store.ensured || generation != "deterministic" {
 		t.Fatalf("waiter generation = %q, ensured = %t; want the materialized deterministic bundle", generation, store.ensured)
+	}
+}
+
+func TestSupervisionWaitTimeoutCoversGenerationMaterialization(t *testing.T) {
+	ctx, cancel := supervisionWaitContext(context.Background(), time.Millisecond)
+	defer cancel()
+	_, err := waiterToolchainGenerationFrom(ctx, new(blockingWaiterGenerationStore))
+	if err == nil {
+		t.Fatal("generation materialization outlived the wait timeout")
+	}
+	if cause := supervisionContextError(ctx, err); !errors.Is(cause, watcher.ErrNoEvent) {
+		t.Fatalf("materialization timeout = %v, want ErrNoEvent", cause)
 	}
 }
 

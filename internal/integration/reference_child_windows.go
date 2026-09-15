@@ -17,7 +17,7 @@ var (
 	payloadReferenceJobOnce sync.Once
 )
 
-func startChildWithPayloadReference(cmd *exec.Cmd, _ *os.File) error {
+func startChildWithPayloadReference(cmd *exec.Cmd, _, _ *os.File, executablePath string) error {
 	payloadReferenceJobOnce.Do(func() {
 		job, err := windows.CreateJobObject(nil, nil)
 		if err != nil {
@@ -46,5 +46,6 @@ func startChildWithPayloadReference(cmd *exec.Cmd, _ *os.File) error {
 	if payloadReferenceJobErr != nil {
 		return payloadReferenceJobErr
 	}
+	cmd.Path = executablePath
 	return cmd.Start()
 }

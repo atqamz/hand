@@ -229,6 +229,107 @@ func TestRuntimeFileAccessRemainsAnchoredAcrossRootReplacement(t *testing.T) {
 	}
 }
 
+func TestRuntimeGenerationSelectionRemainsAnchoredAcrossRootReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows denies replacement of an open rooted directory")
+	}
+	store, _ := generationStoreFixture(t)
+	installed, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Lock.Target("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleName, err := generationBundleName(store.Lock.RuntimeID, installed.Target, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(store.Root, "runtime", currentName)); err != nil {
+		t.Fatal(err)
+	}
+	rootHandle, err := openDirectRuntimeRoot(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	moved := store.Root + "-moved"
+	if err := os.Rename(store.Root, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(store.Root, "runtime"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, current, err := store.generationAt(rootHandle, bundleName, installed.Target, target)
+	if err != nil {
+		t.Fatalf("generation verification followed replacement root: %v", err)
+	}
+	if err := store.selectGenerationAt(rootHandle, current); err != nil {
+		t.Fatalf("generation selection followed replacement root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, "runtime", currentName)); err != nil {
+		t.Fatalf("selection missing from acquired root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(store.Root, "runtime", currentName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("selection written through replacement root: %v", err)
+	}
+}
+
+func TestRuntimeGenerationSelectionSurvivesConfiguredRootRetarget(t *testing.T) {
+	fixture, _ := generationStoreFixture(t)
+	originalRoot := t.TempDir()
+	configuredRoot := filepath.Join(t.TempDir(), "configured")
+	if err := os.Symlink(originalRoot, configuredRoot); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	store, err := NewStore(configuredRoot, fixture.Lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.HTTPClient = fixture.HTTPClient
+	installed, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Lock.Target("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleName, err := generationBundleName(store.Lock.RuntimeID, installed.Target, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(store.Root, "runtime", currentName)); err != nil {
+		t.Fatal(err)
+	}
+	rootHandle, err := openDirectRuntimeRoot(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	replacementRoot := t.TempDir()
+	if err := os.Remove(configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(replacementRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	_, current, err := store.generationAt(rootHandle, bundleName, installed.Target, target)
+	if err != nil {
+		t.Fatalf("generation verification followed retargeted root: %v", err)
+	}
+	if err := store.selectGenerationAt(rootHandle, current); err != nil {
+		t.Fatalf("generation selection followed retargeted root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(originalRoot, "runtime", currentName)); err != nil {
+		t.Fatalf("selection missing from acquired root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(replacementRoot, "runtime", currentName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("selection written through retargeted root: %v", err)
+	}
+}
+
 func TestInstalledComponentVerificationRemainsAnchoredAcrossRootReplacement(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows denies replacement of an open rooted directory")

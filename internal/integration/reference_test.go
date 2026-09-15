@@ -16,7 +16,21 @@ const integrationTestFleetID = "f_0123456789abcdef0123456789abcdef"
 
 func abandonPayloadReferenceForTest(reference *PayloadReference) error {
 	reference.closed = true
-	return errors.Join(reference.lock.Close(), reference.rootHandle.Close())
+	return errors.Join(reference.lock.Close(), reference.executable.Close(), reference.rootHandle.Close())
+}
+
+func installExecutableReferenceFixture(t *testing.T) (*Store, string) {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(t.TempDir())
+	path, err := store.Install("github/gh", executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, path
 }
 
 func installReferenceFixture(t *testing.T) (*Store, string) {
@@ -343,6 +357,126 @@ func TestRepeatedManagedRunsReusePayloadLockScope(t *testing.T) {
 	}
 	if len(locks) != 1 {
 		t.Fatalf("permanent payload lock rendezvous = %q, want one reused scope", locks)
+	}
+}
+
+func TestPayloadReferenceLaunchRemainsAnchoredAcrossRootReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows denies replacement of an open rooted directory")
+	}
+	parent := t.TempDir()
+	store := NewStore(filepath.Join(parent, "secondhand"))
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.Install("github/gh", executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference, err := store.AcquireReference("github/gh", path, PayloadReferenceRequest{
+		ReferenceID: "anchored-launch", FleetID: integrationTestFleetID,
+		Consumer: "integration-process", Evidence: "capability=github/gh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reference.Close() })
+	moved := filepath.Join(parent, "moved-secondhand")
+	if err := os.Rename(store.Root, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf replacement > \"$HAND_INTEGRATION_ANCHORED_RESULT\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result := filepath.Join(parent, "result")
+	t.Setenv("HAND_INTEGRATION_ANCHORED_HELPER", "1")
+	t.Setenv("HAND_INTEGRATION_ANCHORED_RESULT", result)
+	if _, _, err := runReferencedExecutable(context.Background(), reference, path, "", "-test.run=^TestPayloadReferenceAnchoredLaunchHelper$"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("launched payload = %q, want the referenced object", data)
+	}
+}
+
+func TestPayloadReferenceLaunchSurvivesConfiguredRootRetarget(t *testing.T) {
+	parent := t.TempDir()
+	originalRoot := filepath.Join(parent, "original")
+	if err := os.Mkdir(originalRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configuredRoot := filepath.Join(parent, "configured")
+	if err := os.Symlink(originalRoot, configuredRoot); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	store := NewStore(configuredRoot)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.Install("github/gh", executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference, err := store.AcquireReference("github/gh", path, PayloadReferenceRequest{
+		ReferenceID: "anchored-retarget", FleetID: integrationTestFleetID,
+		Consumer: "integration-process", Evidence: "capability=github/gh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reference.Close() })
+	relative, err := filepath.Rel(configuredRoot, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementRoot := filepath.Join(parent, "replacement")
+	replacementPath := filepath.Join(replacementRoot, relative)
+	if err := os.MkdirAll(filepath.Dir(replacementPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	replacement := []byte("not an executable")
+	if runtime.GOOS != "windows" {
+		replacement = []byte("#!/bin/sh\nprintf replacement > \"$HAND_INTEGRATION_ANCHORED_RESULT\"\n")
+	}
+	if err := os.WriteFile(replacementPath, replacement, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(replacementRoot, configuredRoot); err != nil {
+		t.Fatal(err)
+	}
+	result := filepath.Join(parent, "retarget-result")
+	t.Setenv("HAND_INTEGRATION_ANCHORED_HELPER", "1")
+	t.Setenv("HAND_INTEGRATION_ANCHORED_RESULT", result)
+	if _, _, err := runReferencedExecutable(context.Background(), reference, path, "", "-test.run=^TestPayloadReferenceAnchoredLaunchHelper$"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("launched retargeted payload = %q, want the referenced object", data)
+	}
+}
+
+func TestPayloadReferenceAnchoredLaunchHelper(t *testing.T) {
+	if os.Getenv("HAND_INTEGRATION_ANCHORED_HELPER") != "1" {
+		return
+	}
+	if err := os.WriteFile(os.Getenv("HAND_INTEGRATION_ANCHORED_RESULT"), []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

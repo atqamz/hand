@@ -48,13 +48,15 @@ type payloadReferenceRecord struct {
 }
 
 type PayloadReference struct {
-	record     payloadReferenceRecord
-	storeRoot  string
-	rootHandle *os.Root
-	recordPath string
-	lockPath   string
-	lock       *os.File
-	closed     bool
+	record      payloadReferenceRecord
+	storeRoot   string
+	rootHandle  *os.Root
+	recordPath  string
+	lockPath    string
+	lock        *os.File
+	executable  *os.File
+	executePath string
+	closed      bool
 }
 
 func (s *Store) AcquireReference(id, path string, request PayloadReferenceRequest) (*PayloadReference, error) {
@@ -63,6 +65,10 @@ func (s *Store) AcquireReference(id, path string, request PayloadReferenceReques
 	}
 	if err := request.validate(); err != nil {
 		return nil, err
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve optional capability %q payload: %w", id, err)
 	}
 	payload, err := s.verifyPayloadPath(id, path)
 	if err != nil {
@@ -76,9 +82,21 @@ func (s *Store) AcquireReference(id, path string, request PayloadReferenceReques
 	if err != nil {
 		return nil, fmt.Errorf("open integration payload reference store: %w", err)
 	}
+	executable, err := openVerifiedPayload(rootHandle, s.Root, id, path, payload)
+	if err != nil {
+		_ = rootHandle.Close()
+		return nil, err
+	}
+	relativePath, err := integrationRelativePath(s.Root, path)
+	if err != nil {
+		_ = executable.Close()
+		_ = rootHandle.Close()
+		return nil, err
+	}
 	retainRoot := false
 	defer func() {
 		if !retainRoot {
+			_ = executable.Close()
 			_ = rootHandle.Close()
 		}
 	}()
@@ -138,7 +156,11 @@ func (s *Store) AcquireReference(id, path string, request PayloadReferenceReques
 		return nil, fmt.Errorf("%w: capability=%s payload=%s reference=%s record=%s: %v", ErrPayloadReferenceUnknown, id, payload, request.ReferenceID, recordPath, err)
 	}
 	retainRoot = true
-	return &PayloadReference{record: record, storeRoot: s.Root, rootHandle: rootHandle, recordPath: recordPath, lockPath: lockPath, lock: lock}, nil
+	return &PayloadReference{
+		record: record, storeRoot: s.Root, rootHandle: rootHandle,
+		recordPath: recordPath, lockPath: lockPath, lock: lock,
+		executable: executable, executePath: filepath.Join(rootHandle.Name(), relativePath),
+	}, nil
 }
 
 func (s *Store) verifyPayloadPath(id, path string) (string, error) {
@@ -159,7 +181,7 @@ func (s *Store) verifyPayloadPath(id, path string) (string, error) {
 	if len(parts) != 3 || parts[0] != "payloads" || parts[2] != capability.Executable || len(parts[1]) != sha256.Size*2 {
 		return "", fmt.Errorf("optional capability %q reference has no exact payload identity", id)
 	}
-	want, err := hex.DecodeString(parts[1])
+	_, err = hex.DecodeString(parts[1])
 	if err != nil {
 		return "", fmt.Errorf("optional capability %q reference has invalid payload identity", id)
 	}
@@ -168,23 +190,38 @@ func (s *Store) verifyPayloadPath(id, path string) (string, error) {
 		return "", fmt.Errorf("open optional capability %q referenced payload store: %w", id, err)
 	}
 	defer func() { _ = rootHandle.Close() }()
-	input, info, err := openIntegrationFile(rootHandle, s.Root, path, os.O_RDONLY, 0)
+	input, err := openVerifiedPayload(rootHandle, s.Root, id, path, parts[1])
 	if err != nil {
-		return "", fmt.Errorf("inspect optional capability %q referenced payload: %w", id, err)
+		return "", err
 	}
 	defer func() { _ = input.Close() }()
+	return parts[1], nil
+}
+
+func openVerifiedPayload(rootHandle *os.Root, root, id, path, payload string) (*os.File, error) {
+	input, info, err := openIntegrationFile(rootHandle, root, path, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, fmt.Errorf("inspect optional capability %q referenced payload: %w", id, err)
+	}
 	if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode()&0111 == 0) {
-		return "", fmt.Errorf("optional capability %q referenced payload is not an executable regular file", id)
+		_ = input.Close()
+		return nil, fmt.Errorf("optional capability %q referenced payload is not an executable regular file", id)
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, input); err != nil {
-		return "", fmt.Errorf("hash optional capability %q referenced payload: %w", id, err)
+		_ = input.Close()
+		return nil, fmt.Errorf("hash optional capability %q referenced payload: %w", id, err)
 	}
 	got := hex.EncodeToString(hash.Sum(nil))
-	if got != hex.EncodeToString(want) {
-		return "", fmt.Errorf("optional capability %q referenced payload digest mismatch", id)
+	if got != payload {
+		_ = input.Close()
+		return nil, fmt.Errorf("optional capability %q referenced payload digest mismatch", id)
 	}
-	return parts[1], nil
+	if _, err := input.Seek(0, io.SeekStart); err != nil {
+		_ = input.Close()
+		return nil, fmt.Errorf("rewind optional capability %q referenced payload: %w", id, err)
+	}
+	return input, nil
 }
 
 func (request PayloadReferenceRequest) validate() error {
@@ -268,13 +305,13 @@ func (reference *PayloadReference) LockPath() string {
 // StartChild starts a managed consumer while preserving this reference if its
 // parent dies before the consumer exits.
 func (reference *PayloadReference) StartChild(cmd *exec.Cmd) error {
-	if reference == nil || reference.closed || reference.lock == nil {
+	if reference == nil || reference.closed || reference.lock == nil || reference.executable == nil {
 		return errors.New("integration payload reference is not live")
 	}
 	if cmd == nil {
 		return errors.New("integration payload reference child command is nil")
 	}
-	return startChildWithPayloadReference(cmd, reference.lock)
+	return startChildWithPayloadReference(cmd, reference.lock, reference.executable, reference.executePath)
 }
 
 func (reference *PayloadReference) Close() error {
@@ -285,6 +322,7 @@ func (reference *PayloadReference) Close() error {
 	defer func() {
 		_ = filelock.Unlock(reference.lock)
 		_ = reference.lock.Close()
+		_ = reference.executable.Close()
 		_ = reference.rootHandle.Close()
 	}()
 	existing, err := readPayloadReferenceRecord(reference.rootHandle, reference.storeRoot, reference.recordPath)

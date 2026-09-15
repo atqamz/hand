@@ -15,7 +15,7 @@ import (
 )
 
 func TestPayloadReferenceWindowsGuardianContainsManagedChild(t *testing.T) {
-	store, path := installReferenceFixture(t)
+	store, path := installExecutableReferenceFixture(t)
 	ready := filepath.Join(t.TempDir(), "ready")
 	guardian := exec.Command(os.Args[0], "-test.run=^TestPayloadReferenceWindowsProcessHelper$")
 	guardian.Env = append(os.Environ(),

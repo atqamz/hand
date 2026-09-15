@@ -192,8 +192,8 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 	if err != nil {
 		return Runtime{}, err
 	}
-	if selected, current, err := s.generation(bundleName, targetName, target); err == nil {
-		if err := s.selectGeneration(current); err != nil {
+	if selected, current, err := s.generationAt(rootHandle, bundleName, targetName, target); err == nil {
+		if err := s.selectGenerationAt(rootHandle, current); err != nil {
 			return Runtime{}, err
 		}
 		return selected, nil
@@ -231,7 +231,7 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		return Runtime{}, fmt.Errorf("publish staged runtime manifest: %w", err)
 	}
 	current := Current{Schema: s.Lock.Schema, RuntimeID: s.Lock.RuntimeID, Target: targetName, Bundle: filepath.ToSlash(bundleName), ManifestSHA256: manifestDigest, SelectedAt: time.Now().UTC()}
-	if _, err := s.runtimeFromBundle(current, stage, targetName, target); err != nil {
+	if _, err := s.runtimeFromBundleAt(rootHandle, current, stage, targetName, target); err != nil {
 		return Runtime{}, fmt.Errorf("verify staged runtime generation: %w", err)
 	}
 
@@ -241,11 +241,11 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		return Runtime{}, err
 	}
 	if _, err := rootHandle.Lstat(bundleRelative); err == nil {
-		winner, winnerCurrent, validationErr := s.generation(bundleName, targetName, target)
+		winner, winnerCurrent, validationErr := s.generationAt(rootHandle, bundleName, targetName, target)
 		if validationErr != nil {
 			return Runtime{}, fmt.Errorf("%w: exact runtime generation %s already exists but is invalid and will not be rewritten: %v", ErrRuntimeNotReady, bundleName, validationErr)
 		}
-		if err := s.selectGeneration(winnerCurrent); err != nil {
+		if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
 			return Runtime{}, err
 		}
 		return winner, nil
@@ -253,8 +253,8 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		return Runtime{}, fmt.Errorf("inspect runtime bundle: %w", err)
 	}
 	if err := renameRuntimePath(rootHandle, s.Root, stage, bundle); err != nil {
-		if winner, winnerCurrent, validationErr := s.generation(bundleName, targetName, target); validationErr == nil {
-			if err := s.selectGeneration(winnerCurrent); err != nil {
+		if winner, winnerCurrent, validationErr := s.generationAt(rootHandle, bundleName, targetName, target); validationErr == nil {
+			if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
 				return Runtime{}, err
 			}
 			return winner, nil
@@ -262,11 +262,11 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		return Runtime{}, fmt.Errorf("publish runtime bundle: %w", err)
 	}
 	stage = ""
-	validated, current, err := s.generation(bundleName, targetName, target)
+	validated, current, err := s.generationAt(rootHandle, bundleName, targetName, target)
 	if err != nil {
 		return Runtime{}, fmt.Errorf("verify published runtime generation: %w", err)
 	}
-	if err := s.selectGeneration(current); err != nil {
+	if err := s.selectGenerationAt(rootHandle, current); err != nil {
 		return Runtime{}, err
 	}
 	return validated, nil
@@ -282,15 +282,19 @@ func generationBundleName(runtimeID, targetName string, target Target) (string, 
 }
 
 func (s *Store) generation(bundleName, targetName string, target Target) (Runtime, Current, error) {
-	bundle, err := safeJoin(filepath.Join(s.Root, "runtime"), bundleName)
-	if err != nil {
-		return Runtime{}, Current{}, err
-	}
 	rootHandle, err := openDirectRuntimeRoot(s.Root)
 	if err != nil {
 		return Runtime{}, Current{}, err
 	}
 	defer func() { _ = rootHandle.Close() }()
+	return s.generationAt(rootHandle, bundleName, targetName, target)
+}
+
+func (s *Store) generationAt(rootHandle *os.Root, bundleName, targetName string, target Target) (Runtime, Current, error) {
+	bundle, err := safeJoin(filepath.Join(s.Root, "runtime"), bundleName)
+	if err != nil {
+		return Runtime{}, Current{}, err
+	}
 	manifestData, err := readRuntimeFile(rootHandle, s.Root, filepath.Join(bundle, manifestName))
 	if err != nil {
 		return Runtime{}, Current{}, err
@@ -307,20 +311,15 @@ func (s *Store) generation(bundleName, targetName string, target Target) (Runtim
 		Schema: s.Lock.Schema, RuntimeID: s.Lock.RuntimeID, Target: targetName,
 		Bundle: filepath.ToSlash(bundleName), ManifestSHA256: manifestDigest, SelectedAt: time.Now().UTC(),
 	}
-	runtime, err := s.runtimeFromBundle(current, bundle, targetName, target)
+	runtime, err := s.runtimeFromBundleAt(rootHandle, current, bundle, targetName, target)
 	return runtime, current, err
 }
 
-func (s *Store) selectGeneration(current Current) error {
+func (s *Store) selectGenerationAt(rootHandle *os.Root, current Current) error {
 	data, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode selected runtime: %w", err)
 	}
-	rootHandle, err := openDirectRuntimeRoot(s.Root)
-	if err != nil {
-		return fmt.Errorf("open runtime store: %w", err)
-	}
-	defer func() { _ = rootHandle.Close() }()
 	if err := atomicWriteRuntimeFile(rootHandle, s.Root, filepath.Join(s.Root, "runtime", currentName), ".current-", append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("publish selected runtime: %w", err)
 	}
@@ -805,6 +804,10 @@ func (s *Store) runtimeFromBundle(current Current, bundle, targetName string, ta
 		return Runtime{}, fmt.Errorf("%w: open runtime store: %v", ErrRuntimeNotReady, err)
 	}
 	defer func() { _ = rootHandle.Close() }()
+	return s.runtimeFromBundleAt(rootHandle, current, bundle, targetName, target)
+}
+
+func (s *Store) runtimeFromBundleAt(rootHandle *os.Root, current Current, bundle, targetName string, target Target) (Runtime, error) {
 	manifestPath := filepath.Join(bundle, manifestName)
 	manifestFile, manifestInfo, err := openRuntimeFile(rootHandle, s.Root, manifestPath, os.O_RDONLY, 0)
 	if err != nil {
@@ -849,7 +852,7 @@ func (s *Store) runtimeFromBundle(current Current, bundle, targetName string, ta
 		if err != nil {
 			return Runtime{}, err
 		}
-		if err := validateRuntimePath(bundle, componentDir); err != nil {
+		if err := validateRuntimePathAt(rootHandle, s.Root, bundle, componentDir); err != nil {
 			return Runtime{}, fmt.Errorf("%w: selected runtime component %s path is not direct: %v", ErrRuntimeNotReady, name, err)
 		}
 		for index, file := range component.Files {
@@ -857,7 +860,7 @@ func (s *Store) runtimeFromBundle(current Current, bundle, targetName string, ta
 			if err != nil {
 				return Runtime{}, err
 			}
-			if err := validateRuntimePath(bundle, path); err != nil {
+			if err := validateRuntimePathAt(rootHandle, s.Root, bundle, path); err != nil {
 				return Runtime{}, fmt.Errorf("%w: selected runtime file %s path is not direct: %v", ErrRuntimeNotReady, file.Path, err)
 			}
 			installedFile := installedComponent.Files[index]
@@ -901,7 +904,7 @@ func (s *Store) runtimeFromBundle(current Current, bundle, targetName string, ta
 		return Runtime{}, fmt.Errorf("%w: selected runtime has no Herdr executable", ErrRuntimeNotReady)
 	}
 	templateDir := filepath.Join(s.Root, "runtime", "git-templates")
-	if err := ensureRuntimeDirectory(s.Root, templateDir, 0o700); err != nil {
+	if err := ensureRuntimeDirectoryAt(rootHandle, s.Root, templateDir, 0o700); err != nil {
 		templateDir = ""
 	}
 	return Runtime{
@@ -1124,16 +1127,14 @@ func ensureRuntimeDirectoryAt(rootHandle *os.Root, root, path string, perm os.Fi
 	return nil
 }
 
-func validateRuntimePath(root, path string) error {
-	relative, err := runtimeRelativePath(root, path)
+func validateRuntimePathAt(rootHandle *os.Root, storeRoot, root, path string) error {
+	if _, err := runtimeRelativePath(root, path); err != nil {
+		return err
+	}
+	relative, err := runtimeRelativePath(storeRoot, path)
 	if err != nil {
 		return err
 	}
-	rootHandle, err := openDirectRuntimeRoot(root)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rootHandle.Close() }()
 	if relative == "." {
 		return nil
 	}
