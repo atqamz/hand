@@ -27,9 +27,12 @@ var (
 
 type PayloadReferenceRequest struct {
 	ReferenceID string
-	FleetID     string
-	Consumer    string
-	Evidence    string
+	// LockScope bounds permanent lock rendezvous independently of the unique
+	// holder record. Empty preserves the one-holder/one-lock default.
+	LockScope string
+	FleetID   string
+	Consumer  string
+	Evidence  string
 }
 
 type payloadReferenceRecord struct {
@@ -37,6 +40,7 @@ type payloadReferenceRecord struct {
 	Capability  string    `json:"capability"`
 	Payload     string    `json:"payload"`
 	ReferenceID string    `json:"reference_id"`
+	LockScope   string    `json:"lock_scope,omitempty"`
 	FleetID     string    `json:"fleet_id,omitempty"`
 	Consumer    string    `json:"consumer"`
 	Evidence    string    `json:"evidence"`
@@ -78,10 +82,18 @@ func (s *Store) AcquireReference(id, path string, request PayloadReferenceReques
 			_ = rootHandle.Close()
 		}
 	}()
-	key := sha256.Sum256([]byte(request.ReferenceID))
-	name := hex.EncodeToString(key[:])
-	recordPath := filepath.Join(referenceRoot, name+".json")
-	lockPath := filepath.Join(referenceRoot, name+".lock")
+	lockScope := request.LockScope
+	if lockScope == "" {
+		lockScope = request.ReferenceID
+	}
+	recordIdentity := request.ReferenceID
+	if request.LockScope != "" {
+		recordIdentity = request.LockScope + "\x00" + request.ReferenceID
+	}
+	recordKey := sha256.Sum256([]byte(recordIdentity))
+	lockKey := sha256.Sum256([]byte(lockScope))
+	recordPath := filepath.Join(referenceRoot, hex.EncodeToString(recordKey[:])+".json")
+	lockPath := filepath.Join(referenceRoot, hex.EncodeToString(lockKey[:])+".lock")
 	lock, _, err := openIntegrationFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open integration payload reference lock: %w", err)
@@ -96,7 +108,7 @@ func (s *Store) AcquireReference(id, path string, request PayloadReferenceReques
 
 	record := payloadReferenceRecord{
 		Schema: PayloadReferenceSchema, Capability: id, Payload: payload,
-		ReferenceID: request.ReferenceID, FleetID: request.FleetID,
+		ReferenceID: request.ReferenceID, LockScope: request.LockScope, FleetID: request.FleetID,
 		Consumer: request.Consumer, Evidence: request.Evidence, CreatedAt: time.Now().UTC(),
 	}
 	existing, err := readPayloadReferenceRecord(rootHandle, s.Root, recordPath)
@@ -185,6 +197,11 @@ func (request PayloadReferenceRequest) validate() error {
 			return fmt.Errorf("integration payload reference has invalid %s", name)
 		}
 	}
+	if request.LockScope != "" {
+		if len(request.LockScope) > 512 || strings.IndexFunc(request.LockScope, func(char rune) bool { return char < 0x20 || char == 0x7f }) >= 0 {
+			return errors.New("integration payload reference has invalid lock scope")
+		}
+	}
 	if request.FleetID == "" {
 		return nil
 	}
@@ -207,14 +224,14 @@ func (record payloadReferenceRecord) validate() error {
 		return ErrPayloadReferenceUnknown
 	}
 	return (PayloadReferenceRequest{
-		ReferenceID: record.ReferenceID, FleetID: record.FleetID,
+		ReferenceID: record.ReferenceID, LockScope: record.LockScope, FleetID: record.FleetID,
 		Consumer: record.Consumer, Evidence: record.Evidence,
 	}).validate()
 }
 
 func (record payloadReferenceRecord) sameIdentity(other payloadReferenceRecord) bool {
 	return record.Schema == other.Schema && record.Capability == other.Capability && record.Payload == other.Payload &&
-		record.ReferenceID == other.ReferenceID && record.FleetID == other.FleetID && record.Consumer == other.Consumer && record.Evidence == other.Evidence
+		record.ReferenceID == other.ReferenceID && record.LockScope == other.LockScope && record.FleetID == other.FleetID && record.Consumer == other.Consumer && record.Evidence == other.Evidence
 }
 
 func readPayloadReferenceRecord(rootHandle *os.Root, root, path string) (payloadReferenceRecord, error) {

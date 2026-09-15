@@ -67,6 +67,10 @@ type Store struct {
 	Root string
 }
 
+// A fixed pool preserves normal overlap without minting a permanent lock path
+// for every short-lived integration process.
+const payloadReferenceLockSlots = 8
+
 func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, error) {
 	capability, ok := find(id)
 	if !ok {
@@ -94,17 +98,38 @@ func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, e
 	if role == "" {
 		role = "operator"
 	}
-	reference, err := store.AcquireReference(id, path, PayloadReferenceRequest{
-		ReferenceID: referenceID,
-		FleetID:     fleetID,
-		Consumer:    "integration-process",
-		Evidence:    "role=" + role + ";capability=" + id,
-	})
+	reference, err := acquireRunReference(store, id, path, referenceID, fleetID, role)
 	if err != nil {
 		return nil, nil, err
 	}
 	stdout, stderr, runErr := runReferencedExecutable(ctx, reference, path, dir, args...)
 	return stdout, stderr, errors.Join(runErr, reference.Close())
+}
+
+func acquireRunReference(store *Store, id, path, referenceID, fleetID, role string) (*PayloadReference, error) {
+	var busyErr error
+	for slot := range payloadReferenceLockSlots {
+		reference, err := store.AcquireReference(id, path, PayloadReferenceRequest{
+			ReferenceID: referenceID,
+			LockScope:   payloadReferenceLockScope(id, fleetID, role, slot),
+			FleetID:     fleetID,
+			Consumer:    "integration-process",
+			Evidence:    "role=" + role + ";capability=" + id,
+		})
+		if err == nil {
+			return reference, nil
+		}
+		busyErr = err
+		if !errors.Is(err, ErrPayloadReferenceHeld) {
+			return nil, err
+		}
+	}
+	return nil, busyErr
+}
+
+func payloadReferenceLockScope(id, fleetID, role string, slot int) string {
+	digest := sha256.Sum256([]byte(id + "\x00" + fleetID + "\x00" + role + fmt.Sprintf("\x00%d", slot)))
+	return "integration-process:" + hex.EncodeToString(digest[:])
 }
 
 func payloadFleetID() (string, error) {

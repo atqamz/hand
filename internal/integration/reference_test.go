@@ -69,6 +69,52 @@ func TestPayloadReferenceRetainsExactObjectWithoutSelection(t *testing.T) {
 	}
 }
 
+func TestPayloadReferenceReusesStableLockScopeAcrossUniqueHolders(t *testing.T) {
+	store, path := installReferenceFixture(t)
+	request := PayloadReferenceRequest{
+		ReferenceID: "run-one", LockScope: "integration:fleet:worker:slot-0",
+		FleetID: integrationTestFleetID, Consumer: "integration-process", Evidence: "capability=github/gh",
+	}
+	first, err := store.AcquireReference("github/gh", path, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(first.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record payloadReferenceRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.LockScope != request.LockScope {
+		t.Fatalf("durable lock scope = %q, %v; want %q", record.LockScope, err, request.LockScope)
+	}
+	secondRequest := request
+	secondRequest.ReferenceID = "run-two"
+	if _, err := store.AcquireReference("github/gh", path, secondRequest); !errors.Is(err, ErrPayloadReferenceHeld) {
+		t.Fatalf("second holder in stable lock scope = %v, want ErrPayloadReferenceHeld", err)
+	}
+	firstRecord, firstLock := first.RecordPath(), first.LockPath()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AcquireReference("github/gh", path, secondRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.RecordPath() == firstRecord || second.LockPath() != firstLock {
+		t.Fatalf("record/lock paths = %q/%q then %q/%q; want unique records sharing one stable lock", firstRecord, firstLock, second.RecordPath(), second.LockPath())
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(firstLock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
+		t.Fatalf("stable reference scope left %v, want one permanent rendezvous", entries)
+	}
+}
+
 func TestPayloadReferenceRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	store, path := installReferenceFixture(t)
 	reference, err := store.AcquireReference("github/gh", path, PayloadReferenceRequest{
@@ -186,6 +232,11 @@ func TestPayloadReferenceRejectsAliasesAndInvalidIdentity(t *testing.T) {
 	if _, err := store.AcquireReference("github/gh", path, invalid); err == nil {
 		t.Fatal("invalid Fleet identity was accepted")
 	}
+	invalid = request
+	invalid.LockScope = "bad\x00scope"
+	if _, err := store.AcquireReference("github/gh", path, invalid); err == nil {
+		t.Fatal("invalid lock scope was accepted")
+	}
 }
 
 func TestPayloadReferenceRejectsSymlinkedPayloadParent(t *testing.T) {
@@ -262,6 +313,36 @@ func TestManagedRunHoldsExactPayloadReference(t *testing.T) {
 	}
 	if _, err := os.Stat(payload); err != nil {
 		t.Fatalf("completed process deleted immutable payload: %v", err)
+	}
+}
+
+func TestRepeatedManagedRunsReusePayloadLockScope(t *testing.T) {
+	if legacyCapabilityFallback {
+		t.Skip("test-tag builds intentionally execute PATH fakes")
+	}
+	root := t.TempDir()
+	t.Setenv("SECONDHAND_HOME", root)
+	t.Setenv("HAND_HOME", "")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(root)
+	path, err := store.Install("github/gh", executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, _, err := Run(context.Background(), "github/gh", "", "-test.run=^TestManagedRunProcessHelper$"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	locks, err := filepath.Glob(filepath.Join(root, "integrations", "github", "gh", "references", filepath.Base(filepath.Dir(path)), "*.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locks) != 1 {
+		t.Fatalf("permanent payload lock rendezvous = %q, want one reused scope", locks)
 	}
 }
 
