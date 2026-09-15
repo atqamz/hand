@@ -20,6 +20,7 @@ import (
 	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -399,6 +400,15 @@ func newProjectAddCmd() *cobra.Command {
 			if err := validateProjectName(name); err != nil {
 				return err
 			}
+			locator := source.input
+			normalizedHTTPS := false
+			if source.remote {
+				if runtime, err := toolchain.Resolve(); err == nil && !runtime.SupportsGitTransport("https") {
+					locator, normalizedHTTPS = normalizeProjectHTTPSLocator(locator)
+				}
+			} else {
+				locator = source.locator
+			}
 
 			release, err := state.Lock(fleetHome, "project:"+name)
 			if err != nil {
@@ -428,7 +438,7 @@ func newProjectAddCmd() *cobra.Command {
 			}
 			var cloneErr error
 			if source.remote {
-				cloneErr = gitClone(source.input, clonePath)
+				cloneErr = gitClone(locator, clonePath)
 			} else {
 				cloneErr = gitCloneLocal(source.root, clonePath)
 			}
@@ -451,10 +461,6 @@ func newProjectAddCmd() *cobra.Command {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
-			locator := source.input
-			if !source.remote {
-				locator = source.locator
-			}
 			if err := project.Add(fleetHome, project.Project{Name: name, URL: locator, Mode: mode}); err != nil {
 				if project.IsRegistrationRollbackError(err) {
 					return fmt.Errorf("%w; managed repository retained at %s for registry repair", err, clonePath)
@@ -468,6 +474,9 @@ func newProjectAddCmd() *cobra.Command {
 			doc.Field("mode", mode)
 			doc.Field("url", locator)
 			doc.Field("clone", clonePath)
+			if normalizedHTTPS {
+				doc.Help("Normalized HTTPS locator to SSH because the selected Git has no HTTPS transport helper")
+			}
 			if !source.remote {
 				doc.Field("source", source.input)
 				doc.Field("default_branch", source.defaultBranch)

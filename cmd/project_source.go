@@ -31,6 +31,37 @@ func isRemoteProjectSource(source string) bool {
 	return false
 }
 
+// Recognizes only GitHub's owner/repository form and GitLab's namespace/repository form. Other HTTPS
+// locators remain unchanged so Git reports their real failure.
+func normalizeProjectHTTPSLocator(source string) (string, bool) {
+	u, err := url.Parse(source)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" {
+		return source, false
+	}
+
+	gitlab := strings.EqualFold(u.Host, "gitlab.com")
+	if !strings.EqualFold(u.Host, "github.com") && !gitlab {
+		return source, false
+	}
+	if !strings.HasPrefix(u.Path, "/") || strings.HasSuffix(u.Path, "/") {
+		return source, false
+	}
+	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	if len(parts) < 2 || (!gitlab && len(parts) != 2) {
+		return source, false
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || (gitlab && part == "-") {
+			return source, false
+		}
+	}
+	parts[len(parts)-1] = strings.TrimSuffix(parts[len(parts)-1], ".git")
+	if parts[len(parts)-1] == "" {
+		return source, false
+	}
+	return "git@" + strings.ToLower(u.Host) + ":" + strings.Join(parts, "/") + ".git", true
+}
+
 func classifyProjectSource(source string) (projectSource, error) {
 	if strings.TrimSpace(source) == "" {
 		return projectSource{}, fmt.Errorf("project source is empty")

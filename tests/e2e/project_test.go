@@ -3,13 +3,127 @@
 package e2e
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/project"
+	"github.com/atqamz/hand/internal/toolchain"
 )
+
+func TestProjectAddNormalizesRecognizedHTTPSWhenRuntimeLacksHelper(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		input  string
+		origin string
+	}{
+		{name: "github", input: "https://github.com/owner/repo", origin: "git@github.com:owner/repo.git"},
+		{name: "gitlab subgroup", input: "https://gitlab.com/group/subgroup/repo.git", origin: "git@gitlab.com:group/subgroup/repo.git"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			remote := filepath.Join(t.TempDir(), "remote")
+			initGitRepo(t, remote)
+			runGitIn(t, remote, "config", "receive.denyCurrentBranch", "updateInstead")
+			redirectGitRemote(t, test.input, remote)
+			redirectGitRemote(t, test.origin, remote)
+
+			dir := binDir(t)
+			writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+			home := newHome(t)
+
+			added := runHand(t, home, "project", "add", test.input, "--mode", "direct-pr")
+			if added.code != 0 {
+				t.Fatalf("project add: exit %d, stderr %q", added.code, added.stderr)
+			}
+			if !strings.Contains(added.stdout, "Normalized HTTPS locator") || !strings.Contains(added.stdout, "no HTTPS transport helper") {
+				t.Fatalf("project add stdout = %q, want visible HTTPS normalization explanation", added.stdout)
+			}
+
+			clonePath := filepath.Join(home, "projects", "repo")
+			projects, err := project.List(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(projects) != 1 || projects[0].URL != test.origin {
+				t.Fatalf("project.List = %+v, want URL %q", projects, test.origin)
+			}
+			if got := runGitIn(t, clonePath, "config", "--get", "remote.origin.url"); got != test.origin+"\n" {
+				t.Fatalf("clone origin = %q, want %q", got, test.origin)
+			}
+
+			runRuntimeGitIn(t, home, clonePath, "fetch", "origin")
+			if err := os.WriteFile(filepath.Join(clonePath, "pushed.txt"), []byte("pushed"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runGitIn(t, clonePath, "add", "pushed.txt")
+			runGitIn(t, clonePath, "commit", "-q", "-m", "push through stored ssh origin")
+			runRuntimeGitIn(t, home, clonePath, "push", "origin", "main")
+			if _, err := os.Stat(filepath.Join(remote, "pushed.txt")); err != nil {
+				t.Fatalf("push through stored SSH origin did not update remote: %v", err)
+			}
+		})
+	}
+}
+
+func TestProjectAddPreservesHTTPSWhenRuntimeSupportsIt(t *testing.T) {
+	remote := filepath.Join(t.TempDir(), "remote")
+	initGitRepo(t, remote)
+	input := "https://github.com/owner/repo.git"
+	redirectGitRemote(t, input, remote)
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git", "git-remote-https")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code != 0 {
+		t.Fatalf("project add: exit %d, stderr %q", added.code, added.stderr)
+	}
+	if strings.Contains(added.stdout, "Normalized HTTPS locator") {
+		t.Fatalf("project add stdout = %q, want original HTTPS locator preserved", added.stdout)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].URL != input {
+		t.Fatalf("project.List = %+v, want URL %q", projects, input)
+	}
+	if got := runGitIn(t, filepath.Join(home, "projects", "repo"), "config", "--get", "remote.origin.url"); got != input+"\n" {
+		t.Fatalf("clone origin = %q, want %q", got, input)
+	}
+}
+
+func runRuntimeGitIn(t *testing.T, home, dir string, args ...string) {
+	t.Helper()
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitBin := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git", "git")
+	spec, err := (toolchain.Runtime{GitBin: filepath.Dir(gitBin)}).Process(gitBin, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Dir = dir
+	var stdout, stderr bytes.Buffer
+	spec.Stdout = &stdout
+	spec.Stderr = &stderr
+	if err := spec.Run(context.Background()); err != nil {
+		t.Fatalf("managed git %v failed: %v: %s", args, err, stderr.String())
+	}
+}
 
 // Drives add -> set-url -> list -> sync (fast-forward) -> remove through the built binary against a real local
 // git remote (redirected via git's insteadOf mechanism, never the network), plus the missing-clone failure

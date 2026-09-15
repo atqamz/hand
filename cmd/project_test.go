@@ -56,6 +56,32 @@ func TestValidateProjectURL(t *testing.T) {
 	}
 }
 
+func TestNormalizeProjectHTTPSLocator(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+		ok    bool
+	}{
+		{name: "github", input: "https://github.com/owner/repo", want: "git@github.com:owner/repo.git", ok: true},
+		{name: "github dot git", input: "https://github.com/owner/repo.git", want: "git@github.com:owner/repo.git", ok: true},
+		{name: "gitlab", input: "https://gitlab.com/group/repo", want: "git@gitlab.com:group/repo.git", ok: true},
+		{name: "gitlab subgroup", input: "https://gitlab.com/group/subgroup/repo.git", want: "git@gitlab.com:group/subgroup/repo.git", ok: true},
+		{name: "unrecognized host", input: "https://example.com/owner/repo", want: "https://example.com/owner/repo", ok: false},
+		{name: "gitlab web route", input: "https://gitlab.com/group/repo/-/issues", want: "https://gitlab.com/group/repo/-/issues", ok: false},
+		{name: "ambiguous query", input: "https://github.com/owner/repo?ref=main", want: "https://github.com/owner/repo?ref=main", ok: false},
+		{name: "ambiguous trailing slash", input: "https://gitlab.com/group/repo/", want: "https://gitlab.com/group/repo/", ok: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := normalizeProjectHTTPSLocator(test.input)
+			if got != test.want || ok != test.ok {
+				t.Fatalf("normalizeProjectHTTPSLocator(%q) = (%q, %v), want (%q, %v)", test.input, got, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
 func TestProjectCommandRegistersCreate(t *testing.T) {
 	cmd, _, err := newProjectCmd().Find([]string{"create"})
 	if err != nil {
