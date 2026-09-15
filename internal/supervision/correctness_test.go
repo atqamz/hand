@@ -215,8 +215,12 @@ func TestCapabilityVocabularyStaysHonestBeforeLiveQualification(t *testing.T) {
 		if status.WakeDelivery == CapabilitySupported {
 			t.Fatalf("%s claimed supported without any live qualification", name)
 		}
-		if status.WakeDelivery != CapabilityUnqualified && status.WakeDelivery != CapabilityDegraded {
-			t.Fatalf("%s = %q with full static integration installed; want available-unqualified or degraded with reason", name, status.WakeDelivery)
+		allowed := status.WakeDelivery == CapabilityUnqualified || status.WakeDelivery == CapabilityDegraded
+		// A hermetic builder may have the static Codex hook but no live codex
+		// executable whose queue primitive can be probed.
+		allowed = allowed || name == harness.Codex && status.WakeDelivery == CapabilityUnsupported
+		if !allowed {
+			t.Fatalf("%s = %q with full static integration installed; want an honest unqualified, degraded, or unavailable-live-runtime result", name, status.WakeDelivery)
 		}
 	}
 	grok, err := IntegrationStatus(context.Background(), StatusInput{Home: home, Detection: harness.Detection{Name: harness.Grok, Source: "override"}, Exe: exe})
