@@ -229,6 +229,47 @@ func TestRuntimeFileAccessRemainsAnchoredAcrossRootReplacement(t *testing.T) {
 	}
 }
 
+func TestInstalledComponentVerificationRemainsAnchoredAcrossRootReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows denies replacement of an open rooted directory")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "secondhand")
+	bundle := filepath.Join(root, "runtime", "generations", "runtime-id")
+	body := []byte("verified artifact")
+	digest := sha256.Sum256(body)
+	component := Component{
+		Name: "tool", SHA256: hex.EncodeToString(digest[:]), Format: "binary", Root: ".",
+		Files: []ExpectedFile{{Path: executableName("tool"), Executable: true, Regular: true}},
+	}
+	for _, path := range []string{
+		filepath.Join(bundle, "artifacts", "tool"),
+		filepath.Join(bundle, "tool", executableName("tool")),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rootHandle, err := openDirectRuntimeRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	if err := os.Rename(root, filepath.Join(parent, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "runtime"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := verifyInstalledComponentAgainstArtifact(rootHandle, root, bundle, "tool", component); err != nil {
+		t.Fatalf("verification followed the replacement root: %v", err)
+	}
+}
+
 func TestConcurrentEnsureConvergesColdAndWithoutSelection(t *testing.T) {
 	store, requests := generationStoreFixture(t)
 	ensureTogether := func() [2]Runtime {

@@ -192,13 +192,20 @@ func TestBridgeAttachmentFailureReleasesGenerationLease(t *testing.T) {
 	releaseErr := errors.New("release generation lease")
 	var releases atomic.Int64
 	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
 	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) {
 		return func() error {
 			releases.Add(1)
 			return releaseErr
 		}, nil
 	}
-	t.Cleanup(func() { acquireWaiterGenerationLease = originalLease })
+	acquireWaiterHandGenerationLease = func(string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
 
 	_, err := acquireBridge(context.Background(), Waiter{Home: notDirectory}, WaitConfig{
 		Host:              "claude",
@@ -225,13 +232,20 @@ func TestBridgeOwnershipRefusalReleasesGenerationLease(t *testing.T) {
 	releaseErr := errors.New("release generation lease")
 	var releases atomic.Int64
 	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
 	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) {
 		return func() error {
 			releases.Add(1)
 			return releaseErr
 		}, nil
 	}
-	t.Cleanup(func() { acquireWaiterGenerationLease = originalLease })
+	acquireWaiterHandGenerationLease = func(string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
 
 	_, err := acquireBridge(context.Background(), Waiter{Home: home}, WaitConfig{
 		Host:              "claude",
@@ -244,6 +258,61 @@ func TestBridgeOwnershipRefusalReleasesGenerationLease(t *testing.T) {
 	}
 	if got := releases.Load(); got != 1 {
 		t.Fatalf("lease releases = %d, want one", got)
+	}
+}
+
+func TestWaitHoldsBothGenerationLeasesAndSurfacesReleaseFailure(t *testing.T) {
+	home := t.TempDir()
+	ledger := OpenLedger(home)
+	releaseErr := errors.New("release exact Hand generation")
+	var toolchainGeneration, handGeneration string
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	acquireWaiterGenerationLease = func(generation, _, _, _ string) (func() error, error) {
+		toolchainGeneration = generation
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(generation, _, _, _ string) (func() error, error) {
+		handGeneration = generation
+		return func() error { return releaseErr }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	wake, err := Wait(context.Background(), Waiter{
+		Home: home,
+		ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{
+			actionableEvidence("task-1", "episode-1", "blocked"),
+		}}),
+		Ledger: ledger,
+	}, WaitConfig{
+		Host: "codex", RuntimeSession: "session-a", RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration: "runtime-a", PollInterval: time.Millisecond,
+	})
+	if len(wake.Episodes) != 1 || !errors.Is(err, releaseErr) {
+		t.Fatalf("wake = %#v, err = %v; want delivered wake plus release failure", wake, err)
+	}
+	if toolchainGeneration != "runtime-a" || handGeneration != "sha256:hand-a" {
+		t.Fatalf("leased toolchain=%q Hand=%q, want both exact generations", toolchainGeneration, handGeneration)
+	}
+	if ledger.BridgeErroredBefore("codex", BridgeFailureCooldown) {
+		t.Fatal("generation lease release failure was not recorded in bridge diagnostics")
+	}
+}
+
+func TestBridgeRequiresBothGenerationIdentities(t *testing.T) {
+	for name, cfg := range map[string]WaitConfig{
+		"missing Hand generation":      {LeaseGeneration: "runtime-a"},
+		"missing toolchain generation": {RuntimeGeneration: "sha256:hand-a"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := acquireBridge(context.Background(), Waiter{Home: t.TempDir()}, cfg, "f_1")
+			if err == nil || !strings.Contains(err.Error(), "requires both Hand and toolchain generation identities") {
+				t.Fatalf("err = %v, want paired-generation refusal", err)
+			}
+		})
 	}
 }
 
@@ -755,6 +824,7 @@ func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
 	originalHeartbeat := bridgeHeartbeat
 	originalWaiterID := newWaiterIdentity
 	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
 	ids := []string{"waiter-old", "waiter-new"}
 	newWaiterIdentity = func() (string, error) {
 		id := ids[0]
@@ -762,6 +832,7 @@ func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
 		return id, nil
 	}
 	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) { return func() error { return nil }, nil }
+	acquireWaiterHandGenerationLease = func(string, string, string, string) (func() error, error) { return func() error { return nil }, nil }
 	bridgeHeartbeat = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
 	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) { return nil, nil }
 	watcherAttached = func(string) (bool, error) { return false, nil }
@@ -778,16 +849,21 @@ func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
 		bridgeHeartbeat = originalHeartbeat
 		newWaiterIdentity = originalWaiterID
 		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
 	}()
 
 	oldResult := make(chan error, 1)
 	go func() {
 		_, err := Wait(context.Background(), Waiter{
 			Home: home, ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1"}), Ledger: OpenLedger(home),
-		}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", PollInterval: time.Millisecond})
+		}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", LeaseGeneration: "runtime-generation-a", PollInterval: time.Millisecond})
 		oldResult <- err
 	}()
-	<-blocked
+	select {
+	case <-blocked:
+	case err := <-oldResult:
+		t.Fatalf("predecessor exited before blocking: %v", err)
+	}
 
 	wake, err := Wait(context.Background(), Waiter{
 		Home: home,
@@ -795,7 +871,7 @@ func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
 			actionableEvidence("task-1", "episode-1", "blocked"),
 		}}),
 		Ledger: OpenLedger(home),
-	}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", PollInterval: time.Millisecond})
+	}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", LeaseGeneration: "runtime-generation-a", PollInterval: time.Millisecond})
 	if err != nil || len(wake.Episodes) != 1 {
 		t.Fatalf("successor wake = %#v, %v", wake, err)
 	}

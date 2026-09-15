@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // MaterializeHandExecutable retains the exact bytes opened at source behind a
@@ -102,9 +103,25 @@ func (s *Store) HandExecutableGeneration(source string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("identify Hand executable generation: %w", err)
 	}
+	managed, err := s.HandGeneration("sha256:" + digest)
+	if err != nil {
+		return "", fmt.Errorf("resolve Hand executable generation: %w", err)
+	}
+	return managed, nil
+}
+
+// HandGeneration resolves and verifies one exact managed Hand generation.
+func (s *Store) HandGeneration(generation string) (string, error) {
+	digest, ok := strings.CutPrefix(generation, "sha256:")
+	if !ok || len(digest) != sha256.Size*2 {
+		return "", fmt.Errorf("invalid managed Hand generation %q", generation)
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		return "", fmt.Errorf("invalid managed Hand generation %q", generation)
+	}
 	managed := filepath.Join(s.Root, "runtime", "hand-generations", digest, executableName("hand"))
 	if err := validateHandGeneration(s.Root, managed, digest); err != nil {
-		return "", fmt.Errorf("resolve Hand executable generation: %w", err)
+		return "", err
 	}
 	return managed, nil
 }

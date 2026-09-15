@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -245,6 +246,18 @@ func (reference *PayloadReference) LockPath() string {
 		return ""
 	}
 	return reference.lockPath
+}
+
+// StartChild starts a managed consumer while preserving this reference if its
+// parent dies before the consumer exits.
+func (reference *PayloadReference) StartChild(cmd *exec.Cmd) error {
+	if reference == nil || reference.closed || reference.lock == nil {
+		return errors.New("integration payload reference is not live")
+	}
+	if cmd == nil {
+		return errors.New("integration payload reference child command is nil")
+	}
+	return startChildWithPayloadReference(cmd, reference.lock)
 }
 
 func (reference *PayloadReference) Close() error {

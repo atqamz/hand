@@ -427,6 +427,19 @@ func TestCodexOwnsItsCanonicalWindowsCommand(t *testing.T) {
 	}
 }
 
+func TestCodexCanonicalWindowsCommandHidesLiteralPercentPathFromCmd(t *testing.T) {
+	exe := `C:\stores\%TEAM%\hand.exe`
+	handler := codexStopHandler(exe)
+	command := handler["commandWindows"].(string)
+	if strings.Contains(command, `%TEAM%`) {
+		t.Fatalf("commandWindows exposes executable path to cmd.exe expansion: %q", command)
+	}
+	exact, owned, unknown := codexOwned(handler, exe)
+	if !exact || !owned || unknown {
+		t.Fatalf("codexOwned(encoded Windows command) = %t, %t, %t; want true, true, false", exact, owned, unknown)
+	}
+}
+
 func TestCodexOwnsApostrophePathIdempotently(t *testing.T) {
 	exe := "/home/o'connor/hand"
 	home := t.TempDir()

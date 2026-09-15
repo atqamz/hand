@@ -102,8 +102,22 @@ func (s *Store) AcquireLease(request LeaseRequest) (*Lease, error) {
 	if _, err := s.Generation(request.Generation, "", ""); err != nil {
 		return nil, err
 	}
+	return s.acquireLease(request, filepath.Join(s.Root, "runtime", "references", generation))
+}
 
-	referenceRoot := filepath.Join(s.Root, "runtime", "references", generation)
+// AcquireHandLease retains one exact managed Hand executable generation.
+func (s *Store) AcquireHandLease(request LeaseRequest) (*Lease, error) {
+	if err := request.validate(); err != nil {
+		return nil, err
+	}
+	if _, err := s.HandGeneration(request.Generation); err != nil {
+		return nil, err
+	}
+	digest := strings.TrimPrefix(request.Generation, "sha256:")
+	return s.acquireLease(request, filepath.Join(s.Root, "runtime", "hand-references", digest))
+}
+
+func (s *Store) acquireLease(request LeaseRequest, referenceRoot string) (*Lease, error) {
 	if err := ensureRuntimeDirectory(s.Root, referenceRoot, 0o700); err != nil {
 		return nil, fmt.Errorf("create runtime generation reference store: %w", err)
 	}

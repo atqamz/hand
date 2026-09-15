@@ -9,11 +9,45 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
 
 const testFleetID = "f_0123456789abcdef0123456789abcdef"
+
+func TestManagedHandLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	source := filepath.Join(t.TempDir(), executableName("hand"))
+	if err := os.WriteFile(source, []byte("managed Hand generation"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := store.MaterializeHandExecutable(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := "sha256:" + filepath.Base(filepath.Dir(managed))
+	request := LeaseRequest{
+		Generation: generation,
+		LeaseID:    "waiter:session-1",
+		FleetID:    testFleetID,
+		Consumer:   "supervision-waiter",
+		Evidence:   "host=codex;session=session-1",
+	}
+	lease, err := store.AcquireHandLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filepath.ToSlash(lease.RecordPath()), "/runtime/hand-references/"+strings.TrimPrefix(generation, "sha256:")+"/") {
+		t.Fatalf("Hand lease record path = %q, want exact Hand generation namespace", lease.RecordPath())
+	}
+	if _, err := store.AcquireHandLease(request); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("second Hand lease acquisition = %v, want ErrLeaseHeld", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRuntimeLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
 	store, _ := generationStoreFixture(t)

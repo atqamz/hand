@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,12 +38,24 @@ func waiterRuntimeGeneration() (string, error) {
 	return supervision.ExecutableGeneration(executable)
 }
 
-func waiterToolchainGeneration() (string, error) {
+type waiterGenerationStore interface {
+	Ensure(context.Context, string, string) (toolchain.Runtime, error)
+}
+
+func waiterToolchainGeneration(ctx context.Context) (string, error) {
 	store, err := toolchain.DefaultStore()
 	if err != nil {
 		return "", err
 	}
-	return store.GenerationID("", "")
+	return waiterToolchainGenerationFrom(ctx, store)
+}
+
+func waiterToolchainGenerationFrom(ctx context.Context, store waiterGenerationStore) (string, error) {
+	runtime, err := store.Ensure(ctx, "", "")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Base(runtime.BundleDir), nil
 }
 
 func newSupervisionCmd() *cobra.Command {
@@ -98,7 +111,7 @@ func newSupervisionWaitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leaseGeneration, err := waiterToolchainGeneration()
+			leaseGeneration, err := waiterToolchainGeneration(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -198,7 +211,7 @@ func newClaudeStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leaseGeneration, err := waiterToolchainGeneration()
+			leaseGeneration, err := waiterToolchainGeneration(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -282,7 +295,7 @@ func newCodexStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leaseGeneration, err := waiterToolchainGeneration()
+			leaseGeneration, err := waiterToolchainGeneration(cmd.Context())
 			if err != nil {
 				return err
 			}

@@ -398,7 +398,7 @@ func extractRuntime(rootHandle *os.Root, root, artifact, destination string, com
 	if err != nil {
 		return err
 	}
-	if err := ensureRuntimeDirectory(root, destination, 0o700); err != nil {
+	if err := ensureRuntimeDirectoryAt(rootHandle, root, destination, 0o700); err != nil {
 		return err
 	}
 	input, info, err := openRuntimeFile(rootHandle, root, artifact, os.O_RDONLY, 0)
@@ -413,7 +413,7 @@ func extractRuntime(rootHandle *os.Root, root, artifact, destination string, com
 		if err != nil {
 			return err
 		}
-		if err := ensureRuntimeDirectory(root, filepath.Dir(path), 0o700); err != nil {
+		if err := ensureRuntimeDirectoryAt(rootHandle, root, filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
 		output, _, err := openRuntimeFile(rootHandle, root, path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
@@ -446,7 +446,7 @@ func extractRuntime(rootHandle *os.Root, root, artifact, destination string, com
 			}
 			seen[path] = struct{}{}
 			if entry.FileInfo().IsDir() {
-				if err := ensureRuntimeDirectory(root, path, 0o700); err != nil {
+				if err := ensureRuntimeDirectoryAt(rootHandle, root, path, 0o700); err != nil {
 					return err
 				}
 				continue
@@ -454,7 +454,7 @@ func extractRuntime(rootHandle *os.Root, root, artifact, destination string, com
 			if entry.Mode()&os.ModeSymlink != 0 || entry.Mode()&os.ModeIrregular != 0 {
 				return fmt.Errorf("archive entry %q is not a regular file", entry.Name)
 			}
-			if err := ensureRuntimeDirectory(root, filepath.Dir(path), 0o700); err != nil {
+			if err := ensureRuntimeDirectoryAt(rootHandle, root, filepath.Dir(path), 0o700); err != nil {
 				return err
 			}
 			entryInput, err := entry.Open()
@@ -501,11 +501,11 @@ func extractRuntimeTar(rootHandle *os.Root, root string, input io.Reader, destin
 		seen[path] = struct{}{}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := ensureRuntimeDirectory(root, path, 0o700); err != nil {
+			if err := ensureRuntimeDirectoryAt(rootHandle, root, path, 0o700); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := ensureRuntimeDirectory(root, filepath.Dir(path), 0o700); err != nil {
+			if err := ensureRuntimeDirectoryAt(rootHandle, root, filepath.Dir(path), 0o700); err != nil {
 				return err
 			}
 			output, _, err := openRuntimeFile(rootHandle, root, path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
@@ -660,30 +660,6 @@ func extractTar(input io.Reader, destination string) error {
 			return fmt.Errorf("archive entry %q is not a regular file or directory", header.Name)
 		}
 	}
-}
-
-func verifyComponent(root string, component Component) error {
-	root, err := componentRoot(root, component.Root)
-	if err != nil {
-		return err
-	}
-	for _, expected := range component.Files {
-		path, err := safeJoin(root, expected.Path)
-		if err != nil {
-			return err
-		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("required file %s is missing: %w", expected.Path, err)
-		}
-		if expected.Regular && !info.Mode().IsRegular() {
-			return fmt.Errorf("required file %s is not regular", expected.Path)
-		}
-		if expected.Executable && info.Mode()&0111 == 0 && !strings.HasSuffix(strings.ToLower(path), ".exe") {
-			return fmt.Errorf("required executable %s is not executable", expected.Path)
-		}
-	}
-	return nil
 }
 
 func verifyRuntimeComponent(rootHandle *os.Root, storeRoot, root string, component Component) error {
@@ -961,7 +937,7 @@ func verifyInstalledComponentAgainstArtifact(rootHandle *os.Root, root, bundle, 
 		return fmt.Errorf("create artifact verification directory: %w", err)
 	}
 	defer func() { _ = removeAllRuntimePath(rootHandle, root, temporary) }()
-	retainedCopy, err := os.OpenFile(filepath.Join(temporary, "artifact"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	retainedCopy, _, err := openRuntimeFile(rootHandle, root, filepath.Join(temporary, "artifact"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("create retained artifact verification copy: %w", err)
 	}
@@ -976,10 +952,10 @@ func verifyInstalledComponentAgainstArtifact(rootHandle *os.Root, root, bundle, 
 		return fmt.Errorf("retained artifact digest mismatch: got %s, want %s", digest, component.SHA256)
 	}
 	extracted := filepath.Join(temporary, name)
-	if err := extract(filepath.Join(temporary, "artifact"), extracted, component); err != nil {
+	if err := extractRuntime(rootHandle, root, filepath.Join(temporary, "artifact"), extracted, component); err != nil {
 		return fmt.Errorf("extract retained artifact: %w", err)
 	}
-	if err := verifyComponent(extracted, component); err != nil {
+	if err := verifyRuntimeComponent(rootHandle, root, extracted, component); err != nil {
 		return fmt.Errorf("verify retained artifact files: %w", err)
 	}
 	for _, expected := range component.Files {
@@ -1003,7 +979,7 @@ func verifyInstalledComponentAgainstArtifact(rootHandle *os.Root, root, bundle, 
 		if err != nil {
 			return err
 		}
-		extractedDigest, err := fileDigest(extractedPath)
+		extractedDigest, err := digestRuntimeFile(rootHandle, root, extractedPath)
 		if err != nil {
 			return err
 		}
@@ -1088,10 +1064,6 @@ func safeJoin(root, name string) (string, error) {
 }
 
 func ensureRuntimeDirectory(root, path string, perm os.FileMode) error {
-	relative, err := runtimeRelativePath(root, path)
-	if err != nil {
-		return err
-	}
 	if err := os.MkdirAll(root, perm); err != nil {
 		return err
 	}
@@ -1100,6 +1072,14 @@ func ensureRuntimeDirectory(root, path string, perm os.FileMode) error {
 		return err
 	}
 	defer func() { _ = rootHandle.Close() }()
+	return ensureRuntimeDirectoryAt(rootHandle, root, path, perm)
+}
+
+func ensureRuntimeDirectoryAt(rootHandle *os.Root, root, path string, perm os.FileMode) error {
+	relative, err := runtimeRelativePath(root, path)
+	if err != nil {
+		return err
+	}
 	parts := []string(nil)
 	if relative != "." {
 		parts = strings.Split(relative, string(filepath.Separator))

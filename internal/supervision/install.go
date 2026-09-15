@@ -3,6 +3,7 @@ package supervision
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/atqamz/hand/internal/atomicfile"
 )
@@ -441,7 +443,7 @@ func codexStopHandler(exe string) map[string]any {
 	return map[string]any{
 		"type":           "command",
 		"command":        shellquoteQuote(exe) + " supervision codex-stop",
-		"commandWindows": windowsQuote(exe) + " supervision codex-stop",
+		"commandWindows": windowsCommand(exe),
 		"async":          true,
 		"timeout":        1860,
 	}
@@ -453,6 +455,20 @@ func shellquoteQuote(value string) string {
 
 func windowsQuote(value string) string {
 	return `"` + value + `"`
+}
+
+func windowsCommand(exe string) string {
+	if !strings.Contains(exe, "%") {
+		return windowsQuote(exe) + " supervision codex-stop"
+	}
+	script := "& '" + strings.ReplaceAll(exe, "'", "''") + "' supervision codex-stop; exit $LASTEXITCODE"
+	encoded := utf16.Encode([]rune(script))
+	data := make([]byte, len(encoded)*2)
+	for i, value := range encoded {
+		data[2*i] = byte(value)
+		data[2*i+1] = byte(value >> 8)
+	}
+	return "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + base64.StdEncoding.EncodeToString(data)
 }
 
 func codexHooksPath(home string) string { return filepath.Join(home, ".codex", "hooks.json") }
@@ -471,7 +487,7 @@ func codexOwned(handler map[string]any, exe string) (exact bool, owned bool, unk
 		}
 		return false, false, false
 	}
-	if windows, _ := handler["commandWindows"].(string); windows != "" && !codexCommandTokens(windows, exe) {
+	if windows, _ := handler["commandWindows"].(string); windows != "" && windows != canonical["commandWindows"] && !codexCommandTokens(windows, exe) {
 		return false, false, true
 	}
 	if _, isAsync := handler["async"].(bool); !isAsync {

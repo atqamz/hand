@@ -103,7 +103,7 @@ func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, e
 	if err != nil {
 		return nil, nil, err
 	}
-	stdout, stderr, runErr := runExecutable(ctx, path, dir, args...)
+	stdout, stderr, runErr := runReferencedExecutable(ctx, reference, path, dir, args...)
 	return stdout, stderr, errors.Join(runErr, reference.Close())
 }
 
@@ -127,12 +127,21 @@ func newPayloadReferenceID() (string, error) {
 }
 
 func runExecutable(ctx context.Context, path, dir string, args ...string) ([]byte, []byte, error) {
+	return runReferencedExecutable(ctx, nil, path, dir, args...)
+}
+
+func runReferencedExecutable(ctx context.Context, reference *PayloadReference, path, dir string, args ...string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	runErr := cmd.Run()
+	var runErr error
+	if reference == nil {
+		runErr = cmd.Run()
+	} else if runErr = reference.StartChild(cmd); runErr == nil {
+		runErr = cmd.Wait()
+	}
 	return stdout.Bytes(), stderr.Bytes(), runErr
 }
 

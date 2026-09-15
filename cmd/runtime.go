@@ -8,6 +8,7 @@ import (
 
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
@@ -53,22 +54,40 @@ func newRuntimeHerdrServerCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			executable, err := os.Executable()
+			if err != nil {
+				return errors.Join(fmt.Errorf("resolve Hand runtime guardian: %w", err), lease.Close())
+			}
+			handGeneration, err := supervision.ExecutableGeneration(executable)
+			if err != nil {
+				return errors.Join(err, lease.Close())
+			}
+			handLease, err := store.AcquireHandLease(toolchain.LeaseRequest{
+				Generation: handGeneration,
+				LeaseID:    "herdr-guardian:" + session,
+				FleetID:    fleetID,
+				Consumer:   "runtime-guardian",
+				Evidence:   "session=" + session,
+			})
+			if err != nil {
+				return errors.Join(err, lease.Close())
+			}
+			releaseLeases := func() error { return errors.Join(handLease.Close(), lease.Close()) }
 			if err := protectRuntimeGuardian(); err != nil {
-				return errors.Join(fmt.Errorf("protect runtime guardian lifetime: %w", err), lease.Close())
+				return errors.Join(fmt.Errorf("protect runtime guardian lifetime: %w", err), releaseLeases())
 			}
 			env, err := toolchain.ManagedEnvironment(os.Environ(), runtime.GitBin)
 			if err != nil {
-				_ = lease.Close()
-				return err
+				return errors.Join(err, releaseLeases())
 			}
 			server := exec.CommandContext(cmd.Context(), runtime.HerdrPath, "--session", session, "server")
 			server.Env = env
 			server.Stdin, server.Stdout, server.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 			if err := lease.StartChild(server); err != nil {
-				return errors.Join(err, lease.Close())
+				return errors.Join(err, releaseLeases())
 			}
 			runErr := server.Wait()
-			return errors.Join(runErr, lease.Close())
+			return errors.Join(runErr, releaseLeases())
 		},
 	}
 	cmd.Flags().StringVar(&fleetID, "fleet-id", "", "canonical Fleet identity")

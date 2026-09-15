@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -12,7 +13,28 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/toolchain"
 )
+
+type waiterGenerationStoreStub struct {
+	ensured bool
+}
+
+func (store *waiterGenerationStoreStub) Ensure(context.Context, string, string) (toolchain.Runtime, error) {
+	store.ensured = true
+	return toolchain.Runtime{BundleDir: filepath.Join("runtime", "bundles", "deterministic")}, nil
+}
+
+func TestWaiterToolchainGenerationMaterializesBeforeLeasing(t *testing.T) {
+	store := new(waiterGenerationStoreStub)
+	generation, err := waiterToolchainGenerationFrom(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.ensured || generation != "deterministic" {
+		t.Fatalf("waiter generation = %q, ensured = %t; want the materialized deterministic bundle", generation, store.ensured)
+	}
+}
 
 func setupSupervisionHome(t *testing.T) string {
 	t.Helper()

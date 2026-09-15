@@ -47,6 +47,17 @@ var (
 		}
 		return lease.Close, nil
 	}
+	acquireWaiterHandGenerationLease = func(generation, fleetID, leaseID, evidence string) (func() error, error) {
+		store, err := toolchain.DefaultStore()
+		if err != nil {
+			return nil, err
+		}
+		lease, err := store.AcquireHandLease(toolchain.LeaseRequest{Generation: generation, LeaseID: leaseID, FleetID: fleetID, Consumer: "supervision-waiter", Evidence: evidence})
+		if err != nil {
+			return nil, err
+		}
+		return lease.Close, nil
+	}
 )
 
 // WaitConfig carries the host name and everything the watcher boundary needs
@@ -61,11 +72,13 @@ type WaitConfig struct {
 	// RuntimeGeneration identifies the immutable Hand runtime generation
 	// executing this waiter.
 	RuntimeGeneration string
-	LeaseGeneration   string
-	PollInterval      time.Duration
-	StaleThreshold    time.Duration
-	ParkedBounds      watcher.ParkedBounds
-	Timeout           time.Duration
+	// LeaseGeneration identifies the distinct immutable toolchain bundle used
+	// by this waiter.
+	LeaseGeneration string
+	PollInterval    time.Duration
+	StaleThreshold  time.Duration
+	ParkedBounds    watcher.ParkedBounds
+	Timeout         time.Duration
 }
 
 // Wake is one coalesced delivery: every currently eligible episode collapses
@@ -96,7 +109,7 @@ const WakeSchema = "hand.supervision.wake.v1"
 // Wait blocks until at least one current actionable episode is claimed by a
 // runtime that provably still holds THE Fleet Supervisor bridge, then returns
 // the coalesced wake. Typed watcher results pass through unchanged.
-func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
+func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (wake Wake, err error) {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadlineCause(ctx, time.Now().Add(cfg.Timeout),
@@ -116,7 +129,12 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	if err != nil {
 		return Wake{}, err
 	}
-	defer guard.stop()
+	defer func() {
+		if closeErr := guard.stop(); closeErr != nil {
+			diagnosisErr := w.Ledger.MarkBridgeError(cfg.Host, "release generation leases: "+closeErr.Error())
+			err = errors.Join(err, fmt.Errorf("release generation leases: %w", closeErr), diagnosisErr)
+		}
+	}()
 
 	if len(eligible) > 0 {
 		// Acquisition just proved ownership under the same lock; claiming
@@ -173,13 +191,21 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	}
 	var releaseGenerationLease func() error
 	leaseGeneration := cfg.LeaseGeneration
-	if leaseGeneration == "" {
-		leaseGeneration = cfg.RuntimeGeneration
+	if (leaseGeneration == "") != (cfg.RuntimeGeneration == "") {
+		return nil, errors.New("supervision waiter requires both Hand and toolchain generation identities")
 	}
 	if leaseGeneration != "" {
 		releaseGenerationLease, err = acquireWaiterGenerationLease(leaseGeneration, fleetID, waiterID, cfg.Host+":"+cfg.RuntimeSession)
 		if err != nil {
 			return nil, fmt.Errorf("claim runtime generation lease: %w", err)
+		}
+		releaseHandGenerationLease, handErr := acquireWaiterHandGenerationLease(cfg.RuntimeGeneration, fleetID, waiterID, cfg.Host+":"+cfg.RuntimeSession)
+		if handErr != nil {
+			return nil, errors.Join(fmt.Errorf("claim managed Hand generation lease: %w", handErr), releaseGenerationLease())
+		}
+		releaseToolchainGenerationLease := releaseGenerationLease
+		releaseGenerationLease = func() error {
+			return errors.Join(releaseHandGenerationLease(), releaseToolchainGenerationLease())
 		}
 	}
 	releaseLease := func(cause error) error {
@@ -219,14 +245,15 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		home: w.Home, host: cfg.Host, runtime: runtime,
 		record: record, lease: lease,
 	}
-	guard.stop = sync.OnceFunc(func() {
+	guard.stop = sync.OnceValue(func() error {
 		close(guard.stopc)
 		ClearAttachment(w.Home, record)
 		cancel(errors.New("supervision bridge stopped"))
 		<-guard.donec
 		if releaseGenerationLease != nil {
-			_ = releaseGenerationLease()
+			return releaseGenerationLease()
 		}
+		return nil
 	})
 	go func() {
 		defer close(guard.donec)
@@ -422,7 +449,7 @@ type bridgeGuard struct {
 	cancel context.CancelCauseFunc
 	stopc  chan struct{}
 	donec  chan struct{}
-	stop   func()
+	stop   func() error
 	errc   chan error
 
 	home    string

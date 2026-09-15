@@ -284,6 +284,16 @@ func TestManagedRunProcessHelper(t *testing.T) {
 	}
 }
 
+func TestPayloadReferenceChildProcessHelper(t *testing.T) {
+	if os.Getenv("HAND_INTEGRATION_CHILD_HELPER") != "1" {
+		return
+	}
+	if err := os.WriteFile(os.Getenv("HAND_INTEGRATION_CHILD_READY"), []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForReferenceTestFile(t, os.Getenv("HAND_INTEGRATION_CHILD_RELEASE"))
+}
+
 func waitForReferenceTestFile(t *testing.T, path string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
