@@ -69,14 +69,18 @@ func IngestCanonicalV19WorkerReport(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if witness.sourceAttestation == nil ||
-		witness.sourceAttestation.witnessDigest != canonicalV19WorkerReportAppendWitnessDigest(witness) {
+	if !canonicalV19WorkerReportSourceAttestationMatches(witness) {
 		return CanonicalV19WorkerReport{}, ErrCanonicalV19WorkerReportWitnessUnproven
 	}
 	report, err := canonicalV19WorkerReportFromAppendWitness(witness)
 	if err != nil {
 		return CanonicalV19WorkerReport{}, err
 	}
+	unlock, err := lockCanonicalV19WorkerReportCheckpoint(homeDir, witness.AttemptID)
+	if err != nil {
+		return CanonicalV19WorkerReport{}, err
+	}
+	defer unlock()
 
 	sqlDB, err := openCanonicalV19Writer(homeDir)
 	if err != nil {
@@ -95,6 +99,9 @@ func IngestCanonicalV19WorkerReport(
 	}()
 	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
 		return CanonicalV19WorkerReport{}, fmt.Errorf("ingest canonical v19 WorkerReport: %w", err)
+	}
+	if err := requireCanonicalV19WorkerReportPredecessorEvidence(ctx, tx, witness); err != nil {
+		return CanonicalV19WorkerReport{}, err
 	}
 
 	if existing, found, err := loadCanonicalV19WorkerReportByID(ctx, tx, report.ID); err != nil {
@@ -116,10 +123,13 @@ func IngestCanonicalV19WorkerReport(
 			ErrCanonicalV19WorkerReportConflict, report.AttemptID, report.SourcePrefixDigest)
 	}
 
-	if err := requireCanonicalV19WorkerReportPredecessor(ctx, tx, witness); err != nil {
+	if err := requireCanonicalV19WorkerReportCurrent(ctx, tx, report); err != nil {
 		return CanonicalV19WorkerReport{}, err
 	}
-	if err := requireCanonicalV19WorkerReportCurrent(ctx, tx, report); err != nil {
+	if err := requireCanonicalV19WorkerReportAppendTail(ctx, tx, homeDir, witness); err != nil {
+		return CanonicalV19WorkerReport{}, err
+	}
+	if err := markCanonicalV19WorkerReportCheckpointUncertain(homeDir, witness.AttemptID); err != nil {
 		return CanonicalV19WorkerReport{}, err
 	}
 	if err := insertCanonicalV19WorkerReport(ctx, tx, report); err != nil {
@@ -129,6 +139,9 @@ func IngestCanonicalV19WorkerReport(
 		return CanonicalV19WorkerReport{}, canonicalV19WorkerReportWriteError("commit writer", err)
 	}
 	committed = true
+	if err := writeCanonicalV19WorkerReportCheckpointTail(homeDir, report); err != nil {
+		return CanonicalV19WorkerReport{}, err
+	}
 	return report, nil
 }
 
@@ -148,6 +161,10 @@ func ReplayCanonicalV19WorkerReports(
 	}
 	reports := make([]CanonicalV19WorkerReport, 0, len(witnesses))
 	for i, witness := range witnesses {
+		if !canonicalV19WorkerReportSourceAttestationMatches(witness) {
+			return nil, fmt.Errorf("%w: full replay witness %d is not attested",
+				ErrCanonicalV19WorkerReportWitnessUnproven, i)
+		}
 		if witness.AttemptID != attemptID {
 			return nil, fmt.Errorf("%w: replay witness %d belongs to Attempt %q, want %q",
 				ErrCanonicalV19WorkerReportConflict, i, witness.AttemptID, attemptID)
@@ -167,6 +184,11 @@ func ReplayCanonicalV19WorkerReports(
 		}
 		reports = append(reports, report)
 	}
+	unlock, err := lockCanonicalV19WorkerReportCheckpoint(homeDir, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 
 	sqlDB, err := openCanonicalV19Writer(homeDir)
 	if err != nil {
@@ -214,6 +236,13 @@ func ReplayCanonicalV19WorkerReports(
 			}
 			currentBindings[reports[i].ExecutorBindingID] = true
 		}
+	}
+	if len(existing) < len(reports) {
+		if err := markCanonicalV19WorkerReportCheckpointUncertain(homeDir, attemptID); err != nil {
+			return nil, err
+		}
+	}
+	for i := len(existing); i < len(reports); i++ {
 		if err := insertCanonicalV19WorkerReport(ctx, tx, reports[i]); err != nil {
 			return nil, err
 		}
@@ -222,6 +251,13 @@ func ReplayCanonicalV19WorkerReports(
 		return nil, canonicalV19WorkerReportWriteError("commit replay writer", err)
 	}
 	committed = true
+	if len(reports) == 0 {
+		if err := removeCanonicalV19WorkerReportCheckpoint(homeDir, attemptID); err != nil {
+			return nil, err
+		}
+	} else if err := writeCanonicalV19WorkerReportCheckpointTail(homeDir, reports[len(reports)-1]); err != nil {
+		return nil, err
+	}
 	return reports, nil
 }
 
@@ -336,6 +372,11 @@ func canonicalV19WorkerReportAppendWitnessDigest(witness CanonicalV19WorkerRepor
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
+func canonicalV19WorkerReportSourceAttestationMatches(witness CanonicalV19WorkerReportAppendWitness) bool {
+	return witness.sourceAttestation != nil &&
+		witness.sourceAttestation.witnessDigest == canonicalV19WorkerReportAppendWitnessDigest(witness)
+}
+
 func canonicalV19WorkerReportID(attemptID, sourcePrefixDigest string) string {
 	hash := sha256.New()
 	writeCanonicalV19DigestField(hash, "domain", "hand:v19:worker-report-id:v1")
@@ -352,22 +393,12 @@ func canonicalV19WorkerReportMatchesSourceEvidence(left, right CanonicalV19Worke
 		left.ReportState == right.ReportState && left.Note == right.Note
 }
 
-func requireCanonicalV19WorkerReportPredecessor(
+func requireCanonicalV19WorkerReportPredecessorEvidence(
 	ctx context.Context,
 	tx *sql.Tx,
 	witness CanonicalV19WorkerReportAppendWitness,
 ) error {
 	if witness.Predecessor == nil {
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-			SELECT 1 FROM worker_report WHERE attempt_id=? LIMIT 1
-		)`, witness.AttemptID).Scan(&exists); err != nil {
-			return canonicalV19WorkerReportWriteError("read root source boundary", err)
-		}
-		if exists != 0 {
-			return fmt.Errorf("%w: root witness would replace existing Attempt source history",
-				ErrCanonicalV19WorkerReportConflict)
-		}
 		return nil
 	}
 	predecessor, found, err := loadCanonicalV19WorkerReportByID(ctx, tx, witness.Predecessor.WorkerReportID)
@@ -380,14 +411,44 @@ func requireCanonicalV19WorkerReportPredecessor(
 		return fmt.Errorf("%w: exact predecessor witness is missing or changed",
 			ErrCanonicalV19WorkerReportConflict)
 	}
-	var hasSuccessor int
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM worker_report WHERE attempt_id=? AND source_end_offset>? LIMIT 1
-	)`, witness.AttemptID, witness.Predecessor.SourceEndOffset).Scan(&hasSuccessor); err != nil {
-		return canonicalV19WorkerReportWriteError("read exact source tail", err)
+	return nil
+}
+
+func requireCanonicalV19WorkerReportAppendTail(
+	ctx context.Context,
+	tx *sql.Tx,
+	homeDir string,
+	witness CanonicalV19WorkerReportAppendWitness,
+) error {
+	checkpoint, found, err := readCanonicalV19WorkerReportCheckpoint(homeDir, witness.AttemptID)
+	if err != nil {
+		return err
 	}
-	if hasSuccessor != 0 {
-		return fmt.Errorf("%w: predecessor WorkerReport %q is not the exact source tail",
+	if witness.Predecessor == nil {
+		if found {
+			return fmt.Errorf("%w: root witness would replace checkpointed Attempt source history",
+				ErrCanonicalV19WorkerReportConflict)
+		}
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+			SELECT 1 FROM worker_report WHERE attempt_id=? LIMIT 1
+		)`, witness.AttemptID).Scan(&exists); err != nil {
+			return canonicalV19WorkerReportWriteError("read root source boundary", err)
+		}
+		if exists != 0 {
+			return fmt.Errorf("%w: existing Attempt source history requires full replay",
+				ErrCanonicalV19WorkerReportWitnessUnproven)
+		}
+		return nil
+	}
+	if !found {
+		return fmt.Errorf("%w: exact WorkerReport tail checkpoint is missing",
+			ErrCanonicalV19WorkerReportWitnessUnproven)
+	}
+	if checkpoint.WorkerReportID != witness.Predecessor.WorkerReportID ||
+		checkpoint.SourcePrefixDigest != witness.Predecessor.SourcePrefixDigest ||
+		checkpoint.SourceEndOffset != witness.Predecessor.SourceEndOffset {
+		return fmt.Errorf("%w: predecessor WorkerReport %q is not the exact checkpointed source tail",
 			ErrCanonicalV19WorkerReportConflict, witness.Predecessor.WorkerReportID)
 	}
 	return nil

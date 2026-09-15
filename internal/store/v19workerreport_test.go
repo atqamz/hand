@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -177,6 +178,24 @@ func TestIngestCanonicalV19WorkerReportRejectsContradictoryPredecessor(t *testin
 	}
 }
 
+func TestIngestCanonicalV19WorkerReportExactReplayRejectsChangedPredecessorID(t *testing.T) {
+	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+	first, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
+		canonicalV19WorkerReportWitness(t, attemptID, "", "working: first\n", "2026-09-15T09:10:00Z", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	witness := canonicalV19WorkerReportWitness(t, attemptID, "", "done: second\n", "2026-09-15T09:11:00Z", &first)
+	if _, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home, witness); err != nil {
+		t.Fatal(err)
+	}
+	witness.Predecessor.WorkerReportID = "different-predecessor"
+	canonicalV19WorkerReportRefreshAttestation(&witness)
+	if _, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home, witness); !errors.Is(err, ErrCanonicalV19WorkerReportConflict) {
+		t.Fatalf("changed predecessor ID replay error = %v, want %v", err, ErrCanonicalV19WorkerReportConflict)
+	}
+}
+
 func TestIngestCanonicalV19WorkerReportRejectsValidNonTailPredecessor(t *testing.T) {
 	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
 	first, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
@@ -237,6 +256,54 @@ func TestReplayCanonicalV19WorkerReportsRecoversAfterCheckpointLoss(t *testing.T
 	}
 }
 
+func TestReplayCanonicalV19WorkerReportsRebuildsMissingAndCorruptCheckpoint(t *testing.T) {
+	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+	witnesses := canonicalV19WorkerReportWitnessChain(t, attemptID, "", []string{"working: first\n"})
+	reports, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next := canonicalV19WorkerReportWitness(t, attemptID, "", "working: second\n",
+		"2026-09-15T11:01:00Z", &reports[len(reports)-1])
+	if err := os.Remove(canonicalV19WorkerReportCheckpointPath(fixture.Home, attemptID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home, next); !errors.Is(err, ErrCanonicalV19WorkerReportWitnessUnproven) {
+		t.Fatalf("append after checkpoint loss error = %v, want %v", err, ErrCanonicalV19WorkerReportWitnessUnproven)
+	}
+	witnesses = append(witnesses, next)
+	reports, err = ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next = canonicalV19WorkerReportWitness(t, attemptID, "", "done: third\n",
+		"2026-09-15T11:02:00Z", &reports[len(reports)-1])
+	if err := os.WriteFile(canonicalV19WorkerReportCheckpointPath(fixture.Home, attemptID), []byte("{broken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home, next); !errors.Is(err, ErrCanonicalV19WorkerReportWitnessUnproven) {
+		t.Fatalf("append after checkpoint corruption error = %v, want %v", err, ErrCanonicalV19WorkerReportWitnessUnproven)
+	}
+	witnesses = append(witnesses, next)
+	if _, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReplayCanonicalV19WorkerReportsRefusesUnattestedSource(t *testing.T) {
+	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+	witnesses := canonicalV19WorkerReportWitnessChain(t, attemptID, "", []string{"working: unproven\n"})
+	witnesses[0].sourceAttestation = nil
+	if _, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses); !errors.Is(err, ErrCanonicalV19WorkerReportWitnessUnproven) {
+		t.Fatalf("unproven full replay error = %v, want %v", err, ErrCanonicalV19WorkerReportWitnessUnproven)
+	}
+	if count := canonicalV19WorkerReportCount(t, fixture.Home, attemptID); count != 0 {
+		t.Fatalf("WorkerReport rows after unproven full replay = %d, want 0", count)
+	}
+}
+
 func TestReplayCanonicalV19WorkerReportsFreshObservationsPreserveCreatedAt(t *testing.T) {
 	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
 	witnesses := canonicalV19WorkerReportWitnessChain(t, attemptID, "",
@@ -294,6 +361,10 @@ func TestIngestCanonicalV19WorkerReportSmallAppendAfterLargeReplayUsesOnlyWitnes
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkpointBefore, err := os.Stat(canonicalV19WorkerReportCheckpointPath(fixture.Home, attemptID))
+	if err != nil {
+		t.Fatal(err)
+	}
 	appendedRecord := "done: bounded append\n"
 	witness := canonicalV19WorkerReportWitness(t, attemptID, "", appendedRecord, "2026-09-15T10:00:00Z", &history[len(history)-1])
 	created, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home, witness)
@@ -306,6 +377,14 @@ func TestIngestCanonicalV19WorkerReportSmallAppendAfterLargeReplayUsesOnlyWitnes
 	}
 	if count := canonicalV19WorkerReportCount(t, fixture.Home, attemptID); count != len(records)+1 {
 		t.Fatalf("WorkerReport rows after bounded append = %d, want %d", count, len(records)+1)
+	}
+	checkpointAfter, err := os.Stat(canonicalV19WorkerReportCheckpointPath(fixture.Home, attemptID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpointBefore.Size() > 512 || checkpointAfter.Size() > 512 {
+		t.Fatalf("bounded checkpoint bytes before/after append = %d/%d, want each <= 512",
+			checkpointBefore.Size(), checkpointAfter.Size())
 	}
 }
 
