@@ -695,5 +695,5 @@ func renameIntegrationPath(rootHandle *os.Root, root, oldPath, newPath string) e
 	if newRelative == "." {
 		return errors.New("refusing to replace integration store root")
 	}
-	return rootHandle.Rename(oldRelative, newRelative)
+	return renameIntegrationRoot(rootHandle, oldRelative, newRelative)
 }

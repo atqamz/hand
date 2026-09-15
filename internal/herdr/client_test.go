@@ -10,6 +10,7 @@ import (
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 func writeFakeHerdr(t *testing.T, responses ...faketool.HerdrResponse) {
@@ -51,6 +52,25 @@ func TestNamedSessionPrefixesHerdrInvocation(t *testing.T) {
 	}
 	if !strings.Contains(string(calls), "--session hand-f-fleet workspace list") {
 		t.Fatalf("calls = %q, want named session before command", calls)
+	}
+}
+
+func TestReconcileManagedRuntimeMaterializesLegacySelection(t *testing.T) {
+	store := &toolchain.Store{Root: t.TempDir()}
+	selected := toolchain.Runtime{BundleDir: filepath.Join(store.Root, "runtime", "bundles", "legacy-20260915")}
+	var called bool
+	original := ensureDeterministicRuntime
+	ensureDeterministicRuntime = func(got *toolchain.Store) (toolchain.Runtime, error) {
+		called = got == store
+		return toolchain.Runtime{BundleDir: filepath.Join(got.Root, "runtime", "bundles", "deterministic")}, nil
+	}
+	t.Cleanup(func() { ensureDeterministicRuntime = original })
+	got, err := reconcileManagedRuntime(store, selected, "deterministic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called || got.BundleDir != filepath.Join(store.Root, "runtime", "bundles", "deterministic") {
+		t.Fatalf("reconciled runtime = %#v, materializer called = %t; want deterministic generation", got, called)
 	}
 }
 

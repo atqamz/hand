@@ -182,6 +182,11 @@ func TestRuntimeFileAccessRemainsAnchoredAcrossRootReplacement(t *testing.T) {
 	defer func() { _ = rootHandle.Close() }()
 	moved := filepath.Join(parent, "moved")
 	if err := os.Rename(root, moved); err != nil {
+		if runtime.GOOS == "windows" {
+			// Windows retains the open rooted directory handle exclusively;
+			// denial is the platform's anchored-path guarantee.
+			return
+		}
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

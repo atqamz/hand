@@ -3,6 +3,7 @@ package supervision
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -27,9 +28,9 @@ func TestProbeCodexQueueAcceptsOnlyTheRealPrimitive(t *testing.T) {
 		}
 	}
 	if err := ProbeCodexQueue(context.Background(), func(context.Context, string, []string, []string) (string, error) {
-		return "", errors.New("exec: not found")
-	}); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("probe of a missing binary = %v, want ErrUnsupported", err)
+		return "", exec.ErrNotFound
+	}); !errors.Is(err, ErrCodexExecutableUnavailable) || err.Error() != "unsupported host integration: codex executable is unavailable on PATH" {
+		t.Fatalf("probe of a missing binary = %v, want the exact hermetic-unavailable reason", err)
 	}
 }
 

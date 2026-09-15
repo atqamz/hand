@@ -1459,7 +1459,7 @@ func renameRuntimePath(rootHandle *os.Root, root, oldPath, newPath string) error
 	if newRelative == "." {
 		return errors.New("refusing to replace runtime store root")
 	}
-	return rootHandle.Rename(oldRelative, newRelative)
+	return renameRuntimeRoot(rootHandle, oldRelative, newRelative)
 }
 
 func currentTargetName(goos, goarch string) string {

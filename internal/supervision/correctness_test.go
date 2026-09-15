@@ -232,6 +232,28 @@ func TestCapabilityVocabularyStaysHonestBeforeLiveQualification(t *testing.T) {
 	}
 }
 
+func TestCodexStatusReportsHermeticUnavailableReason(t *testing.T) {
+	home := t.TempDir()
+	exe := filepath.Join(home, "runtime", "hand-generations", strings.Repeat("a", sha256.Size*2), "hand")
+	if _, err := InstallCodexHooks(home, exe); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(CodexThreadEnv, "thread-live")
+	t.Setenv("PATH", t.TempDir())
+	status, err := IntegrationStatus(context.Background(), StatusInput{
+		Home: home, Detection: harness.Detection{Name: harness.Codex, Source: "override"}, Exe: exe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.WakeDelivery != CapabilityUnsupported {
+		t.Fatalf("hermetic Codex wake delivery = %q, want unsupported", status.WakeDelivery)
+	}
+	if status.WakeDeliveryReason != "unsupported host integration: codex executable is unavailable on PATH" {
+		t.Fatalf("hermetic Codex reason = %q, want exact unavailable-executable reason", status.WakeDeliveryReason)
+	}
+}
+
 func TestCodexStatusInspectsRetainedManagedGeneration(t *testing.T) {
 	home := t.TempDir()
 	exe := filepath.Join(home, "runtime", "hand-generations", strings.Repeat("a", sha256.Size*2), "hand")
@@ -631,6 +653,29 @@ func TestExactSessionGenerationDoesNotCrossFleetOwnership(t *testing.T) {
 	}
 	if current := ReadAttachment(home); current == nil || current.FleetID != owner.FleetID || current.WaiterID != owner.WaiterID {
 		t.Fatalf("attachment = %#v, want original Fleet owner", current)
+	}
+}
+
+func TestUnidentifiedRuntimeCannotSupersedeAnotherWaiter(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	owner := AttachmentRecord{
+		Host: "claude", Runtime: "unidentified", Generation: "unidentified", WaiterID: "waiter-old",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	acquired, err := AcquireAttachment(home, owner)
+	if err != nil || !acquired {
+		t.Fatalf("unidentified owner acquire = %v, %v", acquired, err)
+	}
+	successor := owner
+	successor.WaiterID = "waiter-new"
+	successor.PID = 2
+	if acquired, err := AcquireAttachment(home, successor); err != nil || acquired {
+		t.Fatalf("unidentified successor acquire = %v, %v; want refused", acquired, err)
+	}
+	current := ReadAttachment(home)
+	if current == nil || current.WaiterID != owner.WaiterID {
+		t.Fatalf("attachment = %#v, want unidentified predecessor retained", current)
 	}
 }
 

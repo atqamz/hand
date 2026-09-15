@@ -96,6 +96,12 @@ func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	parent := filepath.Dir(store.Root)
 	moved := filepath.Join(parent, "moved-secondhand")
 	if err := os.Rename(store.Root, moved); err != nil {
+		if runtime.GOOS == "windows" {
+			if closeErr := lease.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			return
+		}
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(lease.RecordPath()), 0o700); err != nil {

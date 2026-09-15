@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -418,9 +420,39 @@ func TestCodexHooksMergeIsFleetLocalIdempotentAndForeignSafe(t *testing.T) {
 
 func TestCodexOwnsItsCanonicalWindowsCommand(t *testing.T) {
 	exe := `C:\Program Files\Hand\hand.exe`
+	if got, want := codexStopHandler(exe)["commandWindows"], `"C:\Program Files\Hand\hand.exe" supervision codex-stop`; got != want {
+		t.Fatalf("commandWindows = %q, want cmd.exe path quoting %q", got, want)
+	}
 	exact, owned, unknown := codexOwned(codexStopHandler(exe), exe)
 	if !exact || !owned || unknown {
 		t.Fatalf("codexOwned(canonical Windows command) = %t, %t, %t; want true, true, false", exact, owned, unknown)
+	}
+}
+
+func TestCodexWindowsCommandExecutesPathWithSpaces(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("cmd.exe execution is Windows-only")
+	}
+	root := t.TempDir()
+	exe := filepath.Join(root, "managed Hand", "hand.cmd")
+	marker := filepath.Join(root, "argv.txt")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("@echo off\necho %%* > \"%s\"\n", marker)
+	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := codexStopHandler(exe)["commandWindows"].(string)
+	if err := exec.Command("cmd.exe", "/C", command).Run(); err != nil {
+		t.Fatalf("cmd.exe /C %q: %v", command, err)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(data)), "supervision codex-stop"; got != want {
+		t.Fatalf("managed command argv = %q, want %q", got, want)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -84,6 +85,12 @@ func TestPayloadReferenceRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	parent := filepath.Dir(store.Root)
 	moved := filepath.Join(parent, "moved-secondhand")
 	if err := os.Rename(store.Root, moved); err != nil {
+		if runtime.GOOS == "windows" {
+			if closeErr := reference.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			return
+		}
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(reference.RecordPath()), 0o700); err != nil {

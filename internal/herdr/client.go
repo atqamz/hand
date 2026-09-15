@@ -57,6 +57,18 @@ type Client struct {
 	initErr           error
 }
 
+var ensureDeterministicRuntime = func(store *toolchain.Store) (toolchain.Runtime, error) {
+	return store.Ensure(context.Background(), "", "")
+}
+
+func reconcileManagedRuntime(store *toolchain.Store, selected toolchain.Runtime, generation string) (toolchain.Runtime, error) {
+	expectedBundle := filepath.Join(store.Root, "runtime", "bundles", generation)
+	if filepath.Clean(selected.BundleDir) == filepath.Clean(expectedBundle) {
+		return selected, nil
+	}
+	return ensureDeterministicRuntime(store)
+}
+
 func NewClient() *Client {
 	return &Client{executable: "herdr"}
 }
@@ -91,6 +103,18 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		return &Client{initErr: err}
+	}
+	// A legacy timestamp selection can still validate while naming a bundle
+	// that no longer exists under the deterministic generation contract. Force
+	// Ensure through that boundary before a managed Herdr server records or
+	// launches the generation it owns.
+	runtime, err = reconcileManagedRuntime(store, runtime, generation)
+	if err != nil {
+		return &Client{initErr: fmt.Errorf("materialize deterministic runtime generation: %w", err)}
+	}
 	env, err := toolchain.ManagedEnvironment(os.Environ(), runtime.GitBin)
 	if err != nil {
 		if legacyHerdrFallback {
@@ -103,10 +127,6 @@ func NewManagedClient() *Client {
 		if legacyHerdrFallback {
 			return NewClient()
 		}
-		return &Client{initErr: err}
-	}
-	generation, err := store.GenerationID("", "")
-	if err != nil {
 		return &Client{initErr: err}
 	}
 	guardian, err := os.Executable()

@@ -114,6 +114,10 @@ func ownerScope(rec AttachmentRecord) string {
 	return rec.FleetID + "\x00" + rec.Host + "\x00" + rec.Runtime + "\x00" + rec.Generation
 }
 
+func ownerScopeKnown(rec AttachmentRecord) bool {
+	return rec.Runtime != "" && rec.Runtime != "unidentified" && rec.Generation != "" && rec.Generation != "unidentified"
+}
+
 func holderKey(rec AttachmentRecord) string {
 	return ownerScope(rec) + "\x00" + rec.WaiterID
 }
@@ -124,8 +128,13 @@ func holderKey(rec AttachmentRecord) string {
 func AcquireAttachment(home string, rec AttachmentRecord) (bool, error) {
 	acquired := false
 	err := mutateAttachment(home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
-		if existing != nil && existing.Fresh(time.Now()) && ownerScope(*existing) != ownerScope(rec) {
-			return nil, false, nil
+		if existing != nil && existing.Fresh(time.Now()) {
+			if !ownerScopeKnown(*existing) || !ownerScopeKnown(rec) {
+				return nil, false, nil
+			}
+			if ownerScope(*existing) != ownerScope(rec) {
+				return nil, false, nil
+			}
 		}
 		acquired = true
 		return &rec, true, nil

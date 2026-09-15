@@ -205,6 +205,9 @@ func unquoteToken(token string) string {
 		if unquoted, err := strconv.Unquote(token); err == nil {
 			return unquoted
 		}
+		// cmd.exe's quoted Windows path keeps ordinary backslashes literal;
+		// strconv.Unquote quite correctly rejects those non-Go escapes.
+		return token[1 : len(token)-1]
 	}
 	if len(token) >= 2 && token[0] == '\'' && token[len(token)-1] == '\'' {
 		return token[1 : len(token)-1]
@@ -409,8 +412,9 @@ func checkClaudeSettings(path, exe string) mergeState {
 }
 
 // The canonical Codex Stop group entry: upstream embeds arguments in the
-// command string, so both platform variants are shell-quoted here; async
-// keeps it background work owned by the Codex hook lifecycle.
+// command string, and commandWindows is passed to cmd.exe /C. Keep the
+// Windows executable token in cmd.exe's ordinary quoted-path form; doubling
+// path separators changes the path seen by the provider.
 func codexStopHandler(exe string) map[string]any {
 	return map[string]any{
 		"type":           "command",
@@ -426,7 +430,7 @@ func shellquoteQuote(value string) string {
 }
 
 func windowsQuote(value string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(value, `\`, `\\`), `"`, `\"`) + `"`
+	return `"` + value + `"`
 }
 
 func codexHooksPath(home string) string { return filepath.Join(home, ".codex", "hooks.json") }
