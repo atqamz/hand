@@ -431,8 +431,21 @@ func TestCodexOwnsItsCanonicalWindowsCommand(t *testing.T) {
 
 func TestCodexOwnsApostrophePathIdempotently(t *testing.T) {
 	exe := "/home/o'connor/hand"
-	handler := codexStopHandler(exe)
-	exact, owned, unknown := codexOwned(handler, exe)
+	home := t.TempDir()
+	first, err := InstallCodexHooks(home, exe)
+	if err != nil || first.State == "conflict" {
+		t.Fatalf("first install = %#v, %v", first, err)
+	}
+	path := codexHooksPath(home)
+	second, err := InstallCodexHooks(home, exe)
+	if err != nil || second.State == "conflict" {
+		t.Fatalf("second install = %#v, %v", second, err)
+	}
+	after, _ := os.ReadFile(path)
+	if strings.Count(string(after), `"type": "command"`) != 1 {
+		t.Fatalf("apostrophe install not idempotent: %q", after)
+	}
+	exact, owned, unknown := codexOwned(codexStopHandler(exe), exe)
 	if !exact || !owned || unknown {
 		t.Fatalf("apostrophe hook ownership = %t, %t, %t", exact, owned, unknown)
 	}

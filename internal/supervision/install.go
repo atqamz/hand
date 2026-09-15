@@ -191,9 +191,10 @@ func splitFirstToken(command string) (first, rest string) {
 		case '\\':
 			i++
 		case '\'', '"':
-			if quoted == 0 {
+			switch quoted {
+			case 0:
 				quoted = trimmed[i]
-			} else if quoted == trimmed[i] {
+			case trimmed[i]:
 				quoted = 0
 			}
 		case ' ', '\t':

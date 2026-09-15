@@ -179,22 +179,13 @@ func TestOpenDirectRuntimeRootAllowsConfiguredRootSymlink(t *testing.T) {
 }
 
 func TestRuntimeVerificationStageIgnoresTMPDIR(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "runtime"), 0o700); err != nil {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
 		t.Fatal(err)
 	}
-	h, err := openDirectRuntimeRoot(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = h.Close() }()
-	t.Setenv("TMPDIR", filepath.Join(root, "does-not-exist"))
-	stage, err := mkdirTempRuntime(h, root, filepath.Join(root, "runtime"), ".verify-")
-	if err != nil {
-		t.Fatalf("rooted verification stage: %v", err)
-	}
-	if err := removeAllRuntimePath(h, root, stage); err != nil {
-		t.Fatal(err)
+	t.Setenv("TMPDIR", filepath.Join(store.Root, "does-not-exist"))
+	if _, err := store.Selected("", ""); err != nil {
+		t.Fatalf("selected with unusable TMPDIR: %v", err)
 	}
 }
 
