@@ -172,10 +172,23 @@ func cmdConfig(args []string) int {
 		fmt.Fprintln(os.Stderr, "fakenpm: unhandled config subcommand")
 		return 2
 	}
+	state := os.Getenv("FAKE_NPM_STATE")
+	if _, err := os.Stat(filepath.Join(state, "config-list-fail")); err == nil {
+		fmt.Fprintln(os.Stderr, "fakenpm: forced config inspection failure")
+		return 1
+	}
 	userconfig := os.Getenv("NPM_CONFIG_USERCONFIG")
 	if userconfig != "" {
 		if data, err := os.ReadFile(userconfig); err == nil && strings.Contains(string(data), "_authToken") {
 			fmt.Println(`//registry.npmjs.org/:_authToken = (protected)`)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(state, "config-shadow-token-pipefail")); err == nil {
+		// The first line makes grep -q exit. The remaining megabyte deterministically
+		// makes the pre-fix producer hit SIGPIPE under pipefail.
+		fmt.Println(`//registry.npmjs.org/:_authToken = (protected)`)
+		for range 1024 {
+			fmt.Println(strings.Repeat("x", 1024))
 		}
 	}
 	fmt.Println("; node bin location = fakenpm")
