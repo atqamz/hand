@@ -34,10 +34,13 @@ func promoteLegacyV18CutoverArchiveCandidate(homeDir string, candidate legacyV18
 	if filepath.Clean(candidate.Path) != filepath.Clean(expectedCandidatePath) {
 		return legacyV18CutoverOriginalArchive{}, fmt.Errorf("promote legacy v18 cutover archive candidate: path=%q, want deterministic %q", candidate.Path, expectedCandidatePath)
 	}
+	if candidate.source == nil {
+		return legacyV18CutoverOriginalArchive{}, fmt.Errorf("promote legacy v18 cutover archive candidate: pinned source is not live")
+	}
 	if err := requireLegacyV18CutoverDirectRegularFile(candidate.Path, "archive candidate"); err != nil {
 		return legacyV18CutoverOriginalArchive{}, err
 	}
-	candidateDigest, err := legacyV18CutoverFileSHA256(candidate.Path)
+	candidateDigest, err := candidate.source.distinctArtifactSHA256(candidate.Path, "archive candidate")
 	if err != nil {
 		return legacyV18CutoverOriginalArchive{}, fmt.Errorf("promote legacy v18 cutover archive candidate: hash candidate: %w", err)
 	}
@@ -58,20 +61,20 @@ func promoteLegacyV18CutoverArchiveCandidate(homeDir string, candidate legacyV18
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("legacy v18 cutover original archive %s is not a direct regular file", archive.Path)
 		}
-		digest, err := legacyV18CutoverFileSHA256(archive.Path)
+		digest, err := candidate.source.distinctArtifactSHA256(archive.Path, "original archive")
 		if err != nil {
 			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("hash existing legacy v18 cutover original archive: %w", err)
 		}
 		if digest != candidate.SHA256 {
 			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("existing legacy v18 cutover original archive digest=%s, want %s", digest, candidate.SHA256)
 		}
-		if err := syncLegacyV18CutoverFile(archive.Path); err != nil {
+		if err := candidate.source.syncDistinctArtifact(archive.Path, "original archive"); err != nil {
 			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("flush existing legacy v18 cutover original archive: %w", err)
 		}
 		if err := syncLegacyV18CutoverDirectoryParent(archive.Path); err != nil {
 			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("flush existing legacy v18 cutover original archive directory: %w", err)
 		}
-		digest, err = legacyV18CutoverFileSHA256(archive.Path)
+		digest, err = candidate.source.distinctArtifactSHA256(archive.Path, "original archive")
 		if err != nil {
 			return legacyV18CutoverOriginalArchive{}, fmt.Errorf("reopen and hash existing legacy v18 cutover original archive: %w", err)
 		}
@@ -83,7 +86,7 @@ func promoteLegacyV18CutoverArchiveCandidate(homeDir string, candidate legacyV18
 		return legacyV18CutoverOriginalArchive{}, fmt.Errorf("inspect legacy v18 cutover original archive: %w", err)
 	}
 
-	if err := syncLegacyV18CutoverFile(candidate.Path); err != nil {
+	if err := candidate.source.syncDistinctArtifact(candidate.Path, "archive candidate"); err != nil {
 		return legacyV18CutoverOriginalArchive{}, fmt.Errorf("flush legacy v18 cutover archive candidate before promotion: %w", err)
 	}
 	if err := publishLegacyV18CutoverOriginalArchive(candidate.Path, archive.Path); err != nil {
@@ -92,7 +95,7 @@ func promoteLegacyV18CutoverArchiveCandidate(homeDir string, candidate legacyV18
 	if err := requireLegacyV18CutoverDirectRegularFile(archive.Path, "original archive"); err != nil {
 		return legacyV18CutoverOriginalArchive{}, err
 	}
-	publishedDigest, err := legacyV18CutoverFileSHA256(archive.Path)
+	publishedDigest, err := candidate.source.distinctArtifactSHA256(archive.Path, "original archive")
 	if err != nil {
 		return legacyV18CutoverOriginalArchive{}, fmt.Errorf("reopen and hash published legacy v18 cutover original archive: %w", err)
 	}
