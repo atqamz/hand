@@ -136,7 +136,7 @@ func TestWriteLegacyV18CutoverArchiveCandidateRebuildsMismatchedExistingCandidat
 		t.Fatal(err)
 	}
 
-	if err := writeLegacyV18CutoverArchiveCandidate(sourcePath, candidatePath, sourceDigest); err != nil {
+	if err := writeLegacyV18CutoverArchiveCandidate(openLegacyV18CutoverTestPinnedSource(t, sourcePath), candidatePath, sourceDigest); err != nil {
 		t.Fatal(err)
 	}
 	candidateBytes, err := os.ReadFile(candidatePath)
@@ -165,7 +165,17 @@ func TestWriteLegacyV18CutoverArchiveCandidateRefusesNonRegularExistingPath(t *t
 	if err := os.Mkdir(candidatePath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeLegacyV18CutoverArchiveCandidate(Path(home), candidatePath, sourceDigest); err == nil || !strings.Contains(err.Error(), "direct regular file") {
+	if err := writeLegacyV18CutoverArchiveCandidate(openLegacyV18CutoverTestPinnedSource(t, Path(home)), candidatePath, sourceDigest); err == nil || !strings.Contains(err.Error(), "direct regular file") {
 		t.Fatalf("non-regular candidate error = %v, want direct regular file refusal", err)
 	}
+}
+
+func openLegacyV18CutoverTestPinnedSource(t *testing.T, path string) *legacyV18CutoverPinnedSource {
+	t.Helper()
+	source, err := openLegacyV18CutoverPinnedSource(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = source.Close() })
+	return source
 }

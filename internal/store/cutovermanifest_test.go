@@ -162,7 +162,7 @@ func legacyV18CutoverManifestFixture(t *testing.T) (string, legacyV18CutoverOrig
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, fleetID, sourceDigest)
+	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, openLegacyV18CutoverTestPinnedSource(t, Path(home)), fleetID, sourceDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
