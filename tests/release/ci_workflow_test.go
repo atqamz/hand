@@ -55,9 +55,6 @@ func TestMutationWorkflowsGateCheapPackagesAndReportExpensiveOnes(t *testing.T) 
 	if !ok {
 		t.Fatal("ci workflow has no always-on mutation job")
 	}
-	if _, ok := ciJobs["mutation-expensive"]; ok {
-		t.Fatal("ci workflow must not schedule expensive mutation evidence")
-	}
 	expensive, ok := loadWorkflowJobs(t, "mutation-expensive.yaml")["mutation-expensive"]
 	if !ok {
 		t.Fatal("dedicated workflow has no expensive mutation job")
@@ -70,6 +67,12 @@ func TestMutationWorkflowsGateCheapPackagesAndReportExpensiveOnes(t *testing.T) 
 		t.Fatal(err)
 	}
 	ciWorkflow := string(data)
+	if strings.Contains(ciWorkflow, "schedule:") {
+		t.Fatal("ci workflow must not schedule expensive mutation evidence")
+	}
+	if !strings.Contains(ciWorkflow, "uses: ./.github/workflows/mutation-expensive.yaml") {
+		t.Fatal("ci workflow has no manual caller for expensive mutation evidence")
+	}
 	expensiveData, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "mutation-expensive.yaml"))
 	if err != nil {
 		t.Fatal(err)
