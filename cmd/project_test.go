@@ -12,6 +12,7 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -53,6 +54,32 @@ func TestValidateProjectURL(t *testing.T) {
 		if code := exitCodeFor(t, err); code != 2 {
 			t.Errorf("validateProjectURL(%q) code = %d, want 2", url, code)
 		}
+	}
+}
+
+func TestNormalizeProjectHTTPSLocator(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+		ok    bool
+	}{
+		{name: "github", input: "https://github.com/owner/repo", want: "git@github.com:owner/repo.git", ok: true},
+		{name: "github dot git", input: "https://github.com/owner/repo.git", want: "git@github.com:owner/repo.git", ok: true},
+		{name: "gitlab", input: "https://gitlab.com/group/repo", want: "git@gitlab.com:group/repo.git", ok: true},
+		{name: "gitlab subgroup", input: "https://gitlab.com/group/subgroup/repo.git", want: "git@gitlab.com:group/subgroup/repo.git", ok: true},
+		{name: "unrecognized host", input: "https://example.com/owner/repo", want: "https://example.com/owner/repo", ok: false},
+		{name: "gitlab web route", input: "https://gitlab.com/group/repo/-/issues", want: "https://gitlab.com/group/repo/-/issues", ok: false},
+		{name: "ambiguous query", input: "https://github.com/owner/repo?ref=main", want: "https://github.com/owner/repo?ref=main", ok: false},
+		{name: "ambiguous trailing slash", input: "https://gitlab.com/group/repo/", want: "https://gitlab.com/group/repo/", ok: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := normalizeProjectHTTPSLocator(test.input)
+			if got != test.want || ok != test.ok {
+				t.Fatalf("normalizeProjectHTTPSLocator(%q) = (%q, %v), want (%q, %v)", test.input, got, ok, test.want, test.ok)
+			}
+		})
 	}
 }
 
@@ -858,6 +885,25 @@ func TestDiagnoseCloneFailureReadsTheSchemeFromGitsOwnText(t *testing.T) {
 	}
 }
 
+func TestGitRemoteHelperMissingRequiresStandaloneGitDiagnostic(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		out  string
+		want bool
+	}{
+		{name: "lf", out: "git: 'remote-https' is not a git command.\n", want: true},
+		{name: "crlf", out: "git: 'remote-https' is not a git command.\r\n", want: true},
+		{name: "remote prefix", out: "remote: git: 'remote-https' is not a git command.\nfatal: authentication failed\n", want: false},
+		{name: "inline spoof", out: "fatal: git: 'remote-https' is not a git command.\n", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := gitRemoteHelperMissing.MatchString(test.out); got != test.want {
+				t.Fatalf("gitRemoteHelperMissing.MatchString(%q) = %v, want %v", test.out, got, test.want)
+			}
+		})
+	}
+}
+
 // An unrelated git failure - one a real git config rewrite (insteadOf, an e2e fixture's local
 // remote) or any other cause could produce - must pass through unchanged: the diagnosis is keyed
 // on git's actual observed failure text, never guessed from the URL's scheme.
@@ -1249,6 +1295,57 @@ func TestReserveCloneDestinationIsAtomic(t *testing.T) {
 	}
 	if successes != 1 {
 		t.Fatalf("reserveCloneDestination successes = %d, want 1", successes)
+	}
+}
+
+func TestProjectAddBindsRuntimeAcrossPreflightAndClone(t *testing.T) {
+	remote := filepath.Join(t.TempDir(), "remote")
+	initGitRepo(t, remote)
+	input := "https://github.com/owner/repo.git"
+	ssh := "git@github.com:owner/repo.git"
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url."+remote+".insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", ssh)
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeDir := t.TempDir()
+	t.Setenv("GIT_EXEC_PATH", runtimeDir)
+	runtimeA := toolchain.Runtime{GitPath: gitPath, GitBin: runtimeDir}
+	runtimeB := runtimeA
+	runtimeB.GitPath = filepath.Join(t.TempDir(), "git")
+
+	oldResolve := resolveProjectRuntime
+	t.Cleanup(func() { resolveProjectRuntime = oldResolve })
+	calls := 0
+	resolveProjectRuntime = func() (toolchain.Runtime, error) {
+		calls++
+		if calls == 1 {
+			return runtimeA, nil
+		}
+		return runtimeB, nil
+	}
+
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	faketool.Treehouse{}.Install(t, faketool.Bin(t))
+	cmd := newProjectAddCmd()
+	cmd.SetArgs([]string{input, "--mode", project.ModeDirectPR})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("project runtime resolves = %d, want one bound runtime", calls)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].URL != ssh {
+		t.Fatalf("project.List = %+v, want SSH clone through runtime A", projects)
 	}
 }
 
